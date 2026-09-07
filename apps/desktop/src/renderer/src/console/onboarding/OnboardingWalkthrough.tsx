@@ -76,7 +76,8 @@ export interface OnboardingWalkthroughProps {
   readonly openAtStep: OnboardingStepId;
   /** Scopes the readiness read; present only on the post-refusal activation. */
   readonly accountScope: ProviderAccountId | undefined;
-  readonly onOpenAccountRegistry: () => void;
+  /** Open the account registry, scoped to a provider where a row named one. */
+  readonly onOpenAccountRegistry: (providerName: string | undefined) => void;
 }
 
 export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.JSX.Element {

@@ -28,6 +28,7 @@
 
 import { useMemo, useState } from "react";
 import { useFrameStore, useOpenSessionStore, useShellState } from "../store/index.js";
+import { settingsSelection } from "../routing/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
   matchSettingsEntries,
@@ -62,6 +63,10 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   const { context, pages } = props;
   const { route } = context;
   const requestedPage = route.kind === "settings" ? route.page : undefined;
+  // Through the routing family's own accessor rather than a narrowing written here:
+  // the member is on one settings arm and off the other, and a second reader of that
+  // union is a second chance to hand a page the selection a different address carried.
+  const selection = settingsSelection(route);
   const selectedSection = requestedSection(requestedPage);
   const [searchQuery, setSearchQuery] = useState("");
   // SUBSCRIBED, not snapshotted. A getter read during render answers whatever the
@@ -108,6 +113,7 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,
     openSection,
+    selection,
     retainedSessionId,
     retainedSessionStore,
     shellState,

@@ -63,6 +63,33 @@ export function remedyHeadline(remedy: ProviderRemedy): string {
   }
 }
 
+/**
+ * The label on the control that carries a remedy this console cannot itself dispatch.
+ *
+ * TOTAL over the same union as {@link remedyHeadline}, and `undefined` on exactly the
+ * one arm the console CAN dispatch: `sign_in` is brokered by the daemon through
+ * `onboarding.providerSignInHandoff`, the row already offers it, and a second label for
+ * it here would be two names for one act.
+ *
+ * THE OTHER TWO ARMS ARE MUTATING REGISTRY VERBS AND NO CONSOLE ROUTE SERVES THEM.
+ * `bridge/daemon/daemon-reply-registry.ts` carries `providerAccount.list` and
+ * `providerAccount.probe` and nothing else, so a button here that claimed to register
+ * an account would have nothing to call — and the account registry's own page is where
+ * both verbs will land. What the row can honestly offer is the way to that page, so the
+ * label names the destination and the errand rather than promising the act happens
+ * here: a person who presses it arrives on the page opened FOR this provider.
+ */
+export function remedyRegistryActionLabel(remedy: ProviderRemedy): string | undefined {
+  switch (remedy.kind) {
+    case "register":
+      return "Open the registry to add an account";
+    case "choose_default":
+      return "Open the registry to choose a default";
+    case "sign_in":
+      return undefined;
+  }
+}
+
 /** How long ago is deliberately not computed — the reading is shown as it arrived. */
 export const OBSERVED_AT_UNSET_NOTE =
   "No observation has been recorded for this provider on this node.";

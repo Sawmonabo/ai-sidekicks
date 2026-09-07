@@ -15,6 +15,7 @@ const CONTEXT = {
   retainedSessionId: undefined,
   retainedSessionStore: undefined,
   shellState: UNREPORTED_SHELL_STATE,
+  selection: undefined,
 } satisfies SettingsPageContext;
 
 function renderedText(): string {

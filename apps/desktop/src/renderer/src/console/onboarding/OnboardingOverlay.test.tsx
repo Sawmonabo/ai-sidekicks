@@ -26,6 +26,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
+import { bridgeAnswering } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { consoleCommands } from "../palette/index.js";
 import { onboardingActivation } from "./onboarding-activation.js";
@@ -182,6 +183,41 @@ describe("leaving a provider-only activation", () => {
   });
 });
 
+/**
+ * The same node with one provider holding no account at all.
+ *
+ * ONE ARM REPLACED AND THE REST OF THE WORLD LEFT ALONE, through the fixture's own
+ * daemon arm: the shipped scenario's two readiness rows are `authenticated` and
+ * `sign_in`, and neither carries the remedy this case is about. Replacing the reply
+ * rather than editing the scenario keeps every other read — the state read the rail
+ * folds, the relay options, the clock — exactly what every other case in this file
+ * gets, and keeps the register arm out of the captures the shipped scenario feeds.
+ *
+ * EXACTLY ONE ROW CARRIES IT, so the control the case presses is unambiguous: a
+ * second register row would put two identically-labelled controls on screen and the
+ * case would be asserting about whichever one the query happened to reach first.
+ */
+function bridgeWhereCodexHoldsNoAccount(): ConsoleBridge {
+  return bridgeAnswering(
+    async (call, passThrough) =>
+      call.method === "providerAccount.list"
+        ? {
+            accounts: [],
+            usageWindows: [],
+            readiness: [
+              { provider: "claude", state: "authenticated" },
+              {
+                provider: "codex",
+                state: "no_account",
+                remedy: { kind: "register", provider: "codex" },
+              },
+            ],
+          }
+        : passThrough(),
+    ONBOARDING_SCENARIO,
+  ).bridge;
+}
+
 describe("the way out to the account registry", () => {
   it("navigates to the section the control names rather than to bare settings", async () => {
     // `#/settings` with no page renders the rail's "Choose a section" and nothing
@@ -203,5 +239,29 @@ describe("the way out to the account registry", () => {
     });
 
     expect(routes).toStrictEqual([{ kind: "settings", page: "accounts" }]);
+  });
+
+  it("carries the provider when the control pressed was a row's own", async () => {
+    // The row's control and the step's differ in one respect and it is the whole
+    // reason the row has one: the address names the provider the reader came from,
+    // so the page can say what registering it is for and what the first run does
+    // without it. A handler that dropped the argument would land on the identical
+    // page as the case above and this is what reports it.
+    const routes: ConsoleRoute[] = [];
+    await mount(bridgeWhereCodexHoldsNoAccount(), (route) => {
+      routes.push(route);
+    });
+    await activateAt("providers");
+
+    const openForCodex = [...document.querySelectorAll("button")].find(
+      (control) => control.textContent === "Open the registry to add an account",
+    );
+    expect(openForCodex).toBeDefined();
+    await act(async () => {
+      openForCodex?.click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(routes).toStrictEqual([{ kind: "settings", page: "accounts", selection: "codex" }]);
   });
 });

@@ -202,6 +202,7 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
+import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "./fixture-onboarding-answers.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
 /**
@@ -214,8 +215,9 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.
  *
  * Written as an annotated tuple rather than `as const`, on the
  * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
- * carrying a spread, so the workflow ids reach the annotation as
- * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`. They are named in one place and
+ * carrying a spread, so the two planes that own their own module reach the annotation
+ * as `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS` and
+ * `...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS`. Each is named in one place and
  * spread in the other, and the compiler holds the two to each other.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
@@ -245,13 +247,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "daemonStop",
   "daemonRestart",
   "daemonStart",
-  "onboardingStateRead",
-  "onboardingStepAdvance",
-  "onboardingStepSkip",
-  "onboardingComplete",
-  "onboardingProviderSignInHandoff",
-  "onboardingPresentChoice",
-  "onboardingTelemetryPrompt",
+  ...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -318,8 +314,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "daemonStop",
   "daemonRestart",
   "daemonStart",
-  // onboarding — the whole seven-operation surface, and the split between them is
-  // this module's own rule rather than a preference. The state read has an honest
+  // onboarding — the whole seven-operation surface, taken from the module that
+  // implements it so the ids and the handlers cannot disagree. The split between them
+  // is this module's own rule rather than a preference. The state read has an honest
   // answer for a scenario that scripts nothing: a node nobody has onboarded has no
   // completed steps and is not complete, which is a real state the walkthrough draws
   // and the state a fresh install is genuinely in. The other six are WRITES or
@@ -327,13 +324,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // recorded nothing", and a synthesized relay choice would tell the walkthrough a
   // person answered a question nobody was asked — so each of them refuses by name
   // under a scenario that does not script it.
-  "onboardingStateRead",
-  "onboardingStepAdvance",
-  "onboardingStepSkip",
-  "onboardingComplete",
-  "onboardingProviderSignInHandoff",
-  "onboardingPresentChoice",
-  "onboardingTelemetryPrompt",
+  ...FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */

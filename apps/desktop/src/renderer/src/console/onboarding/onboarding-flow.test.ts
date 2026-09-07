@@ -8,7 +8,14 @@
 // progress list — "nobody has onboarded this node" and "this build cannot ask" are
 // different facts.
 //
-// AND A FIFTH, WHICH IS ABOUT THE VALUE RATHER THAN THE CALL. The completed set every
+// AND A FIFTH GROUP IS ABOUT THE ORDER TWO REPLIES LAND IN, which no single call can
+// state. Every read answers the same question, so an older reply arriving late is not
+// extra information — it is the state as it was, and publishing it takes the rail
+// backwards past a step the person has already recorded. Three cases pin the three
+// ways that happens: two reads racing, a read overtaken by an act, and a read landing
+// on top of a refusal a person is owed.
+//
+// AND A SIXTH, WHICH IS ABOUT THE VALUE RATHER THAN THE CALL. The completed set every
 // surface stands on is minted where the reading is published, and the last suite is
 // what keeps it from becoming a shared one again: `ReadonlySet` is a compile-time view
 // of a runtime-mutable collection, so a single held object is one stray `add` away
@@ -28,6 +35,77 @@ import type { ConsoleScenario } from "../bridge/scenario-runtime/index.js";
 
 function flowOver(scenario: ConsoleScenario): OnboardingFlow {
   return new OnboardingFlow(createFixtureBridge({ scenario }));
+}
+
+/** One answer a held state read resolves with. The shape the read's own signature has. */
+interface HeldStateAnswer {
+  readonly completedStepIds: readonly string[];
+  readonly isComplete: boolean;
+}
+
+/**
+ * A bridge whose state reads answer in whatever order the case chooses.
+ *
+ * THE ANSWERS ARE THE CASE'S AND NOT THE FIXTURE'S, deliberately. What is under test
+ * is the flow's own ordering, so each read is given the reading it would have got at
+ * the moment it was DISPATCHED — the point being that one of them is stale by the time
+ * it lands. Driving this through the fixture's own recorded state would make the case
+ * depend on which of two in-flight calls the frozen clock released first, which is the
+ * one thing it must not be sensitive to.
+ *
+ * Every gate exists before any read starts, so a case may open one for a read that has
+ * not been dispatched yet: opening is a statement about ORDER and never about timing,
+ * and a case that had to wait for a read to arrive before releasing it would be a poll
+ * loop dressed as a test.
+ */
+function heldStateReads(
+  answers: readonly HeldStateAnswer[],
+  scenario: ConsoleScenario = ONBOARDING_SCENARIO,
+): { readonly bridge: ConsoleBridge; readonly release: (index: number) => void } {
+  const fixture = createFixtureBridge({ scenario });
+  const gates = answers.map(() => {
+    let open: () => void = () => undefined;
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return { opened, open: (): void => open() };
+  });
+  let dispatchedReadCount = 0;
+  const bridge: ConsoleBridge = {
+    ...fixture,
+    growth: {
+      ...fixture.growth,
+      onboardingStateRead: async () => {
+        const index = dispatchedReadCount;
+        dispatchedReadCount += 1;
+        const gate = gates[index];
+        const answer = answers[index];
+        if (gate === undefined || answer === undefined) {
+          // Named rather than resolved with whatever the last answer was: a case that
+          // read more times than it scripted is asserting against an order it never
+          // stated, and the failure should say so.
+          throw new Error(`state read ${index + 1} is not scripted by this case`);
+        }
+        await gate.opened;
+        return { status: "served", value: answer };
+      },
+    },
+  };
+  return {
+    bridge,
+    release: (index: number): void => {
+      gates[index]?.open();
+    },
+  };
+}
+
+/** The onboarding scenario with one call left unscripted, so that call refuses. */
+function scenarioWithout(call: string): ConsoleScenario {
+  return {
+    ...ONBOARDING_SCENARIO,
+    id: `${ONBOARDING_SCENARIO.id}-without-${call}`,
+    replies: ONBOARDING_SCENARIO.replies.filter((reply) => reply.call !== call),
+  };
 }
 
 describe("reading where this node is", () => {
@@ -139,6 +217,72 @@ describe("supersession", () => {
     await pending;
     // Still the opening state: the settlement belonged to a walkthrough that is gone.
     expect(flow.snapshot.reading).toStrictEqual({ kind: "reading" });
+  });
+});
+
+describe("the order two state reads land in", () => {
+  const OPENING_ANSWER: HeldStateAnswer = { completedStepIds: ["relay"], isComplete: false };
+  const POST_ACT_ANSWER: HeldStateAnswer = {
+    completedStepIds: ["relay", "telemetry"],
+    isComplete: false,
+  };
+
+  it("discards an opening read that lands after the act it was started before", async () => {
+    // The regression itself. The opening read was dispatched against this node as it
+    // was before the step was recorded, so its reply is not late news — it is the
+    // previous state, and publishing it takes the rail back to a step the person has
+    // already answered and leaves them pressing the same control again.
+    const { bridge, release } = heldStateReads([OPENING_ANSWER, POST_ACT_ANSWER]);
+    const flow = new OnboardingFlow(bridge);
+
+    const openingRead = flow.read();
+    const recorded = flow.advance("telemetry");
+    release(1);
+    await recorded;
+    expect([...flow.snapshot.completedSteps].sort()).toStrictEqual(["relay", "telemetry"]);
+
+    release(0);
+    await openingRead;
+
+    expect([...flow.snapshot.completedSteps].sort()).toStrictEqual(["relay", "telemetry"]);
+    expect(firstUnresolvedStep(flow.snapshot.completedSteps)).toBe("providers");
+  });
+
+  it("discards an older read that lands after a newer one, with no act between", async () => {
+    // The same rule without an act to blame it on: two reads answer one question, so
+    // the newest reply is the answer and the older one has nothing left to say.
+    const { bridge, release } = heldStateReads([OPENING_ANSWER, POST_ACT_ANSWER]);
+    const flow = new OnboardingFlow(bridge);
+
+    const older = flow.read();
+    const newer = flow.read();
+    release(1);
+    await newer;
+    release(0);
+    await older;
+
+    expect([...flow.snapshot.completedSteps].sort()).toStrictEqual(["relay", "telemetry"]);
+  });
+
+  it("keeps a refused act's refusal in front of a read that started before it", async () => {
+    // The arm no re-read follows, which is why the act retires the read key at its own
+    // SETTLEMENT rather than leaving the next read to do it: nothing here supersedes
+    // the opening read except the act, and a person owed a refusal must not have it
+    // quietly replaced by a progress list.
+    const { bridge, release } = heldStateReads(
+      [OPENING_ANSWER],
+      scenarioWithout("growth:onboardingStepSkip"),
+    );
+    const flow = new OnboardingFlow(bridge);
+
+    const openingRead = flow.read();
+    await flow.skip("providers");
+    expect(flow.snapshot.reading.kind).toBe("unreadable");
+
+    release(0);
+    await openingRead;
+
+    expect(flow.snapshot.reading.kind).toBe("unreadable");
   });
 });
 

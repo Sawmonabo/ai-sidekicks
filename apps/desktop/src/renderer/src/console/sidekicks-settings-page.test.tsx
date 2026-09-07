@@ -60,6 +60,7 @@ const CONTEXT: SettingsPageContext = {
   retainedSessionId: undefined,
   retainedSessionStore: undefined,
   shellState: UNREPORTED_SHELL_STATE,
+  selection: undefined,
 };
 
 /** The page speaks its settlement, so it is mounted inside the console's announcer. */

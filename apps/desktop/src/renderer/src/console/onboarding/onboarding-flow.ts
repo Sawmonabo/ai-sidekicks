@@ -17,27 +17,46 @@
 // the walkthrough opens and again after each act that could have changed it — a step
 // recorded, a step skipped, a choice made — and every other reason to re-read arrives
 // through `requestRead`, which is `RefreshScheduler`'s to coalesce. There is no timer
-// anywhere in this family. The walkthrough hands this flow to the WINDOW trigger set,
+// anywhere in this family, and no second scheduler: `store/scheduling.ts` owns the one
+// this flow constructs. The walkthrough hands this flow to the WINDOW trigger set,
 // which is the pair a node-scoped reading takes: the arrival, and the window
 // regaining focus. A repaired connection and a timeline event are a SESSION's
 // reasons, and this flow holds no session.
 //
 // THE OPEN AND THE POST-ACT RE-READ ARE PERFORMED DIRECTLY, and that is the queue
 // reading's own precedent rather than an exception carved here. This reading has no
-// tail keeping it current, and the fixture's clock is frozen — only a scenario beat
-// moves it — so a first read parked behind the scheduler's debounce window would
-// never happen at all in fixture mode. What the scheduler is for is the reason that
-// arrives in bursts: a window regaining focus.
+// tail keeping it current, and the fixture's clock is frozen — `ManualClock` runs a
+// timeout only when a caller advances it — so a first read parked behind the
+// scheduler's debounce window would never happen at all in fixture mode, and the
+// walkthrough would open on `reading` forever. What the scheduler is for is the reason
+// that arrives in bursts: a window regaining focus. Direct does not mean unordered:
+// every read, whichever door it came through, takes the same latch key below.
 //
 // AND ITS TRIGGERING EVENT SET IS EMPTY, which is a claim rather than an omission.
 // Onboarding is NODE-scoped: nothing appended to a session's timeline says this
 // node's onboarding state moved, because the acts that move it are this flow's own
 // and it re-reads on each of them.
 //
-// SUPERSESSION IS THE SIGN-IN FLOW'S RULE, applied to a longer conversation: a
-// generation stamps every call, and a settlement that arrives after the walkthrough
-// was retired or re-addressed publishes nowhere. The dialogs are main's and outlive
-// this window's interest in them.
+// SUPERSESSION IS THE STORE'S REGISTER AND NOT AN EPOCH OF THIS FILE'S OWN. Four
+// conversations run over one snapshot — the state read, the three step verbs, and the
+// two main-process dialogs — and each takes its own key on one `GenerationLatch`, so a
+// settlement is admitted only while the key it holds still names its round. The
+// dialogs are main's and outlive this window's interest in them.
+//
+// A flow-local counter could express only the coarsest of those rules, and did: it
+// moved on teardown alone, so the opening read and a post-act read carried the SAME
+// stamp and neither superseded the other — an opening reply landing after the post-act
+// one overwrote the newer completed-step set and the rail regressed to the state
+// before the step. Two rules replace it, and both are the latch's:
+//
+//   • Every read supersedes the read before it, because they answer one question and
+//     the older answer has nothing left to say about it.
+//   • Every ACT supersedes every read started before that act SETTLED — the moment is
+//     the settlement and not the dispatch, because a reply already in flight when the
+//     daemon accepted the step describes this node as it was before it.
+//
+// The acts keep a key of their own rather than sharing the read's, so a refusal a
+// person is owed is not silently dropped by a read that happened to answer first.
 //
 // EVERY CALL SETTLES THROUGH `settleGrowthRead`, and none of them through a bare
 // `await`. A growth call can also REJECT — the fixture throws a scripted daemon
@@ -53,6 +72,7 @@ import {
   type GrowthOutcome,
 } from "../bridge/index.js";
 import {
+  GenerationLatch,
   NO_TRIGGERING_EVENT_KINDS,
   RefreshScheduler,
   type ReadTriggerTarget,
@@ -131,6 +151,25 @@ export interface OnboardingSnapshot {
   readonly telemetry: TelemetryReading;
 }
 
+/**
+ * The four keys this walkthrough's conversations run under, on one register.
+ *
+ * FOUR AND NOT ONE, because "one in flight" is one per SUBJECT and these are four
+ * subjects sharing a snapshot. A single key would have made a state read and a relay
+ * dialog supersede each other, which is false — they answer different questions and
+ * land in different members — while one key per CALL would have let two step verbs run
+ * as though they were unrelated, which is equally false: they write one record and the
+ * newest press is the one a person is waiting on.
+ *
+ * The subject every key is claimed under is the flow itself. It has no object of its
+ * own to key by — a node's onboarding is not addressed by anything — and the latch
+ * holds a subject weakly, so a retired walkthrough takes its keys with it.
+ */
+const STATE_READ_KEY = "state-read";
+const STEP_ACT_KEY = "step-act";
+const RELAY_CHOICE_KEY = "relay-choice";
+const TELEMETRY_PROMPT_KEY = "telemetry-prompt";
+
 export class OnboardingFlow implements ReadTriggerTarget {
   /**
    * Nothing in a session's timeline says this node's onboarding state changed.
@@ -142,13 +181,21 @@ export class OnboardingFlow implements ReadTriggerTarget {
   readonly #bridge: ConsoleBridge;
   readonly #refresh: RefreshScheduler;
   readonly #changes = new Emitter<void>("onboarding state");
+  /**
+   * Which round each of the four conversations is on.
+   *
+   * The console's one generation register rather than a counter of this file's own, so
+   * "this answer was superseded" and "this answer outlived the walkthrough" are one
+   * question with one mechanism — and so the two supersession rules the header states
+   * are expressed by which entry point takes the key rather than by arithmetic here.
+   */
+  readonly #rounds = new GenerationLatch();
   #snapshot: OnboardingSnapshot = {
     reading: { kind: "reading" },
     completedSteps: completedStepsFrom([]),
     relayChoice: { kind: "unasked" },
     telemetry: { kind: "unasked" },
   };
-  #generation = 0;
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
@@ -175,7 +222,7 @@ export class OnboardingFlow implements ReadTriggerTarget {
 
   /** Drop this flow's claim on anything unsettled. Nothing published after this. */
   public supersede(): void {
-    this.#generation += 1;
+    this.#rounds.supersedeAll();
     this.#refresh.dispose();
   }
 
@@ -196,9 +243,12 @@ export class OnboardingFlow implements ReadTriggerTarget {
 
   /** Read where this node is. The one read, on open and after each recorded act. */
   public async read(): Promise<void> {
-    const generation = this.#generation;
+    // Claimed before the call and never after it: a read taken after the await would
+    // stamp itself with whatever round the register had reached by then, which is the
+    // shape that let two reads believe they were the same one.
+    const round = this.#rounds.supersedeAndClaim(this, STATE_READ_KEY);
     const settlement = await settleGrowthRead(this.#bridge.growth.onboardingStateRead({}));
-    if (generation !== this.#generation) {
+    if (!round.isCurrent) {
       return;
     }
     if (settlement.status !== "served") {
@@ -222,10 +272,10 @@ export class OnboardingFlow implements ReadTriggerTarget {
    * identifier it does not know onto its default would report a choice nobody made.
    */
   public async presentRelayChoice(): Promise<void> {
-    const generation = this.#generation;
+    const round = this.#rounds.supersedeAndClaim(this, RELAY_CHOICE_KEY);
     this.#publishRelayChoice({ kind: "asking" });
     const settlement = await settleGrowthRead(this.#bridge.growth.onboardingPresentChoice({}));
-    if (generation !== this.#generation) {
+    if (!round.isCurrent) {
       return;
     }
     if (settlement.status !== "served") {
@@ -251,10 +301,10 @@ export class OnboardingFlow implements ReadTriggerTarget {
 
   /** Ask the telemetry question, on its own, after the relay choice has resolved. */
   public async presentTelemetryPrompt(): Promise<void> {
-    const generation = this.#generation;
+    const round = this.#rounds.supersedeAndClaim(this, TELEMETRY_PROMPT_KEY);
     this.#publishTelemetry({ kind: "asking" });
     const settlement = await settleGrowthRead(this.#bridge.growth.onboardingTelemetryPrompt({}));
-    if (generation !== this.#generation) {
+    if (!round.isCurrent) {
       return;
     }
     if (settlement.status !== "served") {
@@ -281,11 +331,18 @@ export class OnboardingFlow implements ReadTriggerTarget {
   }
 
   async #recordThenRead(record: Promise<GrowthOutcome<void>>): Promise<void> {
-    const generation = this.#generation;
+    const round = this.#rounds.supersedeAndClaim(this, STEP_ACT_KEY);
     const settlement = await settleGrowthRead(record);
-    if (generation !== this.#generation) {
+    if (!round.isCurrent) {
       return;
     }
+    // AN ACT SUPERSEDES EVERY READ STARTED BEFORE IT SETTLED, and this line is the
+    // whole of that rule. Such a read was dispatched against this node as it was
+    // BEFORE the daemon answered, so its reply — however late it lands — describes a
+    // state this act has already moved past, and publishing it would take the rail
+    // back to it. Done on both arms below rather than only on the served one: a
+    // refusal a person is owed must not be overwritten by a read either.
+    this.#rounds.supersede(this, STATE_READ_KEY);
     if (settlement.status !== "served") {
       this.#publishReading({ kind: "unreadable", refusal: settlement });
       return;
