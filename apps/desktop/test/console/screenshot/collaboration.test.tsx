@@ -204,17 +204,14 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
         }
         holding={{ kind: "held", participantId: "participant-priya" }}
         openDetailParticipantId="participant-priya"
-        detailReading={{
-          kind: "answered",
-          outcome: {
-            status: "served",
-            value: {
-              participantId: "participant-priya",
-              aggregateState: "idle",
-              devices: [
-                { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
-              ],
-            },
+        detailState={{
+          kind: "loaded",
+          value: {
+            participantId: "participant-priya",
+            aggregateState: "idle",
+            devices: [
+              { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
+            ],
           },
         }}
         onToggleDetail={() => undefined}
