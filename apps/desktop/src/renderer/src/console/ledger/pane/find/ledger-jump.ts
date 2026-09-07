@@ -156,7 +156,16 @@ interface LedgerJumpActContext {
   readonly foldedWindow: LedgerWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly clearFilter: () => void;
-  readonly openChapterOfRow: (row: TimelineRow) => void;
+  /**
+   * Open every fold that is holding this row, which is one act and up to two folds.
+   *
+   * NAMED FOR WHAT IT DOES rather than for the absence that reaches it. A row can be
+   * inside a shut chapter, inside a folded rewind band, or inside both, and the act
+   * that reaches it has to open whichever are holding it — an act that opened only the
+   * chapter would scroll the ledger to a row still folded away. The caller's own
+   * implementation says the same thing beside its two arms.
+   */
+  readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly endReplay: () => void;
   readonly requestJump: (rowId: string) => void;
 }
@@ -206,7 +215,7 @@ const LEDGER_JUMP_ACTS = {
     return {
       label: "Open that chapter and go to it",
       perform: () => {
-        context.openChapterOfRow(row);
+        context.openFoldsHoldingRow(row);
         context.requestJump(row.id);
       },
     };
@@ -233,7 +242,7 @@ export function useLedgerJumpReach(inputs: {
   readonly foldedWindow: LedgerWindowModel;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly clearFilter: () => void;
-  readonly openChapterOfRow: (row: TimelineRow) => void;
+  readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly endReplay: () => void;
   readonly requestJump: (rowId: string) => void;
 }): LedgerJumpReach | undefined {
@@ -242,7 +251,7 @@ export function useLedgerJumpReach(inputs: {
     foldedWindow,
     openedTerminalRunIds,
     clearFilter,
-    openChapterOfRow,
+    openFoldsHoldingRow,
     endReplay,
     requestJump,
   } = inputs;
@@ -258,7 +267,7 @@ export function useLedgerJumpReach(inputs: {
       foldedWindow,
       openedTerminalRunIds,
       clearFilter,
-      openChapterOfRow,
+      openFoldsHoldingRow,
       endReplay,
       requestJump,
     });
@@ -267,7 +276,7 @@ export function useLedgerJumpReach(inputs: {
     foldedWindow,
     openedTerminalRunIds,
     clearFilter,
-    openChapterOfRow,
+    openFoldsHoldingRow,
     endReplay,
     requestJump,
   ]);

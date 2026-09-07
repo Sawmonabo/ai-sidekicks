@@ -149,7 +149,7 @@ export function useLedgerFindAndJump(inputs: {
   // a row still folded away. Both acts are idempotent in the opening direction — the
   // chapter arm is offered only while the chapter is shut, and the band arm opens
   // rather than toggles — so performing both is never a fold.
-  const openChapterOfRow = useCallback(
+  const openFoldsHoldingRow = useCallback(
     (row: TimelineRow) => {
       const bandKey = foldedWindow.supersededBandKeyByRowId.get(row.id);
       if (bandKey !== undefined) {
@@ -172,7 +172,7 @@ export function useLedgerFindAndJump(inputs: {
     foldedWindow,
     openedTerminalRunIds,
     clearFilter,
-    openChapterOfRow,
+    openFoldsHoldingRow,
     endReplay,
     requestJump,
   });
