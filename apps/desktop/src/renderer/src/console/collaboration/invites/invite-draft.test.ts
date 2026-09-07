@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { MILLISECONDS_PER_DAY } from "../../core/index.js";
 import {
   DEFAULT_INVITE_EXPIRY_ID,
+  DEFAULT_JOIN_MODE,
   INVITE_EXPIRY_CHOICES,
   JOIN_MODES,
   JOIN_MODE_NOTES,
@@ -26,6 +27,16 @@ describe("the join modes a form may offer", () => {
     // invitation that granted it would be granting what no invite verb can.
     expect(JOIN_MODES).toEqual(["viewer", "collaborator", "runtime contributor"]);
     expect(JOIN_MODES).not.toContain("owner");
+  });
+
+  it("starts on the mode the corpus fixes as the default", () => {
+    // `Spec-002 §Default Behavior`: "Invite default join mode is `collaborator`."
+    // The literal is transcribed once, here, because no code package declares the
+    // default — `packages/contracts` ships the SET and stops there — so the form
+    // derives from the model module and the model module is pinned against the
+    // corpus by this case.
+    expect(DEFAULT_JOIN_MODE).toBe("collaborator");
+    expect(JOIN_MODES).toContain(DEFAULT_JOIN_MODE);
   });
 
   it("says what each one grants, in a sentence", () => {

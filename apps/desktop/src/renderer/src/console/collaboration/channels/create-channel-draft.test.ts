@@ -204,7 +204,7 @@ describe("create channel draft — what Cancel does", () => {
     draft.setKind("direct");
     draft.setOtherParticipantId(PARTICIPANT_OTHER);
     draft.setAudience("humans-only");
-    draft.setTurnPolicy("moderated");
+    draft.setTurnPolicy("request-based");
     draft.setRoundRobinOrder("reviewer");
     draft.setTurnsPerAgent("4");
     draft.setModeration("preTurnGate", true);

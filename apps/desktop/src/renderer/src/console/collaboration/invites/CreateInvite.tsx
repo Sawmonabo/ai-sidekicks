@@ -31,17 +31,21 @@
 // is the only moment the link exists. Putting the invitation away is therefore a
 // deliberate act with a sentence attached, never a settlement that fades.
 //
-// AND THE LINK IS COMPOSED FROM A SECOND READ, ASKED AT THE MINT
+// AND THE LINK IS COMPOSED FROM A SECOND READ, TAKEN INSIDE THE SAME ACT
 //
 // `Spec-002 §Invite Delivery` writes the link as
 // `https://<control-plane-host>/invite/<token>`, and nothing on the shipped bridge
 // tells this renderer its own control-plane host. That is the growth port's
-// `controlPlaneHostRead`, asked AFTER a token exists rather than on mount: a read
-// performed for every visit to this section would ask a question no one needed
-// answered, and the token is what makes the answer worth having. A host that refuses
-// leaves the invitation minted and real — the reveal then shows the token's own
-// identifier and says the link could not be composed, which is the truth rather than
-// a link with a guessed host in it.
+// `controlPlaneHostRead`, asked at the PRESS rather than on mount: a read performed
+// for every visit to this section would ask a question no one needed answered, and an
+// intent to invite somebody is what makes the answer worth having. It is asked as
+// part of the mint rather than after it, and `invite-mint.ts` is where that act lives
+// and where the ordering argument is written down — the short of it being that the
+// coordinator's latch has to cover the whole act, and that a token held across one
+// more await is a credential that can be stranded. A host that refuses leaves the
+// invitation minted and real: the reveal shows the token's own identifier and says
+// the link could not be composed, which is the truth rather than a link with a
+// guessed host in it.
 //
 // THE LEDGER IS RE-READ RATHER THAN WRITTEN INTO. `InviteCreateResponse` carries no
 // `state` and no `joinMode`, so folding a row in would mean the renderer composing
@@ -57,22 +61,24 @@ import {
   consoleClockFor,
   heldIdAsWireId,
   type ConsoleBridge,
+  type DaemonRequestOf,
   type GrowthOutcome,
   type GrowthReading,
 } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
-import { consoleRefusalFrom, useGrowthReadOnMount } from "../../seats/index.js";
+import { useGrowthReadOnMount } from "../../seats/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
 import {
   DEFAULT_INVITE_EXPIRY_ID,
+  DEFAULT_JOIN_MODE,
   INVITE_EXPIRY_CHOICES,
   JOIN_MODES,
   JOIN_MODE_NOTES,
-  composeInviteLink,
   inviteExpiryChoice,
   inviteExpiryInstant,
 } from "./invite-draft.js";
+import { inviteMintWithLink } from "./invite-mint.js";
 import { inviteCreateRemedy } from "./invite-refusal-copy.js";
 import { InviteLinkReveal, type MintedInvite } from "./InviteLinkReveal.js";
 import {
@@ -87,18 +93,11 @@ const INVITE_CREATE_METHOD = "invite.create";
 /** The coordinator's subject key. One mint at a time, so one key. */
 const CREATE_INVITE_KEY = "create-invite";
 
-/** Names a refusal the call itself did not name. */
+/** Names a refusal the identity read itself did not name. */
 const CREATE_INVITE_ORIGIN = "create-invite";
 
-/**
- * The least this form will offer to grant.
- *
- * Fail-closed rather than convenient: a person who sends without reading the options
- * has invited somebody to watch, and widening that afterwards is a membership change
- * they make deliberately. The reverse default would hand out participation by
- * inattention.
- */
-const DEFAULT_JOIN_MODE: JoinMode = "viewer";
+/** What one mint asks for, read off the call door's own registry rather than declared. */
+type InviteCreateRequest = DaemonRequestOf<typeof INVITE_CREATE_METHOD>;
 
 /** What one `callerParticipantRead` answers, and the arms around that answer. */
 type CallerIdentityReading = GrowthReading<GrowthOutcome<{ readonly participantId: string }>>;
@@ -167,7 +166,10 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
   const coordinator = useMemo(
     () =>
       new WireMutationCoordinator({
-        perform: daemonMutation(bridge, INVITE_CREATE_METHOD),
+        // The MINT AND ITS LINK, not the mint alone. The latch this coordinator holds
+        // is what closes the send control, so an act that settled halfway would
+        // re-open the control over a token still waiting to be revealed.
+        perform: inviteMintWithLink(bridge, daemonMutation(bridge, INVITE_CREATE_METHOD)),
         describeWhat: "The invitation",
       }),
     // Keyed on the subject for the ledger's reason: an unsettled mint in the session
@@ -190,28 +192,31 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
     }
     const choice = inviteExpiryChoice(expiryId);
     const expiresAt = inviteExpiryInstant(consoleClockFor(bridge).now(), choice.days);
-    void coordinator
-      .run(CREATE_INVITE_KEY, {
-        sessionId: heldIdAsWireId(sessionId),
-        inviter: heldIdAsWireId(identity.participantId),
+    const request: InviteCreateRequest = {
+      sessionId: heldIdAsWireId(sessionId),
+      inviter: heldIdAsWireId(identity.participantId),
+      joinMode,
+      expiresAt,
+    };
+    void coordinator.run(CREATE_INVITE_KEY, request).then((settlement) => {
+      // `undefined` is the refused arm and the superseded one. Either way the reason
+      // is on the coordinator's snapshot beside the control that asked, or there is
+      // no control left to put one beside.
+      if (settlement === undefined) {
+        return;
+      }
+      // NOTHING IS AWAITED HERE, and that is the guarantee rather than a tidiness:
+      // the token's link was composed inside the act the coordinator held its latch
+      // over, so the reveal is published in the same turn the control re-opens in and
+      // there is no window in which a minted token is neither on screen nor in flight.
+      publishMinted({
+        inviteId: settlement.inviteId,
+        expiresAt: settlement.expiresAt,
         joinMode,
-        expiresAt,
-      })
-      .then(async (settlement) => {
-        // `undefined` is the refused arm and the superseded one. Either way the
-        // reason is on the coordinator's snapshot beside the control that asked, or
-        // there is no control left to put one beside.
-        if (settlement === undefined) {
-          return;
-        }
-        publishMinted({
-          inviteId: settlement.inviteId,
-          expiresAt: settlement.expiresAt,
-          joinMode,
-          link: await readInviteLink(bridge, settlement.token),
-        });
-        onMinted();
+        link: settlement.link,
       });
+      onMinted();
+    });
   }, [bridge, coordinator, expiryId, identity, joinMode, onMinted, publishMinted, sessionId]);
 
   if (sessionId === undefined) {
@@ -337,22 +342,4 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
 /** Whether a value is one of the wire's three join modes. */
 function isJoinMode(value: unknown): value is JoinMode {
   return typeof value === "string" && Object.hasOwn(JOIN_MODE_NOTES, value);
-}
-
-/**
- * The link this token is sent as, or why it could not be composed.
- *
- * Asked once per mint. A refusing host read is not a failed mint — the invitation
- * exists and its identifier is on screen — so the refusal travels beside the token
- * rather than replacing it.
- */
-async function readInviteLink(bridge: ConsoleBridge, token: string): Promise<MintedInvite["link"]> {
-  try {
-    const outcome = await bridge.growth.controlPlaneHostRead({});
-    return outcome.status === "served"
-      ? { status: "composed", url: composeInviteLink(outcome.value.host, token) }
-      : { status: "refused", refusal: outcome };
-  } catch (rejection: unknown) {
-    return { status: "refused", refusal: consoleRefusalFrom(rejection, CREATE_INVITE_ORIGIN) };
-  }
 }
