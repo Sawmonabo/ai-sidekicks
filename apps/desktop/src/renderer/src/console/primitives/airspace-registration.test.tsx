@@ -88,7 +88,7 @@ const OVERLAY_PRIMITIVE_CASES: readonly OverlayPrimitiveCase[] = [
   {
     name: "OverlaySelectPopup",
     render: (open) => (
-      <Select.Root items={["one"]} open={open}>
+      <Select.Root items={[{ label: "one", value: "one" }]} open={open}>
         <OverlaySelectPopup className="popup">
           <Select.Item value="one">
             <Select.ItemText>one</Select.ItemText>
