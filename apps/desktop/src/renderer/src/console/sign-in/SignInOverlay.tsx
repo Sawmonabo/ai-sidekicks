@@ -11,6 +11,19 @@
 // this window's flow, which module scope cannot reach, so it is contributed on mount
 // and withdrawn on unmount rather than through the family contribution door.
 //
+// THE CARD SAYS IT IS UP, because the frame cannot see it. `Spec-023 §Console
+// Libraries` adopts the dialog family under `modal="trap-focus"`, which traps focus
+// and leaves inerting the app root to the shell — and Base UI marks `.meridian-frame`
+// `aria-hidden` while this card is open, so a reader that follows the accessibility
+// tree is handled and one that navigates by STRUCTURE is not: the rail and the whole
+// route surface stay reachable underneath. The shell already has the guard —
+// `AppFrame`'s `modalOverlayOpen`, which hangs `inert` on the background — and cannot
+// arm it for this card, because `console-view-family-isolation` forbids `frame/` from
+// naming a view family. So the card publishes into the WINDOW store and the frame
+// folds it with the palette's own state, which is the one seam the two are allowed to
+// meet at. Cleared on close AND on unmount, in one cleanup: a render React discards
+// mid-ceremony must not leave a window inert with nothing on screen to close.
+//
 // THE FLOW IS SUPERSEDED ON UNMOUNT AND ON A BRIDGE SWAP, and it is held through the
 // console's one subject-scoped holder to get that. An OS dialog belongs to main and
 // outlives this component; the settlement that arrives afterwards has to publish
@@ -51,7 +64,7 @@ export interface SignInOverlayProps {
 }
 
 export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
-  const { bridge } = props.context;
+  const { bridge, frameStore } = props.context;
   const [open, setOpen] = useState(false);
   // One flow per bridge, opened during the render that first sees a bridge and
   // retired however that render ended. A replacement bridge retires the flow built on
@@ -85,6 +98,18 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
       consoleCommands.unregister(SIGN_IN_COMMAND_ID);
     };
   }, []);
+
+  // The window's background is inert for exactly this card's lifetime — see the
+  // header note. Written unconditionally rather than under an `if (open)`, so the
+  // cell this component owns is always exactly `open`; the cleanup covers both
+  // endings, a close and an unmount, and the store's own guard makes a repeated
+  // `false` cost nothing.
+  useEffect(() => {
+    frameStore.setModalSurfaceOpen(open);
+    return () => {
+      frameStore.setModalSurfaceOpen(false);
+    };
+  }, [frameStore, open]);
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen} modal="trap-focus">
