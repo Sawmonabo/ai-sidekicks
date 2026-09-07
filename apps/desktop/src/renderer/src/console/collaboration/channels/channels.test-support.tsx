@@ -15,30 +15,30 @@
 // hand-written stub of it, and a surface that stopped settling that channel would
 // hang here rather than pass.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 
 import { MAIN_CHANNEL_NAME, type ChannelListResponseChannel } from "@ai-sidekicks/contracts";
 
 import {
   fixtureBridgeWithGrowth,
+  growthAnswering,
   growthRefusing,
   growthServing,
   unscriptedScenario,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import {
-  GROWTH_CHANNEL_KINDS,
   type ConsoleBridge,
   type GrowthChannelAudience,
   type GrowthChannelKind,
   type GrowthChannelRosterEntry,
+  type GrowthPort,
 } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { ManualClock } from "../../core/index.js";
-import { settle } from "../../core/settle.test-support.js";
+import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
 import type { PushDrivenReadState, SidebarSectionContext } from "../../seats/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "../activity-model.js";
 import { ChannelList } from "./ChannelList.js";
-import { CreateChannel } from "./CreateChannel.js";
 
 /**
  * The ids these suites send, grouped so two rows cannot accidentally share one.
@@ -169,11 +169,36 @@ export function scenarioRefusing(call: string, code: string, message: string): C
   return { ...channelsScenario(), replies: [{ call, refusal: { code, message } }] };
 }
 
+/**
+ * How the roster read answers: one fixed list, the port's own refusal, or a list read
+ * at the moment of the call.
+ *
+ * The third arm is what a REFRESH case needs and the first cannot give: a fixed value
+ * answers every read the same way, so a list whose roster arrived after a second read
+ * could not be told from one whose roster never moved.
+ */
+export type ChannelsBridgeRoster =
+  | readonly GrowthChannelRosterEntry[]
+  | "refused"
+  | (() => readonly GrowthChannelRosterEntry[]);
+
 /** How a case wants its bridge to answer: which script, and what the roster read says. */
 export interface ChannelsBridgeOptions {
   readonly scenario?: ConsoleScenario;
-  /** The entries the roster serves, or `"refused"` for the port's own refusal. */
-  readonly roster?: readonly GrowthChannelRosterEntry[] | "refused";
+  readonly roster?: ChannelsBridgeRoster;
+}
+
+/** The roster override one of those three arms asks for. */
+function rosterAnswer(roster: ChannelsBridgeRoster): Partial<GrowthPort> {
+  if (roster === "refused") {
+    return { channelRosterRead: growthRefusing("channelRosterRead") };
+  }
+  return {
+    channelRosterRead:
+      typeof roster === "function"
+        ? growthAnswering(async () => await Promise.resolve(roster()))
+        : growthServing(roster),
+  };
 }
 
 /**
@@ -188,13 +213,7 @@ export interface ChannelsBridgeOptions {
 export function channelsBridge(options: ChannelsBridgeOptions = {}): ConsoleBridge {
   const scenario = options.scenario ?? channelsScenario();
   const { roster } = options;
-  if (roster === undefined) {
-    return fixtureBridgeWithGrowth(scenario, {});
-  }
-  return fixtureBridgeWithGrowth(scenario, {
-    channelRosterRead:
-      roster === "refused" ? growthRefusing("channelRosterRead") : growthServing(roster),
-  });
+  return fixtureBridgeWithGrowth(scenario, roster === undefined ? {} : rosterAnswer(roster));
 }
 
 /** What a case may steer about the directory it renders. */
@@ -207,13 +226,6 @@ export interface ChannelListOverrides {
   readonly onReopen?: () => void;
 }
 
-/** What a case may steer about the create form it renders on its own. */
-export interface CreateChannelOverrides {
-  readonly bridge?: ConsoleBridge;
-  readonly viewerParticipantId?: string | undefined;
-  readonly participantIds?: readonly string[];
-}
-
 /**
  * The viewer these overrides name, defaulting to a KNOWN one.
  *
@@ -221,8 +233,12 @@ export interface CreateChannelOverrides {
  * window is has not been read" is a state both surfaces draw distinctly and
  * `undefined` is how it is spelled — `??` would make that state unreachable from a
  * case, which is exactly the state the direct arm fails closed on.
+ *
+ * Exported for the create form's own harness beside this one, which draws the same
+ * distinction on the same prop: two readings of it would let one suite treat an unread
+ * viewer as absent and the other as a default.
  */
-function viewerOf(overrides: {
+export function viewerOf(overrides: {
   readonly viewerParticipantId?: string | undefined;
 }): string | undefined {
   return Object.hasOwn(overrides, "viewerParticipantId")
@@ -241,11 +257,12 @@ function viewerOf(overrides: {
 function channelListElement(
   state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
   overrides: ChannelListOverrides,
+  bridge: ConsoleBridge,
 ): React.JSX.Element {
   return (
     <ChannelList
       state={state}
-      bridge={overrides.bridge ?? channelsBridge()}
+      bridge={bridge}
       sessionId={SESSION_ID}
       viewerParticipantId={viewerOf(overrides)}
       participantIds={overrides.participantIds ?? [PARTICIPANT_YOU, PARTICIPANT_OTHER]}
@@ -258,12 +275,35 @@ function channelListElement(
   );
 }
 
-/** Render the directory, with a real bridge under it. */
+/**
+ * Render the directory, with a real bridge under it — and answer with that bridge.
+ *
+ * The bridge travels BACK rather than being resolved twice, because the roster read
+ * beneath this list is debounced on the scenario's own frozen clock: a caller that has
+ * to advance it has to hold the engine the surface is actually reading, and one
+ * resolved a second time would be a second scenario nothing rendered.
+ */
 export function renderChannelList(
   state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
   overrides: ChannelListOverrides = {},
-): ReturnType<typeof render> {
-  return render(channelListElement(state, overrides));
+): ReturnType<typeof render> & { readonly bridge: ConsoleBridge } {
+  const bridge = overrides.bridge ?? channelsBridge();
+  return { ...render(channelListElement(state, overrides, bridge)), bridge };
+}
+
+/**
+ * Carry this list's debounced reads past their window, and let them land.
+ *
+ * The roster read is push-driven, so it performs NOTHING until the refresh window
+ * closes — and under the fixture the scenario's frozen clock is the only clock this
+ * renderer reads, so a case that merely awaited would assert against a read that had
+ * never been performed rather than one that had answered.
+ */
+export async function settleChannelReads(bridge: ConsoleBridge): Promise<void> {
+  await act(async () => {
+    bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
+  });
+  await settle();
 }
 
 /**
@@ -274,16 +314,16 @@ export function renderChannelList(
  * mounting, which is a distinction every subject-scoped holder under the surface draws.
  */
 export async function serveChannelRead(
-  rendered: ReturnType<typeof render>,
+  rendered: ReturnType<typeof renderChannelList>,
   state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
   overrides: ChannelListOverrides = {},
 ): Promise<void> {
-  rendered.rerender(channelListElement(state, overrides));
-  await settle();
+  rendered.rerender(channelListElement(state, overrides, rendered.bridge));
+  await settleChannelReads(rendered.bridge);
 }
 
 /**
- * Render the directory and let its one roster read land.
+ * Render the directory and let its roster read land.
  *
  * The default for every case that is not ABOUT the moment before the roster answers:
  * a read settling outside React's scope applies its state write without the
@@ -292,95 +332,8 @@ export async function serveChannelRead(
 export async function renderChannelListSettled(
   state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
   overrides: ChannelListOverrides = {},
-): Promise<ReturnType<typeof render>> {
+): Promise<ReturnType<typeof renderChannelList>> {
   const rendered = renderChannelList(state, overrides);
-  await settle();
+  await settleChannelReads(rendered.bridge);
   return rendered;
-}
-
-/** Render the create form alone, which is how the form's own suites drive it. */
-export function renderCreateChannel(
-  overrides: CreateChannelOverrides = {},
-): ReturnType<typeof render> {
-  return render(
-    <CreateChannel
-      bridge={overrides.bridge ?? channelsBridge()}
-      sessionId={SESSION_ID}
-      viewerParticipantId={viewerOf(overrides)}
-      participantIds={overrides.participantIds ?? [PARTICIPANT_YOU, PARTICIPANT_OTHER]}
-      labels={LABELS}
-    />,
-  );
-}
-
-/**
- * One element the case cannot proceed without, or a failure naming what it looked for.
- *
- * A throw rather than a non-null assertion, so a selector that stopped matching reports
- * itself instead of surfacing three lines later as a property read on `undefined`.
- */
-function requiredElement<TElement extends Element>(
-  container: HTMLElement,
-  selector: string,
-  index = 0,
-): TElement {
-  const found = container.querySelectorAll<TElement>(selector)[index];
-  if (found === undefined) {
-    throw new Error(`nothing matched ${selector} at index ${String(index)}`);
-  }
-  return found;
-}
-
-/** Type a name into the form's own name field. */
-export function typeName(container: HTMLElement, name: string): void {
-  fireEvent.change(requiredElement<HTMLInputElement>(container, ".meridian-create-channel__name"), {
-    target: { value: name },
-  });
-}
-
-/**
- * Choose one kind, addressed through the closed set the form renders from.
- *
- * Indexed off `GROWTH_CHANNEL_KINDS` rather than matched on a label, so a case names
- * the wire's own vocabulary and a relabelled control does not silently pick the other
- * arm.
- */
-export function chooseKind(container: HTMLElement, kind: GrowthChannelKind): void {
-  const index = GROWTH_CHANNEL_KINDS.indexOf(kind);
-  act(() => {
-    requiredElement<HTMLButtonElement>(container, ".meridian-create-channel__kind", index).click();
-  });
-}
-
-/** The five configuration members the general arm collects, each as its own control. */
-export interface CreateChannelPolicyControls {
-  readonly audience: HTMLSelectElement;
-  readonly turnPolicy: HTMLSelectElement;
-  readonly roundRobinOrder: HTMLInputElement;
-  readonly turnsPerAgent: HTMLInputElement;
-  readonly moderationBoxes: readonly HTMLInputElement[];
-}
-
-/**
- * The policy controls, in the order the form declares them.
- *
- * Positional because that order is the form's own and a person meets it that way:
- * audience then turn policy among the selects, and the name then the round-robin order
- * then the per-agent cap among the text fields.
- */
-export function policyFields(container: HTMLElement): CreateChannelPolicyControls {
-  return {
-    audience: requiredElement(container, ".meridian-create-channel__select", 0),
-    turnPolicy: requiredElement(container, ".meridian-create-channel__select", 1),
-    roundRobinOrder: requiredElement(container, ".meridian-create-channel__text", 1),
-    turnsPerAgent: requiredElement(container, ".meridian-create-channel__text", 2),
-    moderationBoxes: [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')],
-  };
-}
-
-/** Every note the form writes under a field. */
-export function fieldNotes(container: HTMLElement): readonly string[] {
-  return [...container.querySelectorAll(".meridian-create-channel__field-note")].map(
-    (note) => note.textContent ?? "",
-  );
 }

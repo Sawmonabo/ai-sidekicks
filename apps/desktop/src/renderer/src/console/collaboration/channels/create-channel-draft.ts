@@ -40,17 +40,12 @@ import type {
 } from "../../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 import type { ChannelCreateRequest } from "./channel-writes.js";
-
-/**
- * The moderation members a person can touch, declared once.
- *
- * The tuple is what the form iterates and the union is what the draft keys its
- * touched set on, so a third moderation member arrives in both places or in neither.
- */
-export const CHANNEL_MODERATION_FIELDS = ["preTurnGate", "postTurnReview"] as const;
-
-/** One moderation member. Derived from the tuple, never restated. */
-export type ChannelModerationField = (typeof CHANNEL_MODERATION_FIELDS)[number];
+import {
+  CHANNEL_MODERATION_FIELDS,
+  draftSnapshotsMatch,
+  type ChannelModerationField,
+  type CreateChannelDraftSnapshot,
+} from "./create-channel-fields.js";
 
 /**
  * Whether the form composes a request, or what it is still missing.
@@ -85,6 +80,46 @@ export class CreateChannelDraft {
   /** Subscribe to edits. Returns an idempotent unsubscribe. */
   public onChange(listener: () => void): Unsubscribe {
     return this.#changes.subscribe(listener);
+  }
+
+  /** Everything typed right now, as the one value two moments compare by. */
+  public snapshot(): CreateChannelDraftSnapshot {
+    return {
+      name: this.#name,
+      kind: this.#kind,
+      audience: this.#audience,
+      turnPolicy: this.#turnPolicy,
+      roundRobinOrder: this.#roundRobinOrder,
+      turnsPerAgent: this.#turnsPerAgent,
+      moderation: CHANNEL_MODERATION_FIELDS.map((field) => this.#moderation.get(field)),
+      otherParticipantId: this.#otherParticipantId,
+    };
+  }
+
+  /**
+   * Put the fields back, but only where nothing has been typed since `submitted`.
+   *
+   * WHAT A RESET AFTER A WIRE ACT IS FOR, and what it is not. Emptying the form once a
+   * create settles is what makes the next one start clean, and that is only true of the
+   * draft the create CONSUMED. A wire call is a round trip whose length this console does
+   * not decide and the fields stay live for it — the sibling create-invite form leaves
+   * its controls live while a mint is in flight, and a text box that went dead mid-trip
+   * would drop keystrokes a person had already committed — so a draft that has moved on
+   * since the press is their next channel, and clearing it would be this surface taking
+   * work away as a reward for the work it just finished.
+   *
+   * THE SAME RULE THE ROW OVERLAY BESIDE IT KEEPS. `channel-model.ts` applies a lifecycle
+   * receipt only while the read is still the exact reading it was answered against; this
+   * applies a reset only while the draft is still the exact draft that was sent.
+   *
+   * Answers whether it reset, so a caller can tell the two settlements apart.
+   */
+  public resetIfUnchangedSince(submitted: CreateChannelDraftSnapshot): boolean {
+    if (!draftSnapshotsMatch(this.snapshot(), submitted)) {
+      return false;
+    }
+    this.reset();
+    return true;
   }
 
   /**

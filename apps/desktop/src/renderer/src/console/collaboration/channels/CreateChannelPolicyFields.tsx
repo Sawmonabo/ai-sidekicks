@@ -4,11 +4,8 @@ import {
   type GrowthChannelAudience,
   type GrowthChannelTurnPolicy,
 } from "../../bridge/index.js";
-import {
-  CHANNEL_MODERATION_FIELDS,
-  type ChannelModerationField,
-  type CreateChannelDraft,
-} from "./create-channel-draft.js";
+import { type CreateChannelDraft } from "./create-channel-draft.js";
+import { CHANNEL_MODERATION_FIELDS, type ChannelModerationField } from "./create-channel-fields.js";
 
 /**
  * The five members of a channel's policy, under one disclosure that opens by default.

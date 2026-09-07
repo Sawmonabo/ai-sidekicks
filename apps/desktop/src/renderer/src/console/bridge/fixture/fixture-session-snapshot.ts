@@ -105,6 +105,29 @@ export function fixtureSessionSnapshot(
 export const BASE_STATE_CURSOR = 0;
 
 /**
+ * How many PEOPLE hold a membership in one session.
+ *
+ * Counted off the entities above rather than off the join log, and the difference is
+ * the agents: the join order holds everything that gets a hue, and an agent is
+ * attached rather than admitted, so it appears there and holds no membership. A
+ * channel's `participantCount` counts people, so the join order would report a session
+ * larger than its own roster the moment a scenario attached one.
+ *
+ * Derived here rather than at either caller because the channel plane reads it from
+ * both sides — the act that records how many people a create put in a channel, and the
+ * directory fold that answers for a creation no act of this fixture performed — and two
+ * counts of one roster are free to disagree about what a member is.
+ */
+export function fixtureSessionMembershipCount(
+  scenario: ConsoleScenario,
+  sessionId: string,
+): number {
+  return fixtureSessionSnapshot(scenario, sessionId).entities.filter(
+    (entity) => entity.kind === "participant",
+  ).length;
+}
+
+/**
  * One participant entity per declared membership, in join order.
  *
  * Ordered by the join log rather than by the role map's own key order: the partition

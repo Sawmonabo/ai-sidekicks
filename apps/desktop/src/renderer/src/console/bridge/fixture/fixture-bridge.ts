@@ -37,7 +37,9 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../console-bridge.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./fixture-call-door.js";
+import { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import { createFixtureGrowthPort } from "./fixture-growth-port.js";
+import { createLogProjectedReads } from "./fixture-log-projected-reads.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import { refuseAbsentCapability } from "./fixture-refusal.js";
 import { encodeCeremonyResolution } from "../web-authn/index.js";
@@ -70,6 +72,13 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   // One host per bridge, because the assertion sequence is per WINDOW: see its own
   // declaration for why the count lives here and not on the scenario.
   const ceremonyHost = new ScriptedCeremonyRunner(scenarioEngine);
+  // ONE CHANNEL LIFECYCLE PER BRIDGE, and it is composed here because two doors read
+  // it: the growth port answers the four acts through it, and the call door's
+  // `channel.list` fold reads the membership each create recorded. Built inside either
+  // one, the other would be answering from a second fixture's memory of this session's
+  // channels.
+  const channelLifecycle = new FixtureChannelLifecycle(scenarioEngine);
+  const logProjectedReads = createLogProjectedReads(channelLifecycle);
   const sidekicks: SidekicksBridge = {
     daemon: {
       // `DaemonResult<M>` is a Plan-007 stub that resolves to `unknown`, so the
@@ -83,7 +92,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       ): Promise<DaemonResult<MethodName>> =>
         assertScriptedReplyOnContract(
           method,
-          await resolveScriptedReply(scenarioEngine, method, params),
+          await resolveScriptedReply(scenarioEngine, method, params, logProjectedReads),
         ) as DaemonResult<MethodName>,
       subscribe: <EventName extends DaemonEvent>(
         event: EventName,
@@ -98,7 +107,12 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
         procedure: ProcedureName,
         input: CpInput<ProcedureName>,
       ): Promise<CpOutput<ProcedureName>> =>
-        (await resolveScriptedReply(scenarioEngine, procedure, input)) as CpOutput<ProcedureName>,
+        (await resolveScriptedReply(
+          scenarioEngine,
+          procedure,
+          input,
+          logProjectedReads,
+        )) as CpOutput<ProcedureName>,
       subscribeRelay: (sessionId, handler): Unsubscribe =>
         subscribeToScenarioRelay(scenarioEngine, sessionId, handler),
     },
@@ -160,7 +174,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // honour. An injectable port used to sit here and nothing ever passed one;
     // keeping it would have meant a caller could hand in a port while the served
     // set beside it still described a different one.
-    growth: createFixtureGrowthPort(scenarioEngine),
+    growth: createFixtureGrowthPort(scenarioEngine, channelLifecycle),
     growthServedOperations: new Set(FIXTURE_SERVED_GROWTH_OPERATION_IDS),
     // The roster read is answered from the scenario's own frames rather than from
     // the reply table, because a roster moves and a reply does not. The presence

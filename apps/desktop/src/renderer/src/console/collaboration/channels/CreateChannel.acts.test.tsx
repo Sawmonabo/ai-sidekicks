@@ -8,19 +8,28 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import {
+  fixtureBridgeWithGrowth,
+  growthAnswering,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { settle } from "../../core/settle.test-support.js";
 import {
   PARTICIPANT_OTHER,
   channelsBridge,
-  chooseKind,
-  renderCreateChannel,
   scenarioAnswering,
   scenarioRefusing,
-  typeName,
 } from "./channels.test-support.js";
+import { chooseKind, renderCreateChannel, typeName } from "./create-channel.test-support.js";
 
 const CHANNEL_CREATE_CALL = "channel.create";
 const CREATED_CHANNEL_ID = "channel-created";
+
+/** The receipt every served create in this file answers with. */
+const CREATE_RECEIPT = {
+  channelId: CREATED_CHANNEL_ID,
+  state: "active",
+  createdAt: "2026-01-08T10:05:00.000Z",
+} as const;
 
 /** Press Create and let its answer land. */
 async function submit(container: HTMLElement): Promise<void> {
@@ -35,6 +44,51 @@ function pickTheOtherPerson(container: HTMLElement): void {
   chooseKind(container, "direct");
   act(() => {
     container.querySelector<HTMLButtonElement>(".meridian-create-channel__candidate")?.click();
+  });
+}
+
+/** What the name field currently reads. */
+function nameFieldValue(container: HTMLElement): string {
+  return container.querySelector<HTMLInputElement>(".meridian-create-channel__name")?.value ?? "";
+}
+
+/**
+ * A form whose create is held OPEN, and the release that settles it.
+ *
+ * The create is answered through the growth port rather than through the scenario,
+ * because a scripted reply settles when the call is made and what these cases are about
+ * is the window in between. `growthAnswering` is the seam's own lazy arm: the answer is
+ * decided at the moment of the call, so the case decides when that moment ends.
+ */
+function formWithCreateHeldOpen(): {
+  readonly container: HTMLElement;
+  readonly settleCreate: () => Promise<void>;
+} {
+  let release: (() => void) | undefined;
+  const answered = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { container } = renderCreateChannel({
+    bridge: fixtureBridgeWithGrowth(scenarioAnswering(CHANNEL_CREATE_CALL, CREATE_RECEIPT), {
+      channelCreate: growthAnswering(async () => {
+        await answered;
+        return CREATE_RECEIPT;
+      }),
+    }),
+  });
+  return {
+    container,
+    settleCreate: async () => {
+      release?.();
+      await settle();
+    },
+  };
+}
+
+/** Press Create without waiting for it, which is what leaves the call in flight. */
+function pressCreate(container: HTMLElement): void {
+  act(() => {
+    container.querySelector<HTMLButtonElement>(".meridian-create-channel__submit")?.click();
   });
 }
 
@@ -240,5 +294,40 @@ describe("creating a channel — where each refusal lands", () => {
     await submit(container);
 
     expect(container.querySelector(".meridian-refusal")).toBeNull();
+  });
+});
+
+describe("creating a channel — what settles while the call is out", () => {
+  it("keeps what was typed while the create was in flight", async () => {
+    // The defect. The form stays live for the round trip on purpose — a text box that
+    // went dead mid-trip would drop keystrokes a person had already committed — and the
+    // reset a served create earns was applied to whatever the draft held when the
+    // receipt landed rather than to the draft the create was sent from. So a person who
+    // started their next channel while the first was out watched it disappear.
+    const form = formWithCreateHeldOpen();
+    typeName(form.container, "review");
+    pressCreate(form.container);
+
+    typeName(form.container, "the next one");
+    await form.settleCreate();
+
+    expect(nameFieldValue(form.container)).toBe("the next one");
+    expect(
+      form.container.querySelector(".meridian-create-channel__receipt")?.textContent,
+    ).toContain(CREATED_CHANNEL_ID);
+  });
+
+  it("negative control: a draft nobody touched still empties when the create settles", async () => {
+    // Through the same held-open create, so the two cases differ in exactly one thing —
+    // whether a key was pressed while the call was out. Without it the case above would
+    // pass over a form that had simply stopped resetting, which is the other way to keep
+    // an edit and would leave every next channel starting from the last one's fields.
+    const form = formWithCreateHeldOpen();
+    typeName(form.container, "review");
+    pressCreate(form.container);
+
+    await form.settleCreate();
+
+    expect(nameFieldValue(form.container)).toBe("");
   });
 });

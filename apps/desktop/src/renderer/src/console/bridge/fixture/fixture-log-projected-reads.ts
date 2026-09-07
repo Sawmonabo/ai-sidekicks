@@ -29,7 +29,8 @@
 // clause inside it would be the first of a list that grows one plane at a time in the
 // one module that is supposed to be generic over all of them.
 
-import { foldChannelDirectoryOverLog } from "./fixture-channel-lifecycle.js";
+import { foldChannelDirectoryOverLog } from "./fixture-channel-directory.js";
+import type { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /** The registered method whose answer is the session's channel directory. */
@@ -38,9 +39,27 @@ const CHANNEL_LIST_METHOD = "channel.list";
 /** One call's fold: the reply the scenario scripts, moved by what has been delivered. */
 type LogProjectedRead = (engine: ScenarioEngine, scripted: unknown) => unknown;
 
-const LOG_PROJECTED_READS: Readonly<Record<string, LogProjectedRead>> = Object.freeze({
-  [CHANNEL_LIST_METHOD]: foldChannelDirectoryOverLog,
-});
+/** Which calls this bridge projects, and the fold each one takes. */
+export type LogProjectedReads = Readonly<Record<string, LogProjectedRead>>;
+
+/**
+ * The table for one bridge, closed over the plane state its folds read.
+ *
+ * BUILT PER BRIDGE RATHER THAN DECLARED AT MODULE LEVEL, because a fold is not always a
+ * pure function of the log. The channel directory needs one fact the log cannot carry —
+ * how many people are in a channel this playback created — and the only holder of it is
+ * the same lifecycle instance the growth port answers creates through. A module constant
+ * could reach no such instance, and a second instance built here would be a second
+ * fixture answering for one session's channels.
+ */
+export function createLogProjectedReads(
+  channelLifecycle: FixtureChannelLifecycle,
+): LogProjectedReads {
+  return Object.freeze({
+    [CHANNEL_LIST_METHOD]: (engine: ScenarioEngine, scripted: unknown) =>
+      foldChannelDirectoryOverLog(engine, channelLifecycle.membershipByCreatedChannelId, scripted),
+  });
+}
 
 /**
  * Project one resolved reply over the log, or hand it back untouched.
@@ -50,10 +69,11 @@ const LOG_PROJECTED_READS: Readonly<Record<string, LogProjectedRead>> = Object.f
  * from the log is a read whose scripted value IS what it answers.
  */
 export function projectScriptedReplyOverLog(
+  reads: LogProjectedReads,
   engine: ScenarioEngine,
   call: string,
   scripted: unknown,
 ): unknown {
-  const project = Object.hasOwn(LOG_PROJECTED_READS, call) ? LOG_PROJECTED_READS[call] : undefined;
+  const project = Object.hasOwn(reads, call) ? reads[call] : undefined;
   return project === undefined ? scripted : project(engine, scripted);
 }
