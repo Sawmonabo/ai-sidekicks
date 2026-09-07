@@ -90,6 +90,24 @@ export interface DiffInlineCardProps {
   readonly runId: string;
   readonly diffArtifactId: string;
   readonly artifactManifestId: string;
+  /**
+   * The base state of the comparison this diff was taken over, where the row knows it.
+   *
+   * WIRE-NAMED AND ADDITIVE-OPTIONAL, AS A PAIR. `baseRef` and `headRef` are the two
+   * members `DiffArtifactCreateRequest` carries on both of its attribution arms, so a
+   * row that knows what was compared hands the body the same two names the mint was
+   * keyed by rather than a second vocabulary for them. They are OPTIONAL because a row
+   * that only knows a diff artifact exists is an ordinary row — the ids above are what
+   * the turn's own record carries — and they are read as a PAIR because half a
+   * comparison names nothing: a base with no head does not say what a diff is between.
+   *
+   * The seat carries the TYPE and no reading of it. What a body does with a named
+   * comparison is the owning family's question, and this file sits below every view
+   * family precisely so that answering it here would be the wrong place.
+   */
+  readonly baseRef?: string;
+  /** The head state of that comparison. Read only with `baseRef`, never alone. */
+  readonly headRef?: string;
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
