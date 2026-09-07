@@ -68,7 +68,7 @@ import type { ConsoleBridge, ConsoleBridgeSource } from "../bridge/index.js";
 import { ConsoleRefusalError } from "../core/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
-import { SessionBootstrap } from "../../session-bootstrap/index.js";
+import { SessionBootstrap, type SessionBootstrapCreated } from "../../session-bootstrap/index.js";
 // Deep, because `session-members/` ships no barrel. The other two are reached
 // through theirs. Adding one is that family's own diff, not the console's — the
 // console does not author files inside a subtree it merely absorbs.
@@ -84,9 +84,23 @@ import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
  * session. Whatever surface holds that slot calls this when a person asks for a new
  * session, and the guard travels with the call: a caller cannot mount the component
  * past the fixture check, because the check is not the caller's to make.
+ *
+ * THE SETTLEMENT TRAVELS BACK OUT, and that is the only thing this mount adds to the
+ * component it absorbs. The probe is the one `session.create` caller in this
+ * renderer, so a console surface that mounted it learned nothing about the session
+ * the press produced: it could count presses and could not name one. `onCreated` is
+ * threaded rather than absorbed here because the console does not re-author a body
+ * another plan owns — the probe still creates, still renders its own three arms, and
+ * the console becomes the party that hears the result.
+ *
+ * The callback is optional at BOTH ends. A caller with nothing to do with a settled
+ * create passes none, and the component's behaviour is then exactly what it was.
  */
-export function renderAbsorbedSessionProbe(bridgeSource: ConsoleBridgeSource): ReactNode {
-  return mountAbsorbedSurface(bridgeSource, () => createElement(SessionBootstrap));
+export function renderAbsorbedSessionProbe(
+  bridgeSource: ConsoleBridgeSource,
+  onCreated?: (created: SessionBootstrapCreated) => void,
+): ReactNode {
+  return mountAbsorbedSurface(bridgeSource, () => createElement(SessionBootstrap, { onCreated }));
 }
 
 /**

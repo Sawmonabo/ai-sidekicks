@@ -141,6 +141,23 @@ export function contextWith(options: {
   readonly openStores?: readonly SessionStore[];
   /** Sessions the registry reports open but holds no store for. */
   readonly windowSessionIds?: readonly string[];
+  /**
+   * The session each `registry.open` call named, appended in call order.
+   *
+   * Recorded rather than stubbed silently, because opening is one of the four things
+   * a settled start does and it is the one with no visible consequence on this
+   * screen: a session this window created is a session this window has open, and the
+   * registry is where that becomes true.
+   */
+  readonly openedSessionIds?: string[];
+  /**
+   * Whether this window's registry has been disposed — a bridge it has already left.
+   *
+   * Named because `open` is the one registry call that RAISES rather than returning
+   * a refusal, so a settlement landing after a replacement must not take the rest of
+   * the act with it.
+   */
+  readonly isRegistryDisposed?: boolean;
   /** Attention items the projection serves, per session. Refused unless named. */
   readonly attentionBySessionId?: Readonly<Record<string, readonly unknown[]>>;
   /** Invitations the port serves, per session. Refused unless a test names them. */
@@ -277,6 +294,16 @@ export function contextWith(options: {
       peek: (sessionId: string) =>
         (options.openStores ?? []).find((store) => store.sessionId === sessionId),
       subscribe: () => () => undefined,
+      isDisposed: options.isRegistryDisposed ?? false,
+      // Raises on a disposed registry exactly as the real one does, so a case
+      // asserting that a settled start skips the open is asserting the guard rather
+      // than a stub that quietly answered anyway.
+      open: (sessionId: string) => {
+        if (options.isRegistryDisposed === true) {
+          throw new Error(`the registry is disposed and cannot open ${sessionId}`);
+        }
+        options.openedSessionIds?.push(sessionId);
+      },
     },
     uiStateStore: openStore(),
     draftStore: undefined,

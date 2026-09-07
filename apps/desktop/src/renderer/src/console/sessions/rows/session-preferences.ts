@@ -183,6 +183,20 @@ export interface SessionPreferenceBinding {
   readonly isAutoPinOnFirstSendEnabled: boolean;
   readonly lastRefusal: ConsoleRefusal | undefined;
   readonly setAutoPinOnFirstSend: (isEnabled: boolean) => void;
+  /**
+   * The switch as it stands NOW, rather than as this render read it.
+   *
+   * A SECOND SHAPE OF ONE FACT, and the difference between them is a lifetime. The
+   * field above is what a component renders: it comes off the subscribed snapshot, so
+   * React re-renders when it moves, and reading it is how the switch draws itself.
+   * This is what a party that is not rendering calls — the auto-pin record the
+   * composer consults on a first send is stamped when a session is STARTED and read
+   * when a message is sent, and between those two moments a person may have changed
+   * their mind. Holding the render's boolean for that gap would be a copy of a
+   * durable record, which is the one thing the persistence chokepoint forbids; this
+   * resolves the live store through the same acquiring holder the write below uses.
+   */
+  readonly readAutoPinOnFirstSend: () => boolean;
 }
 
 /** How a preference store is minted. Module-level, because the holder reads it once. */
@@ -201,6 +215,17 @@ const NO_BINDING_SNAPSHOT: SessionPreferenceSnapshot = {
   isAutoPinOnFirstSendEnabled: AUTO_PIN_ON_FIRST_SEND_DEFAULT,
   lastRefusal: undefined,
 };
+
+/**
+ * The switch read, bound to whatever store the acquirer is holding when it is asked.
+ *
+ * Module-level and taking the acquirer, exactly as the write below does: the two are
+ * the same seam in two directions, and a reader written inside the hook would close
+ * over the render that built it rather than over the store the window is on.
+ */
+function readAutoPinThrough(acquire: () => SessionPreferenceStore): () => boolean {
+  return () => acquire().isAutoPinOnFirstSendEnabled;
+}
 
 /** The switch act, bound to whatever store the acquirer is holding when it is pressed. */
 function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: boolean) => void {
@@ -234,9 +259,11 @@ export function useSessionPreferences(store: UiStateStore): SessionPreferenceBin
   const readSnapshot = useCallback(() => binding?.snapshot ?? NO_BINDING_SNAPSHOT, [binding]);
   const snapshot = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
   const setAutoPinOnFirstSend = useCallback(setAutoPinThrough(acquire), [acquire]);
+  const readAutoPinOnFirstSend = useCallback(readAutoPinThrough(acquire), [acquire]);
   return {
     isAutoPinOnFirstSendEnabled: snapshot.isAutoPinOnFirstSendEnabled,
     lastRefusal: snapshot.lastRefusal,
     setAutoPinOnFirstSend,
+    readAutoPinOnFirstSend,
   };
 }

@@ -93,6 +93,7 @@
 import { useCallback, useMemo, useRef } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
+import { settleFirstSendAutoPin } from "../../../console/seats/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 import { composerDraftKey } from "./draft-key.js";
 import { useComposerDraftText } from "../use-composer-draft-text.js";
@@ -157,6 +158,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const operationLatch = useGenerationLatch();
 
   const draftKey = composerDraftKey(target);
+  // Named beside the draft key, because a callback body reaching through `target`
+  // for one is the hand-rolled subject-keyed cell the state chokepoint reads for.
+  const { sessionId } = target;
   // Which stay at this address the composer is on, and which attempt of each act is
   // the newest. Its own module because it is a different job with a different
   // lifetime: nothing there reaches a wire or renders anything.
@@ -264,6 +268,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
           case "sent":
             history.recordSent(body);
             publishResendOffer(body);
+            // The one arm that knows a send landed; the seat owns the auto-pin rule.
+            settleFirstSendAutoPin(bridge, sessionId);
             // THE DRAFT CLEARS ONLY WHERE THE SETTLEMENT IS STILL THE ONE ON SCREEN.
             // The draft store is keyed by ADDRESS and not by visit, so on a return
             // trip the captured key names a different draft with the same name: an
@@ -316,6 +322,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       router,
       target,
       draftKey,
+      sessionId,
       visit,
       clearSentDraft,
       commandExecutor,

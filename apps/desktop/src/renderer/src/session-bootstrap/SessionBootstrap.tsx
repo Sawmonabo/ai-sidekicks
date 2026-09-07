@@ -29,7 +29,7 @@
 // declared cannot be imported to begin with. The SDK package is Node-side;
 // importing it from the renderer would break Spec-023 §Trust Stance.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { SessionCreateResponse } from "@ai-sidekicks/contracts";
 
@@ -43,8 +43,46 @@ type BootstrapState =
   | { kind: "resolved"; value: SessionCreateResponse }
   | { kind: "rejected"; error: Error };
 
-export function SessionBootstrap(): React.JSX.Element {
+/** The session this component created, as the one fact a caller can act on. */
+export interface SessionBootstrapCreated {
+  readonly sessionId: string;
+}
+
+export interface SessionBootstrapProps {
+  /**
+   * Told once, when `session.create` settles with a session.
+   *
+   * ADDITIVE AND OPTIONAL, and the absent case is byte-identical to the behaviour
+   * this component shipped with: it still creates from its own mount effect, still
+   * renders the three arms below, and still needs no caller. What it could not do
+   * before is HAND THE SETTLEMENT ON — it is the only `session.create` caller in
+   * this renderer, so the session a start press produced had a name nothing else
+   * could learn, and every surface that wanted to open, record, or navigate to it
+   * was left counting presses. This prop is that name, and nothing more: the
+   * component keeps the call, and the caller becomes the party that hears the
+   * result.
+   *
+   * Not told on the rejected arm. A create that refused produced no session, and a
+   * callback carrying an empty id would be a name for something that does not exist.
+   */
+  readonly onCreated?: ((created: SessionBootstrapCreated) => void) | undefined;
+}
+
+export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Element {
   const [state, setState] = useState<BootstrapState>({ kind: "pending" });
+  // The LATEST callback, held off the create effect's dependency list.
+  //
+  // The effect below runs exactly once per mount, on an empty list, because running
+  // it again would create a second session. A caller that composes `onCreated` inline
+  // — which is what a parent rendering this inside its own tree does — hands a new
+  // function identity on every pass, so naming the prop in that list would make every
+  // parent render start a session, and capturing the first render's closure would
+  // answer a settlement with a callback the parent has since replaced. The ref is
+  // refreshed on every commit and read at settlement time, which is neither.
+  const notifyCreated = useRef(props.onCreated);
+  useEffect(() => {
+    notifyCreated.current = props.onCreated;
+  });
 
   useEffect(() => {
     // Strict-mode-safe mount: React 18+ invokes effects twice in dev/strict
@@ -87,7 +125,13 @@ export function SessionBootstrap(): React.JSX.Element {
       try {
         const bridgeResponse = await daemonCall("session.create", {});
         if (cancelled) return;
-        setState({ kind: "resolved", value: bridgeResponse as SessionCreateResponse });
+        const created = bridgeResponse as SessionCreateResponse;
+        setState({ kind: "resolved", value: created });
+        // Once, and after the state is set: the caller opens a store and navigates
+        // on this, so it runs on a settlement this component has already accepted.
+        // The `cancelled` guard above is what makes it once — strict mode's discarded
+        // first effect resolves with the flag set and tells nobody.
+        notifyCreated.current?.({ sessionId: created.sessionId });
       } catch (bridgeError: unknown) {
         if (cancelled) return;
         // Tier 1 production branch: every Tier-1 bridge method throws

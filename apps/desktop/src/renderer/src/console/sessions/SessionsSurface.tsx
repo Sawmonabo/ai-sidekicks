@@ -52,10 +52,19 @@
 // So the probe is built only when the start control is pressed, and the press
 // count keys the mount: a second press remounts and therefore starts a second
 // session, where a boolean would leave the first mount in place and make the
-// control silently inert after its first use. The probe itself is untouched — the
-// console absorbs the three shipped Tier-1 components and re-authors none of them,
-// and `renderAbsorbedSessionProbe` carries the fixture guard, so this file never
-// has to know that the probe reads the installed bridge directly.
+// control silently inert after its first use. The probe still performs the create —
+// the console absorbs the three shipped Tier-1 components and re-authors none of
+// them, and `renderAbsorbedSessionProbe` carries the fixture guard, so this file
+// never has to know that the probe reads the installed bridge directly.
+//
+// WHAT CHANGED IS THAT THE CONSOLE NOW HEARS THE RESULT. Counting presses was all
+// this surface could do while the probe handed its settlement to nobody: the session
+// a press produced had a name no console surface could learn, so the start path
+// opened no store, recorded no origin, and navigated nowhere, and the new session
+// stayed absent from the all-sessions list until the window came down. The probe
+// takes one additive, optional `onCreated` now, and `acts/session-start.ts` is what
+// a settled create reaches — beside `onJoined`, doing the same four things a settled
+// join does, for the act next door.
 //
 // ONE ATTENTION READ FOR THE WHOLE WINDOW, AND THIS DESTINATION DOES NOT PERFORM IT.
 // The notification center renders it and the list takes each row's severity from the
@@ -87,6 +96,7 @@ import { useOpenSessionProjection } from "./rows/open-session-rows.js";
 import { useSessionPreferences } from "./rows/session-preferences.js";
 import { sessionListDegradation } from "./session-list-degradation.js";
 import { SessionActs } from "./acts/SessionActs.js";
+import { settleSessionStart } from "./acts/session-start.js";
 import { useSessionAttention } from "./SessionAttentionBinding.js";
 import { useSessionPins } from "./rows/session-pins.js";
 import { SessionRowsView } from "./SessionRowsView.js";
@@ -284,7 +294,20 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
 
       {startRequestCount === 0 ? null : (
         <div className="meridian-sessions__started" key={startRequestCount}>
-          {renderAbsorbedSessionProbe(context.bridge.source)}
+          {renderAbsorbedSessionProbe(context.bridge.source, (created) => {
+            // A SETTLED create and never the press, on the settled join's own terms
+            // one screen up. The probe is the only `session.create` caller in this
+            // renderer and it now hands the session out, so this destination stops
+            // counting presses and starts acting on the session a press produced.
+            settleSessionStart({
+              bridge: context.bridge,
+              sessionStoreRegistry: context.sessionStoreRegistry,
+              pins,
+              preferences,
+              openSession,
+              sessionId: created.sessionId,
+            });
+          })}
         </div>
       )}
     </section>
