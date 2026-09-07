@@ -15,6 +15,13 @@
 // asserts that the forwarded file's own NAME appears in what vitest reported,
 // which is the only reading that separates "it ran" from "it was skipped".
 //
+// AND WHAT IT ASSERTS ON IS READ PLAIN. Every reading of the child's streams
+// goes through one stripper and the child runs with colour turned off, because
+// the first version of the selection case did neither and asserted on raw bytes:
+// on a developer's machine a piped child stays uncoloured and the case passed,
+// while the runner colourizes and the reporter puts escapes BETWEEN the words of
+// the very line the case matched. It was measuring terminal support.
+//
 // The refusal matters because a wrong invocation of this script is SILENT. Both
 // halves were measured, not reasoned about: with the ref appended after
 // `--maxWorkers=2` it arrived as a positional file filter and vitest reported
@@ -27,6 +34,7 @@ import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -82,8 +90,57 @@ function runScript(...args: readonly string[]): SpawnSyncReturns<string> {
     {
       cwd: PACKAGE_ROOT,
       encoding: "utf8",
+      env: colourFreeEnvironment(),
     },
   );
+}
+
+/**
+ * The child's environment with colour turned off, whatever this host exports.
+ *
+ * `NO_COLOR` AND NOT `FORCE_COLOR=0`, and the difference is a real inversion
+ * rather than a preference. Both colour libraries in this tree decide on
+ * PRESENCE or on JavaScript truthiness, never on the number a reader would
+ * expect: vitest's `tinyrainbow@3.1.0` asks `"FORCE_COLOR" in env`, and
+ * `picocolors@1.1.1` asks `!!env.FORCE_COLOR` — and `"0"` is a non-empty string,
+ * so it is truthy. Setting `FORCE_COLOR` to `"0"` therefore turns colour ON in
+ * both. `NO_COLOR` is what actually decides, in both, ahead of everything else.
+ *
+ * The inherited variable is DELETED rather than overwritten for the same
+ * reason: under a presence check any value at all forces colour, so the only
+ * safe value is no variable.
+ *
+ * This is the child's environment and never the operator's — the script itself
+ * keeps whatever colour its caller wants, and nothing here is exported.
+ */
+function colourFreeEnvironment(): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
+  delete environment["FORCE_COLOR"];
+  return environment;
+}
+
+/**
+ * The child's stdout with terminal control sequences removed. The ONE reader.
+ *
+ * Every assertion about what the command reported goes through this, because a
+ * summary line the runner colourized carries escapes BETWEEN its words — CI
+ * emitted `Test Files \u001B[22m \u001B[1m\u001B[32m1 passed`, where `\s+`
+ * cannot match — and an assertion that reads the raw bytes is measuring the
+ * host's terminal support rather than the command's behaviour. It passed on a
+ * developer's machine, where a piped child stays uncoloured, and failed on the
+ * runner, where the job's environment turns colour on.
+ *
+ * `node:util`'s own stripper rather than a pattern of ours: the escape grammar
+ * is not a thing this package should hold an opinion about, and a regex written
+ * here would be a second implementation of something the platform ships.
+ */
+function plainStdout(result: SpawnSyncReturns<string>): string {
+  return stripVTControlCharacters(result.stdout);
+}
+
+/** The child's stderr, read the same way and for the same reason. */
+function plainStderr(result: SpawnSyncReturns<string>): string {
+  return stripVTControlCharacters(result.stderr);
 }
 
 /**
@@ -125,12 +182,12 @@ describe("test:changed refuses an invocation with no base ref", () => {
     const refused = runScript();
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
-    expect(refused.stderr).toContain("no base ref");
-    expect(refused.stderr).toContain("test:changed <base-ref>");
+    expect(plainStderr(refused)).toContain("no base ref");
+    expect(plainStderr(refused)).toContain("test:changed <base-ref>");
     // Nothing was run. A refusal that had already started vitest would leave the
     // caller reading a partial run's output beside a message telling them the
     // run never happened.
-    expect(refused.stdout).toBe("");
+    expect(plainStdout(refused)).toBe("");
   });
 
   it("runs vitest once it has one, so the refusal is about the ref", () => {
@@ -144,8 +201,8 @@ describe("test:changed refuses an invocation with no base ref", () => {
     const helped = runScript(checkoutLocalCommit(), "--help");
 
     expect(helped.status).toBe(0);
-    expect(helped.stdout).toContain("vitest run");
-    expect(helped.stderr).toBe("");
+    expect(plainStdout(helped)).toContain("vitest run");
+    expect(plainStderr(helped)).toBe("");
   });
 });
 
@@ -169,13 +226,13 @@ describe("test:changed refuses a base ref that resolves to no commit", () => {
     const refused = runScript(UNRESOLVABLE_REF);
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
-    expect(refused.stderr).toContain(UNRESOLVABLE_REF);
-    expect(refused.stderr).toContain("resolves to no commit");
+    expect(plainStderr(refused)).toContain(UNRESOLVABLE_REF);
+    expect(plainStderr(refused)).toContain("resolves to no commit");
     // Nothing was run, and git said nothing of its own. The resolution captures
     // both of git's streams, so a reader's whole picture of this failure is the
     // sentence this script wrote — and a refusal that had already started vitest
     // would leave partial run output above a message saying it never ran.
-    expect(refused.stdout).toBe("");
+    expect(plainStdout(refused)).toBe("");
   });
 
   it("refuses a ref that names an object which is not a commit", () => {
@@ -186,8 +243,8 @@ describe("test:changed refuses a base ref that resolves to no commit", () => {
     const refused = runScript("HEAD^{tree}");
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
-    expect(refused.stderr).toContain("resolves to no commit");
-    expect(refused.stdout).toBe("");
+    expect(plainStderr(refused)).toContain("resolves to no commit");
+    expect(plainStdout(refused)).toBe("");
   });
 });
 
@@ -202,8 +259,35 @@ describe("test:changed runs the project that owns each forwarded file", () => {
    */
   const MAIN_UNIT_FILE = "src/shared/wire-errors.test.ts";
 
+  /**
+   * Vitest's own count line, which is the reading that says the file RAN.
+   *
+   * Named once because the control below has to hold the same pattern against a
+   * colourized sample; two copies would let the control drift off the assertion
+   * it exists to justify.
+   */
+  const TEST_FILE_COUNT = /Test Files\s+1 passed/;
+
   /** A real file owned by a tier this command deliberately does not run. */
   const ELECTRON_TIER_FILE = "test/console/e2e/frame-boot.test.ts";
+
+  it("negative control: the colourized summary this pattern must survive", () => {
+    // The bytes GitHub Actions produced, copied from the failing job rather than
+    // imagined: the reporter emits the count with escapes BETWEEN the words, so
+    // `\s+` has a `\u001B[22m` where it wants a space. Without the strip this
+    // suite measured the runner's terminal support and called it a selection.
+    //
+    // Both halves are asserted, and the first is what makes the second mean
+    // anything: a pattern that matched the raw bytes would prove nothing about
+    // the stripping, and one that matched neither would prove nothing at all.
+    const colourized =
+      "\u001B[2m Test Files \u001B[22m \u001B[1m\u001B[32m1 passed\u001B[39m\u001B[22m (1)\n";
+
+    expect(colourized, "the hazard is gone, so this control now proves nothing").not.toMatch(
+      TEST_FILE_COUNT,
+    );
+    expect(stripVTControlCharacters(colourized)).toMatch(TEST_FILE_COUNT);
+  });
 
   it("selects `main-unit` for a `main-unit` file and actually runs it", () => {
     const ran = runScript(checkoutLocalCommit(), MAIN_UNIT_FILE);
@@ -216,9 +300,9 @@ describe("test:changed runs the project that owns each forwarded file", () => {
     // that separates "it ran" from "it was skipped" is the FILE COUNT: exactly
     // one, against the `No test files found` an empty selection reports.
     expect(
-      ran.stdout,
+      plainStdout(ran),
       "the forwarded file was not run — the selection excludes the project that owns it",
-    ).toMatch(/Test Files\s+1 passed/);
+    ).toMatch(TEST_FILE_COUNT);
   }, 120_000);
 
   it("refuses a file no unit project claims rather than skipping it", () => {
@@ -228,7 +312,7 @@ describe("test:changed runs the project that owns each forwarded file", () => {
     const refused = runScript(checkoutLocalCommit(), ELECTRON_TIER_FILE);
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
-    expect(refused.stderr).toContain(ELECTRON_TIER_FILE);
-    expect(refused.stderr).toContain("claimed by none of");
+    expect(plainStderr(refused)).toContain(ELECTRON_TIER_FILE);
+    expect(plainStderr(refused)).toContain("claimed by none of");
   }, 120_000);
 });
