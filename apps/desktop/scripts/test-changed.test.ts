@@ -271,6 +271,15 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   /** A real file owned by a tier this command deliberately does not run. */
   const ELECTRON_TIER_FILE = "test/console/e2e/frame-boot.test.ts";
 
+  /**
+   * The usage line of vitest's own help, counted rather than merely found.
+   *
+   * `toContain` cannot tell one copy of the help from two, and two is exactly
+   * what a classifier that asked vitest's parser about a help request would
+   * produce — the parser writes the option list to the CALLING process.
+   */
+  const VITEST_RUN_USAGE_LINE = "$ vitest run";
+
   it("negative control: the colourized summary this pattern must survive", () => {
     // The bytes GitHub Actions produced, copied from the failing job rather than
     // imagined: the reporter emits the count with escapes BETWEEN the words, so
@@ -304,6 +313,59 @@ describe("test:changed runs the project that owns each forwarded file", () => {
       "the forwarded file was not run — the selection excludes the project that owns it",
     ).toMatch(TEST_FILE_COUNT);
   }, 120_000);
+
+  it("runs the file beside an option written in either documented form", () => {
+    // THE FINDING. Vitest documents both a separate-value and an attached form
+    // for a value-taking option, and the shape rule this replaced — "an argument
+    // not starting with `-` is a file" — read the SEPARATE form's operand as a
+    // path. `--testNamePattern "palette opens"` and `--reporter verbose` were
+    // therefore claimed by no project and refused with the misuse code: a valid
+    // invocation this command would not run.
+    //
+    // The pattern CARRIES A SPACE deliberately — that is the reported shape — and
+    // is `. `, which matches every test name in the file below without this suite
+    // holding a copy of any of them. A bare space would be worse than useless:
+    // vitest's parser coerces a numeric-looking value, and `Number(" ")` is `0`.
+    const invocations: readonly (readonly string[])[] = [
+      ["--testNamePattern", ". ", "--reporter", "verbose", MAIN_UNIT_FILE],
+      ["--reporter=verbose", MAIN_UNIT_FILE],
+    ];
+
+    for (const invocation of invocations) {
+      const ran = runScript(checkoutLocalCommit(), ...invocation);
+
+      expect(ran.status, invocation.join(" ")).toBe(0);
+      expect(plainStdout(ran), invocation.join(" ")).toMatch(TEST_FILE_COUNT);
+      // And the reporter really was forwarded as an OPTION rather than swallowed:
+      // the default reporter names no path on a clean run, so a path in the output
+      // is the verbose reporter and nothing else.
+      expect(plainStdout(ran), invocation.join(" ")).toContain(MAIN_UNIT_FILE);
+    }
+  }, 240_000);
+
+  it("refuses an argument list vitest's own parser refuses, in its words", () => {
+    // The other half of asking vitest rather than guessing. `--silent` takes an
+    // OPTIONAL value, and cac rejects the space-separated spelling outright — so
+    // the caller is told which form to write, here, before a run is started,
+    // rather than downstream where the sentence would be about something else.
+    const refused = runScript(checkoutLocalCommit(), "--silent", MAIN_UNIT_FILE);
+
+    expect(refused.status).toBe(MISUSE_EXIT_CODE);
+    expect(plainStderr(refused)).toContain("cannot read these arguments");
+    expect(plainStderr(refused)).toContain("--silent=true");
+    expect(plainStdout(refused)).toBe("");
+  }, 120_000);
+
+  it("negative control: a help request prints vitest's usage exactly once", () => {
+    // Why the classifier skips a help request instead of asking about it. Vitest's
+    // parser answers `--help` by WRITING the whole option list to the calling
+    // process's stdout, so classifying such an invocation would put a second copy
+    // above the child's own. One occurrence is the assertion; two is the defect.
+    const helped = runScript(checkoutLocalCommit(), "--help");
+
+    expect(helped.status).toBe(0);
+    expect(plainStdout(helped).split(VITEST_RUN_USAGE_LINE).length - 1).toBe(1);
+  });
 
   it("refuses a file no unit project claims rather than skipping it", () => {
     // The other half: this command runs the projects that need no prior build,

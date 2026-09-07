@@ -60,6 +60,17 @@
 // files has stated it, and the ref is still required and still resolved so a
 // stale one is still reported.
 //
+// AND WHICH ARGUMENTS ARE FILES IS ASKED OF VITEST
+// --------------------------------------------------
+// Deciding that by shape — "anything not starting with `-` is a file" — reads an
+// option's separate-value operand as one. `--testNamePattern "palette opens"`
+// and `--reporter verbose` are both documented forms, and both were resolved as
+// paths, claimed by no project, and refused with the misuse code: a valid
+// invocation this script would not run, which is the opposite failure from the
+// three above and just as bad. `vitest/node` exports `parseCLI`, which is the
+// parser the child runs, so the answer here and the child's selection cannot
+// disagree — and no arity table of ours can go stale against vitest's own.
+//
 // So the projects are DERIVED from what was forwarded rather than fixed. Which
 // project claims a file is a question only the runner can answer — brace
 // expansion, whether `**` spans zero segments, how `exclude` composes with
@@ -197,9 +208,10 @@ function refuseUnlessBaseRefResolves(baseRef: string, packageRoot: string): void
  *
  * Resolving costs about two hundred milliseconds and runs nothing: the config is
  * loaded and the `TestProject` instances are constructed, no suite is collected
- * and no browser is launched. It is loaded lazily so an invocation that forwards
- * no file — the ordinary `--changed`-only run, and the `--help` probe — pays
- * none of it.
+ * and no browser is launched. `vitest/node` is loaded lazily HERE AND IN THE
+ * CLASSIFIER ABOVE, and both short-circuit before reaching for it, so the two
+ * invocations that need neither — the ordinary `--changed`-only run, which
+ * forwards nothing, and the `--help` probe — still pay none of it.
  *
  * A forwarded file no unit project claims is a REFUSAL and never a narrowing.
  * Vitest treats a filter that matches nothing as an empty selection and exits
@@ -253,14 +265,67 @@ async function unitProjectsClaiming(
 }
 
 /**
- * Which forwarded arguments vitest would read as FILE FILTERS.
+ * The two spellings vitest's parser answers by PRINTING rather than by parsing.
  *
- * Vitest's positionals are its filters; anything beginning with `-` is an option
- * of its own and is forwarded untouched. Read here only to decide which
- * projects to select — every argument is passed on either way.
+ * `--help` and `-h` make cac write the whole option list — measured at 9383
+ * bytes on `vitest@4.1.5` — to the CURRENT process's stdout and return an empty
+ * filter. Asking it about such an invocation would therefore put a second copy of
+ * vitest's help above the child's own, so the classification is skipped: a run
+ * that only asks for help selects no file and there is nothing to derive.
+ * `--version` is deliberately absent, having been measured to print nothing.
  */
-function forwardedFileFilters(forwarded: readonly string[]): readonly string[] {
-  return forwarded.filter((argument) => !argument.startsWith("-"));
+const PARSER_ANSWERS_BY_PRINTING: readonly string[] = ["--help", "-h"];
+
+/**
+ * Which forwarded arguments vitest would read as FILE FILTERS, asked of VITEST.
+ *
+ * NOT A CLASSIFIER OF OUR OWN, and that is the whole of the fix. The rule this
+ * replaced was "anything beginning with `-` is an option", which reads an
+ * option's SEPARATE-VALUE operand as a file: `--testNamePattern "palette opens"`
+ * and `--reporter verbose` are both documented forms, and both handed
+ * `unitProjectsClaiming()` a value it resolved as a path, matched to no project,
+ * and refused with the misuse code — a valid invocation this script would not
+ * run. Any arity table written here would be a second parser holding a copy of
+ * vitest's own option list, which is the drift `AGENTS.md §Shared code` forbids
+ * and which no test could keep current.
+ *
+ * `parseCLI` is vitest's parser, exported from `vitest/node`, so what it calls a
+ * filter is what the spawned run will select — including the cases where that is
+ * surprising. `--update foo.test.ts` yields no filter because `--update` takes an
+ * OPTIONAL argument and eats the operand; an unrecognized `--flag value` eats it
+ * the same way. Neither is a false green: the file was never going to be a filter
+ * in the child either, so the selection this derives and the selection the run
+ * performs cannot disagree.
+ *
+ * A parse REFUSAL is this script's refusal. cac rejects a space-separated value
+ * for an optional-argument option (`--silent foo.test.ts`) by throwing, naming
+ * the ambiguity and the attached form that resolves it — so the caller is told
+ * what to write rather than handed a run that would refuse further downstream.
+ *
+ * The options this script adds itself cannot perturb the reading: they are all
+ * written in the attached `--name=value` form, which terminates its own argument
+ * and can consume no operand of the caller's.
+ */
+async function forwardedFileFilters(forwarded: readonly string[]): Promise<readonly string[]> {
+  if (forwarded.length === 0 || forwarded.some(asksForHelp)) {
+    return [];
+  }
+  const { parseCLI } = await import("vitest/node");
+  try {
+    return parseCLI(["vitest", "run", ...forwarded]).filter;
+  } catch (error) {
+    process.stderr.write(
+      `${LOG_PREFIX} vitest cannot read these arguments: ` +
+        `${error instanceof Error ? error.message : String(error)}\n${USAGE}\n`,
+    );
+    process.exit(MISUSE_EXIT_CODE);
+  }
+}
+
+/** Whether `argument` is one of the spellings above, attached form included. */
+function asksForHelp(argument: string): boolean {
+  const name = argument.split("=")[0] ?? argument;
+  return PARSER_ANSWERS_BY_PRINTING.includes(name);
 }
 
 async function runChangedTier(): Promise<void> {
@@ -282,7 +347,7 @@ async function runChangedTier(): Promise<void> {
   // the whole selection and a lane's commit reaches any of them; the claiming
   // subset when files were, because a file's own project is the only one that
   // can run it and the others would each report an empty selection.
-  const fileFilters = forwardedFileFilters(forwarded);
+  const fileFilters = await forwardedFileFilters(forwarded);
   const projects =
     fileFilters.length === 0
       ? CHANGED_TIER_PROJECTS
