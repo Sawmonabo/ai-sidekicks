@@ -19,12 +19,17 @@
 // reasoning: the confirm control closes the dialog, so anything drawn inside it is
 // drawn into a popup that is already gone — and `worktree.retire_conflict`, the refusal
 // a root held by a live run takes, would be silent.
+//
+// WHICH IS ALSO WHY THE DISCARD RULE IS NOT THIS MODULE'S. That same close reaches
+// `onOpenChange`, so a discard keyed on it takes back the `sending` the press had just
+// published; `confirmation/confirmation-lifecycle.ts` holds the two moments a discard
+// belongs to, and this file wires them rather than restating them.
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { useCallback } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { InlineRefusal, Nothing } from "../../../primitives/index.js";
+import { useConfirmationLifecycle } from "../confirmation/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
 import { useRootDisposal, type DisposalReading } from "./disposal-controller.js";
@@ -55,21 +60,14 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
   const subject = disposalSubjectFor(props.kind, props.rootId);
   const { reading, send, clear } = useRootDisposal(props.bridge, subject);
   const { onSettled } = props;
-
-  const openChanged = useCallback(
-    (isOpen: boolean) => {
-      if (!isOpen) {
-        // A reopened confirmation asks the question again rather than displaying the
-        // last answer: the settlement belonged to the press that produced it.
-        clear();
-      }
-    },
-    [clear],
-  );
+  // The settlement belonged to the press that produced it, so a reconsideration of the
+  // question discards it and a walk away discards it — and the confirm press, which
+  // closes this dialog on its way to publishing the next one, discards nothing.
+  const lifecycle = useConfirmationLifecycle(clear);
 
   return (
     <div className="meridian-root-disposal">
-      <AlertDialog.Root onOpenChange={openChanged}>
+      <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
           className="meridian-root-disposal__trigger"
           disabled={reading.status === "sending"}
@@ -87,7 +85,10 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
               {subject.consequence}
             </AlertDialog.Description>
             <div className="meridian-root-disposal__acts">
-              <AlertDialog.Close className="meridian-root-disposal__cancel">
+              <AlertDialog.Close
+                className="meridian-root-disposal__cancel"
+                onClick={lifecycle.cancelled}
+              >
                 Keep it
               </AlertDialog.Close>
               <AlertDialog.Close

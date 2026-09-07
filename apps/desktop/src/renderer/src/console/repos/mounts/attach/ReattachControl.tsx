@@ -23,6 +23,12 @@
 // one `repo.attach` caller: the path and the node both come off the mount row, so
 // there is no form and nothing to validate, and the settlement renders in the same
 // three arms the dialog's does.
+//
+// AND IT REUSES THE CONFIRMATION LIFECYCLE FOR THE SAME REASON. The confirm control
+// closing this dialog is what reaches `onOpenChange`, so a discard keyed on the close
+// takes back the `sending` that press had just published;
+// `confirmation/confirmation-lifecycle.ts` holds the two moments a discard belongs to,
+// and both of this family's alert dialogs wire it rather than each stating the rule.
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { useCallback, useEffect, useRef } from "react";
@@ -30,6 +36,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { SessionStore } from "../../../store/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import { useConfirmationLifecycle } from "../confirmation/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
 import { useAttachController, type AttachActReading } from "./attach-controller.js";
@@ -53,6 +60,10 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
   const confirm = useCallback(() => {
     attach(localPath, nodeId);
   }, [attach, localPath, nodeId]);
+  // The settlement belongs to the press that produced it. A dialog reopened after a
+  // refusal asks the question again, a dialog cancelled discards the answer with it,
+  // and the confirm press — which closes this dialog — discards nothing.
+  const lifecycle = useConfirmationLifecycle(clearAct);
 
   // ONE READ PER MINTED MOUNT, on the dialog's own reasoning: the id is what changes
   // when an attach settles, and a ref is what keeps a re-render from asking again.
@@ -69,15 +80,7 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
 
   return (
     <div className="meridian-reattach">
-      <AlertDialog.Root
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            // The settlement belongs to the press that produced it. A dialog reopened
-            // after a refusal must ask the question again, not display the last answer.
-            clearAct();
-          }
-        }}
-      >
+      <AlertDialog.Root onOpenChange={lifecycle.openChanged}>
         <AlertDialog.Trigger
           className="meridian-reattach__trigger"
           disabled={reading.act.status === "sending"}
@@ -107,7 +110,10 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
               </dd>
             </dl>
             <div className="meridian-reattach__acts">
-              <AlertDialog.Close className="meridian-reattach__cancel">
+              <AlertDialog.Close
+                className="meridian-reattach__cancel"
+                onClick={lifecycle.cancelled}
+              >
                 Leave it as it is
               </AlertDialog.Close>
               <AlertDialog.Close className="meridian-reattach__confirm" onClick={confirm}>

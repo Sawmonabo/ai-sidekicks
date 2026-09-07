@@ -33,9 +33,15 @@
 // mints a new mount row — because the alternative reading of this verdict is that a
 // participant waits for a root to come back that has not gone anywhere.
 
-import type { RepoMountHealth, RepoMountReadResponse, VcsType } from "@ai-sidekicks/contracts";
+import type {
+  ExecutionMode,
+  RepoMountHealth,
+  RepoMountReadResponse,
+  VcsType,
+} from "@ai-sidekicks/contracts";
 import type { RepoMountState } from "@ai-sidekicks/contracts";
 import type { ChipTone } from "../../primitives/index.js";
+import { selectionInFlightCopy } from "./execution-mode-selection.js";
 
 /**
  * One axis reading, as a card renders it.
@@ -178,4 +184,48 @@ export function bindControlPosture(mount: RepoMountReadResponse): BindControlPos
     };
   }
   return BIND_CONTROLS_OFFERED;
+}
+
+/**
+ * Whether ONE workspace's binding controls are live, and what is holding them.
+ *
+ * THE SAME QUESTION AS `bindControlPosture`, ONE LEVEL DOWN, and it exists because two
+ * controls on a workspace row ask it: the execution-mode picker and the root
+ * preparation beneath it. They are two halves of one act — the picker names the mode a
+ * run binds in, and the preparation puts that mode's root on disk — so a posture read
+ * twice would be two rules, and the pair that drifted apart is exactly the pair that
+ * shipped: the picker held itself for a pending switch and the preparation did not, so
+ * a writable workspace could submit a prepare read off the `executionMode` the switch
+ * was in the middle of replacing.
+ *
+ * TWO THINGS CLOSE THESE CONTROLS AND THE MOUNT'S IS FIRST, on `bindControlPosture`'s
+ * own precedence: a mount that will refuse every bind is a fact about the row, and a
+ * switch on the wire is a fact about this moment — so a detached row never reads as
+ * something to wait out.
+ *
+ * FAIL-CLOSED PROJECTION AND NOT ELIGIBILITY, in every clause `bindControlPosture`
+ * states it in: the daemon decides what it accepts and answers a refusal with its own
+ * typed code. What is decided here is only whether the console offers a control it has
+ * been told cannot succeed, and the held arm carries the sentence so no call site
+ * invents one.
+ */
+export type WorkspaceControlPosture =
+  | { readonly live: true }
+  | { readonly live: false; readonly heldBecause: string };
+
+const WORKSPACE_CONTROLS_LIVE: WorkspaceControlPosture = { live: true };
+
+export function workspaceControlPosture(
+  bindControls: BindControlPosture,
+  pendingMode: ExecutionMode | undefined,
+): WorkspaceControlPosture {
+  if (!bindControls.offered) {
+    return { live: false, heldBecause: bindControls.withheldBecause };
+  }
+  if (pendingMode !== undefined) {
+    // The sentence the selection act already refuses a second press with — one
+    // in-flight switch, one wording, wherever the participant meets it.
+    return { live: false, heldBecause: selectionInFlightCopy(pendingMode) };
+  }
+  return WORKSPACE_CONTROLS_LIVE;
 }

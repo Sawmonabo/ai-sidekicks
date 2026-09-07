@@ -42,6 +42,7 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { Chip, Glyph, Nothing, WireFigure, type ChipTone } from "../../primitives/index.js";
 import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
+import { workspaceControlPosture, type BindControlPosture } from "./mount-health.js";
 import { PrepareExecutionRoot } from "./roots/PrepareExecutionRoot.js";
 import type { SessionStore } from "../../store/index.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
@@ -85,13 +86,24 @@ export interface WorkspaceCardProps {
   readonly onRequestRead: () => void;
   /** The session the execution-context read's own refresh triggers listen to. */
   readonly sessionStore: SessionStore;
-  /** False when the owning mount's card withholds its bind controls. */
-  readonly modeControlsOffered: boolean;
+  /**
+   * The owning mount's own bind posture, handed down rather than re-read.
+   *
+   * The POSTURE and not a boolean, because the withheld arm carries the sentence the
+   * mount card is already rendering — so the two controls below can say why they are
+   * held without this row composing a second wording for the same state.
+   */
+  readonly bindControls: BindControlPosture;
   readonly onSelectExecutionMode: (executionMode: ExecutionMode) => void;
 }
 
 export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
   const { workspace } = props;
+  // ONE POSTURE FOR BOTH BINDING CONTROLS, derived here because this row is the one
+  // place that holds both of its inputs. The picker names the mode a run binds in and
+  // the preparation puts that mode's root on disk, so a posture read twice is two
+  // rules — and the pair that drifted is the pair that shipped.
+  const posture = workspaceControlPosture(props.bindControls, props.pendingMode);
   return (
     <article className="meridian-workspace-card" aria-label={`Workspace ${workspace.id}`}>
       <header className="meridian-workspace-card__head">
@@ -142,7 +154,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         refusal={props.refusal}
         refusalMode={props.refusalMode}
         pendingMode={props.pendingMode}
-        disabled={!props.modeControlsOffered}
+        posture={posture}
         onSelect={props.onSelectExecutionMode}
       />
 
@@ -150,7 +162,9 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         THE PREPARE SITS UNDER THE PICKER because it is about the mode the row is bound
         in NOW: which call it sends and whether it asks a reuse question are both read
         off that mode, so a control drawn above the picker would be offering to prepare
-        a root for a binding the participant is in the middle of changing.
+        a root for a binding the participant is in the middle of changing. Position was
+        all that said so, though — the posture above is what now HOLDS it while that
+        change is on the wire, and while the mount refuses binds at all.
       */}
       <PrepareExecutionRoot
         bridge={props.bridge}
@@ -158,6 +172,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         repoMountId={workspace.repoMountId}
         executionMode={workspace.executionMode}
         sessionStore={props.sessionStore}
+        posture={posture}
         onPrepared={props.onRequestRead}
       />
     </article>
