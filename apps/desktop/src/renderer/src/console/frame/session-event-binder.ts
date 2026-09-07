@@ -47,6 +47,16 @@
 //     as if no read existed. `#bindSession` requests the read in the same act as
 //     taking the subscription, so the two cannot be separated by a caller who
 //     remembers one of them.
+//   • **No session left unbound because the wire was away when it opened.** A
+//     `daemon.subscribe` that throws leaves the session with no stream and no base
+//     state, and the registry's `opened` change has already been delivered — so
+//     nothing was going to say that session's name again until somebody closed and
+//     reopened it. The failed ids are RETAINED here and retried on the transport's
+//     returning edge, through the same signal this class reports into, so the retry
+//     rides an observation rather than a timer and no second subscription exists to
+//     keep in step. The set is bounded by the open set: `#unbindSession` forgets a
+//     session that closes, so a window that never reconnects retains at most one id
+//     per session it is holding open.
 //
 // WHAT THE WIRE ACTUALLY OFFERS, AND WHAT THIS DOES ABOUT IT
 //
@@ -112,10 +122,23 @@ export class SessionEventBinder {
   readonly #bridge: ConsoleBridge;
   readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
+  /**
+   * Open sessions whose `daemon.subscribe` threw, waiting for the wire to come back.
+   *
+   * Bounded by the OPEN SET rather than by a cap, which is the property that makes a
+   * plain `Set` the right holder: an id joins on a failed open and leaves on the
+   * session's close or on a retry that took a subscription, so nothing accumulates
+   * across a window's life. A retained id is also the honest reading of the state —
+   * this window holds a store for that session and no stream feeding it.
+   */
+  readonly #unboundSessionIds = new Set<string>();
   readonly #diagnosticsHandle = new SessionDiagnosticsHandle();
   #unsubscribeFromRegistry: Unsubscribe | undefined;
+  #unsubscribeFromTransportReconnect: Unsubscribe | undefined;
   #unreadableDeliveryCount = 0;
   #droppedAfterCloseCount = 0;
+  #retriedBindCount = 0;
+  #retryingUnboundSessions = false;
   #attached = false;
   #disposed = false;
 
@@ -139,6 +162,12 @@ export class SessionEventBinder {
    * is still installed on that arm: "bound: none, applied: zero" is a reading, and
    * an absent handle is indistinguishable from a build with no binder at all.
    *
+   * A THIRD SUBSCRIPTION IS TAKEN ON THAT SAME ARM: the transport's returning edge,
+   * which is what re-attempts the sessions whose open threw. It is the signal this
+   * class already reports INTO, so the retry costs no probe, no timer, and no second
+   * reading of whether the wire is there — and the signal emits only on
+   * `unreachable → reachable`, so a window whose wire never went away pays nothing.
+   *
    * Idempotent, and a no-op once disposed: a disposed binder holds no
    * subscription and must not be able to start one from a late effect.
    */
@@ -155,6 +184,9 @@ export class SessionEventBinder {
         }
         this.#unbindSession(change.sessionId);
       });
+      this.#unsubscribeFromTransportReconnect = this.#bridge.transportReconnect.subscribe(() => {
+        this.#retryUnboundSessions();
+      });
       for (const sessionId of this.#registry.openSessionIds) {
         this.#bindSession(sessionId);
       }
@@ -165,6 +197,28 @@ export class SessionEventBinder {
   /** Sessions this binder holds a wire subscription for, in bind order. */
   public get boundSessionIds(): readonly string[] {
     return [...this.#unsubscribeBySessionId.keys()];
+  }
+
+  /**
+   * Open sessions whose stream could not be opened, in the order they failed.
+   *
+   * The reading that makes a failed open observable rather than merely counted: a
+   * session named here has a store this window is holding and no wire feeding it,
+   * and it leaves this set on the next returning edge or when it closes.
+   */
+  public get unboundSessionIds(): readonly string[] {
+    return [...this.#unboundSessionIds];
+  }
+
+  /**
+   * Binds re-attempted on a returning transport edge, whether or not they took.
+   *
+   * Counted for the reason `droppedAfterCloseCount` is: the retry is correct, and a
+   * window that keeps re-attempting the same session on every reconnect is a wire
+   * fault upstream that only a count makes visible.
+   */
+  public get retriedBindCount(): number {
+    return this.#retriedBindCount;
   }
 
   /** Events admitted to one session's apply chokepoint. Frozen once it closes. */
@@ -216,10 +270,15 @@ export class SessionEventBinder {
     this.#disposed = true;
     this.#unsubscribeFromRegistry?.();
     this.#unsubscribeFromRegistry = undefined;
+    this.#unsubscribeFromTransportReconnect?.();
+    this.#unsubscribeFromTransportReconnect = undefined;
     for (const unsubscribe of this.#unsubscribeBySessionId.values()) {
       unsubscribe();
     }
     this.#unsubscribeBySessionId.clear();
+    // Released with the rest: a retained id is a promise to re-attempt, and a
+    // disposed binder makes none.
+    this.#unboundSessionIds.clear();
     this.#diagnosticsHandle.remove();
   }
 
@@ -233,10 +292,19 @@ export class SessionEventBinder {
    *
    * A throw used to leave this method as itself, out of the registry callback that
    * called it and into a mount effect, taking the window down for a transport that
-   * was merely away. It is now recorded: the signal is told the wire is unreachable,
-   * the tripwire says which session could not be bound, and no handle is stored — so
-   * the session stays unbound and the next `opened` change re-attempts it, which is
-   * the returning edge the signal exists to report.
+   * was merely away. It is now recorded on three surfaces, and each one answers a
+   * question the others cannot. The SIGNAL is told the wire is unreachable, so the
+   * returning edge exists at all. The session's own STORE is marked
+   * `subscription-closed` through the registry — the declared degraded cause
+   * `degradation.ts` reserves for "a wire that stopped" and the one thing a surface
+   * renders, so this session shows a stream it does not have as a named degradation
+   * rather than as a quiet, permanently empty projection. And the id is RETAINED, so
+   * the returning edge has something to re-attempt: the registry's `opened` change
+   * for this session has already been delivered and will not come again.
+   *
+   * The store's cause is sticky until a completed re-pull clears it, which is exactly
+   * right here — the retry asks for that re-pull, so a session that comes back stops
+   * being degraded because it was re-read and not because it was re-subscribed.
    */
   #bindSession(sessionId: string): void {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
@@ -249,11 +317,13 @@ export class SessionEventBinder {
         this.#deliver(sessionId, payload);
       });
     } catch (subscriptionFailure: unknown) {
+      this.#unboundSessionIds.add(sessionId);
+      this.#registry.markDegraded(sessionId, "subscription-closed");
       this.#bridge.transportReconnect.observe("unreachable");
       reportTripwire(
         "apply-chokepoint-bypass",
         SITE,
-        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the binder holds no subscription for it and the transport is reported unreachable`,
+        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the binder holds no subscription for it, its store is marked subscription-closed, and the session is retried on the transport's returning edge`,
       );
       return;
     }
@@ -261,6 +331,7 @@ export class SessionEventBinder {
     // signal emits on a CHANGE, so a window with four sessions open reports
     // `reachable` four times for one transport and wakes no reading three of them.
     this.#bridge.transportReconnect.observe("reachable");
+    this.#unboundSessionIds.delete(sessionId);
     this.#unsubscribeBySessionId.set(sessionId, release);
     // The read that gives the store its base state, asked for at the one moment
     // that knows a stream just started. `subscribe` is a registered refresh reason
@@ -273,7 +344,58 @@ export class SessionEventBinder {
     this.#registry.requestRefresh(sessionId, "subscribe");
   }
 
+  /**
+   * Re-attempt every session whose open threw, on the transport's returning edge.
+   *
+   * A SNAPSHOT of the set is walked rather than the set itself, because
+   * `#bindSession` writes into it on both arms — it deletes on success and re-adds
+   * on a second failure — and iterating a `Set` being written during the walk is
+   * where a re-added id gets visited twice.
+   *
+   * A retry that fails again reports `unreachable` from `#bindSession`, which puts
+   * the signal back where it was: the wire is away, and the NEXT returning edge is
+   * another attempt. That is the whole retry ladder, and it is the signal's rather
+   * than this class's — there is no backoff here because there is no timer here.
+   *
+   * AND THE PASS DOES NOT RE-ENTER ITSELF. Two retained sessions where the first
+   * open fails and the second succeeds drive the signal `unreachable` and then
+   * `reachable` INSIDE this walk, which is a returning edge and therefore delivers
+   * back into this method mid-pass. One pass over the retained set is what a
+   * returning edge is worth, so the flag turns the nested delivery into a no-op
+   * rather than a second walk that re-attempts the same sessions and double-counts
+   * them; the sessions still failing keep their ids and take the next real edge.
+   */
+  #retryUnboundSessions(): void {
+    if (this.#disposed || this.#retryingUnboundSessions) {
+      return;
+    }
+    this.#retryingUnboundSessions = true;
+    try {
+      this.#retryEachUnboundSession();
+    } finally {
+      this.#retryingUnboundSessions = false;
+    }
+  }
+
+  #retryEachUnboundSession(): void {
+    for (const sessionId of [...this.#unboundSessionIds]) {
+      // A session closed since it failed is not retried, and it is not retained
+      // either: the registry's `closed` change already forgot it. Asking the
+      // registry rather than trusting the set is the belt on that.
+      if (!this.#registry.has(sessionId)) {
+        this.#unboundSessionIds.delete(sessionId);
+        continue;
+      }
+      this.#retriedBindCount += 1;
+      this.#bindSession(sessionId);
+    }
+  }
+
   #unbindSession(sessionId: string): void {
+    // Dropped whether or not a subscription was ever taken: a session that closes
+    // has nothing left to retry, and this is what bounds the retained set by the
+    // open set rather than by the window's life.
+    this.#unboundSessionIds.delete(sessionId);
     const unsubscribe = this.#unsubscribeBySessionId.get(sessionId);
     if (unsubscribe === undefined) {
       return;

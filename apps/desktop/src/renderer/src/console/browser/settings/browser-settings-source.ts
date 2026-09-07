@@ -1,11 +1,12 @@
-// Where the browser settings page's two answers come from, and what each one is
-// before it has one.
+// What the browser settings page HOLDS: two node-wide reads, and the order their
+// answers are allowed to install in.
 //
 // The page next door is a PROJECTION — it fetches nothing, holds no store and runs no
 // effect, which is what keeps it renderable in a test, a screenshot tier and an
-// auxiliary window without a second code path. This module is the other half: the two
-// reads that feed it, and the mapping from what the growth port answers into the two
-// reading shapes the page's own models declare.
+// auxiliary window without a second code path. This module is the other half: the
+// reads that feed it and the two acts that invalidate them. The mapping from what the
+// growth port answered into the page's own reading shapes is `browser-settings-
+// readings.ts` beside it, so this file holds only the machine.
 //
 // BOTH READS GO THROUGH THE GROWTH PORT AND BOTH REFUSE TODAY. Neither the node's
 // browser policy nor its site-data partitions is a wire the corpus registers, so both
@@ -15,39 +16,76 @@
 // scenario states something it can be answered FROM, and a scenario states nothing
 // about a node's stored bytes.
 //
-// THE READS ARE TRIGGERED, NOT POLLED. Both are node-wide rather than session-scoped,
-// so they take the window's two triggers — the mount and the window regaining focus —
-// through `store/read-triggers.ts`, which is the console's one home for that wiring.
-// No interval, and no re-read on an unrelated render.
+// THE READS ARE TRIGGERED, NOT POLLED, AND THEY ARE ORDERED. Four things start a
+// refresh — the mount, the window regaining focus, the transport returning, and an act
+// this page performed — and until this carrier they raced. Two calls went out per
+// trigger and each published on arrival, so a partition list read BEFORE a clear could
+// answer after the read that followed it and put the cleared partition back on screen,
+// with a byte figure, under a control that had just reported success. The console has
+// one answer to both halves of that and this module uses it rather than a counter of
+// its own: `store/scheduling.ts`'s `RefreshScheduler` decides WHEN a read runs and
+// collapses a burst into one, and `store/generation-latch.ts` decides which answer may
+// install. Neither is re-implemented here — `apps/desktop/AGENTS.md` puts every
+// refresh through that one scheduler, and `subject-state-chokepoint.test.ts` fails a
+// second latch.
 //
-// A REFUSED SWITCH STILL RENDERS ITS ROW. `BrowserPolicySwitchReading` has exactly two
-// arms, and the map below is TOTAL over the switch tuple, so a switch the node never
-// answered for renders fail-closed with the refusal beside it rather than vanishing —
-// which is the row's own stated contract and the reason its reading type has no
-// third, absent arm.
+// ONE ROUND FOR BOTH READS, WHICH IS WHY THE KEY IS SINGULAR. The policy and the
+// partitions are two calls answering one question — what this node's browser settings
+// are right now — so they are awaited together and installed together under a single
+// latch key. Two keys would let a pass install half of itself: a policy answer from
+// the round before a write beside a partition answer from the round after it, which is
+// a screen no single moment ever looked like.
+//
+// AND AN ACT SUPERSEDES EVERY READ THAT STARTED BEFORE IT SETTLED, on both arms. A
+// served write moved the record, so a read taken against the record before it is stale
+// by construction; a refused write published a sentence the person is owed, and a read
+// landing afterwards would erase it without replacing the information. Superseding
+// costs nothing either way — nothing is cancelled, the reply simply installs nowhere —
+// and the re-read that follows a served act is scheduled through the same scheduler,
+// so it cannot overtake the read it superseded.
 
-import { useCallback, useMemo } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
-import { consoleRefusalFrom } from "../../seats/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { Emitter, type Unsubscribe } from "../../core/index.js";
 import {
+  GenerationLatch,
   NO_TRIGGERING_EVENT_KINDS,
-  useSubjectScopedState,
+  RefreshScheduler,
   useWindowReadTriggers,
   type ReadTriggerTarget,
+  type RefreshReason,
 } from "../../store/index.js";
 import {
-  BROWSER_POLICY_SWITCHES,
-  type BrowserPolicySwitchId,
-  type BrowserPolicySwitchReading,
-} from "./policy-switches.js";
+  partitionListingFrom,
+  partitionListingFromRejection,
+  policyReadingFromRejection,
+  policyReadingsFrom,
+  refusedPartitionListing,
+  refusedSwitchReading,
+  type BrowserPolicyReading,
+} from "./browser-settings-readings.js";
+import type { BrowserPolicySwitchId, BrowserPolicySwitchReading } from "./policy-switches.js";
 import type { BrowserPartitionListing } from "./site-partitions.js";
 import type { SiteDataActOutcome } from "./site-data-clear.js";
 
-/** The subsystem name a rejection that named no code of its own carries. */
-const BROWSER_SETTINGS_ORIGIN = "browser-settings";
+/**
+ * The one key both reads are taken under; an act supersedes whoever holds it.
+ *
+ * A console-local name and not a wire string: what it identifies is a round of this
+ * page's reading, which nothing outside this module can name.
+ */
+const SETTINGS_READ_KEY = "browser-settings-read";
 
-/** Everything the page is handed, composed from the two reads. */
+/** Everything the page renders from, in one value. */
+export interface BrowserSettingsSnapshot {
+  readonly policyReading: BrowserPolicyReading;
+  readonly partitions: BrowserPartitionListing;
+  /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
+  readonly revision: number;
+}
+
+/** Everything the page is handed: the two readings, and the two acts. */
 export interface BrowserSettingsSource {
   readonly switchReadings: Readonly<Record<BrowserPolicySwitchId, BrowserPolicySwitchReading>>;
   readonly toggleSwitch: (switchId: BrowserPolicySwitchId, nextEnabled: boolean) => void;
@@ -55,231 +93,271 @@ export interface BrowserSettingsSource {
   readonly clearSiteData: (sessionId: string) => Promise<SiteDataActOutcome>;
 }
 
+const NOTHING_READ: BrowserSettingsSnapshot = {
+  policyReading: { kind: "reading" },
+  partitions: { kind: "reading" },
+  revision: 0,
+};
+
 /**
- * What the policy read has settled into.
+ * The carrier: one scheduler, one latch key, two acts that supersede it.
  *
- * Its own union rather than the page's row shape, because the read answers for the
- * whole SET and a row answers for one switch: mapping the set onto the rows is what
- * `policyReadingsFrom` does, and holding the rows would mean holding two switches'
- * worth of the same refusal.
+ * A CLASS RATHER THAN THREE PIECES OF COMPONENT STATE, on `apps/desktop/AGENTS.md`'s
+ * rule and for its reason: the two readings and the round they belong to move
+ * together, and separate cells updated in sequence is the same machine with its
+ * illegal intermediate states reachable and unnamed.
+ *
+ * ONE INSTANCE PER BRIDGE. The hook below mints it keyed on the bridge, so a scenario
+ * swap builds a new carrier and the previous one's replies install nowhere — the
+ * property the subject-scoped holder gave this page before, obtained here from the
+ * same identity comparison the latch already makes.
  */
-type PolicyReading =
-  | { readonly kind: "reading" }
-  | { readonly kind: "read"; readonly values: Readonly<Record<string, boolean>> }
-  | { readonly kind: "refused"; readonly reading: BrowserPolicySwitchReading };
+export class BrowserSettingsView implements ReadTriggerTarget {
+  /**
+   * No session event refreshes these reads, and the empty set states it.
+   *
+   * Both answers are the NODE's rather than a session's, so nothing in any session's
+   * timeline tells this reading that the node's policy or its stored bytes moved. The
+   * window triggers are therefore the whole refresh story — which is why the read goes
+   * through a scheduler rather than firing once at mount and never again.
+   */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
+
+  readonly #bridge: ConsoleBridge;
+  readonly #changes = new Emitter<BrowserSettingsSnapshot>("browser settings change");
+  readonly #reads = new GenerationLatch();
+  readonly #scheduler: RefreshScheduler;
+  #snapshot: BrowserSettingsSnapshot = NOTHING_READ;
+  #hasStarted = false;
+  #isDisposed = false;
+
+  public constructor(bridge: ConsoleBridge) {
+    this.#bridge = bridge;
+    this.#scheduler = new RefreshScheduler({
+      clock: consoleClockFor(bridge),
+      perform: async () => {
+        await this.#read();
+      },
+      // `#read` publishes the port's refusal itself and never rejects, so this arm is
+      // for a defect in the publish rather than for anything about the wire — the
+      // console's other readings carry it for the same reason.
+      onError: () => undefined,
+    });
+  }
+
+  public snapshot(): BrowserSettingsSnapshot {
+    return this.#snapshot;
+  }
+
+  public subscribe(sink: () => void): Unsubscribe {
+    return this.#changes.subscribe(sink);
+  }
+
+  /** Read on mount. Idempotent: strict mode mounts an effect twice. */
+  public start(): void {
+    if (this.#hasStarted) {
+      return;
+    }
+    this.#hasStarted = true;
+    this.requestRead("subscribe");
+  }
+
+  /**
+   * Ask for a read. The scheduler decides what a burst of these costs.
+   *
+   * `subscribe` at mount, `window-focus` on return, `reconnect` when the transport
+   * came back, and `participant-request` after an act this page performed — the four
+   * reasons that reach a node-wide answer nothing events.
+   */
+  public requestRead(reason: RefreshReason): void {
+    if (this.#isDisposed) {
+      return;
+    }
+    this.#scheduler.request(reason);
+  }
+
+  /** Terminal. A reply landing after this writes nothing. */
+  public dispose(): void {
+    this.#isDisposed = true;
+    this.#scheduler.dispose();
+    this.#reads.supersedeAll();
+  }
+
+  /**
+   * Flip one switch, then re-read rather than patching a local copy.
+   *
+   * The node owns the record, and a page holding its own edited copy is a second
+   * version of it nothing reconciles. An arrow field so the page's prop identity is
+   * stable across renders without the mount composing a callback of its own.
+   */
+  public readonly toggleSwitch = (switchId: BrowserPolicySwitchId, nextEnabled: boolean): void => {
+    void this.#write(switchId, nextEnabled);
+  };
+
+  /**
+   * Clear one partition, then ask for a fresh listing.
+   *
+   * The re-read is the point of doing this here rather than at the button: a clear
+   * that reported success and left the old byte figure on screen would be telling a
+   * person their data is gone while showing them how much of it there is.
+   *
+   * A REJECTION IS NOT CAUGHT HERE. `PartitionClearControl` settles its own round on
+   * both arms and knows which STEP it had reached, which this carrier does not — so
+   * swallowing the rejection into a refusal would replace a sentence naming the step
+   * with one that cannot.
+   */
+  public readonly clearSiteData = async (sessionId: string): Promise<SiteDataActOutcome> => {
+    const outcome = await this.#bridge.growth.browserSiteDataClear({ sessionId });
+    if (outcome.status !== "served") {
+      // Nothing moved, so nothing published and nothing superseded: the refusal is
+      // this row's and the control renders it beside the row it was pressed on.
+      return { status: "refused", refusal: outcome };
+    }
+    this.#supersedeReads();
+    this.requestRead("participant-request");
+    return { status: "done" };
+  };
+
+  /**
+   * One pass over both reads, installed together or not at all.
+   *
+   * Awaited as a pair rather than published as each arrives, so the screen is always
+   * some single moment's answer. Neither half rejects — both settle their own refusal
+   * — so `Promise.all` here loses nothing and is not a place a failure can hide.
+   */
+  async #read(): Promise<void> {
+    const read = this.#reads.supersedeAndClaim(this, SETTINGS_READ_KEY);
+    const [policyReading, partitions] = await Promise.all([
+      this.#readPolicy(),
+      this.#readPartitions(),
+    ]);
+    if (this.#isDisposed) {
+      return;
+    }
+    read.settle(() => {
+      this.#publish({ policyReading, partitions });
+    });
+    read.release();
+  }
+
+  async #readPolicy(): Promise<BrowserPolicyReading> {
+    try {
+      const outcome = await this.#bridge.growth.browserPolicyRead({});
+      return outcome.status === "served"
+        ? { kind: "read", values: outcome.value }
+        : { kind: "refused", reading: refusedSwitchReading(outcome) };
+    } catch (rejection: unknown) {
+      return policyReadingFromRejection(rejection);
+    }
+  }
+
+  async #readPartitions(): Promise<BrowserPartitionListing> {
+    try {
+      const outcome = await this.#bridge.growth.browserSiteDataList({});
+      return outcome.status === "served"
+        ? partitionListingFrom(outcome.value)
+        : refusedPartitionListing(outcome);
+    } catch (rejection: unknown) {
+      return partitionListingFromRejection(rejection);
+    }
+  }
+
+  /**
+   * Write one switch and settle what the page says about it.
+   *
+   * SUPERSEDES ON BOTH ARMS, before anything is published. A served write moved the
+   * record; a refused one published a sentence. Either way a read taken before this
+   * settlement is answering a question that has since been re-asked, and installing it
+   * would show a position nobody set or erase a refusal nobody read.
+   */
+  async #write(switchId: BrowserPolicySwitchId, nextEnabled: boolean): Promise<void> {
+    const refusal = await this.#attemptWrite(switchId, nextEnabled);
+    if (this.#isDisposed) {
+      return;
+    }
+    this.#supersedeReads();
+    if (refusal !== undefined) {
+      this.#publish({ policyReading: refusal });
+      return;
+    }
+    this.requestRead("participant-request");
+  }
+
+  /** The write itself: the refusal it settled on, or `undefined` for a served one. */
+  async #attemptWrite(
+    switchId: BrowserPolicySwitchId,
+    nextEnabled: boolean,
+  ): Promise<BrowserPolicyReading | undefined> {
+    try {
+      const outcome = await this.#bridge.growth.browserPolicyWrite({
+        switchId,
+        enabled: nextEnabled,
+      });
+      return outcome.status === "served"
+        ? undefined
+        : { kind: "refused", reading: refusedSwitchReading(outcome) };
+    } catch (rejection: unknown) {
+      return policyReadingFromRejection(rejection);
+    }
+  }
+
+  /**
+   * Retire whatever read is in flight. Nothing is cancelled; it installs nowhere.
+   *
+   * `supersede` rather than a claim taken and dropped: this carrier is not starting a
+   * round of its own here, it is ending the one that is running, and taking the key to
+   * do it would leave the next read refused or the register holding a key nobody gives
+   * back.
+   */
+  #supersedeReads(): void {
+    this.#reads.supersede(this, SETTINGS_READ_KEY);
+  }
+
+  /**
+   * Fold one transition in and hand out a new identity.
+   *
+   * The snapshot is HELD rather than composed on each read, because
+   * `useSyncExternalStore` compares identity: a getter returning a fresh object on
+   * every call renders forever.
+   */
+  #publish(changes: Partial<Omit<BrowserSettingsSnapshot, "revision">>): void {
+    this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
+    this.#changes.emit(this.#snapshot);
+  }
+}
 
 /**
  * Bind the browser settings page's two reads to one bridge.
  *
- * Held against the TRANSPORT through the console's subject-scoped holder, so a
- * scenario swap re-seeds both readings in the render that first sees the new bridge
- * rather than one committed frame later — the frame that would otherwise paint one
- * node's policy under another node's name.
+ * Constructed in a memo and STARTED in an effect: building the carrier owns nothing —
+ * no timer, no subscription, no call in flight — and the read is the side effect that
+ * must not happen during render, so a memo React discards costs a discarded object and
+ * no request.
+ *
+ * The WINDOW triggers only. This page holds no session, and its `triggeringEventKinds`
+ * is empty, so the session half would have nothing to listen to.
  */
 export function useBrowserSettingsSource(bridge: ConsoleBridge): BrowserSettingsSource {
-  const { value: policyReading, publish: publishPolicyReading } =
-    useSubjectScopedState<PolicyReading>(bridge, undefined, () => ({ kind: "reading" }));
-  const { value: partitions, publish: publishPartitions } =
-    useSubjectScopedState<BrowserPartitionListing>(bridge, undefined, () => ({ kind: "reading" }));
-
-  const readTarget = useMemo<ReadTriggerTarget>(
-    () => ({
-      // Empty, and the emptiness is the claim: both answers are the NODE's rather than
-      // a session's, so nothing in any session's timeline tells this reading that the
-      // node's policy or its stored bytes moved.
-      triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
-      requestRead: () => {
-        void bridge.growth.browserPolicyRead({}).then(
-          (outcome) => {
-            publishPolicyReading(
-              outcome.status === "served"
-                ? { kind: "read", values: outcome.value }
-                : { kind: "refused", reading: refusedSwitchReading(outcome) },
-            );
-          },
-          (rejection: unknown) => {
-            publishPolicyReading({
-              kind: "refused",
-              reading: refusedSwitchReading(consoleRefusalFrom(rejection, BROWSER_SETTINGS_ORIGIN)),
-            });
-          },
-        );
-        void bridge.growth.browserSiteDataList({}).then(
-          (outcome) => {
-            publishPartitions(
-              outcome.status === "served"
-                ? partitionListingFrom(outcome.value)
-                : { kind: "refused", scope: "whole-answer", refusal: outcome },
-            );
-          },
-          (rejection: unknown) => {
-            publishPartitions({
-              kind: "refused",
-              scope: "whole-answer",
-              refusal: consoleRefusalFrom(rejection, BROWSER_SETTINGS_ORIGIN),
-            });
-          },
-        );
-      },
-    }),
-    [bridge, publishPolicyReading, publishPartitions],
-  );
-  useWindowReadTriggers(readTarget, bridge.transportReconnect);
-
-  const toggleSwitch = useCallback(
-    (switchId: BrowserPolicySwitchId, nextEnabled: boolean): void => {
-      void bridge.growth.browserPolicyWrite({ switchId, enabled: nextEnabled }).then(
-        (outcome) => {
-          if (outcome.status !== "served") {
-            publishPolicyReading({ kind: "refused", reading: refusedSwitchReading(outcome) });
-            return;
-          }
-          // Re-read rather than patched locally: the node owns the record, and a page
-          // holding its own edited copy is a second version of it nothing reconciles.
-          readTarget.requestRead("terminal-event");
-        },
-        (rejection: unknown) => {
-          publishPolicyReading({
-            kind: "refused",
-            reading: refusedSwitchReading(consoleRefusalFrom(rejection, BROWSER_SETTINGS_ORIGIN)),
-          });
-        },
-      );
-    },
-    [bridge, publishPolicyReading, readTarget],
-  );
-
-  // The act itself is a module-level function and this only forwards to it: the
-  // session a clear names arrives per CALL from the row the person pressed, so nothing
-  // about it belongs to this mount. Written inline, the closure would read as a cell
-  // holding a session — which is exactly the shape the console has one holder for.
-  const clearSiteData = useCallback(
-    (clearedPartitionId: string): Promise<SiteDataActOutcome> =>
-      clearPartitionThrough(bridge, readTarget, clearedPartitionId),
-    [bridge, readTarget],
-  );
-
-  return {
-    switchReadings: policyReadingsFrom(policyReading),
-    toggleSwitch,
-    partitions,
-    clearSiteData,
-  };
-}
-
-/**
- * One reading per switch, total over the closed tuple.
- *
- * Exported because it is the whole of the mapping rule and is asserted directly:
- * driving it through a rendered page would test the row instead, and the claim here
- * is that no switch in the tuple can be missing a reading whatever the read said.
- */
-export function policyReadingsFrom(
-  reading: PolicyReading,
-): Readonly<Record<BrowserPolicySwitchId, BrowserPolicySwitchReading>> {
-  const readings = {} as Record<BrowserPolicySwitchId, BrowserPolicySwitchReading>;
-  for (const switchId of BROWSER_POLICY_SWITCHES) {
-    readings[switchId] = switchReadingFor(reading, switchId);
-  }
-  return readings;
-}
-
-function switchReadingFor(
-  reading: PolicyReading,
-  switchId: BrowserPolicySwitchId,
-): BrowserPolicySwitchReading {
-  if (reading.kind === "refused") {
-    return reading.reading;
-  }
-  const value = reading.kind === "read" ? reading.values[switchId] : undefined;
-  if (value === undefined) {
-    // A read that came back without this switch in it, and a read still in flight,
-    // are both "nobody has answered for this switch" — so the row draws the safe
-    // position and says the answer is missing rather than implying an off.
-    return {
-      kind: "refused",
-      scope: "whole-answer",
-      refusal: {
-        origin: BROWSER_SETTINGS_ORIGIN,
-        code: "switch-unanswered",
-        detail: `This node has not reported a position for “${switchId}”. The switch renders the enforced position until it does.`,
-      },
+  const view = useMemo(() => new BrowserSettingsView(bridge), [bridge]);
+  useEffect(() => {
+    view.start();
+    return () => {
+      view.dispose();
     };
-  }
-  return { kind: "served", enabled: value };
-}
-
-/** The refused arm, built once from whatever refused, so both call sites agree. */
-function refusedSwitchReading(refusal: {
-  readonly origin: string;
-  readonly code: string;
-  readonly detail: string;
-}): BrowserPolicySwitchReading {
-  return { kind: "refused", scope: "whole-answer", refusal };
-}
-
-/**
- * The served partition list, as the page's own listing.
- *
- * A pure mapping and therefore a module-level function rather than an expression
- * inside the read's memo: nothing here depends on the mount, and a memo body holding
- * a projection is a projection nobody can drive on its own.
- */
-function partitionListingFrom(
-  served: readonly {
-    readonly sessionId: string;
-    readonly sessionTitle: string;
-    readonly storedByteLength?: number | undefined;
-    readonly hasOpenPane: boolean;
-  }[],
-): BrowserPartitionListing {
-  return {
-    kind: "served",
-    partitions: served.map((partition) => ({
-      sessionId: partition.sessionId,
-      sessionTitle: partition.sessionTitle,
-      size:
-        partition.storedByteLength === undefined
-          ? {
-              kind: "refused",
-              scope: "whole-answer",
-              refusal: unmeasuredSizeRefusal(partition.sessionId),
-            }
-          : { kind: "served", byteLength: partition.storedByteLength },
-      hasOpenPane: partition.hasOpenPane,
-    })),
-  };
-}
-
-/**
- * Clear one partition, then ask the listing to re-read.
- *
- * The re-read is the point of doing this here rather than at the button: a clear that
- * reported success and left the old byte figure on screen would be telling a person
- * their data is gone while showing them how much of it there is.
- */
-async function clearPartitionThrough(
-  bridge: ConsoleBridge,
-  readTarget: ReadTriggerTarget,
-  clearedPartitionId: string,
-): Promise<SiteDataActOutcome> {
-  const outcome = await bridge.growth.browserSiteDataClear({ sessionId: clearedPartitionId });
-  if (outcome.status !== "served") {
-    return { status: "refused", refusal: outcome };
-  }
-  readTarget.requestRead("terminal-event");
-  return { status: "done" };
-}
-
-/** What an unmeasured partition says, in the words its own model demands. */
-function unmeasuredSizeRefusal(sessionId: string): {
-  readonly origin: string;
-  readonly code: string;
-  readonly detail: string;
-} {
-  return {
-    origin: BROWSER_SETTINGS_ORIGIN,
-    code: "size-unmeasured",
-    detail: `This node did not report how much it has stored for ${sessionId}. Nothing is claimed about the size, and a clear still runs.`,
-  };
+  }, [view]);
+  useWindowReadTriggers(view, bridge.transportReconnect);
+  const snapshot = useSyncExternalStore(
+    (onStoreChange: () => void) => view.subscribe(onStoreChange),
+    () => view.snapshot(),
+    () => view.snapshot(),
+  );
+  return useMemo(
+    () => ({
+      switchReadings: policyReadingsFrom(snapshot.policyReading),
+      toggleSwitch: view.toggleSwitch,
+      partitions: snapshot.partitions,
+      clearSiteData: view.clearSiteData,
+    }),
+    [snapshot, view],
+  );
 }

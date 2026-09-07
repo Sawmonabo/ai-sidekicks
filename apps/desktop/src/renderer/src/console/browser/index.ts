@@ -43,21 +43,39 @@
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 
-// THIS FAMILY'S STYLESHEETS ARE NOT IMPORTED HERE. They enter at
-// `pane/browser-pane-body.ts`, the one chunk root this family has, and that module's
-// header states the placement rule and the five sheets it carries. Importing them at
-// this door would put every rule the browser surfaces need on the initial document for
-// a session that never opens the pane — the exact cost the loader below was written to
-// avoid, paid in CSS instead of JS.
+// TWO OF THIS FAMILY'S FIVE STYLESHEETS ENTER HERE, and which two is a fact about the
+// GRAPH rather than about the directory. The settings section below leaves this door and
+// is mounted by `console/browser-settings-page.ts`, which the settings route reaches
+// statically — so every module that renders it is on the initial import graph, and the
+// rules it renders against have to arrive on that graph too. `settings/settings.css`
+// dresses the page's rows, partition table and switches; `controls.css` dresses the
+// button and the disclosure all three of this family's surfaces share, the settings page
+// among them. Deferring either behind the pane's chunk left Settings → Browser painting
+// undressed until an unrelated pane was opened, and then silently working.
 //
-// THE MOVE WAS ADMITTED BY MEASUREMENT AND NOT BY THE SHAPE OF THE FILE. A sheet may
-// only travel behind a chunk boundary when no other family declares any class it
+// THE OTHER THREE ARE NOT HERE, and importing them would be the cost this door is
+// written to avoid. `pane/pane.css`, `cards/cards.css` and `bounds/bounds.css` dress
+// surfaces nothing on the initial graph can render — the pane opens from the sidebar or
+// the palette — so they enter at `pane/browser-pane-body.ts`, the one chunk root this
+// family has, and that module's header carries the other half of this split.
+//
+// BOTH HALVES ARE CHECKED, IN BOTH DIRECTIONS.
+// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails a sheet held
+// at a door whose own static graph can render nothing against it, AND a sheet deferred
+// to a chunk root while a module on the initial graph names a class no eagerly-arriving
+// sheet declares. Neither claim is about where a file sits.
+//
+// AND THE DEFERRAL WAS ADMITTED BY MEASUREMENT AND NOT BY THE SHAPE OF THE FILE. A sheet
+// may only travel behind a chunk boundary when no other family declares any class it
 // declares: two families declaring one class at equal specificity are resolved by LOAD
 // ORDER, so deferring such a sheet silently restyles the other family's surface. That is
 // not hypothetical — `runs/index.ts` carries the measurement of it happening. None of
 // this family's five sheets declares a class any other family declares, and
 // `test/console/architecture/stylesheet-selector-owners.test.ts` is the census that
 // says so and fails if that stops being true.
+
+import "./settings/settings.css";
+import "./controls.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 
