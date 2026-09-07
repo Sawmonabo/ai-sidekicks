@@ -310,3 +310,149 @@
   margin: 0;
   min-height: 1lh;
 }
+
+/* --- Cards: the reasoning surface ---------------------------------------- */
+
+.meridian-reasoning-surface {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+/*
+ * The sliding tail while a turn streams. Capped in the MODEL rather than here — a
+ * CSS clip would hide lines the component still mounted, so the DOM and the screen
+ * would disagree about how much reasoning is on the row. The list keeps its ordinal
+ * marker off: the numbers would restart at one every time the window slid.
+ */
+.meridian-reasoning-surface__tail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-reasoning-surface__tail-line {
+  overflow-wrap: anywhere;
+}
+
+.meridian-reasoning-surface__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.meridian-reasoning-surface__entry {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The one offer. Secondary by weight, per the density rule that puts a row's
+   secondary controls one click away rather than in the reader's path. */
+.meridian-reasoning-surface__expand {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--meridian-border-subtle);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+/* --- Cards: the input-ask card ------------------------------------------- */
+
+.meridian-input-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-input-ask__prompt {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meridian-input-ask__countdown {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-input-ask__arms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-input-ask__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * TWO PARTS ON ONE ROW: the provider's label, and the value the answer is composed
+ * from. The value is never dropped at any width — it is what actually travels — so
+ * the row wraps rather than truncating either half.
+ */
+.meridian-input-ask__option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  width: 100%;
+  background: none;
+  border: 1px solid var(--meridian-border-subtle);
+  border-radius: var(--meridian-radius-sm);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  text-align: start;
+}
+
+.meridian-input-ask__free-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+.meridian-input-ask__field {
+  width: 100%;
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-border-subtle);
+  border-radius: var(--meridian-radius-sm);
+  color: inherit;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  resize: vertical;
+}
+
+.meridian-input-ask__send {
+  background: none;
+  border: 1px solid var(--meridian-border-subtle);
+  border-radius: var(--meridian-radius-sm);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+.meridian-input-ask__send:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

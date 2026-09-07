@@ -66,6 +66,9 @@ import {
   PresenceReadResponseSchema,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
+  ReasoningSurfaceReadRequestSchema,
+  ReasoningSurfaceReadResponseSchema,
+  RespondToRequestParamsSchema,
   QueueItemCancelRequestSchema,
   QueueItemCancelResponseSchema,
   QueueItemCreateRequestSchema,
@@ -175,6 +178,11 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   ),
   "driver.listCapabilities": bindDaemonMethod(DriverReadParamsSchema, ListCapabilitiesResultSchema),
   "driver.listModels": bindDaemonMethod(DriverReadParamsSchema, ListModelsResultSchema),
+  "driver.respondToRequest": bindDaemonMethod(RespondToRequestParamsSchema, DriverAckResultSchema),
+  "timeline.reasoningSurfaceRead": bindDaemonMethod(
+    ReasoningSurfaceReadRequestSchema,
+    ReasoningSurfaceReadResponseSchema,
+  ),
   "repo.mountRead": bindDaemonMethod(RepoMountReadRequestSchema, RepoMountReadResponseSchema),
   "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceListResponseSchema),
   "repo.executionModeCapabilitiesRead": bindDaemonMethod(

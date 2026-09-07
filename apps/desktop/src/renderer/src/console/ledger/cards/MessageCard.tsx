@@ -22,6 +22,15 @@
 //     renders what exists rather than reaching for what does not — and never captions
 //     the summary as if it were the message.
 //
+// AND A REASONING BODY IS NOT A MACHINE BODY. The reasoning family renders the
+// four-arm availability surface rather than the hydrated content projection: those
+// are two different reads answering two different questions, and rendering reasoning
+// through `MachineBody` made a turn whose reasoning was WITHHELD by policy
+// indistinguishable from one whose stored body could not be opened. The element is
+// composed by the mount and handed down, for the reason the edit affordance is —
+// this card decides layout, and what a row is allowed to show is decided by the
+// surface that performed the read.
+//
 // THE EDIT AFFORDANCE IS A SLOT, NOT A CONTROL THIS FILE WRITES. The pencil that opens
 // an inline editor belongs to the plan that owns run controls, and the console never
 // re-authors a body another plan owns. `OwnerSlotProps` is the declaration of that
@@ -76,6 +85,15 @@ export interface MessageCardProps extends LedgerCardProps {
    * site instead of an absent key that renders identically to an unfilled one.
    */
   readonly editAffordance: OwnerSlotProps<React.ReactNode>;
+  /**
+   * The reasoning row's body, composed by the mount.
+   *
+   * Required and carrying `undefined` rather than optional, on the same terms as the
+   * slot above: a mount that composed no reasoning surface for a reasoning row is a
+   * compile error at the construction site rather than a row that silently falls back
+   * to the machine body and reports a policy redaction as an unreadable one.
+   */
+  readonly reasoningSurface: React.ReactNode | undefined;
 }
 
 export function MessageCard(props: MessageCardProps): React.JSX.Element {
@@ -103,6 +121,8 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
           </span>
           {isParticipant ? (
             <ParticipantBody row={props.row} footnotes={props.footnotes} />
+          ) : family.family === "assistant-reasoning" ? (
+            props.reasoningSurface
           ) : (
             <MachineBody
               content={props.content}
@@ -113,7 +133,9 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
             />
           )}
           <InlineCards cards={props.inlineCards ?? []} />
-          {isParticipant || props.liveText !== undefined ? null : (
+          {isParticipant ||
+          family.family === "assistant-reasoning" ||
+          props.liveText !== undefined ? null : (
             <MessageReceipt
               contentType={readWireString(payload["contentType"])}
               contentLength={readWireCount(payload, "contentLength")}

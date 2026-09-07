@@ -40,16 +40,28 @@
 
 import { useCallback, useState } from "react";
 
+import { useConsoleClock } from "../../../bridge/index.js";
+import { parseInstant } from "../../../core/index.js";
+import { useDeadlineWake } from "../../../store/index.js";
 import { useLedgerRowLease, useLedgerRowReveal } from "../../frame/index.js";
 import {
   registerTimelineRowRenderer,
   type TimelineRowDensity,
   type TimelineRowSlotProps,
 } from "../../../seats/index.js";
+import {
+  INPUT_ASK_SLOT,
+  InputAskCard,
+  REASONING_SURFACE_SLOT,
+  ReasoningSurface,
+  readDriverAsk,
+  reasoningRunIdOf,
+} from "../bodies/index.js";
 import { classifyCardFamily } from "../card-family.js";
 import { FootnoteRegistry } from "../markdown/index.js";
 import { EDIT_AFFORDANCE_SLOT, MessageCard } from "../MessageCard.js";
 import { ReceiptRow } from "../ReceiptRow.js";
+import { useDriverAskAnswer, useReasoningSurfaceRead } from "./shell-row-reads.js";
 import { ToolCard } from "../ToolCard.js";
 
 /** The owner this shell claims the seat under. */
@@ -82,10 +94,43 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
   }, [density, rowId, rowLease]);
 
   const family = classifyCardFamily(props.row);
+  // BOTH READS ARE ARMED FOR EVERY ROW AND NEITHER CALLS FOR MOST OF THEM. Hooks run
+  // unconditionally by the rules of hooks, so the run identity and the ask reading are
+  // resolved on every row; the reasoning read issues nothing until a reader presses
+  // the control, and the answer dispatcher refuses an empty ask id, so a row that is
+  // neither a reasoning row nor an ask row costs two `useCallback`s and no call.
+  const attributedRunId = reasoningRunIdOf(props.row);
+  const reasoningRead = useReasoningSurfaceRead(attributedRunId);
+  const ask = readDriverAsk(props.row);
+  const answerAsk = useDriverAskAnswer(attributedRunId, ask?.askId ?? "");
+  // THE COUNTDOWN WAKES ONCE, AT ITS DEADLINE, AND NEVER POLLS. The console's one
+  // deadline wake arms a single timeout for the soonest instant still ahead; a row
+  // with no ask — which is nearly every row — hands it an empty list and it arms
+  // nothing at all, so the ledger's steady state holds no timer per row.
+  const clock = useConsoleClock();
+  const askDeadlines = askDeadlineMillisecondsOf(ask?.expiresAt);
+  const nowEpochMilliseconds = useDeadlineWake(clock, askDeadlines);
   // THE LANE IS THE ROW, which is what `MachineBody` already claims of the member it
   // fills: "text the reveal engine is publishing for THIS ROW right now". Keying on the
   // run instead would give two machine rows of one turn one body between them.
   const liveText = useLedgerRowReveal(rowId);
+
+  // AHEAD OF THE FAMILY SWITCH, because an ask is not a card FAMILY. The classifier
+  // reads the row's registered event type and the four `driver_ask.*` types carry no
+  // machine-authored body, so they classify as receipts — which is the right answer
+  // for the family table and the wrong surface for a run that is blocked on a
+  // question. The ask reading is what distinguishes them, and it is a positive read
+  // of the ask's own members rather than a sixth family nothing else would use.
+  if (ask !== undefined) {
+    return (
+      <InputAskCard
+        slot={{ contract: INPUT_ASK_SLOT, body: undefined }}
+        ask={ask}
+        nowEpochMilliseconds={nowEpochMilliseconds}
+        onAnswer={answerAsk}
+      />
+    );
+  }
 
   switch (family.family) {
     case "tool-activity":
@@ -112,12 +157,43 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
           editAffordance={{ contract: EDIT_AFFORDANCE_SLOT, body: undefined }}
+          reasoningSurface={
+            family.family === "assistant-reasoning" ? (
+              <ReasoningSurface
+                slot={{ contract: REASONING_SURFACE_SLOT, body: undefined }}
+                runId={attributedRunId}
+                liveText={liveText}
+                reading={reasoningRead.reading}
+                onExpand={reasoningRead.expand}
+              />
+            ) : undefined
+          }
         />
       );
     case "receipt":
       return <ReceiptRow {...props} />;
   }
 }
+
+/**
+ * One ask's deadline as a wake-up list, or none.
+ *
+ * Read through the console's own instant reader, which is the reader the card uses
+ * for the same stamp — so the row that arms a wake-up and the card that counts one
+ * down can never disagree about whether a stamp is readable. A stamp neither can
+ * read arms nothing rather than firing a timer forever, and the card renders it as
+ * the named absence it is.
+ */
+function askDeadlineMillisecondsOf(expiresAt: string | undefined): readonly number[] {
+  if (expiresAt === undefined) {
+    return NO_DEADLINES;
+  }
+  const reading = parseInstant(expiresAt);
+  return reading.kind === "instant" ? [reading.epochMilliseconds] : NO_DEADLINES;
+}
+
+/** No deadline at all. One frozen value, so the ordinary row allocates none. */
+const NO_DEADLINES: readonly number[] = Object.freeze([]);
 
 /**
  * Claim the timeline row seat for the shell.
