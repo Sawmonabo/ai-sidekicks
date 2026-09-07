@@ -206,7 +206,7 @@ CREATE INDEX idx_queue_items_channel ON queue_items(channel_id) WHERE channel_id
 -- Path-1 erasure/export selector is a V1.1 maintenance scan, never a hot path, and both tables carry the
 -- stamp unindexed for the same reason.
 
--- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_participant_id pair; the Spec-004/Spec-012 2026-08-18 admitting-principal amendment adds origin + admitting_principal_id) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
+-- Owner: Plan-004 (campaign B9 adds rejection_reason; the Spec-004 2026-08-16 rewind-hardening amendment adds the pii_payload / pii_participant_id pair; the Spec-004/Spec-012 2026-08-18 admitting-principal amendment adds origin + admitting_principal_id; the Spec-004 2026-09-06 typed-composite-guard amendment adds rejection_guard, this table's first post-ship column and therefore Plan-004's own next-ordinal migration rather than an edit of the shipped 0015) | Extended by: Spec-005 campaign B3 (client_idempotency_key intervention dedupe); Spec-004 campaign B2 (rollback type — targetPosition rides the payload JSON, no new column)
 CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
@@ -224,6 +224,54 @@ CREATE TABLE interventions (
   admitting_principal_id TEXT,                       -- participant recorded as the intervention's admitting principal, daemon-resolved at acceptance (D-004-4: node-owner binding on the local socket; verified PASETO sub on authenticated surfaces; caller_token.sub on the Spec-024 cross-node arm — the approval_resolutions.approver_id resolution semantics, D-012-12). NEVER read from the wire: a body-supplied actor disagreeing with the verified identity refuses as auth.principal_mismatch (the existing error row — no duplicate is minted). Read by Plan-012's turn-scoped effective-principal resolution (CP-012-12)
   result                 TEXT,                       -- JSON: outcome details
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — replay-durable: the wire contract forbids result on rejected, so an idempotent replay reconstructs rejectionReason from this column (Plan-004 T1.4/T3.12, campaign B9)
+  -- Plan-004 EXTEND of its own SHIPPED CREATE (additive nullable, landing by its own next-ordinal
+  -- migration -- the statement above shipped as
+  -- packages/runtime-daemon/src/migrations/0015-queue-and-interventions.ts (PR #402, 2026-09-01)
+  -- and is never edited): which of the atomic edit-and-resend composite's four
+  -- structural refusal guards refused, as the closed literal the wire's rejectionGuard carries
+  -- (Spec-004 §Required Behavior; api-payload-contracts.md §Plan-004 — Queue Steer Pause Resume;
+  -- the shipped mirror is
+  -- packages/contracts/src/runControl.ts#RollbackCompositeRejectionGuardSchema).
+  -- REPLAY-DURABLE for the same reason rejection_reason is, and NOT derivable from that sibling:
+  -- the wire contract forbids result on rejected, so an idempotent replay of the same
+  -- client_idempotency_key -- across a daemon restart included -- reconstructs the response from
+  -- this row alone, and rejection_reason -- a machine-readable cause, never prose -- carries an
+  -- OPEN vocabulary that no contract enumerates (error-contracts.md §Intervention registers no
+  -- code for an intervention outcome), so recovering the literal from it would be exactly the
+  -- match against an unpublished value set the typed member exists to abolish. Written by
+  -- Plan-004 T3.17 in the SAME write that settles state = 'rejected' (the four guards are
+  -- pre-dispatch admission refusals, so the settlement is one write); read back by T3.12's replay
+  -- reconstruction. NULL on every other refusal family -- the EIGHT the transition table admits
+  -- for a rollback: the capability gate, the authorization refusal, the target-position domain
+  -- check, the compaction-boundary classification, an incompatible target run state, the Spec-010
+  -- restore precondition, the uncompacted-rewind-span intersection, and execution-root busy -- and
+  -- on every non-rejected row, so presence reads as "a composite guard refused" and never as "some
+  -- rollback refused".
+  --
+  -- The CHECK is attached to the COLUMN rather than stated as a table constraint, deliberately.
+  -- SQLite's ALTER TABLE ... ADD COLUMN accepts a column-attached CHECK whose expression
+  -- references sibling columns -- measured on 3.51.0: the constraint below survives reopen and
+  -- refuses a guard on a steer row, on a non-'rejected' state, and on an unknown literal -- while
+  -- a CHECK in the table-constraint position has no ALTER form at all and would force the 12-step
+  -- rebuild of https://www.sqlite.org/lang_altertable.html#otheralter on a shipped table. The
+  -- documented ADD COLUMN restrictions
+  -- (https://www.sqlite.org/lang_altertable.html#altertabaddcol) bar -- among others -- a NOT NULL
+  -- column without a default, a PRIMARY KEY or UNIQUE, a REFERENCES clause while foreign keys are
+  -- enabled, and a non-constant default; this column is none of those and admits NULL, so every
+  -- pre-migration row satisfies the constraint as the column is appended and no rebuild is owed.
+  -- ADD COLUMN appends, so the physical ordinal is after created_at rather than here; column order
+  -- is not part of the contract (the 0017-command-receipt-mcp-task-handle.ts convention).
+  --
+  -- No Spec-022 reciprocal is owed: the value is a daemon-minted member of a closed four-literal
+  -- vocabulary, carries no participant content, and identifies no participant, so it takes no PII
+  -- data-map row, no export disposition, and no erasure selector -- unlike the pii_payload /
+  -- pii_participant_id pair above.
+  rejection_guard        TEXT                        -- NULL default; which composite guard refused
+                         CHECK(rejection_guard IS NULL
+                               OR (type = 'rollback' AND state = 'rejected'
+                                   AND rejection_guard IN ('no-active-turn', 'no-pending-send',
+                                                           'participant-authored-target',
+                                                           'resumable-target'))),
   initiator_id           TEXT,                       -- participant or system — routing/audit metadata only, never an authorization input (see admitting_principal_id)
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,

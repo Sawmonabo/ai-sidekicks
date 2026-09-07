@@ -630,6 +630,84 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 // on the rollback `rejected` arm (every refusal family there carries its cause
 // and the daemon persists all of them) and optional on the base for the
 // remaining states and non-rollback types.
+//
+// `rejectionGuard` names WHICH of the atomic edit-and-resend composite's four
+// structural refusal guards refused, when one of them did. It is NOT a typed
+// restatement of prose: `rejectionReason` is a machine-readable cause (above)
+// and never a sentence — the shipped console renders it verbatim in its refusal
+// CODE slot, which is "never prose, never localized, never reworded between the
+// producer and the screen"
+// (`apps/desktop/src/renderer/src/console/core/refusal.ts`). What that member is
+// NOT is a CLOSED VOCABULARY: `error-contracts.md` §Intervention deliberately
+// registers no code for an intervention OUTCOME (`rejected` / `expired` /
+// `degraded` "are states, not error codes"; that namespace covers only
+// request-level refusals that produce no intervention row), so no contract
+// anywhere enumerates the causes a rollback `rejected` may carry, and the
+// `wireFreeFormString` below bounds length / whitespace / NUL at the trust
+// boundary rather than fixing a value set. A client can therefore SHOW the cause
+// and cannot SWITCH on it: a refusal family added later carries a new identifier
+// that every exhaustive read falls through, silently and at no compile-time
+// cost. This member is the closed union that closes exactly that gap for the
+// four guards — the shape `refusal.ts` already prescribes, where each producer
+// "keeps its own closed code union and widens into this shape at its boundary" —
+// so a fifth guard breaks compilation at every exhaustive reader and a per-guard
+// remedy render is total by construction rather than by care. The four literals
+// are the guard names of `Spec-004 §Required Behavior` (its
+// four-structural-refusal-guards paragraph) kebab-cased with the leading article
+// dropped, so each names the condition the guard requires rather than a
+// restatement of the failure.
+//
+// ARM-SCOPED, NOT BASE-SCOPED. Only the composite raises these guards, and only
+// a `rollback` request can be a composite, so the member is declared on the
+// rollback `rejected` arm alone — `.strict()` then REFUSES it on a steer /
+// interrupt / cancel rejection and on every non-`rejected` state, instead of a
+// base-level optional that would parse a guard on an arm that can never raise
+// one. Within that arm it is additive-OPTIONAL and PRODUCER-OBLIGATED, the
+// `resendDisposition` shape: no member of a `rejected` response identifies its
+// request as composite (`replacementSend` is request-side and the response does
+// not echo it), so requiredness is not expressible at the strict-parse boundary.
+// The daemon's tested obligation is that a refusal raised by one of the four
+// guards always populates it and every other refusal family never does — the
+// EIGHT `Queue And Intervention Model §Intervention State Transition Table`
+// admits for a rollback: the capability gate, authorization, the target-position
+// domain check, the compaction-boundary classification, an incompatible target
+// run state, the Spec-010 restore precondition, the uncompacted-rewind-span
+// intersection, and execution-root `busy`. The obligation is asserted by the
+// composite's settlement tests (Plan-004 T3.17), whose negative control runs all
+// eight.
+//
+// REPLAY-DURABLE, AND NOT DERIVABLE FROM ITS SIBLING. A `rejected` response
+// carries no `result` (the state-split arm below declares `result?: never`), so
+// an idempotent replay of the same `clientIdempotencyKey` reconstructs the whole
+// response from the durable intervention row — which is why `rejectionReason`
+// has a column of its own. The guard literal cannot be recovered from that
+// sibling: its vocabulary is open and unenumerated (above), so reading a literal
+// back out of it would be a match against a value set no contract publishes —
+// exactly what this member exists to abolish. The daemon
+// therefore persists the literal beside the sentence (`interventions`
+// `rejection_guard`, additive nullable, its column-attached CHECK closing the
+// same four literals and binding them to the rollback `rejected` arm this member
+// is scoped to), and a replay returns a value EQUAL to the recorded one across a
+// daemon restart — never omitted, and never re-derived by re-evaluating the
+// guards against a run that has since moved on.
+//
+// ADDITIVE-OPTIONAL UNDER THE EXISTING PROTOCOL VERSION. The arm shipped before
+// this member, so the additive-only rule for already-published shapes binds — and
+// a new optional member is inside what that rule admits and outside everything it
+// forbids (no rename, no type change, no semantic change, no new required field,
+// no new required semantic invariant). It rides `2026-05-01` and mints no
+// revision, as every additive member added to this file since that ratification
+// has; see `docs/architecture/contracts/api-payload-contracts.md` §Plan-004 —
+// Queue Steer Pause Resume for the rule and the precedent list.
+
+export type RollbackCompositeRejectionGuard =
+  | "no-active-turn"
+  | "no-pending-send"
+  | "participant-authored-target"
+  | "resumable-target";
+
+export const RollbackCompositeRejectionGuardSchema: z.ZodType<RollbackCompositeRejectionGuard> =
+  z.enum(["no-active-turn", "no-pending-send", "participant-authored-target", "resumable-target"]);
 
 export interface InterventionResponseBase {
   interventionId: InterventionId;
@@ -648,16 +726,27 @@ export type InterventionRequestResponse =
       interventionType: "rollback";
       state: "applied";
       result: RollbackAppliedResult & RollbackAppliedResendOutcome;
+      // The guard is the `rejected` arm's alone. Declared `?: never` on every
+      // other arm for the same reason `result?: never` is below: structural
+      // assignability lets a producer-side variable carry a stray member that
+      // compiles and then fails the client's strict parse. `runControl.test-d.ts`
+      // pins this at compile time off a non-fresh variable.
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "degraded";
       result: RollbackDegradedResult & RollbackDegradedResendOutcome;
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "rejected";
       rejectionReason: string;
+      // Present exactly when one of the composite's four structural refusal
+      // guards refused; absent on every other refusal family (see the block
+      // above the base interface).
+      rejectionGuard?: RollbackCompositeRejectionGuard | undefined;
       // The doc declares `result?: never` on this arm. Without it, structural
       // assignability lets a producer-side variable carry a stray `result`
       // that compiles and then fails the strict runtime parse.
@@ -667,10 +756,13 @@ export type InterventionRequestResponse =
       interventionType: "rollback";
       state: "requested" | "accepted" | "expired";
       result?: never;
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "steer" | "interrupt" | "cancel";
       result?: Record<string, unknown> | undefined;
+      // Only a rollback request can be a composite.
+      rejectionGuard?: never;
     });
 
 // The base members every arm carries. Spread rather than composed through
@@ -686,9 +778,10 @@ const interventionResponseBaseShape = {
 } as const;
 
 // The non-disposition states (`requested` / `accepted` / `expired`) and the
-// `rejected` arm carry the doc's `result?: never` in the exported type (so a
-// stray `result` fails at compile time), while `.strict()` is what turns it
-// into a parse refusal at runtime.
+// `rejected` arm carry the doc's `result?: never` in the exported type, and
+// every arm but `rejected` carries `rejectionGuard?: never` (so a stray member
+// fails at compile time), while `.strict()` is what turns either into a parse
+// refusal at runtime.
 export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestResponse> =
   z.discriminatedUnion("interventionType", [
     z.discriminatedUnion("state", [
@@ -717,6 +810,7 @@ export const InterventionRequestResponseSchema: z.ZodType<InterventionRequestRes
             DRIVER_WIRE_HANDLE_MAX_LEN,
             "InterventionResponseBase.rejectionReason",
           ),
+          rejectionGuard: RollbackCompositeRejectionGuardSchema.optional(),
         })
         .strict(),
       z

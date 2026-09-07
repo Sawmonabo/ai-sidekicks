@@ -2492,6 +2492,35 @@ interface RollbackDegradedResendOutcome {
 type RollbackInterventionResult =
   | (RollbackAppliedResult & RollbackAppliedResendOutcome)
   | (RollbackDegradedResult & RollbackDegradedResendOutcome);
+// The atomic edit-and-resend composite's four structural refusal guards, typed (2026-09-06 amendment).
+// Spec-004 §Required Behavior states all four and this registry previously settled them as `rejected`
+// results carrying `rejectionReason` alone. That member is a machine-readable CAUSE and never prose (its
+// own comment below, and the shipped console renders it verbatim in a refusal `code` slot that is "never
+// prose, never localized, never reworded" — `apps/desktop/src/renderer/src/console/core/refusal.ts#ConsoleRefusal`) —
+// what it is not is a CLOSED VOCABULARY: [error-contracts.md §Intervention](./error-contracts.md#intervention)
+// deliberately registers no code for an intervention OUTCOME (`rejected` / `expired` / `degraded` "are
+// states, not error codes"; that namespace covers only request-level refusals producing no intervention
+// row), so no contract enumerates the causes a rollback `rejected` may carry and its wire type bounds
+// length / whitespace / NUL rather than a value set. A client could therefore SHOW the cause and not
+// SWITCH on it — a refusal family added later carries a new identifier every exhaustive read falls
+// through, silently and at no compile-time cost. This union closes that gap for the four guards, the
+// shape `refusal.ts` already prescribes (each producer "keeps its own closed code union and widens into
+// this shape at its boundary"), so a fifth guard breaks compilation at every exhaustive reader rather
+// than passing. The four literals are that paragraph's own guard names — "No active turn", "No
+// pending send", "A participant-authored target of this run", "A resumable target" — kebab-cased with the
+// leading article dropped, so each names the CONDITION THE GUARD REQUIRES rather than restating the
+// failure. Closed: a fifth guard is an amendment of Spec-004 §Required Behavior and of this type, never a
+// free string the daemon invents. The union is the wire vocabulary only — the eligibility predicate that
+// evaluates the guards is the daemon's (Plan-004 T3.17), and the affordance's client-side projection of
+// it (I-004-24) stays a fail-closed projection, never a second source of eligibility truth. The literal
+// is also the durable one: T3.17 persists it to `interventions.rejection_guard`, whose column-attached
+// CHECK closes the same four literals and binds them to the `rollback` `rejected` arm, so the at-rest
+// vocabulary and this union are amended together or not at all.
+type RollbackCompositeRejectionGuard =
+  | "no-active-turn"
+  | "no-pending-send"
+  | "participant-authored-target"
+  | "resumable-target";
 // The response is discriminated on `interventionType` (campaign B9, Codex round 2) so the SDK-seam +
 // daemon Zod schema parse `result` STRICTLY per type: a `rollback` response validates `result` as
 // RollbackInterventionResult and a malformed rollback result FAILS validation — it never falls through a
@@ -2505,7 +2534,9 @@ type RollbackInterventionResult =
 // disposition-less terminal response fails parse, and so does a state/disposition mismatch (`applied` +
 // `files-unrestored` would otherwise exit-map 0 while rendering a failed restore, since the CLI derives
 // the POSIX code from `state`). `rejected` REQUIRES `rejectionReason` (round 5 — every refusal family of
-// Queue And Intervention Model §Intervention State Transition Table carries its machine-readable cause);
+// Queue And Intervention Model §Intervention State Transition Table carries its machine-readable cause),
+// and since 2026-09-06 that arm additionally carries the additive-optional `rejectionGuard` when the
+// refusal came from one of the composite's four structural guards (the arm comment below);
 // the non-disposition states (`requested` / `accepted` / `rejected` / `expired`) carry no `result`.
 interface InterventionResponseBase {
   interventionId: InterventionId;
@@ -2518,26 +2549,31 @@ type InterventionRequestResponse =
       interventionType: "rollback";
       state: "applied"; // full-effect terminal — MANDATORY applied-class disposition (round 5)
       result: RollbackAppliedResult & RollbackAppliedResendOutcome;
+      rejectionGuard?: never; // the guard is the `rejected` arm's alone (Codex PR #449 round 4): `?: never` on every other arm so a producer-side variable carrying it fails at its construction site, not at the client's strict parse
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "degraded"; // partial / zero-effect terminal — MANDATORY degraded-class disposition (round 5)
       result: RollbackDegradedResult & RollbackDegradedResendOutcome;
+      rejectionGuard?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "rejected"; // pre-dispatch refusal — the machine-readable cause is MANDATORY (round 5)
       rejectionReason: string;
+      rejectionGuard?: RollbackCompositeRejectionGuard; // 2026-09-06 typed-composite-guard amendment (Spec-004 §Required Behavior's four-structural-refusal-guards paragraph; Plan-004 I-004-21, mirrored by T1.3 and produced by T3.17). ADDITIVE-OPTIONAL and ARM-SCOPED: declared HERE and not on InterventionResponseBase, because only a `rollback` request can be a composite and only a `rejected` composite settles on one of these guards — a strict parse then REFUSES the member on a steer / interrupt / cancel rejection and on every non-`rejected` state, rather than admitting a guard on an arm that can never raise one. PRODUCER-OBLIGATED within the arm, the `resendDisposition` shape: no member of a `rejected` response identifies its request as composite (`replacementSend` is request-side and the response does not echo it), so requiredness is not expressible at the strict-parse boundary; the daemon's tested obligation is that a refusal raised by one of the four guards ALWAYS populates it and every other refusal family never does — the EIGHT [Queue And Intervention Model §Intervention State Transition Table](../../domain/queue-and-intervention-model.md#intervention-state-transition-table) admits for a rollback: capability, authorization, target-position domain, compaction-boundary, incompatible target run state, the Spec-010 restore precondition, uncompacted-rewind-span, and execution-root `busy`. `rejectionReason` is unchanged — the member exists so a renderer maps guard -> remedy by an exhaustive switch its sibling's open vocabulary cannot support. NO error code is minted: these guards settle as `rejected` RESULTS, never as `JsonRpcError` envelopes. REPLAY-DURABLE (round 2): a `rejected` intervention carries no `result` on this wire, so an idempotent replay of the same `clientIdempotencyKey` reconstructs the response from the durable row alone — the reason `rejectionReason` has the `interventions.rejection_reason` column — and the guard literal is NOT recoverable from that sibling, whose open unenumerated vocabulary is exactly what this member exists to close; the daemon therefore persists it to `interventions.rejection_guard` (additive nullable, vocabulary-closed and arm-bound by a column-attached CHECK) and a replay returns a value EQUAL to the recorded one, a daemon restart included. ADDITIVE-OPTIONAL UNDER THE EXISTING PROTOCOL VERSION: the arm has shipped, so ADR-018 §Decision #8's additive-only rule for already-published shapes binds, and a new optional member is squarely inside what that rule admits ("new optional fields with defaults, new event types, new enum values") and outside everything it forbids — no rename, no type change, no semantic change, no new required field, no new required semantic invariant. It therefore rides the `2026-05-01` protocol version and mints no revision, exactly as every additive member registered here since that ratification has (`replacementSend` and the `boundary-diverged` arm on this same rollback shape, `resendDisposition`, `run.queued`'s `admittedProviderAccountId`, `usage.cost_update`'s `effectivePrincipal`, `SessionReadResponse`'s `peerInvocationEnabled`), and as the daemon's still single-valued supported set at `packages/runtime-daemon/src/ipc/protocol-negotiation.ts#DAEMON_SUPPORTED_PROTOCOL_VERSIONS` records. A revision would buy nothing here in any case: what refuses an unknown key is the CLIENT's own `.strict()` schema, so tolerating one would take an old-protocol projection on the daemon — a compatibility layer for a mixed-revision install of a single in-tree monorepo release, which is not a configuration V1 supports.
       result?: never;
     })
   | (InterventionResponseBase & {
       interventionType: "rollback";
       state: "requested" | "accepted" | "expired";
-      result?: never; // no disposition exists on these states
+      result?: never;
+      rejectionGuard?: never; // no disposition exists on these states, and no guard
     })
   | (InterventionResponseBase & {
       interventionType: "steer" | "interrupt" | "cancel";
       result?: Record<string, unknown>;
+      rejectionGuard?: never; // only a rollback request can be a composite
     });
 
 // RunStateChange (event, not request/response). The `run.failed` variant carries the
