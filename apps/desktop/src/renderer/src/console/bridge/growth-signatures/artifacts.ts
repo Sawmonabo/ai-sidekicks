@@ -8,6 +8,7 @@ import type {
   GrowthArtifactDeleteReceipt,
   GrowthArtifactRead,
   GrowthArtifactSummary,
+  GrowthArtifactVisibility,
   GrowthAttachmentIngestCompletion,
 } from "../growth-values/index.js";
 
@@ -85,6 +86,24 @@ export interface ArtifactGrowthSignatures {
   artifactDelete: {
     request: { readonly artifactId: string };
     value: GrowthArtifactDeleteReceipt;
+  };
+  // THE REPLY IS THE SETTLED CLASS AND NOT `void`, which is what makes this an act a
+  // surface can render the answer to. `api-payload-contracts.md §Plan-014` registers
+  // `ArtifactVisibilityUpdateResponse` as `{ artifactId, visibility, updatedAt }`, and
+  // the middle member is the DAEMON's word on where the artifact ended up rather than
+  // the one the request asked for: a policy-blocked share retains the original, so a
+  // console that echoed its own request would report a change that did not happen.
+  //
+  // Stated inline rather than named in `growth-values/`, on that door's own rule: the
+  // shape has one reader and naming it would put a second census in the way of a
+  // three-member reply read at one call site.
+  artifactVisibilityUpdate: {
+    request: { readonly artifactId: string; readonly visibility: GrowthArtifactVisibility };
+    value: {
+      readonly artifactId: string;
+      readonly visibility: GrowthArtifactVisibility;
+      readonly updatedAt: string;
+    };
   };
   artifactAllowlistRead: {
     request: { readonly sessionId: string };

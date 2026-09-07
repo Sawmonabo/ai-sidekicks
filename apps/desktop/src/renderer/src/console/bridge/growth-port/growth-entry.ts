@@ -131,6 +131,7 @@ export type GrowthOperationId =
   | "artifactList"
   | "artifactRead"
   | "artifactDelete"
+  | "artifactVisibilityUpdate"
   | "artifactAllowlistRead"
   | "artifactIngestAbort"
   | "sessionSearch"

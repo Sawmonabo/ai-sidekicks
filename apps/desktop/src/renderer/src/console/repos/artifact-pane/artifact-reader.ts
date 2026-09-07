@@ -87,7 +87,9 @@ import {
   type ArtifactPaneReading,
   settledReadReading,
   type ArtifactRowActOutcome,
+  type ArtifactVisibilityUpdateOutcome,
 } from "./artifact-pane-reading.js";
+import type { ArtifactVisibility } from "../artifacts/artifact-model.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS } from "../repo-lifecycle-events.js";
 import { readFailureRefusal } from "./artifact-pane-refusals.js";
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
@@ -318,6 +320,14 @@ export class ArtifactPaneReader implements ReadTriggerTarget {
   /** Delete one artifact, after the participant confirmed the consequence. */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     return this.#actions.deleteArtifact(artifactId);
+  }
+
+  /** Re-classify one artifact. Single-flight per row; `artifact-actions.ts` says why. */
+  public async updateVisibility(
+    artifactId: string,
+    visibility: ArtifactVisibility,
+  ): Promise<ArtifactVisibilityUpdateOutcome> {
+    return this.#actions.updateVisibility(artifactId, visibility);
   }
 
   /** Terminal. No later completion, frame, or focus can reach a pane that unmounted. */

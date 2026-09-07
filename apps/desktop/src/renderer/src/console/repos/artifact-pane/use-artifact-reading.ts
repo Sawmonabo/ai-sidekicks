@@ -34,7 +34,9 @@ import type {
   ArtifactDeleteOutcome,
   ArtifactPaneReading,
   ArtifactRowActOutcome,
+  ArtifactVisibilityUpdateOutcome,
 } from "./artifact-pane-reading.js";
+import type { ArtifactVisibility } from "../artifacts/artifact-model.js";
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 
@@ -45,6 +47,10 @@ export interface ArtifactPaneBinding {
   readonly readManifest: (artifactId: string) => Promise<ArtifactRowActOutcome>;
   readonly fetchPayload: (artifactId: string) => Promise<ArtifactPayloadOutcome>;
   readonly deleteArtifact: (artifactId: string) => Promise<ArtifactDeleteOutcome>;
+  readonly updateVisibility: (
+    artifactId: string,
+    visibility: ArtifactVisibility,
+  ) => Promise<ArtifactVisibilityUpdateOutcome>;
 }
 
 /**
@@ -133,5 +139,10 @@ export function useArtifactPaneReading(
     (artifactId: string) => reader.deleteArtifact(artifactId),
     [reader],
   );
-  return { reading, refresh, readManifest, fetchPayload, deleteArtifact };
+  const updateVisibility = useCallback(
+    (artifactId: string, visibility: ArtifactVisibility) =>
+      reader.updateVisibility(artifactId, visibility),
+    [reader],
+  );
+  return { reading, refresh, readManifest, fetchPayload, deleteArtifact, updateVisibility };
 }

@@ -81,6 +81,7 @@ import {
   readRefusalExtensions,
   wireFailedBindingsExtension,
   wireHolderExtension,
+  wireReferencingArtifactsExtension,
   wireRetryExtension,
   withRefusalExtensions,
   type ConsoleRefusalExtensions,
@@ -259,6 +260,7 @@ function classifyRejection(
       ...wireRetryExtension(fields),
       ...wireFailedBindingsExtension(fields),
       ...wireHolderExtension(fields),
+      ...wireReferencingArtifactsExtension(fields),
     });
   }
   // The flat envelope — `{ code, message }` — from the same two readings the arms
@@ -267,9 +269,11 @@ function classifyRejection(
     // The flat envelope spells the structured context `details`, and the retry bound
     // sits at the root — the two positions the corpus registers for this arm, read
     // where each one actually is rather than at one guessed shared prefix.
+    const details = readGuardedProperty(rejection, "details");
     return withRefusalExtensions(refuse(origin, members.code, envelopeDetail(message, fallback)), {
       ...wireRetryExtension(rejection),
-      ...wireHolderExtension(readGuardedProperty(rejection, "details")),
+      ...wireHolderExtension(details),
+      ...wireReferencingArtifactsExtension(details),
     });
   }
   if (fallback !== undefined) {
