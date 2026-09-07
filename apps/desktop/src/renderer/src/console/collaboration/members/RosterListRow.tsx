@@ -26,7 +26,7 @@ import type { MembershipRole } from "@ai-sidekicks/contracts";
 import { Chip, Glyph, WireFigure, formatRelativeTime } from "../../primitives/index.js";
 import { GLYPH_SIZE_ROW, participantHueTokenName, tokenReference } from "../../tokens/index.js";
 import type { RosterRow } from "./presence-model.js";
-import type { PresenceDetailReading } from "./presence-detail.js";
+import type { PresenceDetailState } from "./presence-detail.js";
 import { PresenceDeviceDetail } from "./PresenceDeviceDetail.js";
 
 export interface RosterListRowProps {
@@ -40,8 +40,8 @@ export interface RosterListRowProps {
   readonly holdsTerminalControl: boolean;
   /** True when this row's device detail is the one open. */
   readonly isDetailOpen: boolean;
-  /** The detail answer, present only while this row is the open one. */
-  readonly detailReading: PresenceDetailReading | undefined;
+  /** The section's one detail read. Drawn only while this row is the open one. */
+  readonly detailState: PresenceDetailState;
   readonly onToggleDetail: () => void;
 }
 
@@ -125,10 +125,7 @@ export function RosterListRow(props: RosterListRowProps): React.JSX.Element {
       </div>
       {props.isDetailOpen ? (
         <div className="meridian-roster-row__detail" id={detailPanelId}>
-          <PresenceDeviceDetail
-            reading={props.detailReading}
-            aggregateOnTheRow={participant.state}
-          />
+          <PresenceDeviceDetail state={props.detailState} aggregateOnTheRow={participant.state} />
         </div>
       ) : null}
     </li>

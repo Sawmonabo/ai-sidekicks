@@ -17,35 +17,29 @@ import {
   isPresenceDetailUnauthorized,
   presenceDetailRefusal,
   presenceDetailValue,
-  type PresenceDetailReading,
+  type PresenceDetailState,
 } from "./presence-detail.js";
 import { PresenceDeviceDetail } from "./PresenceDeviceDetail.js";
 
-const SERVED: PresenceDetailReading = {
-  kind: "answered",
-  outcome: {
-    status: "served",
-    value: {
-      participantId: "participant-priya",
-      aggregateState: "idle",
-      devices: [
-        { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
-        { deviceId: "device-phone", state: "offline", lastSeen: "2026-01-01T09:50:00.000Z" },
-      ],
-    },
+const SERVED: PresenceDetailState = {
+  kind: "loaded",
+  value: {
+    participantId: "participant-priya",
+    aggregateState: "idle",
+    devices: [
+      { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
+      { deviceId: "device-phone", state: "offline", lastSeen: "2026-01-01T09:50:00.000Z" },
+    ],
   },
 };
 
-const ON_NO_DEVICE: PresenceDetailReading = {
-  kind: "answered",
-  outcome: {
-    status: "served",
-    value: { participantId: "participant-noah", aggregateState: "offline", devices: [] },
-  },
+const ON_NO_DEVICE: PresenceDetailState = {
+  kind: "loaded",
+  value: { participantId: "participant-noah", aggregateState: "offline", devices: [] },
 };
 
-const UNAUTHORIZED: PresenceDetailReading = {
-  kind: "unreadable",
+const UNAUTHORIZED: PresenceDetailState = {
+  kind: "failed",
   refusal: {
     origin: PRESENCE_DETAIL_ORIGIN,
     code: "presence.permission_denied",
@@ -53,15 +47,25 @@ const UNAUTHORIZED: PresenceDetailReading = {
   },
 };
 
-const NOT_REGISTERED: PresenceDetailReading = {
-  kind: "answered",
-  outcome: growthUnavailable("participantPresenceDetailRead"),
+/**
+ * The port's own refusal for a wire this build does not have.
+ *
+ * A `GrowthUnavailable` IS a `ConsoleRefusal`, and the read seam hands it to the
+ * failed arm by reference — so the slate row it names survives onto the surface
+ * rather than being rebuilt as a generic read failure.
+ */
+const NOT_REGISTERED: PresenceDetailState = {
+  kind: "failed",
+  refusal: growthUnavailable("participantPresenceDetailRead"),
 };
+
+/** No row is open, so nothing has been asked about anybody. */
+const UNREAD: PresenceDetailState = { kind: "not-loaded" };
 
 describe("presence detail — the readers", () => {
   it("carries the fan-out on a served answer and nothing on the others", () => {
     expect(presenceDetailValue(SERVED)?.devices).toHaveLength(2);
-    expect(presenceDetailValue(undefined)).toBeUndefined();
+    expect(presenceDetailValue(UNREAD)).toBeUndefined();
     expect(presenceDetailValue(UNAUTHORIZED)).toBeUndefined();
   });
 
@@ -71,6 +75,7 @@ describe("presence detail — the readers", () => {
     // rendering it as one would tell a person they are not allowed to see something
     // the console simply could not ask about.
     expect(isPresenceDetailUnauthorized(presenceDetailRefusal(NOT_REGISTERED))).toBe(false);
+    expect(isPresenceDetailUnauthorized(presenceDetailRefusal(UNREAD))).toBe(false);
     expect(isPresenceDetailUnauthorized(undefined)).toBe(false);
   });
 });
@@ -78,7 +83,7 @@ describe("presence detail — the readers", () => {
 describe("presence detail — what a row draws behind it", () => {
   it("renders the authorization answer as a sentence, with no refusal shape", () => {
     const { container } = render(
-      <PresenceDeviceDetail reading={UNAUTHORIZED} aggregateOnTheRow="idle" />,
+      <PresenceDeviceDetail state={UNAUTHORIZED} aggregateOnTheRow="idle" />,
     );
     expect(container.querySelector(".meridian-inline-refusal")).toBeNull();
     expect(container.textContent ?? "").toContain("aggregated summary");
@@ -86,19 +91,17 @@ describe("presence detail — what a row draws behind it", () => {
 
   it("renders every other refusal in place, code and message verbatim", () => {
     const { container } = render(
-      <PresenceDeviceDetail reading={NOT_REGISTERED} aggregateOnTheRow="idle" />,
+      <PresenceDeviceDetail state={NOT_REGISTERED} aggregateOnTheRow="idle" />,
     );
     expect(container.textContent ?? "").toContain("wire-unregistered");
   });
 
   it("draws each device, and an empty list as a fact rather than a failure", () => {
-    const served = render(<PresenceDeviceDetail reading={SERVED} aggregateOnTheRow="idle" />);
+    const served = render(<PresenceDeviceDetail state={SERVED} aggregateOnTheRow="idle" />);
     expect(served.container.querySelectorAll(".meridian-roster-detail__device")).toHaveLength(2);
     expect(served.container.textContent ?? "").toContain("device-phone");
 
-    const empty = render(
-      <PresenceDeviceDetail reading={ON_NO_DEVICE} aggregateOnTheRow="offline" />,
-    );
+    const empty = render(<PresenceDeviceDetail state={ON_NO_DEVICE} aggregateOnTheRow="offline" />);
     expect(empty.container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(empty.container.textContent ?? "").toContain("On no device");
   });
@@ -107,22 +110,18 @@ describe("presence detail — what a row draws behind it", () => {
     // Two reads of one fact that disagree is itself worth seeing. The row's aggregate
     // is the one that stands; this line is what stops the disagreement being silent.
     const { container } = render(
-      <PresenceDeviceDetail reading={SERVED} aggregateOnTheRow="online" />,
+      <PresenceDeviceDetail state={SERVED} aggregateOnTheRow="online" />,
     );
     expect(container.querySelector(".meridian-roster-detail__disagreement")).not.toBeNull();
   });
 
   it("negative control: agreeing reads draw no such line", () => {
-    const { container } = render(
-      <PresenceDeviceDetail reading={SERVED} aggregateOnTheRow="idle" />,
-    );
+    const { container } = render(<PresenceDeviceDetail state={SERVED} aggregateOnTheRow="idle" />);
     expect(container.querySelector(".meridian-roster-detail__disagreement")).toBeNull();
   });
 
   it("says the read is in flight rather than showing no devices", () => {
-    const { container } = render(
-      <PresenceDeviceDetail reading={undefined} aggregateOnTheRow="idle" />,
-    );
+    const { container } = render(<PresenceDeviceDetail state={UNREAD} aggregateOnTheRow="idle" />);
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
   });
 });

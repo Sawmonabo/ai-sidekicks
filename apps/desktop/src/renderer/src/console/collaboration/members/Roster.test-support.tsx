@@ -18,7 +18,7 @@ import { ParticipantHueAllocator } from "../../tokens/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import { rosterRowsFrom, type PresenceReading, type RosterRow } from "./presence-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
-import type { PresenceDetailReading } from "./presence-detail.js";
+import type { PresenceDetailState } from "./presence-detail.js";
 import { Roster } from "./Roster.js";
 import type { TerminalControlHolding } from "./terminal-control-holder.js";
 
@@ -37,17 +37,19 @@ export const NO_REOPEN: () => void = (): void => undefined;
 export const NO_ROLES: (participantId: string) => MembershipRole | undefined = () => undefined;
 export const NO_DETAIL_TOGGLE: (participantId: string) => void = () => undefined;
 export const UNREAD_HOLDING: TerminalControlHolding = { kind: "unread" };
+/** No row has been opened, so the section's detail read has asked nothing. */
+export const UNREAD_DETAIL: PresenceDetailState = { kind: "not-loaded" };
 export const READ_PROPS: {
   readonly roleFor: (participantId: string) => MembershipRole | undefined;
   readonly holding: TerminalControlHolding;
   readonly openDetailParticipantId: string | undefined;
-  readonly detailReading: PresenceDetailReading | undefined;
+  readonly detailState: PresenceDetailState;
   readonly onToggleDetail: (participantId: string) => void;
 } = {
   roleFor: NO_ROLES,
   holding: UNREAD_HOLDING,
   openDetailParticipantId: undefined,
-  detailReading: undefined,
+  detailState: UNREAD_DETAIL,
   onToggleDetail: NO_DETAIL_TOGGLE,
 };
 
@@ -78,7 +80,7 @@ export function renderRoster(
     readonly roleFor?: (participantId: string) => MembershipRole | undefined;
     readonly holding?: TerminalControlHolding;
     readonly openDetailParticipantId?: string;
-    readonly detailReading?: PresenceDetailReading;
+    readonly detailState?: PresenceDetailState;
     readonly onToggleDetail?: (participantId: string) => void;
   },
 ): ReturnType<typeof render> {
@@ -102,7 +104,7 @@ export function renderRoster(
       roleFor={overrides?.roleFor ?? NO_ROLES}
       holding={overrides?.holding ?? UNREAD_HOLDING}
       openDetailParticipantId={overrides?.openDetailParticipantId}
-      detailReading={overrides?.detailReading}
+      detailState={overrides?.detailState ?? UNREAD_DETAIL}
       onToggleDetail={overrides?.onToggleDetail ?? NO_DETAIL_TOGGLE}
       isLastKnown={overrides?.isLastKnown ?? false}
       onReopen={overrides?.onReopen ?? (() => undefined)}

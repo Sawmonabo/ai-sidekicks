@@ -21,11 +21,11 @@ import {
   isPresenceDetailUnauthorized,
   presenceDetailRefusal,
   presenceDetailValue,
-  type PresenceDetailReading,
+  type PresenceDetailState,
 } from "./presence-detail.js";
 
 export interface PresenceDeviceDetailProps {
-  readonly reading: PresenceDetailReading | undefined;
+  readonly state: PresenceDetailState;
   /**
    * The aggregate the row is already showing.
    *
@@ -37,8 +37,8 @@ export interface PresenceDeviceDetailProps {
 }
 
 export function PresenceDeviceDetail(props: PresenceDeviceDetailProps): React.JSX.Element {
-  const { reading, aggregateOnTheRow } = props;
-  const refusal = presenceDetailRefusal(reading);
+  const { state, aggregateOnTheRow } = props;
+  const refusal = presenceDetailRefusal(state);
 
   if (isPresenceDetailUnauthorized(refusal)) {
     return (
@@ -53,7 +53,7 @@ export function PresenceDeviceDetail(props: PresenceDeviceDetailProps): React.JS
     return <InlineRefusal code={refusal.code} detail={refusal.detail} />;
   }
 
-  const detail = presenceDetailValue(reading);
+  const detail = presenceDetailValue(state);
   if (detail === undefined) {
     return <Nothing kind="not-loaded" title="Reading this person's devices." />;
   }

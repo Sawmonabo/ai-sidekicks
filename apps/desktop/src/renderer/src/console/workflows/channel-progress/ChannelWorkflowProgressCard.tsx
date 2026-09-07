@@ -28,9 +28,16 @@
 // states the run's identity and draws no control, because a button that cannot open
 // the pane it names is worse than the sentence saying where the run lives.
 //
-// Never — never polls, and holds no timer: it reads through the run directory's one
-// read-per-mount, which is the read the runs surface already performs, so a channel
-// that opens a timeline asks once and a channel that never opens one asks nothing.
+// Never — never polls, and holds no timer: it reads through the run directory's LIVE
+// lifetime, which is the read the runs surface already performs under a second rule
+// about how long an answer stays good, so a channel that opens a timeline asks once and
+// a channel that never opens one asks nothing. It asks again when the window comes back
+// and at no other moment, because no `workflow.*` type is registered in the session
+// event census for it to listen to — `runs/run-directory.ts` states that measurement
+// and is where the kinds go the day the registration lands. A card is pinned for as
+// long as somebody reads the conversation beneath it, which is the whole time the run
+// it names is advancing, so the one-read-per-mount lifetime the runs list takes would
+// leave this card naming a phase count that had stopped being true.
 // Never reads a park from a phase's `state`, which carries no suspended arm on purpose.
 // Never renders for a channel no run named, and never renders a settled run — both are
 // the region contributing no element, which is what a pinned region's absence IS.
@@ -50,7 +57,7 @@ import { useMemo } from "react";
 
 import { useConsoleBridge } from "../../bridge/index.js";
 import type { ConsolePaneOpener } from "../../seats/index.js";
-import { useWorkflowRunDirectory } from "../runs/run-directory.js";
+import { useLiveWorkflowRunDirectory } from "../runs/run-directory.js";
 import { channelWorkflowProgress } from "./channel-progress.js";
 import { PinnedRunCard } from "./PinnedRunCard.js";
 
@@ -72,8 +79,9 @@ export interface ChannelWorkflowProgressCardProps {
 /**
  * The run this channel most needs looked at, pinned — or nothing at all.
  *
- * The read is the runs surface's own hook rather than a second one: one subject, one
- * read per mount, one settlement vocabulary. What this adds is the channel narrowing,
+ * The read is the runs surface's own module rather than a second one: one subject, one
+ * request builder, one settlement vocabulary — taken under the lifetime that keeps
+ * answering while the card stays pinned. What this adds is the channel narrowing,
  * which happens on the ANSWER rather than in the request, because the enumeration is
  * keyed by session and a per-channel request member would be a narrowing no wire
  * carries.
@@ -82,7 +90,7 @@ export function ChannelWorkflowProgressCard(
   props: ChannelWorkflowProgressCardProps,
 ): React.JSX.Element | null {
   const bridge = useConsoleBridge();
-  const directory = useWorkflowRunDirectory(bridge.growth, props.sessionId);
+  const directory = useLiveWorkflowRunDirectory(bridge, props.sessionId);
   const progress =
     directory.status === "served"
       ? channelWorkflowProgress(directory.runs, props.channelId)

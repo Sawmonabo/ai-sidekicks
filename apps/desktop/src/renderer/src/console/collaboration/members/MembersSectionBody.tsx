@@ -80,7 +80,7 @@ export function MembersSectionBody(props: {
   const [openDetailParticipantId, setOpenDetailParticipantId] = useState<string | undefined>(
     undefined,
   );
-  const detailReading = usePresenceDetail(bridge, sessionStore.sessionId, openDetailParticipantId);
+  const detailState = usePresenceDetail(bridge, sessionStore.sessionId, openDetailParticipantId);
   const toggleDetail = useCallback((participantId: string) => {
     setOpenDetailParticipantId((open) => (open === participantId ? undefined : participantId));
   }, []);
@@ -145,7 +145,7 @@ export function MembersSectionBody(props: {
         roleFor={roleFor}
         holding={holding}
         openDetailParticipantId={openDetailParticipantId}
-        detailReading={detailReading}
+        detailState={detailState}
         onToggleDetail={toggleDetail}
         isLastKnown={isLastKnown}
         onReopen={reopenRoster}
