@@ -34,6 +34,8 @@ import {
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
+import { resolveServedSelection, selectedChoiceOf, type ServedSelection } from "../form/index.js";
+
 /** The namespace every frame about a runtime node is registered under. */
 const RUNTIME_NODE_EVENT_NAMESPACE_PREFIX = "runtime_node.";
 
@@ -65,7 +67,13 @@ export const RUNTIME_NODE_ROSTER_EVENT_KINDS: ReadonlySet<string> = new Set<stri
 export interface AttachFormState {
   /** Exactly what was typed. Never trimmed, normalised, or joined by this console. */
   readonly localPath: string;
-  /** The node picked to perform the attach, or none picked yet. */
+  /**
+   * The node a participant PICKED, or none picked yet.
+   *
+   * NEVER THE SOLE-NODE DEFAULT. That default is derived per read by
+   * {@link resolveAttachForm} against the roster on screen, so it cannot survive the
+   * roster it was taken from — which a default written in here would.
+   */
   readonly nodeId: string | undefined;
 }
 
@@ -84,8 +92,49 @@ export type AttachFormVerdict =
   | { readonly status: "sendable"; readonly localPath: string; readonly nodeId: string }
   | { readonly status: "incomplete"; readonly because: string };
 
+/** One form read against the roster on screen: the node it is on, and its verdict. */
+export interface AttachFormResolution {
+  /**
+   * The node the picker draws as checked, which is the node the verdict would send.
+   *
+   * ONE READING SERVING BOTH, which is why this is a resolution rather than two
+   * functions: the picker used to fall back to the sole node while the verdict read the
+   * form alone, so a single-node session drew a checked radio over a shut control and a
+   * roster refresh that dropped the picked node left an open one over a stale id.
+   */
+  readonly selectedNodeId: string | undefined;
+  readonly verdict: AttachFormVerdict;
+}
+
 /**
- * Read one form, and say whether it is a request.
+ * Read one form against the roster that is currently served.
+ *
+ * THE ROSTER IS AN INPUT AND NOT A LATER CHECK. Which node this form is on is a
+ * function of what a participant picked AND of what the session still offers, so a
+ * refresh that removes the picked node closes the control in the same act that removes
+ * the row — rather than leaving an enabled button over an id the daemon would refuse.
+ *
+ * `undefined` where the roster has not answered, which is a different fact from a
+ * roster that answered with no nodes: the first cannot confirm a pick, the second
+ * withdraws one.
+ */
+export function resolveAttachForm(
+  form: AttachFormState,
+  servedNodes: readonly AttachNodeOption[] | undefined,
+): AttachFormResolution {
+  const selection = resolveServedSelection<string>({
+    chosen: form.nodeId,
+    servedChoices: servedNodes?.map((option) => option.nodeId),
+    defaultChoice: servedNodes === undefined ? undefined : soleNodeIdOf(servedNodes),
+  });
+  return {
+    selectedNodeId: selectedChoiceOf(selection),
+    verdict: attachVerdictFor(form, selection),
+  };
+}
+
+/**
+ * The verdict itself, once the node question has an answer.
  *
  * THE PATH IS CHECKED BEFORE THE NODE because that is the order the form is filled in,
  * and a dialog that reported "choose a node" over an empty path field would name the
@@ -94,8 +143,15 @@ export type AttachFormVerdict =
  * THE LENGTH IS MEASURED IN CODE UNITS, WHICH IS WHAT THE CONTRACT MEASURES. Its cap
  * is a Zod `max` on the string, so this guard is exact rather than approximate — a
  * byte count over a UTF-8 encoding would refuse paths the daemon accepts.
+ *
+ * EACH CLOSED ARM NAMES ITS OWN FACT. A withdrawn node and a roster that has not
+ * answered shut the control for different reasons, and one sentence covering both
+ * would be false about whichever it was not written for.
  */
-export function attachFormVerdict(form: AttachFormState): AttachFormVerdict {
+function attachVerdictFor(
+  form: AttachFormState,
+  selection: ServedSelection<string>,
+): AttachFormVerdict {
   if (form.localPath.trim().length === 0) {
     return {
       status: "incomplete",
@@ -108,10 +164,22 @@ export function attachFormVerdict(form: AttachFormState): AttachFormVerdict {
       because: `That path is ${String(form.localPath.length)} characters. The wire accepts ${String(REPO_PATH_MAX_LEN)}.`,
     };
   }
-  if (form.nodeId === undefined) {
-    return { status: "incomplete", because: "Choose the node that can reach that path." };
+  switch (selection.status) {
+    case "resolved":
+      return { status: "sendable", localPath: form.localPath, nodeId: selection.choice };
+    case "withdrawn":
+      return {
+        status: "incomplete",
+        because: "That node is no longer on this session's roster. Choose one of the nodes listed.",
+      };
+    case "unserved":
+      return {
+        status: "incomplete",
+        because: "This session's nodes have not answered, so the node chosen cannot be confirmed.",
+      };
+    case "unresolved":
+      return { status: "incomplete", because: "Choose the node that can reach that path." };
   }
-  return { status: "sendable", localPath: form.localPath, nodeId: form.nodeId };
 }
 
 /** One node the picker offers, with both of the roster's health axes disclosed. */

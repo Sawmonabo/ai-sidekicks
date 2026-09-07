@@ -28,12 +28,7 @@ import { RefusalRecovery } from "../RefusalRecovery.js";
 import { executionModeRows } from "../mode-row.js";
 import { BindModePicker } from "./BindModePicker.js";
 import { useBindController, type BindReading } from "./bind-controller.js";
-import {
-  bindFormVerdict,
-  defaultBindMode,
-  EMPTY_BIND_FORM,
-  type BindFormState,
-} from "./bind-model.js";
+import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-model.js";
 
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */
 const MODE_GROUP_NAME = "meridian-bind-mode";
@@ -57,7 +52,14 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
     props.sessionStore,
   );
   const [form, setForm] = useState<BindFormState>(EMPTY_BIND_FORM);
-  const verdict = bindFormVerdict(form);
+  // WHAT THIS MOUNT ADMITS IS AN INPUT TO BOTH HALVES OF THIS DIALOG. The daemon's own
+  // default arrives through the same reading that opens the control, so a dialog
+  // reopened on this mount gets it again; and a refresh that withdraws the held mode
+  // clears the radio and shuts the control in one act, rather than drawing the row
+  // excluded beside a button that would still send it.
+  const servedCapabilities =
+    reading.prerequisite.status === "read" ? reading.prerequisite.value : undefined;
+  const { selectedMode, verdict } = resolveBindForm(form, servedCapabilities);
 
   const openChanged = useCallback(
     (isOpen: boolean) => {
@@ -73,25 +75,6 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
     },
     [requestCapabilities, clearAct],
   );
-
-  // THE DAEMON'S DEFAULT IS PRE-FILLED ONCE THE READ LANDS, and only into a form nobody
-  // has touched: a later re-read must not move a mode a participant has chosen. Held in
-  // a ref rather than derived, because the pre-fill is an event and not a state.
-  const preFilledFor = useRef<string | undefined>(undefined);
-  const served = reading.prerequisite.status === "read" ? reading.prerequisite.value : undefined;
-  useEffect(() => {
-    if (served === undefined || preFilledFor.current === props.repoMountId) {
-      return;
-    }
-    preFilledFor.current = props.repoMountId;
-    const daemonDefault = defaultBindMode(served);
-    if (daemonDefault === undefined) {
-      return;
-    }
-    setForm((current) =>
-      current.executionMode === undefined ? { ...current, executionMode: daemonDefault } : current,
-    );
-  }, [served, props.repoMountId]);
 
   // ONE READ PER BOUND WORKSPACE, on the attach dialog's reasoning: the id is what
   // changes when a bind settles, and a ref keeps a re-render from asking again.
@@ -152,7 +135,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
             />
           </label>
 
-          {renderModes(reading, form.executionMode, selectMode, retryCapabilities)}
+          {renderModes(reading, selectedMode, selectMode, retryCapabilities)}
           {renderSettlement(reading)}
 
           <div className="meridian-bind__acts">
@@ -211,6 +194,10 @@ function renderModes(
       return (
         <BindModePicker
           options={executionModeRows(reading.prerequisite.value)}
+          // ALREADY RESOLVED AGAINST THESE CAPABILITIES, by `resolveBindForm`: the
+          // daemon's default arrives checked and a withdrawn mode arrives as nothing
+          // checked. A pre-fill written into form state instead needed a memory of
+          // having run, and that memory outlived the form it was taken about.
           selectedMode={selectedMode}
           groupName={MODE_GROUP_NAME}
           onSelect={onSelect}
