@@ -18,8 +18,10 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
+import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
 import {
   descendantsOf,
+  HOST_QUERY_TIMEOUT_MS,
   parseProcessTable,
   readProcessStartStamp,
   readProcessTable,
@@ -140,5 +142,20 @@ describe("the per-pid start stamp — the reading a root is captured by", () => 
     expect(reaped.pid).toBeGreaterThan(0);
     expect(readProcessStartStamp(reaped.pid)).toBeUndefined();
     expect(readProcessStartStamp(0)).toBeUndefined();
+  });
+});
+
+describe("the host query bound — a relation rather than a number", () => {
+  it("leaves the disposal it sits inside more time than it can spend", () => {
+    // The derivation the constant states, held here so it is a claim that can
+    // fail. A query bounded at or above the cleanup budget can spend the whole
+    // of it and leave nothing for the kill the query was taken for — and both
+    // readers run inside that disposal, so the bound is on the ONE query and
+    // the budget is on everything the disposal does.
+    expect(HOST_QUERY_TIMEOUT_MS * 2).toBeLessThanOrEqual(CLEANUP_BUDGET_MS);
+    // Not the other direction either: a bound under a second would abandon a
+    // readable host, since PowerShell's cold start on a loaded Windows runner
+    // is measured in seconds. The two together are what fix the figure.
+    expect(HOST_QUERY_TIMEOUT_MS).toBeGreaterThan(1_000);
   });
 });

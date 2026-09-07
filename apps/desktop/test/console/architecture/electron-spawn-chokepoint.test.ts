@@ -141,6 +141,14 @@ const REACHES_INVISIBLE_TO_THE_REGEX: readonly string[] = [
   // The builtin-loader arm: no `import`, no `require`, and a property-access
   // callee that the identifier arms alone reported clean while it spawned.
   'const childProcess = process.getBuiltinModule("node:child_process");',
+  // The SAME loader written in brackets. TypeScript parses this callee as an
+  // element access rather than a property access, so a reader admitting only the
+  // dotted form reported it clean — the identifier-only hole one indirection
+  // along, and the spelling a module writes when it means not to be read.
+  'const childProcess = process["getBuiltinModule"]("node:child_process");',
+  // The same bracketing on a loader whose bare spelling is an identifier, so the
+  // arm is shown to read the NAME rather than one blessed object.
+  'const childProcess = module["require"]("child_process");',
   // The import-equals arm: TypeScript's own CommonJS binding form, whose
   // `require` is SYNTAX rather than a call — so neither the import-clause arm
   // nor the call arm saw it, and a helper written this way spawned under a
@@ -171,6 +179,11 @@ const REACHES_THAT_ARE_NOT_ONE: readonly string[] = [
   "const spawn = launcher.spawn.bind(launcher);",
   // The builtin loader still keys on the SPECIFIER, so another module is not one.
   'const buffer = process.getBuiltinModule("node:buffer");',
+  'const buffer = process["getBuiltinModule"]("node:buffer");',
+  // The residual the reader names rather than hides: a subscript that is not a
+  // literal says no loader name in the text, and deciding what `loaderName`
+  // holds is the binding resolution this reader does not do.
+  'const childProcess = process[loaderName]("node:child_process");',
   'const advice = "import { spawn } from \\"node:child_process\\"";',
   // The import-equals arms that reach no module: a type-only one starts no
   // process, and an entity-name reference is an alias for a local namespace
@@ -270,6 +283,23 @@ describe("every Electron spawn under test/ goes through one owner", () => {
       ),
     ).toBe(true);
     expect(reachesAsynchronousSpawn('module.require("node:child_process");', "p.ts")).toBe(true);
+  });
+
+  it("reads that loader through a bracketed subscript as well as a dot", () => {
+    // `process["getBuiltinModule"]` is the same property under a different node
+    // kind, and the dotted arm alone reported it clean while it spawned. The
+    // name is what is read, so a no-substitution template says it as plainly as
+    // a quoted string, and a subscript that names no loader still says nothing.
+    expect(
+      reachesAsynchronousSpawn(
+        'const { spawn } = process["getBuiltinModule"]("child_process");',
+        "p.ts",
+      ),
+    ).toBe(true);
+    const template = "const { spawn } = process[`getBuiltinModule`](`node:child_process`);";
+    expect(reachesAsynchronousSpawn(template, "p.ts")).toBe(true);
+    expect(reachesAsynchronousSpawn('module["require"]("node:child_process");', "p.ts")).toBe(true);
+    expect(reachesAsynchronousSpawn('process["cwd"]("node:child_process");', "p.ts")).toBe(false);
   });
 
   it("still clears the forms that cannot start a process", () => {

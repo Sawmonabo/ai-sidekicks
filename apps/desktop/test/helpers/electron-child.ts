@@ -54,7 +54,11 @@ import process from "node:process";
 
 import { onTestFinished } from "vitest";
 
-import { ManagedElectronChild, type ProcessTreeTerminator } from "./managed-electron-child.js";
+import {
+  ManagedElectronChild,
+  type ProcessTreeTerminator,
+  type SpawnedTreeIdentityCapture,
+} from "./managed-electron-child.js";
 
 /**
  * The reserve every spawner keeps between its OWN deadline and Vitest's.
@@ -157,6 +161,15 @@ export interface ElectronChildSpawnOptions {
    * mentioned it — which is what a caller means by passing nothing.
    */
   readonly terminateProcessTree?: ProcessTreeTerminator | undefined;
+  /**
+   * Overrides how the spawned tree's root identity is captured.
+   *
+   * Injected so the capture's own FAILURE is drivable: it reads this host with a
+   * blocking `spawnSync`, and the property that matters here is that a child
+   * spawned before a read that throws is still owned by the test — which cannot
+   * be shown without a reader that throws.
+   */
+  readonly captureRootIdentity?: SpawnedTreeIdentityCapture | undefined;
 }
 
 /**
@@ -195,7 +208,22 @@ export function spawnManagedElectronChild(
     signal: abortController.signal,
     killSignal: "SIGKILL",
   });
-  const managed = new ManagedElectronChild(child, abortController, options.terminateProcessTree);
+  const managed = new ManagedElectronChild(
+    child,
+    abortController,
+    options.terminateProcessTree,
+    options.captureRootIdentity,
+  );
+  // OWNERSHIP FIRST, THEN THE HOST QUERY, and the order is the whole of it.
+  // Constructing the handle reads nothing; capturing the tree's identity spawns
+  // `ps` or PowerShell and BLOCKS this thread until it answers. Performed before
+  // the registration below, that query sat in a window where the process was
+  // already running and nothing anywhere had been registered to kill it — and a
+  // query that stalls blocks the very thread vitest's own timeout runs on, so
+  // the worker is torn down with a detached Electron tree and no kill path. A
+  // query that THROWS leaves the same state by the shorter route. Registering
+  // first costs nothing and closes both: the identity is captured an instant
+  // later, which is still before anything this spawn started can have exited.
   try {
     disposeWhenTestFinishes(() => {
       managed.dispose();
@@ -227,5 +255,12 @@ export function spawnManagedElectronChild(
     managed.disposeUntilKillDelivered();
     throw registrationRefusal;
   }
+  // Deliberately OUTSIDE the try: a capture that fails is not a registration
+  // refusal, and the child it describes is already owned by the test above. So
+  // the throw propagates to the caller with the disposal already registered,
+  // which is the state that makes the failure safe rather than the one that
+  // makes it silent — the tree kill still runs when the test settles, through
+  // the unverified reading `ManagedElectronChild` falls back to.
+  managed.captureTreeIdentity();
   return managed;
 }

@@ -6,6 +6,15 @@
 // function would test a function, exercise none of those three, and leave the
 // only thing a caller ever touches — the process's exit code — unasserted.
 //
+// The SELECTION is driven the same way and for the same reason. A lane forwards
+// the files it authored, and the fixed `--project=console-unit` this script used
+// to pass could not run a `main-unit` file — so a real test file, named
+// explicitly on the command line, matched in no selected project and the run
+// exited 0. Asserting the exit code alone cannot see that: an empty selection
+// under `--changed` exits 0 exactly as a passing one does. So the case below
+// asserts that the forwarded file's own NAME appears in what vitest reported,
+// which is the only reading that separates "it ran" from "it was skipped".
+//
 // The refusal matters because a wrong invocation of this script is SILENT. Both
 // halves were measured, not reasoned about: with the ref appended after
 // `--maxWorkers=2` it arrived as a positional file filter and vitest reported
@@ -180,4 +189,46 @@ describe("test:changed refuses a base ref that resolves to no commit", () => {
     expect(refused.stderr).toContain("resolves to no commit");
     expect(refused.stdout).toBe("");
   });
+});
+
+describe("test:changed runs the project that owns each forwarded file", () => {
+  /**
+   * A real `main-unit` test file, which the superseded selection could not run.
+   *
+   * `src/shared/**` is owned by `main-unit`, and `main-unit` is exactly the
+   * project the fixed `--project=console-unit` excluded — so this file is the
+   * finding rather than an example of it. Small and dependency-free, so the case
+   * costs one short suite rather than a tier.
+   */
+  const MAIN_UNIT_FILE = "src/shared/wire-errors.test.ts";
+
+  /** A real file owned by a tier this command deliberately does not run. */
+  const ELECTRON_TIER_FILE = "test/console/e2e/frame-boot.test.ts";
+
+  it("selects `main-unit` for a `main-unit` file and actually runs it", () => {
+    const ran = runScript(checkoutLocalCommit(), MAIN_UNIT_FILE);
+
+    expect(ran.status).toBe(0);
+    // THE FINDING. Under the superseded selection this file was named on the
+    // command line, matched in no selected project, and the command reported a
+    // successful unit verification having executed nothing.
+    // Vitest's default reporter names no path on a clean run, so the reading
+    // that separates "it ran" from "it was skipped" is the FILE COUNT: exactly
+    // one, against the `No test files found` an empty selection reports.
+    expect(
+      ran.stdout,
+      "the forwarded file was not run — the selection excludes the project that owns it",
+    ).toMatch(/Test Files\s+1 passed/);
+  }, 120_000);
+
+  it("refuses a file no unit project claims rather than skipping it", () => {
+    // The other half: this command runs the projects that need no prior build,
+    // and a file belonging to one of the others must not be quietly dropped into
+    // an empty selection that exits 0.
+    const refused = runScript(checkoutLocalCommit(), ELECTRON_TIER_FILE);
+
+    expect(refused.status).toBe(MISUSE_EXIT_CODE);
+    expect(refused.stderr).toContain(ELECTRON_TIER_FILE);
+    expect(refused.stderr).toContain("claimed by none of");
+  }, 120_000);
 });

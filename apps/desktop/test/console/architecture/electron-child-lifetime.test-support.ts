@@ -32,6 +32,7 @@ import {
 import type {
   ManagedElectronChild,
   ProcessTreeTerminator,
+  SpawnedTreeIdentityCapture,
 } from "../../helpers/managed-electron-child.js";
 import { terminateProcessTree } from "../../helpers/process-tree/dispatch.js";
 import { TERMINATION_OBSERVATION_MS } from "./electron-child-liveness.test-support.js";
@@ -100,10 +101,10 @@ export const ABANDONED_SETUP_MESSAGE = "the setup failed after the child was alr
  *
  * The second half is not symmetry. With the recorder as the ONLY registrar, a
  * setup that never returned — a malformed announcement, a vitest timeout during
- * it — left a detached, deliberately non-terminating child running with nothing
- * anywhere that intended to kill it, which is precisely the leak this mechanism
- * exists to close, reintroduced by the suite that proves it closed. The recorder
- * OBSERVES; `onTestFinished` still owns the kill.
+ * it — left a detached, non-terminating child with nothing anywhere that
+ * intended to kill it: the leak this mechanism exists to close, reintroduced by
+ * the suite that proves it closed. The recorder OBSERVES; `onTestFinished`
+ * still owns the kill.
  */
 export class RecordingSettleRegistrar {
   readonly #disposers: SettleTimeDisposer[] = [];
@@ -133,11 +134,10 @@ export interface TerminationRequest {
 /**
  * A tree terminator that records every request and can refuse the first N kills.
  *
- * ONE CLASS FOR ONE ROLE. Two cases need this stand-in for two different
- * reasons — one needs a platform that REFUSES on demand, the other needs to
- * learn which pid the module asked to kill — and both are the same role:
- * observing and optionally denying the call the module makes. A second class
- * for the second reason would be a second home for the same fact.
+ * ONE CLASS FOR ONE ROLE. Two cases need this stand-in for two reasons — one
+ * needs a platform that REFUSES on demand, the other needs to learn which pid
+ * the module asked to kill — and both are the same role: observing and
+ * optionally denying the call. A second class would be a second home for it.
  *
  * The refusal is the case no platform can be asked to produce on demand: a
  * `taskkill` that spawns, exits non-zero, and leaves a live tree behind. Once
@@ -186,9 +186,9 @@ export const REGISTRAR_REFUSAL_MESSAGE = "onTestFinished() can only be called in
  * A registrar that refuses, the way `onTestFinished` refuses outside a test.
  *
  * The misuse this stands in for is a spawn from `beforeAll`: legal-looking
- * code, a real child, and a registrar that throws AFTER the child exists. Vitest
- * cannot be asked to produce it from inside a running test — which is the same
- * reason the refusing terminator above is injected rather than provoked.
+ * code, a real child, and a registrar that throws AFTER the child exists.
+ * Vitest cannot produce it from inside a running test — the same reason the
+ * refusing terminator above is injected rather than provoked.
  */
 export class RefusingSettleRegistrar {
   #registrationAttempts = 0;
@@ -278,9 +278,9 @@ export class AbandonedPair {
  * A child that never exits on its own, and a grandchild it leaves behind.
  *
  * The grandchild is what reconstructs the Electron shape without Electron.
- * `node_modules/.bin/electron` is a Node shim that spawns the real browser
- * process; a signal delivered to the shim alone reaches the browser only if the
- * shim survives to forward it, and SIGKILL cannot be forwarded. So the shape
+ * `node_modules/.bin/electron` is a Node shim that spawns the real browser; a
+ * signal delivered to the shim alone reaches the browser only if the shim
+ * survives to forward it, and SIGKILL cannot be forwarded. So the shape
  * that orphans a browser is exactly the shape that orphans this grandchild, and
  * the two kill paths the suite drives are distinguishable only because it is here.
  *
@@ -301,14 +301,10 @@ const CHILD_PROGRAM = [
  * The shape `close` exists for, and the one an exit code cannot see: the parent
  * is gone — `exit` fired, `exitCode` set, the pid reaped — while the pipe this
  * process reads is still held open by a descendant that inherited it. That is
- * the Electron shim exactly, one step smaller: the launcher exits and the
- * browser process it started keeps the inherited write end. The grandchild is
- * spawned ATTACHED for the same reason the pair above is, so it sits in the
- * group a tree kill addresses.
- *
- * The exit is deferred to the write callback because `process.exit` does not
- * flush an asynchronous pipe write, and the announcement is what the caller is
- * waiting for.
+ * the Electron shim exactly, one step smaller. The grandchild is spawned
+ * ATTACHED for the same reason the pair above is, so it sits in the group a
+ * tree kill addresses, and the exit is deferred to the write callback because
+ * `process.exit` does not flush an asynchronous pipe write.
  */
 const STDIO_HOLDING_CHILD_PROGRAM = [
   "const { spawn } = require('node:child_process');",
@@ -338,6 +334,8 @@ export interface SpawnPairOptions {
   readonly abandonAfterAnnouncement?: boolean;
   /** Spawn the child that exits leaving its stdout held open by the grandchild. */
   readonly exitHoldingStdio?: boolean;
+  /** Overrides the identity capture, and with it the readings it takes. */
+  readonly captureRootIdentity?: SpawnedTreeIdentityCapture | undefined;
 }
 
 /** Spawn the pair and wait until the grandchild has announced its pid. */
@@ -352,6 +350,7 @@ export async function spawnChildWithGrandchild(
     env: process.env,
     registerSettleTimeTermination: registrar.register,
     terminateProcessTree: options.terminateProcessTree,
+    captureRootIdentity: options.captureRootIdentity,
   });
   const childPid = managed.child.pid;
   if (childPid === undefined) {

@@ -41,6 +41,41 @@
 // COMMIT (`<ref>^{commit}`) rather than merely dereferenced, because a name that
 // resolves to a tree or a blob is a name `--changed` cannot diff either.
 //
+// AND ONE PROJECT COULD NOT RUN THE FILE IT WAS HANDED
+// -----------------------------------------------------
+// The selection was the literal `--project=console-unit`, and the lane workflow
+// this script exists to serve forwards the files the lane AUTHORED after the
+// ref. A `main-unit` file — `src/main/**`, `src/shared/**`, `build/**`, and
+// this script's own test under `scripts/**` — is owned by a project that
+// selection excludes, so vitest was handed a filter naming a real test file,
+// matched it in no selected project, and exited 0. The third door onto the same
+// false green, and the one a lane walks through while doing exactly what the
+// documented workflow tells it to.
+//
+// The same reading settles what `--changed` may still narrow. It INTERSECTS
+// with a positional filter, so a lane that edits a module and forwards that
+// module's test — a change and its coverage being two files — names a file the
+// ref does not list, and vitest selects the empty intersection and exits 0. So
+// the ref decides the selection only when nothing was named; a caller who names
+// files has stated it, and the ref is still required and still resolved so a
+// stale one is still reported.
+//
+// So the projects are DERIVED from what was forwarded rather than fixed. Which
+// project claims a file is a question only the runner can answer — brace
+// expansion, whether `**` spans zero segments, how `exclude` composes with
+// `include` — so it is asked of the real `TestProject` instances through
+// `createVitest`, the same resolution `test/console/architecture/`'s three
+// glob questions take. A matcher written here could agree with the config and
+// still disagree with the run, which is the class of defect this whole file is
+// about.
+//
+// That resolution is NOT the one in `test/console/vitest-projects.ts`, and
+// cannot be: `tsconfig.scripts.json` roots at `scripts/`, so a script importing
+// from `test/` is outside the program that typechecks it. What would be shared
+// is a four-line `createVitest` call rather than a rule — the RULE is
+// `project.matchesTestGlob`, which is vitest's own and is the only matcher
+// either side runs.
+//
 // NO `import.meta` ANYWHERE, DELIBERATELY
 // ---------------------------------------
 // `tools/__tests__/entry-guard.test.mjs` derives its subject set as the scripts
@@ -72,8 +107,27 @@ const USAGE =
  */
 const MISUSE_EXIT_CODE = 2;
 
-/** The tier this script runs. One project, because one lane's changes are unit-scoped. */
-const CHANGED_TIER_PROJECT = "console-unit";
+/**
+ * The projects a lane's changed-file verification may run, as a closed set.
+ *
+ * The criterion is one property and not a taste: a project here runs from a
+ * clean checkout with no prior `pnpm build`. That is what keeps this script
+ * something a lane can invoke at any moment. `console-assets` and
+ * `console-bundle` read `out/**`, `main`, `console-e2e` and `console-endurance`
+ * launch Electron, and the three browser-mode tiers need a real browser — none
+ * of them belongs in a command a lane runs against its own uncommitted work,
+ * and a file owned by one of them is REFUSED here rather than silently skipped.
+ *
+ * The names are held against the resolved project set below, so a project
+ * renamed in `vitest.config.ts` fails this script rather than quietly shrinking
+ * what it verifies.
+ */
+const CHANGED_TIER_PROJECTS: readonly string[] = [
+  "renderer",
+  "main-unit",
+  "console-unit",
+  "console-architecture",
+];
 
 /** Held here rather than in the script line, which is what the caller appends to. */
 const CHANGED_TIER_WORKERS = "2";
@@ -138,7 +192,78 @@ function refuseUnlessBaseRefResolves(baseRef: string, packageRoot: string): void
   }
 }
 
-function runChangedTier(): void {
+/**
+ * The unit projects that would DISCOVER each forwarded file, asked of the runner.
+ *
+ * Resolving costs about two hundred milliseconds and runs nothing: the config is
+ * loaded and the `TestProject` instances are constructed, no suite is collected
+ * and no browser is launched. It is loaded lazily so an invocation that forwards
+ * no file — the ordinary `--changed`-only run, and the `--help` probe — pays
+ * none of it.
+ *
+ * A forwarded file no unit project claims is a REFUSAL and never a narrowing.
+ * Vitest treats a filter that matches nothing as an empty selection and exits
+ * 0, so admitting it would report a run that never happened as a passing one —
+ * this script's whole subject, arriving through a third door.
+ */
+async function unitProjectsClaiming(
+  files: readonly string[],
+  packageRoot: string,
+): Promise<readonly string[]> {
+  const { createVitest } = await import("vitest/node");
+  const vitest = await createVitest("test", {
+    watch: false,
+    run: true,
+    root: packageRoot,
+    config: path.join(packageRoot, "vitest.config.ts"),
+  });
+  try {
+    const unitProjects = vitest.projects.filter((project) =>
+      CHANGED_TIER_PROJECTS.includes(project.name),
+    );
+    if (unitProjects.length !== CHANGED_TIER_PROJECTS.length) {
+      const resolved = unitProjects.map((project) => project.name);
+      process.stderr.write(
+        `${LOG_PREFIX} this package resolves no project named ` +
+          `${CHANGED_TIER_PROJECTS.filter((name) => !resolved.includes(name)).join(", ")}. ` +
+          `A renamed project would silently shrink what this command verifies.\n`,
+      );
+      process.exit(MISUSE_EXIT_CODE);
+    }
+    const selected = new Set<string>();
+    for (const file of files) {
+      const absolutePath = path.resolve(packageRoot, file);
+      const owners = unitProjects.filter((project) => project.matchesTestGlob(absolutePath));
+      if (owners.length === 0) {
+        process.stderr.write(
+          `${LOG_PREFIX} \`${file}\` is claimed by none of ${CHANGED_TIER_PROJECTS.join(", ")}. ` +
+            `vitest would select nothing for it and exit 0, reporting a file that never ran ` +
+            `as a passing one. Run its own tier directly.\n${USAGE}\n`,
+        );
+        process.exit(MISUSE_EXIT_CODE);
+      }
+      for (const owner of owners) {
+        selected.add(owner.name);
+      }
+    }
+    return [...selected];
+  } finally {
+    await vitest.close();
+  }
+}
+
+/**
+ * Which forwarded arguments vitest would read as FILE FILTERS.
+ *
+ * Vitest's positionals are its filters; anything beginning with `-` is an option
+ * of its own and is forwarded untouched. Read here only to decide which
+ * projects to select — every argument is passed on either way.
+ */
+function forwardedFileFilters(forwarded: readonly string[]): readonly string[] {
+  return forwarded.filter((argument) => !argument.startsWith("-"));
+}
+
+async function runChangedTier(): Promise<void> {
   const [baseRef, ...forwarded] = process.argv.slice(2);
   if (baseRef === undefined || baseRef === "") {
     process.stderr.write(
@@ -153,13 +278,30 @@ function runChangedTier(): void {
   // caller's argument, and a run that reports "vitest publishes no bin" over a
   // ref that never existed has named the wrong repair.
   refuseUnlessBaseRefResolves(baseRef, packageRoot);
+  // Every unit project when nothing was forwarded, because `--changed` is then
+  // the whole selection and a lane's commit reaches any of them; the claiming
+  // subset when files were, because a file's own project is the only one that
+  // can run it and the others would each report an empty selection.
+  const fileFilters = forwardedFileFilters(forwarded);
+  const projects =
+    fileFilters.length === 0
+      ? CHANGED_TIER_PROJECTS
+      : await unitProjectsClaiming(fileFilters, packageRoot);
   const result = spawnSync(
     process.execPath,
     [
       resolveVitestEntryPoint(packageRoot),
       "run",
-      `--project=${CHANGED_TIER_PROJECT}`,
-      `--changed=${baseRef}`,
+      ...projects.map((project) => `--project=${project}`),
+      // AND `--changed` IS DROPPED THE MOMENT A FILE IS NAMED, because the two
+      // INTERSECT. A lane that edits a module and forwards that module's test —
+      // the ordinary shape, since a change and its coverage are two files —
+      // names a file `--changed` does not list, and the intersection is empty:
+      // vitest reports no test files and exits 0, which is this script's whole
+      // subject arriving through the last door. A caller who names files has
+      // stated the selection, so the ref has nothing left to decide; it is still
+      // required and still resolved, so a stale one is still reported.
+      ...(fileFilters.length === 0 ? [`--changed=${baseRef}`] : []),
       `--maxWorkers=${CHANGED_TIER_WORKERS}`,
       ...forwarded,
     ],
@@ -179,4 +321,4 @@ function runChangedTier(): void {
   process.exit(result.status);
 }
 
-runChangedTier();
+await runChangedTier();

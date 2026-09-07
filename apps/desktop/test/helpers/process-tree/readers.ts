@@ -26,6 +26,18 @@
 // is captured and re-read through the per-pid reader; a descendant is captured and
 // re-read through the table. Nothing crosses.
 //
+// AND EVERY READ IS BOUNDED, BECAUSE AN UNBOUNDED ONE IS A LEAK
+//
+// Both commands are `spawnSync`, which blocks this thread until the child it
+// started exits — and `ps` under a hung filesystem, or PowerShell on a runner
+// whose CIM service is not answering, does not exit. That call is performed at
+// the spawn of every managed Electron and again inside every disposal, so an
+// unbounded one hangs the worker at exactly the moment a detached browser needs
+// killing: vitest's own timeout is a timer on this same blocked thread, and a
+// worker killed while blocked runs no teardown at all. So both reads carry a
+// `timeout`, and a read that spends it comes back as an `error` — which both
+// readers below already treat as an unreadable host rather than as evidence.
+//
 // AND A PARSE THAT WOULD RATHER SKIP A ROW THAN INVENT ONE. Neither command's
 // output is only rows: `ps` prints a header under some option sets and a warning
 // under others, and PowerShell prints its own diagnostics on the stream it is
@@ -55,6 +67,27 @@ export type ProcessTableReader = () => ReadonlyMap<number, ProcessTableRow>;
 
 /** How one root's per-instance start stamp is read, as one injectable reading. */
 export type ProcessStartStampReader = (processId: number) => string | undefined;
+
+/**
+ * How long either host query gets before it is abandoned as unreadable.
+ *
+ * ONE BOUND FOR BOTH READS, because they are one question asked of one host and
+ * two figures here would be two things to keep in step. It is applied as
+ * `spawnSync`'s own `timeout`, so a query that overruns is killed and reported
+ * through the `error` field both readers already treat as "this host would not
+ * answer" — the degradation is the one that was already specified, not a new one.
+ *
+ * The figure is derived from what it must not disturb rather than from a
+ * measurement of `ps`, which answers in single-digit milliseconds on every
+ * healthy host and is not the case this exists for. Two properties fix it:
+ * PowerShell's cold start on a loaded Windows runner is seconds rather than
+ * milliseconds, so a bound near a second would abandon readable hosts; and the
+ * disposal this read sits inside is held to `CLEANUP_BUDGET_MS`, so a single
+ * query must not be able to spend that whole budget and leave no time for the
+ * kill it was taken for. Half of it is the largest value with both properties,
+ * and `process-tree-readers.test.ts` holds the relation rather than this comment.
+ */
+export const HOST_QUERY_TIMEOUT_MS = 5_000;
 
 /**
  * A process table out of whitespace-separated `pid ppid [start stamp]` lines.
@@ -118,9 +151,12 @@ export function readProcessTable(): Map<number, ProcessTableRow> {
             "-Command",
             'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.Ticks)" }',
           ],
-          { encoding: "utf8" },
+          { encoding: "utf8", timeout: HOST_QUERY_TIMEOUT_MS },
         )
-      : spawnSync("ps", ["-Ao", "pid=,ppid=,lstart="], { encoding: "utf8" });
+      : spawnSync("ps", ["-Ao", "pid=,ppid=,lstart="], {
+          encoding: "utf8",
+          timeout: HOST_QUERY_TIMEOUT_MS,
+        });
   if (listing.error !== undefined || listing.status !== 0) {
     return new Map<number, ProcessTableRow>();
   }
@@ -167,9 +203,12 @@ export function readProcessStartStamp(processId: number): string | undefined {
             "-Command",
             `(Get-CimInstance Win32_Process -Filter "ProcessId=${String(processId)}").CreationDate.Ticks`,
           ],
-          { encoding: "utf8" },
+          { encoding: "utf8", timeout: HOST_QUERY_TIMEOUT_MS },
         )
-      : spawnSync("ps", ["-o", "lstart=", "-p", String(processId)], { encoding: "utf8" });
+      : spawnSync("ps", ["-o", "lstart=", "-p", String(processId)], {
+          encoding: "utf8",
+          timeout: HOST_QUERY_TIMEOUT_MS,
+        });
   if (reported.error !== undefined || reported.status !== 0) {
     return undefined;
   }

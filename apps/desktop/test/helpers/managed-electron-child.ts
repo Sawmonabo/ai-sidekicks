@@ -32,7 +32,7 @@ import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 
 import { terminateProcessTree } from "./process-tree/dispatch.js";
-import { SpawnedTreeIdentity } from "./process-tree/identity.js";
+import { SpawnedTreeIdentity, type CapturedTreeMember } from "./process-tree/identity.js";
 
 /**
  * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it.
@@ -85,9 +85,13 @@ export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) 
  * How a tree's root identity is captured, as one injectable act.
  *
  * A seam for one reason and it is the whole property: the capture has to happen
- * at the SPAWN and not at the kill, and "it happened at construction" is a claim
- * about WHEN rather than about what came back. Handed a recording factory, a test
- * can read the moment; handed the real one, every production caller captures.
+ * at the SPAWN and not at the kill, and "it happened before anything could have
+ * exited" is a claim about WHEN rather than about what came back. Handed a
+ * recording factory, a test can read the moment; handed the real one, every
+ * production caller captures.
+ * It is also the seam that makes the capture's own FAILURE drivable: it reads
+ * the host with a `spawnSync`, and a test proving that a child spawned before a
+ * failed read is still killed cannot arrange a broken `ps` any other way.
  */
 export type SpawnedTreeIdentityCapture = (processId: number) => SpawnedTreeIdentity;
 
@@ -113,14 +117,30 @@ export type SpawnedTreeIdentityCapture = (processId: number) => SpawnedTreeIdent
  * AND THE PID IS CAPTURED, NOT MERELY HELD. The same reissue that makes a second
  * kill wrong makes the FIRST one wrong once the shim has exited — the ordinary
  * shape here, since the shim is reaped while the browser it started holds the
- * inherited stdout. So the constructor takes the tree's identity at the moment
- * the pid is unambiguously this tree's, and the platform arm re-verifies it
- * before it signals anything; `SpawnedTreeIdentity` has the mechanism.
+ * inherited stdout. So the tree's identity is taken while the pid is
+ * unambiguously this tree's, and the platform arm re-verifies it before it
+ * signals anything; `SpawnedTreeIdentity` has the mechanism.
+ *
+ * The capture is a CALL the owner makes rather than a step of construction: it
+ * reads this host with a blocking `spawnSync`, and inside the constructor that
+ * put a host query between the spawn and the settle-time registration — a window
+ * in which the process exists, nothing has been registered to kill it, and a
+ * query that stalls or throws leaves it that way.
+ *
+ * AND THE CAPTURE IS REFRESHED AT `exit`, WHICH IS THE LAST MOMENT IT CAN BE.
+ * The descendant set cannot be taken at the spawn — an Electron has no children
+ * in the instant it starts — and `SpawnedTreeIdentity` otherwise refreshes it
+ * only when something asks for a reading. On the shape this class exists for
+ * nothing asks: the shim exits, the browser keeps the inherited stdout, and the
+ * disposal's is the first reading — by which time the root is `gone` and the
+ * rootless arm has an empty kill list.
  */
 export class ManagedElectronChild {
   readonly #child: ManagedChildProcess;
   readonly #abortController: AbortController;
   readonly #terminateTree: ProcessTreeTerminator;
+  readonly #captureRootIdentity: SpawnedTreeIdentityCapture;
+  #rootIdentity: SpawnedTreeIdentity | undefined;
   #escalationTimer: NodeJS.Timeout | null = null;
   #killDelivered = false;
   #closeDelivered = false;
@@ -134,26 +154,31 @@ export class ManagedElectronChild {
   ) {
     this.#child = child;
     this.#abortController = abortController;
-    // CAPTURED HERE, WHICH IS THE ONLY MOMENT IT MEANS ANYTHING. A pid is
-    // reissued, and this handle's whole later life addresses the tree through
-    // that number: by the first disposal the launcher shim may already have
-    // exited, been reaped, and had its pid handed to somebody else, and a tree
-    // kill walked from it terminates a stranger while reporting the browser this
-    // spawn started as gone. Now — before anything can have exited — is the one
-    // instant at which "this pid is this tree" is true by construction.
+    this.#captureRootIdentity = captureRootIdentity;
+    // A FIELD read inside the closure rather than a value closed over, because
+    // the capture is the owner's call and lands after this constructor returns.
+    // A tree signalled before it — the misuse path, where the registrar refused —
+    // falls back to the unverified reading, the honest one for a tree whose
+    // identity was never taken.
     //
     // An injected terminator bypasses the capture entirely, and correctly so:
     // such a caller is standing in for the platform, and the identity is the
     // platform's reading rather than this class's decision.
-    const rootIdentity = child.pid === undefined ? undefined : captureRootIdentity(child.pid);
     this.#terminateTree =
       terminateTree ??
       ((treeProcessId, treeSignal) =>
         terminateProcessTree(
           treeProcessId,
           treeSignal,
-          rootIdentity ?? SpawnedTreeIdentity.unverified(treeProcessId),
+          this.#rootIdentity ?? SpawnedTreeIdentity.unverified(treeProcessId),
         ));
+    // THE LAST MOMENT THE TREE IS ADDRESSABLE THROUGH ITS ROOT — `exit` says the
+    // root has ended, every descendant that outlives it still records its pid,
+    // and this is the instant at which that is true of this tree's rows and not
+    // yet of anybody else's. A no-op when no identity was taken.
+    child.once("exit", () => {
+      this.#rootIdentity?.captureLiveDescendants();
+    });
     // Registered HERE and not by a caller, for two reasons that are one reason.
     // It has to be attached before anything can be delivered, and the moment
     // after the spawn is the only point where that is guaranteed; and it has to
@@ -163,6 +188,36 @@ export class ManagedElectronChild {
     child.once("close", () => {
       this.#closeDelivered = true;
     });
+  }
+
+  /**
+   * Take this tree's root identity, now. Idempotent, and a no-op without a pid.
+   *
+   * SEPARATE FROM CONSTRUCTION SO OWNERSHIP CAN COME FIRST. It performs a
+   * blocking host query, which must not sit between a spawn and the registration
+   * that kills what was spawned — a stall there blocks the thread vitest's own
+   * timeout runs on, and a worker killed while blocked runs no teardown at all.
+   *
+   * Idempotent because "the identity was taken at the spawn" is the property: a
+   * second call minutes later would replace a capture made when that was true
+   * with one made when it may not be.
+   */
+  captureTreeIdentity(): void {
+    const processId = this.#child.pid;
+    if (processId === undefined || this.#rootIdentity !== undefined) {
+      return;
+    }
+    this.#rootIdentity = this.#captureRootIdentity(processId);
+  }
+
+  /**
+   * The tree members this child captured while its root was still its own.
+   *
+   * A READING rather than the identity object: a caller can check what the
+   * rootless arm will be handed without being able to mutate it.
+   */
+  get capturedTreeMembers(): readonly CapturedTreeMember[] {
+    return this.#rootIdentity?.capturedDescendants ?? [];
   }
 
   /** The spawned process, for stream wiring and event listeners. */

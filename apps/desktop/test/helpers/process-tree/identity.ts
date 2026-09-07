@@ -158,14 +158,20 @@ export class SpawnedTreeIdentity {
    * handed a pid by Playwright rather than by a spawn of its own and so has no
    * moment at which the capture would mean anything.
    *
-   * It captures no descendants either, and the consequence is named rather than
+   * It captures no descendants either — its table reader is empty by
+   * construction, so `captureLiveDescendants` is a no-op on it however often it
+   * is called — and the consequence is named rather than
    * hidden: once such a root is GONE there is nothing this package may address,
    * because the only remaining evidence is a parent table whose rows under a dead
    * pid cannot be told from a stranger's. That arm therefore reports whatever the
    * table says still claims the number, and kills none of it.
    */
   static unverified(processId: number): SpawnedTreeIdentity {
-    return new SpawnedTreeIdentity(processId, () => undefined);
+    return new SpawnedTreeIdentity(
+      processId,
+      () => undefined,
+      () => new Map<number, ProcessTableRow>(),
+    );
   }
 
   /** The members captured while the root last read `same`, each with its stamp. */
@@ -196,6 +202,38 @@ export class SpawnedTreeIdentity {
     if (currentStamp !== this.#capturedStamp) {
       return "recycled";
     }
+    this.captureLiveDescendants();
+    return "same";
+  }
+
+  /**
+   * Record the tree below this root, with each member's stamp, as it is NOW.
+   *
+   * PUBLIC BECAUSE THE LAST LIVE MOMENT IS THE OWNER'S TO KNOW, AND NOT THIS
+   * CLASS'S. `readIdentity` refreshes the capture on its verified arm, which is
+   * the whole mechanism whenever something asks — and on the shape this exists
+   * for, nothing does: the launcher shim exits while a descendant holds the
+   * inherited stdout, and the first question anybody asks of this object is the
+   * disposal's, by which time the root is already `gone` and the walk that would
+   * have named the descendant is exactly the walk `gone` refuses. Between the
+   * spawn and that disposal there is one event that says the root is ending —
+   * the child's own `exit` — and only `ManagedElectronChild` receives it. So the
+   * capture is a method it can call rather than a private step of a reading it
+   * would have to invent a reason to take.
+   *
+   * Taken at `exit` the set is sound for the same reason it is sound on the
+   * verified arm, and no more: the rows are the ones this host hangs off a pid
+   * that was this tree's until the instant the event fired. Each member is kept
+   * WITH the stamp that same listing reported, so a member whose pid is reissued
+   * between here and the kill is refused by `verifyCapturedMembers` rather than
+   * signalled.
+   *
+   * A capture REPLACES the previous one rather than accumulating, which is what
+   * makes a late child reachable: the set is what the tree looked like at the
+   * last live reading, and a member that has since exited is filtered by the
+   * caller's own liveness pass before anything is signalled.
+   */
+  captureLiveDescendants(): void {
     const processTable = this.#readProcessTable();
     this.#capturedDescendants = descendantsOf(this.#processId, processTable).map(
       (descendantProcessId) => ({
@@ -203,6 +241,5 @@ export class SpawnedTreeIdentity {
         startStamp: processTable.get(descendantProcessId)?.startStamp,
       }),
     );
-    return "same";
   }
 }

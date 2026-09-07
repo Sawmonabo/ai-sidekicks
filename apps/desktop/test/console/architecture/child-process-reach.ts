@@ -57,6 +57,14 @@
 // read against the callee's NAME rather than against its shape, which takes
 // `module.require(...)` in with it and adds no second list to keep in step.
 //
+// AND A NAME IS NOT A SPELLING. `process["getBuiltinModule"]("node:child_process")`
+// is the same property reached the same way, but TypeScript parses the callee as
+// an ELEMENT access rather than a property access, so a reader admitting only
+// the dotted form reported it clean while it spawned — the identifier-only hole
+// one indirection along, and the spelling a module writes precisely when it
+// means not to be read. A bracketed subscript that is a string LITERAL says the
+// loader's name in the text exactly as the dot does, so it is read by name too.
+//
 // One residual is accepted and named rather than papered over: a loader parked
 // in a variable first (`const load = require; load("node:child_process")`) is
 // not read, because deciding what `load` holds is binding resolution, which is a
@@ -204,23 +212,42 @@ function exportDeclarationReachesSpawn(node: ts.ExportDeclaration): boolean {
 /**
  * Whether a callee NAMES one of the whole-module loaders.
  *
- * An identifier is the bare spelling and a property access is the same loader
- * reached through the object that carries it. Neither arm resolves a binding —
- * the name is read straight off the parse, which is what keeps this a fact
- * rather than the judgment this module's header refuses to make.
+ * Three spellings of the same name and not three rules. An identifier is the
+ * bare form; a property access is the loader reached through the object that
+ * carries it; and an ELEMENT access carrying a string literal is that same
+ * property written in brackets — `process["getBuiltinModule"]` is the property
+ * `process.getBuiltinModule`, spelled the way a module writes it when it means
+ * to be unreadable. No arm resolves a binding: each reads the name straight off
+ * the parse, which is what keeps this a fact rather than the judgment this
+ * module's header refuses to make.
+ *
+ * A COMPUTED access whose subscript is not a literal is refused, and that is the
+ * residual the header already names rather than a fourth arm missing here.
+ * `process[loaderName]` requires deciding what `loaderName` holds, which is the
+ * binding resolution this reader does not do — the same reason `const load =
+ * require; load(...)` is not read. What is closed is every spelling that still
+ * says the loader's name in the text.
  */
 function isWholeModuleLoader(callee: ts.Expression): boolean {
   if (ts.isIdentifier(callee)) {
     return WHOLE_MODULE_CALLEES.includes(callee.text);
   }
-  return ts.isPropertyAccessExpression(callee) && WHOLE_MODULE_CALLEES.includes(callee.name.text);
+  if (ts.isPropertyAccessExpression(callee)) {
+    return WHOLE_MODULE_CALLEES.includes(callee.name.text);
+  }
+  return (
+    ts.isElementAccessExpression(callee) &&
+    ts.isStringLiteralLike(callee.argumentExpression) &&
+    WHOLE_MODULE_CALLEES.includes(callee.argumentExpression.text)
+  );
 }
 
 /**
  * Whether a call expression loads `node:child_process` whole.
  *
  * `import("node:child_process")`, `require("node:child_process")`,
- * `process.getBuiltinModule("node:child_process")`, and the
+ * `process.getBuiltinModule("node:child_process")`, its bracketed spelling
+ * `process["getBuiltinModule"]("node:child_process")`, and the
  * `createRequire(...)("node:child_process")` form this package's own
  * `scripts/materialize-electron.ts` uses — the last because a rule that knew the
  * others would name it as the way around itself.
