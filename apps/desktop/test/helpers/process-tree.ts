@@ -56,6 +56,17 @@
 //     reports it in `/proc/<pid>/stat`'s state field, macOS in `ps -o stat=`,
 //     and Windows is asked nothing at all, because it keeps no such entry and
 //     its tree kill is external, so disappearance is the only evidence there is.
+//
+//   • And the two readings are taken at two moments, which is a race and not a
+//     detail. A process that exits BETWEEN them leaves the existence probe
+//     saying `true` and the state lookup saying nothing — the entry is gone, so
+//     there is nothing to parse — and reading that silence as "no evidence it
+//     exited" reports an already-reaped pid as `running`. That reading is
+//     consumed by `terminateProcessTree` after a signal it could not deliver,
+//     where it turns the commonest outcome there is, ESRCH on a process that
+//     had already gone, into a refused kill. So a missing state is answered by
+//     asking existence AGAIN rather than by assuming either way: still there
+//     and stateless is `running`, and gone is `gone`.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -153,20 +164,23 @@ export function processStateFromProcStat(statText: string): string | undefined {
 /**
  * This platform's state code for `processId`, or `undefined` if it has none.
  *
- * `undefined` is returned for three different reasons and they are deliberately
- * not distinguished: an unreadable entry, an unparseable one, and a platform
- * that keeps no such state. All three mean the same thing to the only caller —
- * no evidence that the process has exited — and the caller fails towards
- * "running" on that, because claiming a process is gone without evidence is the
- * false success this whole module exists to prevent.
+ * `undefined` is returned for four different reasons and they are deliberately
+ * not distinguished here: an unreadable entry, an unparseable one, a platform
+ * that keeps no such state, and a process that exited between the existence
+ * probe and this lookup. They are not the same fact — the last one means the
+ * pid is GONE and the other three mean nothing at all — and distinguishing them
+ * out of this function would mean reading a platform's errno vocabulary into a
+ * reading that has a cheaper and more honest way to settle it. The caller asks
+ * existence again instead, which answers all four with one syscall.
  */
 function readProcessStateCode(processId: number): string | undefined {
   if (process.platform === "linux") {
     try {
       return processStateFromProcStat(readFileSync(`/proc/${String(processId)}/stat`, "utf8"));
     } catch {
-      // The entry vanished between the existence probe and this read. The pid is
-      // gone rather than lingering, which the existence probe reports on its own.
+      // The entry vanished between the existence probe and this read, or was
+      // never readable. Which of the two it was is the caller's second existence
+      // read to settle, not this arm's to guess from an errno.
       return undefined;
     }
   }
@@ -186,22 +200,62 @@ function readProcessStateCode(processId: number): string | undefined {
 }
 
 /**
+ * The two questions a liveness reading asks, as one injectable pair.
+ *
+ * Split out for the reason `terminationSucceeded` splits out its probe, and for
+ * a second one that is stronger: the case that matters here is a process that
+ * exits BETWEEN the two questions, and the width of that window belongs to the
+ * kernel. It cannot be arranged against a real pid, so it is arranged against
+ * this seam instead.
+ */
+export interface ProcessLivenessProbes {
+  /** Whether the pid names a process at all — a zombie answers `true`. */
+  readonly exists: (processId: number) => boolean;
+  /** This platform's process-table state code, or `undefined` if it has none. */
+  readonly stateCode: (processId: number) => string | undefined;
+}
+
+/** The real pair, which every production caller takes. */
+const PLATFORM_LIVENESS_PROBES: ProcessLivenessProbes = {
+  exists: processExists,
+  stateCode: readProcessStateCode,
+};
+
+/**
  * What `processId` is doing right now.
  *
  * Existence first, because it is one syscall and settles most calls; the state
  * read only for a pid that is still there. Both readings race the process they
  * describe, which is why every assertion on this in the tests is a bounded
  * observation rather than a single sample.
+ *
+ * A MISSING STATE IS NOT EVIDENCE OF RUNNING, AND THE SECOND EXISTENCE READ IS
+ * WHAT SEPARATES THE TWO THINGS IT CAN MEAN. The lookup is a second moment, so
+ * a process that exited since the first one leaves it with nothing to read —
+ * `/proc/<pid>/stat` is gone, `ps` exits non-zero — which is exactly what a
+ * platform that keeps no state at all returns. Reading both as `running` told
+ * `terminateProcessTree` that a reaped pid had refused its kill, which is the
+ * false FAILURE beside the false success this module was written against: it
+ * makes an ordinary ESRCH look unterminable, and it leaves a caller retrying a
+ * number the operating system has already taken back. Asking existence again
+ * costs one syscall on the only branch that reaches it and answers both.
+ *
+ * Failing towards `running` survives that: the recheck reports `running` for
+ * every pid that is demonstrably still there, so the platform with no state to
+ * read — Windows — reads exactly as it did.
  */
-export function readProcessLiveness(processId: number): ProcessLiveness {
-  if (!processExists(processId)) {
+export function readProcessLiveness(
+  processId: number,
+  probes: ProcessLivenessProbes = PLATFORM_LIVENESS_PROBES,
+): ProcessLiveness {
+  if (!probes.exists(processId)) {
     return "gone";
   }
-  const stateCode = readProcessStateCode(processId);
-  if (stateCode === undefined) {
-    return "running";
+  const stateCode = probes.stateCode(processId);
+  if (stateCode !== undefined) {
+    return isTerminatedProcessState(stateCode) ? "zombie" : "running";
   }
-  return isTerminatedProcessState(stateCode) ? "zombie" : "running";
+  return probes.exists(processId) ? "running" : "gone";
 }
 
 /**

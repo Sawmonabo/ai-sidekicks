@@ -31,11 +31,43 @@
 // best-effort in the same sense the door swallows a late failure: by then the
 // test's own result is what explains the run, and a directory that could not be
 // removed is a smaller fact than the one the reader came for.
+//
+// AND THE RETRY IS THIS DISPOSER'S OWN, BECAUSE THE ORDER IS NOT ITS TO PICK
+//
+// Vitest runs settle-time callbacks in registration STACK order, so this
+// registration — necessarily made AFTER the one `spawnManagedElectronChild`
+// armed, since the caller needs the handle that spawn returns — runs BEFORE it.
+// That is invisible while every kill lands and decisive on the one that does
+// not. A refused tree kill is a real outcome and not a hypothetical: it is the
+// `taskkill` that spawns, exits non-zero and leaves Electron running, which is
+// exactly why `terminateProcessTree` reports delivery and survival as two
+// answers. Under that refusal this disposer signalled once, waited out its whole
+// bound against a child that was never going to close, removed the profile
+// under a live browser — and only then did the earlier disposer take its turn
+// and kill the tree, with no removal anywhere after it. The locked directory
+// that survived is the one thing this module exists to take off disk.
+//
+// So the disposal is retried HERE rather than left to whoever runs next.
+// `dispose` is already idempotent in the sense that matters — a delivered kill
+// signals nothing a second time, a refused one asks again — so the retry is a
+// no-op on every ordinary run and is the whole fix on the run that needed it,
+// and the removal keeps its single call site AFTER the last wait.
 
 import { onTestFinished } from "vitest";
 
 import { disposeWhenTestFinishes, type SettleTimeRegistrar } from "./electron-child.js";
 import { TERMINATION_GRACE_MS, type ManagedElectronChild } from "./managed-electron-child.js";
+
+/**
+ * How many times a settle-time disposal asks before it gives the child up.
+ *
+ * Small on purpose, and a bound rather than a condition: the first call is the
+ * ordinary one, the second is the whole reason the loop exists — a tree that
+ * refused one kill and takes the next — and past that the tree is unkillable by
+ * this process. A further ask would hold teardown open for the same answer,
+ * which is the trade the bounded wait below already refuses.
+ */
+const DISPOSAL_ATTEMPTS = 3;
 
 /**
  * Kill `managed` when the test ends, wait until it is gone, then run `cleanUp`.
@@ -58,10 +90,36 @@ export function cleanUpAfterChildAtSettleTime(
   exitWaitMs: number = TERMINATION_GRACE_MS,
 ): void {
   disposeWhenTestFinishes(async () => {
-    managed.dispose();
-    await whenChildIsGone(managed, exitWaitMs);
+    await disposeUntilChildHasClosed(managed, exitWaitMs);
     cleanUp();
   }, register);
+}
+
+/**
+ * Signal and wait, and ask again while the child is still there.
+ *
+ * The FIRST `dispose` is unconditional, even against a child whose `close` has
+ * already been delivered, because signalling is not all it does: it also
+ * releases an armed escalation timer, and a pending timer is a claim on a
+ * worker that is being torn down — the shape `electron-child.ts`'s header opens
+ * with. Every LATER one is the retry, and it is asked only of a child that has
+ * not closed, which is the only state in which `dispose` still signals anything.
+ *
+ * Returning early on `hasClosed` rather than on the attempt count is what keeps
+ * the ordinary run one call long: the bound is what a refusal costs, not what
+ * every teardown pays.
+ */
+async function disposeUntilChildHasClosed(
+  managed: ManagedElectronChild,
+  exitWaitMs: number,
+): Promise<void> {
+  for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
+    managed.dispose();
+    await whenChildIsGone(managed, exitWaitMs);
+    if (managed.hasClosed) {
+      return;
+    }
+  }
 }
 
 /**
@@ -84,16 +142,26 @@ export function cleanUpAfterChildAtSettleTime(
  * every ordinary teardown. `ManagedElectronChild` records the delivery from its
  * own constructor-registered handler, which is what makes the question
  * answerable at all after the fact — a listener cannot ask it.
+ *
+ * The spent-bound arm REMOVES its listener, which matters only because the
+ * caller above can come back: without it a retried disposal leaves one dead
+ * closure per refused attempt attached to a child that is still running, and
+ * the count grows with a bound that exists to be hit.
  */
 async function whenChildIsGone(managed: ManagedElectronChild, exitWaitMs: number): Promise<void> {
   if (managed.hasClosed) {
     return;
   }
+  const { child } = managed;
   await new Promise<void>((resolve) => {
-    const bound = setTimeout(resolve, exitWaitMs);
-    managed.child.once("close", () => {
+    const onClosed = (): void => {
       clearTimeout(bound);
       resolve();
-    });
+    };
+    const bound = setTimeout(() => {
+      child.removeListener("close", onClosed);
+      resolve();
+    }, exitWaitMs);
+    child.once("close", onClosed);
   });
 }

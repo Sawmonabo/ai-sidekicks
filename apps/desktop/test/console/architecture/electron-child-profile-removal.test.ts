@@ -26,6 +26,14 @@
 // no-op rather than a throw — which is what `rmSync`'s `force` gives and what the
 // idempotence case below drives directly.
 //
+// AND ONE REMOVER IS NOT ENOUGH IF THE KILL WAS REFUSED. The two settle-time
+// disposers run in registration STACK order, so the cleanup registered by a
+// harness runs BEFORE the one the spawn armed — invisible while every kill
+// lands, and decisive on the one that does not. The refusal case below is what
+// makes the retry a property rather than a comment: it is injected, because a
+// `taskkill` that spawns, exits non-zero and leaves Electron running is not a
+// state a platform can be asked for on demand.
+//
 // The stand-ins are `electron-child-lifetime.test-support.ts`'s and the bounded
 // readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
 
@@ -38,14 +46,29 @@ import { describe, expect, it } from "vitest";
 
 import { cleanUpAfterChildAtSettleTime } from "../../helpers/electron-child-cleanup.js";
 import { spawnManagedElectronChild } from "../../helpers/electron-child.js";
-import type { ManagedElectronChild } from "../../helpers/managed-electron-child.js";
+import type {
+  ManagedElectronChild,
+  ProcessTreeTerminator,
+} from "../../helpers/managed-electron-child.js";
 import { readProcessLiveness } from "../../helpers/process-tree.js";
 import {
   LIFETIME_TEST_TIMEOUT_MS,
   NON_TERMINATING_PROGRAM,
+  ObservedTreeTerminator,
   RecordingSettleRegistrar,
 } from "./electron-child-lifetime.test-support.js";
 import { expectTerminatedWithin, reap } from "./electron-child-liveness.test-support.js";
+
+/**
+ * What the refusal case gives each disposal attempt to produce a `close`.
+ *
+ * Shorter than the production grace on purpose, and injected rather than waited
+ * out: every REFUSED attempt spends this bound in full against a child that was
+ * never going to close, so the figure is what a refusal costs the suite. It is
+ * still generous against the work the attempt that LANDS has to do — a group
+ * SIGKILL against a `node -e` child and the stdio release behind its `close`.
+ */
+const REFUSED_KILL_SETTLE_WAIT_MS = 1_000;
 
 /** A profile directory and the one function that takes it off disk, as a harness holds them. */
 interface HeldProfile {
@@ -81,14 +104,24 @@ function heldProfile(): HeldProfile {
   };
 }
 
-/** A child that will not exit on its own, spawned through the real chokepoint. */
-function spawnHoldingChild(registrar: RecordingSettleRegistrar): ManagedElectronChild {
+/**
+ * A child that will not exit on its own, spawned through the real chokepoint.
+ *
+ * The terminator is optional because only the refusal case needs one: every
+ * other case wants a platform that kills what it is asked to kill, which is the
+ * default, and passing `undefined` through reads as never having mentioned it.
+ */
+function spawnHoldingChild(
+  registrar: RecordingSettleRegistrar,
+  terminateProcessTree?: ProcessTreeTerminator,
+): ManagedElectronChild {
   return spawnManagedElectronChild({
     command: process.execPath,
     args: ["-e", NON_TERMINATING_PROGRAM],
     cwd: process.cwd(),
     env: process.env,
     registerSettleTimeTermination: registrar.register,
+    terminateProcessTree,
   });
 }
 
@@ -196,6 +229,76 @@ describe("a settling test releases what its child was holding", () => {
         expect(() => {
           profile.removeProfileDirectory();
         }).not.toThrow();
+      } finally {
+        reap(childPid);
+        rmSync(profile.directory, { recursive: true, force: true });
+      }
+    },
+    LIFETIME_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "retries a refused kill, and removes the profile only once the child has closed",
+    async () => {
+      // THE ORDERING CASE. `dispose` signals, it does not wait, and a tree that
+      // REFUSED the kill is still there when the bounded wait runs out — so this
+      // disposer used to remove the profile under a live browser and leave the
+      // actual kill to the disposer that runs after it, with no removal anywhere
+      // behind that one. On Windows the removal under live handles fails
+      // outright and the locked directory outlives the run, which is the exact
+      // leak this module exists to close, reintroduced by the order the runner
+      // picks rather than by anything a harness wrote.
+      //
+      // TWO refusals rather than one, so the claim does not rest on which
+      // disposer consumes the first. Whichever order the settlement takes, the
+      // cleanup's own first attempt is refused and only a retry of its own
+      // reaches the kill; once the refusals are spent the stand-in delegates to
+      // the real terminator, so the case leaves nothing running.
+      const registrar = new RecordingSettleRegistrar();
+      const profile = heldProfile();
+      const terminator = new ObservedTreeTerminator(2);
+      const managed = spawnHoldingChild(registrar, terminator.terminate);
+      const childPid = managed.child.pid ?? 0;
+
+      let closedWhenRemoved: boolean | null = null;
+      cleanUpAfterChildAtSettleTime(
+        managed,
+        () => {
+          closedWhenRemoved = managed.hasClosed;
+          profile.removeProfileDirectory();
+        },
+        registrar.register,
+        REFUSED_KILL_SETTLE_WAIT_MS,
+      );
+
+      try {
+        expect(existsSync(profile.directory)).toBe(true);
+        expect(readProcessLiveness(childPid)).toBe("running");
+
+        await registrar.settle();
+
+        // The finding's own claim first, and the termination reading after it.
+        // By the time the settlement returns the retry has already waited for
+        // `close`, so nothing here is waiting on the kill — and a rewrite that
+        // stops retrying should report the ORDERING it broke rather than the
+        // survivor that follows from it.
+        expect(
+          closedWhenRemoved,
+          "the profile was removed while a refused kill still had the child alive — the disposal is not retried before the removal",
+        ).toBe(true);
+        expect(
+          profile.removalCount(),
+          "the retry reached the remover more than once — the removal is no longer the single act after the last wait",
+        ).toBe(1);
+        expect(existsSync(profile.directory)).toBe(false);
+        // Non-vacuity, and the reading that separates a retry from a first ask
+        // reported late: three SIGKILLs reached the terminator, so both refusals
+        // were really consumed and the third was an ask this disposer made.
+        expect(
+          terminator.requests.map((request) => request.signal),
+          "the terminator was asked fewer than three times — a refused kill was never retried",
+        ).toStrictEqual(["SIGKILL", "SIGKILL", "SIGKILL"]);
+        await expectTerminatedWithin(childPid, "the child whose first kills were refused");
       } finally {
         reap(childPid);
         rmSync(profile.directory, { recursive: true, force: true });

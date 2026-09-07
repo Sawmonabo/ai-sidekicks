@@ -30,7 +30,54 @@ import {
   processStateFromProcStat,
   readProcessLiveness,
   terminationSucceeded,
+  type ProcessLivenessProbes,
 } from "../../helpers/process-tree.js";
+
+/**
+ * A liveness probe pair whose existence answers are scripted in order.
+ *
+ * The race under test is a SEQUENCE and not a state — existence, then a state
+ * lookup, then existence again when there was no state — and the only thing
+ * that separates the two cases below is what the second answer says. So the
+ * answers are a queue rather than a value, and how many were taken is readable,
+ * which is what turns "it asked a second time" into an assertion instead of an
+ * inference. A read past the script throws rather than repeating the last
+ * answer: a reading that asks more often than the case described is a different
+ * reading, and it must not pass quietly.
+ *
+ * Injected into the real function, never a stand-in for it. The window between
+ * the two questions belongs to the kernel, so it cannot be arranged against a
+ * live pid — which is the same reason the refused tree kill next door is
+ * injected rather than provoked.
+ */
+class ScriptedLivenessProbes implements ProcessLivenessProbes {
+  readonly #existenceAnswers: readonly boolean[];
+  readonly #reportedStateCode: string | undefined;
+  #existenceReads = 0;
+
+  constructor(existenceAnswers: readonly boolean[], reportedStateCode?: string) {
+    this.#existenceAnswers = [...existenceAnswers];
+    this.#reportedStateCode = reportedStateCode;
+  }
+
+  /** How many times the reading asked whether the pid names anything. */
+  get existenceReads(): number {
+    return this.#existenceReads;
+  }
+
+  readonly exists = (): boolean => {
+    const answer = this.#existenceAnswers[this.#existenceReads];
+    this.#existenceReads += 1;
+    if (answer === undefined) {
+      throw new Error(
+        `the reading asked about existence ${String(this.#existenceReads)} times, past the ${String(this.#existenceAnswers.length)} this case scripted`,
+      );
+    }
+    return answer;
+  };
+
+  readonly stateCode = (): string | undefined => this.#reportedStateCode;
+}
 
 describe("process termination — a kill that was refused is not a kill", () => {
   /** A probe that records whether it was consulted, so "not consulted" is checkable. */
@@ -148,5 +195,60 @@ describe("process termination — a zombie is terminated, and existence cannot s
     expect(reaped.pid).toBeGreaterThan(0);
     expect(readProcessLiveness(reaped.pid)).toBe("gone");
     expect(processHasTerminated(reaped.pid)).toBe(true);
+  });
+});
+
+describe("process termination — a state that vanished is not a process still running", () => {
+  // WHY THE PROBES ARE INJECTED HERE AND THE PLATFORM ARMS ARE NOT. The defect
+  // is a process that exits BETWEEN the existence probe and the state lookup,
+  // and the width of that window is the kernel's. Against a real pid the case
+  // would be a race the suite loses almost every time; against this seam it is
+  // two scripted answers.
+
+  it("reads a pid whose state vanished along with it as gone, not running", () => {
+    // THE FINDING. The pid was there when existence was asked and reaped by the
+    // time the state was looked up — `/proc/<pid>/stat` unreadable on Linux, `ps`
+    // exiting non-zero on macOS — which is byte for byte the `undefined` a
+    // platform with no state to keep returns. Reading both as `running` handed
+    // `terminateProcessTree` a live process after a signal it could not deliver,
+    // turning the commonest outcome there is into a refused kill: an ordinary
+    // ESRCH reported as unterminable, and a caller left retrying a number the
+    // operating system has already handed out again.
+    const probes = new ScriptedLivenessProbes([true, false]);
+    expect(readProcessLiveness(4242, probes)).toBe("gone");
+    // Non-vacuity, and the line a rewrite that drops the recheck fails on: the
+    // verdict came from asking a second time, not from the first answer.
+    expect(
+      probes.existenceReads,
+      "the reading settled on one existence answer — the vanished state is not being rechecked",
+    ).toBe(2);
+  });
+
+  it("still reads a pid with no state to read as running while it is demonstrably there", () => {
+    // The foil, and the one that keeps the fix from becoming "no state means
+    // gone". Windows keeps no exited-but-unreaped entry at all, so EVERY reading
+    // on that platform reaches this branch with a live process behind it — and
+    // claiming a process is gone without evidence is the false success this
+    // whole module exists to prevent. The failure direction is unchanged; only
+    // the pid that is no longer there moved.
+    const probes = new ScriptedLivenessProbes([true, true]);
+    expect(readProcessLiveness(4242, probes)).toBe("running");
+    expect(probes.existenceReads).toBe(2);
+  });
+
+  it("asks nothing further once the platform did report a state", () => {
+    // The recheck is scoped to the branch that has NO evidence, and the script
+    // enforces that: a single answer, so a reading that asked twice here throws
+    // rather than passing. A state that was read is already the evidence, and a
+    // second existence read after it would collapse `zombie` into `gone` for any
+    // pid an init reaped in between — losing the one distinction this three-state
+    // reading exists to make.
+    const zombie = new ScriptedLivenessProbes([true], "Z+");
+    expect(readProcessLiveness(4242, zombie)).toBe("zombie");
+    expect(zombie.existenceReads).toBe(1);
+
+    const sleeping = new ScriptedLivenessProbes([true], "S");
+    expect(readProcessLiveness(4242, sleeping)).toBe("running");
+    expect(sleeping.existenceReads).toBe(1);
   });
 });
