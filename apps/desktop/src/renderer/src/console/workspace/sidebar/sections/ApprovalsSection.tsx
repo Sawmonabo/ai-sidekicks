@@ -8,9 +8,9 @@
 // independently loaded read of what this session is waiting on. This file is that
 // read.
 //
-// THE READ IS THE SESSION STORE, NOT A SECOND CALL. `bridge/approvals/` registers
-// this family's fold over the seven approval-flow event kinds, and the composer
-// family claims it at composition time, so the `approval` partition IS the console's
+// THE READ IS THE SESSION STORE, NOT A SECOND CALL. `bridge/approvals/` owns the fold
+// over the seven approval-flow event kinds, and the renderer shell's composition root
+// registers it on the projector registry, so the `approval` partition IS the console's
 // projection of that plane. A section that called `approval.projectionRead` for
 // itself would read the same wire twice and hold an answer beside the store that the
 // next event would not move — and the pane already performs that read, on its own

@@ -7,7 +7,7 @@
 //
 // IN THIS FAMILY AND NOT IN THE SIDEBAR'S, because a body belongs to the family whose
 // vocabulary it renders — the same sentence this family's door already makes about the
-// agent console — and because a section body parked in the composer family's subtree
+// agent console — and because a section body parked in the sidebar's own subtree
 // could not read the roster at all: one view family may not import another, so it
 // would have had to re-declare the lifecycle kinds, the state vocabulary and the read.
 // The COMPOSITION that seats it lives at the console root, where naming two families is
