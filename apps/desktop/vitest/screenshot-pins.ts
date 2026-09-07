@@ -12,6 +12,7 @@
 
 import type { PlaywrightProviderOptions } from "@vitest/browser-playwright";
 
+import { CAPTURE_WINDOW_HEIGHT_CEILING } from "../test/console/screenshot/capture-viewport.js";
 import { BROWSER_MODE_VIEWPORT } from "./browser-mode.js";
 
 /**
@@ -31,8 +32,21 @@ import { BROWSER_MODE_VIEWPORT } from "./browser-mode.js";
  * resolved to 0.8, so a console laid out at 1440×900 was captured through a
  * fractional downscale — every border and glyph resampled off the pixel grid, which
  * is exactly the operation two Skia/CoreText builds disagree about, and a 1152×720
- * reference for a tier whose comment says it measures 1440×900. Matching the page
- * to the iframe makes the scale exactly 1 and the capture 1:1.
+ * reference for a tier whose comment says it measures 1440×900. A page at least as
+ * large as the iframe on both axes makes that scale exactly 1 and the capture 1:1.
+ *
+ * WHICH IS WHY THE HEIGHT IS THE CEILING RATHER THAN THE IFRAME'S 900. The console
+ * is still MEASURED in a 1440×900 window — that is `BROWSER_MODE_VIEWPORT`, and it
+ * is what the iframe is sized to for every capture that fits. But a surface taller
+ * than the window has to be laid out and painted whole before Playwright clips it,
+ * or the rows past the window's edge come back as page background — which is what
+ * every reference over 900 px tall carried until `settled-capture.ts` began opening
+ * the tester window for one. That grown window is scaled by the formula above, so
+ * the page it sits in has to be able to hold the tallest one this tier will open.
+ * `capture-viewport.ts` owns that number and both halves read it from there. The
+ * width is untouched: a capture never widens its window, so the page is exactly as
+ * wide as the console is measured, and the surrounding page is never in an image —
+ * an element screenshot is clipped to the element.
  *
  * The other three are Playwright's current defaults, restated so they are pinned by
  * this file rather than by the version range: `deviceScaleFactor` because it
@@ -45,7 +59,7 @@ import { BROWSER_MODE_VIEWPORT } from "./browser-mode.js";
  */
 export const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
   contextOptions: {
-    viewport: { ...BROWSER_MODE_VIEWPORT },
+    viewport: { width: BROWSER_MODE_VIEWPORT.width, height: CAPTURE_WINDOW_HEIGHT_CEILING },
     deviceScaleFactor: 1,
     reducedMotion: "no-preference",
     forcedColors: "none",

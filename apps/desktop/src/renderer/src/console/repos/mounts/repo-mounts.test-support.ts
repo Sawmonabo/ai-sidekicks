@@ -1,6 +1,11 @@
 // What every mounts case is driven against: the readers a case opens, the disposal
-// that must leave none of them running, the two waits they settle through, and the
-// three wire records the cards are drawn from.
+// that must leave none of them running, the clock-driven wait they settle through, and
+// the three wire records the cards are drawn from.
+//
+// The bare drain that stood beside that wait is gone: letting queued continuations run
+// is `core/macrotask-boundary.test-support.ts`'s role, its cases take it by that name,
+// and a family-local alias for it is the second name for one meaning that module's own
+// header records having cost a suite.
 //
 // THE ONLY SUB-MODULE THAT HAD NO SUPPORT MODULE, and it carried eight copies of the
 // scaffolding above — four `settle`s (two of them with hand-tuned turn counts and two
@@ -18,6 +23,7 @@ import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { createFixtureBridge } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
@@ -68,32 +74,18 @@ export function openReader(
  * asked for a second read while the first was landing would otherwise advance past a
  * timer that did not exist yet and observe a re-read that had simply not been armed.
  *
- * The two turn counts are the shape `crossMacrotaskBoundary` replaced elsewhere and are kept
- * here for a reason that does not apply there: the second loop STOPS at the reading it
- * is waiting for, so the count is a ceiling on a wait rather than a tuning of one.
+ * ONLY ONE OF THE TWO WAITS IS THIS MODULE'S. The pre-clock drain is the console's
+ * shared `crossMacrotaskBoundary` — a counted loop there would be a second home for a
+ * role `core/` already owns, and the count would be tuned against whatever settlement
+ * chain happens to sit under it today. The post-clock loop stays a loop because it
+ * STOPS at the reading it is waiting for: its number is a ceiling on a wait rather
+ * than a tuning of one, sized well above the pass it bounds, and turns cost nothing
+ * once the queue is empty.
  */
 export async function settle(clock: ManualClock, reader: RepoMountsReader): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
-    await Promise.resolve();
-  }
+  await crossMacrotaskBoundary();
   clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && reader.snapshot.status !== "read"; turn += 1) {
-    await Promise.resolve();
-  }
-}
-
-/**
- * Let the queued continuations of a settled act run, without moving the clock.
- *
- * THE COUNT IS A CEILING ON A BURST AND NOT A TUNING. The section's read is a chain —
- * the roster, then one mount read per distinct mount, then one capabilities read per
- * workspace — and each link is a `await` of its own, so the number of turns the whole
- * burst needs grows with the scenario. Raised from ten when the repos scenario grew its
- * third mount, which pushed the last capabilities leg past the old ceiling and left a
- * case reading a frame the burst had not finished writing.
- */
-export async function drain(): Promise<void> {
-  for (let turn = 0; turn < 40; turn += 1) {
+  for (let turn = 0; turn < 400 && reader.snapshot.status !== "read"; turn += 1) {
     await Promise.resolve();
   }
 }

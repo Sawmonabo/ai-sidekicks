@@ -80,10 +80,10 @@ export function createDriverCatalog(bridge: ConsoleBridge, clock: ConsoleClock):
   return new PushDrivenRead<DriverCatalogReading>({
     clock,
     origin: DRIVER_CATALOG_ORIGIN,
-    read: async () => {
+    read: async (signal) => {
       const [modelsReply, capabilitiesReply] = await Promise.all([
-        callDaemon(bridge, DRIVER_LIST_MODELS_METHOD, {}),
-        callDaemon(bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}),
+        callDaemon(bridge, DRIVER_LIST_MODELS_METHOD, {}, { signal }),
+        callDaemon(bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}, { signal }),
       ]);
       return {
         models: servedValueOrRaise(modelsReply),
