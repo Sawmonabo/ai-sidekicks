@@ -57,6 +57,7 @@ import { useEffect } from "react";
 
 import { normalizeWireRejection, type WireRefusal } from "../../core/index.js";
 import {
+  isReadAbandoned,
   settleUnlessAbandoned,
   useReadScope,
   useSubjectScopedState,
@@ -160,7 +161,9 @@ export interface SettledGrowthReadProjection<TOutcome, TState> {
  * handed to the caller's own `read`, and a settlement that loses the race returns
  * before any projection is composed. A caller whose `read` ignores the signal keeps
  * exactly the old behaviour — the projection is still skipped, and only the seam
- * below it goes on waiting.
+ * below it goes on waiting. Which is why the round is read BEFORE the read is put as
+ * well as after it settles: for a caller like that the REQUEST is the cost, and one
+ * put on a round that was already over is a request nothing can ever stop.
  */
 export function useSettledGrowthRead<TOutcome, TState>(
   growth: GrowthPort,
@@ -178,6 +181,26 @@ export function useSettledGrowthRead<TOutcome, TState>(
   const { settled } = project;
   useEffect(() => {
     const round = readScope.openRound();
+    // AND THE ROUND IS ASKED BEFORE THE READ IS PUT, which is not the same check as
+    // the one below. `openRound` answers a round that is already OVER rather than
+    // refusing, and it grounds that on the call door checking the signal before it
+    // sends — the DAEMON door's guarantee, over a call the door itself makes. `read`
+    // here is the caller's, and a growth read ignores the signal by design, so on
+    // this path there is no door beneath to stop the request and the reading has to
+    // be taken here.
+    //
+    // WHERE A ROUND THAT IS ALREADY OVER COMES FROM, and it is React's double-mount
+    // rather than anything exotic. The scope's lifetime is `useReadScope`'s, whose
+    // hook runs above this one, so its effect is committed first: the strict remount
+    // runs that effect's cleanup — which ABANDONS the scope — and then its setup,
+    // which publishes a replacement one render later. This effect replays in between,
+    // against the scope its own render captured, which is the one that cleanup just
+    // abandoned. Measured on the fixture port: three reads reached the caller's `read`
+    // for one mount, the middle one born aborted. A signal-honouring read is refused
+    // at the call door on that one and never leaves the console; this one is not.
+    if (isReadAbandoned(round.signal)) {
+      return;
+    }
     const pending = read(key, round.signal);
     if (pending === undefined) {
       return;
