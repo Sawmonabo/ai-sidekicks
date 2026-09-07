@@ -50,8 +50,52 @@ export interface ReadTriggerTarget {
    * for what it holds learns nothing from the timeline, and says so.
    */
   readonly triggeringEventKinds: ReadonlySet<string>;
+  /**
+   * Whether THIS frame, of an already-declared kind, owes this reading a read.
+   *
+   * OPTIONAL, AND ITS ABSENCE IS THE DEFAULT RATHER THAN AN OMISSION: a reading whose
+   * question is answered by the kind alone declares nothing here and every frame of a
+   * declared kind reaches it, which is what every reading in the tree did before this
+   * member existed.
+   *
+   * IT EXISTS BECAUSE A KIND IS NOT ALWAYS THE WHOLE QUESTION. A session runs many
+   * workflows, and every one of the workflow plane's twenty-four kinds is emitted for
+   * whichever run the engine advanced — so a run pane declaring the kinds re-read on
+   * every OTHER run's phases too, once per pane, for as long as anything in the session
+   * was moving. The subject the reading is addressed at is the missing half, and it is
+   * a property of the READING rather than of the wiring, which is why it is declared
+   * here beside the kinds and not passed in at either call site.
+   *
+   * A PREDICATE AND NOT A NARROWER KIND SET, because the two answer different
+   * questions: which kinds can change this answer at all is static, and which FRAMES
+   * changed it is per frame. Fusing them would mean a reading whose subject moved had
+   * to re-declare a set, and the set is what two readings asking the same question must
+   * agree on.
+   */
+  admitsTriggeringEvent?(event: ConsoleSessionEvent): boolean;
   /** Ask for a read. Coalescing, debouncing, and the call itself are the reading's. */
   requestRead(reason: RefreshReason): void;
+}
+
+/**
+ * Whether one admitted frame owes `target` a read: the declared kind, then the frame.
+ *
+ * ONE PREDICATE FOR BOTH WIRINGS. `useSessionReadTriggers` below and
+ * `SessionRefreshTriggers` beside it wire the same policy for two kinds of reading —
+ * one mounted by React, one minted in a resource seam — and the comment at the head of
+ * that module states the rule they are held to: two wirings are honest and two
+ * VOCABULARIES are not. A reading whose frame-level admission was consulted by one of
+ * them and not the other would go stale on exactly the surfaces wired the other way,
+ * which is a defect no test of either module alone would report.
+ *
+ * The kind is checked FIRST and the predicate only after, so a reading pays the cost of
+ * reading a payload only for frames it had already declared an interest in.
+ */
+export function eventTriggersRead(target: ReadTriggerTarget, event: ConsoleSessionEvent): boolean {
+  if (!target.triggeringEventKinds.has(event.kind)) {
+    return false;
+  }
+  return target.admitsTriggeringEvent?.(event) ?? true;
 }
 
 /**
@@ -94,14 +138,17 @@ class ReadTriggerMemory {
    */
   public observeTimeline(
     timeline: readonly ConsoleSessionEvent[],
-    triggeringEventKinds: ReadonlySet<string>,
+    target: ReadTriggerTarget,
   ): boolean {
     for (let position = timeline.length - 1; position >= 0; position -= 1) {
       const entry = timeline[position];
       if (entry === undefined || entry.sequence <= this.#examinedThroughSequence) {
         break;
       }
-      if (triggeringEventKinds.has(entry.kind) && entry.sequence > this.#latestSignalSequence) {
+      // The whole target rather than its kind set, so this memory and the imperative
+      // wiring beside it admit a frame by the same rule — including the frame-level
+      // half, which a kind set alone cannot carry.
+      if (eventTriggersRead(target, entry) && entry.sequence > this.#latestSignalSequence) {
         this.#latestSignalSequence = entry.sequence;
       }
     }
@@ -177,10 +224,13 @@ export function useSessionReadTriggers(
     }
   }, [degradedCause, memory, reader]);
 
+  // Destructured for the DEPENDENCY and not for the call: the examination below reads
+  // the whole target, and this is what re-runs the effect for a reading whose declared
+  // set is a getter over something that moves while the reading itself is one object.
   const { triggeringEventKinds } = reader;
   const timeline = useSessionStore(sessionStore, selectTimeline);
   useEffect(() => {
-    if (memory.observeTimeline(timeline, triggeringEventKinds)) {
+    if (memory.observeTimeline(timeline, reader)) {
       reader.requestRead("terminal-event");
     }
   }, [memory, reader, timeline, triggeringEventKinds]);

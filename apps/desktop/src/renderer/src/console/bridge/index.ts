@@ -429,7 +429,13 @@ export { WORKFLOW_DEFINITION_SCOPES } from "./wire-shapes/workflow-projection.js
 // declares it. The run pane names these kinds to say when its snapshot goes stale;
 // `wire-shapes/workflow-events.ts` states why a kind set is safe to arm against an
 // unregistered wire where a payload shape would not be.
-export { WORKFLOW_EVENT_TYPES } from "./wire-shapes/workflow-events.js";
+// Beside it, the one payload MEMBER a reader of those kinds needs: which run the frame
+// is about. The run pane scopes its live-round reading on it, so a phase advancing in
+// one run does not re-read every pane showing another.
+export {
+  WORKFLOW_EVENT_TYPES,
+  workflowRunIdOfEventPayload,
+} from "./wire-shapes/workflow-events.js";
 export type {
   WorkflowDefinitionScope,
   WorkflowDefinitionSummary,

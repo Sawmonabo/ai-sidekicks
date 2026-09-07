@@ -168,6 +168,55 @@ describe("the definition detail read — the two reads that qualify rather than 
     expect(state.detail.chain.status).toBe("unaddressable");
   });
 
+  it("issues the chain read without waiting for the version body", async () => {
+    // The chain is addressed by `definition.workflowVersionId`, which the SUBJECT read
+    // already answered, so nothing about it comes out of the version body. Put after
+    // that body, a version read that never settles held the chain question back
+    // entirely — the daemon had answered the definition and the surface was still
+    // waiting on a request it had not sent.
+    const scripted = scriptedPort();
+    const chainReadsFor: string[] = [];
+    const growth: GrowthPort = {
+      ...createRefusingGrowthPort(),
+      workflowDefinitionRead: scripted.workflowDefinitionRead.bind(scripted),
+      // Never settles. The claim is about what is in flight WHILE it is outstanding,
+      // which a refusing arm could not state: a refusal settles, and the reads after
+      // it would go out either way.
+      workflowVersionRead: () => new Promise(() => undefined),
+      workflowVersionChainRead: async (request) => {
+        chainReadsFor.push(request.workflowVersionId);
+        return scripted.workflowVersionChainRead(request);
+      },
+    };
+    const committed = observeDetail(growth, DEFINITION_RELEASE_CHECKS_SESSION);
+    await settle();
+
+    expect(chainReadsFor).toHaveLength(1);
+    // And the composed answer is still in flight, because one of its two qualifying
+    // reads is: starting them together changes when each is PUT and not what the
+    // settlement is composed from.
+    expect(latest(committed).status).toBe("reading");
+  });
+
+  it("negative control: no chain read goes out while the SUBJECT read is outstanding", async () => {
+    // Without this, the case above would hold over a read that put all three requests
+    // at once — which would address the chain with an id nothing had answered yet.
+    const chainReadsFor: string[] = [];
+    const growth: GrowthPort = {
+      ...createRefusingGrowthPort(),
+      workflowDefinitionRead: () => new Promise(() => undefined),
+      workflowVersionChainRead: async (request) => {
+        chainReadsFor.push(request.workflowVersionId);
+        return { status: "served", value: { versions: [] } };
+      },
+    };
+    const committed = observeDetail(growth, DEFINITION_RELEASE_CHECKS_SESSION);
+    await settle();
+
+    expect(chainReadsFor).toStrictEqual([]);
+    expect(latest(committed).status).toBe("reading");
+  });
+
   it("negative control: the same definition resolves a chain when the id is carried", async () => {
     // Without this, the case above would hold over a hook that answered
     // `unaddressable` for every definition — the right answer for one input, arrived at

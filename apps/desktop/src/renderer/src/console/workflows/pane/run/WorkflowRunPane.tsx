@@ -56,6 +56,14 @@
 // and the slot that renders it. `human-form-selection.ts` states why it is resolved
 // from the current phases rather than stored.
 //
+// AND A LINK MAY CHOOSE THE FIRST ONE. `routing/routes.ts` parses
+// `#/session/<sid>/workflow/<rid>/phase/<pid>` into a workspace route carrying that
+// phase, `workflows/WorkflowPhaseLinkSurface.tsx` is what opens this pane at `<rid>`,
+// and what remains is the `<pid>`: it is read off the committed route below and handed
+// to the selection as its SEED. That is the whole of the deep link's second half — no
+// second focus mechanism, no phase on the pane address, and no eligibility decided
+// here that the resolution downstream does not already decide.
+//
 // WHY THE CONTROLS RENDER BESIDE AN UNREAD RUN AND THE PLAN-017 BODIES DO NOT MAKE
 // THAT ODD. "Can I stop this run?" is the first question an operator opening this
 // pane has, and it needs no read to answer: both controls are addressed by the run id
@@ -98,7 +106,8 @@ import { ChatStartSlot } from "../../ChatStartSlot.js";
 import { WorkflowStateStrip } from "../../WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../../strip-state.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../../seats/index.js";
-import type { ConsoleEntityRef } from "../../../store/index.js";
+import { routeWorkflowPhase, type WorkflowPhaseFocus } from "../../../routing/index.js";
+import { useFrameStore, type ConsoleEntityRef } from "../../../store/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { useRunControlDispatch } from "./run-control-dispatch.js";
@@ -131,6 +140,33 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // of another kind supplies nothing, so the read below is `unasked` on exactly the
   // arm that refuses — rather than in flight against an id that names no run.
   const addressedRunId = entity?.kind === WORKFLOW_RUN_PANE_SUBJECT_KIND ? entity.id : undefined;
+  // AND THE PHASE THE PERSON FOLLOWED A LINK TO, WHICH IS THE ROUTE'S AND NOT THE
+  // ADDRESS'S. `#/session/<sid>/workflow/<rid>/phase/<pid>` opens this pane through the
+  // workflows family's phase surface, and the phase travels on the ROUTE the whole way:
+  // a pane address is identity, it is parsed back out of a persisted layout, and a focus
+  // written into one would re-open somebody's link days later.
+  //
+  // READ HERE RATHER THAN PASSED IN, because the surface that opens this pane hands it
+  // an address through the deck's board and has no prop channel to it — and the frame
+  // store is where the committed route lives, which is the same answer whether this pane
+  // was opened by that link or by the deck beside it.
+  //
+  // A selector rather than the whole state: `useFrameStore` compares with `Object.is`,
+  // and `routeWorkflowPhase` returns the route's own member, so the value is referentially
+  // stable across every store transition that does not move the route.
+  const routedPhaseFocus: WorkflowPhaseFocus | undefined = useFrameStore(
+    props.context.frameStore,
+    (state) => routeWorkflowPhase(state.route),
+  );
+  // AND IT IS GUARDED ON THE RUN, WHICH IS THE FAIL-CLOSED HALF. The frame carries one
+  // route for every pane in the window, so a deck showing run A beside the link that
+  // named a phase of run B would otherwise open B's phase id against A's phases — the
+  // resolution downstream would find nothing and fall back, but it would have been asked
+  // the wrong question. A focus that does not name THIS run supplies nothing.
+  const addressedPhaseId =
+    routedPhaseFocus !== undefined && routedPhaseFocus.workflowRunId === addressedRunId
+      ? routedPhaseFocus.phaseId
+      : undefined;
   // Both are called before the two absent arms return, because a hook may not sit
   // behind a branch. With no run named the controls compose nothing and the read is
   // `unasked`, which is the honest state and the one those arms never render.
@@ -146,7 +182,10 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // control's settlement. `run-live-rounds.ts` counts those from the session's own
   // frames, so the pane's answer stops being as old as the last thing this operator
   // pressed.
-  const liveRound = useWorkflowRunLiveRounds(bridge, sessionStore);
+  // The run goes in beside the session, and it is what the reading admits frames
+  // against: every `workflow.*` kind is emitted for whichever run the engine advanced,
+  // so a reading given only the session re-read this pane for every other run in it.
+  const liveRound = useWorkflowRunLiveRounds(bridge, sessionStore, addressedRunId);
   // SUMMED, WHICH IS SOUND BECAUSE BOTH ONLY EVER RISE: the sum rises whenever either
   // does and repeats no earlier value, so a subject key built from it is fresh on
   // every advance and never collides with one already answered. Two separate key
@@ -181,10 +220,18 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // The ADDRESS goes in beside it, and it is the same pair the read above is held at:
   // the selection is an answer about one run, and this pane is retargeted without ever
   // unmounting, so a mount-scoped selection outlived the run it was made about.
+  //
+  // And the ROUTE'S phase goes in last, as the SEED of that selection rather than as a
+  // fourth thing to resolve against — which is what makes the link do what it says. A
+  // card pressed after arrival supersedes it, because the person is looking at the pane
+  // and the link is not; a phase this run does not park on somebody falls back to the
+  // first wait exactly as a stale click does, so a link naming a phase that has since
+  // resumed lands on the run rather than on nothing.
   const humanForms = useHumanFormSelection(
     bridge.growth,
     addressedRunId,
     snapshot.status === "served" ? snapshot.snapshot : undefined,
+    addressedPhaseId,
   );
 
   /**

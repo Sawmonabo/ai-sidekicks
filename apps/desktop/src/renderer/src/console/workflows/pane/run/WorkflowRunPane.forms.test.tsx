@@ -6,29 +6,29 @@
 // phase's form" and offered no way to reach that form, so a parallel run could not
 // be advanced from the pane that was showing it.
 //
-// Spied, never replaced, and here rather than in the shared harness for the reason
-// the run-detail suite states about its own spy: the human form has no body anywhere
-// in this repository, so which phase the pane opened reaches no markup. The park
-// cards say WHICH form is open in their own words, and the spy says the pane actually
-// mounted it — two different claims, and neither substitutes for the other.
+// Spied, never replaced: the human form has no body anywhere in this repository, so
+// which phase the pane opened reaches no markup. The park cards say WHICH form is open
+// in their own words, and the spy says the pane actually mounted it — two different
+// claims, and neither substitutes for the other. The `vi.mock` line stays in this file
+// because vitest hoists it per FILE; the reading of the spy is in the shared harness,
+// where the phase-address suite reads it too.
 
 import { fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  createFixtureBridge,
-  type WorkflowPhaseState,
-  type WorkflowRunSnapshot,
-} from "../../../bridge/index.js";
-import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
+import { createFixtureBridge, type WorkflowRunSnapshot } from "../../../bridge/index.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
-import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";
 import {
   PARKED,
   answeringBridge,
+  fixtureHumanWait,
+  humanWaitsOf,
+  mountedFormPhaseId,
   paneContext,
   renderPane,
+  runWithTwoHumanWaits,
+  scenarioServingRun,
 } from "./WorkflowRunPane.test-support.js";
 
 vi.mock(import("./slots/HumanFormSlot.js"), { spy: true });
@@ -38,46 +38,6 @@ describe("workflow run pane — reaching the form of a phase parked on a person"
     // By name rather than `clearAllMocks`, so a case reads only the render it made.
     vi.mocked(HumanFormSlot).mockClear();
   });
-
-  /**
-   * The fixture's own human wait, which is the shape every derived phase below keeps.
-   *
-   * Read off the scenario rather than written out: `phaseRunId` and `formRevision` are
-   * exactly what makes a wait addressable, and a hand-written phase would keep passing
-   * if the fixture stopped carrying them.
-   */
-  function fixtureHumanWait(): WorkflowPhaseState {
-    const phase = WORKFLOWS_PARKED_RUN.phaseStates.find(
-      (candidate) => candidate.parkReason === "waiting-human",
-    );
-    if (phase === undefined) {
-      throw new Error("the workflows fixture parks no phase on a person");
-    }
-    return phase;
-  }
-
-  /** The second branch's phase-run key, in the wire's own shape and nobody else's. */
-  const SECOND_WAIT_PHASE_RUN_ID = "019b7a10-0280-7aa1-8100-701a11150009";
-
-  /** The fixture's parked run with a SECOND phase parked on a person beside the first. */
-  function runWithTwoHumanWaits(): WorkflowRunSnapshot {
-    const first = fixtureHumanWait();
-    return {
-      ...WORKFLOWS_PARKED_RUN,
-      phaseStates: WORKFLOWS_PARKED_RUN.phaseStates.flatMap((phase) =>
-        phase.phaseId === first.phaseId
-          ? [
-              phase,
-              {
-                ...first,
-                phaseId: `${first.phaseId}-second-branch`,
-                phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
-              },
-            ]
-          : [phase],
-      ),
-    };
-  }
 
   /** The same run with its sole human wait reported without the handle to answer it. */
   function runWithAnUnaddressableWait(): WorkflowRunSnapshot {
@@ -99,30 +59,9 @@ describe("workflow run pane — reaching the form of a phase parked on a person"
     };
   }
 
-  /**
-   * A scenario answering the run read with one snapshot, driving the REAL fixture port.
-   *
-   * The idiom `run-snapshot.test.tsx` established. Scripting the reply rather than
-   * replacing the port keeps the pane's read on the same path every other case here
-   * exercises, so what these cases observe is the pane and not a stand-in.
-   */
-  function scenarioServingRun(run: WorkflowRunSnapshot): ConsoleScenario {
-    return {
-      ...WORKFLOWS_SCENARIO,
-      id: "workflow-run-pane-human-waits",
-      replies: [{ call: "workflow.runRead", result: run }],
-    };
-  }
-
   function renderRun(run: WorkflowRunSnapshot): HTMLElement {
-    return renderPane(
-      paneContext(PARKED, createFixtureBridge({ scenario: scenarioServingRun(run) })),
-    );
-  }
-
-  /** The phase whose form the pane actually mounted, on the latest render it made. */
-  function mountedFormPhaseId(): string | undefined {
-    return vi.mocked(HumanFormSlot).mock.calls.at(-1)?.[0].phase?.phaseId;
+    const scenario = scenarioServingRun(run, "workflow-run-pane-human-waits");
+    return renderPane(paneContext(PARKED, createFixtureBridge({ scenario })));
   }
 
   function routeControls(section: HTMLElement): readonly Element[] {
@@ -138,9 +77,7 @@ describe("workflow run pane — reaching the form of a phase parked on a person"
   it("gives every addressable wait a route, and opens the first of them", async () => {
     const run = runWithTwoHumanWaits();
     const section = renderRun(run);
-    const [firstWait, secondWait] = run.phaseStates.filter(
-      (phase) => phase.parkReason === "waiting-human",
-    );
+    const [firstWait, secondWait] = humanWaitsOf(run);
     if (firstWait === undefined || secondWait === undefined) {
       throw new Error("the derived run does not park two phases on a person");
     }
@@ -161,9 +98,7 @@ describe("workflow run pane — reaching the form of a phase parked on a person"
   it("mounts the second branch's form when that card asks for it", async () => {
     const run = runWithTwoHumanWaits();
     const section = renderRun(run);
-    const [firstWait, secondWait] = run.phaseStates.filter(
-      (phase) => phase.parkReason === "waiting-human",
-    );
+    const [firstWait, secondWait] = humanWaitsOf(run);
     if (firstWait === undefined || secondWait === undefined) {
       throw new Error("the derived run does not park two phases on a person");
     }

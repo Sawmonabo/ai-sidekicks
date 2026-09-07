@@ -13,11 +13,20 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock, REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "../../../core/index.js";
-import { SessionStore } from "../../../store/index.js";
+import { SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { WorkflowRunLiveRounds } from "./run-live-rounds.js";
 
 const SESSION_ID = "session-live-rounds";
+/** The run the pane in these cases is showing. */
+const RUN_ON_SCREEN = "019b7a10-0280-7aa1-8100-70100000000a";
+/** Another run moving in the same session, which owes this pane nothing. */
+const RUN_ELSEWHERE = "019b7a10-0280-7aa1-8100-70100000000b";
+
+/** One workflow frame, carrying the run its payload names. */
+function frameForRun(kind: string, sequence: number, workflowRunId: string): ConsoleSessionEvent {
+  return eventOfKind(SESSION_ID, kind, sequence, { workflowRunId });
+}
 
 /** Every reading a case opens, disposed whatever the case did. */
 const openReadings: WorkflowRunLiveRounds[] = [];
@@ -35,11 +44,30 @@ function initialisedStore(): SessionStore {
   return sessionStore;
 }
 
+/**
+ * What a case varies about the pane the reading is opened for.
+ *
+ * A WRAPPER RATHER THAN A DEFAULTED PARAMETER, because the value being defaulted can
+ * itself legitimately be absent: a pane that names no run is one of the cases below,
+ * and `openReading(clock, store, undefined)` against a defaulted parameter silently
+ * takes the default — a case that reads as though it opened a reading with no run and
+ * in fact opened one on `RUN_ON_SCREEN`.
+ */
+interface PaneUnderReading {
+  /** The run the pane shows, absent where it names none. */
+  readonly workflowRunId: string | undefined;
+}
+
 function openReading(
   clock: ManualClock,
   sessionStore: SessionStore | undefined,
+  pane: PaneUnderReading = { workflowRunId: RUN_ON_SCREEN },
 ): WorkflowRunLiveRounds {
-  const reading = new WorkflowRunLiveRounds({ clock, sessionStore });
+  const reading = new WorkflowRunLiveRounds({
+    clock,
+    sessionStore,
+    workflowRunId: pane.workflowRunId,
+  });
   openReadings.push(reading);
   reading.start();
   return reading;
@@ -136,6 +164,99 @@ describe("WorkflowRunLiveRounds — what advances the round", () => {
     await settle(clock);
 
     expect(reading.round).toBe(1);
+  });
+});
+
+describe("WorkflowRunLiveRounds — which run the frame is about", () => {
+  it("advances on a frame whose payload names the run on screen", async () => {
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ON_SCREEN });
+
+    sessionStore.applyBatch([frameForRun("workflow.phase_progressed", 1, RUN_ON_SCREEN)]);
+    await settle(clock);
+
+    expect(reading.round).toBe(1);
+  });
+
+  it("advances on nothing for a frame that names another run", async () => {
+    // The finding: the trigger set matched on KIND alone, so `workflow.phase_progressed`
+    // for any run in the session re-read every run pane in the window. A session running
+    // four workflows paid four reads for every phase any of them advanced.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ON_SCREEN });
+
+    sessionStore.applyBatch([
+      frameForRun("workflow.phase_progressed", 1, RUN_ELSEWHERE),
+      frameForRun("workflow.phase_completed", 2, RUN_ELSEWHERE),
+      frameForRun("workflow.cancelled", 3, RUN_ELSEWHERE),
+    ]);
+    await settle(clock);
+
+    expect(reading.round).toBe(0);
+  });
+
+  it("negative control: the same three frames advance the reading addressed at THAT run", async () => {
+    // Without this, the case above would hold over a reading that refused every frame
+    // carrying a payload at all — the right answer for one input, reached by ignoring
+    // the pairing this scoping is entirely about.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ELSEWHERE });
+
+    sessionStore.applyBatch([
+      frameForRun("workflow.phase_progressed", 1, RUN_ELSEWHERE),
+      frameForRun("workflow.phase_completed", 2, RUN_ELSEWHERE),
+      frameForRun("workflow.cancelled", 3, RUN_ELSEWHERE),
+    ]);
+    await settle(clock);
+
+    expect(reading.round).toBe(1);
+  });
+
+  it("collapses a burst naming both runs into the one advance this run owes", async () => {
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ON_SCREEN });
+
+    sessionStore.applyBatch([
+      frameForRun("workflow.phase_started", 1, RUN_ELSEWHERE),
+      frameForRun("workflow.phase_started", 2, RUN_ON_SCREEN),
+      frameForRun("workflow.phase_progressed", 3, RUN_ELSEWHERE),
+    ]);
+    await settle(clock);
+
+    expect(reading.round).toBe(1);
+  });
+
+  it("advances on a frame that names no run, which is every frame this wire sends today", async () => {
+    // The taxonomy is unregistered — `packages/contracts` admits none of these kinds —
+    // so nothing establishes that a payload carries the run at all. A frame that does
+    // not say which run it is about is a frame this reading cannot rule out, and
+    // refusing it would make a pane silently stale rather than merely over-read.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ON_SCREEN });
+
+    sessionStore.applyBatch([eventOfKind(SESSION_ID, "workflow.phase_progressed", 1)]);
+    await settle(clock);
+
+    expect(reading.round).toBe(1);
+  });
+
+  it("refuses a named frame on a pane that names no run of its own", async () => {
+    // The deck opens a run pane from a keybinding before an entity is chosen. Such a
+    // pane reads nothing, so a frame naming some other run is a frame about a run this
+    // reading is not showing — the same refusal, arrived at from the other side.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reading = openReading(clock, sessionStore, { workflowRunId: undefined });
+
+    sessionStore.applyBatch([frameForRun("workflow.phase_progressed", 1, RUN_ON_SCREEN)]);
+    await settle(clock);
+
+    expect(reading.round).toBe(0);
   });
 });
 

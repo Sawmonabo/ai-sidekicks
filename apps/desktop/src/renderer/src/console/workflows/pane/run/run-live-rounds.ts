@@ -32,19 +32,33 @@
 // the answer to the new question. Two supersession mechanisms over one read would be
 // two places to decide whether an answer still counts.
 //
+// AND IT IS SCOPED TO ONE RUN. A session runs many workflows, and every one of the
+// twenty-four types is emitted for whichever run the engine advanced — so a reading that
+// matched on KIND alone answered "something workflow-shaped happened in this session",
+// which is true while another run is progressing and this one is not. Every pane in the
+// window then re-read, once per frame, for as long as anything anywhere in the session
+// was moving. The reading therefore takes the run it is about and admits a frame unless
+// the frame names a different one; `ReadTriggerTarget.admitsTriggeringEvent` is the
+// seam, and both of the console's trigger wirings consult it through one predicate so
+// the two cannot come to disagree about when an answer goes stale.
+//
 // THE KINDS ARE UNREGISTERED AND ARMING AGAINST THEM IS SAFE. `packages/contracts`
 // registers none of the twenty-four types — that is the `workflow-event-registration`
 // slate row — so `bridge/wire-shapes/workflow-events.ts` declares the set and
 // `ReadTriggerTarget` takes it as the `ReadonlySet<string>` it is. A kind no daemon
 // emits never matches, so until the registration lands this reading refreshes on the
 // other two reasons and on the operator's own acts; the day it lands, the third
-// reason starts firing with no edit here.
+// reason starts firing with no edit here. The same unregistered wire is why the run
+// scoping is stated as a refusal of NAMED frames rather than as a requirement for one:
+// nothing yet establishes that a daemon puts the run on the frame, and a reading that
+// demanded it would go quiet on precisely the wire this module was written for.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   WORKFLOW_EVENT_TYPES,
   consoleClockFor,
+  workflowRunIdOfEventPayload,
   type ConsoleBridge,
 } from "../../../bridge/index.js";
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
@@ -53,6 +67,7 @@ import {
   RefreshScheduler,
   SessionRefreshTriggers,
   useSubjectScopedResource,
+  type ConsoleSessionEvent,
   type RefreshReason,
   type ReadTriggerTarget,
   type SessionStore,
@@ -69,6 +84,14 @@ export interface WorkflowRunLiveRoundsOptions {
    * watch, and inventing one would be watching a session nobody named.
    */
   readonly sessionStore: SessionStore | undefined;
+  /**
+   * The run the pane holding this reading is showing.
+   *
+   * ABSENT on a pane that names no run, the same arm the store above has: such a pane
+   * reads nothing, so there is no answer for a frame to make stale and every frame that
+   * names a run names a different one.
+   */
+  readonly workflowRunId: string | undefined;
 }
 
 /**
@@ -93,6 +116,11 @@ export class WorkflowRunLiveRounds implements ReadTriggerTarget {
    * there is no type in the taxonomy that cannot move something this pane draws —
    * and a shorter list would be this module deciding which of the engine's own
    * announcements do not matter.
+   *
+   * THE KIND IS HALF THE QUESTION AND THE RUN IS THE OTHER HALF, which is what
+   * {@link admitsTriggeringEvent} below adds. Every one of these types is emitted for
+   * whichever run the engine advanced, so this set alone is "something workflow-shaped
+   * happened somewhere in this session" — true of a run this pane is not showing.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(WORKFLOW_EVENT_TYPES);
 
@@ -100,6 +128,7 @@ export class WorkflowRunLiveRounds implements ReadTriggerTarget {
   /** Absent with no session: there is nothing to observe and nothing to detach. */
   readonly #triggers: SessionRefreshTriggers | undefined;
   readonly #sessionStore: SessionStore | undefined;
+  readonly #workflowRunId: string | undefined;
   readonly #changes = new Emitter<number>("workflow run live round");
 
   #round = 0;
@@ -108,6 +137,7 @@ export class WorkflowRunLiveRounds implements ReadTriggerTarget {
 
   public constructor(options: WorkflowRunLiveRoundsOptions) {
     this.#sessionStore = options.sessionStore;
+    this.#workflowRunId = options.workflowRunId;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
       // The whole of the "read": advance the round and say so. A burst of frames —
@@ -157,6 +187,32 @@ export class WorkflowRunLiveRounds implements ReadTriggerTarget {
   }
 
   /**
+   * Whether this frame is about the run this reading is watching.
+   *
+   * THE RULE IS "UNLESS IT NAMES A DIFFERENT RUN", not "only if it names this one", and
+   * the difference is the whole of what this method decides. A frame carrying a run
+   * identifier is attributable and is admitted for this run and refused for every
+   * other. A frame carrying none is not attributable at all, and the honest answer to
+   * an unattributable frame is that this reading cannot rule it out — so it is admitted
+   * and the pane re-reads, exactly as it did before the payload was consulted.
+   *
+   * That asymmetry is not caution for its own sake. `packages/contracts` registers none
+   * of these kinds, so nothing yet establishes that a daemon puts the run on the frame;
+   * a reading that demanded one would go quiet against every wire that does not carry
+   * it yet, which is the stale-pane defect this whole module exists to end — traded for
+   * the over-reading it exists to end. Admitting the unattributable frame gives up only
+   * the saving, and only for frames nobody could have attributed.
+   *
+   * WITH NO RUN ADDRESSED every named frame names a different run and is refused, which
+   * falls out of the same comparison rather than being a second rule: such a pane has
+   * put no read, so there is no answer for a frame to make stale.
+   */
+  public admitsTriggeringEvent(event: ConsoleSessionEvent): boolean {
+    const namedRunId = workflowRunIdOfEventPayload(event.payload);
+    return namedRunId === undefined || namedRunId === this.#workflowRunId;
+  }
+
+  /**
    * Begin observing. Idempotent, because React mounts an effect twice in development
    * strict mode and a second observer would double every re-read in exactly the
    * environment where the budget is watched.
@@ -199,13 +255,21 @@ export class WorkflowRunLiveRounds implements ReadTriggerTarget {
 }
 
 /**
- * Mint one live-round reading for the window's bridge and the session in scope.
+ * Mint one live-round reading for the window's bridge, the session, and the run shown.
  *
- * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION. A bridge swapped underneath —
- * the fixture's scenario switch, and the live shell's reconnect — is a different world
- * and mints a fresh reading, which is what makes the round start over rather than
- * carrying the previous scenario's count into the new one. The session is the key
- * because that is what a window holds many of.
+ * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION AND THE RUN. A bridge swapped
+ * underneath — the fixture's scenario switch, and the live shell's reconnect — is a
+ * different world and mints a fresh reading, which is what makes the round start over
+ * rather than carrying the previous scenario's count into the new one. The session and
+ * the run are the key because a window holds many of both, and because the run is what
+ * this reading now ADMITS frames against: a pane is retargeted from one run to another
+ * without ever unmounting, so a reading keyed on the session alone would go on
+ * admitting the run the pane had left and refusing the one it had moved to.
+ *
+ * THE KEY IS DERIVED, which is `run-snapshot.ts`'s own shape for a subject compared by
+ * value: one string, composed in one place, out of the facts that make this a different
+ * question. A round starting over on a retarget costs nothing, because the read it
+ * drives is keyed on the run as well and is a fresh question either way.
  *
  * THE STORE AXIS IS AN EFFECT AND NOT PART OF THE KEY, which is
  * `use-artifact-reading.ts`'s split: a store rebuilt for the same session keeps the
@@ -216,6 +280,7 @@ export class WorkflowRunLiveRounds implements ReadTriggerTarget {
 export function useWorkflowRunLiveRounds(
   bridge: ConsoleBridge,
   sessionStore: SessionStore | undefined,
+  workflowRunId: string | undefined,
 ): number {
   // The window's own clock, resolved once per bridge — `use-artifact-reading.ts`'s
   // shape. Under the fixture the scenario advances on frozen time, and a reading that
@@ -223,12 +288,12 @@ export function useWorkflowRunLiveRounds(
   // did not move.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const openRounds = useCallback(
-    () => new WorkflowRunLiveRounds({ clock, sessionStore }),
-    [clock, sessionStore],
+    () => new WorkflowRunLiveRounds({ clock, sessionStore, workflowRunId }),
+    [clock, sessionStore, workflowRunId],
   );
   const { value: rounds, settle } = useSubjectScopedResource(
     bridge,
-    sessionStore?.sessionId,
+    readingSubjectKey(sessionStore?.sessionId, workflowRunId),
     openRounds,
     CONTROLLER_DISPOSAL,
   );
@@ -248,4 +313,20 @@ export function useWorkflowRunLiveRounds(
   );
   const readRound = useCallback(() => rounds.round, [rounds]);
   return useSyncExternalStore(subscribe, readRound, readRound);
+}
+
+/**
+ * The subject this reading is held at: the session it watches and the run it is about.
+ *
+ * BOTH ABSENCES ARE SPELLED, and that is why the parts are joined rather than
+ * concatenated raw: a pane with no session showing run `x` and a pane in session `x`
+ * showing no run are two different readings, and a bare join would give both the same
+ * key. Neither identifier can contain the separator — both are opaque wire values the
+ * daemon mints — so the composition is unambiguous over the values that actually occur.
+ */
+function readingSubjectKey(
+  sessionId: string | undefined,
+  workflowRunId: string | undefined,
+): string {
+  return `${sessionId ?? "no-session"}#${workflowRunId ?? "no-run"}`;
 }
