@@ -2,6 +2,8 @@ import { Menu } from "@base-ui/react/menu";
 
 import type { MembershipId, MembershipUpdate } from "@ai-sidekicks/contracts";
 
+import { OverlayMenuPopup } from "../../primitives/index.js";
+
 import {
   MEMBERSHIP_ACTIONS,
   MEMBERSHIP_ACTION_NOTES,
@@ -66,41 +68,45 @@ export function MembershipActionsMenu(props: {
         >
           {props.isPending ? "Applying…" : "Manage"}
         </Menu.Trigger>
-        <Menu.Portal>
-          <Menu.Positioner className="meridian-members__menu-positioner" sideOffset={4}>
-            <Menu.Popup className="meridian-members__menu">
-              {MEMBERSHIP_ROLES.filter(
-                (candidate) =>
-                  candidate !== row.role &&
-                  // Owner elevation is offered only against an active membership,
-                  // which is a fact printed on this row — not a permission this
-                  // renderer worked out about the caller.
-                  (candidate !== "owner" || isActive),
-              ).map((candidate) => (
-                <Menu.Item
-                  key={candidate}
-                  className="meridian-members__menu-item"
-                  onClick={() => {
-                    props.onApply({ membershipId, action: "change_role", newRole: candidate });
-                  }}
-                >
-                  {`Make ${candidate}`}
-                </Menu.Item>
-              ))}
-              {LIFECYCLE_MENU_ACTIONS.map((action) => (
-                <Menu.Item
-                  key={action}
-                  className="meridian-members__menu-item"
-                  onClick={() => {
-                    props.onApply({ membershipId, action });
-                  }}
-                >
-                  {MEMBERSHIP_ACTION_NOTES[action].label}
-                </Menu.Item>
-              ))}
-            </Menu.Popup>
-          </Menu.Positioner>
-        </Menu.Portal>
+        {/* The anchored part of the menu is the primitive's, which is what puts it
+            in the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a
+            row that mounted its own portal would be a menu a native browser-pane view
+            paints over and takes the presses of. */}
+        <OverlayMenuPopup
+          positionerClassName="meridian-members__menu-positioner"
+          sideOffset={4}
+          className="meridian-members__menu"
+        >
+          {MEMBERSHIP_ROLES.filter(
+            (candidate) =>
+              candidate !== row.role &&
+              // Owner elevation is offered only against an active membership,
+              // which is a fact printed on this row — not a permission this
+              // renderer worked out about the caller.
+              (candidate !== "owner" || isActive),
+          ).map((candidate) => (
+            <Menu.Item
+              key={candidate}
+              className="meridian-members__menu-item"
+              onClick={() => {
+                props.onApply({ membershipId, action: "change_role", newRole: candidate });
+              }}
+            >
+              {`Make ${candidate}`}
+            </Menu.Item>
+          ))}
+          {LIFECYCLE_MENU_ACTIONS.map((action) => (
+            <Menu.Item
+              key={action}
+              className="meridian-members__menu-item"
+              onClick={() => {
+                props.onApply({ membershipId, action });
+              }}
+            >
+              {MEMBERSHIP_ACTION_NOTES[action].label}
+            </Menu.Item>
+          ))}
+        </OverlayMenuPopup>
       </Menu.Root>
 
       <RevokeConfirmation

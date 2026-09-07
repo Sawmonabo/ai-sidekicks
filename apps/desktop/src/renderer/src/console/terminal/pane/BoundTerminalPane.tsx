@@ -45,6 +45,7 @@ import { membershipRoleOf, type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import {
   useCallerMembershipRole,
+  useSessionPartition,
   useSessionStore,
   type CallerParticipantReader,
   type SessionStore,
@@ -55,6 +56,7 @@ import type { TerminalParticipantMark } from "../lease/participant-mark.js";
 import { XtermHost } from "../emulator/XtermHost.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../lease/lease-model.js";
 import { projectNodePresence, resolveSoleHoldingNode } from "./node-presence-model.js";
+import { hasSteppableRun } from "./steppable-run-model.js";
 import { useTerminalOutputStream } from "./output-stream.js";
 import { useTerminalViewerIdentity } from "../lease/viewer-identity.js";
 
@@ -136,6 +138,15 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
     [timeline, holdingNode, viewerParticipantId],
   );
 
+  // 8.9's aside is a sentence about the step-in control, so it renders where that
+  // control has something to act on. It reads the `run` PARTITION rather than the log:
+  // the run-lifecycle projector is the console's one authority on which beats put a run
+  // into which state, and a second fold beside it answered `true` for a `run.running`
+  // beat that projector refuses. The partition's identity moves only when a run does,
+  // so the memo runs when there is something new to say.
+  const runs = useSessionPartition(sessionStore, "run");
+  const isStepInReachable = useMemo(() => hasSteppableRun(runs), [runs]);
+
   const markFor = useMemo(() => {
     const allocator = sessionStore.hueAllocator;
     return (participantId: string): TerminalParticipantMark | undefined => {
@@ -161,6 +172,7 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
         markFor={markFor}
         viewerIdentity={viewerIdentity}
         callerRole={callerRole}
+        hasSteppableRun={isStepInReachable}
       />
       {outputReading.status === "refused" ? (
         // A REJECTED subscribe is the bridge itself failing, and a bridge that

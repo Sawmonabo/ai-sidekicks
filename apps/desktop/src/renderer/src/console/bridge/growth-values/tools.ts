@@ -10,6 +10,16 @@ export interface GrowthToolCall {
   readonly toolCallId: string;
   readonly toolName: string;
   readonly argumentsJson: string;
+  /**
+   * The run that owns the page this call addresses, by the label a surface shows.
+   *
+   * Carried rather than looked up, because ownership is by RUN: a page belongs to the
+   * run that opened it, and a lookup from another run answers not found rather than
+   * forbidden. A relay frame that named no run would leave the surface rendering the
+   * call unable to say whose work it is — and a console that guessed would attribute
+   * one agent's browsing to another on any session with two attached.
+   */
+  readonly owningRunLabel: string;
 }
 
 /**

@@ -21,7 +21,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import {
+  InlineRefusal,
+  Nothing,
+  OverlayDialogPopup,
+  WireFigure,
+} from "../../../primitives/index.js";
 import type { SessionStore } from "../../../store/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
@@ -104,58 +109,62 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
   return (
     <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
       <Dialog.Trigger className="meridian-bind__trigger">Bind a workspace</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="meridian-bind__backdrop" />
-        <Dialog.Popup className="meridian-bind__dialog">
-          <Dialog.Title className="meridian-bind__title">Bind a workspace</Dialog.Title>
-          <Dialog.Description className="meridian-bind__body">
-            A workspace is a binding of this mount in one execution mode. Leaving the directory
-            empty binds the mount root.
-          </Dialog.Description>
-          <p className="meridian-bind__root">
-            <span className="meridian-bind__legend">Mount root</span>
-            <WireFigure value={props.canonicalRoot} title={props.canonicalRoot} />
+      {/* The popup shell is the primitive's, which is also what puts this dialog in the
+          window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to whatever is registered there, and a form that
+          mounted its own portal would be a dialog the view paints over. */}
+      <OverlayDialogPopup
+        backdropClassName="meridian-bind__backdrop"
+        className="meridian-bind__dialog"
+      >
+        <Dialog.Title className="meridian-bind__title">Bind a workspace</Dialog.Title>
+        <Dialog.Description className="meridian-bind__body">
+          A workspace is a binding of this mount in one execution mode. Leaving the directory empty
+          binds the mount root.
+        </Dialog.Description>
+        <p className="meridian-bind__root">
+          <span className="meridian-bind__legend">Mount root</span>
+          <WireFigure value={props.canonicalRoot} title={props.canonicalRoot} />
+        </p>
+
+        <label className="meridian-bind__directory">
+          <span className="meridian-bind__legend">Directory</span>
+          <input
+            type="text"
+            className="meridian-bind__directory-input"
+            value={form.directory}
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="the mount root"
+            onChange={(event) => {
+              // WHAT WAS TYPED, UNCHANGED. The wire takes a subtree relative to the
+              // canonical root or an absolute path naming a registered working tree,
+              // over one member — this console splits neither and joins nothing.
+              setForm((current) => ({ ...current, directory: event.target.value }));
+            }}
+          />
+        </label>
+
+        {renderModes(reading, selectedMode, selectMode, retryCapabilities)}
+        {renderSettlement(reading)}
+
+        <div className="meridian-bind__acts">
+          <Dialog.Close className="meridian-bind__cancel">Cancel</Dialog.Close>
+          <button
+            type="button"
+            className="meridian-bind__confirm"
+            disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
+            onClick={submit}
+          >
+            Bind
+          </button>
+        </div>
+        {verdict.status === "incomplete" ? (
+          <p className="meridian-bind__blocked" role="status">
+            {verdict.because}
           </p>
-
-          <label className="meridian-bind__directory">
-            <span className="meridian-bind__legend">Directory</span>
-            <input
-              type="text"
-              className="meridian-bind__directory-input"
-              value={form.directory}
-              spellCheck={false}
-              autoComplete="off"
-              placeholder="the mount root"
-              onChange={(event) => {
-                // WHAT WAS TYPED, UNCHANGED. The wire takes a subtree relative to the
-                // canonical root or an absolute path naming a registered working tree,
-                // over one member — this console splits neither and joins nothing.
-                setForm((current) => ({ ...current, directory: event.target.value }));
-              }}
-            />
-          </label>
-
-          {renderModes(reading, selectedMode, selectMode, retryCapabilities)}
-          {renderSettlement(reading)}
-
-          <div className="meridian-bind__acts">
-            <Dialog.Close className="meridian-bind__cancel">Cancel</Dialog.Close>
-            <button
-              type="button"
-              className="meridian-bind__confirm"
-              disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
-              onClick={submit}
-            >
-              Bind
-            </button>
-          </div>
-          {verdict.status === "incomplete" ? (
-            <p className="meridian-bind__blocked" role="status">
-              {verdict.because}
-            </p>
-          ) : null}
-        </Dialog.Popup>
-      </Dialog.Portal>
+        ) : null}
+      </OverlayDialogPopup>
     </Dialog.Root>
   );
 }

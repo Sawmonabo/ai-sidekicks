@@ -21,6 +21,8 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 
+import { OverlayComboboxPopup } from "../primitives/index.js";
+
 export interface AxisComboboxProps {
   /** The field label a person reads, e.g. "Effort". */
   readonly label: string;
@@ -60,30 +62,28 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
         <Combobox.Trigger className="meridian-axis-field__trigger">
           <Combobox.Value />
         </Combobox.Trigger>
-        <Combobox.Portal container={props.overlayContainer}>
-          <Combobox.Positioner className="meridian-axis-field__positioner">
-            <Combobox.Popup className="meridian-axis-field__popup">
-              <Combobox.Input
-                className="meridian-axis-field__input"
-                aria-label={`Filter ${props.label.toLowerCase()}`}
-              />
-              <Combobox.Empty className="meridian-axis-field__empty">
-                No value matches.
-              </Combobox.Empty>
-              <Combobox.List className="meridian-axis-field__list">
-                {options.map((option) => (
-                  <Combobox.Item
-                    key={option}
-                    value={option}
-                    className="meridian-axis-field__option"
-                  >
-                    {option}
-                  </Combobox.Item>
-                ))}
-              </Combobox.List>
-            </Combobox.Popup>
-          </Combobox.Positioner>
-        </Combobox.Portal>
+        {/* The anchored part of the tree is the primitive's, which is what puts this
+            list in the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3).
+            A field that mounted its own portal would be a popup a native browser-pane
+            view paints over and takes the input of. */}
+        <OverlayComboboxPopup
+          container={props.overlayContainer}
+          positionerClassName="meridian-axis-field__positioner"
+          className="meridian-axis-field__popup"
+        >
+          <Combobox.Input
+            className="meridian-axis-field__input"
+            aria-label={`Filter ${props.label.toLowerCase()}`}
+          />
+          <Combobox.Empty className="meridian-axis-field__empty">No value matches.</Combobox.Empty>
+          <Combobox.List className="meridian-axis-field__list">
+            {options.map((option) => (
+              <Combobox.Item key={option} value={option} className="meridian-axis-field__option">
+                {option}
+              </Combobox.Item>
+            ))}
+          </Combobox.List>
+        </OverlayComboboxPopup>
       </Combobox.Root>
       {props.advisory === undefined ? null : (
         <span className="meridian-axis-field__advisory">{props.advisory}</span>

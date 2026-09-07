@@ -63,6 +63,7 @@ import {
   InlineRefusal,
   formatChordForPlatform,
   formatCount,
+  OverlayDialogPopup,
   type ChordPlatform,
 } from "../primitives/index.js";
 import type { CommandSearchResult } from "./command-ranking.js";
@@ -307,85 +308,92 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
       onItemHighlighted={warmHighlighted}
     >
       <Dialog.Root open={open} onOpenChange={handleOpenChange} modal="trap-focus">
-        <Dialog.Portal container={overlayContainer}>
-          <Dialog.Backdrop className="console-palette__backdrop" />
-          <Dialog.Popup
-            className="console-palette__popup"
-            initialFocus={inputRef}
-            aria-label="Command palette"
-          >
-            {capturedScopeLabel === undefined ? null : (
-              <div className="console-palette__scope">
-                <span className="console-palette__scope-label">Acting on</span>
-                <span className="console-palette__scope-value">{capturedScopeLabel}</span>
-              </div>
-            )}
+        {/* THE AIRSPACE REGISTRATION IS THE PRIMITIVE'S, and the whole of this
+            surface's part in it is the kind it names (`Spec-023 §Console Design
+            (Meridian)` 12.3, §4.3). An open palette is one of the seven overlay kinds
+            a native browser-pane view has to yield to, and a view painted over it is
+            the one thing 12.3 forbids outright — so the shell that mounts the popup is
+            also what registers its live rectangle, and no surface can mount one
+            without. */}
+        <OverlayDialogPopup
+          airspaceKind="command-palette"
+          container={overlayContainer}
+          backdropClassName="console-palette__backdrop"
+          className="console-palette__popup"
+          label="Command palette"
+          initialFocus={inputRef}
+        >
+          {capturedScopeLabel === undefined ? null : (
+            <div className="console-palette__scope">
+              <span className="console-palette__scope-label">Acting on</span>
+              <span className="console-palette__scope-value">{capturedScopeLabel}</span>
+            </div>
+          )}
 
-            {shellBlock === undefined ? null : (
-              // Above the input, because it changes what half the list will do and a
-              // person needs it before they type — and rendered through the console's
-              // one row-scoped refusal shape rather than a line of the palette's own.
-              <div className="console-palette__degraded">
-                <InlineRefusal code={shellBlock.code} detail={shellBlock.detail} />
-              </div>
-            )}
+          {shellBlock === undefined ? null : (
+            // Above the input, because it changes what half the list will do and a
+            // person needs it before they type — and rendered through the console's
+            // one row-scoped refusal shape rather than a line of the palette's own.
+            <div className="console-palette__degraded">
+              <InlineRefusal code={shellBlock.code} detail={shellBlock.detail} />
+            </div>
+          )}
 
-            <Combobox.Input
-              ref={inputRef}
-              className="console-palette__input"
-              placeholder="Search commands"
-              aria-label="Search commands"
-            />
+          <Combobox.Input
+            ref={inputRef}
+            className="console-palette__input"
+            placeholder="Search commands"
+            aria-label="Search commands"
+          />
 
-            {/*
-              The CAPTURED context: the chord printed beside a row is the chord that
-              would run that row, and one resolved against the live route beside a row
-              resolved against the capture is two answers to one question.
-            */}
-            <PaletteResultList
-              context={capturedContext}
-              platform={platform}
-              bindings={bindings}
-              onRunResult={runResult}
-            />
+          {/*
+            The CAPTURED context: the chord printed beside a row is the chord that
+            would run that row, and one resolved against the live route beside a row
+            resolved against the capture is two answers to one question.
+          */}
+          <PaletteResultList
+            context={capturedContext}
+            platform={platform}
+            bindings={bindings}
+            onRunResult={runResult}
+          />
 
-            {/*
+          {/*
               Must stay mounted: it announces by mutating its own text, and it is
               already a `role="status"` / `aria-live="polite"` region — which is
               why `Combobox.Status` below falls silent when the list is empty.
               Two live regions describing one absence would announce it twice.
             */}
-            <Combobox.Empty className="console-palette__empty">
-              <PaletteAbsence
-                readiness={readiness}
-                registry={registry}
-                query={query}
-                visibleCount={visibleCount}
-              />
-            </Combobox.Empty>
+          <Combobox.Empty className="console-palette__empty">
+            <PaletteAbsence
+              readiness={readiness}
+              registry={registry}
+              query={query}
+              visibleCount={visibleCount}
+            />
+          </Combobox.Empty>
 
-            <Combobox.Status className="meridian-visually-hidden">
-              {results.length === 0 ? "" : resultCountLabel}
-            </Combobox.Status>
+          <Combobox.Status className="meridian-visually-hidden">
+            {results.length === 0 ? "" : resultCountLabel}
+          </Combobox.Status>
 
-            {invocationRefusal === undefined ? null : (
-              // BELOW the rows rather than above the input where the read-only line
-              // sits: that one is a fact about half the list and has to be read before
-              // a person types, and this is the answer to the press they just made.
-              <div className="console-palette__refusal">
-                <InlineRefusal code={invocationRefusal.code} detail={invocationRefusal.detail} />
-              </div>
-            )}
-
-            <div className="console-palette__footer">
-              <span className="console-palette__footer-hints">
-                <span>{formatChordForPlatform("Enter", platform)} to run</span>
-                <span>{formatChordForPlatform("Escape", platform)} to close</span>
-              </span>
-              <span>{resultCountLabel}</span>
+          {invocationRefusal === undefined ? null : (
+            // BELOW the rows rather than above the input where the read-only line
+            // sits: that one is a fact about half the list and has to be read before
+            // a person types, and this is the answer to the press they just made.
+            <div className="console-palette__refusal">
+              <InlineRefusal code={invocationRefusal.code} detail={invocationRefusal.detail} />
             </div>
-          </Dialog.Popup>
-        </Dialog.Portal>
+          )}
+
+          <div className="console-palette__footer">
+            <span className="console-palette__footer-hints">
+              <span>{formatChordForPlatform("Enter", platform)} to run</span>
+              <span>{formatChordForPlatform("Escape", platform)} to close</span>
+            </span>
+            <span>{resultCountLabel}</span>
+          </div>
+        </OverlayDialogPopup>
       </Dialog.Root>
     </Combobox.Root>
   );
