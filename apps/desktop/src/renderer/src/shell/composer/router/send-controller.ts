@@ -21,15 +21,15 @@
 // holders `console/bridge/` publishes rather than through anything local: the
 // console's one `GenerationLatch` holds the slot under `(bridge,
 // addressedOperationKey(draftKey, visit, operation))`, claimed before the await and
-// released in `finally`, and `useSubjectScopedState` holds `status` and `isStopping`
-// under `(bridge, draftKey)`, reset during the render that first sees a new
-// address.
+// released in `finally`, and `use-composer-act-state.ts` beside this file holds
+// `status` and `isStopping` under `(bridge, draftKey)`, reset during the render that
+// first sees a new address.
 //
 // THE VISIT IS WHAT KEEPS THE LATCH AND THE STATUS SAYING THE SAME THING. The holder
 // re-seeds on every re-address, including a return to a target the composer has been
 // on before; a latch keyed on the draft key alone did not, so on the return trip the
 // bar rendered `idle` over a slot still held by the earlier visit's parked call and
-// Send did nothing at all. `use-settlement-register.ts` owns that serial and says
+// Send did nothing at all. `use-settlement-identities.ts` owns that serial and says
 // why it is the composer's mirror of the holder's own addressing epoch; every keyed
 // thing here carries it — the latch slot, the newest-attempt register, and the
 // settlement identity — so the three agree by construction rather than by three
@@ -62,17 +62,15 @@
 // on the same draft key, so the composer walks the history of the target it is
 // addressed to and no other.
 //
-// THE RESEND OFFER AND THE REFUSAL ARE HELD WHERE THE STATUS IS. The tripwire card
-// offers the last sent body so a neutralized turn can be retried without retyping,
-// and the refusal answers the act that produced it — and both used to be hook-wide
-// `useState` guarded by a read-time comparison against the current draft key. A
-// guard only HIDES: the row was still there, so the return trip offered one agent's
-// words under another's run and rendered a refusal minutes old, and a bridge
-// replacement — which retires every call made through the old transport — left both
-// standing. They are now held under `(bridge, draftKey)` like `status` and
-// `isStopping`, so a re-address drops them and a replaced bridge takes them with it.
+// WHAT THE SURFACE READS WHILE AN ACT TRAVELS IS ITS OWN MODULE. The status, the
+// stopping flag, the refusal the bar renders, and the offer to resend the last body
+// are four holders under one address, and `use-composer-act-state.ts` beside this
+// file owns them together with the two writers a settlement reaches them by. This
+// hook BUILDS the acts — the router, the latch, the two dispatch paths, the history
+// walk — and READS that state; the two jobs have different lifetimes and different
+// failure modes, and one file answering both is a file where neither is legible.
 // `send-settlement.ts` still owns which act a settlement belongs to, and
-// `use-settlement-register.ts` owns whether that act is still the one on screen.
+// `use-settlement-identities.ts` owns whether that act is still the one on screen.
 //
 // THE COMPARAND LEDGER OUTLIVES THE ROUTER, and it has to. The router is memoized on
 // the command zone's predicates, and those change identity whenever the addressed
@@ -92,31 +90,20 @@
 
 import { useCallback, useMemo, useRef } from "react";
 
-import type { ConsoleRefusal } from "../../../console/core/index.js";
 import { settleFirstSendAutoPin } from "../../../console/seats/index.js";
-import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
+import { useGenerationLatch } from "../../../console/store/index.js";
 import { composerDraftKey } from "./draft-key.js";
+import { useComposerActState } from "./use-composer-act-state.js";
 import { useComposerDraftText } from "../use-composer-draft-text.js";
 import { useSettlementIdentities } from "./use-settlement-identities.js";
 import { composerRefusal } from "./send-refusals.js";
 import { composeDirectivePlaceholder, directivePathLabel } from "./directive-line.js";
 import { useDirectiveRecall } from "./use-directive-recall.js";
 import { useRestartDisclosure } from "./use-restart-disclosure.js";
-import {
-  NO_COMPOSER_REFUSALS,
-  addressedOperationKey,
-  renderableRefusal,
-  withSettledRefusal,
-  type ComposerRefusalSlots,
-  type ComposerSettlementIdentity,
-} from "./send-settlement.js";
+import { addressedOperationKey } from "./send-settlement.js";
 import { ComposerSendRouter } from "./send-router.js";
 import { RunVersionLedger } from "./run-version-ledger.js";
-import type {
-  SendController,
-  SendControllerDependencies,
-  SendControllerStatus,
-} from "./send-controller-contract.js";
+import type { SendController, SendControllerDependencies } from "./send-controller-contract.js";
 
 /**
  * What a recognised command with nowhere to run says.
@@ -170,56 +157,21 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     isCurrent,
   } = useSettlementIdentities(bridge, draftKey);
   // What the bar renders while an act is travelling, held under the address that act
-  // was issued at. Two holders rather than one object: a send and a Stop can be in
-  // flight at once, and one publisher writing a pair would let whichever settled
-  // second overwrite what the other had just said.
-  const { value: status, publish: publishStatus } = useSubjectScopedState<SendControllerStatus>(
-    bridge,
-    draftKey,
-    () => "idle",
-  );
-  const { value: isStopping, publish: publishStopping } = useSubjectScopedState(
-    bridge,
-    draftKey,
-    () => false,
-  );
-  // Held under the SAME subject and key the status is, and for the same two reasons.
-  // A bridge replacement retires every call made through the old transport, so a
-  // refusal it raised and an offer to resend its body are both about a transport
-  // that no longer exists — as `useState` they survived it, and pressing Resend sent
-  // the old body through the new bridge. And a re-address re-seeds them, so a
-  // refusal is DROPPED rather than hidden behind a read-time guard that let the
-  // return trip render it again.
-  const { value: refusalSlots, publish: publishRefusalSlots } =
-    useSubjectScopedState<ComposerRefusalSlots>(bridge, draftKey, () => NO_COMPOSER_REFUSALS);
-  const { value: resendOffer, publish: publishResendOffer } = useSubjectScopedState<
-    string | undefined
-  >(bridge, draftKey, () => undefined);
-  /**
-   * Clear the line the act was issued on, but only while that act is still current.
-   *
-   * The predicate is the settlement's own, so "which draft does this clear" and
-   * "whose refusal may this write" are one question answered once.
-   */
-  const clearSentDraft = useCallback(
-    (identity: ComposerSettlementIdentity, sentDraftKey: string): void => {
-      if (isCurrent(identity)) {
-        draftStore.clear(sentDraftKey);
-      }
-    },
-    [draftStore, isCurrent],
-  );
-
-  /** Write one act's settlement, or discard it because its identity has moved on. */
-  const settle = useCallback(
-    (identity: ComposerSettlementIdentity, settledRefusal: ConsoleRefusal | undefined): void => {
-      if (!isCurrent(identity)) {
-        return;
-      }
-      publishRefusalSlots((slots) => withSettledRefusal(slots, identity, settledRefusal));
-    },
-    [isCurrent, publishRefusalSlots],
-  );
+  // was issued at, and the two writers a settlement reaches it by. Its own module
+  // because it is a different job with a different lifetime: nothing there reaches a
+  // wire, and every reading in it is dropped by a re-address or a replaced bridge.
+  const {
+    status,
+    isStopping,
+    refusal,
+    resendableText,
+    publishStatus,
+    publishStopping,
+    publishResendOffer,
+    clearRefusals,
+    settle,
+    clearSentDraft,
+  } = useComposerActState(bridge, draftKey, draftStore, isCurrent);
 
   // The one reading of this key, shared with the discovery popover watching the same
   // line: two subscriptions written twice are two answers to what the person typed.
@@ -241,9 +193,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       // sent. Clearing the whole record rather than the send slot alone is deliberate —
       // the person is composing again, and both acts they could have been waiting on
       // are behind them.
-      publishRefusalSlots(NO_COMPOSER_REFUSALS);
+      clearRefusals();
     },
-    [draftStore, draftKey, publishRefusalSlots],
+    [draftStore, draftKey, clearRefusals],
   );
 
   const dispatch = useCallback(
@@ -389,8 +341,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     pathLabel: directivePathLabel(resolution),
     status,
     isStopping,
-    refusal: renderableRefusal(refusalSlots),
-    resendableText: resendOffer,
+    refusal,
+    resendableText,
     restartNotice: restartDisclosure.notice,
     changeText,
     send,
