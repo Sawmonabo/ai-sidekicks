@@ -18,10 +18,11 @@
 // index — a reader is told less rather than told something false, and the keyboard
 // cannot land on a row that withheld its position either.
 
-import { memo } from "react";
+import { memo, useCallback } from "react";
 
 import { WindowedListRow } from "../../primitives/index.js";
 import { LedgerRowGroup } from "./LedgerRowGroup.js";
+import { useRowSelectionPreservation } from "./selection/selection-binding.js";
 import type { LedgerViewportRow } from "./viewport/index.js";
 
 /**
@@ -61,18 +62,33 @@ export interface LedgerRowMountProps {
  */
 export const LedgerRowMount: React.MemoExoticComponent<
   (props: LedgerRowMountProps) => React.JSX.Element
-> = memo(
-  (props: LedgerRowMountProps): React.JSX.Element => (
+> = memo((props: LedgerRowMountProps): React.JSX.Element => {
+  // THE SECOND READER OF THE ROW ELEMENT, and the reason the two are composed here
+  // rather than either one taking the other's: the virtualizer measures the row and
+  // the selection guard addresses a reader's highlight inside it, and both want the
+  // element this row actually painted. `WindowedListRow` takes one ref, so the
+  // composition is this module's — the row is where the two obligations meet.
+  const attachSelectionGuard = useRowSelectionPreservation();
+  const attachRow = props.attachRow;
+  const attachRowElement = useCallback(
+    (element: HTMLElement | null): void => {
+      attachRow(element);
+      attachSelectionGuard(element);
+    },
+    [attachRow, attachSelectionGuard],
+  );
+
+  return (
     <WindowedListRow
       as="div"
       role={LEDGER_ROW_ROLE}
       className="meridian-ledger-viewport__row"
       rowIndex={props.rowIndex}
       totalRowCount={props.totalRowCount}
-      rowRef={props.attachRow}
+      rowRef={attachRowElement}
     >
       <LedgerRowGroup groupLabel="This entry">{props.renderRow(props.row)}</LedgerRowGroup>
     </WindowedListRow>
-  ),
-);
+  );
+});
 LedgerRowMount.displayName = "LedgerRowMount";

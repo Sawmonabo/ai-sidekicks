@@ -36,6 +36,7 @@
 // here is which sink is installed, and what one pass reads and publishes.
 
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
+import { type LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
 import { LEDGER_GEOMETRY_EPSILON_PX, LEDGER_TAIL_TOLERANCE_PX } from "../frame-bounds.js";
 import {
   OverflowMeasurementBatch,
@@ -43,34 +44,12 @@ import {
   type LedgerGeometry,
   type LedgerGeometryCause,
 } from "../measurement/index.js";
+import { type LedgerScrollCaller } from "./scroll-callers.js";
+import {
+  LedgerScrollFrameWrites,
+  type LedgerScrollTargetComputation,
+} from "./scroll-frame-writes.js";
 import { WholePixelQuantizationLearner } from "./scroll-quantization.js";
-
-/**
- * Every subsystem allowed to move the ledger. Closed, and closed here.
- *
- * A caller that is not on this list has not decided how it arbitrates against the
- * ones that are — which is the question the union exists to force.
- *
- * `measurement-compensation` is the virtualizer's: when a row above the fold
- * measures taller or shorter than it was estimated, every offset below it moves,
- * and the library offers to subtract the difference from the offset so the reader
- * does not. The reading anchor decides WHETHER that happens; the library computes
- * how much; this controller performs it. A library that wrote the offset itself
- * would be the second writer this union exists to prevent.
- */
-export const LEDGER_SCROLL_CALLERS = [
-  "follow-tail",
-  "jump-to-tail",
-  "hold-reading-position",
-  "deep-link",
-  "find-match",
-  "replay-seek",
-  "prune-compensation",
-  "measurement-compensation",
-] as const;
-
-/** One scroll caller. Derived from the enumeration, never restated. */
-export type LedgerScrollCaller = (typeof LEDGER_SCROLL_CALLERS)[number];
 
 /** What one glide did, including the arm that did nothing. */
 export interface LedgerScrollWrite {
@@ -112,6 +91,8 @@ export class LedgerScrollController {
   readonly #writeCountByCaller = new Map<LedgerScrollCaller, number>();
   readonly #quantization = new WholePixelQuantizationLearner();
   readonly #overflowBatch: OverflowMeasurementBatch;
+  /** Phase one of the frame: the reactive writes, ordered ahead of reveal work. */
+  readonly #frameWrites: LedgerScrollFrameWrites;
 
   #surface: LedgerScrollSurface | undefined;
   #onSurfaceScroll: (() => void) | undefined;
@@ -121,12 +102,21 @@ export class LedgerScrollController {
   #disposed = false;
 
   public constructor(options: LedgerScrollControllerOptions) {
+    const controllerGeometry = (): LedgerGeometry | undefined => this.#lastGeometry;
     this.#clock = options.clock;
     this.#tailTolerancePx = options.tailTolerancePx ?? LEDGER_TAIL_TOLERANCE_PX;
     this.#overflowBatch = new OverflowMeasurementBatch({
       clock: options.clock,
       runPass: () => {
         this.#runOverflowPass();
+      },
+    });
+    this.#frameWrites = new LedgerScrollFrameWrites({
+      get lastGeometry(): LedgerGeometry | undefined {
+        return controllerGeometry();
+      },
+      glide: (caller, targetScrollTop) => {
+        this.glideTo(caller, targetScrollTop);
       },
     });
   }
@@ -175,6 +165,7 @@ export class LedgerScrollController {
   /** Terminal. A disposed controller attaches nothing and arms nothing. */
   public dispose(): void {
     this.detach();
+    this.#frameWrites.release();
     this.#overflowBatch.dispose();
     this.#geometryEmitter.clear();
     this.#disposed = true;
@@ -244,6 +235,36 @@ export class LedgerScrollController {
       return undefined;
     }
     return this.glideTo(caller, surface.scrollHeight - surface.clientHeight);
+  }
+
+  /**
+   * Join the frame's phase one, so this controller's reactive writes precede the
+   * reveal and rail work that would move the ground under them. A SETTER because the
+   * coordinator is the FEED's, one per frame, and this controller is constructed by
+   * the viewport underneath it.
+   */
+  public adoptFrameCoordinator(frameCoordinator: LedgerFrameCoordinator): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#frameWrites.adopt(frameCoordinator);
+  }
+
+  /**
+   * Ask for a write in the next frame's phase one, computed against that frame's one
+   * clean geometry sample.
+   *
+   * A gesture calls `glideTo` and lands in the frame the person acted in; a REACTIVE
+   * write comes here. `scroll-frame-writes.ts` states why, and this returns whether
+   * the request was taken.
+   *
+   * @consumedBy T-023p-1C-2
+   */
+  public requestGlide(
+    caller: LedgerScrollCaller,
+    computeTarget: LedgerScrollTargetComputation,
+  ): boolean {
+    return this.#frameWrites.request(caller, computeTarget);
   }
 
   /**

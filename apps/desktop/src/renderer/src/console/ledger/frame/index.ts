@@ -80,3 +80,9 @@ export { type LedgerRowRenderer } from "./LedgerRowMount.js";
 export { useLedgerViewport } from "./viewport/viewport-binding.js";
 export { type LedgerViewportRow } from "./viewport/viewport-snapshot.js";
 export { type LedgerRowLease } from "./row-lease-table.js";
+
+// The hook that mints the frame's own scheduler. Published because the FEED mints it
+// — one coordinator per paint, above both the reveal engine and the viewport — and
+// the feed lives outside this directory. The coordinator CLASS stays internal: the
+// feed holds the value and hands it on, and never names its type.
+export { useLedgerFrameCoordinator } from "./coordinator/coordinator-binding.js";

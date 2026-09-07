@@ -17,10 +17,12 @@
 //     that are behind, and never more than `REVEAL_CATCH_UP_MULTIPLIER` shares.
 //     Catch-up raises a lane's rate and never jumps it, which is why
 //     four lanes all move rather than one finishing while three wait.
-//   • **The frame is the only scheduler.** Work is armed through the clock seam and
-//     re-armed only while a lane has characters left. A settled engine has no timer
-//     armed at all, which is the idle-CPU budget's precondition and is asserted
-//     rather than claimed.
+//   • **The frame is the only scheduler, and it is not this engine's.** Work is
+//     submitted to `coordinator/frame-coordinator.ts`' phase two and re-submitted only
+//     while a lane has characters left, so a drain always lands AFTER the frame's
+//     scroll writes rather than whenever this engine happened to arm. A settled engine
+//     holds no submitted task at all, which is the idle-CPU budget's precondition and
+//     is asserted rather than claimed.
 //   • **Transition failures aggregate.** A lane whose advance throws is quarantined
 //     and counted; the other lanes finish their frame. Letting the first throw
 //     escape would make delivery depend on lane order, which is the failure mode
@@ -44,10 +46,9 @@ import {
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
   lossyStringify,
-  type ConsoleClock,
-  type ScheduledHandle,
   type Unsubscribe,
 } from "../../../core/index.js";
+import { LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
 import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_GATE_TAIL_CHARACTERS } from "../frame-bounds.js";
 import { safeRevealCeiling } from "./reveal-gate.js";
 import { RevealLane } from "./reveal-lane.js";
@@ -60,23 +61,33 @@ import type {
 } from "./reveal-vocabulary.js";
 
 export interface RevealEngineOptions {
-  readonly clock: ConsoleClock;
+  /**
+   * The frame this engine's drains are ordered inside.
+   *
+   * Required rather than optional, and the engine holds no clock of its own: an
+   * engine that could fall back to arming its own frame would be the unordered path
+   * `coordinator/frame-coordinator.ts` exists to close, silently available to
+   * whichever caller forgot to pass one.
+   */
+  readonly frameCoordinator: LedgerFrameCoordinator;
   readonly frameCharacterBudget?: number;
 }
 
 export class RevealEngine {
-  readonly #clock: ConsoleClock;
+  readonly #frameCoordinator: LedgerFrameCoordinator;
+  readonly #frameTaskKey: string;
   readonly #frameCharacterBudget: number;
   readonly #frameEmitter = new Emitter<RevealFrame>("reveal frame");
   readonly #diagnosticEmitter = new Emitter<RevealDiagnostic>("reveal diagnostic");
   /** Insertion-ordered: the one ordered queue the header's first decision names. */
   readonly #lanesById = new Map<string, RevealLane>();
 
-  #armedFrame: ScheduledHandle | undefined;
+  #frameSubmitted = false;
   #disposed = false;
 
   public constructor(options: RevealEngineOptions) {
-    this.#clock = options.clock;
+    this.#frameCoordinator = options.frameCoordinator;
+    this.#frameTaskKey = options.frameCoordinator.claimTaskKey("ledger-reveal-drain");
     this.#frameCharacterBudget = options.frameCharacterBudget ?? REVEAL_FRAME_CHARACTER_BUDGET;
   }
 
@@ -127,9 +138,9 @@ export class RevealEngine {
     return working.some((lane) => lane.isCatchingUp) ? "catching-up" : "streaming";
   }
 
-  /** True while a frame is armed. `LedgerWindow` reads this to defer prune. */
+  /** True while a drain is submitted. `LedgerWindow` reads this to defer prune. */
   public get isDraining(): boolean {
-    return this.#armedFrame !== undefined;
+    return this.#frameSubmitted;
   }
 
   /**
@@ -177,24 +188,25 @@ export class RevealEngine {
   }
 
   #armFrame(): void {
-    if (this.#armedFrame !== undefined || this.#disposed) {
+    if (this.#frameSubmitted || this.#disposed) {
       return;
     }
     if (![...this.#lanesById.values()].some((lane) => lane.hasWork())) {
       return;
     }
-    this.#armedFrame = this.#clock.scheduleFrame(() => {
-      this.#armedFrame = undefined;
+    this.#frameSubmitted = true;
+    this.#frameCoordinator.scheduleRevealAndRailWork(this.#frameTaskKey, () => {
+      this.#frameSubmitted = false;
       this.#drainFrame();
     });
   }
 
   #cancelFrame(): void {
-    if (this.#armedFrame === undefined) {
+    if (!this.#frameSubmitted) {
       return;
     }
-    this.#clock.cancel(this.#armedFrame);
-    this.#armedFrame = undefined;
+    this.#frameCoordinator.cancel("reveal-and-rail", this.#frameTaskKey);
+    this.#frameSubmitted = false;
   }
 
   /**

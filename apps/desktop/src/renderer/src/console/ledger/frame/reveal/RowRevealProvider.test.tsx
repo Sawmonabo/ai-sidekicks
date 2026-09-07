@@ -16,6 +16,7 @@ import { memo, useRef } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../../core/index.js";
+import { useLedgerFrameCoordinator } from "../coordinator/coordinator-binding.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "./reveal.test-support.js";
 import { useLedgerReveal, type LedgerRevealBinding } from "./reveal-binding.js";
 import { LedgerRowRevealProvider, useLedgerRowReveal } from "./RowRevealProvider.js";
@@ -56,7 +57,7 @@ function RevealHost(props: {
   readonly laneIds: readonly string[];
   readonly onBinding: (binding: LedgerRevealBinding) => void;
 }): React.JSX.Element {
-  const reveal = useLedgerReveal({ clock: props.clock });
+  const reveal = useLedgerReveal({ frameCoordinator: useLedgerFrameCoordinator(props.clock) });
   props.onBinding(reveal);
   return (
     <LedgerRowRevealProvider channel={reveal.channel}>

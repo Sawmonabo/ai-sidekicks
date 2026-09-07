@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../../core/index.js";
 import { TWO_FRAME_REVEAL_SOURCE } from "./reveal.test-support.js";
+import { useLedgerFrameCoordinator } from "../coordinator/coordinator-binding.js";
 import { useLedgerReveal, type LedgerRevealBinding } from "./reveal-binding.js";
 
 const LANE_ID = "session-1:41";
@@ -24,7 +25,7 @@ const LANE_ID = "session-1:41";
 function mountBinding(
   clock: ManualClock,
 ): ReturnType<typeof renderHook<LedgerRevealBinding, void>> {
-  return renderHook(() => useLedgerReveal({ clock }));
+  return renderHook(() => useLedgerReveal({ frameCoordinator: useLedgerFrameCoordinator(clock) }));
 }
 
 describe("the reveal binding — what the viewport is told", () => {
