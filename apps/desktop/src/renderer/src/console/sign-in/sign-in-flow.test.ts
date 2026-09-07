@@ -13,6 +13,12 @@
 //      write into it.
 //   4. THE GRANT WAIT IS REACHABLE ONLY FROM THE HAND-OFF, so it cannot be started
 //      for a grant this window never obtained.
+//   5. AN ENROLMENT THAT ADDS NOTHING REVOKES NOTHING. Enrolling a second
+//      authenticator is an act performed FROM a session, not a second way into one,
+//      so a prompt the participant dismissed leaves that session exactly as it was
+//      and the refusal is carried beside it. A flow that settled the generic refused
+//      arm here signed the participant out for cancelling an optional extra — and
+//      dismissing that refusal then walked them to the signed-out card.
 
 import { describe, expect, it } from "vitest";
 
@@ -149,6 +155,80 @@ describe("one ceremony at a time", () => {
     await flow.register();
     expect(ceremony.calls).toStrictEqual([]);
     expect(flow.state).toStrictEqual({ kind: "signed-out" });
+  });
+});
+
+describe("an enrolment that adds nothing revokes nothing", () => {
+  it("keeps the session and carries the refusal when the prompt is dismissed", async () => {
+    const { flow, ceremony } = flowOver([
+      { kind: "authenticated", custody: "durable" },
+      { kind: "refused", reason: "cancelled" },
+    ]);
+    await flow.signIn();
+    await flow.register();
+
+    expect(flow.state).toStrictEqual({
+      kind: "signed-in",
+      custody: "durable",
+      enrolmentRefusal: { kind: "refused", reason: "cancelled" },
+    });
+
+    // And dismissing it clears the refusal rather than the session: the participant
+    // is asking to see the control again, which is what rule 9's dismissal means
+    // everywhere else in this family.
+    flow.dismissRefusal();
+    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "durable" });
+    expect(ceremony.calls).toStrictEqual(["signIn", "register"]);
+  });
+
+  it("keeps the session when the build could not run the enrolment at all", async () => {
+    const refusal = { code: "ceremony-unreadable", detail: "Nothing answered.", origin: "sign-in" };
+    const { flow } = flowOver([
+      { kind: "authenticated", custody: "memory-only" },
+      { kind: "unavailable", refusal },
+    ]);
+    await flow.signIn();
+    await flow.register();
+
+    expect(flow.state).toStrictEqual({
+      kind: "signed-in",
+      custody: "memory-only",
+      enrolmentRefusal: { kind: "unavailable", refusal },
+    });
+  });
+
+  it("does not hand a signed-in participant to the browser grant", async () => {
+    // The Device Authorization Grant is the way IN for a host with no usable
+    // authenticator. Reaching it from an enrolment would offer a browser sign-in to
+    // somebody already signed in, so the probe result is carried as a refusal and
+    // the wait stays unreachable — which the call log is what proves.
+    const { flow, ceremony } = flowOver([
+      { kind: "authenticated", custody: "durable" },
+      { kind: "fallback-required", probeResult: "no-prf", handoff: HANDOFF },
+    ]);
+    await flow.signIn();
+    await flow.register();
+
+    expect(flow.state).toStrictEqual({
+      kind: "signed-in",
+      custody: "durable",
+      enrolmentRefusal: { kind: "fallback-required", probeResult: "no-prf", handoff: HANDOFF },
+    });
+    await flow.awaitDeviceGrant();
+    expect(ceremony.calls).toStrictEqual(["signIn", "register"]);
+  });
+
+  it("takes the new custody and drops the refusal once an enrolment succeeds", async () => {
+    const { flow } = flowOver([
+      { kind: "authenticated", custody: "durable" },
+      { kind: "refused", reason: "verification-failed" },
+      { kind: "authenticated", custody: "memory-only" },
+    ]);
+    await flow.signIn();
+    await flow.register();
+    await flow.register();
+
+    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "memory-only" });
   });
 });
 

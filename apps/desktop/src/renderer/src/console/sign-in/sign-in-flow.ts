@@ -19,6 +19,14 @@
 // started it and dropped unless it still matches, which is the ordering rule the
 // console's own subject-scoped holder uses one level up.
 //
+// AN ENROLMENT REVOKES NOTHING. Adding a second authenticator is an act performed
+// FROM a session rather than a second way into one, so every way it can end without
+// adding a passkey — a dismissed prompt, a host whose probe found nothing usable, a
+// build with no ceremony at all — leaves the session it ran from exactly as it was,
+// and the refusal is carried ON the signed-in arm rather than replacing it. Settling
+// the generic refused arm here signed a participant out for cancelling an optional
+// extra, and dismissing that refusal then walked them to the signed-out card.
+//
 // A CANCELLATION IS TERMINAL AND OPENS NO LOOPBACK. `Spec-023 §WebAuthn Credential
 // Flow` is explicit: a participant who dismisses the OS dialog "has answered the
 // question, and the answer is no", so the refused arm must not fall through to the
@@ -38,6 +46,22 @@ import type { ConsoleRefusal } from "../core/index.js";
 import type { SignInCeremony } from "./ceremony-adapter.js";
 
 /**
+ * What an enrolment settled into when it added no authenticator.
+ *
+ * `Exclude` over the ceremony's own union rather than a second list of arms, on the
+ * rule `ProducedCeremonyOutcome` follows next door: an arm added to the outcome is
+ * carried here by default, and dropping one is a deliberate edit to this line. Only
+ * `authenticated` is subtracted, because that is the arm that ADDS a passkey and so
+ * is not a refusal at all.
+ *
+ * `fallback-required` is a refusal HERE and a hand-off on the way in. The Device
+ * Authorization Grant is how a host with no usable authenticator signs IN; reaching
+ * it from an enrolment would present a browser sign-in to somebody already signed
+ * in, so the probe result is reported beside the control and no grant is opened.
+ */
+export type EnrolmentRefusal = Exclude<WebAuthnCeremonyOutcome, { readonly kind: "authenticated" }>;
+
+/**
  * What the sign-in card shows. Closed; every arm renders something.
  *
  * `handing-off` and `awaiting-callback` are two states and not one, because the act
@@ -55,7 +79,18 @@ export type SignInState =
       readonly handoff: DeviceGrantHandoff;
     }
   | { readonly kind: "awaiting-callback"; readonly handoff: DeviceGrantHandoff }
-  | { readonly kind: "signed-in"; readonly custody: WebAuthnCustody }
+  | {
+      readonly kind: "signed-in";
+      readonly custody: WebAuthnCustody;
+      /**
+       * The last enrolment started from this session, when it added no passkey.
+       *
+       * Present only while it is unread: dismissing it clears the member and keeps
+       * the session, because an enrolment that added nothing changed nothing about
+       * the authentication it was started from.
+       */
+      readonly enrolmentRefusal?: EnrolmentRefusal;
+    }
   | { readonly kind: "refused"; readonly reason: WebAuthnRefusalReason }
   | { readonly kind: "unavailable"; readonly refusal: ConsoleRefusal };
 
@@ -112,10 +147,19 @@ export class SignInFlow {
    * is the same rule stated where it cannot be drawn around.
    */
   public async register(): Promise<void> {
-    if (this.#state.kind !== "signed-in") {
+    const session = this.#state;
+    if (session.kind !== "signed-in") {
       return;
     }
-    await this.#drive(PASSKEY_IN_FLIGHT, async () => this.#ceremony.register());
+    // The session is captured BEFORE the ceremony starts and settled back onto
+    // afterwards, which is the whole of the rule: the pending state this publishes is
+    // the same waiting card the way in shows, and without the capture there would be
+    // nothing left to restore it from once the outcome landed.
+    await this.#drive(
+      PASSKEY_IN_FLIGHT,
+      async () => this.#ceremony.register(),
+      (outcome) => enrolmentSettlement(session.custody, outcome),
+    );
   }
 
   /**
@@ -134,14 +178,26 @@ export class SignInFlow {
   }
 
   /**
-   * Put the card back to signed out after a refusal, without asking anything.
+   * Clear the refusal on screen, without asking anything.
    *
    * The refusal grammar says a refusal never hides the control that produced it; a
    * person dismissing one is asking to see that control again, not to retry, so this
    * publishes a state and calls no ceremony.
+   *
+   * WHERE IT PUTS THE CARD DEPENDS ON WHAT THE REFUSAL WAS ABOUT. A sign-in that was
+   * refused leaves nothing behind it, so its dismissal is the signed-out card. An
+   * enrolment that was refused ran FROM a session, and that session is still good —
+   * so its dismissal drops the refusal alone and the card stays signed in.
    */
   public dismissRefusal(): void {
-    if (this.#state.kind === "refused" || this.#state.kind === "unavailable") {
+    const current = this.#state;
+    if (current.kind === "signed-in") {
+      if (current.enrolmentRefusal !== undefined) {
+        this.#publish({ kind: "signed-in", custody: current.custody });
+      }
+      return;
+    }
+    if (current.kind === "refused" || current.kind === "unavailable") {
       this.#publish(SIGNED_OUT);
     }
   }
@@ -158,7 +214,20 @@ export class SignInFlow {
     this.#inFlight = false;
   }
 
-  async #drive(pending: SignInState, run: () => Promise<WebAuthnCeremonyOutcome>): Promise<void> {
+  /**
+   * Run one ceremony under the single-flight and supersession rules.
+   *
+   * `settle` is a parameter rather than a fixed call because the SAME outcome means
+   * two different things depending on which ceremony produced it: a refusal from the
+   * way in is the refused card, and a refusal from an enrolment is a note on the
+   * session that is still signed in. Deriving that from the pending state instead
+   * would make the mapping a guess about which leg is running.
+   */
+  async #drive(
+    pending: SignInState,
+    run: () => Promise<WebAuthnCeremonyOutcome>,
+    settle: (outcome: WebAuthnCeremonyOutcome) => SignInState = stateFromOutcome,
+  ): Promise<void> {
     if (this.#inFlight) {
       return;
     }
@@ -174,13 +243,33 @@ export class SignInFlow {
       return;
     }
     this.#inFlight = false;
-    this.#publish(stateFromOutcome(outcome));
+    this.#publish(settle(outcome));
   }
 
   #publish(next: SignInState): void {
     this.#state = next;
     this.#changes.emit();
   }
+}
+
+/**
+ * The state one ENROLMENT outcome settles into, given the session it ran from.
+ *
+ * Only `authenticated` replaces the session, and it replaces it wholly: a passkey
+ * that was added re-states where this session's credential is kept and drops any
+ * earlier refusal, because the attempt that failed has now succeeded. Every other
+ * arm republishes the custody it was handed with the refusal beside it, so nothing a
+ * participant did to an optional extra can revoke what they are already signed in
+ * with.
+ */
+function enrolmentSettlement(
+  custody: WebAuthnCustody,
+  outcome: WebAuthnCeremonyOutcome,
+): SignInState {
+  if (outcome.kind === "authenticated") {
+    return { kind: "signed-in", custody: outcome.custody };
+  }
+  return { kind: "signed-in", custody, enrolmentRefusal: outcome };
 }
 
 /**

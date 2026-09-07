@@ -9,6 +9,12 @@
 // AND THE DEVICE GRANT COLLECTS NOTHING. There is no input anywhere in this family:
 // a form that took a code would be this window handling a credential the main process
 // confines. The negative case below is what keeps that true as the card grows.
+//
+// A REFUSED ENROLMENT IS A THIRD THING AGAIN, and it renders INSIDE the signed-in
+// body rather than in place of it: the session it was started from is untouched, so
+// the card still says what this machine is holding and still offers the control that
+// was pressed. Rule 9 puts the refusal beside that control, and the case below is
+// what keeps a later edit from collapsing it back into the signed-out refusal.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -25,6 +31,11 @@ const STATES: readonly SignInState[] = [
   { kind: "awaiting-callback", handoff: HANDOFF },
   { kind: "signed-in", custody: "durable" },
   { kind: "signed-in", custody: "memory-only" },
+  {
+    kind: "signed-in",
+    custody: "durable",
+    enrolmentRefusal: { kind: "refused", reason: "cancelled" },
+  },
   { kind: "refused", reason: "cancelled" },
   {
     kind: "unavailable",
@@ -87,6 +98,58 @@ describe("what each state actually says", () => {
       refusal: { code: "ceremony-unreadable", detail: "Nothing answered.", origin: "sign-in" },
     });
     expect(unavailable.textContent).toContain("ceremony-unreadable");
+  });
+});
+
+describe("a refused enrolment keeps the session on screen", () => {
+  it("still states the custody and still offers the control that was pressed", () => {
+    const text =
+      renderState({
+        kind: "signed-in",
+        custody: "durable",
+        enrolmentRefusal: { kind: "refused", reason: "cancelled" },
+      }).textContent ?? "";
+
+    expect(text).toContain("keystore is holding the credential");
+    expect(text).toContain("Add another passkey");
+    expect(text).toContain("no passkey was added");
+    // And never the signed-out body, which is what a flow that revoked the session
+    // on a dismissed prompt would have put here.
+    expect(text).not.toContain("A session on this machine needs no account");
+  });
+
+  it("says what the host reported when the enrolment found no usable authenticator", () => {
+    const text =
+      renderState({
+        kind: "signed-in",
+        custody: "durable",
+        enrolmentRefusal: {
+          kind: "fallback-required",
+          probeResult: "no-prf",
+          handoff: HANDOFF,
+        },
+      }).textContent ?? "";
+
+    expect(text).toContain("does not support the extension");
+    // The browser hand-off is the way IN and never a way to enrol, so its control
+    // and its figures are absent even though the outcome named a grant.
+    expect(text).not.toContain("Open the browser");
+    expect(text).not.toContain(HANDOFF.userCode);
+  });
+
+  it("renders the producer's own code and sentence when the build could not enrol", () => {
+    const text =
+      renderState({
+        kind: "signed-in",
+        custody: "durable",
+        enrolmentRefusal: {
+          kind: "unavailable",
+          refusal: { code: "ceremony-unreadable", detail: "Nothing answered.", origin: "sign-in" },
+        },
+      }).textContent ?? "";
+
+    expect(text).toContain("ceremony-unreadable");
+    expect(text).toContain("Nothing answered.");
   });
 });
 
