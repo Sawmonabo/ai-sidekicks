@@ -65,12 +65,15 @@ export function PinnedRunCard(props: PinnedRunCardProps): React.JSX.Element {
         <ParkBadge key={parked.phaseId} parked={parked} />
       ))}
       {/*
-        Its own class and not the family's `meridian-workflow__action`, which the run
-        list, the definitions browser and the pane host's back control all wear. That
-        class is declared in `workflows.css`, which rides this family's three chunks —
-        and this card is the one thing the family draws on the FIRST paint, so wearing it
-        left a bare user-agent button above the timeline until some workflows body
-        happened to load. `channel-progress.css` restates the treatment and says why.
+        Its own class and not the family's shared action treatment, which the run list,
+        the definitions browser and the pane host's back control all wear. That class is
+        declared in `workflows.css`, which rides this family's three chunks — and this
+        card is the one thing the family draws on the FIRST paint, so wearing it left a
+        bare user-agent button above the timeline until some workflows body happened to
+        load. `channel-progress.css` restates the treatment, names the class this card
+        declines, and says why. The name is deliberately not spelled here: the chunk-root
+        ownership reader takes a class name anywhere in a module as that module rendering
+        against the sheet declaring it, and this card renders against none of them.
         Named for the destination and not for the gesture — a person reads where it goes,
         not that it is a link.
       */}
