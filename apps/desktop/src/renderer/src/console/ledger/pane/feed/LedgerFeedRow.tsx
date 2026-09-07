@@ -54,7 +54,13 @@ import {
 } from "../../structure/child-runs/index.js";
 import { type LedgerSupersededBandDisclosure } from "./ledger-superseded-fold.js";
 import { Nothing } from "../../../primitives/index.js";
-import { type TimelineRowRenderer, type TimelineRowSlotProps } from "../../../seats/index.js";
+import {
+  timelineRowFooterRenderer,
+  type TimelineRowFooterRenderer,
+  type TimelineRowRenderer,
+  type TimelineRowSlotProps,
+} from "../../../seats/index.js";
+import { TimelineRowFooter } from "./TimelineRowFooter.js";
 import { type ParticipantHueAssignment } from "../../../tokens/index.js";
 import { densityFor } from "./ledger-chapter-fold.js";
 import { type LedgerWindowModel } from "../window/index.js";
@@ -86,6 +92,12 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
   const renderTimelineRow = options.renderTimelineRow;
   const childRunDisclosure = options.childRunDisclosure;
   const supersededBandDisclosure = options.supersededBandDisclosure;
+  // The FOOTER seat, read here rather than threaded from the pane: unlike the row
+  // body it is filled by a plan this console does not compose, so there is no props
+  // chain to carry it down. A plain read of a module-scope registration filled
+  // before first paint, and identity-stable for the life of that registration —
+  // which is what the memo below compares.
+  const renderTimelineRowFooter = timelineRowFooterRenderer();
   return useCallback(
     (row: LedgerViewportRow) => {
       // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
@@ -198,6 +210,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
             densityFor(projected.id, ledgerWindow.collapsedRowIds)
           }
           renderTimelineRow={renderTimelineRow}
+          renderTimelineRowFooter={renderTimelineRowFooter}
         />
       );
     },
@@ -209,6 +222,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       renderTimelineRow,
       rowLease,
       supersededBandDisclosure,
+      renderTimelineRowFooter,
       toggleChapter,
     ],
   );
@@ -217,14 +231,19 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
 export interface LedgerFeedRowProps extends TimelineRowSlotProps {
   /** The seat's renderer. STABLE across renders, or this memo moves with it. */
   readonly renderTimelineRow: TimelineRowRenderer;
+  /** The footer seat's renderer, or `undefined` while nobody has filled it. */
+  readonly renderTimelineRowFooter: TimelineRowFooterRenderer | undefined;
 }
 
 /**
  * Draw one row through the seat.
  *
- * Adds no markup of its own: the box, the error boundary and the ARIA position are the
- * viewport's, and a wrapper element here would put a second box between the feed and
- * the article the row role is declared on.
+ * Adds no BOX of its own: the row box, the error boundary and the ARIA position are
+ * the viewport's, and a wrapper element here would put a second box between the feed
+ * and the article the row role is declared on. The footer is a SIBLING of the body
+ * inside that article rather than a wrapper around it, which is why it does not
+ * break that rule — and it is drawn under the body because that is where the design
+ * puts a row-level control.
  *
  * An ARROW WITH A DECLARED RETURN TYPE rather than a named function expression, so
  * this module resolves as the one component it declares: the source walk
@@ -233,12 +252,20 @@ export interface LedgerFeedRowProps extends TimelineRowSlotProps {
  * scored as declaring none — clean against a rule that was never applied to it.
  */
 const LedgerFeedRow = memo(
-  (props: LedgerFeedRowProps): React.ReactNode =>
-    props.renderTimelineRow({
-      row: props.row,
-      participantHue: props.participantHue,
-      isSuperseded: props.isSuperseded,
-      density: props.density,
-    }),
+  (props: LedgerFeedRowProps): React.ReactNode => (
+    <>
+      {props.renderTimelineRow({
+        row: props.row,
+        participantHue: props.participantHue,
+        isSuperseded: props.isSuperseded,
+        density: props.density,
+      })}
+      <TimelineRowFooter
+        row={props.row}
+        isSuperseded={props.isSuperseded}
+        renderFooter={props.renderTimelineRowFooter}
+      />
+    </>
+  ),
 );
 LedgerFeedRow.displayName = "LedgerFeedRow";

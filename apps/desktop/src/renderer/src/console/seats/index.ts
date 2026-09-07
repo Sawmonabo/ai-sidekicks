@@ -214,6 +214,19 @@ export {
   type TimelineRowSlotProps,
 } from "./timeline-row-slot.js";
 
+// The footer seat publishes only what a PRODUCTION reader takes: the shell's
+// registration, the ledger's mount, and the two types both name. Its slot contract,
+// its row-type tuple, and its release call are read by its own suite alone, which
+// reaches the declaring module directly — a door line without a production reader is
+// what `barrel-census.test.ts` fails.
+export {
+  registerTimelineRowFooterRenderer,
+  rowTakesFooter,
+  timelineRowFooterRenderer,
+  type TimelineRowFooterRenderer,
+  type TimelineRowFooterSlotProps,
+} from "./timeline-row-footer-seat.js";
+
 export {
   /** @consumedBy T-023p-1C-2 */
   INLINE_CARD_KINDS,

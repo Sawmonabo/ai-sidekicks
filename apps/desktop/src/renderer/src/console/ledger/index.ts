@@ -54,6 +54,7 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
+import { registerFixtureShellRowFooter } from "./cards/shell/FixtureShellRowFooter.js";
 import { registerFixtureShellRows } from "./cards/shell/FixtureShellRows.js";
 import { TimelinePane } from "./pane/index.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
@@ -168,6 +169,9 @@ export function registerLedger(
   // in the same diff. A shell left registered beside the real row does not render
   // both — it refuses the real one by name, at import time.
   registerFixtureShellRows();
+  // The row FOOTER seat, claimed beside the row seat and retired the same way: both
+  // shells are deleted by the change that registers the real bodies.
+  registerFixtureShellRowFooter();
   // And the family's palette rows and chords, through the frame's contribution
   // door rather than through this function's argument: the surface registry it was
   // handed is the SURFACE table, and the commands go in the command table. Both
