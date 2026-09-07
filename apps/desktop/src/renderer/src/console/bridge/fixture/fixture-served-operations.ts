@@ -277,6 +277,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "attentionProjectionRead",
   ...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
   "gitflowBranchContextRead",
+  "gitflowDiffArtifactCreate",
+  "artifactRead",
   "callerParticipantRead",
   "approvalProjectionRead",
   "approvalRuleList",
@@ -316,6 +318,15 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // row and refuses under every scenario, which is the rule above rather than an
   // omission: see the branch-context section of the header.
   "gitflowBranchContextRead",
+  // gitflow — the diff-artifact mint, and the artifact read its reply is only useful
+  // through. Both are script-only below: a create answers with ids for a change set the
+  // daemon computed, and a read answers with ONE named artifact's envelope and bytes, so
+  // neither has an empty form that would be true of a scenario saying nothing. They are
+  // served as a PAIR because a diff costs two calls — the mint carries no payload — so
+  // serving either alone leaves the pane with an id it cannot read or bytes nothing
+  // minted.
+  "gitflowDiffArtifactCreate",
+  "artifactRead",
   // identity — answered from a scenario that states its own viewer, refused from one
   // that does not.
   "callerParticipantRead",
@@ -429,4 +440,6 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "onboardingComplete",
   "onboardingPresentChoice",
   "onboardingTelemetryPrompt",
+  "gitflowDiffArtifactCreate",
+  "artifactRead",
 ];

@@ -89,6 +89,7 @@ const EXPECTED_READINGS: readonly string[] = [
   "AttachController",
   "BindWorkspaceController",
   "BridgeCapabilityRead",
+  "DiffArtifactCreationController",
   "ExecutionRootPrepareController",
   "NodeProviderQuotaReading",
   "OnboardingFlow",

@@ -387,6 +387,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     workflowVersionChainRead: async () => growthUnavailable("workflowVersionChainRead"),
     // gitflow
     gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
+    gitflowDiffArtifactCreate: async () => growthUnavailable("gitflowDiffArtifactCreate"),
     gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),
     workspaceExecutionContextRead: async () => growthUnavailable("workspaceExecutionContextRead"),
     // identity, and the callback-tool registry read

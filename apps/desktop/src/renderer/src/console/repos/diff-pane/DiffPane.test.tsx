@@ -27,6 +27,9 @@ import { paneSubjectCrumb, paneTrailCrumbs } from "../pane-chrome.test-support.j
 
 import { DiffPane, type DiffPaneProps } from "./DiffPane.js";
 import { paneContext } from "../pane-contexts.test-support.js";
+import { createFixtureBridge } from "../../bridge/index.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { SessionStore } from "../../store/index.js";
 
 /** This pane's own address arm, taken from the prop rather than restated. */
 type DiffPaneContext = DiffPaneProps["context"];
@@ -84,6 +87,54 @@ describe("diff pane — the chrome it wears", () => {
     // absent — so the honest control is a second subject rather than none.
     const { container } = render(<DiffPane context={contextFor(REPO_ENTITY)} />);
     expect(paneSubjectCrumb(container)).toBe(REPO_ENTITY.id);
+  });
+});
+
+/**
+ * The same pane with the collaborators the create surface needs.
+ *
+ * A SECOND BUILDER RATHER THAN A WIDER FIRST ONE, because the two answer different
+ * questions: the cases above are about what the chrome renders from the address alone,
+ * and the ones below are about a body that resolves a subject and arms refresh triggers
+ * — which needs a real bridge and a real store or it renders the absence arm instead,
+ * silently, and every case here would pass against a pane that had lost the surface.
+ */
+function reachableContextFor(entity: DiffPaneContext["entity"]): DiffPaneContext {
+  return paneContext({
+    address: { kind: "diff", entity },
+    paneId: "pane-diff-2",
+    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
+    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
+  });
+}
+
+describe("diff pane — where a pane holding no model gets one", () => {
+  it("offers the create over a subject the wire can be keyed by", () => {
+    const { container } = render(<DiffPane context={reachableContextFor(WORKSPACE_ENTITY)} />);
+    expect(container.querySelector(".meridian-diff-create")).not.toBeNull();
+    // The absence copy stays above it: nothing has been asked yet, which is still true.
+    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+  });
+
+  it("negative control: a repository names no checkout, so no control is offered over one", () => {
+    // A repository holds several checkouts and resolves to no one of them, so the
+    // create wire has no key for it — and an offered control could only refuse.
+    const { container } = render(<DiffPane context={reachableContextFor(REPO_ENTITY)} />);
+    expect(container.querySelector(".meridian-diff-create")).toBeNull();
+    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+  });
+
+  it("negative control: a model handed in is drawn, and no create is offered beside it", () => {
+    // The prop survives the create surface: a caller that already holds a model is
+    // asking a different question from a pane that holds none.
+    const { container } = render(
+      <DiffPane
+        context={reachableContextFor(WORKSPACE_ENTITY)}
+        diff={buildDiffFixture(SMALL_DIFF_SHAPE, WORKSPACE_FALLBACK_ATTRIBUTION)}
+      />,
+    );
+    expect(container.querySelector(".meridian-diff-create")).toBeNull();
+    expect(container.querySelector(".meridian-diff-pane")).not.toBeNull();
   });
 });
 

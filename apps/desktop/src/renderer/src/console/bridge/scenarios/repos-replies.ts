@@ -30,6 +30,7 @@ import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 import { scenarioInstant, secondsBeforeStart } from "./repos-beats.js";
 import { capabilitiesFor, mountReadFor } from "./repos-mount-reads.js";
+import { REPOS_DIFF_REPLIES } from "./repos-diff-replies.js";
 import { REPOS_MUTATION_REPLIES } from "./repos-mutation-replies.js";
 import {
   DRIFTED_MOUNT_ID,
@@ -40,6 +41,7 @@ import {
   GIT_WORKSPACE_BOUND_ROOT,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_BRANCH_CONTEXT_ID,
+  IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
@@ -126,6 +128,13 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
         fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/rate-limit-wiring",
         state: "dirty",
         createdBySessionId: SESSION_ID,
+        // THE RUN THAT MADE THIS ROOT, and the reason it is on this row and not the
+        // reviewer's: `worktrees.created_by_run_id` is nullable because a pre-run
+        // `repo.executionRootPrepare` mints a worktree with no run to attribute, so a
+        // fixture whose every root named a run could not draw the absent case — and a
+        // fixture whose every root named none could not reach the run-attributed
+        // diff at all, that arm being keyed by exactly this id.
+        createdByRunId: IMPLEMENTER_RUN_ID,
         createdAt: secondsBeforeStart(51 * 60 + 26),
         updatedAt: secondsBeforeStart(3 * 60 + 40),
       },
@@ -293,4 +302,8 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
   // The acts. Spread rather than written here, so this module's subject stays "what a
   // READ answers" and the mutations' two-armed scripting has one home.
   ...REPOS_MUTATION_REPLIES,
+  // The diff plane, spread for the same reason and kept apart from the acts above: a
+  // diff costs a mint AND a payload read, so its two entries are one subject that spans
+  // both classes and neither module beside it is about that pair.
+  ...REPOS_DIFF_REPLIES,
 ];

@@ -166,8 +166,12 @@ export type GrowthOperationId =
   // registry addresses a version by `(definitionId, versionNumber)`, so an id in hand
   // resolves to nothing and the read that would resolve it folds to no wire method.
   | "workflowVersionChainRead"
-  // gitflow
+  // gitflow — three of the four registered `gitflow.*` method strings.
+  // `diffArtifactCreate` mints the diff artifact both diff surfaces render; the
+  // fourth, `gitActionExecute`, is declared above with the act plane it belongs to
+  // rather than here.
   | "gitflowBranchContextRead"
+  | "gitflowDiffArtifactCreate"
   | "gitflowPrPrepare"
   // identity, and the callback-tool registry the approvals pane reads
   | "callerParticipantRead"
