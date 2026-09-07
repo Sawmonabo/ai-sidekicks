@@ -136,7 +136,6 @@
 .meridian-invite-reveal__done,
 .meridian-invite-confirmation__confirm,
 .meridian-invite-confirmation__discard,
-.meridian-invite-outcome__retry,
 .meridian-invite-outcome__acknowledge,
 .meridian-members__invitation-open {
   font: inherit;
@@ -155,7 +154,6 @@
 .meridian-invite-create__send:hover:enabled,
 .meridian-invite-reveal__copy:hover:enabled,
 .meridian-invite-confirmation__confirm:hover:enabled,
-.meridian-invite-outcome__retry:hover:enabled,
 .meridian-members__invitation-open:hover:enabled {
   border-color: var(--meridian-edge-strong);
 }
@@ -166,7 +164,7 @@
 .meridian-invite-create__send:disabled,
 .meridian-invite-confirmation__confirm:disabled,
 .meridian-invite-confirmation__discard:disabled,
-.meridian-invite-outcome__retry:disabled {
+.meridian-invite-outcome__acknowledge:disabled {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
   cursor: default;

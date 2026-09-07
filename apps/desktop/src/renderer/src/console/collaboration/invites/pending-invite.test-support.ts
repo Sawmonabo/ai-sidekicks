@@ -5,10 +5,23 @@
 // browser tier renders it in Chromium, and two literals for one shape would be two
 // places a member added to `GrowthPendingInvite` has to be remembered.
 
-import type { GrowthPendingInvite } from "../../bridge/index.js";
+import type { GrowthInviteAttempt, GrowthPendingInvite } from "../../bridge/index.js";
+// The three arm types by their declaring module rather than through the family door:
+// nothing in production names an arm on its own — every reader takes the union — so a
+// door line for them would be one the barrel census fails.
+import type {
+  GrowthPendingInviteReady,
+  GrowthPendingInviteRefused,
+  GrowthPendingInviteUnavailable,
+} from "../../bridge/growth-values/invites.js";
+import { createFixtureBridge } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import type { PendingInviteSnapshot } from "./pending-invite.js";
+import { PendingInviteAdapter } from "./pending-invite.js";
+import {
+  EMPTY_PENDING_INVITE_SNAPSHOT,
+  type PendingInviteSnapshot,
+} from "./pending-invite-reading.js";
 
 /** The reference under test. Opaque, as `Plan-023 §Invariants` I-023-10 requires. */
 export const PENDING_INVITE_REFERENCE = "pending-ref-under-test";
@@ -36,17 +49,48 @@ export function pendingInvite(overrides: Partial<GrowthPendingInvite> = {}): Gro
   };
 }
 
+/**
+ * The attempt handle under test, and the one place this suite mints one.
+ *
+ * Branded with a cast HERE rather than at each case, because the brand's whole claim
+ * is that nothing outside the wire mints one: a suite that cast at every use would be
+ * demonstrating the opposite of what the type is for.
+ */
+export const PENDING_INVITE_ATTEMPT = "pending-attempt-under-test" as GrowthInviteAttempt;
+
+/** The ready arm, as the pending feed carries it. */
+export function readyPreview(
+  overrides: Partial<GrowthPendingInvite> = {},
+): GrowthPendingInviteReady {
+  return { status: "ready", ...pendingInvite(overrides) };
+}
+
+/** A preview the control plane refused. Terminal, and it carries no reference. */
+export function refusedPreview(
+  overrides: Partial<Omit<GrowthPendingInviteRefused, "status">> = {},
+): GrowthPendingInviteRefused {
+  return {
+    status: "refused",
+    code: "invite.expired",
+    detail: "Invite has expired and can no longer be accepted",
+    ...overrides,
+  };
+}
+
+/** A preview that could not be put at all, carrying the handle a retry is sent on. */
+export function unavailablePreview(
+  attempt: GrowthInviteAttempt = PENDING_INVITE_ATTEMPT,
+): GrowthPendingInviteUnavailable {
+  return { status: "unavailable", retryable: true, attempt };
+}
+
 /** One reading of that invitation, with nothing in flight and nothing settled. */
 export function pendingInviteSnapshot(
   overrides: Partial<PendingInviteSnapshot> = {},
 ): PendingInviteSnapshot {
   return {
+    ...EMPTY_PENDING_INVITE_SNAPSHOT,
     invite: pendingInvite(),
-    waitingBehind: 0,
-    outcome: undefined,
-    actInFlight: undefined,
-    actRefusal: undefined,
-    feedRefusal: undefined,
     ...overrides,
   };
 }
@@ -128,6 +172,22 @@ export function scenarioWithArrivals(): ConsoleScenario {
       },
     ],
   };
+}
+
+/**
+ * A started adapter over the real fixture port, with both feeds drained once.
+ *
+ * Hoisted on the second use, like the scenario above it: three suites drive the
+ * lifecycle and each of them needs it open before it can assert anything.
+ */
+export async function startedAdapter(
+  scenario: ConsoleScenario = scenarioWithArrivals(),
+): Promise<PendingInviteAdapter> {
+  const adapter = new PendingInviteAdapter(createFixtureBridge({ scenario }));
+  // The reading's own `subscribe` read, which is what opens both feeds.
+  adapter.requestRead("subscribe");
+  await settleFeeds();
+  return adapter;
 }
 
 /** Let both feeds hand over whatever they are holding. */

@@ -22,6 +22,23 @@
 // decided to attempt: an invitation is single-use, so an act nobody asked for spends
 // something that cannot be got back.
 //
+// THE PENDING FEED CARRIES THREE STATES AND THIS READS ALL THREE. `Plan-023 §Phase 2
+// — IPC Bridge Registry And Per-Surface Handlers` task T-023r-2-5 keys the pending
+// side on `status`: a preview that succeeded and can be confirmed, one the control
+// plane refused, and one that could not be put at all. The last two mint no
+// reference, so the acts that spend one are unreachable on them by construction, and
+// the only act either admits is the retry — which takes the `unavailable` arm's own
+// attempt handle and never a reference. WHICH ARRIVALS ARE HELD is `pending-invite-arrivals.ts`, split out on
+// the same line the feeds are.
+//
+// A RETRY IS OFFERED FROM ONE STATE AND NOT FROM AN OUTCOME. An acceptance that
+// needs authentication is IN PROGRESS — main is driving the ceremony and the
+// reference survives it — and one that failed authentication is TERMINAL, its
+// reference released with the failure. Neither can be re-driven from here: a second
+// act on either would send a reference main has either lent out or let go, and to an
+// operation that does not take one. What a person can try again is a preview that
+// never reached the control plane, and that arm carries the handle to try it with.
+//
 // A REFERENCE IS SPENT WHERE THE ACT IS DISPATCHED, not where its answer lands. A
 // second press while the first attempt is unsettled is refused by the latch below
 // rather than sent — the mutation coordinator's rule next door, applied to a resource
@@ -33,18 +50,14 @@
 // performs is "open whichever one is not" and why the trigger that matters is a
 // repaired connection rather than an elapsed interval.
 
-import {
-  Emitter,
-  PENDING_INVITE_QUEUE_MAX,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import {
   consoleClockFor,
   type ConsoleBridge,
   type GrowthInviteOutcome,
   type GrowthOutcome,
   type GrowthPendingInvite,
+  type GrowthPendingInviteState,
 } from "../../bridge/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
 import {
@@ -53,42 +66,26 @@ import {
   type ReadTriggerTarget,
   type RefreshReason,
 } from "../../store/index.js";
+import { PendingInviteArrivals } from "./pending-invite-arrivals.js";
 import { PENDING_INVITE_ORIGIN, PendingInviteFeeds } from "./pending-invite-feeds.js";
+import {
+  EMPTY_PENDING_INVITE_SNAPSHOT,
+  isInviteOutcomeInProgress,
+  type PendingInviteAct,
+  type PendingInviteSnapshot,
+} from "./pending-invite-reading.js";
 
-/** What one act on a reference can be waiting on. */
-export type PendingInviteAct = "confirm" | "retry" | "dismiss";
-
-/** What a surface renders. Recomputed only when something below actually moved. */
-export interface PendingInviteSnapshot {
-  /** The invitation at the head of the queue, or `undefined` where none is waiting. */
-  readonly invite: GrowthPendingInvite | undefined;
-  /** Invitations behind the head. Rendered as a count, never as a second card. */
-  readonly waitingBehind: number;
-  /** How the head's own attempt ended, once one has. */
-  readonly outcome: GrowthInviteOutcome | undefined;
-  /** The act in flight on the head, if any. Nothing else may be dispatched. */
-  readonly actInFlight: PendingInviteAct | undefined;
-  /** An act that the port refused. Cleared by the next act on the same head. */
-  readonly actRefusal: ConsoleRefusal | undefined;
-  /** A feed that was reached and broke. The unbuilt-wire case is deliberately absent. */
-  readonly feedRefusal: ConsoleRefusal | undefined;
-}
-
-const EMPTY_SNAPSHOT: PendingInviteSnapshot = {
-  invite: undefined,
-  waitingBehind: 0,
-  outcome: undefined,
-  actInFlight: undefined,
-  actRefusal: undefined,
-  feedRefusal: undefined,
-};
+// The reading travels with the machine that publishes it: every surface holding this
+// adapter renders that shape, and a consumer that had to name two modules to do it
+// would be reading one value through two doors.
+export type { PendingInviteSnapshot } from "./pending-invite-reading.js";
 
 /**
  * The invitations waiting on this window, and the acts a person can perform on them.
  *
- * A class with private fields: it owns an openable feed pair, a bounded queue, a latch
- * and a scheduler — and therefore a teardown — and a suite drives every arm of it
- * without rendering anything.
+ * A class with private fields: it owns an openable feed pair, a bounded arrival
+ * queue, a latch and a scheduler — and therefore a teardown — and a suite drives every
+ * arm of it without rendering anything.
  */
 export class PendingInviteAdapter implements ReadTriggerTarget {
   /**
@@ -101,21 +98,21 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #changes = new Emitter<void>("pending-invite change");
-  readonly #queue: GrowthPendingInvite[] = [];
+  readonly #arrivals = new PendingInviteArrivals();
   readonly #outcomeByReference = new Map<string, GrowthInviteOutcome>();
   readonly #bridge: ConsoleBridge;
   readonly #feeds: PendingInviteFeeds;
   readonly #refresh: RefreshScheduler;
   #actInFlight: PendingInviteAct | undefined;
   #actRefusal: ConsoleRefusal | undefined;
-  #snapshot: PendingInviteSnapshot = EMPTY_SNAPSHOT;
+  #snapshot: PendingInviteSnapshot = EMPTY_PENDING_INVITE_SNAPSHOT;
   #isDisposed = false;
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
     this.#feeds = new PendingInviteFeeds(bridge, {
-      onInvite: (invite) => {
-        this.#enqueue(invite);
+      onArrival: (arrival) => {
+        this.#admit(arrival);
       },
       onOutcome: (outcome) => {
         this.#applyOutcome(outcome);
@@ -170,7 +167,7 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
     this.#isDisposed = true;
     this.#refresh.dispose();
     this.#feeds.close();
-    this.#queue.length = 0;
+    this.#arrivals.clear();
     this.#outcomeByReference.clear();
   }
 
@@ -191,20 +188,34 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
    * reply to this call could express.
    */
   public confirm(): void {
-    this.#dispatch("confirm", async (reference) =>
+    const head = this.#readyHead();
+    if (head === undefined) {
+      return;
+    }
+    const { reference } = head;
+    this.#dispatch("confirm", reference, async () =>
       this.#bridge.growth.inviteConfirmPending({ reference }),
     );
   }
 
   /**
-   * Try the same reference again after an attempt that could be retried.
+   * Put the deep link whose preview could not be put to the control plane again.
    *
-   * The same reference rather than a new one, so a second attempt is the same
-   * invitation and not a second claim on it.
+   * ON THE ATTEMPT HANDLE AND NEVER ON A REFERENCE, and only from the one arm that
+   * carries one. A retry re-drives a PREVIEW, which is what has not happened yet on
+   * this arm; the two authentication outcomes look retryable and are not, because one
+   * is a ceremony main is still driving and the other has already released the
+   * reference it was driving it for. Two protocol URLs can be outstanding at once, so
+   * the handle is what says which link this means.
    */
   public retry(): void {
-    this.#dispatch("retry", async (reference) =>
-      this.#bridge.growth.inviteRetryPending({ reference }),
+    const head = this.#arrivals.head;
+    if (head?.status !== "unavailable") {
+      return;
+    }
+    const { attempt } = head;
+    this.#dispatch("retry", attempt, async () =>
+      this.#bridge.growth.inviteRetryPending({ attempt }),
     );
   }
 
@@ -217,86 +228,131 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
    * refusing an invitation and is the only one the wire has.
    */
   public dismiss(): void {
-    this.#dispatch("dismiss", async (reference) =>
+    const head = this.#readyHead();
+    if (head === undefined) {
+      return;
+    }
+    const { reference } = head;
+    this.#dispatch("dismiss", reference, async () =>
       this.#bridge.growth.inviteDismissPending({ reference }),
     );
   }
 
   /**
-   * Acknowledge a settled outcome and move to whatever is behind it.
+   * Acknowledge a settled prompt and move to whatever is behind it.
    *
-   * Local, and it sends nothing: the reference is already spent, so there is nothing
-   * left to release. What it releases is the SCREEN — which is why it is a press and
-   * not a timer, since a result that cleared itself would be a result somebody did
-   * not read.
+   * Local, and it sends nothing: a spent reference has nothing left to release and a
+   * preview that produced none never had anything. What it releases is the SCREEN —
+   * which is why it is a press and not a timer, since a result that cleared itself
+   * would be a result somebody did not read.
+   *
+   * A PROMPT STILL IN PROGRESS IS NOT SETTLED. An acceptance waiting on
+   * authentication has a terminal arm still to come and a reference main is still
+   * holding, so clearing it here would strand that answer against a prompt this
+   * window no longer has. Discarding is the way out of it, and that one is a wire act.
    */
   public acknowledge(): void {
-    const head = this.#queue[0];
-    if (head === undefined || this.#outcomeByReference.get(head.reference) === undefined) {
+    const head = this.#arrivals.head;
+    if (head === undefined) {
       return;
     }
+    if (head.status === "ready") {
+      const outcome = this.#outcomeByReference.get(head.reference);
+      if (outcome === undefined || isInviteOutcomeInProgress(outcome)) {
+        return;
+      }
+    }
     this.#releaseHead();
+  }
+
+  /** The head, where it is the one arm carrying a reference to act on. */
+  #readyHead(): GrowthPendingInvite | undefined {
+    const head = this.#arrivals.head;
+    return head?.status === "ready" ? head : undefined;
+  }
+
+  /**
+   * The handle the head is addressed by, whichever arm it is.
+   *
+   * What an act's answer is checked against, so an answer that arrives after the head
+   * moved is discarded rather than installed against whatever took its place.
+   */
+  #headSubject(): string | undefined {
+    const head = this.#arrivals.head;
+    switch (head?.status) {
+      case "ready":
+        return head.reference;
+      case "unavailable":
+        return head.attempt;
+      default:
+        return undefined;
+    }
   }
 
   /** Perform one act on the head, under the one-at-a-time latch. */
   #dispatch(
     act: PendingInviteAct,
-    perform: (reference: string) => Promise<GrowthOutcome<undefined>>,
+    subject: string,
+    perform: () => Promise<GrowthOutcome<undefined>>,
   ): void {
-    const head = this.#queue[0];
-    if (head === undefined || this.#actInFlight !== undefined) {
+    if (this.#actInFlight !== undefined) {
       return;
     }
-    const { reference } = head;
     this.#actInFlight = act;
     this.#actRefusal = undefined;
     this.#publish();
-    void perform(reference).then(
+    void perform().then(
       (outcome) => {
-        this.#settleAct(act, reference, outcome.status === "served" ? undefined : outcome);
+        this.#settleAct(act, subject, outcome.status === "served" ? undefined : outcome);
       },
       (rejection: unknown) => {
-        this.#settleAct(act, reference, consoleRefusalFrom(rejection, PENDING_INVITE_ORIGIN));
+        this.#settleAct(act, subject, consoleRefusalFrom(rejection, PENDING_INVITE_ORIGIN));
       },
     );
   }
 
   /** Install one act's answer, unless the head moved out from under it. */
-  #settleAct(act: PendingInviteAct, reference: string, refusal: ConsoleRefusal | undefined): void {
-    if (this.#isDisposed || this.#actInFlight !== act || this.#queue[0]?.reference !== reference) {
+  #settleAct(act: PendingInviteAct, subject: string, refusal: ConsoleRefusal | undefined): void {
+    if (this.#isDisposed || this.#actInFlight !== act || this.#headSubject() !== subject) {
       return;
     }
     this.#actInFlight = undefined;
     this.#actRefusal = refusal;
-    if (refusal === undefined && act === "dismiss") {
-      // The one act whose own reply settles it: a dismissal produces no outcome,
-      // because nothing happened that anybody is owed an answer about.
+    if (refusal === undefined && act !== "confirm") {
+      // The two acts whose own reply settles them. A dismissal produces no outcome,
+      // because nothing happened that anybody is owed an answer about; a retry's
+      // answer is a fresh preview state on the pending feed rather than a reply to
+      // this call, and the handle it was dispatched on is spent either way.
       this.#releaseHead();
       return;
     }
     this.#publish();
   }
 
-  /** Drop the head, forget its outcome, and show whatever was behind it. */
+  /**
+   * Drop the head, forget what it recorded, and ask for anything the bound deferred.
+   *
+   * THE RELEASE IS WHERE CAPACITY OPENS, so it is where the replay belongs: main
+   * holds every reference until an act releases it, and re-opening the pending feed
+   * re-delivers them — which is the whole reason a bound is admissible above.
+   */
   #releaseHead(): void {
-    const head = this.#queue.shift();
-    if (head !== undefined) {
-      this.#outcomeByReference.delete(head.reference);
+    const released = this.#arrivals.releaseHead();
+    if (released?.status === "ready") {
+      this.#outcomeByReference.delete(released.reference);
     }
     this.#actRefusal = undefined;
+    if (this.#arrivals.takeDeferredReplay()) {
+      void this.#feeds.replayPending();
+    }
     this.#publish();
   }
 
-  /** Queue one arrival, up to the bound, ignoring one this window already holds. */
-  #enqueue(invite: GrowthPendingInvite): void {
-    if (this.#queue.some((held) => held.reference === invite.reference)) {
-      return;
+  /** Hold one arrival, and redraw only where the queue actually moved. */
+  #admit(arrival: GrowthPendingInviteState): void {
+    if (this.#arrivals.admit(arrival)) {
+      this.#publish();
     }
-    if (this.#queue.length >= PENDING_INVITE_QUEUE_MAX) {
-      return;
-    }
-    this.#queue.push(invite);
-    this.#publish();
   }
 
   /**
@@ -307,11 +363,11 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
    * rendered against the wrong invitation is worse than one nobody sees.
    */
   #applyOutcome(outcome: GrowthInviteOutcome): void {
-    if (!this.#queue.some((held) => held.reference === outcome.reference)) {
+    if (!this.#arrivals.holdsReference(outcome.reference)) {
       return;
     }
     this.#outcomeByReference.set(outcome.reference, outcome);
-    if (this.#queue[0]?.reference === outcome.reference) {
+    if (this.#readyHead()?.reference === outcome.reference) {
       this.#actInFlight = undefined;
     }
     this.#publish();
@@ -319,28 +375,19 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
 
   /** Rebuild the reading and tell the sinks. The one writer of `#snapshot`. */
   #publish(): void {
-    const head = this.#queue[0];
+    const head = this.#arrivals.head;
+    const invite = head?.status === "ready" ? head : undefined;
     this.#snapshot = {
-      invite: head,
-      waitingBehind: Math.max(0, this.#queue.length - 1),
-      outcome: head === undefined ? undefined : this.#outcomeByReference.get(head.reference),
+      invite,
+      previewFailure: head === undefined || head.status === "ready" ? undefined : head,
+      waitingBehind: this.#arrivals.waitingBehind,
+      hasDeferredArrivals: this.#arrivals.hasDeferredArrivals,
+      outcome: invite === undefined ? undefined : this.#outcomeByReference.get(invite.reference),
+      canRetry: head?.status === "unavailable",
       actInFlight: this.#actInFlight,
       actRefusal: this.#actRefusal,
       feedRefusal: this.#feeds.refusal,
     };
     this.#changes.emit();
   }
-}
-
-/**
- * Whether an outcome names a step a person can take again.
- *
- * ONLY THE TWO AUTHENTICATION ARMS. A wire refusal is the control plane's own answer
- * about this invitation — not found, already accepted, expired, revoked — and pressing
- * again sends the identical request to the identical answer, so offering a retry there
- * would be offering a control that cannot work. Authentication is the opposite: it
- * names something the person completes and then comes back from.
- */
-export function isRetryableOutcome(outcome: GrowthInviteOutcome | undefined): boolean {
-  return outcome?.kind === "authentication-required" || outcome?.kind === "authentication-failed";
 }

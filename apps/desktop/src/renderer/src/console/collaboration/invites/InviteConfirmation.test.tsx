@@ -58,6 +58,19 @@ function control(root: HTMLElement, className: string): HTMLButtonElement {
   return found;
 }
 
+/**
+ * The controls an outcome report offers, by class name.
+ *
+ * Asserted as the WHOLE row rather than as the absence of one name: a case that only
+ * checked a retry control was gone would pass just as well over a report that had
+ * been given a different second control, and over one that offered nothing at all.
+ */
+function outcomeActs(root: HTMLElement): readonly string[] {
+  return [...root.querySelectorAll(".meridian-invite-outcome__acts button")].map(
+    (button) => button.className,
+  );
+}
+
 describe("the confirmation — when there is nothing to confirm", () => {
   it("renders nothing at all", () => {
     const body = renderCard({ invite: undefined });
@@ -254,7 +267,7 @@ describe("the confirmation — the four ways an attempt ends", () => {
     expect(text).toContain("You are in.");
     expect(text).toContain(MEMBERSHIP);
     expect(text).toContain("collaborator");
-    expect(body.querySelector(".meridian-invite-outcome__retry")).toBeNull();
+    expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
   });
 
   it("prints the wire's own code and message beside what they mean here", () => {
@@ -279,18 +292,16 @@ describe("the confirmation — the four ways an attempt ends", () => {
       code: "invite.revoked",
       detail: "Invite has been revoked by the issuer",
     });
-    expect(body.querySelector(".meridian-invite-outcome__retry")).toBeNull();
+    expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
   });
 
-  it("offers one where authentication is what is missing", () => {
-    const onRetry = vi.fn();
-    const body = outcomeCard(
-      { kind: "authentication-required", reference: REFERENCE },
-      { onRetry },
-    );
+  it("leaves a sign-in that is still running with nothing to press", () => {
+    // Main is driving the ceremony and holding the reference across it, so there is
+    // no answer yet: a retry would race the one that is coming, and putting it away
+    // would strand it against an invitation this window no longer holds.
+    const body = outcomeCard({ kind: "authentication-required", reference: REFERENCE });
     expect(body.textContent ?? "").toContain("Sign in to finish joining.");
-    control(body, "meridian-invite-outcome__retry").click();
-    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(outcomeActs(body)).toEqual([]);
   });
 
   it("tells a sign-in that failed apart from one that was never attempted", () => {
@@ -302,7 +313,22 @@ describe("the confirmation — the four ways an attempt ends", () => {
     const text = body.textContent ?? "";
     expect(text).toContain("Signing in did not finish.");
     expect(text).toContain("The device code expired before it was entered.");
-    expect(body.querySelector(".meridian-invite-outcome__retry")).not.toBeNull();
+    // Terminal: its reference went with the failure, so there is nothing left to
+    // send and the only act is putting the answer away.
+    expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
+  });
+
+  it("negative control: an answer that ended still draws its act row", () => {
+    // Without this the case above would pass over a report that drew no acts at all,
+    // which would leave every settled prompt on screen with no way to clear it.
+    const body = outcomeCard({
+      kind: "joined",
+      reference: REFERENCE,
+      sessionId: INVITED_SESSION,
+      membershipId: MEMBERSHIP,
+      role: "collaborator",
+    });
+    expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
   });
 
   it("puts a settled result away only on a press", () => {

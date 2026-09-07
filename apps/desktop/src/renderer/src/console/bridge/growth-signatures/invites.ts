@@ -25,24 +25,35 @@
 // operation for it would be a bridge method whose whole job the invariant forbids.
 
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
-import type { GrowthInviteOutcome, GrowthPendingInvite } from "../growth-values/index.js";
+import type {
+  GrowthInviteAttempt,
+  GrowthInviteOutcome,
+  GrowthPendingInviteState,
+} from "../growth-values/index.js";
 
 export interface InviteGrowthSignatures {
   // the pending-invite namespace
   invitePendingSubscribe: {
     request: Record<string, never>;
-    value: GrowthStream<GrowthPendingInvite>;
+    value: GrowthStream<GrowthPendingInviteState>;
   };
   inviteOutcomeSubscribe: {
     request: Record<string, never>;
     value: GrowthStream<GrowthInviteOutcome>;
   };
-  // The three acts, each on one reference. None answers with the outcome: acceptance
+  // The three acts, each on one handle. None answers with the outcome: acceptance
   // runs in main and can take an authentication detour, so what a caller waits for is
   // the outcome feed and never this reply. A settled value here would invite a
   // surface to render "joined" for a call that had only been accepted for dispatch.
+  //
+  // TWO OF THEM TAKE THE REFERENCE AND THE THIRD TAKES AN ATTEMPT, and the split is
+  // the point: a retry re-drives a preview that never produced a reference, so it
+  // names the outstanding deep link instead. `GrowthInviteAttempt` is a distinct
+  // brand, so the handle that can re-drive a preview is rejected by the two acts that
+  // spend one — a reference sent to the retry, or an attempt sent to the confirm, is
+  // a compile error rather than a spent handle reaching the wrong operation.
   inviteConfirmPending: { request: { readonly reference: string }; value: undefined };
-  inviteRetryPending: { request: { readonly reference: string }; value: undefined };
+  inviteRetryPending: { request: { readonly attempt: GrowthInviteAttempt }; value: undefined };
   inviteDismissPending: { request: { readonly reference: string }; value: undefined };
   // the control-plane host
   //

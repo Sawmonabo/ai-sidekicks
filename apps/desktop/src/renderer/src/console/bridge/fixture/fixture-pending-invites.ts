@@ -25,7 +25,7 @@
 
 import { FixtureGrowthStream } from "./fixture-growth-stream.js";
 import { growthUnscriptedReply, type GrowthOutcome } from "../growth-port/index.js";
-import type { GrowthInviteOutcome, GrowthPendingInvite } from "../growth-values/index.js";
+import type { GrowthInviteOutcome, GrowthPendingInviteState } from "../growth-values/index.js";
 import type { ScenarioEngine, ScenarioPendingInviteFrame } from "../scenario-runtime/index.js";
 
 /** What one scripted reference can still produce. Consumed by the act it answers. */
@@ -44,7 +44,7 @@ interface PendingEntry {
 export class FixturePendingInvites {
   readonly #engine: ScenarioEngine;
   readonly #entriesByReference = new Map<string, PendingEntry>();
-  readonly #pendingFeeds = new Set<FixtureGrowthStream<GrowthPendingInvite>>();
+  readonly #pendingFeeds = new Set<FixtureGrowthStream<GrowthPendingInviteState>>();
   readonly #outcomeFeeds = new Set<FixtureGrowthStream<GrowthInviteOutcome>>();
 
   public constructor(engine: ScenarioEngine) {
@@ -62,11 +62,14 @@ export class FixturePendingInvites {
    * that only delivered what arrived after subscription would deliver nothing at all
    * for the case this namespace exists to serve.
    */
-  public openPendingFeed(): FixtureGrowthStream<GrowthPendingInvite> {
-    const feed = new FixtureGrowthStream<GrowthPendingInvite>();
+  public openPendingFeed(): FixtureGrowthStream<GrowthPendingInviteState> {
+    const feed = new FixtureGrowthStream<GrowthPendingInviteState>();
     this.#pendingFeeds.add(feed);
     for (const entry of this.#dueEntries()) {
-      feed.push(entry.frame.invite);
+      // The scenario scripts the ready arm's own facts; the discriminant the pending
+      // feed is keyed by is stamped here, so a scenario table stays a table of
+      // invitations rather than of wire states.
+      feed.push({ status: "ready", ...entry.frame.invite });
     }
     return feed;
   }

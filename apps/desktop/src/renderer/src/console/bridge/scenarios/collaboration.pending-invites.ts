@@ -5,9 +5,14 @@
 //
 // TWO OF THEM, so the queue's "behind it" reading is reachable, and the two settle
 // differently on purpose: the first is the ordinary success, and the second is the
-// authentication detour whose retry — the one arm where trying again is a remedy —
-// has nowhere else to be shown. The retry succeeds, so the whole two-attempt path
-// is walkable from this scenario alone.
+// authentication detour — a ceremony main drives while holding the reference across
+// it, so the confirmation stays open on a progress reading with nothing to press.
+//
+// THE SCRIPTED RETRY IS THE ANSWER TO A SECOND CONFIRMATION AND NOT TO A RETRY. A
+// retry re-drives a PREVIEW, on the attempt handle the pending feed's `unavailable`
+// state supplies, and this table scripts invitations rather than preview states — so
+// the arm that offers one is not reachable from here. Scripting it is the fixture's
+// own leg, and the answer below is what it settles on once it is.
 
 import {
   INVITED_SESSION_AUDIT,

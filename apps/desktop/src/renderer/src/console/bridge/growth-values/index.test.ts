@@ -49,9 +49,15 @@ const barrelSource = Object.values(barrelSources)[0] ?? "";
  * preserve, and its whole job is to disagree with the barrel if a name is lost. A
  * name is added here only in the diff that adds the export, which is what keeps
  * "nothing silently added under cover of a refactor" a real claim rather than a
- * comment. `GrowthBranchContextReadRequest` is the one such addition: the registered
- * branch-context read is keyed by one of two arms, and the union naming them earned a
- * name once the signature table and the gate's read plan both read it.
+ * comment. `GrowthBranchContextReadRequest` was the first such addition: the
+ * registered branch-context read is keyed by one of two arms, and the union naming
+ * them earned a name once the signature table and the gate's read plan both read it.
+ * The three invite names are the second: the pending feed carries a preview's state
+ * rather than an invitation, so the union and the pair of arms that mint no reference
+ * are named here, and the retry's attempt handle is a brand the signature table reads
+ * to keep it out of the two acts that spend a reference. The three arm types
+ * themselves are deliberately absent — no production module names an arm on its own,
+ * so a door line for one would be a dead export.
  */
 const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -75,8 +81,11 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthActivitySnapshot",
   "GrowthAgentActivityReading",
   "GrowthComposingReading",
+  "GrowthInviteAttempt",
   "GrowthInviteOutcome",
   "GrowthPendingInvite",
+  "GrowthPendingInvitePreviewFailure",
+  "GrowthPendingInviteState",
   "GrowthBranchContext",
   "GrowthBranchContextReadRequest",
   "GrowthBudgetState",
