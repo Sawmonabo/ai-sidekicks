@@ -28,7 +28,8 @@ import { SessionStore } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
 import { workspaceRefusalFor } from "./repo-mounts-model.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
-import { drain, settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
+import { settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 // Every reader a case opens is tracked, and none of them outlives its case.
 afterEach(disposeTrackedReaders);
@@ -122,11 +123,11 @@ describe("the per-workspace refusals — one half per producer", () => {
     const section = await openSection({ parkModeSelects: true });
 
     void section.reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     // The second press is the one that is refused: this workspace's own switch is
     // already on the wire.
     void section.reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     expect(
       workspaceRefusalFor(section.reader.snapshot.workspaceRefusals, GIT_WORKSPACE_ID)?.code,
     ).toBe("selection-in-flight");
@@ -145,7 +146,7 @@ describe("the per-workspace refusals — one half per producer", () => {
     );
 
     section.releaseSelects();
-    await drain();
+    await crossMacrotaskBoundary();
   });
 
   it("clears a capabilities refusal on the read that answers for that workspace", async () => {
@@ -177,9 +178,9 @@ describe("the per-workspace refusals — one half per producer", () => {
     });
 
     void section.reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     void section.reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
 
     const reading = section.reader.snapshot;
     // Both halves hold an entry for this workspace, and the row shows the one about
@@ -192,7 +193,7 @@ describe("the per-workspace refusals — one half per producer", () => {
     );
 
     section.releaseSelects();
-    await drain();
+    await crossMacrotaskBoundary();
   });
 
   it("drops a carried selection refusal for a workspace the roster no longer names", async () => {
@@ -205,9 +206,9 @@ describe("the per-workspace refusals — one half per producer", () => {
     });
 
     void section.reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     void section.reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
-    await drain();
+    await crossMacrotaskBoundary();
     expect(section.reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]).toBeDefined();
 
     section.deliverLifecycleFrame("workspace.stale");
@@ -218,6 +219,6 @@ describe("the per-workspace refusals — one half per producer", () => {
     expect(reading.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]).toBeUndefined();
 
     section.releaseSelects();
-    await drain();
+    await crossMacrotaskBoundary();
   });
 });
