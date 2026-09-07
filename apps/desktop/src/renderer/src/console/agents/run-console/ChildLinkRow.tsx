@@ -1,4 +1,4 @@
-import { Chip, WireFigure } from "../../primitives/index.js";
+import { Chip, WireFigure, formatDateTime } from "../../primitives/index.js";
 import { type ChildRunLink } from "../../bridge/index.js";
 import { CHILD_RUN_LINK_TYPES, CHILD_RUN_VISIBILITIES, isKnownMember } from "../agent-wire.js";
 
@@ -8,6 +8,17 @@ import { CHILD_RUN_LINK_TYPES, CHILD_RUN_VISIBILITIES, isKnownMember } from "../
  * An `internalHelper` row is de-emphasized and NEVER ejected: it stays in audit
  * history, and a list that dropped it would answer "what did this run start" with a
  * partial truth.
+ *
+ * WHY THE PROVENANCE LINE IS SEPARATE FROM THE STATE LINE, AND WHY BOTH FIGURES ARE
+ * ON IT. `producingNodeId` and `createdAt` are both on the read and neither was
+ * rendered, which left the row unable to answer the two questions a person asks of a
+ * child that is not reachable: WHERE it was started and WHEN. They sit below the
+ * state rather than beside it because `visibility` is a live daemon projection and
+ * these two are fixed facts about the link's creation — putting them on one line
+ * would invite reading the node id as the place the child is running NOW, which is
+ * exactly the inference the visibility rule forbids. The node id renders verbatim
+ * because it is an identifier; the instant renders through the family's own reading
+ * with the wire value on `title`, so the formatted figure hides nothing.
  */
 export function ChildLinkRow(props: {
   readonly link: ChildRunLink;
@@ -65,6 +76,20 @@ export function ChildLinkRow(props: {
           </>
         )}
       </span>
+      {link.producingNodeId === undefined && link.createdAt === undefined ? null : (
+        <span className="meridian-linkage__link-provenance">
+          {link.producingNodeId === undefined ? null : (
+            <>
+              Started on <WireFigure value={link.producingNodeId} />.{" "}
+            </>
+          )}
+          {link.createdAt === undefined ? null : (
+            <>
+              Linked <WireFigure value={formatDateTime(link.createdAt)} title={link.createdAt} />.
+            </>
+          )}
+        </span>
+      )}
     </li>
   );
 }

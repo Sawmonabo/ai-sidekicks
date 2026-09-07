@@ -64,6 +64,15 @@
   flex-wrap: wrap;
 }
 
+/* Lifecycle, not binding: it shares the head with the state chip and is pushed to the
+   end of it, so the name and the state stay the first two things read. */
+.meridian-agent-card__created {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  margin-inline-start: auto;
+}
+
 .meridian-agent-card__state-reason,
 .meridian-agent-card__observed-reason,
 .meridian-agent-card__axis-absent {

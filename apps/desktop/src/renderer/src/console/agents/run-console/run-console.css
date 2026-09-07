@@ -46,9 +46,11 @@
 
 .meridian-linkage__link-meaning,
 .meridian-linkage__last-known,
+.meridian-linkage__link-provenance,
 .meridian-linkage__refusal-depth,
 .meridian-linkage__refusal-detail,
-.meridian-linkage__refusal-target {
+.meridian-linkage__refusal-target,
+.meridian-linkage__refusal-when {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
