@@ -338,7 +338,7 @@ describe("ArtifactsPanel — refusals render, controls stay", () => {
       />,
     );
     expect(container.textContent).toContain("Delete the derivatives named below first");
-    expect(container.querySelector(".meridian-artifact-recovery__referencing")).toBeNull();
+    expect(container.querySelector(".meridian-artifact-referencing")).toBeNull();
   });
 
   it("negative control: a row nothing refused carries no refusal", () => {

@@ -67,6 +67,7 @@ import {
   Glyph,
   Nothing,
   RefusalCard,
+  RefusalRecovery,
   WireFigure,
   formatClockTime,
 } from "../../primitives/index.js";
@@ -82,7 +83,6 @@ import { BindWorkspaceDialog } from "./bind/BindWorkspaceDialog.js";
 import { ProposalGateDisclosure } from "../proposals/ProposalGateDisclosure.js";
 import { branchRootGateSubject } from "../proposals/proposal-gate-model.js";
 import { mountRefusalRecovery } from "./mount-refusal-copy.js";
-import { RefusalRecovery } from "./RefusalRecovery.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import {
   workspaceRefusalFor,

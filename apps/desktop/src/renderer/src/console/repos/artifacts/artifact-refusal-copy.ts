@@ -4,23 +4,40 @@
 // ONE TABLE FOR THE WHOLE NAMESPACE, and that is the point rather than a convenience.
 // `Spec-023 §Console Design (Meridian)` rule 9 fixes what reaches the screen from the
 // daemon — the code in mono, the message verbatim, never paraphrased — and leaves the
-// NEXT MOVE to the caller as a slot. Written per call site, that slot is where a code's
-// recovery gets invented twice and the two copies drift; written once, a code has one
-// answer wherever it surfaces. `repos/mounts/mount-refusal-copy.ts` states the same
-// rule for the four `repo.*` / `workspace.*` / `worktree.*` / `clone.*` namespaces, and
-// this module is that shape applied to the fifth.
+// two halves beside it to the caller: what the refusal is ABOUT where the code alone
+// does not say, and what a person DOES about it. Written per call site, those halves
+// are where a code's answer gets invented twice and the two copies drift; written once,
+// a code has one answer wherever it surfaces. `repos/mounts/mount-refusal-copy.ts`
+// states the same rule for the four `repo.*` / `workspace.*` / `worktree.*` /
+// `clone.*` namespaces, and this module is that shape applied to the fifth.
 //
 // THE NAMESPACE IS ONE SET AND IS NOT SPLIT BY SURFACE. The thirteen codes below reach
-// three surfaces — the manifest rows of `repos/artifacts/`, the payload section of
-// `repos/artifact-pane/`, and the ingest chips of `repos/attachments/` — and six of
-// them reach more than one. A table per surface would be three answers to one code and
-// three places for a code the wire adds to go missing, which `apps/desktop/AGENTS.md`
-// §Shared code rejects outright. The lookup is the family's; each surface renders it
-// into the `action` slot its own refusal shape reserves.
+// four surfaces — the manifest rows of `repos/artifacts/`, the payload section of
+// `repos/artifact-pane/`, the ingest cards of `repos/attachments/`, and the bounds
+// disclosure both the pane and the attach affordance render — and most of them reach
+// more than one. This module is where the attachment family's own four-code table was
+// folded in: a table per surface is three answers to one code and three places for a
+// code the wire adds to go missing, which `apps/desktop/AGENTS.md` §Shared code rejects
+// outright. `artifacts/` holds it because that directory owns the artifact's identity
+// (`artifact-model.ts`, `artifact-copy.ts`), and a sibling directory inside `repos/`
+// reaches it by its own specifier — the edge `artifact-pane/` already takes to
+// `attachments/attachment-bounds.ts` in the other direction.
 //
-// THE RECOVERY IS NEVER THE DAEMON'S SENTENCE RESTATED. Each entry says what a PERSON
-// does next, which is a different claim from what the daemon said happened, and four of
-// them are the reason this module exists at all:
+// WHAT IS DELIBERATELY NOT FOLDED IN: `attachments/attachment-policy.ts`'s
+// `INGEST_DISPOSITION_COPY` is keyed on the DISPOSITION and not on a code — three
+// entries, total over every code through `ingestRefusalDisposition` — and it is the
+// sentence in front of the RETRY CONTROL rather than a reading of the refusal. Two
+// different keys and two different claims, so it is not a second copy of this table.
+// The one surface that renders both is `attachments/AttachmentCard.tsx`, and it renders
+// the disposition's sentence INSTEAD OF this table's next move rather than after it, so
+// a stream-invalid refusal is never told to start again twice.
+//
+// THE TWO HALVES ARE DIFFERENT CLAIMS. `meaning` is what the refusal is about where the
+// daemon's own sentence deliberately leaves it out, and it is present only on the codes
+// that need one — an absent `meaning` says the daemon's sentence is all of it, which is
+// true of most of these. `nextMove` is what a PERSON does next, which is a different
+// claim from what the daemon said happened, and four of them are the reason this module
+// exists at all:
 //
 //   • `artifact.no_access_key` IS NOT AN AUTHENTICATION FAILURE and must not read as
 //     one. `error-contracts.md §Artifact` states outright that the code is kept
@@ -66,6 +83,7 @@
 // each of the three surfaces that render one.
 
 import type { ExtendedConsoleRefusal } from "../../core/index.js";
+import type { RefusalRecoveryCopy } from "../../primitives/index.js";
 
 /**
  * A refusal as a surface receives it: possibly a seam refusal wrapping the daemon's.
@@ -123,17 +141,27 @@ export const ARTIFACT_REFUSAL_CODES = [
 export type ArtifactRefusalCode = (typeof ARTIFACT_REFUSAL_CODES)[number];
 
 /**
- * What a person does next, and the alternatives where there is more than one.
+ * What a refusal is about, what a person does next, and the alternatives where there is
+ * more than one.
+ *
+ * `meaning` is OPTIONAL and absent on most codes, which is the honest shape rather than
+ * a gap: it exists for the codes whose daemon sentence deliberately leaves out which of
+ * several enforcement points answered, what survived, or where the bytes went, and a
+ * code whose sentence carries all of that needs no second one written for it.
  *
  * `distinctions` is a LIST rather than a second sentence because the cases it holds are
  * exclusive: the reader is choosing between them, and prose that ran them together
  * would read as a sequence of steps. An empty list is the ordinary shape — most codes
  * have exactly one move — and it is a real empty rather than an absent member, so a
  * renderer maps it without asking whether it is there.
+ *
+ * IT EXTENDS THE SHAPE THE SHELL RENDERS rather than restating its two members:
+ * `primitives/RefusalRecovery.tsx` is what puts the move and the cases on screen, and a
+ * table whose entry type merely happened to be assignable would stay assignable right
+ * up to the rename that made it stop.
  */
-export interface ArtifactRefusalRecovery {
-  readonly nextMove: string;
-  readonly distinctions: readonly string[];
+export interface ArtifactRefusalRecovery extends RefusalRecoveryCopy {
+  readonly meaning?: string | undefined;
 }
 
 const NO_DISTINCTIONS: readonly string[] = [];
@@ -155,36 +183,45 @@ const ARTIFACT_REFUSAL_RECOVERIES: Readonly<Record<ArtifactRefusalCode, Artifact
       // and the daemon's message says which. Enumerated rather than collapsed, because a
       // single "use a smaller file" sentence is wrong in two cases out of three — the
       // relay point is about a payload already ingested, and the reservation point fires
-      // on a file well under the deployment's cap.
-      nextMove:
-        "The payload was refused for its size, and nothing was stored. The daemon's message says which of three bounds it crossed:",
+      // on a file well under the deployment's cap, which is the one a person never
+      // guesses and the reason the third distinction states it in the copy itself.
+      meaning:
+        "Three different bounds answer with this one code — this deployment's ingest cap, the relay publish cap, and the total this upload declared when it opened, which the daemon holds as its spool reservation. The code alone does not say which; the daemon's own sentence above does.",
+      nextMove: "Nothing was stored. Which of the three bounds it crossed decides the move:",
       distinctions: [
-        "The ingest cap for this deployment — what a single attachment may weigh. The attach affordance's own disclosure carries the effective figure.",
+        "This deployment's ingest cap — what a single attachment may weigh. The attach affordance's own disclosure carries the effective figure, and where the console is showing its shipped default instead, an operator override replaces that figure wholesale: ask the operator what this deployment admits.",
         "The relay publish cap — the artifact exists locally and its bytes were too large to share, so it stays local-only until a smaller derivative is published in its place.",
-        "This upload's own declared total — a chunk pushed the running count past what the upload said it would send, so the spool was deleted. Start the upload again; the file is unchanged.",
+        "This upload's own declared total — a chunk pushed the running count of spooled bytes past what the upload said it would send, which refuses even far below the deployment's cap, because the declaration is what reserved the spool. That spool is gone; start the upload again, the file itself is unchanged.",
       ],
     },
     "artifact.too_many_attachments": {
-      // THE EARLIER ARTIFACTS SURVIVE, and saying so is the whole recovery: the carrier
+      // THE EARLIER ARTIFACTS SURVIVE, and saying so is the whole meaning: the carrier
       // is refused before any element is bound, and the artifacts earlier ingests minted
       // are untouched session artifacts. A recovery that read as "start over" would send
-      // a person to re-upload files that are already here.
+      // a person to re-upload files that are already here — which is why the next move
+      // ends by saying that nothing has to be sent twice.
+      meaning:
+        "The whole carrier was refused at acceptance, before any attachment was bound or delivered, so nothing partial was left behind. Every artifact an earlier upload already minted is untouched and stays a session artifact you can reference again.",
       nextMove:
-        "The whole carrier was refused before anything was delivered, so nothing partially attached. The files already ingested are ordinary session artifacts and are still here — take some off this turn and send the rest on another.",
+        "Take attachments off this turn until the carrier is inside the count, then send it, and send the rest on another turn. Nothing has to be uploaded a second time.",
       distinctions: NO_DISTINCTIONS,
     },
     "artifact.unsupported_media_type": {
       // NEVER "rename it". The verdict is on the payload's DERIVED type, so the
       // extension is not what was judged and changing it changes nothing.
+      meaning:
+        "The daemon read the bytes and the type it derived is not on this deployment's allow-list — or it contradicts the type the upload declared. The payload is quarantined rather than stored, and it is never silently re-typed to something that would have been admitted.",
       nextMove:
-        "The type derived from the bytes themselves is not on this deployment's allow-list, and those bytes are quarantined rather than stored. Renaming the file changes nothing — the signature is what was read. The attach affordance's disclosure lists what is admitted here.",
+        "Renaming the file changes nothing, because the signature is what was read, so nothing about this file will make it through as it stands. Convert it to an admitted type and attach that, or ask the operator to widen the list; the attach affordance's own disclosure lists what is admitted here.",
       distinctions: NO_DISTINCTIONS,
     },
     "artifact.scanner_rejected": {
       // Distinct from the media-type code on purpose: the type was allow-listed and
       // reconciled before the scanner ran, so a type-shaped remedy would misdirect.
+      meaning:
+        "This is a content verdict from a scanner the operator configured, not a problem with the file's type: the type was allow-listed and reconciled before the scan ran. The bytes are quarantined. The shipped default configuration runs no scanner and never produces this.",
       nextMove:
-        "An operator-configured content scanner rejected these bytes, and they are quarantined. The type was fine — this is a verdict on the content, so a different file rather than a different name or format is the move.",
+        "A different file rather than a different name or format is the move, since the verdict is on the content. Where this file has to go through as it stands, take it up with whoever configured the scan — the console has nothing to add to the scanner's own verdict.",
       distinctions: NO_DISTINCTIONS,
     },
     "artifact.ingest_capacity_exhausted": {
@@ -263,3 +300,9 @@ export function artifactRefusalRecovery(code: string): ArtifactRefusalRecovery |
     ? ARTIFACT_REFUSAL_RECOVERIES[code as ArtifactRefusalCode]
     : undefined;
 }
+
+/** The code a carrier past the count bound is refused with, named once. */
+export const TOO_MANY_ATTACHMENTS_CODE = "artifact.too_many_attachments";
+
+/** The code an over-sized payload is refused with, named once. */
+export const TOO_LARGE_CODE = "artifact.too_large";

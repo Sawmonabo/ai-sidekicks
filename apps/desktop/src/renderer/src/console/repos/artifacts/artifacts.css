@@ -179,57 +179,28 @@
   gap: var(--meridian-space-2);
 }
 
-/* --------------------------------------------------- artifact recovery */
+/* ------------------------------- the manifests a blocked delete named */
 
 /*
- * The next move under an artifact refusal, in the slot the three refusal shapes
- * reserve for it.
- *
- * IT READS AS PART OF THE REFUSAL AND NOT AS A SECOND NOTICE: no border, no ground of
- * its own, one step of leading. A boxed remedy beside a boxed refusal would present
- * one fact as two, which is exactly what putting it in the shape's own `action` slot
- * was meant to avoid.
+ * The shared half of this region is NOT declared here. The move and its exclusive cases
+ * are dressed by `primitives/refusal.css`'s `.meridian-refusal-recovery`, because the
+ * component that wears them is `primitives/RefusalRecovery.tsx` and the mounts family
+ * had the same block under a second prefix. What stays is the half only this family
+ * has: the list of manifests a blocked delete named, which the shell renders as its
+ * children inside that same region.
  */
-.meridian-artifact-recovery {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
 
-.meridian-artifact-recovery__move {
-  margin: 0;
-}
-
-/*
- * The enforcement points one code carries. A list because the cases are exclusive and
- * a person picks between them; run together as prose they read as steps to perform.
- */
-.meridian-artifact-recovery__cases {
-  margin: 0;
-  padding-inline-start: var(--meridian-space-4);
+.meridian-artifact-referencing {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
 }
 
-/*
- * The manifests a blocked delete named. Scrollable rather than clipped, because the
- * daemon sends up to fifty and a list that silently ended at the visible edge would
- * be a second cap nobody declared.
- */
-.meridian-artifact-recovery__referencing {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-artifact-recovery__referencing-head {
+.meridian-artifact-referencing__head {
   margin: 0;
 }
 
-.meridian-artifact-recovery__referencing-list {
+.meridian-artifact-referencing__list {
   margin: 0;
   padding: 0;
   list-style: none;

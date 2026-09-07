@@ -4,8 +4,8 @@
 // THE SEAM, IN ONE SENTENCE: this module answers what the DEPLOYMENT admits and where
 // a carrier stands inside that, for every surface that has to say so before a file is
 // chosen. It renders nothing, calls nothing, and holds no copy about a refusal — the
-// refusal vocabulary is `attachment-refusal-copy.ts` beside it and the daemon's own
-// allow-list is `attachment-policy.ts` below it.
+// refusal vocabulary is `artifacts/artifact-refusal-copy.ts`, one directory over, and
+// the daemon's own allow-list is `attachment-policy.ts` below it.
 //
 // WHY THE READING LIVES HERE AND NOT ON THE PANE THAT FIRST READ IT. The shape and
 // the shipped default were declared in `repos/artifact-pane/artifact-pane-reading.ts`,

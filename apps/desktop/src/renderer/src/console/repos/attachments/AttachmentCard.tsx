@@ -56,9 +56,10 @@ import {
 import {
   INGEST_ABANDON_COPY,
   INGEST_DISPOSITION_COPY,
+  type IngestRefusalDisposition,
   type UnresolvedAttachmentCause,
 } from "./attachment-policy.js";
-import { attachmentRefusalCopyFor } from "./attachment-refusal-copy.js";
+import { artifactRefusalRecovery } from "../artifacts/artifact-refusal-copy.js";
 import {
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   ingestCeilingRemainingMs,
@@ -195,14 +196,9 @@ function renderIngesting(
               OUT — which of `artifact.too_large`'s three enforcement points answered,
               what survived a whole-carrier refusal, where the bytes went. Rule 9 gives
               the console the slot beside the refusal and never inside it, so the
-              daemon's own text renders unparaphrased above this. A code the table does
-              not name renders exactly as it did before it existed. */}
-          {renderRefusalMeaning(entry.refusal.code)}
-          {entry.disposition === undefined ? null : (
-            <p className="meridian-attachment__note">
-              {INGEST_DISPOSITION_COPY[entry.disposition]}
-            </p>
-          )}
+              daemon's own text renders unparaphrased above this. A code the table has
+              no reading for renders exactly as it did before the table existed. */}
+          {renderRefusalReading(entry.refusal.code, entry.disposition)}
         </div>
       )}
 
@@ -240,21 +236,37 @@ function renderIngesting(
 }
 
 /**
- * This surface's reading of a named refusal, or nothing at all.
+ * This surface's reading of a named refusal: its meaning, and exactly one next move.
+ *
+ * TWO SOURCES FOR THE NEXT MOVE AND ONLY ONE OF THEM RENDERS, which is the whole reason
+ * this is one helper rather than two renders in the body. The namespace table answers
+ * every `artifact.*` code with a move, and `attachment-policy.ts` answers a REFUSED
+ * STREAM with the sentence that belongs in front of its own retry control — keyed on
+ * the disposition, so it says what pressing that control will do. Where an entry has a
+ * disposition, that sentence is the truer one and the table's general move is dropped;
+ * a card that rendered both would tell a participant to start the upload again twice,
+ * in two sentences that drift the first time either is edited.
  *
  * A render helper rather than a component, on `ArtifactsPanel.tsx`'s rule: it holds no
  * state and takes no hooks, so mounting it as an element type would buy a
  * reconciliation boundary nothing needs.
  */
-function renderRefusalMeaning(code: string): React.JSX.Element | null {
-  const copy = attachmentRefusalCopyFor(code);
-  if (copy === undefined) {
+function renderRefusalReading(
+  code: string,
+  disposition: IngestRefusalDisposition | undefined,
+): React.JSX.Element | null {
+  const recovery = artifactRefusalRecovery(code);
+  if (recovery === undefined && disposition === undefined) {
     return null;
   }
   return (
     <>
-      <p className="meridian-attachment__note">{copy.meaning}</p>
-      <p className="meridian-attachment__note">{copy.nextMove}</p>
+      {recovery?.meaning === undefined ? null : (
+        <p className="meridian-attachment__note">{recovery.meaning}</p>
+      )}
+      <p className="meridian-attachment__note">
+        {disposition === undefined ? recovery?.nextMove : INGEST_DISPOSITION_COPY[disposition]}
+      </p>
     </>
   );
 }

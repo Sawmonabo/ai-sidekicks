@@ -29,7 +29,7 @@ import { GLYPH_SIZE_DENSE } from "../../tokens/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 import { exceedsAttachmentByteAllowance } from "./attachment-bounds.js";
 import { attachmentNameReading } from "./attachment-provenance.js";
-import { TOO_LARGE_CODE, attachmentRefusalCopyFor } from "./attachment-refusal-copy.js";
+import { TOO_LARGE_CODE, artifactRefusalRecovery } from "../artifacts/artifact-refusal-copy.js";
 import { attachmentReorderHandleLabel } from "./attachment-reorder.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 import { useCarrierRowDrag } from "./carrier-drag.js";
@@ -71,7 +71,7 @@ export function CarrierRow(props: CarrierRowProps): React.JSX.Element {
     entry.declared.byteLength,
     maximumByteLength,
   );
-  const overAllowanceCopy = attachmentRefusalCopyFor(TOO_LARGE_CODE);
+  const overAllowanceCopy = artifactRefusalRecovery(TOO_LARGE_CODE);
   return (
     <li
       // The element the adapter drags a preview of, held as STATE rather than in a ref:
@@ -113,7 +113,7 @@ export function CarrierRow(props: CarrierRowProps): React.JSX.Element {
           <WireFigure value={allowanceFigure.text} title={String(maximumByteLength)} />
           <DerivedFigure text="this deployment admits per attachment" />
         </p>
-        {isOverAllowance && overAllowanceCopy !== undefined ? (
+        {isOverAllowance && overAllowanceCopy?.meaning !== undefined ? (
           <p className="meridian-carrier-row__over-allowance" role="status">
             {overAllowanceCopy.meaning} {overAllowanceCopy.nextMove}
           </p>

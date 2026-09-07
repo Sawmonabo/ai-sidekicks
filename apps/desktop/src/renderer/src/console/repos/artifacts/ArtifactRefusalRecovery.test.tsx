@@ -20,7 +20,7 @@ describe("ArtifactRefusalRecovery — the copy half", () => {
   it("renders the exclusive cases as list items rather than as prose", () => {
     const recovery = artifactRefusalRecovery("artifact.too_large");
     const { container } = render(<ArtifactRefusalRecovery recovery={recovery} />);
-    expect(container.querySelectorAll(".meridian-artifact-recovery__cases li")).toHaveLength(3);
+    expect(container.querySelectorAll(".meridian-refusal-recovery__cases li")).toHaveLength(3);
   });
 
   it("negative control: a code with one move grows no empty case list", () => {
@@ -28,7 +28,7 @@ describe("ArtifactRefusalRecovery — the copy half", () => {
     // family would be a bullet with nothing in it.
     const recovery = artifactRefusalRecovery("artifact.hash_mismatch");
     const { container } = render(<ArtifactRefusalRecovery recovery={recovery} />);
-    expect(container.querySelector(".meridian-artifact-recovery__cases")).toBeNull();
+    expect(container.querySelector(".meridian-refusal-recovery__cases")).toBeNull();
   });
 });
 
@@ -37,9 +37,7 @@ describe("ArtifactRefusalRecovery — the manifests a blocked delete named", () 
     const { container } = render(
       <ArtifactRefusalRecovery referencingArtifacts={{ ids: REFERENCING_IDS }} />,
     );
-    const items = [
-      ...container.querySelectorAll(".meridian-artifact-recovery__referencing-list li"),
-    ];
+    const items = [...container.querySelectorAll(".meridian-artifact-referencing__list li")];
     expect(items.map((item) => item.textContent)).toEqual([...REFERENCING_IDS]);
   });
 

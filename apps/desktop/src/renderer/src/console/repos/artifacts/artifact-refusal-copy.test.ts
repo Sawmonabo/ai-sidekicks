@@ -1,15 +1,24 @@
-// The artifacts family's refusal copy: one move per code, the three-way size
-// distinction, and which refusal the lookup is asked about.
+// The repos family's `artifact.*` refusal copy: one move per code, the meanings the
+// daemon's own sentence leaves out, the three-way size distinction, and which refusal
+// the lookup is asked about.
 //
 // EVERY CASE HERE FAILS WITHOUT THE TABLE. The recovery slot on this family's refusal
 // shapes was empty before it, so a person meeting `artifact.no_access_key` read the
 // code and nothing else — and read it as a sign-in problem, which it is not.
+//
+// THE MEANING CASES EACH ASSERT ONE FACT THE DAEMON LEAVES OUT — the third enforcement
+// point, the survivors, the quarantine, the content-versus-type verdict — because a
+// table that merely carried four `meaning` strings would satisfy a presence assertion
+// while saying nothing a participant could act on. They came in with the attachment
+// family's own table when it folded into this one.
 
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
 import {
   ARTIFACT_REFUSAL_CODES,
+  TOO_LARGE_CODE,
+  TOO_MANY_ATTACHMENTS_CODE,
   artifactRefusalRecovery,
   daemonSpokenRefusal,
 } from "./artifact-refusal-copy.js";
@@ -65,6 +74,45 @@ describe("artifactRefusalRecovery — the size refusal's three enforcement point
     // The list is rendered as a list, so a code that filled it with one restatement of
     // its own move would put a bullet under every refusal in the family.
     expect(artifactRefusalRecovery("artifact.hash_mismatch")?.distinctions).toHaveLength(0);
+  });
+});
+
+describe("artifactRefusalRecovery — the meanings the daemon's sentence leaves out", () => {
+  it("names the reservation bound on the size refusal, and the deployment cap beside it", () => {
+    // The frame and the deployment bound are the two a participant expects. The
+    // declaration-as-reservation is the one that refuses a chunk far below the cap.
+    const recovery = artifactRefusalRecovery(TOO_LARGE_CODE);
+    expect(recovery?.meaning).toContain("ingest cap");
+    expect(recovery?.meaning).toContain("declared");
+    expect(recovery?.meaning).toContain("spool reservation");
+  });
+
+  it("names the survivors on the count refusal, and says nothing is sent twice", () => {
+    const recovery = artifactRefusalRecovery(TOO_MANY_ATTACHMENTS_CODE);
+    expect(recovery?.meaning).toContain("whole carrier");
+    expect(recovery?.meaning).toContain("untouched");
+    expect(recovery?.nextMove).toContain("Nothing has to be uploaded a second time.");
+  });
+
+  it("names the quarantine and the re-typing that never happens", () => {
+    const recovery = artifactRefusalRecovery("artifact.unsupported_media_type");
+    expect(recovery?.meaning).toContain("quarantined");
+    expect(recovery?.meaning).toContain("never silently re-typed");
+  });
+
+  it("keeps the scanner's verdict distinct from a media-type problem", () => {
+    const recovery = artifactRefusalRecovery("artifact.scanner_rejected");
+    expect(recovery?.meaning).toContain("content verdict");
+    expect(recovery?.meaning).toContain("allow-listed");
+    expect(recovery?.meaning).toContain("runs no scanner");
+  });
+
+  it("negative control: a code whose own sentence is the whole of it carries no meaning", () => {
+    // `meaning` is optional on purpose. A table that wrote one for every code would put
+    // a second sentence under refusals the daemon already states completely, and the
+    // absent arm is what the renderers branch on.
+    expect(artifactRefusalRecovery("artifact.hash_mismatch")?.meaning).toBeUndefined();
+    expect(artifactRefusalRecovery("artifact.not_found")?.meaning).toBeUndefined();
   });
 });
 

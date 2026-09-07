@@ -26,7 +26,10 @@ import { Chip, DerivedFigure, WireFigure, formatByteQuantity } from "../../primi
 import { ATTACHMENT_CHUNK_BYTE_CAP } from "../../core/index.js";
 import type { AttachmentAllowlistReading } from "./attachment-bounds.js";
 import { attachmentCarrierFill } from "./attachment-bounds.js";
-import { TOO_MANY_ATTACHMENTS_CODE, attachmentRefusalCopyFor } from "./attachment-refusal-copy.js";
+import {
+  TOO_MANY_ATTACHMENTS_CODE,
+  artifactRefusalRecovery,
+} from "../artifacts/artifact-refusal-copy.js";
 
 export interface AttachmentBoundsDisclosureProps {
   readonly allowlist: AttachmentAllowlistReading;
@@ -43,7 +46,7 @@ export function AttachmentBoundsDisclosure(
   // the running count against it is the affordance's own always-visible line rather
   // than something folded behind a disclosure.
   const countAllowance = attachmentCarrierFill(0).allowance;
-  const wholeCarrierRefusal = attachmentRefusalCopyFor(TOO_MANY_ATTACHMENTS_CODE);
+  const wholeCarrierRefusal = artifactRefusalRecovery(TOO_MANY_ATTACHMENTS_CODE);
   return (
     <details className="meridian-ingest-bounds">
       <summary className="meridian-ingest-bounds__summary">
@@ -77,7 +80,7 @@ export function AttachmentBoundsDisclosure(
           <dt>Per carrier</dt>
           <dd>
             <DerivedFigure text={`${String(countAllowance)} attachments`} />
-            {wholeCarrierRefusal === undefined ? null : (
+            {wholeCarrierRefusal?.meaning === undefined ? null : (
               <span className="meridian-ingest-bounds__consequence">
                 {wholeCarrierRefusal.meaning}
               </span>
