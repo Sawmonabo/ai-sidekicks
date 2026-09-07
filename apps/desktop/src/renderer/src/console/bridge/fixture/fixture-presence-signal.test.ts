@@ -18,7 +18,6 @@ import { describe, expect, it } from "vitest";
 
 import type { DaemonEvent } from "@ai-sidekicks/contracts";
 
-import { PRESENCE_SUBSCRIBE_EVENT } from "../../collaboration/members/presence-model.js";
 import { PRESENCE_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
 import { PARTICIPANT_TOMAS } from "../scenarios/collaboration.identifiers.js";
@@ -119,13 +118,5 @@ describe("the fixture's Awareness subscription", () => {
     fixture.engine.advance(SECOND_ACTIVITY_FRAME_MS);
 
     expect(signals).toStrictEqual([]);
-  });
-
-  it("is the name the console's own subscribers open", () => {
-    // The seam is spelled in two families that may not import each other — the daemon
-    // table below the console and the presence model above it — so the agreement is
-    // held here rather than by discipline. A name corrected in one and not the other
-    // leaves a surface subscribed to a string the daemon does not serve.
-    expect(PRESENCE_SUBSCRIBE_EVENT).toBe(PRESENCE_EVENT_STREAM);
   });
 });

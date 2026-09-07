@@ -58,6 +58,13 @@ export { consoleClockFor } from "./console-bridge.js";
 // specifier no cross-family import uses is a dead export rather than a convenience.
 export { SESSION_EVENT_STREAM } from "./daemon/session-event-streams.js";
 
+// The Awareness room's subscribe name, on that same rule and now with two cross-family
+// readers: the roster and the activity feed both answer this push with a read of their
+// own, and each spelling the string itself would put a name only the daemon's table
+// gets to fix in three places — where a correction to one of them leaves the others
+// subscribed to a string the daemon does not serve, which reads as a quiet session.
+export { PRESENCE_EVENT_STREAM } from "./daemon/session-event-streams.js";
+
 // Which run state a `run.*` transition kind announces — the same table, on the
 // same rule, now that it has a cross-family consumer: the run-lifecycle projector
 // one family up checks a durable payload's `newState` against it before storing a

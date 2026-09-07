@@ -33,6 +33,7 @@
 // screen.
 
 import {
+  PRESENCE_EVENT_STREAM,
   type ConsoleBridge,
   type GrowthActivitySnapshot,
   type GrowthAgentActivityReading,
@@ -42,7 +43,6 @@ import type { ConsoleClock, Unsubscribe } from "../core/index.js";
 import { PushDrivenRead, servedGrowthValueOrRaise, subscribeDaemonEvent } from "../seats/index.js";
 import type { SessionStore } from "../store/index.js";
 import type { ActivityIndicatorRegistry } from "./activity-model.js";
-import { PRESENCE_SUBSCRIBE_EVENT } from "./members/presence-model.js";
 
 /** The refusal origin every activity-read failure carries. */
 export const ACTIVITY_FEED_ORIGIN = "activity-feed";
@@ -209,7 +209,7 @@ export function createActivityFeed(options: {
     // nothing about how, which is what keeps this feed from holding a second copy
     // of the publisher's Awareness state.
     subscribe: (onChangeSignal) =>
-      subscribeDaemonEvent<void>(bridge, PRESENCE_SUBSCRIBE_EVENT, onChangeSignal),
+      subscribeDaemonEvent<void>(bridge, PRESENCE_EVENT_STREAM, onChangeSignal),
   });
   return new ActivityFeed(read, registry);
 }
