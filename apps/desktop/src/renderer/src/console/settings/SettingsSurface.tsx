@@ -30,12 +30,11 @@ import { useMemo, useState } from "react";
 import { useFrameStore, useOpenSessionStore, useShellState } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
-  SETTINGS_SECTION_IDS,
   matchSettingsEntries,
   type SettingsPageContext,
   type SettingsPageRegistry,
-  type SettingsSectionId,
 } from "./settings-page-registry.js";
+import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "./settings-sections.js";
 import { SettingsSearchField } from "./SettingsSearchField.js";
 import { SettingsSectionRail } from "./SettingsSectionRail.js";
 import { SettingsSearchResults } from "./SettingsSearchResults.js";

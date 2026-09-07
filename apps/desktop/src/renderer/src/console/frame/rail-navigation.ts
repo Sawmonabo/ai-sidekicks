@@ -99,13 +99,39 @@ export function warmDestination(
   surfaceRegistry: ConsoleSurfaceRegistry,
   destination: RailDestination,
 ): void {
-  const slot = surfaceSlotFor(routeForDestination(destination));
-  if (slot === undefined) {
-    return;
-  }
   // Fire-and-forget, and the rejection is dropped on the idle warm's own reasoning: a
   // speculative fetch has nobody waiting on it, and a chunk that will not load is a
   // damaged install whose honest surface is the mount, where the console's error
-  // boundary can say so.
-  void surfaceRegistry.preload(slot).catch(() => undefined);
+  // boundary can say so. A rail press has a painted surface under it already, so waiting
+  // here would be a stall where the reserved frame is the honest thing to show.
+  void warmRouteSurface(surfaceRegistry, routeForDestination(destination));
+}
+
+/**
+ * Start loading the surface a ROUTE would mount, and settle when it has landed.
+ *
+ * THE STEP `warmDestination` IS BUILT ON, hoisted because a second caller reaches a
+ * surface by a route the rail has no destination for. The frame's context picker is that
+ * caller: a bare auxiliary window resolves its subject there, and what it commits is an
+ * `auxiliary` route rather than one of the rail's three. Open-coding the slot lookup
+ * beside it would be a second reading of `surfaceSlotFor` to drift from this one.
+ *
+ * NEVER REJECTS, so a caller may await it without a `catch` of its own and a caller that
+ * does not may drop it. What a chunk that will not load means is a damaged install, and
+ * the honest place to say so is the mount, inside the console's own surface error
+ * boundary — not at a warm nobody is watching.
+ *
+ * A route whose surface is component-form, or not registered at all, settles immediately
+ * with nothing done, so no caller has to ask first whether the thing it is about to open
+ * is loader-backed.
+ */
+export async function warmRouteSurface(
+  surfaceRegistry: ConsoleSurfaceRegistry,
+  route: ConsoleRoute,
+): Promise<void> {
+  const slot = surfaceSlotFor(route);
+  if (slot === undefined) {
+    return;
+  }
+  await surfaceRegistry.preload(slot).catch(() => undefined);
 }

@@ -20,6 +20,26 @@
 // `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
 // outside itself. The family door imports this module by name instead.
 
+// THE FAMILY'S FIVE STYLESHEETS ENTER HERE, at the one place this family enters the
+// graph at all. The door registers exactly one kind and registers it as a loader, so
+// every module and every rule this family owns is reachable only across that `import()`
+// — which makes this module the sheets' owner in the sense the placement rule means:
+// the barrel of the thing that owns them. Imported one by one rather than through an
+// `@import` chain, so every edge into this family's CSS is visible at one site and
+// "imported here and nowhere else" stays checkable.
+//
+// TWO OF THE FIVE DRESS SURFACES NO REGISTRATION REACHES YET — `settings/` and
+// `cards/` — so they are here on the family's behalf rather than this pane's. That is
+// the honest placement while the family has one entrance: leaving them at the door
+// would put rules for unmounted surfaces on the initial document, and a lane that wires
+// those surfaces either reaches them from this chunk or brings a chunk root of its own,
+// which `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` checks.
+import "../settings/settings.css";
+import "../controls.css";
+import "../cards/cards.css";
+import "./pane.css";
+import "../bounds/bounds.css";
+
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";
 

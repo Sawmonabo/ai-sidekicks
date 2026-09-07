@@ -167,16 +167,33 @@ export {
 // `frame/`, a family above this one — the seam a view family never touches.
 export { LazyBodyIdleWarm, idleWarmScheduler, type IdleWarmScheduler } from "./lazy-body-warm.js";
 
-// NO DOOR LINE FOR THE PENDING MARKER, and the reason is what a door line is FOR. This
-// barrel is the family's production surface, and `pendingPaneKindsIn` — with
-// `pendingPaneBodiesIn` beside it — has exactly one reader outside this directory: the
-// screenshot tier's capture helper, which refuses to photograph a half-loaded pane. A
-// door line whose only consumer is a test is a specifier no shipped module reaches, which
-// `architecture/barrel-census.test.ts` fails rather than tolerates, so that helper takes
-// the leaf directly. `LazyBodyBoard` / `LazyBodyLoader` / `LazyBodyModule` are absent for
-// the same reason — named only by the two boards and the walk in this directory — and a
-// family declaring a loader apart from its registration writes
+// THE LOADER MECHANISM, PUBLISHED FOR THE ONE BOARD THAT IS NOT IN THIS DIRECTORY.
+//
+// It was absent from this door while the deck's pane registry and the frame's surface
+// registry were the only boards that normalised a loader into a descriptor, and both sit
+// here. The settings family's page registry is a third: its rail mounts one page per
+// section, a page's body is a chunk like any other, and a settings page reachable from a
+// family door that another family imports EAGERLY is on every launch's initial graph
+// whether or not settings is ever opened — which is the defect
+// `settings/settings-page-registry.ts` records measuring. Building a second normaliser
+// beside `LoadedLazyBody` would have been two settle semantics to keep in step, so the
+// board that lives outside this directory reads the one that already exists.
+//
+// `PENDING_PANE_BODY_ATTRIBUTE` joins it, and the reason the marker had no door line
+// expires with the same change: it had exactly one reader outside this directory and that
+// reader was a test — the screenshot tier's capture helper, which refuses to photograph a
+// half-loaded body — so a door line would have been a specifier no shipped module reads,
+// which `architecture/barrel-census.test.ts` fails rather than tolerates. A settings page
+// waiting on its chunk is the same hazard the marker exists for, so the attribute now has
+// a production reader and a door line is what it is owed. `pendingPaneKindsIn` and
+// `pendingPaneBodiesIn` still have none and still take the leaf directly, for the reason
+// above: their only consumer outside this directory is that helper.
+//
+// `LazyBodyBoard` and `LazyBodyModule` stay absent — named only by the boards and the
+// walk in this directory — and a family declaring a loader beside its registration writes
 // `body: () => import("./x-body.js")` inline, which names no type at all.
+export { PENDING_PANE_BODY_ATTRIBUTE } from "./pending-pane-body.js";
+export { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
