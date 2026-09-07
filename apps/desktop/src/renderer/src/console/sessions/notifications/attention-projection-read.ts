@@ -69,6 +69,23 @@ export interface AttentionProjectionRead {
   readonly members: readonly unknown[];
   /** The sessions that refused. Empty when every session that was asked answered. */
   readonly refusedSessions: readonly RefusedAttentionSession[];
+  /**
+   * Every session this read ASKED about — the fan-out's own input, carried out.
+   *
+   * THE OTHER HALF OF COVERAGE, and it is here because the refusals alone are a
+   * numerator without a denominator: "one session could not be checked" says nothing
+   * about whether this read covered two sessions or twenty. What needs the whole
+   * fraction is the emitter — an item belongs to a session this window has been
+   * watching or to one it has only just started addressing, and those are the
+   * difference between news and the state of the world as this window found it.
+   *
+   * It travels ON THE READ rather than beside it, so a consumer cannot pair one
+   * read's items with another read's address set. The set moves whenever the node's
+   * directory or this window's open sessions move, and a caller holding the current
+   * one against a settlement produced by the previous one would answer for a fan-out
+   * that never happened.
+   */
+  readonly addressedSessionIds: readonly string[];
 }
 
 /**
@@ -137,7 +154,10 @@ export function attentionProjectionReaderFor(
         refusedSessions.push({ sessionId, refusal: outcome });
       }
     }
-    return { members, refusedSessions };
+    // The address set comes off the closure this reader was built around rather than
+    // being recomposed at settlement: one reader IS one fan-out, so the set it answers
+    // for is fixed for its whole life and travels out with what that fan-out found.
+    return { members, refusedSessions, addressedSessionIds: sessionIds };
   };
 }
 

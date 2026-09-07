@@ -210,6 +210,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
               refusal: growthUnavailable("attentionProjectionRead"),
             },
           ],
+          addressedSessionIds: [COLLABORATION_SCENARIO.sessionId],
         }}
       />,
     );
