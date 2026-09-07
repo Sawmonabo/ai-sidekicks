@@ -16,6 +16,18 @@
 // WHY THE OUTCOME FEED OPENS FIRST. The answer channel has to exist before the first
 // invitation can be confirmed on screen; opening them the other way round leaves a
 // window that can dispatch an act whose answer has nowhere to land.
+//
+// THE REFUSAL DESCRIBES THE CHANNEL'S STATE NOW AND NOT ITS HISTORY, so it is retired
+// the moment both feeds are up — both, never the one that was repaired, because the
+// field has no per-feed identity and clearing it on a sibling's success would report a
+// channel up while half of it is still down; `#retireRefusalWhenBothFeedsAreUp` is the
+// one place that happens. Nothing above this module can do it instead: `Spec-002
+// §Required Behavior` makes declining IMPLICIT — the invitee simply never follows the
+// link, and no `declined` state is required — so there is no decline verb for a surface
+// to offer, and that section gives this delivery channel no durable receipt either: no
+// event says the feed came back and no act answers it. A stale banner therefore has
+// nothing on screen to correct it and no record to contradict it, and the adapter that
+// recorded the outage is the only thing that can end it.
 
 import {
   isUnbuiltWireRefusal,
