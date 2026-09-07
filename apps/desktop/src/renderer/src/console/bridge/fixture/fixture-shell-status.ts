@@ -38,6 +38,11 @@
 // came back, and a fixture that jumped to `connected` would train the console
 // against the one synthesis the design forbids.
 //
+// THE DUE-FRAME READER IS NO LONGER THIS MODULE'S. It was declared privately here
+// until the provider-import feed needed the same rule, and it now lives once in
+// `fixture-due-frames.ts` beside this file — which is also where the walk that PACES
+// a scripted feed against this same clock lives. Two consumers, one rule.
+//
 // WHAT IT NEVER DOES. It never synthesises a report. A scenario that declares no
 // frames refuses through the port's own "not checked" absence, because a fixture
 // answering "connected" for a shell nobody scripted would train every surface above
@@ -46,6 +51,7 @@
 // unscripted refusal, and `SHELL_STATUS_SCRIPT` below is what the sentence names as
 // missing.
 
+import { frameDueAt } from "./fixture-due-frames.js";
 import { shellReportsAreEqual, type ShellReport } from "../../store/index.js";
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type { ScenarioEngine, ScenarioShellStatusFrame } from "../scenario-runtime/index.js";
@@ -59,28 +65,6 @@ import type { ScenarioEngine, ScenarioShellStatusFrame } from "../scenario-runti
  * a call no scenario makes and send an author looking for a reply to write.
  */
 export const SHELL_STATUS_SCRIPT: string = "shellStatus";
-
-/**
- * The frame current at an elapsed tick, or `undefined` before the first one is due.
- *
- * The roster reader's own rule, and the same reasoning: frames are declared in tick
- * order and the current one is the last that has fallen due, so a scenario whose
- * first frame lands at tick 200 has an unanswered shell condition until then rather
- * than a fabricated one.
- */
-function frameDueAt(
-  frames: readonly ScenarioShellStatusFrame[],
-  elapsedMs: number,
-): ScenarioShellStatusFrame | undefined {
-  let current: ScenarioShellStatusFrame | undefined;
-  for (const frame of frames) {
-    if (frame.atMs > elapsedMs) {
-      break;
-    }
-    current = frame;
-  }
-  return current;
-}
 
 /**
  * A report a control published, and the scenario tick it was published at.
@@ -129,7 +113,11 @@ export class FixtureShellChannel {
    * a frame still happened after that frame became current.
    */
   public current(): ShellReport | undefined {
-    const frames = this.#engine.scenario.shellStatus ?? [];
+    // Annotated rather than inferred: the reader beside this file is generic over
+    // any frame carrying a tick, and naming the element type here is what says WHICH
+    // vocabulary this channel folds over — the same vocabulary `isScripted` above
+    // asks about and the same one a scenario declares on its `shellStatus` field.
+    const frames: readonly ScenarioShellStatusFrame[] = this.#engine.scenario.shellStatus ?? [];
     const scriptedFrame = frameDueAt(frames, this.#engine.progress.elapsedMs);
     const override = this.#override;
     if (override === undefined) {

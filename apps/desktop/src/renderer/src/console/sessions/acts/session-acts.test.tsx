@@ -5,14 +5,25 @@
 // assert is that the SCENARIO reaches each arm — the join that lands, the join that
 // refuses, the import that runs to its terminal frame, and the import the node holds
 // no reader for. Ratified rule 8 for this lane is exactly that claim.
+//
+// AND THE IMPORT CASE ADVANCES THE SCENARIO CLOCK, because the fixture paces that
+// feed against it: each progress reading is held until the frozen clock reaches the
+// tick the script declares it at, so a case that only waited would wait forever. What
+// it buys is that the intermediate running states are on screen to be asserted at all
+// — before the pacing landed, all three readings arrived on one turn and React
+// batched them into the terminal frame.
 
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenarios/bring-your-history.js";
+import {
+  BRING_YOUR_HISTORY_SCENARIO,
+  PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
+} from "../../bridge/scenarios/bring-your-history.js";
 import { JoinSessionForm } from "./JoinSessionForm.js";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import {
+  createFixture,
   fixtureBridgeWithGrowth,
   growthServing,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
@@ -173,11 +184,25 @@ describe("joining a session", () => {
 
 describe("importing a provider session", () => {
   it("runs the subscription to its terminal frame and renders the producer's words", async () => {
-    const { container } = render(<ProviderImportPanel growth={bridge().growth} />);
+    const fixture = createFixture(BRING_YOUR_HISTORY_SCENARIO);
+    const { container } = render(<ProviderImportPanel growth={fixture.bridge.growth} />);
 
     fill(container, "Provider", "claude");
     fill(container, "What to read", "~/.claude/threads/one.jsonl");
     submit(container);
+    await settle();
+
+    // Step-wise through the script's own ticks, on the fixture's advance surface. The
+    // first reading is due at tick zero, so it is on screen before the clock moves;
+    // each one after it is what the next advance releases, and the panel renders the
+    // producer's own turn count at every step rather than only at the end.
+    let elapsedMs = 0;
+    for (const frame of PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES) {
+      fixture.engine.advance(frame.atMs - elapsedMs);
+      elapsedMs = frame.atMs;
+      await settle();
+      expect(container.textContent).toContain(String(frame.progress.turnsSeen));
+    }
 
     await waitFor(() => {
       expect(container.textContent).toContain("Ended");

@@ -14,8 +14,20 @@
 // NO STALENESS BADGE. `observedAt` is rendered as the wire value it is — the contract
 // carries no read-path age test and no stale arm, so a badge would be this console
 // inventing a freshness policy and applying it to somebody else's reading.
+//
+// AND AN ACCOUNT LABEL IS A WIRE FIGURE LIKE EVERY OTHER FIGURE HERE. The labels ride
+// the registry projection, so the row takes the ACCOUNT RECORDS and renders one
+// figure per account with the label verbatim, on its own line, with the default
+// annotation as separate non-wire text beside it. The two shapes this replaced were
+// both lies about the wire: a `" (default)"` suffix pasted onto a label puts
+// characters inside a figure that the daemon never sent, and a comma-joined string
+// makes a label that CONTAINS a comma indistinguishable from two accounts.
 
-import type { ProviderAccountId, ProviderReadiness } from "@ai-sidekicks/contracts";
+import type {
+  ProviderAccount,
+  ProviderAccountId,
+  ProviderReadiness,
+} from "@ai-sidekicks/contracts";
 
 import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import {
@@ -28,11 +40,32 @@ import type { ProviderActionReading } from "./provider-readiness.js";
 
 export interface ProviderRowProps {
   readonly entry: ProviderReadiness;
-  readonly accountLabels: readonly string[];
+  /**
+   * The registry records for this provider, passed through rather than pre-joined.
+   *
+   * The contract's own shape and not a pair declared here: `displayLabel` and
+   * `isDefault` are two members of one record the registry already declares, and a
+   * second shape carrying just those two would be that record written twice — free
+   * to disagree with it, and with no `accountId` to key a row on.
+   */
+  readonly accounts: readonly ProviderAccount[];
   readonly action: ProviderActionReading;
   readonly onSignIn: (providerName: string) => void;
   readonly onRecheck: (providerName: string, accountId: ProviderAccountId) => void;
 }
+
+/** What the disclosure says where this provider's registry holds nothing at all. */
+const NO_ACCOUNTS_NOTE = "None.";
+
+/**
+ * How the row says which account this provider resolves to, beside the figure.
+ *
+ * OUTSIDE the figure and never inside it. `isDefault` is a boolean the registry sent
+ * and this sentence is the console's reading of it — mono is the signature that a
+ * string came from the wire, and a default marker wearing it would claim the daemon
+ * sent these words.
+ */
+const DEFAULT_ACCOUNT_ANNOTATION = " — the one this provider resolves to";
 
 export function ProviderRow(props: ProviderRowProps): React.JSX.Element {
   const { entry } = props;
@@ -109,7 +142,16 @@ export function ProviderRow(props: ProviderRowProps): React.JSX.Element {
             </>
           ) : null}
           <dt>Accounts registered for this provider</dt>
-          <dd>{props.accountLabels.length === 0 ? "None." : props.accountLabels.join(", ")}</dd>
+          <dd>
+            {props.accounts.length === 0
+              ? NO_ACCOUNTS_NOTE
+              : props.accounts.map((account) => (
+                  <p className="meridian-onboarding__note" key={account.accountId}>
+                    <WireFigure value={account.displayLabel} />
+                    {account.isDefault ? DEFAULT_ACCOUNT_ANNOTATION : null}
+                  </p>
+                ))}
+          </dd>
         </dl>
       </details>
     </li>
