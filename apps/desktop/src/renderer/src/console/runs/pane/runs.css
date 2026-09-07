@@ -364,3 +364,27 @@
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
+
+/* The empty state's one act. It carries the accent because it is the only control on
+   a surface with nothing else on it — rule 1's one primary action per surface, met by
+   there being exactly one. */
+.meridian-runs__start {
+  align-self: center;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-runs__start:hover {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-runs__start:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

@@ -11,7 +11,7 @@ import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
-import { SessionStore } from "../../../console/store/index.js";
+import { FrameStore, SessionStore } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { SESSION_ID, STEER_APPLIED } from "./send-router.test-support.js";
@@ -26,6 +26,8 @@ export function openSessionStore(): SessionStore {
 export interface MountedBar {
   readonly result: RenderResult;
   readonly line: HTMLTextAreaElement;
+  /** The window store the bar escalates into, for a case that reads its banners. */
+  readonly frameStore: FrameStore;
 }
 
 export function mountBar(options: {
@@ -35,11 +37,13 @@ export function mountBar(options: {
   readonly focusedPane?: ConsolePaneAddress | undefined;
   readonly commandEnumeration?: ProviderCommandEnumeration;
 }): MountedBar {
+  const frameStore = new FrameStore();
   const result = render(
     <ComposerSendBar
       sessionStore={options.sessionStore}
       bridge={options.bridge}
       draftStore={options.draftStore}
+      frameStore={frameStore}
       route={DEFAULT_ROUTE}
       focusedPane={options.focusedPane}
       // The host owns the holder; a bar mounted alone is one nobody opened, which is
@@ -51,7 +55,7 @@ export function mountBar(options: {
   if (!(line instanceof HTMLTextAreaElement)) {
     throw new Error("the send bar rendered no directive line");
   }
-  return { result, line };
+  return { result, line, frameStore };
 }
 
 export const FIRST_AGENT_ID = "agent-ada";
@@ -132,11 +136,13 @@ export function mountAddressable(bridge: ConsoleBridge): AddressableBar {
   });
   const sessionStore = storeWithTwoTrippedAgents();
   const enumeration = new ProviderCommandEnumeration();
+  const frameStore = new FrameStore();
   const barFor = (agentId: string): React.JSX.Element => (
     <ComposerSendBar
       sessionStore={sessionStore}
       bridge={bridge}
       draftStore={draftStore}
+      frameStore={frameStore}
       route={DEFAULT_ROUTE}
       focusedPane={paneFor(agentId)}
       commandEnumeration={enumeration}

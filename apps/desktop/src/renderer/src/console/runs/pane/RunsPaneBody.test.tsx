@@ -19,6 +19,8 @@ import { RunStateProjection } from "./run-state-projection.js";
 import { useRunControlSurface } from "./controls/run-control-surface.js";
 import type { DriverCapabilityReadout } from "../../bridge/index.js";
 import { RUN_ID, refusingBridge, renderPane, transition } from "./runs-pane.test-support.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+import { FrameStore } from "../../store/index.js";
 
 describe("the row states the wire's own figures", () => {
   it("renders the nine-member state verbatim and never a gloss", async () => {
@@ -221,5 +223,62 @@ describe("a partial stream is visible, and is neither an absence nor a refusal",
     const fold = new RunStateProjection();
     expect(fold.accept(UNREADABLE_DELIVERY)).toBe(false);
     expect(fold.unreadableDeliveryCount).toBe(1);
+  });
+});
+
+describe("a control that came back about the whole session leaves the pane", () => {
+  /**
+   * Mount the pane on one running run, press `interrupt`, and read both sides.
+   *
+   * Pressed rather than seeded: the escalation reads the control surface's own
+   * settlement records, and a hand-built surface would be a second answer to what a
+   * dispatched control records — the class of stand-in that lets a green test sit
+   * beside a broken seam.
+   */
+  async function interruptRefusedWith(
+    rejection: unknown,
+  ): Promise<{ readonly banners: readonly string[]; readonly text: string }> {
+    const frameStore = new FrameStore();
+    const container = await renderPane([transition("queued", "running", 2)], true, undefined, {
+      frameStore,
+      daemonRejection: rejection,
+    });
+    const interrupt = container.querySelector(".meridian-run-controls__action--interrupt");
+    if (!(interrupt instanceof HTMLButtonElement)) {
+      throw new Error("the row drew no interrupt control");
+    }
+    await act(async () => {
+      interrupt.click();
+      await crossMacrotaskBoundary();
+    });
+    return {
+      banners: frameStore.getState().banners.map((banner) => banner.code),
+      text: container.textContent ?? "",
+    };
+  }
+
+  it("raises the frame's banner and keeps the daemon's words beside the control", async () => {
+    // A pause, a resume, a steer or a rewind is a mutation, and a mutation is the
+    // other way this pane learns the session has left the node — the subscription's
+    // open refusal is the first. Both reach the frame; neither is taken off the row.
+    const settled = await interruptRefusedWith({
+      code: "session.not_found",
+      message: "That session is not on this node.",
+    });
+
+    expect(settled.banners).toStrictEqual(["session.not_found"]);
+    expect(settled.text).toContain("That session is not on this node.");
+  });
+
+  it("negative control: a refusal about the act alone stays on the row", async () => {
+    // Without this the case above would pass over a pane that escalated every refused
+    // control, which puts one stale comparand across a window where nothing is wrong.
+    const settled = await interruptRefusedWith({
+      code: "run.version_conflict",
+      message: "The run moved on.",
+    });
+
+    expect(settled.banners).toStrictEqual([]);
+    expect(settled.text).toContain("The run moved on.");
   });
 });

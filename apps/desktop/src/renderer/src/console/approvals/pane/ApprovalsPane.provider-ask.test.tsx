@@ -34,6 +34,19 @@ const DIRECT_APPROVAL_ID = "019b7a33-3300-7f01-8130-d1a4c1150523";
 const UNBEATEN_APPROVAL_ID = "019b7a33-3300-7f01-8150-d1a4c1150525";
 const ASK_EXPIRY = "2026-01-01T17:30:01.100Z";
 
+/**
+ * The sequence the injected beat below takes, derived from the scenario it lands
+ * beside rather than written as a number.
+ *
+ * A literal one directory away from a growing fixture is a collision waiting to
+ * happen, and the collision is SILENT: the store applies one event per sequence, so
+ * a beat sharing a number with a scenario beat is simply not folded, and the case
+ * fails much later with a card that renders without the body the injection was for.
+ * Read off the scenario, the injection is past its end however many beats it grows.
+ */
+const PAST_EVERY_SCENARIO_BEAT =
+  Math.max(...APPROVALS_SCENARIO.beats.map((beat) => beat.event.sequence)) + 1;
+
 /** Mount the pane over the fixture bridge and let both reads settle. */
 async function mountOver(sessionStore: SessionStore): Promise<HTMLElement> {
   const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
@@ -111,7 +124,7 @@ describe("an ask whose body broke the wire's ask-implies-deadline pairing", () =
         {
           id: "019b7a33-3300-7e00-8110-e5e0c3350099",
           sessionId: APPROVALS_SCENARIO.sessionId,
-          sequence: 9,
+          sequence: PAST_EVERY_SCENARIO_BEAT,
           kind: "approval.requested",
           occurredAt: "2026-01-01T13:30:02.000Z",
           payload: {

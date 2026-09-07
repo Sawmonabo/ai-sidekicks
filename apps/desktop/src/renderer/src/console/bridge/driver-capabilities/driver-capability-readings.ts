@@ -153,3 +153,55 @@ export function readingForRun(
 ): DriverCapabilityReading {
   return readingForDriver(readout, boundDriverNameForRun(readout, runId), flag);
 }
+
+/**
+ * Which reading survives when several runs answer the same question differently.
+ *
+ * Blunt precedence over the closed set, because the three are not equally strong
+ * claims about a SESSION. `declared` is existential — one run whose driver hosts the
+ * thing is enough for the session to be able to reach it — so it outranks both
+ * others. `undeclared` is universal: it says NO addressed run can reach it, so a
+ * single run nobody could answer for withdraws it, and `unknown` sits between them.
+ *
+ * A record over the union rather than an ordered array, so a sixth reading added to
+ * `DRIVER_CAPABILITY_READINGS` is a compile error here instead of a silent zero.
+ */
+const READING_PRECEDENCE: Readonly<Record<DriverCapabilityReading, number>> = {
+  declared: 2,
+  unknown: 1,
+  undeclared: 0,
+};
+
+/**
+ * One flag's reading across every run a surface addresses, in any order.
+ *
+ * For a SESSION-scoped section whose subject is a set of runs rather than one — the
+ * approvals pane's daemon-hosted tools, where the pending decisions may name runs
+ * bound to different drivers. Reading the first of them and reporting its answer for
+ * the rest made the section's claim depend on the order the records happened to
+ * arrive in while the bindings stood still, so the fold is a maximum over the whole
+ * set: order-independent by construction, and idempotent under a repeated run id.
+ *
+ * An EMPTY set is answered by the node's own reading rather than by the identity of
+ * the fold. Two situations reach it — no run is addressed, and the read that would
+ * have named the runs has not answered — and one answer is honest for both, because
+ * `readingForDriver` with no driver name is decisive exactly where one driver filed a
+ * report and says nobody has asked where two did.
+ */
+export function readingAcrossRuns(
+  readout: DriverCapabilityReadout | undefined,
+  runIds: readonly string[],
+  flag: DriverCapabilityFlag,
+): DriverCapabilityReading {
+  if (runIds.length === 0) {
+    return readingForDriver(readout, undefined, flag);
+  }
+  let strongest: DriverCapabilityReading = "undeclared";
+  for (const runId of runIds) {
+    const reading = readingForRun(readout, runId, flag);
+    if (READING_PRECEDENCE[reading] > READING_PRECEDENCE[strongest]) {
+      strongest = reading;
+    }
+  }
+  return strongest;
+}

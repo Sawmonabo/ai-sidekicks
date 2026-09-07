@@ -4,15 +4,23 @@
 // trigger — when a popover is open at all, and what a selection sends — while this
 // owns what an open one renders and how it is moved through.
 //
-// EVERY ENTRY IS ONE THE PROVIDER ENUMERATED, under the binding it was read for.
-// Nothing here composes a command, completes one, or offers a command the read did
-// not carry.
+// EVERY PROVIDER ENTRY IS ONE THE PROVIDER ENUMERATED, under the binding it was read
+// for. Nothing here composes a provider command, completes one, or offers one the read
+// did not carry.
+//
+// THE ARGUMENT SLOT IS THE ONE COMPLETION THIS SURFACE RENDERS, and it is a slot: the
+// console's OWN commands may read arguments off their line, and the candidates for one
+// are that command's grammar rather than this surface's. So the seat composes the node
+// and this renders it — the rule above is about the provider half, whose entries this
+// console may not dispatch at all, and it does not reach a command the runtime itself
+// intercepts.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal, Nothing } from "../../../console/primitives/index.js";
 import type { CommandOutcome } from "../router/command-executor.js";
 import { CatalogRow } from "./CatalogRow.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
+import { noDirectiveLineHandlers } from "./directive-line-handlers.js";
 import { type ComposerCommandSurface } from "./console-command-surface.js";
 import {
   composeCatalog,
@@ -53,6 +61,17 @@ interface CommandDiscoveryPopoverProps {
   readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;
   readonly onDismiss: () => void;
+  /**
+   * What the line's own ARGUMENT completes to, where the typed command has one.
+   *
+   * A SLOT rather than a branch, because which commands read arguments and what
+   * their candidates are is each command's own grammar: a popover that knew would be
+   * a second place the workflow grammar is written down. The seat composes the node
+   * and this surface renders it beneath the command list, so the candidates a person
+   * is offered while they type sit in the surface their keystroke opened rather than
+   * in a second panel beside it.
+   */
+  readonly argumentCompletion: React.ReactNode;
 }
 
 /**
@@ -67,7 +86,8 @@ interface CommandDiscoveryPopoverProps {
  * life of the window.
  */
 export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX.Element {
-  const { prefix, readSurface, enumeration, addressed, stepIntoListToken, onDismiss } = props;
+  const { prefix, readSurface, enumeration, addressed, stepIntoListToken } = props;
+  const { onDismiss, argumentCompletion } = props;
   const listId = useId();
   const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -95,7 +115,14 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
   const isServedEmpty =
     entries.length === 0 && haveAllSourcesAnswered(enumeration) && !isEnumerationTruncated;
 
-  const executor = useMemo(() => createClientCommandExecutor({ readSurface }), [readSurface]);
+  const executor = useMemo(
+    () =>
+      createClientCommandExecutor({
+        readSurface,
+        readDirectiveHandlers: noDirectiveLineHandlers,
+      }),
+    [readSurface],
+  );
 
   const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
 
@@ -208,6 +235,7 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
           {activationNotice}
         </p>
       )}
+      {argumentCompletion}
       <EnumerationState enumeration={enumeration} addressedGroup={addressedGroup} />
       {actionOutcome?.status === "refused" ? (
         <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />

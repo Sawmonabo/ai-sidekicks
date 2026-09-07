@@ -23,6 +23,7 @@ import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import {
+  FrameStore,
   SessionStore,
   type ConsoleEntity,
   type ConsoleSessionEvent,
@@ -172,6 +173,7 @@ export function mountRail(
       sessionStore={sessionStore}
       bridge={addressing.bridge ?? createFixtureBridge({ scenario: RAIL_SCENARIO })}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
+      frameStore={new FrameStore()}
       route={DEFAULT_ROUTE}
       focusedPane={addressing.focusedPane}
     />,

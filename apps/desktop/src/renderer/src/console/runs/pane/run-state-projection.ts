@@ -15,7 +15,12 @@
 // NOTHING HERE READS A CLOCK. Elapsed is measured between two instants the WIRE
 // supplied, so a projection is the same projection whenever it is read.
 
-import type { RunRolledBackEvent, RunState, RunStateChangeEvent } from "@ai-sidekicks/contracts";
+import type {
+  ExecutionPosture,
+  RunRolledBackEvent,
+  RunState,
+  RunStateChangeEvent,
+} from "@ai-sidekicks/contracts";
 import { readRunRolledBack, readRunStateChange } from "../../bridge/index.js";
 import {
   compareInstants,
@@ -51,6 +56,17 @@ export interface RunProjection {
   readonly providerFailureDetail: string | undefined;
   /** The rewind anchor the run last landed at, when one has been reported. */
   readonly rewoundToPosition: number | undefined;
+  /**
+   * The boundary the daemon stamped on this run, or `undefined`.
+   *
+   * Carried from the delivered transition and from nowhere else. The stamp rides
+   * `run.running` alone — the post-setup-gate transition where the resolved root
+   * and effective posture are final — so a transition into any other state carries
+   * none and this member clears with it. Holding the last one seen would claim a
+   * boundary the run no longer has, and an absent posture reads as unknown rather
+   * than as the most permissive mode.
+   */
+  readonly executionPosture: ExecutionPosture | undefined;
   readonly firstSeenAtIso: string;
   readonly updatedAtIso: string;
   /** Newest last, matching the ledger's reading direction. Bounded. */
@@ -119,6 +135,10 @@ export class RunStateProjection {
       failureCategory: event.failureCategory,
       providerFailureDetail: event.providerFailureDetail,
       rewoundToPosition: held?.rewoundToPosition,
+      // The delivered event's own member, never the held one: the stamp describes
+      // the transition it rode in on, so a run that has left `running` carries no
+      // posture and this clears rather than persisting the last boundary seen.
+      executionPosture: event.executionPosture,
       firstSeenAtIso: held?.firstSeenAtIso ?? event.timestamp,
       updatedAtIso: event.timestamp,
       statusRows: appendBounded(held?.statusRows ?? [], row),
@@ -139,9 +159,10 @@ export class RunStateProjection {
    * withhold the controls the rewound run now has.
    *
    * The metadata that described the pre-rewind epoch goes with it: a trigger, a
-   * clean-close marking, and a failure category all describe a run that no longer
-   * exists at this position, and rendering them beside `paused` would be reporting
-   * a stop that has been undone.
+   * clean-close marking, a failure category, and the stamped execution posture all
+   * describe a run that no longer exists at this position, and rendering them
+   * beside `paused` would be reporting a stop that has been undone — or, for the
+   * posture, a boundary a run that is not running is not executing under.
    *
    * Still NO fabricated transition, per this module's rule above: a rewind never
    * becomes one. The appended row keeps `subtype: "rewound"` with both states
@@ -168,6 +189,7 @@ export class RunStateProjection {
       intendedClose: false,
       failureCategory: undefined,
       providerFailureDetail: undefined,
+      executionPosture: undefined,
       rewoundToPosition: event.targetPosition,
       firstSeenAtIso: held?.firstSeenAtIso ?? UNTIMED_FIRST_SEEN,
       updatedAtIso: held?.updatedAtIso ?? UNTIMED_FIRST_SEEN,
