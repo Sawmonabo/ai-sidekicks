@@ -59,17 +59,8 @@
 
 import { useCallback } from "react";
 
-import {
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
-  ATTACHMENT_CHUNK_BYTE_CAP,
-} from "../../core/index.js";
-import {
-  Chip,
-  DerivedFigure,
-  WireFigure,
-  formatByteQuantity,
-  useAnnounce,
-} from "../../primitives/index.js";
+import { WireFigure, useAnnounce } from "../../primitives/index.js";
+import { AttachmentBoundsDisclosure } from "../attachments/AttachmentBoundsDisclosure.js";
 import type { ArtifactManifestRow } from "../artifacts/artifact-model.js";
 import { ArtifactsPanel } from "../artifacts/ArtifactsPanel.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
@@ -79,7 +70,7 @@ import {
   artifactDeletedAnnouncement,
 } from "./artifact-announcements.js";
 import { ArtifactPayloadSection } from "./ArtifactPayloadSection.js";
-import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
+import type { ArtifactRowActOutcome } from "./artifact-pane-reading.js";
 import { useArtifactPaneReading } from "./use-artifact-reading.js";
 
 /**
@@ -245,76 +236,13 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
           onReadManifest={readRowManifest}
           onDelete={deleteRow}
         />
-        {renderIngestBounds(reading.allowlist)}
+        {/* THE SAME DISCLOSURE THE ATTACH AFFORDANCE RENDERS, from the module the
+            attachment family owns. It was a private helper here, which is why the
+            picker a person actually chooses a file with said nothing about what it
+            would accept; a second copy of the list would be two answers to one
+            question the first time either changed. */}
+        <AttachmentBoundsDisclosure allowlist={reading.allowlist} />
       </div>
     </ConsolePaneChrome>
-  );
-}
-/**
- * The ingest rules, one disclosure away.
- *
- * A render helper rather than a component, on `ArtifactsPanel.tsx`'s rule: it holds no
- * state and takes no hooks, so mounting it as an element type would buy a
- * reconciliation boundary nothing needs.
- *
- * THE SOURCE IS NAMED, ALWAYS. `Spec-014 §Bounds (normative defaults; operator-tunable)`
- * makes an operator override replace the list WHOLESALE with no merge semantics, so a
- * hint that showed a list without saying whether it is the deployment's or the shipped
- * default would be a hint about a deployment the console cannot see. The
- * `shipped-default` arm additionally carries the refusal that kept the effective read
- * from answering.
- */
-function renderIngestBounds(allowlist: ArtifactAllowlistReading): React.JSX.Element {
-  const maximumFigure = formatByteQuantity(allowlist.maximumByteLength);
-  const chunkFigure = formatByteQuantity(ATTACHMENT_CHUNK_BYTE_CAP);
-  return (
-    <details className="meridian-ingest-bounds">
-      <summary className="meridian-ingest-bounds__summary">
-        What can be attached, and how much
-      </summary>
-      <p className="meridian-ingest-bounds__source">
-        {allowlist.source === "effective"
-          ? "This deployment's effective allow-list, as the daemon reports it."
-          : "The shipped default. This deployment's effective list could not be read, and an operator override replaces the default wholesale rather than adding to it — so what is admitted here may differ."}
-      </p>
-      {allowlist.refusal === undefined ? null : (
-        <p className="meridian-ingest-bounds__refusal">
-          <WireFigure value={allowlist.refusal.code} /> {allowlist.refusal.detail}
-        </p>
-      )}
-      <ul className="meridian-ingest-bounds__types">
-        {allowlist.mediaTypes.map((mediaType) => (
-          <li key={mediaType}>
-            <Chip label={mediaType} mono />
-          </li>
-        ))}
-      </ul>
-      <dl className="meridian-ingest-bounds__caps">
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per attachment</dt>
-          <dd>
-            <WireFigure value={maximumFigure.text} title={String(allowlist.maximumByteLength)} />
-          </dd>
-        </div>
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per carrier</dt>
-          <dd>
-            <DerivedFigure text={`${String(ATTACHMENTS_PER_CARRIER_CAP_DEFAULT)} attachments`} />
-          </dd>
-        </div>
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per chunk</dt>
-          <dd>
-            <WireFigure value={chunkFigure.text} title={String(ATTACHMENT_CHUNK_BYTE_CAP)} />
-          </dd>
-        </div>
-        <div className="meridian-ingest-bounds__cap">
-          <dt>Per upload</dt>
-          <dd>
-            <DerivedFigure text="six hours from the moment the stream opens" />
-          </dd>
-        </div>
-      </dl>
-    </details>
   );
 }
