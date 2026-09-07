@@ -15,7 +15,7 @@
 
 import type { ConsoleRefusal, WireRefusal } from "../../core/index.js";
 import type { GrowthOperationId } from "./growth-entry.js";
-import type { GrowthSlateRowId } from "./growth-slate.js";
+import type { GrowthSlateRowId } from "./growth-slate-row.js";
 import {
   SCRIPT_ABSENT_REFUSAL_CODE,
   SCRIPTED_REPLY_REFUSAL_CODES,

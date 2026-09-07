@@ -80,6 +80,37 @@ export const PINNED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-00000000005
 export const REPLICATING_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000052";
 export const EXPIRED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000053";
 
+/**
+ * Where the git workspace's runs execute, and the checkout that encloses it.
+ *
+ * TWO CONSTANTS BECAUSE TWO REPLIES STATE THEM and the pair is the subject of the
+ * three-path disclosure: the workspace roster reports the bound root as that
+ * workspace's `fsRoot`, and the execution-context read reports the same bound root
+ * beside the normalized checkout root the snapshot service operates on. Written as
+ * literals in both places they would drift in exactly the direction the disclosure
+ * reads, which is how the fixture came to state one directory spelled two ways and
+ * call it three roots that differ.
+ *
+ * THE BOUND ROOT IS NESTED INSIDE THE CHECKOUT ROOT, WHICH IS THE CASE THE DISCLOSURE
+ * EXISTS FOR. `Spec-010 §Turn-Boundary Snapshots` names it: a workspace bound at a
+ * subdirectory of its checkout normalizes to the enclosing working-tree TOP LEVEL,
+ * because capture is cwd-scoped while restore updates the whole tree — so the two
+ * values are genuinely different facts about one binding rather than two spellings of
+ * one path. The relationship is what the scenario asserts; byte inequality alone would
+ * have passed against the trailing-`/.` fixture that stated nothing.
+ *
+ * AND THE CHECKOUT IS A DIFFERENT TOP LEVEL FROM THE MOUNT'S OWN ROOT, which is what
+ * makes all three rows differ. That spec's branch-mode sentence admits it directly:
+ * the execution root is the participant's own live working tree, main checkout or
+ * linked worktree, whichever the workspace bound. Neither of the two daemon-created
+ * worktrees this scenario holds is reused for it — one is held by an active run and
+ * the other was provisioned for `worktree` mode, and a branch-mode binding sharing
+ * either would double-book a root the busy rule keys on.
+ */
+export const GIT_WORKSPACE_CHECKOUT_ROOT: string = "/Users/dev/code/ai-sidekicks-develop";
+/** The subdirectory of that checkout this workspace is bound at. */
+export const GIT_WORKSPACE_BOUND_ROOT: string = `${GIT_WORKSPACE_CHECKOUT_ROOT}/packages/contracts`;
+
 /** One agent in the cast, with the execution root the worktree beats give it. */
 export interface ReposScenarioAgent {
   readonly agentId: string;
