@@ -14,3 +14,23 @@
 
 export { MachineBody } from "./MachineBody.js";
 export { ParticipantBody } from "./ParticipantBody.js";
+
+// The two plan-owned row bodies, and exactly what the sibling that mounts them
+// takes. Each is a slot with a shell behind it and each dies with the change that
+// authors the real body — the declarations carry the three facts that arrangement
+// owes.
+//
+// THE LIST IS THE FIXTURE SHELL'S IMPORTS AND NOTHING ELSE. Every other name these
+// two modules declare — the tail cut, the arm copy, the ask's own reading and option
+// shapes, the two body-props types — is read by a sibling INSIDE this directory or
+// by the co-located suites, both of which take the declaring module directly. A door
+// line with no reader outside the directory is a dead export the barrel census fails,
+// so this door is never widened for symmetry.
+export { InputAskCard } from "./InputAskCard.js";
+export { INPUT_ASK_SLOT, readDriverAsk } from "./input-ask.js";
+export { ReasoningSurface } from "./ReasoningSurface.js";
+export {
+  REASONING_SURFACE_SLOT,
+  reasoningRunIdOf,
+  type ReasoningSurfaceReading,
+} from "./reasoning-surface.js";

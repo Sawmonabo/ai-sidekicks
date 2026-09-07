@@ -27,6 +27,7 @@ function renderMessageCard(
     readonly liveText?: string;
     readonly inlineCards?: readonly InlineCardSeatProps[];
     readonly editAffordance?: OwnerSlotProps<React.ReactNode>;
+    readonly reasoningSurface?: React.ReactNode;
   } = {},
 ): HTMLElement {
   const { container } = render(
@@ -40,6 +41,7 @@ function renderMessageCard(
       isSuperseded={false}
       density="expanded"
       footnotes={new FootnoteRegistry()}
+      reasoningSurface={overrides.reasoningSurface}
       {...(overrides.content === undefined ? {} : { content: overrides.content })}
       {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
       {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}

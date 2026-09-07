@@ -110,6 +110,44 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
     entries: LEDGER_SCRIPT,
   }),
   replies: [
+    // The run-scoped reasoning surface, on its `available` arm with a bounded page.
+    //
+    // A REGISTERED WIRE, so this reply is parsed against the contract's own schema
+    // like every other registered call rather than served through the growth port.
+    // The arm is `available` because the three empty arms need no scripted entries to
+    // be reachable — a run this reply does not name answers with the fixture's own
+    // refusal, and the card renders that as itself — while the entries are the one
+    // thing no other beat in this session can produce.
+    {
+      call: "timeline.reasoningSurfaceRead",
+      result: {
+        availability: "available",
+        hasMore: false,
+        reasoningEntries: [
+          {
+            sequence: 12,
+            content: "The two storage backends differ in who owns the row, not in what it holds.",
+            timestamp: attachedAtIso(2_500),
+          },
+          {
+            sequence: 13,
+            content: "A node-local answer is reversible; a control-plane answer is not.",
+            timestamp: attachedAtIso(2_520),
+          },
+        ],
+      },
+    },
+    // The answer to the open ask. `DriverAckResult` is an ACKNOWLEDGEMENT that the
+    // answer reached the driver and never a settlement of the ask — the scenario
+    // scripts no `driver_ask.responded` beat behind it, because a fixture that
+    // settled the ask locally would be teaching the surface the one thing it must
+    // never do. The registered ack is the EMPTY object — the acknowledgement is the
+    // reply's arrival and carries no members at all — so an invented `status` here
+    // would fail the strict parse the call goes through.
+    {
+      call: "driver.respondToRequest",
+      result: {},
+    },
     {
       // `session.read`, not a `session.list`: the method registry carries no list
       // verb, and a fixture answering one would put a call in front of a surface

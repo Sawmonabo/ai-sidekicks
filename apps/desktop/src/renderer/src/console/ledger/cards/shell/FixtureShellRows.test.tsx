@@ -4,6 +4,8 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
 import { LedgerRowLeaseProvider, type LedgerRowLease } from "../../frame/index.js";
 import {
   registerTimelineRowRenderer,
@@ -28,6 +30,24 @@ function slotProps(row: TimelineRowSlotProps["row"]): TimelineRowSlotProps {
 }
 
 /**
+ * The bridge every row now renders inside.
+ *
+ * The shell's rows hold two registered daemon calls — the reasoning-surface read a
+ * reasoning row offers, and the answer an ask row delivers — so a row rendered
+ * outside the provider is a row whose hooks cannot resolve a bridge at all. The
+ * quiet scenario is the one with no beats: the harness needs a bridge to exist and
+ * needs it to answer nothing, and a scripted session would put a log behind rows
+ * these cases hand in one at a time.
+ */
+function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Element {
+  return (
+    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+      {props.children}
+    </SidekicksBridgeProvider>
+  );
+}
+
+/**
  * The shell inside a list that owns its density, which is what a ledger is.
  *
  * Every routing case above renders the row bare, and that is deliberate: routing is
@@ -42,16 +62,18 @@ function MountedInAList(props: {
 }): React.JSX.Element {
   const [leased, setLeased] = useState<LedgerRowLease | undefined>(undefined);
   return (
-    <LedgerRowLeaseProvider
-      channel={{
-        setLease: (rowKey, lease) => {
-          props.onLeaseWritten?.(rowKey, lease);
-          setLeased(lease);
-        },
-      }}
-    >
-      <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
-    </LedgerRowLeaseProvider>
+    <InBridge>
+      <LedgerRowLeaseProvider
+        channel={{
+          setLease: (rowKey, lease) => {
+            props.onLeaseWritten?.(rowKey, lease);
+            setLeased(lease);
+          },
+        }}
+      >
+        <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
+      </LedgerRowLeaseProvider>
+    </InBridge>
   );
 }
 
@@ -78,6 +100,49 @@ describe("routing a row to its card", () => {
       <MountedInAList row={sampleRunRow({ type: "assistant.message" })} listDensity="collapsed" />,
     );
     expect(container.querySelector(".meridian-message-card")).not.toBeNull();
+  });
+
+  it("gives a reasoning row the reasoning surface rather than the machine body", () => {
+    const { container } = render(
+      <MountedInAList
+        row={sampleRunRow({ type: "assistant.thinking_update" })}
+        listDensity="collapsed"
+      />,
+    );
+    expect(container.querySelector(".meridian-reasoning-surface")).not.toBeNull();
+    // NEGATIVE CONTROL for the routing: without the split, a reasoning row rendered
+    // through the hydrated-content body and reported a policy redaction as a body
+    // that could not be opened.
+    expect(container.querySelector(".meridian-machine-body")).toBeNull();
+  });
+
+  it("sends an input ask to the ask card ahead of the family table", () => {
+    const { container } = render(
+      <MountedInAList
+        row={sampleRunRow({
+          type: "driver_ask.requested",
+          payload: { askId: "ask-01", kind: "input", prompt: "Which branch?" },
+        })}
+        listDensity="collapsed"
+      />,
+    );
+    expect(container.textContent).toContain("Which branch?");
+    // The classifier answers `receipt` for this type, which is the right answer for
+    // the family table and the wrong surface for a run blocked on a question.
+    expect(container.querySelector(".meridian-receipt-row")).toBeNull();
+  });
+
+  it("negative control: a permission ask is not drawn here", () => {
+    const { container } = render(
+      <MountedInAList
+        row={sampleRunRow({
+          type: "driver_ask.requested",
+          payload: { askId: "ask-02", kind: "permission", prompt: "Run this command?" },
+        })}
+        listDensity="collapsed"
+      />,
+    );
+    expect(container.querySelector(".meridian-input-ask")).toBeNull();
   });
 
   it("sends everything else to the one-line receipt row", () => {

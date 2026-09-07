@@ -14,6 +14,9 @@ import type {
   ListModelsResult,
   ListCapabilitiesResult,
   InterruptRunParams,
+  ReasoningSurfaceReadRequest,
+  ReasoningSurfaceReadResponse,
+  RespondToRequestParams,
   DriverReadParams,
   DriverCompactionResult,
   DriverAckResult,
@@ -120,6 +123,25 @@ export interface ConsoleDaemonMethodContract {
   readonly "driver.listModels": {
     readonly request: DriverReadParams;
     readonly response: ListModelsResult;
+  };
+  // The answer to a provider-raised ask. The one row whose `response` is `unknown` by
+  // contract and deliberately so: the ask's own choice set or the participant's free
+  // text both travel this member, which is why the input-ask card mints no wire of its
+  // own. `DriverAckResult` is the reply — an acknowledgement that the answer reached
+  // the driver, never a settlement of the ask, which only the ask's own row may state.
+  readonly "driver.respondToRequest": {
+    readonly request: RespondToRequestParams;
+    readonly response: DriverAckResult;
+  };
+
+  // timeline — the run-scoped reasoning surface, whose reply is the CLOSED four-arm
+  // availability discriminant. It is here rather than on the growth port because the
+  // corpus registers both shapes: the admission rule the reply registry states is met
+  // in all three conjuncts, and a growth row for a registered wire would be a second
+  // answer to a method that already has one.
+  readonly "timeline.reasoningSurfaceRead": {
+    readonly request: ReasoningSurfaceReadRequest;
+    readonly response: ReasoningSurfaceReadResponse;
   };
 
   // repo — the mounts, workspaces, and execution roots the repos section reads.
