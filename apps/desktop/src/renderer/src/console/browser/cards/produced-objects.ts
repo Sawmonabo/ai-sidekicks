@@ -44,10 +44,17 @@
 // does not exist, and a state read off a value that is not one of the three would put
 // an unrenderable arm into a total table.
 //
-// LAST WRITE WINS, PER ARTIFACT. A capture appears three times in a browsing session —
-// pending, published, then superseded by a retake — and it is one object each time. A
-// fold that appended would show the same capture three times in a shelf whose whole
-// density rule is one row per produced object.
+// LAST WRITE WINS, PER ARTIFACT — ON THE STATE, AND NOT ON WHAT THE BEAT OMITTED. A
+// capture appears three times in a browsing session — pending, published, then
+// superseded by a retake — and it is one object each time. A fold that appended would
+// show the same capture three times in a shelf whose whole density rule is one row per
+// produced object. But `runId` and `visibility` are OPTIONAL on the payload, so a
+// later beat need not repeat either, and a fold that replaced the row wholesale read
+// every omission as an erasure: a visibility change deleted the row's run attribution
+// and a supersession deleted its visibility, neither of which the wire ever said.
+// `mergedProducedArtifact` is where that is settled.
+
+import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import type { BrowserCaptureCardProps } from "./CaptureCard.js";
@@ -61,8 +68,16 @@ import { isProducedArtifactState, type ProducedArtifactState } from "./produced-
  * about a row this shelf is already showing — dropping it would leave the row
  * rendering a visibility the log has since moved. It carries no state transition, so
  * the state it contributes is whatever the beat states.
+ *
+ * DECLARED ONCE AND EXPORTED, because the shelf's two halves read the same set for
+ * two purposes: this fold admits a beat of one of these kinds, and
+ * `produced-provenance.ts` re-reads the daemon's ledger when one arrives. A second
+ * list beside this one would be a shelf that folded a kind it never refreshed for,
+ * or refreshed for a kind it then dropped. Typed against the registered census
+ * rather than as strings, so a kind the wire never emits is a compile error here
+ * instead of a signal that never fires.
  */
-const PRODUCED_ARTIFACT_EVENT_KINDS: readonly string[] = [
+export const PRODUCED_ARTIFACT_EVENT_KINDS: readonly SessionEventType[] = [
   "artifact.published",
   "artifact.superseded",
   "artifact.visibility_updated",
@@ -141,6 +156,39 @@ function readProducedState(
 }
 
 /**
+ * One row's state and sequence from `deciding`, its optional members from either.
+ *
+ * WHY AN ABSENT OPTIONAL IS NOT AN ERASURE. `runId` and `visibility` are optional on
+ * the `artifact_publication` payload, so a lifecycle beat need not repeat what has
+ * not changed: an `artifact.visibility_updated` names the new visibility and
+ * routinely carries no `runId`, and an `artifact.superseded` names neither. A fold
+ * that replaced the row wholesale therefore read every such beat as "this artifact
+ * now has no run" and dropped the attribution the publish had established — a claim
+ * about the artifact nothing on the wire ever made. Absent means "this beat says
+ * nothing about it", which is what `??` encodes, and the only value that can erase a
+ * member is a later beat carrying a different one.
+ *
+ * `deciding` supplies the state and the sequence unconditionally, which is what keeps
+ * this a merge of METADATA rather than of state: the newest beat decides what the
+ * artifact is, and the older one only fills what the newer left unsaid.
+ */
+function mergedProducedArtifact(
+  deciding: ProducedArtifact,
+  fallback: ProducedArtifact | undefined,
+): ProducedArtifact {
+  if (fallback === undefined) {
+    return deciding;
+  }
+  return {
+    artifactId: deciding.artifactId,
+    state: deciding.state,
+    runId: deciding.runId ?? fallback.runId,
+    visibility: deciding.visibility ?? fallback.visibility,
+    latestSequence: deciding.latestSequence,
+  };
+}
+
+/**
  * Every artifact this window produced, newest first, as the log now knows it.
  *
  * `producedArtifactIds` is the provenance, and `produced-provenance.ts` is where it
@@ -163,7 +211,7 @@ export function foldProducedArtifacts(
 ): readonly ProducedArtifact[] {
   const byArtifactId = new Map<string, ProducedArtifact>();
   for (const event of timeline) {
-    if (!PRODUCED_ARTIFACT_EVENT_KINDS.includes(event.kind)) {
+    if (!PRODUCED_ARTIFACT_EVENT_KINDS.some((admittedKind) => admittedKind === event.kind)) {
       continue;
     }
     const artifactId = readStringMember(event.payload, "artifactId");
@@ -174,19 +222,24 @@ export function foldProducedArtifacts(
     if (!producedArtifactIds.has(artifactId)) {
       continue;
     }
-    const existing = byArtifactId.get(artifactId);
-    if (existing !== undefined && existing.latestSequence > event.sequence) {
-      // An out-of-order delivery. The newest beat is the one that decides the state,
-      // and "newest" is the log's position rather than the order this loop saw them.
-      continue;
-    }
-    byArtifactId.set(artifactId, {
+    const beat: ProducedArtifact = {
       artifactId,
       state,
       runId: readStringMember(event.payload, "runId"),
       visibility: readStringMember(event.payload, "visibility"),
       latestSequence: event.sequence,
-    });
+    };
+    const existing = byArtifactId.get(artifactId);
+    if (existing !== undefined && existing.latestSequence > event.sequence) {
+      // An out-of-order delivery. The newest beat is the one that decides the state,
+      // and "newest" is the log's position rather than the order this loop saw them.
+      // It still contributes what the newer beat did not carry, for the reason
+      // `mergedProducedArtifact` states: an optional member absent from one beat is
+      // silence about it, whichever direction the two arrived in.
+      byArtifactId.set(artifactId, mergedProducedArtifact(existing, beat));
+      continue;
+    }
+    byArtifactId.set(artifactId, mergedProducedArtifact(beat, existing));
   }
   return [...byArtifactId.values()].sort(
     (left, right) => right.latestSequence - left.latestSequence,

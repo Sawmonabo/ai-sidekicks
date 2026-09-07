@@ -19,20 +19,28 @@
 // result is truncated, no call is refused, and nothing about what the daemon did
 // changes. What is dropped is a row nobody scrolled to.
 //
-// AND THE ACCUMULATION SURVIVES THE PRODUCER, which is the difference between the two
-// arms below carrying calls and only one of them doing so. A relayed call is a
-// HISTORICAL invocation — it happened, and it goes on having happened after the
-// subscription that reported it closes — so an ended arm that dropped the list would
-// erase every call the session made the moment the producer finished cleanly, and the
-// feed would render its own sentence ("this list stops where it stopped") over
-// nothing at all. The end is a fact about the SUBSCRIPTION and never about the calls,
-// so the ended arm carries the same bounded list the served arm was carrying.
+// AND THE ACCUMULATION SURVIVES THE PRODUCER, WHICHEVER WAY THE PRODUCER GOES. A
+// relayed call is a HISTORICAL invocation — it happened, and it goes on having
+// happened after the subscription that reported it closes — so a terminal arm that
+// dropped the list would erase every call the session made at the moment the stream
+// stopped, and the feed would render its own sentence over nothing at all. The ending
+// is a fact about the SUBSCRIPTION and never about the calls, so all three settled
+// arms carry the same bounded list the served arm was carrying.
+//
+// WHICH IS WHY THE REFUSED ARM CARRIES ONE TOO, and why its SCOPE is read off that
+// list rather than fixed. `primitives/partial-read.ts` closes the refusal scope at
+// two, and the difference between them is exactly this question: a refusal that IS
+// the whole answer, and a refusal that arrived BESIDE one. An iterator that throws
+// having relayed nothing is the first; one that throws after relaying six
+// invocations is the second, and reporting it as the first tells a person the window
+// knows nothing about what the agent did while six cards it had already drawn
+// disappear underneath the sentence saying so.
 
 import { useEffect } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { normalizeWireRejection, RELAYED_TOOL_CALL_ROW_CAP } from "../../core/index.js";
-import type { ReadingState } from "../../primitives/index.js";
+import type { ReadingState, RefusalScope } from "../../primitives/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
@@ -59,19 +67,36 @@ export type RelayedToolCall = ToolCallStream extends {
 /**
  * What the pane knows about the agent's browser tool calls right now.
  *
- * BOTH SETTLED ARMS CARRY THE LIST, and they carry the same one. `served` is a live
- * subscription and `ended` is one whose producer finished; what differs is whether
- * another call can still arrive, not which calls have already been made.
+ * EVERY SETTLED ARM CARRIES THE LIST, and they carry the same one. `served` is a live
+ * subscription, `ended` is one whose producer finished, and `refused` is one that
+ * broke; what differs is whether another call can still arrive and whether anything
+ * is wrong, not which calls have already been made. Only `reading` carries none,
+ * because at that point none has.
  */
 export type ToolCallReading =
   | Extract<ReadingState, { readonly kind: "reading" }>
   | (Extract<ReadingState, { readonly kind: "served" }> & {
       readonly calls: readonly RelayedToolCall[];
     })
-  | Extract<ReadingState, { readonly kind: "refused" }>
+  | (Extract<ReadingState, { readonly kind: "refused" }> & {
+      readonly calls: readonly RelayedToolCall[];
+    })
   | { readonly kind: "ended"; readonly calls: readonly RelayedToolCall[] };
 
 const UNREAD_TOOL_CALLS: ToolCallReading = { kind: "reading" };
+
+/**
+ * What a refusal is the answer to, decided by whether anything else answered.
+ *
+ * Read off the accumulated list rather than fixed at the call site, which is the one
+ * place this decision can be right: `whole-answer` claims there is nothing else on
+ * screen, and after even one relayed call that is false. Decided here, once, so the
+ * two refusal publications below cannot disagree about it and no render body
+ * re-derives it.
+ */
+function refusalScopeFor(seen: readonly RelayedToolCall[]): RefusalScope {
+  return seen.length === 0 ? "whole-answer" : "beside-an-answer";
+}
 
 /**
  * Subscribe to the tool calls the daemon relays for this session.
@@ -113,7 +138,10 @@ export function useRelayedToolCalls(
           return;
         }
         if (outcome.status === "unavailable") {
-          publish({ kind: "refused", scope: "whole-answer", refusal: outcome });
+          // Nothing has been relayed yet on this path by construction — the
+          // subscription was never opened — so the scope reads `whole-answer` from
+          // the same accessor the catch below uses rather than being asserted here.
+          publish({ kind: "refused", scope: refusalScopeFor(seen), refusal: outcome, calls: seen });
           return;
         }
         stream = outcome.value;
@@ -136,14 +164,18 @@ export function useRelayedToolCalls(
       } catch (failure) {
         closeStream();
         if (!cancelled) {
+          // The list the loop had accumulated when the iterator threw, handed on for
+          // the reason the ended arm hands its own on: those invocations were made,
+          // and a producer breaking afterwards says nothing about them.
           publish({
             kind: "refused",
-            scope: "whole-answer",
+            scope: refusalScopeFor(seen),
             refusal: normalizeWireRejection(
               TOOL_RELAY_REFUSAL_ORIGIN,
               failure,
               RELAY_FAILURE_FALLBACK,
             ),
+            calls: seen,
           });
         }
       }

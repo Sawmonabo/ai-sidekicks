@@ -121,7 +121,6 @@ export type {
   ReadingState,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   RefusalScope,
 } from "./partial-read.js";
 export {

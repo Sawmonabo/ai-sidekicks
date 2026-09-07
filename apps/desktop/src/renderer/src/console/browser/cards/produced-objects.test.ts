@@ -177,6 +177,105 @@ describe("which artifacts the browser may claim as its own", () => {
     expect(artifacts.map((artifact) => artifact.artifactId)).toEqual(["artifact-browser-capture"]);
   });
 
+  it("keeps the run a later beat did not repeat, and takes the newer state", () => {
+    // `runId` is OPTIONAL on the payload, and a `visibility_updated` beat names the
+    // new visibility and routinely carries no run. A fold that replaced the row read
+    // that omission as "this artifact now has no run" and deleted the attribution the
+    // publish had established — a claim about the artifact nothing on the wire made.
+    const artifacts = foldProducedArtifacts(
+      [
+        eventOfKind(SESSION_ID, "artifact.published", 1, {
+          artifactId: "artifact-a",
+          state: "published",
+          runId: "run-1",
+          visibility: "local-only",
+        }),
+        eventOfKind(SESSION_ID, "artifact.visibility_updated", 2, {
+          artifactId: "artifact-a",
+          state: "published",
+          visibility: "shared",
+        }),
+      ],
+      produced("artifact-a"),
+    );
+    expect(artifacts[0]?.runId).toBe("run-1");
+    expect(artifacts[0]?.visibility).toBe("shared");
+    expect(artifacts[0]?.latestSequence).toBe(2);
+  });
+
+  it("keeps the visibility a supersession did not repeat", () => {
+    // The same rule on the other member: a supersession names neither, so both the
+    // run and the visibility survive it while the STATE moves.
+    const artifacts = foldProducedArtifacts(
+      [
+        eventOfKind(SESSION_ID, "artifact.published", 1, {
+          artifactId: "artifact-a",
+          state: "published",
+          runId: "run-1",
+          visibility: "shared",
+        }),
+        eventOfKind(SESSION_ID, "artifact.superseded", 2, {
+          artifactId: "artifact-a",
+          state: "superseded",
+        }),
+      ],
+      produced("artifact-a"),
+    );
+    expect(artifacts[0]?.state).toBe("superseded");
+    expect(artifacts[0]?.visibility).toBe("shared");
+    expect(artifacts[0]?.runId).toBe("run-1");
+  });
+
+  it("fills an absent member from an out-of-order beat without taking its state", () => {
+    // The same rule read the other way. The publish arrives AFTER the supersession
+    // this loop already folded, so it must not decide the state — and it is still the
+    // only beat that ever named the run, so dropping it whole loses the attribution.
+    const artifacts = foldProducedArtifacts(
+      [
+        eventOfKind(SESSION_ID, "artifact.superseded", 2, {
+          artifactId: "artifact-a",
+          state: "superseded",
+        }),
+        eventOfKind(SESSION_ID, "artifact.published", 1, {
+          artifactId: "artifact-a",
+          state: "published",
+          runId: "run-1",
+          visibility: "local-only",
+        }),
+      ],
+      produced("artifact-a"),
+    );
+    expect(artifacts[0]?.state).toBe("superseded");
+    expect(artifacts[0]?.latestSequence).toBe(2);
+    expect(artifacts[0]?.runId).toBe("run-1");
+    expect(artifacts[0]?.visibility).toBe("local-only");
+  });
+
+  it("negative control: a later beat that NAMES a member replaces it rather than merging", () => {
+    // Without this the merge above would be indistinguishable from a fold that never
+    // lets an optional member change at all — so a visibility the session actually
+    // moved would stay on screen as whatever it was first published as.
+    const artifacts = foldProducedArtifacts(
+      [
+        eventOfKind(SESSION_ID, "artifact.published", 1, {
+          artifactId: "artifact-a",
+          state: "published",
+          runId: "run-1",
+          visibility: "local-only",
+        }),
+        eventOfKind(SESSION_ID, "artifact.visibility_updated", 2, {
+          artifactId: "artifact-a",
+          state: "published",
+          runId: "run-2",
+          visibility: "shared",
+        }),
+      ],
+      produced("artifact-a"),
+    );
+    expect(artifacts[0]?.runId).toBe("run-2");
+    expect(artifacts[0]?.visibility).toBe("shared");
+  });
+
   it("negative control: a window that produced nothing claims nothing", () => {
     // Without the join, this same log folds to two rows on a shelf headed "Produced
     // objects" in a window whose browser has produced none of them.

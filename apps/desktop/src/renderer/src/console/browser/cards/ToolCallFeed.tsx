@@ -6,12 +6,16 @@
 // PANE adds is proximity: the call about to act on the page a person is watching,
 // beside that page.
 //
-// AND A FINISHED RELAY STILL HAS ITS CALLS. The terminal status and the rows are two
-// different facts — the subscription ended, and these invocations were made — so the
-// ended arm renders the status ABOVE the same list the live arm renders rather than
-// instead of it. A feed that swapped the list for the sentence deleted every call the
-// session had made at the moment its producer closed cleanly, which is the one moment
-// nothing was wrong.
+// AND A RELAY THAT STOPPED STILL HAS ITS CALLS, however it stopped. The terminal
+// notice and the rows are two different facts — the subscription is over, and these
+// invocations were made — so a terminal arm renders its notice ABOVE the same list the
+// live arm renders rather than instead of it. A feed that swapped the list for the
+// sentence deleted every call the session had made at the moment the stream stopped.
+// That holds for the REFUSED arm as much as the ended one, which is why this component
+// has one list and three leading notices rather than a return per arm: an iterator that
+// throws after relaying six invocations leaves six true rows on screen, and replacing
+// them with an error is the feed claiming the window knows nothing about a page it has
+// been reporting on all along.
 //
 // EVERY CALL ARRIVES AWAITING ADJUDICATION, and that is a fact about the relay rather
 // than a default this component chose. The relay carries an invocation the daemon has
@@ -31,9 +35,8 @@ export interface ToolCallFeedProps {
 export function ToolCallFeed(props: ToolCallFeedProps): React.JSX.Element {
   const { reading } = props;
 
-  if (reading.kind === "refused") {
-    return <InlineRefusal {...reading.refusal} />;
-  }
+  // The one arm that carries no list, taken first so every arm below reads `calls`
+  // off the reading without a branch per kind.
   if (reading.kind === "reading") {
     return (
       <Nothing
@@ -44,8 +47,11 @@ export function ToolCallFeed(props: ToolCallFeedProps): React.JSX.Element {
       />
     );
   }
-  const hasEnded = reading.kind === "ended";
-  if (reading.calls.length === 0 && !hasEnded) {
+  const { calls } = reading;
+  // Only the LIVE arm collapses to an absence, and only while it is empty. A relay
+  // that finished or broke having relayed nothing has something of its own to say,
+  // and "no agent has called a page tool" is not it.
+  if (reading.kind === "served" && calls.length === 0) {
     return (
       <Nothing
         kind="empty"
@@ -58,7 +64,8 @@ export function ToolCallFeed(props: ToolCallFeedProps): React.JSX.Element {
 
   return (
     <>
-      {hasEnded ? (
+      {reading.kind === "refused" ? <InlineRefusal {...reading.refusal} /> : null}
+      {reading.kind === "ended" ? (
         <Nothing
           kind="not-checked"
           placement="inline"
@@ -66,9 +73,9 @@ export function ToolCallFeed(props: ToolCallFeedProps): React.JSX.Element {
           detail="The producer relaying this session's browser tool calls finished, so this list stops where it stopped."
         />
       ) : null}
-      {reading.calls.length === 0 ? null : (
+      {calls.length === 0 ? null : (
         <div className="meridian-browser-cards">
-          {reading.calls.map((call) => (
+          {calls.map((call) => (
             <BrowserToolCallCard
               key={call.toolCallId}
               toolCallId={call.toolCallId}
