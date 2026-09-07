@@ -183,6 +183,7 @@ async function mountComposerAt(options: {
       sessionStore={composerSessionStore(options.throughKind)}
       bridge={bridge}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
+      frameStore={new FrameStore()}
       route={{ kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId }}
       focusedPane={options.focusedPane}
     />,

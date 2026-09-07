@@ -27,7 +27,11 @@ import { useEffect, useState } from "react";
 
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
 
-import { isUnbuiltWireRefusal, type ConsoleBridge } from "../../../bridge/index.js";
+import {
+  isUnbuiltWireRefusal,
+  settleGrowthRead,
+  type ConsoleBridge,
+} from "../../../bridge/index.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
 
 /**
@@ -115,34 +119,31 @@ export function useCallbackToolRegistry(
 /**
  * Put the read and map its answer onto the three arms.
  *
- * The rejection is caught here rather than left to the effect's promise, because a
- * seam that rejects instead of answering would otherwise pin the surface on the
- * in-flight state for the life of the mount.
+ * SETTLED THROUGH THE BRIDGE'S OWN SEAM RATHER THAN CAUGHT HERE. A growth call has a
+ * fourth settlement its outcome union has no arm for — the scripted-reply seam throws
+ * a DAEMON refusal verbatim, and the live seam will throw the same shape the day the
+ * wire lands — and this module used to absorb it with a bare `catch` and substitute
+ * one fixed `call-rejected` sentence. That threw away the code the remedy table is
+ * keyed on: a session that had gone away arrived here as `session.not_found` and left
+ * as a generic seam failure with no next move and nothing for the frame's banner
+ * escalation to fire on. `settleGrowthRead` is the console's one reading of that
+ * rejection — it carries a thrown refusal through untouched, recovers the dotted
+ * project code a JSON-RPC envelope carries at `data.type`, and synthesizes a named
+ * refusal only where the thrown value said nothing machine-readable — so the arms
+ * below narrow on one value and no failure is renamed on its way past.
  */
 async function readRegistry(
   bridge: ConsoleBridge,
   sessionId: string,
 ): Promise<CallbackToolRegistryReading> {
-  try {
-    const outcome = await bridge.growth.callbackToolRegistryRead({ sessionId });
-    if (outcome.status === "served") {
-      return { kind: "exposed", tools: outcome.value };
-    }
-    // The wire is not registered anywhere in the corpus, which is the standing V1
-    // condition — and the same condition under which spawn withholds the registry.
-    // Both facts are carried; neither is inferred from the other.
-    return isUnbuiltWireRefusal(outcome)
-      ? { kind: "withheld", tools: BORN_WITHHELD_REGISTRY, unreadRefusal: outcome }
-      : { kind: "unread", refusal: outcome };
-  } catch {
-    return { kind: "unread", refusal: CALLBACK_REGISTRY_READ_FAILURE };
+  const outcome = await settleGrowthRead(bridge.growth.callbackToolRegistryRead({ sessionId }));
+  if (outcome.status === "served") {
+    return { kind: "exposed", tools: outcome.value };
   }
+  // The wire is not registered anywhere in the corpus, which is the standing V1
+  // condition — and the same condition under which spawn withholds the registry.
+  // Both facts are carried; neither is inferred from the other.
+  return isUnbuiltWireRefusal(outcome)
+    ? { kind: "withheld", tools: BORN_WITHHELD_REGISTRY, unreadRefusal: outcome }
+    : { kind: "unread", refusal: outcome };
 }
-
-/** The refusal a seam that rejected is read as, so the surface still settles. */
-const CALLBACK_REGISTRY_READ_FAILURE: ConsoleRefusal = {
-  code: "call-rejected",
-  detail:
-    "The daemon-hosted tool registry read did not answer. Nothing here reports what an agent can reach until it does.",
-  origin: "growth-port",
-};

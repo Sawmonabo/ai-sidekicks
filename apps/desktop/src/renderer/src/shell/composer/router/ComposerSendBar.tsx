@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useId, useRef } from "react";
 import { RefusalCard, RemediedRefusal } from "../../../console/primitives/index.js";
 import { subscribeToComposerFocus, type ComposerSeatProps } from "../../../console/seats/index.js";
+import { useRefusalBannerEscalation } from "../../../console/store/index.js";
 import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";
@@ -79,6 +80,14 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     commandExecutor: commandZone.commandExecutor,
     recognizeProviderCommand: commandZone.recognizeProviderCommand,
   });
+  // A SEND THAT LEARNED THE SESSION IS GONE IS NOT THIS BAR'S NEWS ALONE. The refusal
+  // still renders below, beside the control that produced it — that is where a person
+  // pressing Send looks — but the remedy table calls `session.not_found` a workspace
+  // banner, and until this handover the composer was the one surface that could learn
+  // it and never told the frame: every pane went on drawing a session that had left
+  // the node. The hook decides which codes qualify and raises each condition once, so
+  // nothing here reads the table and a dismissed banner stays dismissed.
+  useRefusalBannerEscalation(props.frameStore, controller.refusal);
   const pathLabelId = useId();
   const isSending = controller.status === "sending";
   const isProviderBound = address.target.path === "provider-bound";

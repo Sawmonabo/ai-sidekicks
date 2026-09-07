@@ -16,6 +16,7 @@ import {
 } from "../../bridge/index.js";
 import { DerivedFigure, formatCount, InlineRefusal } from "../../primitives/index.js";
 import {
+  bannerClassRefusalAmong,
   useRefusalBannerEscalation,
   useSessionPartition,
   type SessionStore,
@@ -31,6 +32,7 @@ import { RunRow } from "./RunRow.js";
 import { settledRunPosture } from "./run-posture.js";
 import { seatRuns } from "./run-seating.js";
 import { useRunControlCommands } from "./controls/run-control-commands.js";
+import { readRunControlSettlement } from "./controls/run-control-reading.js";
 import { useRunControlSurface } from "./controls/run-control-surface.js";
 import { useRunFeed } from "./run-state-feed.js";
 import { NoRuns } from "./NoRuns.js";
@@ -98,6 +100,25 @@ export function RunsPaneBody(props: {
   // refusal is where `session.not_found` lands here, because that is the call that
   // names the session.
   useRefusalBannerEscalation(context.frameStore, stateFeed.openRefusal);
+
+  // AND SO DOES A CONTROL THAT CAME BACK WITH ONE. A pause, a resume, a steer or a
+  // rewind is a mutation, and a mutation is the other way this pane learns the
+  // session has left the node — the row keeps the daemon's words beside the control
+  // that was pressed, and the frame is told as well, because every other pane is
+  // still drawing a session that is gone. Read through the settlement reading rather
+  // than off the raw records so the rule that surface already states holds here too:
+  // only the NEWEST settlement for a run speaks for it, and a refusal a later working
+  // control has superseded escalates nothing.
+  const controlRefusal = useMemo(
+    () =>
+      bannerClassRefusalAmong(
+        [...new Set(surface.records.map((record) => record.runId))].map(
+          (runId) => readRunControlSettlement(surface, runId).refusal,
+        ),
+      ),
+    [surface],
+  );
+  useRefusalBannerEscalation(context.frameStore, controlRefusal);
 
   // The same six acts the rows draw, reachable from the palette while this pane is
   // open. Contributed here rather than at module scope because every one of them

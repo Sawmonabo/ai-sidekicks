@@ -61,6 +61,18 @@ export interface PaneBindings {
   readonly sessionStore: SessionStore | undefined;
   /** The pane this one was opened FROM, where a case is about the link. */
   readonly linkedSourcePaneId?: string;
+  /**
+   * The window store the pane escalates into, for a case that reads its banners.
+   *
+   * Optional and defaulted, unlike the two above: a pane is always given one and a
+   * suite that does not assert about the frame has nothing to decide here, so a
+   * required member would make every mount name a store it never reads.
+   *
+   * `| undefined` spelled out beside the `?`, because `exactOptionalPropertyTypes`
+   * makes those two different types: a caller that forwards its own optional member
+   * passes the property PRESENT and undefined, which the bare `?` rejects.
+   */
+  readonly frameStore?: FrameStore | undefined;
 }
 
 /**
@@ -84,7 +96,7 @@ export function paneContext<TKind extends PaneKind>(
     paneId: `pane-${address.kind}`,
     linkedSourcePaneId: bindings.linkedSourcePaneId,
     bridge: bindings.bridge,
-    frameStore: new FrameStore(),
+    frameStore: bindings.frameStore ?? new FrameStore(),
     sessionStore: bindings.sessionStore,
     // An adapter that never settles: no pane in this family performs a UI-state read,
     // so one that grew one hangs here rather than passing against a stub.

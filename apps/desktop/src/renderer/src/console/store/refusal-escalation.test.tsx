@@ -5,13 +5,19 @@
 // that raised on every render would put a banner back the moment a person dismissed
 // it. The first claim is the rule itself — only the codes the remedy table calls
 // banners escalate — and the third is its negative control.
+//
+// AND THE SECOND CLAIM IS ABOUT THE CONDITION, NOT THE OBJECT. A retry does not hand
+// the same refusal VALUE back — every producer in this console mints a fresh one per
+// failed read — so the two cases at the end of `how often it escalates` are the pair
+// that decides the rule: an equal refusal stays dismissed and a changed one comes
+// back. Either one alone is satisfiable by a wrong hook.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../core/index.js";
+import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { FrameStore } from "./frame-store.js";
-import { useRefusalBannerEscalation } from "./refusal-escalation.js";
+import { bannerClassRefusalAmong, useRefusalBannerEscalation } from "./refusal-escalation.js";
 
 const GONE_SESSION = refuse("runs", "session.not_found", "That session is not on this node.");
 const PANE_REFUSAL = refuse("runs", "run.version_conflict", "The run moved on.");
@@ -106,5 +112,83 @@ describe("how often it escalates", () => {
     expect(frameStore.getState().banners.map((banner) => banner.id)).toStrictEqual([
       `${secondRefusal.origin}:${secondRefusal.code}`,
     ]);
+  });
+
+  it("keeps the banner dismissed when a retry mints an equal refusal", () => {
+    // The defect this exists for. The approvals reader allocates a fresh refusal on
+    // every failed refresh — including the window-focus retries the read triggers
+    // arm — so a hook keyed on object identity re-raised on each one and dismissal
+    // lasted until the next retry. The condition has not changed, so nothing new is
+    // being told to anybody, and a banner that keeps coming back is one people stop
+    // reading.
+    const frameStore = new FrameStore();
+    const rendered = renderHook(
+      ({ refusal }: { refusal: ConsoleRefusal }) => {
+        useRefusalBannerEscalation(frameStore, refusal);
+      },
+      {
+        initialProps: {
+          refusal: refuse("approvals", "session.not_found", "That session is not on this node."),
+        },
+      },
+    );
+    frameStore.dismissBanner("approvals:session.not_found");
+
+    rendered.rerender({
+      refusal: refuse("approvals", "session.not_found", "That session is not on this node."),
+    });
+
+    expect(frameStore.getState().banners).toStrictEqual([]);
+  });
+
+  it("raises again when the retry reports a different condition under the same code", () => {
+    // The other arm of the same rule, and the negative control on the one above: a
+    // hook that suppressed on the CODE alone would swallow this, and the person
+    // would never be told the sentence had changed.
+    const frameStore = new FrameStore();
+    const rendered = renderHook(
+      ({ refusal }: { refusal: ConsoleRefusal }) => {
+        useRefusalBannerEscalation(frameStore, refusal);
+      },
+      {
+        initialProps: {
+          refusal: refuse("approvals", "session.not_found", "That session is not on this node."),
+        },
+      },
+    );
+    frameStore.dismissBanner("approvals:session.not_found");
+
+    rendered.rerender({
+      refusal: refuse("approvals", "session.not_found", "That session was archived here."),
+    });
+
+    expect(frameStore.getState().banners).toStrictEqual([
+      {
+        id: "approvals:session.not_found",
+        dismissible: true,
+        code: "session.not_found",
+        detail: "That session was archived here.",
+      },
+    ]);
+  });
+});
+
+describe("which refusals a set hands over", () => {
+  it("answers with the banner-class member of a mixed set", () => {
+    expect(bannerClassRefusalAmong([undefined, PANE_REFUSAL, GONE_SESSION])).toStrictEqual(
+      GONE_SESSION,
+    );
+  });
+
+  it("answers with the LAST banner-class member, which is the newest one", () => {
+    // Callers hand their records in arrival order — the approvals reader's resolve
+    // map and the run-control surface's settlement list are both appended to — so a
+    // set holding two says the newer thing.
+    const newer = refuse("approvals", "session.not_found", "Gone since the last read.");
+    expect(bannerClassRefusalAmong([GONE_SESSION, newer])).toStrictEqual(newer);
+  });
+
+  it("answers with nothing where the set holds no banner-class refusal", () => {
+    expect(bannerClassRefusalAmong([undefined, PANE_REFUSAL])).toBeUndefined();
   });
 });
