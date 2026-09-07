@@ -57,6 +57,12 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
       readRuntimeNodeRosterOverControlPlane(sidekicks, request),
     runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
       subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
+    // No attention signal, and that is this bridge's honest answer rather than a
+    // stub. The attention projection is a growth-slate wire, so the refusing port
+    // above declines the read outright here — a signal that woke that read would be
+    // a wake-up for a question nothing on this transport can answer. The day the
+    // wire lands, the daemon's own event stream is what this line becomes.
+    attentionSubscribe: () => () => undefined,
     // No view host, which is 12.11's third arm rather than an omission: this task
     // mints no main-process host, so a pane in a live window reports its rectangle
     // to nothing and renders the sentence that says so.

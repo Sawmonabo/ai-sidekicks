@@ -87,8 +87,19 @@ describe("raising a banner", () => {
   it("raises none for the projection the destination found on arrival", async () => {
     // Mounting is not an event. Without the baseline this navigation would fire one
     // banner per outstanding item, every time a person came back to this screen.
+    //
+    // UNFOCUSED, so the baseline is the only thing that can be holding it back. This
+    // surface is the sessions destination, and a focused window sitting on it is
+    // already showing every session's attention — so a focused case would report
+    // silence whether or not the baseline rule existed at all.
     const emittedNotifications: unknown[] = [];
-    renderSurface(contextWithOneItem({ notificationPermission: "granted", emittedNotifications }));
+    renderSurface(
+      contextWithOneItem({
+        notificationPermission: "granted",
+        emittedNotifications,
+        isWindowFocused: false,
+      }),
+    );
     await settle();
 
     expect(emittedNotifications).toStrictEqual([]);

@@ -168,6 +168,19 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       readRuntimeNodeRosterFromScenario(scenarioEngine, request),
     runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
       subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
+    // The attention plane moves with playback, so a delivered beat IS the moment it
+    // may have changed. `fixture-attention-derivation.ts` folds the delivered prefix
+    // into the projection this bridge serves, and it does that for every session the
+    // scenario names — including the ones no window ever opened, which is precisely
+    // the set the session stores cannot speak for.
+    //
+    // TAIL-ONLY, deliberately: a subscriber attaches to re-read a WHOLE projection,
+    // and replaying the delivered prefix would cost one read per beat already folded
+    // into the answer it is about to take.
+    attentionSubscribe: (onAttentionChange) =>
+      scenarioEngine.subscribe(() => {
+        onAttentionChange();
+      }),
     // 12.11's scripted arm. Without it the resolver could only ever return the
     // unavailable host, so every geometry publish under the fixture and under the
     // end-to-end runs was suppressed and the attached path the wiring table

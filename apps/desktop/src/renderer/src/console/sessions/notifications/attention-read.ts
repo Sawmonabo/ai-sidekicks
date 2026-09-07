@@ -8,16 +8,28 @@
 // what needs a person NOW rather than what needed them when the destination was
 // first opened.
 //
-// THE SIGNAL IS THE SESSION PROJECTION, NOT A TIMER. `Spec-023 §Console Design
-// (Meridian)` §The eight rules forbids interval polling outright, and there is no
-// `attention.subscribe` to open — the corpus registers a projection READ and no
-// stream. What the console already holds is the session stores themselves: an
-// attention item is derived from canonical session state, so a session store whose
-// state moved is the honest signal that the projection may have moved with it. The
-// registry's own open/close emitter carries the other half, because a session that
-// has just been opened may already carry attention nobody has read yet. Both halves
-// are `store/open-session-signal.ts`'s, hoisted there when the frame's honest chrome
-// became the second caller that has to watch every open session at once.
+// THE SIGNAL IS THE ATTENTION PLANE AND THE SESSION PROJECTIONS, NOT A TIMER.
+// `Spec-023 §Console Design (Meridian)` §The eight rules forbids interval polling
+// outright, so what re-reads this projection is a subscription — two of them, over
+// the two halves of the set the read is fanned out over.
+//
+// The stores are one half. An attention item is derived from canonical session
+// state, so a session store whose state moved is the honest signal that the
+// projection may have moved with it, and the registry's own open/close emitter
+// carries the rest, because a session that has just been opened may already carry
+// attention nobody has read yet. Both are `store/open-session-signal.ts`'s, hoisted
+// there when the frame's honest chrome became the second caller that has to watch
+// every open session at once.
+//
+// AND THE STORES ARE ONLY HALF, which is the defect the second subscription closes.
+// The read is fanned out over every session this window can NAME — the node's
+// directory merged with this window's open set — and a directory session nobody in
+// this window ever opened has no store to move. Its approval, its input request, and
+// its failed run therefore reached the badge, the centre, and the OS banner never:
+// the projection was read once for it, at mount, and no signal in this window could
+// ever say it had changed. `ConsoleBridge.attentionSubscribe` is the signal on the
+// whole addressed set, published by the bridge that holds the plane, and it is taken
+// beside the stores rather than instead of them — the two coalesce into one read.
 //
 // AND EVERY RE-READ GOES THROUGH THE CHOKEPOINT. `PushDrivenRead` is the console's
 // one push-driven read discipline — subscribe first, treat the push as opaque,
@@ -34,7 +46,9 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 
-import { useConsoleBridge, useConsoleClock } from "../../bridge/index.js";
+import type { Unsubscribe } from "@ai-sidekicks/contracts";
+
+import { useConsoleBridge, useConsoleClock, type ConsoleBridge } from "../../bridge/index.js";
 import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import { subscribeToOpenSessions, type SessionStoreRegistry } from "../../store/index.js";
@@ -48,6 +62,35 @@ import {
 
 /** The subsystem name a failed attention read names itself with. */
 const ATTENTION_READ_ORIGIN = "attention-plane";
+
+/**
+ * Watch both halves of the set this read is fanned out over, as one signal.
+ *
+ * TWO SUBSCRIPTIONS AND ONE READ. They answer different sessions — the stores speak
+ * for the ones this window has open, the bridge for every session it can name — and
+ * a window that took only the first went permanently quiet about a directory session
+ * it never opened. Both are opaque, both call the same handler, and the read they
+ * wake coalesces through `store/scheduling.ts`, so a change the two happen to report
+ * together still costs one read rather than two.
+ *
+ * Released in the order they were taken, and every one of them: a partial teardown
+ * would leave the surviving half signalling into a read that has been disposed.
+ */
+function subscribeToAttentionChanges(
+  bridge: ConsoleBridge,
+  sessionStoreRegistry: SessionStoreRegistry,
+  onChangeSignal: () => void,
+): Unsubscribe {
+  const releases: readonly Unsubscribe[] = [
+    subscribeToOpenSessions(sessionStoreRegistry, onChangeSignal),
+    bridge.attentionSubscribe(onChangeSignal),
+  ];
+  return () => {
+    for (const release of releases) {
+      release();
+    }
+  };
+}
 
 /** The read's three states as the plane's four phases. Written once, here. */
 function attentionReadingFrom(
@@ -132,7 +175,7 @@ export function useAttentionProjection(
         origin: ATTENTION_READ_ORIGIN,
         read,
         subscribe: (onChangeSignal) =>
-          subscribeToOpenSessions(sessionStoreRegistry, onChangeSignal),
+          subscribeToAttentionChanges(resolvedBridge, sessionStoreRegistry, onChangeSignal),
       }),
     [clock, read, resolvedBridge, sessionStoreRegistry],
   );
