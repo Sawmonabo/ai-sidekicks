@@ -137,4 +137,23 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
 
     expect(store.getState().banners).toStrictEqual([]);
   });
+
+  it("publishes nothing when asked to dismiss a banner it does not hold", () => {
+    const store = new FrameStore();
+    let notifications = 0;
+    const unsubscribe = store.readable.subscribe(() => {
+      notifications += 1;
+    });
+    const before = store.getState().banners;
+
+    store.dismissBanner("version:absent");
+
+    // Positive control: a real dismissal still notifies.
+    expect(notifications).toBe(0);
+    expect(store.getState().banners).toBe(before);
+    store.raiseRefusalBanner(refuse("persistence", "quota-exceeded", "the disk is full"));
+    store.dismissBanner("persistence:quota-exceeded");
+    expect(notifications).toBe(2);
+    unsubscribe();
+  });
 });

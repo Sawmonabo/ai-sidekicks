@@ -177,9 +177,18 @@ export class FrameStore {
     });
   }
 
+  /**
+   * Dismiss a banner by id. A miss publishes nothing: the version banner's effect
+   * dismisses on every mount and every subject re-address before it has raised
+   * anything, and a new `banners` array on each of those is a notification to every
+   * frame subscriber about a set that did not move.
+   */
   public dismissBanner(bannerId: string): void {
-    const banners = this.#store.getState().banners.filter((banner) => banner.id !== bannerId);
-    this.#store.setState({ banners });
+    const banners = this.#store.getState().banners;
+    if (!banners.some((banner) => banner.id === bannerId)) {
+      return;
+    }
+    this.#store.setState({ banners: banners.filter((banner) => banner.id !== bannerId) });
   }
 
   /**

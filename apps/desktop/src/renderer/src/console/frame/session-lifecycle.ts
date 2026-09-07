@@ -297,7 +297,7 @@ const WINDOW_SESSION_PLUMBING_DISPOSAL: SubjectScopedDisposal<WindowSessionPlumb
  * decision and dropped it on the floor, and every read went on opening wherever it
  * opened before. TypeScript does not report that — a function of fewer parameters is
  * assignable to a function type with more — so the whole signature is written out here
- * and the behavioural gate in `session-lifecycle.bridge-swap.test.tsx` is what holds
+ * and the behavioural gate in `session-lifecycle.resume-forwarding.test.tsx` is what holds
  * the forwarding, not the arity.
  *
  * `reasons` is deliberately UNREAD rather than absent: it is why this read was asked

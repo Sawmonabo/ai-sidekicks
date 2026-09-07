@@ -147,6 +147,28 @@ describe("SessionStoreRegistry — one store per open session", () => {
     expect(registry.resumeSettlementListenerCount).toBe(0);
   });
 
+  it("wakes a resume subscriber when its session closes, and the decision is gone", () => {
+    // Nothing else would: the store's revision does not move for a session that no
+    // longer has a store, so a reading left holding the last settled decision would
+    // keep rendering it for a session the registry has forgotten.
+    const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
+    const settledFor: string[] = [];
+    registry.open("session-1");
+    const unsubscribe = registry.subscribeToTimelineResume((sessionId) => {
+      settledFor.push(sessionId);
+    });
+
+    registry.close("session-1");
+
+    expect(settledFor).toStrictEqual(["session-1"]);
+    expect(registry.timelineResumeFor("session-1")).toBeUndefined();
+    // Idempotent close announces nothing: no session, no settlement.
+    registry.close("session-1");
+    expect(settledFor).toStrictEqual(["session-1"]);
+    unsubscribe();
+    registry.disposeAll();
+  });
+
   it("throws a console refusal when a disposed registry is asked to open", () => {
     const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
     registry.disposeAll();

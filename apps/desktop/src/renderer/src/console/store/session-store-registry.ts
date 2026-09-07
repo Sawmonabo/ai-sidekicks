@@ -167,6 +167,10 @@ export class SessionStoreRegistry {
     this.#entriesBySessionId.delete(sessionId);
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "closed" });
+    // A resume reading for this session is now answered `undefined`, and nothing
+    // else would wake it: the store's revision does not move for a session that no
+    // longer has one.
+    this.#resumeSettlements.emit(sessionId);
     return true;
   }
 
