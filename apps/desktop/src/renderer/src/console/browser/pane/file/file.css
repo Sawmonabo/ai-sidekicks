@@ -13,8 +13,9 @@
  * SPLIT OUT OF `../pane.css` BY WHO DRAWS WHAT. `.meridian-browser-file*` is drawn by
  * `FileControl.tsx` and `AdmittedRoots.tsx`, both in this directory and nowhere else,
  * so the whole namespace moves as one and no selector text is shared with the two
- * sheets it left. This directory carries no `index.ts`, so the family barrel owns it
- * and this sheet enters at that door.
+ * sheets it left. This directory carries no `index.ts`, so the door above it owns
+ * it — `../browser-pane-body.ts`, this family's one chunk root — and this sheet
+ * enters there.
  *
  * ORDER: imported after `../pane.css` and `chrome/chrome.css`, which is the order
  * these rules were already in. Nothing here is overridden by, or overrides, a rule in

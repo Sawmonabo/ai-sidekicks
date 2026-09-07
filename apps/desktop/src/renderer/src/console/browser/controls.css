@@ -8,8 +8,9 @@
  * red where something failed). Grep any of these files for `amber` and `red` and
  * every hit is one of those.
  *
- * Every sheet here is imported from `console/browser/index.ts` and from nowhere
- * else, so the bundler sees exactly one edge into each however many surfaces this
+ * Every sheet here is imported from the family's one chunk root,
+ * `console/browser/pane/browser-pane-body.ts`, and from nowhere else, so the
+ * bundler sees exactly one edge into each however many surfaces this
  * family grows. It sits at the FAMILY ROOT rather than inside a sub-module
  * directory, and that placement is the claim the sheet already makes below: the
  * shapes here belong to three directories at once, so putting them in any one of

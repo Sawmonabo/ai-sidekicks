@@ -21,25 +21,27 @@
 // and made every one of the body's reaches into this family a cross-family import that
 // had to cross this door.
 //
-// EVERY STYLESHEET IN THIS FAMILY IS IMPORTED HERE AND NOWHERE ELSE, so a surface can
-// never render one of these components without the CSS that makes it legible, and the
-// bundler sees one edge into each sheet rather than one per component.
+// ONE STYLESHEET IS IMPORTED HERE, and the split is along what this door actually
+// publishes rather than along the directory tree. `SidekickDefinitionsPage` leaves this
+// family through the re-export below, so the settings surface that mounts it reaches
+// the component through the initial graph and its sheet has to be there too.
 //
-// There are five rather than one, because four sub-modules carry their own: the
-// provider switch, the run linkage, the sidekicks page, and the agent console. That is
-// a split of the SHEETS and not of the rule — the rule is still one import site, and it
-// is this one. The definitions sheet used to be imported from its own page instead,
-// which is how one BEM block came to be written across two files with two edges into it.
+// THE OTHER FOUR ENTER AT THE AGENT CONSOLE'S TWO CHUNK ROOTS. Both agent-console
+// mounts are loaders, and the console's own components are the only readers of those
+// four sheets' selectors — measured, not assumed: no module in the static graph names
+// a class any of them declares. Leaving them here charged every session the rules for
+// a surface it reaches only by opening the pane or the auxiliary window. They are
+// imported from BOTH roots rather than one, because either mount can be the first to
+// render the body and neither may render it undressed; the bundler emits one shared
+// asset for the pair rather than two copies.
 //
-// The sub-modules have no doors of their own — nothing outside `agents/` reaches into
-// any of them — so their sheets are imported here rather than from a barrel that
-// would exist only to hold a CSS import.
+// The admitting rule is the collision census, not the directory: a sheet may cross a
+// chunk boundary only when no other family declares a class it declares, because load
+// order decides equal-specificity conflicts and deferring such a sheet restyles the
+// other family (`runs/index.ts` records that happening). None of these four does, per
+// `test/console/architecture/stylesheet-selector-owners.test.ts`.
 
-import "./agents.css";
-import "./agent-console/agent-console.css";
 import "./definitions/sidekick-definitions-page.css";
-import "./provider-switch/provider-switch.css";
-import "./run-console/run-console.css";
 
 // --- WHAT LEAVES THIS FAMILY -------------------------------------------
 //

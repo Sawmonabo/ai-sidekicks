@@ -45,7 +45,7 @@ describe("workflow run pane — with an address that names no run", () => {
     // The refusal is the whole surface: a pane that banned the address and still
     // mounted its slots would offer to stop a run it just said it could not name.
     expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(0);
-    expect(section.querySelectorAll(".meridian-run-controls__control")).toHaveLength(0);
+    expect(section.querySelectorAll(".meridian-workflow-run-controls__control")).toHaveLength(0);
     expect(section.querySelector(".meridian-park")).toBeNull();
   });
 

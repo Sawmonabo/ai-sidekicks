@@ -32,7 +32,8 @@
  * ORDER: this sheet is imported after `../controls.css` and after `../pane.css`, which
  * is the order these rules were already in, and the one override above wins on
  * specificity rather than on that order. This directory carries no `index.ts`, so the
- * family barrel owns it and this sheet enters at that door beside the one it left.
+ * door above it owns it — `../browser-pane-body.ts`, this family's one chunk root —
+ * and this sheet enters there beside the one it left.
  */
 
 /* ------------------------------------------------------------ chrome bar */

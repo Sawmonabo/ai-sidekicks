@@ -130,6 +130,133 @@ describe("the stylesheet edge walk", () => {
     expect(offences.duplicateBarrels[0]).toContain(join("two", "index.ts"));
   });
 
+  it("admits two lazy chunk roots of ONE directory reaching one sheet", () => {
+    // The one fan-in the rule lets through. Two deferred entries to the same directory
+    // are two ways into one body, not two owners: the bundler emits the sheet once
+    // into whichever chunk pulls, and a document mounts at most one of them. A sheet
+    // named by only one of the pair would leave the other entry rendering undressed,
+    // so the import has to be on both and the rule has to say so.
+    const siblingRootTree = syntheticStylesheetTree(
+      new Map([
+        [
+          join("one", "index.ts"),
+          'export const open = async () => [import("./pane-body.js"), import("./surface-body.js")];\n',
+        ],
+        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
+        [join("one", "surface-body.ts"), 'import "./shared.css";\n'],
+        [join("one", "shared.css"), "\n"],
+      ]),
+    );
+    const edges = collectStylesheetEdges(siblingRootTree);
+    // Read out of the walk rather than asserted about it: the sheet really does carry
+    // two inbound edges here, so the clean verdict below is the rule and not an
+    // arrangement the walk failed to see.
+    expect(edges.get(join("one", "shared.css"))).toHaveLength(2);
+
+    const offences = stylesheetEdgeOffences(siblingRootTree, edges);
+    expect(offences.duplicatePaths).toStrictEqual([]);
+    expect(offences.duplicateBarrels).toStrictEqual([]);
+    expect(offences.unreached).toStrictEqual([]);
+  });
+
+  it("admits the sheets an admitted fan-in `@import`s at its own head", () => {
+    // The clause the workflows family paid for. Its chrome is pulled by three sibling
+    // chunk roots, and that chrome carries the sheets the family owns at its head — so
+    // each of THOSE is reached once per root, with one importer and three edges. The
+    // multiplicity is a property of the roots and not of the sheet: it lands on exactly
+    // the asset its importer lands on. Without this clause the model would forbid a
+    // fanned-in family sheet from carrying any `@import` at all, which is an accident of
+    // how the walk counts rather than a rule anyone decided.
+    const nestedFanInTree = syntheticStylesheetTree(
+      new Map([
+        [
+          join("one", "index.ts"),
+          'export const open = async () => [import("./pane-body.js"), import("./surface-body.js")];\n',
+        ],
+        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
+        [join("one", "surface-body.ts"), 'import "./shared.css";\n'],
+        [join("one", "shared.css"), '@import "./badge.css";\n'],
+        [join("one", "badge.css"), "\n"],
+      ]),
+    );
+    const edges = collectStylesheetEdges(nestedFanInTree);
+    // Read out of the walk, so the clean verdict below is the rule rather than a fan-in
+    // the walk did not find: the nested sheet really does carry one edge per root.
+    expect(edges.get(join("one", "badge.css"))).toHaveLength(2);
+
+    const offences = stylesheetEdgeOffences(nestedFanInTree, edges);
+    expect(offences.duplicatePaths).toStrictEqual([]);
+    expect(offences.duplicateBarrels).toStrictEqual([]);
+    expect(offences.unreached).toStrictEqual([]);
+  });
+
+  it("negative control: a sheet the DOOR pulls carries no admission to its `@import`s", () => {
+    // The clause above admits an importer only when the importer is itself admitted, so
+    // the recursion inherits "every importer must qualify" rather than replacing it. Here
+    // the family sheet is pulled by the door as well as by a chunk root — the double
+    // injection the single-edge rule exists for — and the sheet at its head is counted
+    // exactly as the sheet that pulls it is.
+    const doorPulledTree = syntheticStylesheetTree(
+      new Map([
+        [
+          join("one", "index.ts"),
+          'import "./shared.css";\nexport const open = async () => import("./pane-body.js");\n',
+        ],
+        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
+        [join("one", "shared.css"), '@import "./badge.css";\n'],
+        [join("one", "badge.css"), "\n"],
+      ]),
+    );
+    const offences = stylesheetEdgeOffences(doorPulledTree, collectStylesheetEdges(doorPulledTree));
+    expect(offences.duplicatePaths).toHaveLength(2);
+    expect(offences.duplicatePaths.join("\n")).toContain(join("one", "badge.css"));
+  });
+
+  it("negative control: two chunk roots under DIFFERENT owners are still counted", () => {
+    // What the admission above must not swallow. Both importers are lazy chunk roots,
+    // which a rule keyed on "is a chunk root" alone would have passed; they answer to
+    // two different barrels, so one directory is still the reason another is styled.
+    const twoOwnerRootTree = syntheticStylesheetTree(
+      new Map([
+        [join("one", "index.ts"), 'export const open = async () => import("./pane-body.js");\n'],
+        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
+        [join("one", "shared.css"), "\n"],
+        [join("two", "index.ts"), 'export const open = async () => import("./pane-body.js");\n'],
+        [join("two", "pane-body.ts"), 'import "../one/shared.css";\n'],
+      ]),
+    );
+    const offences = stylesheetEdgeOffences(
+      twoOwnerRootTree,
+      collectStylesheetEdges(twoOwnerRootTree),
+    );
+    expect(offences.duplicatePaths).toHaveLength(1);
+    expect(offences.duplicatePaths[0]).toContain("2 inbound edges");
+    expect(offences.duplicateBarrels).toHaveLength(1);
+  });
+
+  it("negative control: a door joining its own chunk root is still counted", () => {
+    // The other half of "every importer must qualify". The two importers share an
+    // owner this time, and one of them is the family door — an eager import beside a
+    // deferred one, which is the double injection the single-edge rule was written
+    // for: the sheet lands in the initial chunk AND in the lazy one.
+    const doorAndRootTree = syntheticStylesheetTree(
+      new Map([
+        [
+          join("one", "index.ts"),
+          'import "./shared.css";\nexport const open = async () => import("./pane-body.js");\n',
+        ],
+        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
+        [join("one", "shared.css"), "\n"],
+      ]),
+    );
+    const offences = stylesheetEdgeOffences(
+      doorAndRootTree,
+      collectStylesheetEdges(doorAndRootTree),
+    );
+    expect(offences.duplicatePaths).toHaveLength(1);
+    expect(offences.duplicatePaths[0]).toContain("2 inbound edges");
+  });
+
   it("counts two `@import` paths from one barrel too", () => {
     // The half a barrel count alone would miss: one owning barrel, two chains through
     // it, and a sheet whose cascade position depends on which chain a build walks

@@ -17,8 +17,9 @@
 // `bounds/`, `cards/`, and `geometry/` are the same shape for the simpler reason that
 // no sibling reads across them at all. The sheets follow that same ownership rather
 // than depth — a directory with no door is owned by the family barrel — so
-// `chrome/chrome.css` and `file/file.css` enter at `browser/index.ts` beside
-// `pane/pane.css`.
+// `chrome/chrome.css` and `file/file.css` enter beside `pane/pane.css` at
+// `pane/browser-pane-body.ts`, the chunk root every one of this family's sheets
+// enters at.
 //
 // THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
 // the kind glyph, the breadcrumb, the control strip, and the body box for every pane
