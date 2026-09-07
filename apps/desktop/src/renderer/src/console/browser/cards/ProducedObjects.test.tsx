@@ -33,10 +33,15 @@ const CAPTURE_CARD: ProducedObjectCard = {
   },
 };
 
+// The proposed name is deliberately NOT the artifact id, on the precedent
+// `produced-objects.test.ts` sets for the identity reader: the download arm carries its
+// own `artifactId` because a page's suggestion is never an identity, and a fixture that
+// spelled the two the same would pass against a card that had conflated them.
 const DOWNLOAD_CARD: ProducedObjectCard = {
   kind: "download",
   props: {
-    proposedFileName: "artifact-a",
+    artifactId: "artifact-a",
+    proposedFileName: "quarterly-report.pdf",
     sourcePageLabel: "Docs",
     ingest: { status: "stored", artifactId: "artifact-a", byteLength: 128 },
   },
@@ -65,6 +70,10 @@ describe("the produced-object shelf", () => {
   it("mounts the download card for a downloaded object", () => {
     renderShelf([artifactRow()], new Map([["artifact-a", DOWNLOAD_CARD]]));
     expect(screen.getByText("Docs")).toBeTruthy();
+    // The name slot carries what the page proposed, never the id the shelf keyed the
+    // card under — the two are separate members precisely so this row can show one and
+    // be found by the other.
+    expect(screen.getByText("quarterly-report.pdf")).toBeTruthy();
     expect(screen.queryByText("Manifest not read")).toBeNull();
   });
 
