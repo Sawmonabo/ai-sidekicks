@@ -79,6 +79,20 @@
   font-style: italic;
 }
 
+/* A DIFFERENT FACT FROM THE ONE ABOVE, so it is drawn differently rather than folded
+   into it: `--unnamed` is a frame that arrived carrying no name, and this is no frame
+   at all — the page-list read pending, refused, or ended. The sentence is the
+   console's own rather than a wire value, so it leaves the mono the base rule sets,
+   and it takes the dotted treatment `../../../primitives/nothing.css` gives
+   `not-checked` for the same reason that file gives: a dotted boundary says the
+   question is still open rather than answered. */
+.meridian-browser-tabs__context--unreported {
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+  color: var(--meridian-text-faint);
+  border-block-end: 1px dotted var(--meridian-edge-strong);
+}
+
 .meridian-browser-tabs__list {
   display: flex;
   align-items: stretch;

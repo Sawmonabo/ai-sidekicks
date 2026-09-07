@@ -2,9 +2,16 @@
 //
 // Two claims, and the second is the one the architecture gate cannot make. The hook
 // registers what is attached and releases it on detach — and every overlay PRIMITIVE
-// actually attaches it, so opening any of the five puts exactly one rectangle in the
-// airspace and closing it takes exactly that one back out. A gate that reads source
-// can see the hook is called; only a mount can see the ref reached the popup.
+// actually attaches it, so opening any of the five puts its own rectangles in the
+// airspace and closing it takes exactly those back out. A gate that reads source can
+// see the hook is called; only a mount can see the ref reached the element.
+//
+// HOW MANY RECTANGLES IS PART OF THE CLAIM, per primitive. A modal registers two —
+// the popup and the backdrop that covers the window — and an anchored popup registers
+// one; `overlay/modal-airspace.ts` owns that difference and `overlay/
+// modal-airspace.test.tsx` owns what each of the two rectangles IS. What is asserted
+// here is the arithmetic every primitive shares: the count goes up on open by exactly
+// what that primitive puts up, and it comes back down to where it started on close.
 
 import { render } from "@testing-library/react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
@@ -30,6 +37,14 @@ function OverlayProbe(props: { readonly open: boolean }): React.JSX.Element {
 /** One overlay primitive, opened and closed by the `open` this harness controls. */
 interface OverlayPrimitiveCase {
   readonly name: string;
+  /**
+   * How many rectangles this primitive puts in the airspace while it is open.
+   *
+   * Named per case rather than defaulted to one: a default would be a number three
+   * cases agree with and two are exempted from, and the exemption is the interesting
+   * half — a modal covers the window and says so with a second rectangle.
+   */
+  readonly registrations: number;
   readonly render: (open: boolean) => React.JSX.Element;
 }
 
@@ -44,6 +59,7 @@ interface OverlayPrimitiveCase {
 const OVERLAY_PRIMITIVE_CASES: readonly OverlayPrimitiveCase[] = [
   {
     name: "OverlayDialogPopup",
+    registrations: 2,
     render: (open) => (
       <Dialog.Root open={open} modal="trap-focus">
         <OverlayDialogPopup backdropClassName="backdrop" className="popup" label="A dialog">
@@ -54,6 +70,7 @@ const OVERLAY_PRIMITIVE_CASES: readonly OverlayPrimitiveCase[] = [
   },
   {
     name: "OverlayAlertDialogPopup",
+    registrations: 2,
     render: (open) => (
       <AlertDialog.Root open={open}>
         <OverlayAlertDialogPopup backdropClassName="backdrop" className="popup">
@@ -64,6 +81,7 @@ const OVERLAY_PRIMITIVE_CASES: readonly OverlayPrimitiveCase[] = [
   },
   {
     name: "OverlayMenuPopup",
+    registrations: 1,
     render: (open) => (
       <Menu.Root open={open}>
         <Menu.Trigger>open</Menu.Trigger>
@@ -75,6 +93,7 @@ const OVERLAY_PRIMITIVE_CASES: readonly OverlayPrimitiveCase[] = [
   },
   {
     name: "OverlayComboboxPopup",
+    registrations: 1,
     render: (open) => (
       <Combobox.Root items={["one"]} open={open}>
         <OverlayComboboxPopup positionerClassName="positioner" className="popup">
@@ -87,6 +106,7 @@ const OVERLAY_PRIMITIVE_CASES: readonly OverlayPrimitiveCase[] = [
   },
   {
     name: "OverlaySelectPopup",
+    registrations: 1,
     render: (open) => (
       <Select.Root items={[{ label: "one", value: "one" }]} open={open}>
         <OverlaySelectPopup className="popup">
@@ -153,14 +173,14 @@ describe("the overlay primitives", () => {
   });
 
   it.each(OVERLAY_PRIMITIVE_CASES)(
-    "$name registers exactly once on open and releases on close",
-    ({ render: renderCase }) => {
+    "$name registers its $registrations on open and releases them on close",
+    ({ registrations, render: renderCase }) => {
       const registry = airspaceRegistryFor(document);
       const before = registry.registeredCount;
       const mounted = render(renderCase(false));
       expect(registry.registeredCount).toBe(before);
       mounted.rerender(renderCase(true));
-      expect(registry.registeredCount).toBe(before + 1);
+      expect(registry.registeredCount).toBe(before + registrations);
       mounted.rerender(renderCase(false));
       expect(registry.registeredCount).toBe(before);
       mounted.unmount();
