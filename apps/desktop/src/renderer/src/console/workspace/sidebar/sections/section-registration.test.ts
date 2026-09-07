@@ -59,6 +59,23 @@ describe("the composer family's sidebar sections", () => {
     }
   });
 
+  it("seats each section's rollup, and never a second answer beside it", () => {
+    // The seat takes an explicit `attention` as the section's own claim and the fold
+    // over its `rollup` as the fallback, so a descriptor carrying both is answering one
+    // question twice — and the two go out of step the first time either is edited
+    // alone. Asserted over the whole set rather than per row, so a section seated later
+    // by this family cannot quietly ship the pair.
+    const board = new SidebarSectionRegistry();
+
+    registerComposerSidebarSections(board);
+
+    for (const id of SEATED_BY_THIS_FAMILY) {
+      const descriptor = board.descriptorFor(id);
+      expect(descriptor?.rollup).toBeTypeOf("function");
+      expect(descriptor?.attention).toBeUndefined();
+    }
+  });
+
   it("is idempotent, because the composition root may run twice under a hot reload", () => {
     const board = new SidebarSectionRegistry();
 

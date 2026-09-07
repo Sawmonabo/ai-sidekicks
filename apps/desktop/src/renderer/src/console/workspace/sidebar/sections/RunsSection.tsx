@@ -46,16 +46,23 @@ import {
   groupSectionRows,
   groupedRowCount,
   normaliseFilterQuery,
+  type ConsolePaneAddress,
   type SectionListGroup,
+  type SidebarRollupGroup,
+  type SidebarRollupNode,
   type SidebarSectionContext,
 } from "../../../seats/index.js";
 import { type SidebarSectionAttention } from "../model/sidebar-model.js";
+import { readSectionRollup, sectionRowDragBinding } from "./section-rollup-nodes.js";
+
+/** The pane every row of this section opens, whether pressed or dropped. */
+const RUNS_PANE: ConsolePaneAddress = { kind: "runs" };
 
 /**
  * Which group a run's state sorts into, total over the registered union.
  *
  * `needs-attention` is the amber-or-red half of the grouping above and is also what
- * {@link runsSectionAttention} answers from, so one table decides both — a section
+ * {@link runsSectionRollup} answers from, so one table decides both — a section
  * that grouped by one rule and answered attention by another could show a mark over
  * a list with nothing wrong in it.
  *
@@ -95,6 +102,26 @@ const GROUP_TONE: Readonly<Record<RunGroup, ChipTone>> = {
   rest: "neutral",
   // A state this build does not know is a defect somewhere, not a run in trouble.
   unrecognized: "failure",
+};
+
+/**
+ * Which of the column's four rollup groups each of this section's groups reports as.
+ *
+ * The column's set is the design track's closed four and this section's is its own
+ * closed four, so the mapping is stated rather than assumed. `unrecognized` reports as
+ * `rest`: it is neither calling for anybody nor running, and the alternative — inventing
+ * a fifth column-level group for it — would reopen a shared enumeration so that one
+ * section could describe a state no build should be meeting. The section's own body
+ * still draws it under its own heading, where it is visible as itself.
+ *
+ * `pinned` is unreachable from here for the reason `GROUP_BY_RUN_STATE` gives: nothing
+ * in the corpus pins a run, and a group with no source is a heading always empty.
+ */
+const ROLLUP_GROUP_BY_RUN_GROUP: Readonly<Record<RunGroup, SidebarRollupGroup>> = {
+  "needs-attention": "needs-attention",
+  running: "running",
+  rest: "rest",
+  unrecognized: "rest",
 };
 
 export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
@@ -157,8 +184,18 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
         // spec enumerates — so a row opens the surface that holds every run rather
         // than an address the deck would have to refuse.
         open: () => {
-          context.openPane({ kind: "runs" });
+          context.openPane(RUNS_PANE);
         },
+        // The drag opens what the press opens, through the column's own binder. A
+        // sidebar handed no binder — an older composition, or a harness that renders
+        // this section alone — simply has rows nobody bound, which is the reason the
+        // seam is optional on both sides rather than defaulted to a no-op here.
+        ...sectionRowDragBinding(context.dragRow, {
+          sectionId: "runs",
+          entityId: run.id,
+          label: `run ${run.id}`,
+          opens: RUNS_PANE,
+        }),
       })),
     });
   }
@@ -167,38 +204,40 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
 }
 
 /**
- * What the runs section is asking for, read without mounting it.
+ * This section's runs as the tree the sidebar folds while the section is shut.
  *
  * A PULL rather than a push, and that is what makes the sidebar's rule reachable at
  * all: a collapsed section is not mounted, so a section in trouble could never report
- * from inside itself and the rule that opens it could never fire. This function is
- * called by the sidebar during its own render, over state this family already holds —
- * never a read, never a subscription.
+ * from inside itself and the rule that opens it could never fire. Called by the sidebar
+ * during its own render, over state this family already holds — never a read, never a
+ * subscription.
  *
- * Only an ANSWERED read may raise a mark. A store that has not loaded, or one the
- * daemon has told us is incomplete, knows nothing about whether a run needs attention,
- * and a mark raised from that would be the badge the sidebar refuses to synthesise.
+ * THE TREE RATHER THAN A LEVEL, which is the seat's own precedence: a section supplying
+ * a rollup has its level FOLDED from it and answers `attention` as well only if it has
+ * something the fold cannot reach. This one does not — the fold's strongest level over
+ * these nodes is exactly what a per-section reader would have returned — and the tree
+ * additionally gives the column the grouped counts it draws on the shut header, which a
+ * single level cannot carry.
  *
  * `failure` is deliberately unreachable here. A run that failed is a run this session
  * is waiting on a person for, which is `attention`; `failure` names the section's own
- * read having broken, and a broken read is the `error` arm the body renders rather than
- * a level the rollup can answer with.
- *
- * The filter is not consulted, and the omission is the claim: filtering narrows what a
- * person is LOOKING at, and a failed run hidden by a filter is still a failed run. A
- * rollup that answered from the filtered list would go quiet exactly when somebody
- * typed.
+ * read having broken, and a broken read supplies no nodes at all rather than a level.
  */
-export function runsSectionAttention(
+export function runsSectionRollup(
   context: Omit<SidebarSectionContext, "isOpen" | "openPane">,
-): SidebarSectionAttention | undefined {
-  const state = context.sessionStore.snapshot();
-  if (!state.initialised || state.degradedCause !== undefined) {
-    return undefined;
-  }
-  return Object.values(state.partitions.run).some((run) => groupOf(run.state) === "needs-attention")
-    ? "attention"
-    : undefined;
+): readonly SidebarRollupNode[] {
+  return readSectionRollup(context, {
+    partition: "run",
+    group: (run) => ROLLUP_GROUP_BY_RUN_GROUP[groupOf(run.state)],
+    attention: (run) => attentionOf(run.state),
+    label: (run) => `run ${run.id}`,
+    opens: RUNS_PANE,
+  });
+}
+
+/** What one run is calling for: the amber half of the grouping table, and nothing else. */
+function attentionOf(state: string | undefined): SidebarSectionAttention | undefined {
+  return groupOf(state) === "needs-attention" ? "attention" : undefined;
 }
 
 /**

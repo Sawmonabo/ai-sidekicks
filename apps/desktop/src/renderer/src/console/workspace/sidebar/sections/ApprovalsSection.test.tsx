@@ -1,4 +1,5 @@
-// The approvals section: the three absences, the grouping, the filter, and the rollup.
+// The approvals section: the three absences, the grouping, the filter, the rollup, and
+// the drag.
 //
 // The store is the real `SessionStore` for `RunsSection.test.tsx`'s reason — the three
 // absences are three distinct STORE states, and a hand-made stand-in would let all
@@ -16,8 +17,14 @@ import { describe, expect, it } from "vitest";
 import { SessionStore, type ConsoleEntity } from "../../../store/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
-import { type ConsolePaneAddress, type SidebarSectionContext } from "../../../seats/index.js";
-import { ApprovalsSection, approvalsSectionAttention } from "./ApprovalsSection.js";
+import {
+  type ConsolePaneAddress,
+  type SidebarRowDragBinder,
+  type SidebarRowDragTarget,
+  type SidebarSectionContext,
+} from "../../../seats/index.js";
+import { foldSectionRollup } from "../model/section-rollup.js";
+import { ApprovalsSection, approvalsSectionRollup } from "./ApprovalsSection.js";
 
 const SESSION_ID = "session-approvals-section";
 
@@ -46,6 +53,7 @@ function renderSection(options: {
   readonly approvals?: readonly ConsoleEntity[];
   readonly degraded?: boolean;
   readonly filterQuery?: string;
+  readonly dragRow?: SidebarRowDragBinder;
 }): RenderedSection {
   const store = new SessionStore({ sessionId: SESSION_ID });
   if (options.approvals !== undefined) {
@@ -62,6 +70,9 @@ function renderSection(options: {
     openPane: (address) => openedPanes.push(address),
     isOpen: true,
     filterQuery: options.filterQuery ?? "",
+    // Absent rather than present-and-undefined, which is the case the section's own
+    // no-binder branch is written for and the shape the sidebar's context declares.
+    ...(options.dragRow === undefined ? {} : { dragRow: options.dragRow }),
   };
   const { container } = render(<ApprovalsSection {...context} />);
   return { section: container, store, openedPanes, context };
@@ -158,39 +169,106 @@ describe("ApprovalsSection — the filter, and what it does not touch", () => {
 });
 
 describe("ApprovalsSection — the rollup the sidebar reads while it is collapsed", () => {
+  // Through the column's own fold rather than by reading the nodes' members: the fold
+  // is what the open-or-collapsed rule is decided from, so a section that reported the
+  // right nodes and folded to the wrong level would still leave the rule wrong.
+  function rollupOver(options: Parameters<typeof renderSection>[0]) {
+    return foldSectionRollup(approvalsSectionRollup(renderSection(options).context));
+  }
+
   it("reports attention when an answered, whole projection holds a pending request", () => {
-    const { context } = renderSection({ approvals: [approval("approval-1", "pending")] });
-    expect(approvalsSectionAttention(context)).toBe("attention");
+    expect(rollupOver({ approvals: [approval("approval-1", "pending")] }).attention).toBe(
+      "attention",
+    );
   });
 
   it("reports nothing when every request has settled", () => {
-    const { context } = renderSection({ approvals: [approval("approval-1", "approved")] });
-    expect(approvalsSectionAttention(context)).toBeUndefined();
+    expect(
+      rollupOver({ approvals: [approval("approval-1", "approved")] }).attention,
+    ).toBeUndefined();
   });
 
   // The negative control for the never-synthesise rule: the same pending row that
   // raises a mark above raises none while the projection is not answered and whole.
   it("reports nothing from a store that has not loaded", () => {
-    const { context } = renderSection({});
-    expect(approvalsSectionAttention(context)).toBeUndefined();
+    const rollup = rollupOver({});
+    expect(rollup.attention).toBeUndefined();
+    expect(rollup.nodeCount).toBe(0);
   });
 
   it("reports nothing from a store the daemon called incomplete", () => {
-    const { context } = renderSection({
+    const rollup = rollupOver({
       approvals: [approval("approval-1", "pending")],
       degraded: true,
     });
-    expect(approvalsSectionAttention(context)).toBeUndefined();
+    expect(rollup.attention).toBeUndefined();
+    expect(rollup.nodeCount).toBe(0);
   });
 
   it("keeps reporting attention while a filter hides the pending row", () => {
-    const { context } = renderSection({
-      approvals: [approval("approval-1", "pending")],
-      filterQuery: "nothing-matches-this",
-    });
     // A pending approval hidden by a filter is still pending; a rollup answered from
     // the filtered list would go quiet exactly when somebody typed.
-    expect(approvalsSectionAttention(context)).toBe("attention");
+    expect(
+      rollupOver({
+        approvals: [approval("approval-1", "pending")],
+        filterQuery: "nothing-matches-this",
+      }).attention,
+    ).toBe("attention");
+  });
+
+  it("counts waiting apart from everything else, which a single level could not carry", () => {
+    const rollup = rollupOver({
+      approvals: [
+        approval("approval-1", "pending"),
+        approval("approval-2", "rejected"),
+        approval("approval-3", "transcending"),
+      ],
+    });
+
+    expect(rollup.countsByGroup).toStrictEqual({
+      pinned: 0,
+      "needs-attention": 1,
+      // Nothing about an approval runs: it is a question waiting on a person, so the
+      // column's `running` group is unreachable from this section rather than empty by
+      // accident.
+      running: 0,
+      // The settled one and the one whose state this build does not know.
+      rest: 2,
+    });
+  });
+});
+
+describe("ApprovalsSection — a row is draggable through the column's own binder", () => {
+  it("binds each row's element under a section-scoped node id", () => {
+    const boundTargets: SidebarRowDragTarget[] = [];
+    const boundElements: HTMLElement[] = [];
+    const { section } = renderSection({
+      approvals: [approval("approval-1", "pending")],
+      dragRow: (target) => {
+        boundTargets.push(target);
+        return (element) => {
+          if (element !== null) {
+            boundElements.push(element);
+          }
+        };
+      },
+    });
+
+    expect(boundTargets).toStrictEqual([
+      {
+        nodeId: "approvals:approval-1",
+        label: "approval approval-1",
+        opens: { kind: "approvals" },
+      },
+    ]);
+    // The binder reached the row's own button — the same element the press uses.
+    expect(boundElements).toStrictEqual([section.querySelector(".meridian-section-list__open")]);
+  });
+
+  it("negative control: a column that hands down no binder binds nothing", () => {
+    const { section } = renderSection({ approvals: [approval("approval-1", "pending")] });
+
+    expect(section.querySelectorAll(".meridian-section-list__open")).toHaveLength(1);
   });
 });
 

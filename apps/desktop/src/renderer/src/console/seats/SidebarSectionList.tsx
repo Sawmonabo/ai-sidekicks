@@ -40,6 +40,15 @@ export interface SectionListRow {
   readonly openLabel: string;
   /** Open the pane this row addresses. The section decides which; this file presses. */
   readonly open: () => void;
+  /**
+   * Bind this row's element as a drag source, where the section made it one.
+   *
+   * The binder is the COLUMN's — `SidebarSectionContext.dragRow` hands one down and it
+   * is stable for a row id — so this is the ref callback and nothing else: no library,
+   * no payload, and no cleanup lives here. Optional because a section whose rows open
+   * nothing supplies none, and a row nobody bound is drawn exactly as it was.
+   */
+  readonly bindDrag?: (element: HTMLElement | null) => void;
 }
 
 /** One group of rows, with the words and the tone its heading wears. */
@@ -84,6 +93,11 @@ export function SidebarSectionList(props: SidebarSectionListProps): React.JSX.El
                   type="button"
                   className="meridian-section-list__open"
                   aria-label={row.openLabel}
+                  // The same element carries the press and the drag, because they are
+                  // two ways to perform one act — open what this row addresses. A
+                  // separate drag handle beside the button would be a second control
+                  // for one outcome, and one of the two would be keyboard-unreachable.
+                  ref={row.bindDrag}
                   onClick={row.open}
                 >
                   <span className="meridian-section-list__id">
