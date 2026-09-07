@@ -43,6 +43,8 @@
 // that already has one.
 
 import {
+  ChildRunExpandRequestSchema,
+  ChildRunExpandResponseSchema,
   DriverAckResultSchema,
   DriverCompactionResultSchema,
   DriverReadParamsSchema,
@@ -202,6 +204,10 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "membership.update": bindDaemonMethod(MembershipUpdateSchema, MembershipUpdateResponseSchema),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
   "invite.revoke": bindDaemonMethod(InviteRevokeSchema, InviteRevokeResponseSchema),
+  "timeline.childRunExpand": bindDaemonMethod(
+    ChildRunExpandRequestSchema,
+    ChildRunExpandResponseSchema,
+  ),
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
     ProviderAccountListResponseSchema,

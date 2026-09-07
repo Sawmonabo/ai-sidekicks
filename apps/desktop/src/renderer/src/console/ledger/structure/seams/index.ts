@@ -23,6 +23,9 @@
 import "./seams.css";
 
 export { SeamRow } from "./SeamRow.js";
+export { SupersededBandRow } from "./SupersededBandRow.js";
+
+export { SupersededBandCollapseState } from "./superseded-band-collapse.js";
 
 export {
   LedgerSeamIndex,

@@ -112,7 +112,7 @@ export function foldChapterHeaders(
       // At the chapter's FIRST row, so the header sits where the chapter starts and
       // the log's order is untouched. The header is its own cut unit: pruning it
       // takes its subtree with it, which is the ancestor closure the cap performs.
-      viewportRows.push(retention.retainChapterHeaderIdentity(runId));
+      viewportRows.push(retention.retainGroupHeaderIdentity(runId));
     }
     const cappedRowIds = cappedRowIdsByRunId.get(runId);
     const isOpenedAndWithinCap =

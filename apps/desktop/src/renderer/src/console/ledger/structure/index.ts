@@ -98,5 +98,10 @@ export {
   type ReplaySpeed,
   type ReplayState,
 } from "./replay/replay-model.js";
+export {
+  ChildRunIndex,
+  type ChildRunEntry,
+  type HandoffEntry,
+} from "./child-runs/child-run-entries.js";
 export { LedgerSeamIndex, type LedgerSeam } from "./seams/seams.js";
-export { SupersededIndex } from "./seams/superseded-bands.js";
+export { SupersededIndex, type SupersededBand } from "./seams/superseded-bands.js";

@@ -1,4 +1,4 @@
-// Which of the four rows a key is, and what the memo behind the fourth holds.
+// Which arm of the dispatch a key is, and what the memo behind the seat's arm holds.
 //
 // THE DISPATCH IS DRIVEN DIRECTLY rather than through a mounted feed, because the
 // question here is which BRANCH a key takes and the eight suites next door already
@@ -25,6 +25,7 @@ import {
   openSessionStoreWithSeam,
   openSessionStoreWithTerminalChapter,
 } from "./ledger-chapter-logs.test-support.js";
+import { CHILD_RUN_SUMMARIZED } from "../../structure/child-runs/child-run-expansion.js";
 import { LedgerRowRetention } from "../window/ledger-row-retention.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../window/ledger-window.js";
 
@@ -49,6 +50,19 @@ function rendererOptions(
     toggleChapter: () => undefined,
     rowLease: (): LedgerRowLease | undefined => undefined,
     renderTimelineRow: () => <output data-seat-row="yes" />,
+    // The two per-mount disclosures, at rest. Every case here drives a dispatch
+    // BRANCH rather than a disclosure, and each suite that drives one supplies its
+    // own — so what these stand in for is the state a mount would hold, not a stub
+    // of the acts: a summarized child and a band nobody has folded.
+    childRunDisclosure: {
+      expansionFor: () => CHILD_RUN_SUMMARIZED,
+      toggle: () => undefined,
+    },
+    supersededBandDisclosure: {
+      foldedBandKeys: new Set<string>(),
+      toggle: () => undefined,
+      openBandKey: () => undefined,
+    },
     ...overrides,
   };
 }

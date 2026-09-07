@@ -1,10 +1,13 @@
 // What one row of this feed draws, and the memo that keeps a frame from redrawing it.
 //
-// THE DISPATCH AND THE BOUNDARY ARE ONE JOB, so they are one module: three of the
-// list's rows are the ledger's own — a chapter header, a seam, and the named absence
-// of a row the cap took mid-frame — and only the fourth is the seat's. Deciding which
-// of the four a key is takes four map reads; drawing the fourth is a whole card. The
-// hook does the reads and the component holds the card behind a memo.
+// THE DISPATCH AND THE BOUNDARY ARE ONE JOB, so they are one module: most of the
+// list's rows are the ledger's OWN — a chapter header, a superseded-band header, a
+// seam, a child-run summary, a handoff, and the named absence of a row the cap took
+// mid-frame — and exactly one arm is the seat's. Deciding which arm a key is takes a
+// handful of map reads; drawing the seat's is a whole card. The hook does the reads
+// and the component holds the card behind a memo. The arms are enumerated rather than
+// counted here, because a count in prose is a claim that goes stale the next time one
+// is added and nothing reports it.
 //
 // WHY THE BOUNDARY IS HERE AND NOT ON `LedgerRowMount`. The viewport already memoizes
 // each row's box, and that memo compares the `renderRow` callback — which closes over
@@ -41,7 +44,15 @@ import {
 import { ChapterHeader, type LedgerChapter } from "../../structure/index.js";
 // The seam row through its own directory's door rather than the family's: that door
 // owns the seam vocabulary this row draws AND the sheet that dresses it.
-import { SeamRow } from "../../structure/seams/index.js";
+import { SeamRow, SupersededBandRow } from "../../structure/seams/index.js";
+// The child-run and handoff rows through their own directory's door, for the seam
+// row's reason: that door owns the two treatments AND the sheet that dresses them.
+import {
+  ChildRunSummaryRow,
+  HandoffRow,
+  type ChildRunDisclosure,
+} from "../../structure/child-runs/index.js";
+import { type LedgerSupersededBandDisclosure } from "./ledger-superseded-fold.js";
 import { Nothing } from "../../../primitives/index.js";
 import { type TimelineRowRenderer, type TimelineRowSlotProps } from "../../../seats/index.js";
 import { type ParticipantHueAssignment } from "../../../tokens/index.js";
@@ -57,6 +68,10 @@ export interface LedgerRowRendererOptions {
   readonly rowLease: (rowKey: string) => LedgerRowLease | undefined;
   /** The seat's renderer. STABLE across renders, or the memo below moves with it. */
   readonly renderTimelineRow: TimelineRowRenderer;
+  /** This mount's child-run expansions. STABLE, for the same reason. */
+  readonly childRunDisclosure: ChildRunDisclosure;
+  /** This mount's superseded-band folds. STABLE, for the same reason. */
+  readonly supersededBandDisclosure: LedgerSupersededBandDisclosure;
 }
 
 /**
@@ -69,6 +84,8 @@ export interface LedgerRowRendererOptions {
 export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerRowRenderer {
   const { ledgerWindow, openedTerminalRunIds, hueForActor, toggleChapter, rowLease } = options;
   const renderTimelineRow = options.renderTimelineRow;
+  const childRunDisclosure = options.childRunDisclosure;
+  const supersededBandDisclosure = options.supersededBandDisclosure;
   return useCallback(
     (row: LedgerViewportRow) => {
       // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
@@ -85,6 +102,21 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
               chapter.actorId === undefined ? undefined : hueForActor(chapter.actorId)
             }
             onToggle={toggleChapter}
+          />
+        );
+      }
+      // A BAND HEADER IS A ROW OF THE LIST TOO, keyed by the band it heads, and
+      // dispatched here for the chapter header's reason: no projected row backs it
+      // and none was ever meant to. It says what one rollback rewound — the turn it
+      // landed on and how many rows it moved — which until now reached a person only
+      // as a dim on each of those rows, one at a time.
+      const band = ledgerWindow.supersededBandByHeaderKey.get(row.key);
+      if (band !== undefined) {
+        return (
+          <SupersededBandRow
+            band={band}
+            isFolded={supersededBandDisclosure.foldedBandKeys.has(row.key)}
+            onToggle={supersededBandDisclosure.toggle}
           />
         );
       }
@@ -110,6 +142,42 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       if (seam !== undefined) {
         return <SeamRow seam={seam} participantHue={participantHue} isSuperseded={isSuperseded} />;
       }
+      // A CHILD RUN AND A HANDOFF ARE THE LEDGER'S OWN ROWS TOO, drawn before the
+      // seat is asked and for the seam's reason: both are structure over the log
+      // rather than a body somebody wrote, and both were falling through to the
+      // generic renderer — a child run as a receipt with its state, count and
+      // producing node dropped, and a handoff as a message with the two actors it
+      // moved work between nowhere on screen.
+      const childRunEntry = ledgerWindow.childRunEntryByRowId.get(projected.id);
+      if (childRunEntry !== undefined) {
+        return (
+          <ChildRunSummaryRow
+            entry={childRunEntry}
+            wireType={projected.type}
+            participantHue={participantHue}
+            isSuperseded={isSuperseded}
+            expansion={childRunDisclosure.expansionFor(childRunEntry.summary.runId)}
+            onToggleExpansion={childRunDisclosure.toggle}
+          />
+        );
+      }
+      const handoffEntry = ledgerWindow.handoffEntryByRowId.get(projected.id);
+      if (handoffEntry !== undefined) {
+        return (
+          <HandoffRow
+            entry={handoffEntry}
+            participantHue={participantHue}
+            isSuperseded={isSuperseded}
+            // The thread reaches a CHAPTER, so it is drawn only where the child run
+            // has one in this window. A chapter the fold has not produced is a
+            // chapter the line would point past.
+            hasThreadTarget={
+              handoffEntry.childRunId !== undefined &&
+              ledgerWindow.chapterByHeaderKey.has(handoffEntry.childRunId)
+            }
+          />
+        );
+      }
       // THROUGH `LedgerFeedRow` RATHER THAN STRAIGHT INTO THE SEAT, and the
       // indirection is the memo boundary — see that file. This callback's identity
       // moves on every admitted event because it closes over the window, so the
@@ -133,7 +201,16 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
         />
       );
     },
-    [hueForActor, ledgerWindow, openedTerminalRunIds, renderTimelineRow, rowLease, toggleChapter],
+    [
+      childRunDisclosure,
+      hueForActor,
+      ledgerWindow,
+      openedTerminalRunIds,
+      renderTimelineRow,
+      rowLease,
+      supersededBandDisclosure,
+      toggleChapter,
+    ],
   );
 }
 

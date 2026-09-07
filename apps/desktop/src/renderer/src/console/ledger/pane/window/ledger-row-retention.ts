@@ -130,14 +130,18 @@ export class LedgerRowRetention {
   }
 
   /**
-   * A chapter HEADER's place in that list, which no projected row backs.
+   * A GROUP HEADER's place in that list, which no projected row backs.
    *
-   * The header IS its run, so it is keyed by the run id — the same key
-   * `chapterKeyFor` already hands that chapter's rows as their parent — and it is its
-   * own cut unit, so pruning it takes its subtree with it.
+   * ONE METHOD FOR BOTH GROUPS THE FEED FOLDS, because the identity rule is the same
+   * for each: the header IS its group, so it is keyed by the group's own key — the
+   * run id for a chapter, which is the key `chapterKeyFor` already hands that
+   * chapter's rows as their parent, and `supersededBandKey`'s composite for a
+   * rewound band — and it is its own cut unit, so pruning it takes its subtree with
+   * it. A second method with this body would be one implementation of one job
+   * written twice.
    */
-  public retainChapterHeaderIdentity(runId: string): LedgerViewportRow {
-    return this.#retainIdentity(runId, undefined, runId);
+  public retainGroupHeaderIdentity(groupKey: string): LedgerViewportRow {
+    return this.#retainIdentity(groupKey, undefined, groupKey);
   }
 
   #retainIdentity(

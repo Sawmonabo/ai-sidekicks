@@ -22,7 +22,7 @@ import {
   SWITCH_CONTINUITY_MEMO,
   type LedgerSeam,
 } from "./seams.js";
-import { SupersededIndex, deriveSupersededBands } from "./superseded-bands.js";
+import { SupersededIndex, deriveSupersededBands, supersededBandKey } from "./superseded-bands.js";
 
 function classifyOne(row: TimelineRow): LedgerSeam {
   const seam = new LedgerSeamIndex().classify(row);
@@ -384,5 +384,54 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
   it("computes its bands once and answers from them", () => {
     const index = new SupersededIndex(rewoundWindow());
     expect(index.bands()).toBe(index.bands());
+  });
+
+  it("keys every band by the header key the feed dispatches on", () => {
+    const index = new SupersededIndex(rewoundWindow());
+    const [band] = index.bands();
+    if (band === undefined) {
+      throw new Error("the rewound window derived no band");
+    }
+    expect(index.bandByHeaderKey().get(supersededBandKey(band))).toBe(band);
+  });
+
+  it("answers which band each superseded row belongs to, and no other row", () => {
+    const index = new SupersededIndex(rewoundWindow());
+    const [band] = index.bands();
+    if (band === undefined) {
+      throw new Error("the rewound window derived no band");
+    }
+    expect(index.bandKeyByRowId().get("a3")).toBe(supersededBandKey(band));
+    // The retained floor and the turns before it are in no band at all, so the fold
+    // can never take a row the rewind left standing.
+    expect(index.bandKeyByRowId().has("a2")).toBe(false);
+    expect(index.bandKeyByRowId().has("a1")).toBe(false);
+  });
+
+  it("keeps two rewinds of one epoch apart, and both apart from a bare run id", () => {
+    // The key shares one map with the chapter header's, which IS a bare run id, so a
+    // collision here would draw a rewind band where a chapter belongs.
+    const index = new SupersededIndex([
+      runRow({ id: "a2", sequence: 1, type: "run.running", runId: "run-a", position: 2 }),
+      runRow({ id: "a4", sequence: 2, type: "run.running", runId: "run-a", position: 4 }),
+      rollbackBoundaryRow({
+        id: "rb-3",
+        sequence: 3,
+        runId: "run-a",
+        position: 5,
+        targetPosition: 3,
+      }),
+      rollbackBoundaryRow({
+        id: "rb-1",
+        sequence: 4,
+        runId: "run-a",
+        position: 6,
+        targetPosition: 1,
+      }),
+    ]);
+    const keys = [...index.bandByHeaderKey().keys()];
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys).not.toContain("run-a");
+    expect(keys.every((key) => key.startsWith("superseded "))).toBe(true);
   });
 });
