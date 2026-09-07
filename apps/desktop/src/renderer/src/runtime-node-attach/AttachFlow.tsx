@@ -114,11 +114,10 @@
 // for its procedure name to drift into.
 //
 // AND A SUBSTITUTABLE TRANSPORT IS PART OF THIS VIEW'S IDENTITY, which is what the
-// addressing below states. A transport is not a detail of how the same answer was
-// obtained: a receipt is a fact about one attachment made over one bridge, so when the
-// bridge is replaced the receipt is about something this view is no longer looking at,
-// and a reply still travelling from the replaced one is about it too. Both follow from
-// stamping the held answer with the transport, so neither is a guard written twice.
+// addressing below states. A receipt is a fact about one attachment made over one
+// bridge, so a replaced bridge leaves the held receipt about something this view is no
+// longer looking at, and a reply still in flight from the replaced one about it too.
+// Both follow from stamping the held answer with the transport — not two guards.
 //
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports ONLY:
 //   • Type-only from `@ai-sidekicks/contracts` — the contracts package is
@@ -129,9 +128,7 @@
 //     renderer-internal composition within this subtree (the second one
 //     presentational, both bridge-free).
 //   • The console's store door, `../console/store/index.js`, for the one
-//     subject-scoped holder this view addresses its settled receipt through —
-//     the same door the sibling roster reads, and a door rather than a deep
-//     specifier for the reason stated at that import.
+//     subject-scoped holder this view addresses its settled receipt through.
 // No `electron`, no `node:*`, no `./src/main/**`, no `./src/preload/**`, and no
 // `@ai-sidekicks/client-sdk` (the Node-side `runtimeNodeClient.ts` SDK) —
 // statically enforced via the `no-restricted-imports` rule in
@@ -154,10 +151,9 @@ import {
 } from "./attach-request.js";
 import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 // The held-answer stamp, taken from the console's ONE implementation of the rule
-// rather than written a second time here — the same door the sibling roster takes,
-// through `console/store/index.js` and not by a deep specifier, because a deep import
-// from outside the console reaches around a boundary every layering rule here is
-// `from`-scoped to `console/` and therefore cannot see.
+// rather than written a second time here. Through the door and never a deep
+// specifier: every layering rule that could object is `from`-scoped to `console/`,
+// so a deep import from out here reaches around a boundary nothing can see.
 import { useSubjectScopedState } from "../console/store/index.js";
 
 // The `window.sidekicks` ambient type lives in the renderer-wide
