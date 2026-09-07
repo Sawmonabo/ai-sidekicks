@@ -229,15 +229,39 @@ export class SettingsPageRegistry implements SettingsPageRegistrar {
    * component-form or unregistered section settles immediately with nothing to do — so a
    * caller never has to ask first whether a section is loader-backed.
    *
-   * NO IDLE WARM WALKS THIS BOARD, unlike the two in `seats/`. This registry is composed
-   * PER MOUNT, inside the settings chunk's own body, so by the time it exists the
-   * destination it belongs to is already open and there is no earlier moment for a warm
-   * to use. What the seam is for is the wait itself: a mount that must render the page
-   * rather than its reservation awaits the registration's OWN loader, which is exact,
-   * rather than settling generously enough for a dynamic import to have landed.
+   * TWO PRODUCTION CALLERS, which are the two the boards in `seats/` have. The shared
+   * section-opening callback calls it before it navigates, so the rail's row and a search
+   * hit warm the same page through one line — `frame/rail-navigation.ts` warms a
+   * destination at that same moment and for that same reason — and an idle walk covers
+   * the board before either of them reaches it.
+   *
+   * THE WALK IS HERE NOW, AND THE ARGUMENT AGAINST IT WAS WRONG. It ran: this registry is
+   * composed per mount, so by the time it exists the destination is already open and
+   * there is no earlier moment to use. The registration union above answers that in its
+   * own words — "settings is a destination somebody navigates to, and a section inside it
+   * is a second act after that" — so the board's lifetime begins at the FIRST act and the
+   * interval before the second one is exactly the idle a warm is charged to. A board
+   * holding only `render:` pages walks in one step and fetches nothing, which is what
+   * makes arming it unconditional honest. `settings-page-warm.ts` binds that walk to a
+   * MOUNT rather than to a window, because so is this board.
    */
   public async preload(section: SettingsSectionId): Promise<void> {
     await this.#loadedBodiesBySection.get(section)?.load();
+  }
+
+  /**
+   * Which registered sections have a page still to load, in RAIL order.
+   *
+   * The two boards' `unloadedKeys`, with their ordering reason read one level down: what
+   * the walk warms first is observable in what a person never waits for, and registration
+   * order would make it depend on which page lane the chunk root evaluated first.
+   * Already-resolved sections drop out, so a second walk over a warm board does nothing
+   * rather than re-entering every memo.
+   */
+  public unloadedKeys(): readonly SettingsSectionId[] {
+    return SETTINGS_SECTION_IDS.filter(
+      (section) => this.#loadedBodiesBySection.get(section)?.isResolved === false,
+    );
   }
 
   public unregister(section: SettingsSectionId): void {
