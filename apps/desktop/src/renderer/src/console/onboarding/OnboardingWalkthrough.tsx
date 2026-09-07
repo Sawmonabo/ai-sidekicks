@@ -70,6 +70,7 @@
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 
+import type { TransportReconnectObservable } from "../core/index.js";
 import { RefusalCard } from "../primitives/index.js";
 import { useWindowReadTriggers, type ShellMutationBlock } from "../store/index.js";
 import { CompletionSummary } from "./CompletionSummary.js";
@@ -102,6 +103,15 @@ export interface OnboardingWalkthroughProps {
   readonly readiness: ProviderReadinessModel;
   /** Which step this activation opens at, or `resume` for wherever this node got to. */
   readonly openAtStep: OnboardingOpening;
+  /**
+   * This window's transport-reconnect signal, for the two readings below.
+   *
+   * A prop because it is the BRIDGE's and this component holds models rather than a
+   * bridge — the same reason the models themselves arrive built. Both readings here are
+   * node-scoped, so reconnect is the one edge that says their answer may have moved,
+   * and `store/read-triggers.ts` takes it as a required argument for that reason.
+   */
+  readonly transportReconnect: TransportReconnectObservable;
   /** Open the account registry, scoped to a provider where a row named one. */
   readonly onOpenAccountRegistry: (providerName: string | undefined) => void;
   /**
@@ -132,8 +142,8 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
   // THE TWO REASONS A NODE-SCOPED READING RE-READS, wired through the one home for
   // them. Nothing here performs a read; a reading that wired its own arrival by hand
   // is the reading that never hears about the second one.
-  useWindowReadTriggers(flow);
-  useWindowReadTriggers(readiness);
+  useWindowReadTriggers(flow, props.transportReconnect);
+  useWindowReadTriggers(readiness, props.transportReconnect);
 
   const { completedSteps, reading } = snapshot;
   // Where the pane opens, and the one cell a rail press moves. A `resume` opening is

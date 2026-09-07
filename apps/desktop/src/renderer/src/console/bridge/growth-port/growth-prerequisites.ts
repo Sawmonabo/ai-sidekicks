@@ -134,6 +134,16 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "type-member",
       "the amendment arm on the approval decision input",
     ),
+    // NOT an operation, and the distinction is the module header's own. A port method
+    // here would be one nothing calls: the attach mount resolves a declaration off the
+    // bridge it already holds, synchronously, at the moment it renders — so the missing
+    // thing is a MEMBER on that bridge and not a callable the port could stand behind.
+    nodeSelfDeclarationCarrier: prerequisite(
+      "nodeSelfDeclarationCarrier",
+      "node-self-declaration",
+      "bridge-member",
+      "this node's own attach declaration — identity, contract version, self-reported health, and capability set — composed in main and handed to the renderer",
+    ),
     providerSessionImportSpec: prerequisite(
       "providerSessionImportSpec",
       "provider-session-import",

@@ -40,6 +40,14 @@
 // `electron.vite.config.ts` closes that with a path-scoped `moduleSideEffects`
 // declaration, and this half is what stops the corpus coming back unnoticed.
 //
+// THE THIRD SUBJECT: AN OWNER-SLOT SHELL'S STYLESHEET (2026-09-06). The same lesson a
+// third time, one layer out. Folding a slot's `__SIDEKICKS_CONSOLE_FIXTURES__` ternary
+// removes the shell's JavaScript and says nothing about its RULES, which entered through
+// the settings chunk root — not gated — as a bare side-effect import. Measured: a release
+// renderer carried both shell sheets while carrying neither shell. The remedy is the
+// package's own stylesheet rule rather than a build flag, and the sweep below is what
+// keeps the sheet from drifting back onto an ungated root.
+//
 // THE MARKERS ARE READ FROM THE CORPUS, never written here, so a scenario a later
 // family adds is swept the day it lands and no roster in this file goes stale. They are
 // read from the corpus's SOURCE rather than imported from it, because this project's lib
@@ -65,7 +73,9 @@ import { readBuiltTextOrFailLoudly, type BuiltFile } from "./built-renderer-tree
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
+  consoleStylesheets,
   readConsoleSourceModule,
+  type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
@@ -82,7 +92,7 @@ const CONSOLE_PRESENCE_MARKER = "meridian-frame";
 const SCENARIO_CORPUS_DIRECTORY: string = join(CONSOLE_DIRECTORY, "bridge", "scenarios");
 
 /**
- * The scenario fields whose values make good markers.
+ * The scenario fields whose values make good markers, and which a scenario CO-DECLARES.
  *
  * The LABEL and the PURPOSE, and deliberately not the `id`. A scenario id is a short
  * lowercase word — `repos`, `browser`, `terminal`, `settings` — and every one of them is
@@ -92,10 +102,85 @@ const SCENARIO_CORPUS_DIRECTORY: string = join(CONSOLE_DIRECTORY, "bridge", "sce
  * scenario picker; nothing else in this console says "Browsing agent", and a bundle that
  * does is carrying the corpus.
  *
- * Both fields rather than the label alone: they are declared beside each other, so a
- * scenario that changed one is exactly the case where the other still catches it.
+ * BOTH TOGETHER AS THE ANCHOR, not as a second chance (2026-09-07). The pair is the shape
+ * `bridge/scenario-runtime/scenario.ts` declares: `ConsoleScenario` requires both, so an
+ * object literal declaring both as siblings is a scenario, and one declaring a `label`
+ * alone is somebody else's word. Sweeping every `label` in the directory swept
+ * the WIRE's too: the corpus's `ProviderAccountUsageWindow` rows mirror the provider's
+ * own limit labels, one of which is "Session" — a real product string five release
+ * chunks carry for their own reasons, so a clean release build failed the sweep. The
+ * fixture is right; the derivation was reading a field NAME and calling it prose. Both
+ * fields are still swept, so a scenario that reworded one is caught by the other; what
+ * no longer happens is either being swept alone.
+ *
+ * THE CO-DECLARATION RATHER THAN THE TYPE ANNOTATION, though both answer today's corpus
+ * with the same markers. Anchoring on `: ConsoleScenario` would write a roster of one
+ * type name into this file and miss the first scenario declared any other way — a
+ * `satisfies`, an element of an array, a builder call — which is the direction of
+ * staleness nothing here would report. The arrangement is a property of the corpus and
+ * needs no name from this file. Its one boundary, stated rather than left to be
+ * discovered: a literal inheriting `purpose` from a spread declares no pair, so a
+ * scenario declares both fields or contributes neither.
  */
 const SCENARIO_MARKER_FIELDS: readonly string[] = ["label", "purpose"];
+
+/**
+ * The name one object-literal member is declared under, or `undefined` for the rest.
+ *
+ * Shorthand and string-literal names are answered alongside identifiers because all
+ * three are one declaration written three ways, and a rule seeing only identifiers would
+ * let the other two past. A spread has no name and a computed one is not a name this
+ * file can answer; both are "not a marker field", which is what the caller asks.
+ */
+function declaredMemberName(member: ts.ObjectLiteralElementLike): string | undefined {
+  if (!ts.isPropertyAssignment(member) && !ts.isShorthandPropertyAssignment(member)) {
+    return undefined;
+  }
+  const { name } = member;
+  return ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : undefined;
+}
+
+/**
+ * The markers one object literal contributes: its marker fields, or none at all.
+ *
+ * The pair test is about CO-DECLARATION and not about both values being literals. A
+ * scenario whose `purpose` is composed from a constant still declares one, and its label
+ * is still prose only the corpus has — so the sibling counts as present whatever it is
+ * initialized to, and only string-literal values become markers to sweep for.
+ */
+function coDeclaredMarkersOf(literal: ts.ObjectLiteralExpression): readonly string[] {
+  const declaredFields = new Set<string>();
+  const markers: string[] = [];
+  for (const member of literal.properties) {
+    const memberName = declaredMemberName(member);
+    if (memberName === undefined || !SCENARIO_MARKER_FIELDS.includes(memberName)) {
+      continue;
+    }
+    declaredFields.add(memberName);
+    if (ts.isPropertyAssignment(member) && ts.isStringLiteral(member.initializer)) {
+      markers.push(member.initializer.text);
+    }
+  }
+  return SCENARIO_MARKER_FIELDS.every((field) => declaredFields.has(field)) ? markers : [];
+}
+
+/**
+ * Every marker one module's source text contributes, in declaration order.
+ *
+ * Split from the corpus walk so the planted control below drives the SAME derivation the
+ * sweep drives — the reasoning {@link carriersOf} is already written under. A control
+ * that re-expressed the co-declaration rule would prove only that the control implements
+ * it.
+ */
+function markersInSourceText(fileName: string, sourceText: string): readonly string[] {
+  const markers: string[] = [];
+  forEachDescendant(parseSourceText(fileName, sourceText), (node) => {
+    if (ts.isObjectLiteralExpression(node)) {
+      markers.push(...coDeclaredMarkersOf(node));
+    }
+  });
+  return markers;
+}
 
 /**
  * Every marker the corpus contributes, read from its SOURCE rather than imported.
@@ -108,30 +193,78 @@ const SCENARIO_MARKER_FIELDS: readonly string[] = ["label", "purpose"];
  *
  * Through the compiler's own parser rather than a regular expression, and through the
  * source reader the architecture tier already owns rather than a second directory walk.
- * What it collects is every string-literal value assigned to one of the marker fields
- * anywhere in that directory, which is a superset of the scenarios' own — a helper's
- * label is just as much a string only the corpus has — and a superset is the safe
- * direction for an absence sweep.
+ * What it collects is the marker fields of every literal in that directory declaring
+ * BOTH of them — every scenario, and a helper carrying the same pair, whose label is just
+ * as much a string only the corpus has. A superset of the SCENARIOS is the safe direction
+ * for an absence sweep; a superset of the DIRECTORY is not, because the corpus also holds
+ * wire rows whose members are the product's own words.
  */
 function scenarioCorpusMarkers(): readonly string[] {
   const markers = new Set<string>();
   for (const module of consoleSourceModules({ roots: [SCENARIO_CORPUS_DIRECTORY] })) {
-    const parsed = parseSourceText(module.displayPath, readConsoleSourceModule(module));
-    forEachDescendant(parsed, (node) => {
-      if (
-        ts.isPropertyAssignment(node) &&
-        ts.isIdentifier(node.name) &&
-        SCENARIO_MARKER_FIELDS.includes(node.name.text) &&
-        ts.isStringLiteral(node.initializer)
-      ) {
-        markers.add(node.initializer.text);
-      }
-    });
+    const text = readConsoleSourceModule(module);
+    for (const marker of markersInSourceText(module.displayPath, text)) {
+      markers.add(marker);
+    }
   }
   return [...markers].sort();
 }
 
 const SCENARIO_CORPUS_MARKERS: readonly string[] = scenarioCorpusMarkers();
+
+/**
+ * Which stylesheets belong to a `define`-gated owner-slot shell.
+ *
+ * THE THIRD SUBJECT (2026-09-06), and it is the room again rather than the door. A
+ * settings section whose body another plan authors carries a fixture SHELL behind
+ * `__SIDEKICKS_CONSOLE_FIXTURES__`, and folding that ternary takes the shell's
+ * JavaScript out of a release renderer. It did not take the shell's RULES: those
+ * entered through `settings/settings-surface-body.ts` — the settings chunk root, which
+ * is not gated — as a bare side-effect import, and a release renderer therefore shipped
+ * the stylesheet for a subtree it does not contain. The remedy is structural rather
+ * than a build flag, and it is `apps/desktop/AGENTS.md`'s own rule: each shell now
+ * carries a sub-module door, the sheet enters through it, and the door is declared
+ * side-effect-free in `electron.vite.config.ts` so it leaves with the shell it serves.
+ * This is what stops it coming back.
+ *
+ * DERIVED FROM THE TREE RATHER THAN NAMED, on the corpus sweep's reasoning next door: a
+ * roster of two written here would be two the day a third owner slot lands, and nothing
+ * would report it. The predicate is the arrangement itself — a stylesheet under a
+ * `shell/` directory inside `settings/pages/` — and the shared walk answers it, so no
+ * second opinion about what console source is appears in this file.
+ */
+function ownerSlotShellStylesheets(): readonly ConsoleSourceModule[] {
+  return consoleStylesheets({ roots: [CONSOLE_DIRECTORY] }).filter((stylesheet) => {
+    const path = stylesheet.relativePath.split("\\").join("/");
+    return path.startsWith("settings/pages/") && path.includes("/shell/");
+  });
+}
+
+/**
+ * Every class root those stylesheets style, as the marker to sweep for.
+ *
+ * The BLOCK root and never a whole selector: each shell sheet's own header states that
+ * nothing outside its `meridian-<block>__` prefix appears in it, so the prefix is both
+ * the sheet's subject and the string no other console stylesheet writes. Read from the
+ * line-anchored selectors, which is where a rule opens — a root mentioned only inside a
+ * descendant selector belongs to the sheet that declares it, and sweeping for that one
+ * would fail on a clean build.
+ */
+function ownerSlotShellClassRoots(): readonly string[] {
+  const roots = new Set<string>();
+  for (const stylesheet of ownerSlotShellStylesheets()) {
+    const text = readConsoleSourceModule(stylesheet);
+    for (const match of text.matchAll(/^\.(meridian-[a-z0-9-]+)__/gmu)) {
+      const [, classRoot] = match;
+      if (classRoot !== undefined) {
+        roots.add(`${classRoot}__`);
+      }
+    }
+  }
+  return [...roots].sort();
+}
+
+const OWNER_SLOT_SHELL_CLASS_ROOTS: readonly string[] = ownerSlotShellClassRoots();
 
 /**
  * Which built files carry a marker.
@@ -190,6 +323,30 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
     ).toStrictEqual([]);
   });
 
+  it("positive control: the shell sweep has stylesheets and class roots to look for", () => {
+    // Two derivations, and either one going empty makes every case below vacuous
+    // without failing one. The sheets are asserted separately from the roots because
+    // the two fail for different reasons — a moved directory empties the first, a
+    // renamed block prefix empties the second — and a single count would report the
+    // wrong one.
+    expect(ownerSlotShellStylesheets().length).toBeGreaterThan(0);
+    expect(OWNER_SLOT_SHELL_CLASS_ROOTS.length).toBeGreaterThan(0);
+  });
+
+  it.each(OWNER_SLOT_SHELL_CLASS_ROOTS)("does not ship the shell class root %s", (classRoot) => {
+    const carriers = carriersOf(classRoot, builtFiles);
+    expect(
+      carriers,
+      `"${classRoot}" reached the built tree, so a release renderer carries the rules ` +
+        "for an owner-slot fixture shell it does not contain. Either `out/renderer` " +
+        "currently holds a fixtures build — `pnpm build:fixtures` and `pnpm build` write " +
+        "the same directory — or the sheet has left its shell's sub-module door and is " +
+        "being imported from a module the `__SIDEKICKS_CONSOLE_FIXTURES__` fold does not " +
+        "remove. Both halves are needed: the door owns the sheet, and " +
+        "`electron.vite.config.ts` declares the door's directory side-effect-free.",
+    ).toStrictEqual([]);
+  });
+
   it("negative control: the corpus sweep reports a carrier when one is planted", () => {
     // Every case above is an absence claim, and an absence claim is only worth what
     // its search is worth. This plants a file that DOES carry a scenario marker and
@@ -204,5 +361,24 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
     ];
 
     expect(carriersOf(plantedMarker ?? "", plantedFiles)).toStrictEqual(["assets/planted.js"]);
+  });
+
+  it("negative control: a marker needs both fields co-declared on one literal", () => {
+    // The planted control one step earlier, over what the sweep is handed to look FOR
+    // rather than over how it looks. It drives the same derivation the corpus is read
+    // through, against a module holding one literal of each shape: a wire row carrying
+    // a `label` the product legitimately ships, and a scenario carrying the pair. A
+    // rule that widened back to every `label` in the directory is reported here — as a
+    // marker set holding the product's own word — instead of next door, as a clean
+    // release build accused of shipping the corpus.
+    const planted = markersInSourceText(
+      "planted.ts",
+      [
+        'const wireRow = { limitId: "weekly_all", label: "PLANTED WIRE LABEL" };',
+        'const scenario = { id: "p", label: "PLANTED LABEL", purpose: "PLANTED PURPOSE" };',
+      ].join("\n"),
+    );
+
+    expect(planted).toStrictEqual(["PLANTED LABEL", "PLANTED PURPOSE"]);
   });
 });

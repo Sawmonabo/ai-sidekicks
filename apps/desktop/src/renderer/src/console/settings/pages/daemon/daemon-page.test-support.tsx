@@ -135,7 +135,7 @@ export function renderPage(options: {
     options.rejecting,
   );
   const pageUnder = (shellState: ShellState): ReactNode => (
-    <DaemonPage context={settingsPageContextWith(bridge, undefined, undefined, shellState)} />
+    <DaemonPage context={settingsPageContextWith(bridge, undefined, { shellState })} />
   );
   const { container, rerender } = render(pageUnder(options.shellState ?? UNREPORTED_SHELL_STATE));
   return {

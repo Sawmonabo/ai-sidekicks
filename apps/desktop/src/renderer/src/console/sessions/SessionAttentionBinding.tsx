@@ -131,7 +131,7 @@ const SessionAttentionContext = createContext<SessionAttention | undefined>(unde
 export function SessionAttentionBinding(props: FrameBindingProps): React.JSX.Element {
   const { bridge, frameStore, sessionStoreRegistry } = props.context;
   const { growth } = bridge;
-  const directory = useSessionDirectory(growth);
+  const directory = useSessionDirectory(growth, bridge.transportReconnect);
   const windowSessionIds = useOpenSessionIds(sessionStoreRegistry);
   // Memoised on the merged ids rather than on the directory object, so the read fires
   // once when the directory settles and not again on every later render.
@@ -147,7 +147,7 @@ export function SessionAttentionBinding(props: FrameBindingProps): React.JSX.Ele
   // phase but the answered one, so a window that cannot reach the projection shows no
   // badge rather than the last number it was given.
   useRailAttentionPublisher(frameStore, projection.reading);
-  const delivery = useOsNotificationDelivery(growth);
+  const delivery = useOsNotificationDelivery(bridge);
   // The emission, on the window's lifetime rather than the sessions destination's.
   // What decides a banner is where the window was when the item arrived — never which
   // screen was open, which is the audience rule read backwards.

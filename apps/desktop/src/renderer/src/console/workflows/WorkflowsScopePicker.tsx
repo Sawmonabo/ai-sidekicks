@@ -59,6 +59,7 @@
 import { useId } from "react";
 
 import { isUnbuiltWireRefusal, type GrowthPort } from "../bridge/index.js";
+import type { TransportReconnectObservable } from "../core/index.js";
 import { offeredSessionIds, useSessionDirectory } from "../seats/index.js";
 import { InlineRefusal, Nothing, PartialRead, WireChoiceList } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStoreRegistry } from "../store/index.js";
@@ -88,6 +89,8 @@ const PARTIAL_LIST_NOTE =
 
 export interface WorkflowsScopePickerProps {
   readonly growth: GrowthPort;
+  /** The window's reconnect edge, which is the one reason a node-wide list re-reads. */
+  readonly transportReconnect: TransportReconnectObservable;
   /** This window's open sessions — one half of what the picker can offer. */
   readonly registry: SessionStoreRegistry;
   readonly onChoose: (sessionId: string) => void;
@@ -95,7 +98,7 @@ export interface WorkflowsScopePickerProps {
 
 /** The session choice the workflows destination puts before it can read anything. */
 export function WorkflowsScopePicker(props: WorkflowsScopePickerProps): React.JSX.Element {
-  const directory = useSessionDirectory(props.growth);
+  const directory = useSessionDirectory(props.growth, props.transportReconnect);
   const openSessionIds = useOpenSessionIds(props.registry);
   const sessionIds = offeredSessionIds(directory, openSessionIds);
   // Minted per mount rather than written as a literal, for the reason

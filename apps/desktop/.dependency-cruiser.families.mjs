@@ -72,7 +72,7 @@ export const FRAME = `${CONSOLE}/frame/`;
 // endpoint of no edge any rule here judges, and `no-orphans` exempts declaration files
 // by extension already. Co-located tests are absent for the stronger reason that
 // `options.exclude` removes them from the graph before any rule runs.
-export const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|collaboration-family|sidekicks-settings-page)\\.ts$`;
+export const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|collaboration-family|sidekicks-settings-page|browser-settings-page)\\.ts$`;
 // The pane board is the FILES directly under `panes/`, not the directory. After the
 // pane-body rule below, `panes/` holds composition and nothing else, so a
 // `panes/<something>/` subtree is not a composition site and must not inherit the

@@ -1,13 +1,15 @@
-// The three time readings: the unit changes rather than the number growing.
+// The four time readings: the unit changes rather than the number growing.
 //
 // `Spec-023 §Console Design (Meridian)` §The eight rules puts every quantity through
-// `Intl`, and these three are where that rule has a second half — WHICH unit the
+// `Intl`, and these four are where that rule has a second half — WHICH unit the
 // figure is read in is itself a decision, and each of them makes it differently:
 // `formatDuration` switches at fixed boundaries and pads the borrowed fields once it
 // is digital, `formatRelativeTime` picks by magnitude and lets the platform compose
-// the words, and `formatClockTime` fixes its fields and drops the date entirely
-// because the day divider carries it. So the interesting cases are the boundaries,
-// and each one is asserted a millisecond either side of itself.
+// the words, `formatClockTime` fixes its fields and drops the date entirely
+// because the day divider carries it, and `formatDayDuration` takes its unit from the
+// wire and asks `Intl` for the WORD — the one of the four whose failure was never a
+// boundary but a plural. So the interesting cases are the boundaries, and each one is
+// asserted a millisecond either side of itself.
 //
 // `formatClockTime` is asserted by SHAPE rather than by literal, deliberately.
 // `Intl.DateTimeFormat` with no `timeZone` renders in the runner's zone, so a
@@ -23,7 +25,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { formatClockTime, formatDuration, formatRelativeTime } from "./wire-figures.js";
+import {
+  formatClockTime,
+  formatDayDuration,
+  formatDuration,
+  formatRelativeTime,
+} from "./wire-figures.js";
 
 describe("formatDuration — the unit changes rather than the number growing", () => {
   it("keeps sub-second durations in milliseconds", () => {
@@ -163,5 +170,54 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
   it("refuses a day that does not exist rather than rendering the day after it", () => {
     expect(formatClockTime("2026-02-30T10:00:00Z", "en-US")).toBe("—");
     expect(Number.isNaN(Date.parse("2026-02-30T10:00:00Z"))).toBe(false);
+  });
+});
+
+describe("formatDayDuration — the locale decides the word, never the call site", () => {
+  it("declines the plural at one day and takes it at three", () => {
+    // The defect this function was written for: two call sites composed
+    // `${formatCount(days)} days`, which renders the ungrammatical `1 days` for
+    // every retention bucket kept for a single day. `Intl` knows the locale's own
+    // plural rule, so the singular is the platform's answer rather than a branch
+    // here.
+    expect(formatDayDuration(1, "en-US")).toBe("1 day");
+    expect(formatDayDuration(3, "en-US")).toBe("3 days");
+    // The control: the concatenation this replaced would have answered `1 days`,
+    // and no locale-aware formatter can.
+    expect(formatDayDuration(1, "en-US")).not.toBe("1 days");
+  });
+
+  it("names the unit in the locale's own words rather than in English", () => {
+    // The second half of the same defect. The appended literal `days` was English
+    // in every locale, so a German window read `3 days` beside figures `Intl` had
+    // already localized. Asserted against the platform's own composition rather
+    // than against a hand-written German string, so the case pins the ROUTE
+    // through `Intl` and not a translation this test invented.
+    expect(formatDayDuration(3, "de-DE")).toBe(
+      new Intl.NumberFormat("de-DE", {
+        style: "unit",
+        unit: "day",
+        unitDisplay: "long",
+        maximumFractionDigits: 0,
+      }).format(3),
+    );
+    expect(formatDayDuration(3, "de-DE")).not.toBe("3 days");
+    expect(formatDayDuration(3, "de-DE")).not.toBe(formatDayDuration(3, "en-US"));
+  });
+
+  it("groups a large day count the way every other console figure does", () => {
+    expect(formatDayDuration(1000, "en-US")).toBe("1,000 days");
+  });
+
+  it("renders whole days, because that is what the wire states", () => {
+    // A fraction here would be arithmetic the console performed on a figure it was
+    // handed, so the reading is whole and the rounding is `Intl`'s.
+    expect(formatDayDuration(7.4, "en-US")).toBe("7 days");
+  });
+
+  it("renders a dash rather than a figure it cannot stand behind", () => {
+    for (const notADayCount of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(formatDayDuration(notADayCount, "en-US")).toBe("—");
+    }
   });
 });

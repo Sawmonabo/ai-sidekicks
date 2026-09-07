@@ -54,7 +54,7 @@
 import { useState } from "react";
 
 import { isUnbuiltWireRefusal, type GrowthPort } from "../bridge/index.js";
-import type { ConsoleRefusal } from "../core/index.js";
+import type { ConsoleRefusal, TransportReconnectObservable } from "../core/index.js";
 import { Nothing, WireChoiceList, WireFigure } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStore, type SessionStoreRegistry } from "../store/index.js";
 import { AgentChoice } from "./AgentChoice.js";
@@ -74,6 +74,8 @@ export interface ContextPickerProps {
   readonly registry: SessionStoreRegistry;
   /** The seam the node's session directory is read through — the other half. */
   readonly growth: GrowthPort;
+  /** The window's reconnect edge, which is the one reason a node-wide list re-reads. */
+  readonly transportReconnect: TransportReconnectObservable;
   /**
    * Called with a COMPLETE target and never before.
    *
@@ -140,7 +142,7 @@ export function ContextPicker(props: ContextPickerProps): React.JSX.Element {
   // else. `src/shared/auxiliary-routes.ts` names this exact pair as its reason.
   const routeNoun = AUXILIARY_ROUTE_LABELS[props.route].toLowerCase();
   const openSessionIds = useOpenSessionIds(props.registry);
-  const directory = useSessionDirectory(props.growth);
+  const directory = useSessionDirectory(props.growth, props.transportReconnect);
   const sessionIds = offeredSessionIds(directory, openSessionIds);
   // The session chosen but not yet navigated to. Local to the picker on purpose:
   // it is not a place the window IS, so writing it to the frame store would put a

@@ -1,6 +1,6 @@
 // How one ledger row is built, shared by every plane module beside it.
 //
-// The row constructor and nothing else. It sits in its own module because eleven plane
+// The row constructor and nothing else. It sits in its own module because twelve plane
 // modules call it and a helper declared in one of them would make the other ten
 // import a sibling for something none of them owns — the edge `growth-entry.ts`
 // already refuses for the row's TYPE, refused again here for its construction.

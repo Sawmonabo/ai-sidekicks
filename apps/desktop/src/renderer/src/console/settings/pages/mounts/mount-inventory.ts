@@ -45,13 +45,15 @@
 //     its own: the store is already the one subscriber to that stream, and opening
 //     another would be a second copy of the same feed arriving in a different
 //     order.
-//   • **Reconnect is registered nowhere.** `RefreshReason` names it, and no console
-//     module raises it: `SidekicksBridge` declares no connection-state member, no
-//     `online` / `offline` listener exists in the tree, and every producer of that
-//     reason today is a test. So there is nothing to bind, and this module invents
-//     no substitute — a transport signal composed here would be this window's guess
-//     at a connection it cannot observe. The read is bound to it the moment the
-//     console grows one, in one place.
+//   • **Reconnect** is the console's one transport signal, taken from
+//     `ConsoleBridge.transportReconnect` and bound beside the focus listener in
+//     `MountInventoryList`. It is a different fact from the two above it: a window
+//     that never lost focus, in a session that never went degraded, can still have
+//     had its transport drop and come back — and every mount health this list is
+//     showing was read before that gap. The signal is OBSERVED rather than guessed:
+//     the live half is what the session-event binder saw happen to the one
+//     subscription this window takes, and the fixture half is a scenario's scripted
+//     outage. This module still composes nothing of its own; it asks for a read.
 //
 // THE STORE IS OPTIONAL, AND ITS ABSENCE IS A REAL STATE. Settings is reachable
 // with no session open, and the retained session's store is `undefined` until the

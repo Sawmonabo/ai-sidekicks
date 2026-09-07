@@ -20,12 +20,24 @@
 // into `SettingsSurface.test-support.tsx`.
 
 import { act } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { SettingsPageRegistry } from "./settings-page-registry.js";
 import { SETTINGS_SECTION_IDS } from "./settings-sections.js";
-import { renderSurface, searchFor, windowAt } from "./SettingsSurface.test-support.js";
+import {
+  CHUNK_WARM_TIMEOUT_MS,
+  renderSurface,
+  searchFor,
+  shippedSurfaceRender,
+  windowAt,
+} from "./SettingsSurface.test-support.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
+
+// The settings chunk, warmed in a hook rather than inside whichever case reached it
+// first — the reason the holder it goes through records.
+beforeAll(async () => {
+  await shippedSurfaceRender();
+}, CHUNK_WARM_TIMEOUT_MS);
 
 /**
  * One page that renders the session member and nothing else.
@@ -53,6 +65,27 @@ function sessionEchoPages(): SettingsPageRegistry {
 
 function echoedSession(container: HTMLElement): string | undefined {
   return container.querySelector(`.${SESSION_ECHO_CLASS}`)?.textContent ?? undefined;
+}
+
+/** What the probe page below renders, and nothing else in this file says. */
+const PROBE_PAGE_MARKER = "settings-surface-test probe page";
+
+/**
+ * One page registered for the section the reservation case leaves empty.
+ *
+ * The two cases are one pair over one branch: the same address against a registry
+ * holding no page and against a registry holding this one.
+ */
+function registeredProbePage(): SettingsPageRegistry {
+  const pages = new SettingsPageRegistry();
+  pages.register({
+    section: "keyboard",
+    owner: "settings-surface-test",
+    label: "Keyboard",
+    keywords: [],
+    render: () => <p>{PROBE_PAGE_MARKER}</p>,
+  });
+  return pages;
 }
 
 /** The four fields this surface reads, and nothing else. */
@@ -128,10 +161,15 @@ describe("settings pane — the three ways there is no page", () => {
 
   it("renders a registered page instead of the reservation", async () => {
     // Negative control for the case above: it would pass over a pane that rendered
-    // the reservation for every section, registered or not. `mcp-servers` carries a
-    // page in this build — its body is another plan's, but the PAGE is registered.
-    const { container } = await renderSurface(contextFor("mcp-servers"));
-    expect(container.textContent ?? "").toContain("MCP server page");
+    // the reservation for every section, registered or not. The foil is a registry
+    // this case OWNS, exactly as the empty one above is — the branch under test is the
+    // pane's, and pinning the claim to whichever shipped section happened to carry a
+    // page made it fail the moment a lane filled that section's seat, which is a stale
+    // test rather than a real regression.
+    const { container } = await renderSurface(contextFor("keyboard"), registeredProbePage());
+    const text = container.textContent ?? "";
+    expect(text).toContain(PROBE_PAGE_MARKER);
+    expect(text).not.toContain("has not been built yet");
   });
 });
 
@@ -158,6 +196,77 @@ describe("settings search — one field above the rail", () => {
     searchFor(container, "mcp");
     searchFor(container, "");
     expect(railLabels(container)).toHaveLength(SETTINGS_SECTION_IDS.length);
+  });
+
+  /**
+   * Where a hit LANDS the reader.
+   *
+   * The design asks for three things from a match — that it name where it landed,
+   * that it reach the pane, and that it settle there with one brief highlight. The
+   * first is the hit row's own text and is covered above; these cases cover the other
+   * two. The reach is asserted as FOCUS rather than as a scroll because focus is what
+   * this module writes: the viewport following it is the platform's own behaviour, and
+   * a case asserting a scroll offset in a layout-free DOM would be asserting nothing.
+   */
+  function pressHit(container: HTMLElement, label: string): void {
+    const hits = [...container.querySelectorAll(".meridian-settings__section--result")];
+    const hit = hits.find((element) => (element.textContent ?? "").includes(label));
+    if (hit === undefined) {
+      throw new Error(`no search hit named ${label}`);
+    }
+    act(() => {
+      (hit as HTMLButtonElement).click();
+    });
+  }
+
+  it("lands the reader on the page a hit names, and settles it once", async () => {
+    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    const page = container.querySelector(".meridian-settings__page");
+    expect(page?.className).not.toContain("--settling");
+
+    searchFor(container, "cost");
+    pressHit(container, "Cost");
+
+    const heading = container.querySelector(".meridian-settings__page-heading");
+    expect(document.activeElement).toBe(heading);
+    expect(container.querySelector(".meridian-settings__page")?.className).toContain("--settling");
+  });
+
+  it("settles again on a second hit into the section already open", async () => {
+    // The case a boolean could not express: the state is already true, so a second
+    // press would change nothing downstream and the reader would be told nothing.
+    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    searchFor(container, "cost");
+    pressHit(container, "Cost");
+    const page = container.querySelector(".meridian-settings__page");
+    // The animation's end is what clears it, and jsdom runs no animation — so the
+    // case fires the event the browser would, and then asserts the second press
+    // brings the highlight back.
+    act(() => {
+      page?.dispatchEvent(new Event("animationend", { bubbles: true }));
+    });
+    expect(container.querySelector(".meridian-settings__page")?.className).not.toContain(
+      "--settling",
+    );
+
+    pressHit(container, "Cost");
+    expect(container.querySelector(".meridian-settings__page")?.className).toContain("--settling");
+  });
+
+  it("negative control: opening a section from the rail settles nothing", async () => {
+    // Without this, the two cases above would pass over a page that flashed on every
+    // arrival — which would say "you landed here" to someone who navigated by hand.
+    const { container } = await renderSurface(contextFor("cost"), sessionEchoPages());
+    const railEntry = container.querySelector(".meridian-settings__section");
+    act(() => {
+      (railEntry as HTMLButtonElement).click();
+    });
+    expect(container.querySelector(".meridian-settings__page")?.className).not.toContain(
+      "--settling",
+    );
+    expect(document.activeElement).not.toBe(
+      container.querySelector(".meridian-settings__page-heading"),
+    );
   });
 });
 
