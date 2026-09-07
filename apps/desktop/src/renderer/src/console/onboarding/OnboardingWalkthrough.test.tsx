@@ -48,6 +48,7 @@ import { withDaemonCall } from "../bridge/fixture/fixture-bridge.test-support.js
 import { settleScheduledRead } from "../bridge/readings/scheduled-read.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
+import { FrameStore } from "../store/index.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
 import {
   bridgeWithGroupAAnswered,
@@ -79,7 +80,7 @@ async function mountAt(
   const rendered = render(
     <OnboardingWalkthrough
       flow={new OnboardingFlow(bridge)}
-      readiness={new ProviderReadinessModel(bridge)}
+      readiness={new ProviderReadinessModel(bridge, new FrameStore())}
       openAtStep={openAtStep}
       accountScope={undefined}
       onOpenAccountRegistry={() => undefined}
@@ -442,7 +443,7 @@ describe("the window trigger set", () => {
     render(
       <OnboardingWalkthrough
         flow={new OnboardingFlow(bridge)}
-        readiness={new ProviderReadinessModel(bridge)}
+        readiness={new ProviderReadinessModel(bridge, new FrameStore())}
         openAtStep="providers"
         accountScope={undefined}
         onOpenAccountRegistry={() => undefined}

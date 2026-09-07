@@ -11,6 +11,7 @@ import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+import { FrameStore, UNREPORTED_SHELL_STATE, type ShellConnection } from "../../store/index.js";
 import { ProviderReadinessModel } from "./provider-readiness.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
 
@@ -29,8 +30,39 @@ const CODEX_DEFAULT_ACCOUNT_ID = "acct-codex-personal";
 const CODEX_SECOND_ACCOUNT_ID = "acct-codex-work";
 const OBSERVED_AT = "2026-01-01T08:40:00.000Z";
 
-export function modelOver(bridge: ConsoleBridge): ProviderReadinessModel {
-  return new ProviderReadinessModel(bridge);
+/**
+ * A model over a bridge and a real window store.
+ *
+ * THE REAL `FrameStore` and never a stub of it: the model reads the shell state
+ * through the store's own per-method seam and subscribes for changes, so a hand-built
+ * object would be a second answer to "what does this window hold" — and the one
+ * property every block case turns on, that a report is published only when it actually
+ * moved, lives in the store rather than in the shape. A case that does not care about
+ * the shell gets a fresh store reporting nothing, which is what a window holds before
+ * its first supervisor report and therefore blocks nothing.
+ */
+export function modelOver(
+  bridge: ConsoleBridge,
+  frameStore: FrameStore = new FrameStore(),
+): ProviderReadinessModel {
+  return new ProviderReadinessModel(bridge, frameStore);
+}
+
+/**
+ * Put one supervisor condition on a window store, through the store's own writer.
+ *
+ * The whole report and not the connection alone, because that is the shape the
+ * supervisor subscription publishes — a partial value would be one the real store
+ * never receives.
+ */
+export function reportShellConnection(frameStore: FrameStore, connection: ShellConnection): void {
+  frameStore.publishShellReport({
+    connection,
+    negotiation: UNREPORTED_SHELL_STATE.negotiation,
+    lastHeartbeatAt: UNREPORTED_SHELL_STATE.lastHeartbeatAt,
+    transport: UNREPORTED_SHELL_STATE.transport,
+    keystore: UNREPORTED_SHELL_STATE.keystore,
+  });
 }
 
 /** The shipped onboarding scenario, which is one ready provider and one signed out. */

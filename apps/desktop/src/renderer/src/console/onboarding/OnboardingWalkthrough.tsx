@@ -64,14 +64,12 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { RefusalCard } from "../primitives/index.js";
-import { useWindowReadTriggers } from "../store/index.js";
+import { useWindowReadTriggers, type ShellMutationBlock } from "../store/index.js";
 import { CompletionSummary } from "./CompletionSummary.js";
 import type { OnboardingFlow, OnboardingSnapshot } from "./onboarding-flow.js";
 import { ProviderReadinessStep } from "./provider-readiness/ProviderReadinessStep.js";
-import type {
-  ProviderReadinessModel,
-  ProviderReadinessReading,
-} from "./provider-readiness/provider-readiness.js";
+import type { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
+import type { ProviderReadinessReading } from "./provider-readiness/provider-readiness-reading.js";
 import { RelayChoiceStep } from "./relay/RelayChoiceStep.js";
 import { useOpeningStep } from "./steps/opening-step.js";
 import { StepRail } from "./steps/StepRail.js";
@@ -159,6 +157,11 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
         {renderStep(openStepId, props, {
           snapshot,
           readinessReading: readinessSnapshot.reading,
+          // Off the readiness snapshot this component already subscribes to, rather
+          // than a second read of the shell state here: the model derives the block
+          // through the store's per-method seam and republishes when it moves, so one
+          // subscription carries both what the step shows and what it may put.
+          recheckBlock: readinessSnapshot.recheckBlock,
           isRelayResolved: completedSteps.has("relay"),
           // The open step's own hold, composed once here from the same completed set
           // the rail reads. The rail keeps a held step from being opened; this is
@@ -196,6 +199,8 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
 interface StepRenderState {
   readonly snapshot: OnboardingSnapshot;
   readonly readinessReading: ProviderReadinessReading;
+  /** Why the provider step's re-check is closed, or `undefined` while it is not. */
+  readonly recheckBlock: ShellMutationBlock | undefined;
   readonly isRelayResolved: boolean;
   /** Why the OPEN step is held, or `undefined` when nothing holds it. */
   readonly blockedReason: string | undefined;
@@ -240,6 +245,7 @@ function renderStep(
           onRecheck={(providerName, accountId) => {
             void readiness.recheck(providerName, accountId);
           }}
+          recheckBlock={state.recheckBlock}
           onOpenAccountRegistry={props.onOpenAccountRegistry}
           // A LOCAL EXIT AND NOT A RECORDED SKIP. `Spec-026` makes exactly one step
           // leavable, `step-model.ts` records which, and the way out is the overlay's

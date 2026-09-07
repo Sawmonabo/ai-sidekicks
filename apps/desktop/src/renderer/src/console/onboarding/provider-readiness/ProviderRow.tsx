@@ -24,6 +24,14 @@
 // carries no read-path age test and no stale arm, so a badge would be this console
 // inventing a freshness policy and applying it to somebody else's reading.
 //
+// AND THE RE-CHECK CLOSES WHEN THE SUPERVISOR CANNOT BE WRITTEN TO, alone among the
+// three controls. It is the one act on this row that dispatches a mutating daemon
+// method, so the block arrives resolved for exactly that method rather than as a fact
+// about the row: the registry link leaves for another surface, the sign-in leaves
+// through the growth port, and every figure above them came from a read that survives
+// the same outage. The row never asks which states block a write — the model asked the
+// store, and this renders the answer.
+//
 // AND AN ACCOUNT LABEL IS A WIRE FIGURE LIKE EVERY OTHER FIGURE HERE. The labels ride
 // the registry projection, so the row takes the ACCOUNT RECORDS and renders one
 // figure per account with the label verbatim, on its own line, with the default
@@ -39,6 +47,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 import {
   OBSERVED_AT_UNSET_NOTE,
   READINESS_STATE_LABELS,
@@ -46,7 +55,7 @@ import {
   remedyHeadline,
   remedyRegistryActionLabel,
 } from "./provider-readiness-copy.js";
-import type { ProviderActionReading } from "./provider-readiness.js";
+import type { ProviderActionReading } from "./provider-readiness-reading.js";
 
 export interface ProviderRowProps {
   readonly entry: ProviderReadiness;
@@ -70,6 +79,17 @@ export interface ProviderRowProps {
    * would each have to be kept pointing at the same section.
    */
   readonly onOpenAccountRegistry: (providerName: string) => void;
+  /**
+   * Why a re-check may not be put right now, or `undefined` while nothing closes it.
+   *
+   * ONE ACT AND NOT THE ROW, because the store's seam answers per METHOD: the re-check
+   * dispatches `providerAccount.probe`, which a stopped supervisor blocks, while the
+   * reading behind every figure on this row is `providerAccount.list`, which it does
+   * not — and the sign-in leaves through the growth port rather than the daemon at all.
+   * A row-wide disablement would be this surface widening a rule the store states
+   * narrowly.
+   */
+  readonly recheckBlock: ShellMutationBlock | undefined;
 }
 
 /** What the disclosure says where this provider's registry holds nothing at all. */
@@ -139,12 +159,22 @@ export function ProviderRow(props: ProviderRowProps): React.JSX.Element {
             onClick={() => {
               props.onRecheck(entry.provider, resolvedAccountId);
             }}
-            disabled={isBusy}
+            disabled={isBusy || props.recheckBlock !== undefined}
+            title={props.recheckBlock?.detail}
           >
             Check again
           </button>
         )}
       </div>
+      {/* DISABLED WITH ITS CAUSE BESIDE IT, never hidden: a control that disappears
+          while the runtime is away reads as a control this build does not have, and a
+          disabled one with its sentence off screen reads as one that quietly stopped
+          working. Through the console's one row-scoped refusal shape, which is how the
+          palette renders the same block — the two members ARE a code and a sentence,
+          so nothing here composes a second shape for "the shell says no". */}
+      {props.recheckBlock === undefined ? null : (
+        <InlineRefusal code={props.recheckBlock.code} detail={props.recheckBlock.detail} />
+      )}
       {renderAction(props.action)}
       <details className="meridian-onboarding__detail">
         <summary>What was observed</summary>

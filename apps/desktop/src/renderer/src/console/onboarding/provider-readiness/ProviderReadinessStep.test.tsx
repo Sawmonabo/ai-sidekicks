@@ -24,7 +24,7 @@ import { ProviderReadinessStep } from "./ProviderReadinessStep.js";
 import { READINESS_STATE_LABELS, READINESS_STATE_NOTES } from "./provider-readiness-copy.js";
 import { providerAccountRecord } from "./provider-readiness.test-support.js";
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
-import type { ProviderReadinessReading } from "./provider-readiness.js";
+import type { ProviderReadinessReading } from "./provider-readiness-reading.js";
 
 const ACCOUNT_ID = "019b78c9-0a80-7c31-8110-cca0117a3302" as NonNullable<
   ProviderReadiness["resolvedAccountId"]
@@ -40,6 +40,7 @@ function renderStep(
       actionFor={() => ({ kind: "idle" })}
       onSignIn={() => undefined}
       onRecheck={() => undefined}
+      recheckBlock={undefined}
       onOpenAccountRegistry={onOpenAccountRegistry}
       onDismiss={() => undefined}
     />,

@@ -120,6 +120,29 @@ export function shellMutationBlock(state: ShellState): ShellMutationBlock | unde
 }
 
 /**
+ * Whether two blocks say the same thing. Absent equals absent.
+ *
+ * HERE RATHER THAN AT A READER, on `shell-state.ts`' `shellReportsAreEqual` precedent
+ * next door: this module owns the shape, so it owns what "unchanged" means for it. A
+ * reader needs the comparison because {@link shellMutationBlock} MINTS — it composes
+ * a fresh object per call, and one of its sentences carries the reconnect attempt
+ * number — so a holder that re-derived on every store publish and compared identities
+ * would re-render on every heartbeat for a cause that had not moved.
+ *
+ * Both members of {@link ShellMutationBlock}, which is why it is two comparisons and
+ * not a deep equality: a third member is an edit here in the same change.
+ */
+export function shellBlocksAreEqual(
+  left: ShellMutationBlock | undefined,
+  right: ShellMutationBlock | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.code === right.code && left.detail === right.detail;
+}
+
+/**
  * The block that applies to ONE method, or `undefined` where none does.
  *
  * The seam every control that dispatches a daemon call goes through, so the

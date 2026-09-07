@@ -35,18 +35,27 @@
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { Nothing, RefusalCard } from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 import { ProviderRow } from "./ProviderRow.js";
 import {
   accountsForProvider,
   type ProviderActionReading,
   type ProviderReadinessReading,
-} from "./provider-readiness.js";
+} from "./provider-readiness-reading.js";
 
 export interface ProviderReadinessStepProps {
   readonly reading: ProviderReadinessReading;
   readonly actionFor: (providerName: string) => ProviderActionReading;
   readonly onSignIn: (providerName: string) => void;
   readonly onRecheck: (providerName: string, accountId: ProviderAccountId) => void;
+  /**
+   * Why a re-check may not be put right now, passed straight through to every row.
+   *
+   * ONE VALUE FOR THE WHOLE STEP because the cause is a fact about the window and not
+   * about a provider: the supervisor either takes a mutating call or it does not, and
+   * a per-row derivation would be that one answer computed twice.
+   */
+  readonly recheckBlock: ShellMutationBlock | undefined;
   /**
    * Open the account registry, scoped to a provider where the caller names one.
    *
@@ -152,6 +161,7 @@ function renderReading(props: ProviderReadinessStepProps): React.ReactNode {
               action={props.actionFor(entry.provider)}
               onSignIn={props.onSignIn}
               onRecheck={props.onRecheck}
+              recheckBlock={props.recheckBlock}
               onOpenAccountRegistry={props.onOpenAccountRegistry}
             />
           ))}
