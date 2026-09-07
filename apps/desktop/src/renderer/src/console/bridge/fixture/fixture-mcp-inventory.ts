@@ -21,7 +21,8 @@
 // the row as it now stands — and the read serves that row in the scripted row's place.
 // A mutation naming a binding the inventory does not carry therefore adds nothing: the
 // fixture would be minting a binding no author ever declared, which is the same
-// invention `answerScriptOnly` refuses a synthesized receipt for.
+// invention `answerScriptOnly` refuses a synthesized receipt for (that helper lives in
+// `fixture-scripted-answer.ts`, which every plane that takes it reaches).
 //
 // AND IT IS PER PORT, never a module-level register. Two windows on one build hold two
 // scenario engines and two ports, and a shared ledger would put one window's disable on
@@ -42,8 +43,8 @@ interface McpInventoryReading {
 /**
  * The rows this port's governance mutations have already replaced, keyed by binding.
  *
- * One instance per {@link import("./fixture-growth-port.js").createFixtureGrowthPort}
- * call, held by the port's own closure. Its size is bounded by the number of DISTINCT
+ * One instance per {@link import("./fixture-mcp-governance.js").fixtureMcpGovernance}
+ * call, held by that plane's own closure. Its size is bounded by the number of DISTINCT
  * bindings a scenario's mutations answer for, which is bounded by the scripted
  * inventory: a key that matches no scripted row is never read back.
  */

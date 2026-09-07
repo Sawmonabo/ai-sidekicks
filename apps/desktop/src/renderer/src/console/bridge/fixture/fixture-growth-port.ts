@@ -12,10 +12,16 @@
 // `fixture-session-directory.ts` derives what the node HAS,
 // `fixture-attention-derivation.ts` folds beats into an attention projection,
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
-// `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, `fixture-mcp-inventory.ts` holds what the governance inventory reads as after a
-// mutation this port already answered, and `fixture-scripted-answer.ts` maps a scripted
-// settlement onto an outcome.
+// `fixture-workflow-reads.ts` holds the workflow answers, `fixture-diagnostics-reads.ts`
+// the five the settings page's diagnostics regions are built on,
+// `fixture-provider-account-writes.ts` the three verbs of the sign-in handoff,
+// `fixture-mcp-governance.ts` the inventory read and the two mutations that move a row
+// in it, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome —
+// including the script-only disposition three of those planes and this port all take.
+//
+// A PLANE LEAVES WITH ITS SERVED IDS. Each of those modules declares the operation ids
+// it implements and this port spreads both the ids and the handlers, so a plane's set
+// and its answers cannot disagree — `fixture-workflow-reads.ts` states the rule in full.
 //
 
 import {
@@ -24,10 +30,10 @@ import {
   type ParsedRows,
 } from "../approvals/index.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
-import { FixtureMcpInventoryLedger } from "./fixture-mcp-inventory.js";
-import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
-import type { GrowthOperationId } from "../growth-port/growth-entry.js";
-import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
+import { fixtureDiagnosticsReads } from "./fixture-diagnostics-reads.js";
+import { fixtureMcpGovernance } from "./fixture-mcp-governance.js";
+import { fixtureProviderAccountWrites } from "./fixture-provider-account-writes.js";
+import { answerFromScriptedReply, answerScriptOnly } from "./fixture-scripted-answer.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
@@ -56,9 +62,6 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  * function` in a surface.
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
-  // Held by this port's closure and by nothing else, which is the whole of its scope
-  // rule: one running scenario, one inventory. See `fixture-mcp-inventory.ts`.
-  const mcpInventory = new FixtureMcpInventoryLedger();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow — spread from the module that implements them, so the served ids next
     // door and the handlers here are held to each other by the `Pick` above.
@@ -101,9 +104,9 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // smuggled through an absent value and re-read by the caller.
       //
       // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
-      // `answerScriptOnly` below states in full: this fixture serves the
-      // operation, so `wire-unregistered` would be false about the build and would
-      // send a reader to a document owing a wire that already has a stand-in.
+      // `answerScriptOnly` in `fixture-scripted-answer.ts` states in full: this fixture
+      // serves the operation, so `wire-unregistered` would be false about the build and
+      // would send a reader to a document owing a wire that already has a stand-in.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
@@ -259,106 +262,19 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         request,
         () => growthUnscriptedReply("workspaceExecutionContextRead", REPOS_EXECUTION_CONTEXT_CALL),
       ),
-    // diagnostics
-    //
-    // The two that answer under any scenario are the two whose empty form is a real
-    // daemon reply, and neither is a fabrication: a status read that found no
-    // components is not a verdict about the machine — `healthy` over an empty set is
-    // what "nothing reported a problem" looks like on this wire — and the default
-    // redaction posture is a policy with no bucket overrides, outbound denied, and no
-    // retention override in force, which is the shape a fresh node is in.
-    healthStatusRead: async (request) =>
-      answerFromScriptedReply(engine, "health.statusRead", "healthStatusRead", request, () => ({
-        status: "served",
-        value: { overall: "healthy", components: [] },
-      })),
-    healthRedactionPolicyRead: async (request) =>
-      answerFromScriptedReply(
-        engine,
-        "health.redactionPolicyRead",
-        "healthRedactionPolicyRead",
-        request,
-        () => ({
-          status: "served",
-          value: { buckets: [], outboundDefault: "deny", retentionPolicyOverrideActive: false },
-        }),
-      ),
-    // The three addressed by a subject, refusing by name without a script. A failure
-    // detail and a stall reading answer with facts ABOUT one named run, so an empty
-    // form would assert the run exists and that nothing is wrong with it; the recovery
-    // request is a write, and a synthesized receipt would report that the daemon moved
-    // a run no author ever declared.
-    healthFailureDetailRead: async (request) =>
-      await answerScriptOnly(
-        engine,
-        "health.failureDetailRead",
-        "healthFailureDetailRead",
-        request,
-      ),
-    healthStuckRunInspect: async (request) =>
-      await answerScriptOnly(engine, "health.stuckRunInspect", "healthStuckRunInspect", request),
-    healthRecoveryActionRequest: async (request) =>
-      await answerScriptOnly(
-        engine,
-        "health.recoveryActionRequest",
-        "healthRecoveryActionRequest",
-        request,
-      ),
-    // provider accounts — three writes, and all three script-only. A brokered sign-in
-    // answers with a verification URI and a daemon-minted attempt id; a cancel answers
-    // what became of one; a registration answers with the account it created. None of
-    // the three has an empty form: a synthesized attempt would put a URL on screen that
-    // leads nowhere, and a synthesized account would mint an identity every later
-    // registry read is keyed by. The registry READ they act on is not here at all — it
-    // is `providerAccount.list` over the bound call door, answered from the scenario's
-    // own scripted reply and parsed against the registered schema.
-    providerAccountLogin: async (request) =>
-      await answerScriptOnly(engine, "providerAccount.login", "providerAccountLogin", request),
-    providerAccountLoginCancel: async (request) =>
-      await answerScriptOnly(
-        engine,
-        "providerAccount.loginCancel",
-        "providerAccountLoginCancel",
-        request,
-      ),
-    providerAccountRegister: async (request) =>
-      await answerScriptOnly(
-        engine,
-        "providerAccount.register",
-        "providerAccountRegister",
-        request,
-      ),
-    // MCP governance — the inventory read answers the EMPTY inventory for a scenario
-    // that scripts nothing, on the invite ledger's rule: a node that governs no MCP
-    // servers is an ordinary node and the operator page draws that state, whereas "the
-    // inventory could not be read" is what a release build renders and is a different
-    // sentence. The two mutations are script-only: each answers with the row as it now
-    // stands plus per-leg outcomes, and a synthesized one would report that the daemon
-    // reconciled live sessions no author ever declared.
-    //
-    // AND THE THREE ARE ONE PLANE RATHER THAN THREE REPLY ROWS, which is what
-    // `mcpInventory` above holds. A mutation answers with the row as it now stands and
-    // the read that follows it serves that row in the scripted row's place, so the grid
-    // does not put a disabled binding back on beside the mutation's own applied
-    // outcome. The ledger's own header states why it is here and not in the script.
-    mcpList: async (request) =>
-      mapGrowthServed(
-        await answerFromScriptedReply(engine, "mcp.list", "mcpList", request, () => ({
-          status: "served",
-          value: { servers: [] },
-        })),
-        (scripted) => mcpInventory.inventoryOver(scripted),
-      ),
-    mcpSetEnabled: async (request) =>
-      mapGrowthServed(
-        await answerScriptOnly(engine, "mcp.setEnabled", "mcpSetEnabled", request),
-        (result) => mcpInventory.recordMutation(result),
-      ),
-    mcpSetTrust: async (request) =>
-      mapGrowthServed(
-        await answerScriptOnly(engine, "mcp.setTrust", "mcpSetTrust", request),
-        (result) => mcpInventory.recordMutation(result),
-      ),
+    // diagnostics — the five reads the settings page is built from, spread from the
+    // module that implements them so the served ids next door and the handlers stay one
+    // set. Two answer under any scenario and three refuse without a script; that
+    // module's header carries the whole of why.
+    ...fixtureDiagnosticsReads(engine),
+    // provider accounts — the three verbs of the brokered sign-in handoff, all three
+    // script-only. The registry READ they act on is not here at all: it is
+    // `providerAccount.list` over the bound call door.
+    ...fixtureProviderAccountWrites(engine),
+    // MCP governance — the inventory read and the two mutations, ONE plane rather than
+    // three reply rows, because the module that implements them holds the per-port
+    // ledger that makes a mutation's row what the next read serves.
+    ...fixtureMcpGovernance(engine),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }
@@ -390,50 +306,4 @@ async function answerApprovalRead<TRow>(
     ),
     narrow,
   );
-}
-
-/**
- * Answer one SCRIPT-ONLY operation from the script, and refuse where none is scripted.
- *
- * Two classes land here, and `fixture-served-operations.ts` names both because the
- * membership decision is that module's. A WRITE: "this session has no agents" is a
- * state the console draws and there is no such thing as "the attach that happened and
- * produced nothing", so a synthesized receipt would tell a surface the daemon did
- * something no author ever said it did — and for an attach it would mint an identity
- * every later read is keyed by. And a READ ADDRESSED BY A SUBJECT: one run's failure
- * detail, one run's stall reading, one run's snapshot — each answers with facts ABOUT
- * a named thing, so an empty form would assert the thing exists and holds nothing,
- * which for a run no author declared is the same invention as a receipt.
- *
- * The enumerations are deliberately not in either class: a list of none is a real
- * answer to "what does this session hold", and those operations serve it.
- *
- * The precondition is checked here rather than inside the seam because it is a fact
- * about the SCENARIO rather than about the settlement — `callerParticipantRead` next
- * door reads its own precondition off `engine.scenario` for the same reason. What is
- * left after the check is exactly the settlement the seam reports, so the parked,
- * abandoned, and over-cap arms all keep their own answers.
- */
-async function answerScriptOnly<TOperationId extends GrowthOperationId>(
-  engine: ScenarioEngine,
-  call: string,
-  operationId: TOperationId,
-  request: unknown,
-): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
-  if (engine.replyFor(call) === undefined) {
-    // The SCENARIO's gap and never the build's. `growthUnavailable` would compose
-    // "this build does not carry the wire", which is false for an operation this
-    // fixture serves and would send a reader to the document that owes a wire the
-    // fixture already stands in for — the distinction `growthUnscriptedReply`'s own
-    // header draws, and the one `fixture-growth-port.test.ts` holds every served
-    // operation to.
-    return growthUnscriptedReply(operationId, call);
-  }
-  return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
-    // Unreachable: the guard above already refused every unscripted call, and the
-    // seam reports `unscripted` only for exactly that. Named rather than cast, so a
-    // later change that moves the guard fails here loudly instead of serving a value
-    // that was never scripted.
-    throw new Error(`${call} reached the unscripted arm behind its own scripted guard`);
-  });
 }

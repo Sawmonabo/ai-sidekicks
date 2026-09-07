@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FixtureMcpInventoryLedger } from "./fixture-mcp-inventory.js";
 import { createFixture } from "./fixture-bridge.test-support.js";
-import type { GrowthOutcome } from "../growth-port/index.js";
+import { servedValueOf } from "./fixture-growth-port.test-support.js";
 import {
   mcpBindingKeyOf,
   type GrowthMcpBindingRef,
@@ -79,13 +79,6 @@ function rowNamedIn(
  * `status` this suite has nothing to say about, and reading `.value` off it would be
  * the fixture's own absence rendered as a result.
  */
-function servedValueOf<TValue>(outcome: GrowthOutcome<TValue>): TValue {
-  if (outcome.status !== "served") {
-    throw new Error(`the fixture port answered ${outcome.status} rather than serving a value`);
-  }
-  return outcome.value;
-}
-
 describe("FixtureMcpInventoryLedger", () => {
   it("serves the row a mutation answered with, in the scripted row's place", () => {
     const ledger = new FixtureMcpInventoryLedger();
