@@ -96,6 +96,25 @@ describe("a switch the store will not take", () => {
     // Without this the case above would pass over a store that refused every write.
     expect(new SessionPreferenceStore(openStore()).lastRefusal).toBeUndefined();
   });
+
+  it("re-identifies the snapshot for the refusal, and holds it for everything else", async () => {
+    // The half a subscribed surface compares. The switch does not move on a refusal —
+    // the state records rather than rolls back — so the refusal is the only thing that
+    // makes this snapshot a different object, and it has to.
+    const preferences = new SessionPreferenceStore(openStore({ capacityBytes: 1 }));
+    const beforeTheWrite = preferences.snapshot;
+    expect(preferences.snapshot).toBe(beforeTheWrite);
+
+    await preferences.setEnabled(AUTO_PIN_ON_FIRST_SEND, false);
+    const afterTheRefusal = preferences.snapshot;
+
+    expect(afterTheRefusal).not.toBe(beforeTheWrite);
+    expect(afterTheRefusal.lastRefusal?.code).toBe("quota-exceeded");
+    // Held rather than rebuilt per read: `useSyncExternalStore` calls this getter on
+    // every render and compares with `Object.is`, so a record composed afresh each
+    // call is a store that reports a change on every render.
+    expect(preferences.snapshot).toBe(afterTheRefusal);
+  });
 });
 
 describe("reading a record this build did not write", () => {

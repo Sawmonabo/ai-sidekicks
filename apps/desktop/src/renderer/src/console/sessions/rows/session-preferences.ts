@@ -47,6 +47,24 @@ export const AUTO_PIN_ON_FIRST_SEND_DEFAULT = true;
 /** The persisted record: switch name to state, exceptions only. */
 export type SessionPreferenceMap = Readonly<Record<string, boolean>>;
 
+/**
+ * Everything a subscribed surface reads, as one value it can compare.
+ *
+ * A RECORD AND NOT THE BOOLEAN, because the switch is not the whole of what the
+ * surface renders. A refused write leaves the switch exactly where the person put it
+ * — the state machine records the refusal rather than rolling the value back — and
+ * changes only `lastRefusal`. A snapshot carrying the boolean alone was therefore
+ * `Object.is`-equal across precisely the settlement somebody needed to see: the state
+ * emitted, React compared, found nothing moved, and suppressed the render, so a
+ * quota or storage refusal stayed off screen until an unrelated render happened to
+ * bring it. Both fields ride one snapshot now, so the emission and the comparison
+ * are about the same thing.
+ */
+export interface SessionPreferenceSnapshot {
+  readonly isAutoPinOnFirstSendEnabled: boolean;
+  readonly lastRefusal: ConsoleRefusal | undefined;
+}
+
 const NO_PREFERENCES: SessionPreferenceMap = {};
 
 /**
@@ -72,6 +90,14 @@ export function narrowSessionPreferenceMap(raw: unknown): SessionPreferenceMap |
 /** The switches, durable. One per window; the surface builds it once and holds it. */
 export class SessionPreferenceStore {
   readonly #state: DurableViewState<SessionPreferenceMap>;
+  /**
+   * The last snapshot handed out, kept so an unchanged reading stays the same object.
+   *
+   * `undefined` until the first read rather than seeded with the default pair: a
+   * seeded literal would be a second statement of what the two getters below already
+   * answer, free to disagree with them the day either one grows a rule.
+   */
+  #snapshot: SessionPreferenceSnapshot | undefined;
 
   public constructor(store: UiStateStore) {
     this.#state = new DurableViewState<SessionPreferenceMap>({
@@ -90,6 +116,36 @@ export class SessionPreferenceStore {
   /** The last refused write, so the surface renders it instead of hiding it. */
   public get lastRefusal(): ConsoleRefusal | undefined {
     return this.#state.lastRefusal;
+  }
+
+  /**
+   * Both facts at once, as one value that re-identifies only when one of them moves.
+   *
+   * MEMOISED HERE RATHER THAN COMPOSED AT THE READER, because `useSyncExternalStore`
+   * calls its snapshot getter on every render and compares the answer with
+   * `Object.is`: a record built fresh each call is a new object every time, which
+   * React reads as a store that changed on every render — an infinite re-render
+   * rather than the suppressed one this replaces.
+   *
+   * The refusal is compared by IDENTITY, which is what the state machine next door
+   * publishes: two refusals for the same cause are two objects, and the second one is
+   * this write's own reason rather than the last one's, so it is a change and a
+   * surface showing it again is showing something new.
+   */
+  public get snapshot(): SessionPreferenceSnapshot {
+    const isAutoPinOnFirstSendEnabled = this.isAutoPinOnFirstSendEnabled;
+    const lastRefusal = this.lastRefusal;
+    const held = this.#snapshot;
+    if (
+      held !== undefined &&
+      held.isAutoPinOnFirstSendEnabled === isAutoPinOnFirstSendEnabled &&
+      held.lastRefusal === lastRefusal
+    ) {
+      return held;
+    }
+    const taken: SessionPreferenceSnapshot = { isAutoPinOnFirstSendEnabled, lastRefusal };
+    this.#snapshot = taken;
+    return taken;
   }
 
   public subscribe(sink: () => void): () => void {
@@ -134,6 +190,18 @@ function mintSessionPreferenceStore(store: UiStateStore): SessionPreferenceStore
   return new SessionPreferenceStore(store);
 }
 
+/**
+ * What a mount whose acquiring effect has not run yet reads.
+ *
+ * Frozen at module level for the same reason the store memoises its own: a literal
+ * built inside the read callback would be a new object on every render of the opening
+ * arm, and `useSyncExternalStore` would read that as a store changing under it.
+ */
+const NO_BINDING_SNAPSHOT: SessionPreferenceSnapshot = {
+  isAutoPinOnFirstSendEnabled: AUTO_PIN_ON_FIRST_SEND_DEFAULT,
+  lastRefusal: undefined,
+};
+
 /** The switch act, bound to whatever store the acquirer is holding when it is pressed. */
 function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: boolean) => void {
   return (isEnabled) => {
@@ -150,6 +218,12 @@ function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: b
  * Through the same holder the pin binding uses, and for the same reason its own
  * header gives: a store built by a `useState` initializer stays attached to the
  * database the window closed when the bridge or scenario changed.
+ *
+ * BOTH RENDERED FACTS COME OFF THE SUBSCRIBED SNAPSHOT, and the refusal is the reason
+ * it has to. Read beside the subscription instead — off the binding, during the
+ * render — it was a value nothing told React had moved: the state emits when a write
+ * is refused, React compared a snapshot that carried only the switch, found it
+ * unchanged, and suppressed the render that would have put the refusal on screen.
  */
 export function useSessionPreferences(store: UiStateStore): SessionPreferenceBinding {
   const { binding, acquire } = useDurableViewBinding(store, mintSessionPreferenceStore);
@@ -157,15 +231,12 @@ export function useSessionPreferences(store: UiStateStore): SessionPreferenceBin
     (onStoreChange: () => void) => binding?.subscribe(onStoreChange) ?? noDurableViewSubscription,
     [binding],
   );
-  const readAutoPin = useCallback(
-    () => binding?.isAutoPinOnFirstSendEnabled ?? AUTO_PIN_ON_FIRST_SEND_DEFAULT,
-    [binding],
-  );
-  const isAutoPinOnFirstSendEnabled = useSyncExternalStore(subscribe, readAutoPin, readAutoPin);
+  const readSnapshot = useCallback(() => binding?.snapshot ?? NO_BINDING_SNAPSHOT, [binding]);
+  const snapshot = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
   const setAutoPinOnFirstSend = useCallback(setAutoPinThrough(acquire), [acquire]);
   return {
-    isAutoPinOnFirstSendEnabled,
-    lastRefusal: binding?.lastRefusal,
+    isAutoPinOnFirstSendEnabled: snapshot.isAutoPinOnFirstSendEnabled,
+    lastRefusal: snapshot.lastRefusal,
     setAutoPinOnFirstSend,
   };
 }

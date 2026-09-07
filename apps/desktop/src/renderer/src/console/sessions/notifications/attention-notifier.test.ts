@@ -93,7 +93,37 @@ describe("the attention notifier", () => {
     expect(notifier.arrivalsToAnnounce([onScreen], AWAY)).toStrictEqual([]);
   });
 
-  it("forgets the oldest id rather than growing without bound", () => {
+  it("raises nothing for a standing projection larger than the cap", () => {
+    // The storm this cap used to cause. Every one of these items is unresolved, so
+    // every read returns all of them — and an eviction that ran over the remembered
+    // set alone dropped the live id it had just added, found it missing on the next
+    // read, announced it, and walked the drop along the whole projection. What a
+    // person got was one banner per outstanding item, on every refresh, forever.
+    const notifier = new AttentionNotifier();
+    const standing = Array.from({ length: ATTENTION_NOTIFIED_ITEM_CAP + 1 }, (_unused, index) =>
+      item({ id: `standing-${String(index)}` }),
+    );
+    notifier.arrivalsToAnnounce(standing, AWAY);
+
+    expect(notifier.arrivalsToAnnounce(standing, AWAY)).toStrictEqual([]);
+    // And it does not decay into the storm one read later either: the third read is
+    // where a cap that had evicted exactly one live id would announce its first item.
+    expect(notifier.arrivalsToAnnounce(standing, AWAY)).toStrictEqual([]);
+  });
+
+  it("keeps a cleared id while there is room under the cap", () => {
+    // The negative control for pruning every id a read did not return. A fan-out that
+    // refused for one session answers without that session's items, and forgetting
+    // them on sight would re-announce the lot the moment the read recovered.
+    const notifier = new AttentionNotifier();
+    const carried = item({ id: "carried", sessionId: "session-b" });
+    notifier.arrivalsToAnnounce([item(), carried], AWAY);
+    notifier.arrivalsToAnnounce([item()], AWAY);
+
+    expect(notifier.arrivalsToAnnounce([item(), carried], AWAY)).toStrictEqual([]);
+  });
+
+  it("forgets the oldest cleared id rather than growing without bound", () => {
     const notifier = new AttentionNotifier();
     notifier.arrivalsToAnnounce([item({ id: "oldest" })], AWAY);
     const fill = Array.from({ length: ATTENTION_NOTIFIED_ITEM_CAP }, (_unused, index) =>
@@ -101,9 +131,10 @@ describe("the attention notifier", () => {
     );
     notifier.arrivalsToAnnounce(fill, AWAY);
 
-    // The eviction is observable exactly here: the oldest id has been dropped, so the
-    // item is treated as an arrival again. A duplicate banner is the direction this
-    // cap is allowed to be wrong in; an unbounded set is not.
+    // The eviction is observable exactly here: `oldest` cleared from the projection
+    // and the fill then took the whole cap, so the oldest CLEARED id was dropped and
+    // the item is treated as an arrival again. A duplicate banner is the direction
+    // this cap is allowed to be wrong in; an unbounded set is not.
     expect(
       notifier
         .arrivalsToAnnounce([item({ id: "oldest" }), fill[fill.length - 1]!], AWAY)
