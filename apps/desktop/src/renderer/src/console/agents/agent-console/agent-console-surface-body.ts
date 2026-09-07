@@ -14,12 +14,13 @@
 //
 // Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
 
-// THE FOUR CONSOLE SHEETS ENTER HERE TOO, for the reason
+// THE FIVE CONSOLE SHEETS ENTER HERE TOO, in the same order and for the reason
 // `agent-console-pane-body.ts` states: this root and that one are two independent first
 // paints of one body, so each names the rules that body needs rather than one of them
 // relying on the other having run.
 import "./agent-console.css";
 import "../agents.css";
+import "../attach/attach.css";
 import "../provider-switch/provider-switch.css";
 import "../run-console/run-console.css";
 

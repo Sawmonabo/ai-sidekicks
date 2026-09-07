@@ -1,0 +1,120 @@
+/* The attach dialog's own rules, beside the form that draws them.
+ *
+ * Carved out of `agents.css` on the precedent that sheet's own header states — and
+ * that `provider-switch/provider-switch.css`, `run-console/run-console.css`, and
+ * `definitions/sidekick-definitions-page.css` each set before it: one surface's rules
+ * in one file, so a reader looking for the dialog is not scrolling past the card.
+ *
+ * WHAT STAYED BEHIND, and why it is not an oversight. The grouped rules that give a
+ * card action, an attach arm, a switch apply, and a linkage open ONE button and ONE
+ * label are the family's decision rather than this dialog's, so they stay in
+ * `agents.css` — copying them here would be a second decision that agrees with the
+ * first until one of them stops. The axis field both forms draw stays there for the
+ * same reason: the provider switch draws it too.
+ *
+ * LOADED AFTER `agents.css` AND THAT ORDER IS THE CONTRACT. Both chunk roots name the
+ * family sheet first, which is the order these rules already had inside it — every
+ * one of them sat below those grouped rules — so a declaration that ties with one of
+ * them still wins here exactly as it did before the split.
+ */
+
+.meridian-attach__backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--meridian-surface-sunken);
+  opacity: 0.7;
+}
+
+.meridian-attach__popup {
+  position: fixed;
+  inset-block-start: 12vh;
+  inset-inline: 50%;
+  translate: -50% 0;
+  width: min(38rem, 92vw);
+  max-height: 76vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  padding: var(--meridian-space-5);
+}
+
+.meridian-attach__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+.meridian-attach__arms {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attach__definitions,
+.meridian-attach__resolved,
+.meridian-peer__tools,
+.meridian-linkage__links,
+.meridian-linkage__refusal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attach__definition-button {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+}
+
+.meridian-attach__definition-summary,
+.meridian-attach__incomplete {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The way to where definitions are kept reads as a link and not as a second action:
+   the arm's own controls choose a definition, and this one leaves for another
+   surface, so it takes no button treatment that would make the two look alike. */
+.meridian-attach__definitions-link {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-accent-text);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+  align-self: start;
+}
+
+.meridian-attach__definitions-link:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-attach__confirmation {
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attach__confirmation-head,
+.meridian-attach__resolved-prose {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-attach__resolved-axis {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}

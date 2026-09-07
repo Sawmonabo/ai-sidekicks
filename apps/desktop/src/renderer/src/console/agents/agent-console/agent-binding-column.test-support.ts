@@ -30,7 +30,7 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import { account, listReply } from "../../bridge/quotas/provider-quota-feed.test-support.js";
+import { registryListReply } from "../attach/account-axis/account-registry.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 
@@ -57,57 +57,6 @@ export const DEFINITION = {
   createdAt: "2026-09-01T10:00:00.000Z",
   updatedAt: "2026-09-01T10:00:00.000Z",
 };
-
-/**
- * The provider accounts the node's registry carries, as the attach form reads them.
- *
- * TWO ACCOUNTS UNDER ONE PROVIDER AND ONE UNDER THE OTHER, which is the only shape
- * that can tell a picker scoped to the chosen driver's provider apart from one that
- * offers whatever the registry holds. `claude` is deliberately the provider
- * {@link DEFINITION} names, so a form on the definition arm reaches a populated axis.
- *
- * Built from `bridge/quotas/`'s own row factory rather than typed out again: that
- * module is the one place this console decides what a registry row looks like, and a
- * second literal here would be a second answer to the same question.
- */
-export const REGISTRY_ACCOUNTS: readonly Record<string, unknown>[] = [
-  account({ accountId: "acct-team", displayLabel: "Team", isDefault: true }),
-  account({
-    accountId: "acct-personal",
-    displayLabel: "Personal",
-    isDefault: false,
-    healthState: "reauth_required",
-  }),
-  account({ accountId: "acct-codex", provider: "codex", displayLabel: "Codex", isDefault: true }),
-];
-
-/**
- * What run admission last made of the `claude` provider, resolved to one account.
- *
- * The projection is per PROVIDER and names the one account resolution reached, which
- * is the distinction the account axis has to hold: `acct-personal` carries this entry
- * and `acct-team` carries none, so a field that attributed a provider's verdict to
- * every row under it would say something about an account nobody computed.
- *
- * The remedy is the `sign_in` arm on purpose. It is the arm that carries the
- * provider's own first-party invocation and the credential home it authenticates
- * into, and both are display-only members an attach form may not put in front of
- * somebody as a thing to run — so a fixture without them could not prove the form
- * does not.
- */
-export const REGISTRY_READINESS: readonly Record<string, unknown>[] = [
-  {
-    provider: "claude",
-    state: "reauth_required",
-    resolvedAccountId: "acct-personal",
-    remedy: {
-      kind: "sign_in",
-      accountId: "acct-personal",
-      signInInvocation: "claude setup-token",
-      credentialHomePath: "/homes/acct-personal",
-    },
-  },
-];
 
 /**
  * A daemon that answers the picker's read and holds `agent.attach` open.
@@ -139,7 +88,7 @@ export class HeldAttachDaemon {
     // not the state these cases are about, and a throw would turn every one of them
     // into a case about a refused read.
     if (method === "providerAccount.list") {
-      return { ...listReply(REGISTRY_ACCOUNTS, []), readiness: REGISTRY_READINESS };
+      return registryListReply();
     }
     if (method === "agent.attach") {
       this.#attachCallCount += 1;

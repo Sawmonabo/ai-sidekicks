@@ -1,12 +1,12 @@
 /* The agents family's own styles: the card, the shared composition, and the grant.
  *
- * WHAT IS HERE AND WHAT IS NOT. Three sub-modules carry their own sheets beside
- * their components — `provider-switch/provider-switch.css`,
+ * WHAT IS HERE AND WHAT IS NOT. Four sub-modules carry their own sheets beside
+ * their components — `attach/attach.css`, `provider-switch/provider-switch.css`,
  * `run-console/run-console.css`, and `definitions/sidekick-definitions-page.css` — so a
- * reader looking for one surface's rules is not scrolling past three others'. What
+ * reader looking for one surface's rules is not scrolling past four others'. What
  * stays here is the family's: the agent card, the axis field both forms draw, the
- * attach dialog, the peer-invocation grant, and the grouped rules that give the
- * card, both forms, and the linkage one button and one label.
+ * peer-invocation grant, and the grouped rules that give the card, both forms, and
+ * the linkage one button and one label.
  *
  * Those grouped rules are deliberately NOT split along with their surfaces. A
  * selector list naming a card action, an attach arm, a switch apply, and a linkage
@@ -306,109 +306,6 @@
 .meridian-axis-field__advisory {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-/* ----------------------------------------------------------------- attaching */
-
-.meridian-attach__backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--meridian-surface-sunken);
-  opacity: 0.7;
-}
-
-.meridian-attach__popup {
-  position: fixed;
-  inset-block-start: 12vh;
-  inset-inline: 50%;
-  translate: -50% 0;
-  width: min(38rem, 92vw);
-  max-height: 76vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  background: var(--meridian-surface);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-md);
-  padding: var(--meridian-space-5);
-}
-
-.meridian-attach__title {
-  margin: 0;
-  font-size: var(--meridian-text-md);
-  font-weight: 500;
-}
-
-.meridian-attach__arms {
-  display: flex;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-attach__definitions,
-.meridian-attach__resolved,
-.meridian-peer__tools,
-.meridian-linkage__links,
-.meridian-linkage__refusal-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-attach__definition-button {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  width: 100%;
-}
-
-.meridian-attach__definition-summary,
-.meridian-attach__incomplete {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* The way to where definitions are kept reads as a link and not as a second action:
-   the arm's own controls choose a definition, and this one leaves for another
-   surface, so it takes no button treatment that would make the two look alike. */
-.meridian-attach__definitions-link {
-  font: inherit;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-accent-text);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  text-align: start;
-  align-self: start;
-}
-
-.meridian-attach__definitions-link:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-.meridian-attach__confirmation {
-  border-block-start: 1px solid var(--meridian-edge);
-  padding-block-start: var(--meridian-space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-attach__confirmation-head,
-.meridian-attach__resolved-prose {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-}
-
-.meridian-attach__resolved-axis {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: baseline;
 }
 
 /* ----------------------------------------------------------- peer invocation */
