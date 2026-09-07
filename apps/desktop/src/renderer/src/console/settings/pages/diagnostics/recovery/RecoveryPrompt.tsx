@@ -22,11 +22,30 @@
 // their own absence and none of them disables these controls — eligibility is the
 // daemon's, and the way this surface learns a request is not allowed is by putting it
 // and rendering what came back.
+//
+// AND THE OUTCOME BELONGS TO `(bridge, runId)` RATHER THAN TO THE MOUNT. The read-out
+// above keeps this component mounted and moves the run under it whenever a terminal
+// event makes a different one the newest live candidate — so a request put for the
+// previous run answers into a surface that is now about another. Re-seeding the value
+// during the render that re-addresses cleared what was on SCREEN and left the callback
+// alone, which is the half that matters: the retired run's receipt still installed, and
+// where the live run had its own request out it also cleared that pending arm and
+// re-offered three irreversible controls mid-flight.
+//
+// So the holder decides, exactly as `runs/pane/controls/StepIn.tsx` takes it for the
+// same shape one family over: the value is held under `(bridge, runId)` so a re-address
+// seeds the new run's own idle state during that render, and the publisher is the
+// captured `settle()` so a settlement measured against a retired visit is DROPPED
+// rather than rendered. The subject is the pair and not the run alone, because a
+// replaced transport retires the request just as surely as a replaced run does — and
+// remounting the prompt by run identity would say only the second of those, through a
+// second mechanism for a rule this console already has one door for.
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { ConfirmationDialog, WireFigure } from "../../../../primitives/index.js";
 import { GROWTH_RECOVERY_ACTIONS, type ConsoleBridge } from "../../../../bridge/index.js";
+import { useSubjectScopedState } from "../../../../store/index.js";
 import { settingsActionClassFor } from "../../../shared/settings-action-class.js";
 import { RECOVERY_ACTION_COPY } from "../health-vocabulary.js";
 import { RecoveryOutcomeLine } from "./RecoveryOutcomeLine.js";
@@ -41,18 +60,11 @@ export function RecoveryPrompt(props: {
   readonly runId: string;
 }): ReactNode {
   const { bridge, runId } = props;
-  // Keyed on the run rather than held for the surface: the prompt is about ONE run,
-  // and a receipt left standing while the page re-addressed a different one would
-  // report the previous run's transition under the new run's name.
-  const [outcome, setOutcome] = useState<RecoveryOutcome>(IDLE_RECOVERY_OUTCOME);
-  const [addressedRunId, setAddressedRunId] = useState(runId);
-  if (addressedRunId !== runId) {
-    // Re-seeded during the render that brings a new run, never in an effect one
-    // commit later — the frame in between is the one that would paint the old
-    // receipt under the new id.
-    setAddressedRunId(runId);
-    setOutcome(IDLE_RECOVERY_OUTCOME);
-  }
+  const { value: outcome, settle: captureVisit } = useSubjectScopedState<RecoveryOutcome>(
+    bridge,
+    runId,
+    () => IDLE_RECOVERY_OUTCOME,
+  );
   const isPending = outcome.kind === "pending";
   return (
     <div className="meridian-recovery-prompt">
@@ -80,8 +92,13 @@ export function RecoveryPrompt(props: {
               keepLabel="Not now"
               confirmLabel={copy.label}
               onConfirm={() => {
-                setOutcome({ kind: "pending", action });
-                void requestRecovery(bridge, runId, action).then(setOutcome);
+                // Captured BEFORE the call rather than after it, so the publisher names
+                // the visit that dispatched: a settlement arriving once the run has
+                // moved is dropped by the holder instead of being installed as the run
+                // now on screen.
+                const publishSettlement = captureVisit();
+                publishSettlement({ kind: "pending", action });
+                void requestRecovery(bridge, runId, action).then(publishSettlement);
               }}
             />
           );

@@ -169,6 +169,99 @@ describe("SignInPlane", () => {
     expect(plane.snapshot().flow).toEqual({ kind: "starting", accountId: WAITING_ACCOUNT_ID });
   });
 
+  it("keeps the attempt live when the cancel is refused, and goes on holding the plane", async () => {
+    // A refused cancel says the console could not ask, or that the daemon declined —
+    // neither of which establishes that the provider's login process stopped. Replacing
+    // the attempt with the refusal took the verification URI, the code, and the cancel
+    // control off the screen and re-offered every start, over a flow that may still be
+    // running.
+    const plane = planeOver(
+      bridgeAnswering({ login: { status: "served", value: SIGN_IN_ATTEMPT } }),
+    );
+
+    plane.start(RUNNING_ACCOUNT_ID);
+    await crossMacrotaskBoundary();
+    plane.cancel();
+    await crossMacrotaskBoundary();
+
+    const { flow } = plane.snapshot();
+    expect(flow.kind).toBe("live");
+    expect(flow).toMatchObject({ accountId: RUNNING_ACCOUNT_ID, attempt: SIGN_IN_ATTEMPT });
+    expect("cancelRefusal" in flow ? flow.cancelRefusal : undefined).toBeDefined();
+    expect(signInPlaneHolder(plane.snapshot())).toBe(RUNNING_ACCOUNT_ID);
+
+    // And the single flight is still claimed, so a start raised against the plane is
+    // refused rather than dispatched beside a flow nobody has established is over.
+    plane.start(WAITING_ACCOUNT_ID);
+    expect(plane.snapshot().refusalByAccountId.has(WAITING_ACCOUNT_ID)).toBe(true);
+  });
+
+  it("offers the cancel again after one was refused", async () => {
+    // The way out of a refused cancel is the same control, so the flow has to be back
+    // in a state the plane admits a cancel from — `cancelling` refuses one, and a plane
+    // stuck there would have taken the operator's only remedy away.
+    const plane = planeOver(
+      bridgeAnswering({
+        login: { status: "served", value: SIGN_IN_ATTEMPT },
+        cancel: { status: "served", value: { status: "notFound" } },
+      }),
+    );
+
+    plane.start(RUNNING_ACCOUNT_ID);
+    await crossMacrotaskBoundary();
+    plane.cancel();
+    await crossMacrotaskBoundary();
+    expect(plane.snapshot().flow.kind).toBe("ended");
+    expect(signInPlaneHolder(plane.snapshot())).toBeUndefined();
+  });
+
+  it("clears the flow when the registry reports the attempt finished", async () => {
+    // The second of the two things that end a flow. `providerAccount.subscribe` carries
+    // `login_completed` correlated on the attempt id, and that IS evidence the process
+    // stopped — so a plane holding an attempt after a refused cancel is released by the
+    // registry rather than staying claimed for the life of the window.
+    const { plane, onFlowSettled } = planeOverServedCalls();
+
+    plane.start(RUNNING_ACCOUNT_ID);
+    await crossMacrotaskBoundary();
+    plane.noteLoginCompleted(SIGN_IN_ATTEMPT.attemptId);
+
+    expect(plane.snapshot().flow.kind).toBe("ended");
+    expect(onFlowSettled).toHaveBeenCalledTimes(1);
+    plane.start(WAITING_ACCOUNT_ID);
+    expect(plane.snapshot().flow).toEqual({ kind: "starting", accountId: WAITING_ACCOUNT_ID });
+  });
+
+  // The negative control for the case above: the correlation is on the attempt id, so a
+  // completion for some other attempt — another window's brokered flow — must not take
+  // this one's card down. Without it the case would hold for a plane that ended on any
+  // completion at all.
+  it("leaves the flow alone for a completion naming another attempt", async () => {
+    const { plane, onFlowSettled } = planeOverServedCalls();
+
+    plane.start(RUNNING_ACCOUNT_ID);
+    await crossMacrotaskBoundary();
+    plane.noteLoginCompleted("some-other-attempt");
+
+    expect(plane.snapshot().flow.kind).toBe("live");
+    expect(onFlowSettled).not.toHaveBeenCalled();
+  });
+
+  it("ends a flow whose completion arrived before the start reply seated it", async () => {
+    // The tail opens BEFORE `providerAccount.login` is called — the registered ordering
+    // — so a flow that finishes fast reports its completion while the start reply is
+    // still travelling. The plane would otherwise seat an attempt that is already over
+    // and hold the key until somebody pressed cancel.
+    const { plane, onFlowSettled } = planeOverServedCalls();
+
+    plane.start(RUNNING_ACCOUNT_ID);
+    plane.noteLoginCompleted(SIGN_IN_ATTEMPT.attemptId);
+    await crossMacrotaskBoundary();
+
+    expect(plane.snapshot().flow.kind).toBe("ended");
+    expect(onFlowSettled).toHaveBeenCalledTimes(1);
+  });
+
   it("installs nothing once disposed", async () => {
     const { plane } = planeOverServedCalls();
 

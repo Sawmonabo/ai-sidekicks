@@ -27,6 +27,14 @@ import type { SignInFlowState } from "./signin-flow.js";
  * exactly as it arrived — this console opens nothing and copies nothing on the
  * operator's behalf, because a URL a page navigates to on its own is a flow the
  * operator did not choose to start.
+ *
+ * AND A REFUSED CANCELLATION RENDERS BESIDE THE ATTEMPT, NOT INSTEAD OF IT. A cancel
+ * this machine would not take says nothing about the provider's own login process, so
+ * the attempt is still what this card is about: the URI, the code, the deadline and the
+ * control stay, and the refusal joins them. The one house sentence beside the refuser's
+ * own words is the part only this console knows — that it is still holding the attempt,
+ * and why — which is a different fact from the one the refusal states rather than a
+ * second spelling of it.
  */
 export function SignInCard(props: {
   readonly flow: SignInFlowState;
@@ -78,6 +86,20 @@ export function SignInCard(props: {
         When the flow ends, this page reads the registry again to find out what became of the
         account. The flow ending is not itself a claim that it worked.
       </p>
+      {flow.cancelRefusal === undefined ? null : (
+        <>
+          <p
+            className="meridian-settings-page__state meridian-settings-page__state--failed"
+            role="alert"
+          >
+            <InlineRefusal {...flow.cancelRefusal} />
+          </p>
+          <p className="meridian-settings-page__aside">
+            The sign-in is still being tracked here, because a cancellation that was refused is not
+            evidence the provider stopped. Ask again, or finish it at the provider.
+          </p>
+        </>
+      )}
       <button
         type="button"
         className="meridian-settings-page__action"

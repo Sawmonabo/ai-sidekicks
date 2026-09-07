@@ -385,7 +385,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   #composeReadout(): ProviderQuotaReadout {
     return composeProviderQuotaReadout({
       fold: this.#fold,
-      unreadable: this.#deliveries.unreadable,
+      deliveries: this.#deliveries,
       readState: this.#lifecycle.state,
       readiness: this.#readiness,
     });

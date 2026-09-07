@@ -34,6 +34,17 @@
 // reason, and the refusal a press that got past that control is answered with — so the
 // words are composed here and the caller hands in the label it holds. Two spellings of
 // one fact drift apart, and the drift is invisible because both of them render.
+//
+// AND A REFUSED CANCEL IS NOT AN ENDING. The daemon declining the cancel, or the
+// transport failing to carry it, says nothing about the provider's own login process —
+// which the daemon spawned, does not read, and cannot stop by being asked twice. This
+// plane used to install the refusal as the flow, which superseded the single-flight
+// claim and replaced the live attempt: the verification URI and code went off screen,
+// the cancel control went with them, and every start control came back — over a process
+// that may still have been running, so the next start would have raced it. The refusal
+// is therefore an ARM of the live attempt, the key stays claimed, and exactly two things
+// end a flow: a cancel that answered `cancelled` or `notFound`, and the registry's own
+// tail reporting that attempt completed ({@link SignInPlane.noteLoginCompleted}).
 
 import type { ProviderAccountId, ProviderAccountLoginResponse } from "@ai-sidekicks/contracts";
 
@@ -41,6 +52,7 @@ import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../..
 import { GenerationLatch } from "../../../../store/index.js";
 import {
   IDLE_SIGN_IN_FLOW,
+  SIGN_IN_ENDED_BY_REGISTRY,
   isSignInPlaneHeld,
   signInPlaneHolderAccountId,
   type SignInCancelOutcome,
@@ -116,6 +128,17 @@ export class SignInPlane {
    * has superseded installs nothing and a disposed plane installs nothing at all.
    */
   readonly #flows = new GenerationLatch();
+  /**
+   * The newest attempt the registry has reported finished.
+   *
+   * Held because the tail opens BEFORE `providerAccount.login` is called — the ordering
+   * the registered contract states — so a flow that finishes fast reports its
+   * completion while the start reply is still travelling. Without this the plane would
+   * seat an attempt that is already over and hold the key until somebody pressed
+   * cancel. ONE id and not a set: the daemon runs one brokered flow at a time, so the
+   * newest completion is the only one a seating attempt could be.
+   */
+  #completedAttemptId: string | undefined = undefined;
   #snapshot: SignInPlaneSnapshot = NOTHING_STARTED;
   #isDisposed = false;
 
@@ -165,6 +188,16 @@ export class SignInPlane {
     void this.#startSignIn(accountId).then((outcome) => {
       claim.settle(() => {
         if (outcome.kind === "live") {
+          if (outcome.attempt.attemptId === this.#completedAttemptId) {
+            // The registry reported this very attempt finished while its start reply
+            // was still travelling, which the registered ordering makes ordinary: the
+            // tail is open before the call goes out. Seating it would put a card on
+            // screen for a flow that is over and hold the key until somebody cancelled
+            // a process that had already stopped.
+            claim.release();
+            this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
+            return;
+          }
           this.#publish({ flow: outcome });
           return;
         }
@@ -183,9 +216,15 @@ export class SignInPlane {
   /**
    * Cancel the live flow.
    *
-   * Both arms of the reply are about the flow this plane is tracking, so both install
-   * on the shared card — and both release the key, because either way the daemon is no
-   * longer running a flow this window started.
+   * THE TWO ARMS ARE NOT SYMMETRIC, AND THAT IS THE WHOLE RULE. `cancelled` and
+   * `notFound` are both the daemon telling this window there is no flow of its making
+   * left, so both end the flow and free the key. A REFUSAL is neither: the console
+   * could not put the request, or the node declined it, and the provider's own login
+   * process — spawned unmodified, read by nobody — is unaffected by either. So the
+   * refusal lands as an arm of the attempt that is still live, the key stays claimed,
+   * and the operator keeps the verification details and the control that is their way
+   * out. What ends the flow instead is a later cancel that answers, or the registry's
+   * own tail reporting the attempt completed.
    */
   public cancel(): void {
     const { flow } = this.#snapshot;
@@ -194,9 +233,17 @@ export class SignInPlane {
     }
     const { accountId, attempt } = flow;
     const round = this.#flows.currentClaim(this, SIGN_IN_FLOW_KEY);
-    this.#publish({ flow: { kind: "cancelling", accountId, attempt } });
+    this.#publish({
+      flow: { kind: "cancelling", accountId, attempt, cancelRefusal: flow.cancelRefusal },
+    });
     void this.#cancelSignIn(attempt).then((outcome) => {
       round.settle(() => {
+        if (outcome.kind === "refused") {
+          this.#publish({
+            flow: { kind: "live", accountId, attempt, cancelRefusal: outcome.refusal },
+          });
+          return;
+        }
         this.#flows.supersede(this, SIGN_IN_FLOW_KEY);
         this.#publish({ flow: outcome });
         this.#onFlowSettled();
@@ -204,10 +251,51 @@ export class SignInPlane {
     });
   }
 
+  /**
+   * The registry's tail reports one brokered attempt finished.
+   *
+   * THE SECOND OF THE TWO THINGS THAT END A FLOW, and the one that is evidence rather
+   * than a reply: `providerAccount.subscribe` carries `login_completed` correlated on
+   * the attempt id, so a plane still holding an attempt after a refused cancel is
+   * released by the node rather than staying claimed for the life of the window.
+   *
+   * CORRELATED AND NEVER ASSUMED. Another window's brokered flow completes on this same
+   * node-scoped tail, and taking that as this card's ending would clear a live
+   * attempt's verification code. The id the plane is tracking is the only one that
+   * moves it.
+   *
+   * The completion is REMEMBERED whether or not it matched, because a flow that
+   * finishes fast reports its completion while its own start reply is still in flight —
+   * {@link start} reads it on the seating arm.
+   */
+  public noteLoginCompleted(attemptId: string): void {
+    if (this.#isDisposed) {
+      return;
+    }
+    this.#completedAttemptId = attemptId;
+    const { flow } = this.#snapshot;
+    if (!("attempt" in flow) || flow.attempt.attemptId !== attemptId) {
+      return;
+    }
+    this.#flows.supersede(this, SIGN_IN_FLOW_KEY);
+    this.#settleEndedFlow(SIGN_IN_ENDED_BY_REGISTRY);
+  }
+
   /** Terminal. A settlement landing after this installs nothing. */
   public dispose(): void {
     this.#isDisposed = true;
     this.#flows.supersedeAll();
+  }
+
+  /**
+   * Leave the flow ended and ask whoever owns the registry read to take a fresh one.
+   *
+   * The pair is written once because the two are one act: a flow ending is never a
+   * verdict about the account, so every path that ends one owes the same re-read.
+   */
+  #settleEndedFlow(because: string): void {
+    this.#publish({ flow: { kind: "ended", because } });
+    this.#onFlowSettled();
   }
 
   /** Whether the account asking is the one already holding the plane. */

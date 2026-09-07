@@ -20,6 +20,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { UnreadableDeliveryReading, WireReadState } from "../readings/index.js";
+import type { ProviderLoginCompletion } from "./provider-quota-deliveries.js";
 import type { ProviderQuotaFold, ProviderQuotaReading } from "./provider-quota-fold.js";
 
 /** The empty projection, named once so an unread registry shares one frozen array. */
@@ -70,18 +71,45 @@ export interface ProviderQuotaReadout extends UnreadableDeliveryReading, WireRea
    *
    * The wire rows rather than {@link readings}, for the surface that renders a
    * window's own members — its source, its reset horizon, the generation it was
-   * observed under. Superseded already, so a consumer folding them again by limit
-   * reaches the same answer this fold did.
+   * observed under. SUPERSEDED ALREADY, which is a contract and not a convenience: a
+   * consumer renders these as they came and folds them no further, because a second
+   * supersession rule downstream of the first does not stay in step with it and the
+   * disagreement is invisible — both surfaces render.
    */
   readonly usageWindows: readonly ProviderAccountUsageWindow[];
+  /**
+   * The newest brokered sign-in the tail reported finished, correlated by `attemptId`.
+   *
+   * A REPORT AND NEVER A VERDICT. The registered contract is explicit that this says
+   * the provider's flow ended and not that the account is authenticated; what it is
+   * good for is the surface that STARTED an attempt and has to know its flow is over,
+   * because a refused cancellation establishes nothing and that surface would otherwise
+   * hold its single-flight claim for the life of the window.
+   */
+  readonly newestLoginCompletion: ProviderLoginCompletion | undefined;
+}
+
+/** What the tail contributes to a readout, beside the fold it has been applied to. */
+export interface ProviderQuotaDeliveryReading {
+  /** What the tail could not read. */
+  readonly unreadable: UnreadableDeliveryReading;
+  /** The newest brokered sign-in the tail reported finished. */
+  readonly newestLoginCompletion: ProviderLoginCompletion | undefined;
 }
 
 /** The four things a readout is composed from, named so no caller passes a reading. */
 export interface ProviderQuotaReadoutParts {
   /** Which reading is current for each key, and every account the registry carries. */
   readonly fold: ProviderQuotaFold;
-  /** What the tail could not read, from the deliveries that took the frames. */
-  readonly unreadable: UnreadableDeliveryReading;
+  /**
+   * What the deliveries carry that the fold does not hold.
+   *
+   * The delivery READING rather than one hand-picked member of it: the tail contributes
+   * two things a surface renders and neither belongs to the fold, so a signature naming
+   * one of them would have to be widened by every later one — and the composer would
+   * then be the place a reader has to look to find out what a tail can say.
+   */
+  readonly deliveries: ProviderQuotaDeliveryReading;
   /** How the newest read went, from the reading's own lifecycle. */
   readonly readState: WireReadState;
   /** The projection the newest SERVED read carried. Never folded from the tail. */
@@ -98,14 +126,15 @@ export interface ProviderQuotaReadoutParts {
 export function composeProviderQuotaReadout(
   parts: ProviderQuotaReadoutParts,
 ): ProviderQuotaReadout {
-  const { fold, unreadable, readState, readiness } = parts;
+  const { fold, deliveries, readState, readiness } = parts;
   return {
-    ...unreadable,
+    ...deliveries.unreadable,
     ...readState,
     readings: fold.readings(),
     accountLabels: fold.accountLabels(),
     accounts: fold.accounts(),
     readiness,
     usageWindows: fold.usageWindows(),
+    newestLoginCompletion: deliveries.newestLoginCompletion,
   };
 }

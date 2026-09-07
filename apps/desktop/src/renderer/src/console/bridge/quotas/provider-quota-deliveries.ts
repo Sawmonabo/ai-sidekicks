@@ -17,6 +17,16 @@
 //   • A same-window reading below the high-water mark is recorded as a diagnostic
 //     rather than rendered as a regression ({@link ProviderQuotaDeliveries.mergeWindow}).
 //
+// AND ONE FRAME IS CARRIED WITHOUT MOVING THE FOLD. `login_completed` is a report from
+// the provider that its own login process finished, not a reading of anything — the
+// daemon observes health next and publishes `account_changed`, which is the frame that
+// moves an account here. But it IS the node's evidence that one brokered attempt is
+// over, and the surface that started that attempt has no other way to learn it: a
+// refused cancellation establishes nothing, so without this the sign-in plane would go
+// on holding its single-flight claim for the life of the window. So the newest one is
+// held and published, correlated by the caller on its `attemptId` and never taken as a
+// verdict about the account.
+//
 // The third — that a delivery outside the registered union is counted rather than
 // dropped — is `unreadable-deliveries.ts`', and the one part of it this stream owns
 // is that it NEVER clears the count. The registry read answers for an instant the
@@ -32,6 +42,18 @@ import type {
   ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts";
+
+/**
+ * One brokered sign-in the provider reported finished, as the tail carried it.
+ *
+ * Derived from the registered notification union rather than restated, so the members
+ * a consumer reads are the wire's own and a fourth kind added upstream cannot quietly
+ * widen what this name means.
+ */
+export type ProviderLoginCompletion = Extract<
+  ProviderAccountNotification,
+  { kind: "login_completed" }
+>;
 
 import {
   PROVIDER_QUOTA_REFUSAL_ORIGIN,
@@ -73,6 +95,7 @@ export class ProviderQuotaDeliveries {
   readonly #hold = new ProviderQuotaNotificationHold();
   readonly #unreadable = new UnreadableDeliveryLedger(unreadableDeliveryRefusal);
   #hasReportedHighWaterDrop = false;
+  #newestLoginCompletion: ProviderLoginCompletion | undefined = undefined;
 
   public constructor(fold: ProviderQuotaFold, sink: ProviderQuotaDeliverySink) {
     this.#fold = fold;
@@ -82,6 +105,18 @@ export class ProviderQuotaDeliveries {
   /** What the readout carries about the frames this build could not read. */
   public get unreadable(): UnreadableDeliveryReading {
     return this.#unreadable.reading;
+  }
+
+  /**
+   * The newest completion the tail has carried, or `undefined` before any.
+   *
+   * ONE AND NOT A LEDGER. A consumer's question is whether the attempt IT is tracking
+   * has finished, the node runs one brokered flow at a time, and a set of every
+   * completion this window ever saw would grow for the life of the tail with nothing
+   * ever entitled to prune it.
+   */
+  public get newestLoginCompletion(): ProviderLoginCompletion | undefined {
+    return this.#newestLoginCompletion;
   }
 
   /** Begin holding, for a registry read that is about to go out. */
@@ -173,10 +208,14 @@ export class ProviderQuotaDeliveries {
         this.mergeWindow(notification.window);
         return true;
       case "login_completed":
-        // Deliberately nothing. A provider reporting its flow finished is not itself
-        // a reading; the daemon observes health next and publishes `account_changed`,
-        // which is the notification that moves anything here.
-        return false;
+        // The FOLD is untouched, deliberately: a provider reporting its flow finished
+        // is not a reading of the account, and the daemon publishes `account_changed`
+        // next for the part that is. What is recorded is that this attempt is over,
+        // which is the one thing a surface holding a brokered sign-in cannot learn any
+        // other way — and it publishes, because a card that stays up over a flow the
+        // node has reported finished is the state this exists to end.
+        this.#newestLoginCompletion = notification;
+        return true;
     }
   }
 }
