@@ -316,8 +316,13 @@ export {
   formatWireString,
 } from "./wire-figures.js";
 
-// The one registration site an overlay primitive joins the window's airspace through
+// The overlay shells, each registering the popup it mounts in the window's airspace
 // (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
-// overlay instance"). The set it writes into is `core/`'s; the size seam it arms is
-// this family's chokepoint, which is why the hook is here and not there.
-export { useAirspaceRegistration } from "./airspace-registration.js";
+// overlay instance"). The registration hook itself is deliberately NOT on this door:
+// its only callers are these five, a consumer that could reach it could register an
+// overlay by hand at a call site, and 12.3's Never bullet forbids exactly that.
+export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
+export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";
+export { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
+export { OverlayMenuPopup } from "./overlay/OverlayMenuPopup.js";
+export { OverlaySelectPopup } from "./overlay/OverlaySelectPopup.js";

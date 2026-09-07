@@ -45,6 +45,7 @@ import { membershipRoleOf, type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import {
   useCallerMembershipRole,
+  useSessionPartition,
   useSessionStore,
   type CallerParticipantReader,
   type SessionStore,
@@ -138,9 +139,13 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
   );
 
   // 8.9's aside is a sentence about the step-in control, so it renders where that
-  // control has something to act on. The fold is memoised on the same timeline
-  // reference every other derivation here keys on, so it runs when the log moves.
-  const isStepInReachable = useMemo(() => hasSteppableRun(timeline), [timeline]);
+  // control has something to act on. It reads the `run` PARTITION rather than the log:
+  // the run-lifecycle projector is the console's one authority on which beats put a run
+  // into which state, and a second fold beside it answered `true` for a `run.running`
+  // beat that projector refuses. The partition's identity moves only when a run does,
+  // so the memo runs when there is something new to say.
+  const runs = useSessionPartition(sessionStore, "run");
+  const isStepInReachable = useMemo(() => hasSteppableRun(runs), [runs]);
 
   const markFor = useMemo(() => {
     const allocator = sessionStore.hueAllocator;

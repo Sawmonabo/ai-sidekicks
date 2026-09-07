@@ -17,49 +17,72 @@
 // THE RECTANGLE IS READ LIVE, never captured. A rectangle taken at registration is
 // where the overlay was before it opened, and a view that yielded to it would yield
 // to a box that has moved.
+//
+// A REF CALLBACK AND NOT AN EFFECT OVER AN `isOpen` FLAG, which is the shape that lets
+// the primitives own this rather than the surfaces above them. Base UI unmounts a
+// portal's children when its popup closes (`keepMounted` defaults to false on every
+// family), so the element ARRIVING is the overlay opening and the element leaving is
+// it closing — the one fact a wrapper already holds. An effect keyed on an `isOpen`
+// argument needed that flag threaded in from wherever the open state lived, and four
+// of the console's five overlay families are opened by their own trigger and hold no
+// such flag anywhere: the wrappers would have had to mint one and keep it in step with
+// the library's, which is a second source of truth for whether an overlay is on
+// screen. React 19 calls a ref callback's returned cleanup on detach and then does not
+// call the ref with `null`, so attach and release are one closure and neither can be
+// forgotten by a caller that never sees them.
 
-import { useEffect } from "react";
+import { useCallback } from "react";
 
 import { airspaceRegistryFor, type AirspaceOverlayKind } from "../core/index.js";
 import { observeElementResize } from "./element-resize.js";
 
 /**
- * Register one overlay element in its own window's airspace for the life of a mount.
+ * What an overlay primitive puts on the element it wants the airspace to yield to.
  *
- * The ref is read in the effect rather than taken as an element, because a primitive
- * hands its popup element over on commit and has none during the render that asks for
- * the registration. A ref holding `null` — a popup that is closed, or a portal that
- * has not landed — registers nothing, which is the correct reading of an overlay that
- * is not on screen.
+ * A `ref` value and not a hook result a caller has to wire up further: the whole
+ * registration — the live rectangle reader, the size arm, and the removal — travels
+ * with the element, so the only thing a primitive can get wrong is failing to attach
+ * it, which the architecture gate is what catches.
  */
-export function useAirspaceRegistration(
-  kind: AirspaceOverlayKind,
-  elementRef: React.RefObject<Element | null>,
-  isOpen: boolean,
-): void {
-  useEffect(() => {
-    const element = elementRef.current;
-    if (!isOpen || element === null) {
-      return undefined;
-    }
-    const registration = airspaceRegistryFor(element.ownerDocument).register(
-      kind,
-      () => {
-        const box = element.getBoundingClientRect();
-        return { x: box.x, y: box.y, width: box.width, height: box.height };
-      },
-      element,
-    );
-    // The size seam is armed here rather than inside the registry, and it reports
-    // through the registration's own `moved` so every change reaches the airspace by
-    // one path. A popover positioned after mount, a toast that grows as its text
-    // wraps, and a dialog that animates in are all this arm.
-    const detachResize = observeElementResize(element, () => {
-      registration.moved();
-    });
-    return () => {
-      detachResize();
-      registration.remove();
-    };
-  }, [elementRef, isOpen, kind]);
+export type AirspaceOverlayRef = (element: Element | null) => (() => void) | undefined;
+
+/**
+ * Register whatever element is attached as an overlay of `kind`, for as long as it is
+ * mounted.
+ *
+ * A detached or never-attached element registers nothing, which is the correct reading
+ * of an overlay that is not on screen. The callback's identity is stable per kind, so
+ * a re-render of the primitive does not detach and re-register the popup it is holding.
+ */
+export function useAirspaceRegistration(kind: AirspaceOverlayKind): AirspaceOverlayRef {
+  return useCallback(
+    (element: Element | null) => {
+      if (element === null) {
+        // Reached only if React ever detaches without honouring the cleanup this
+        // returns on every attach. Nothing was registered on that path, so nothing
+        // is released here.
+        return undefined;
+      }
+      const registration = airspaceRegistryFor(element.ownerDocument).register(
+        kind,
+        () => {
+          const box = element.getBoundingClientRect();
+          return { x: box.x, y: box.y, width: box.width, height: box.height };
+        },
+        element,
+      );
+      // The size seam is armed here rather than inside the registry, and it reports
+      // through the registration's own `moved` so every change reaches the airspace by
+      // one path. A popover positioned after mount, a toast that grows as its text
+      // wraps, and a dialog that animates in are all this arm.
+      const detachResize = observeElementResize(element, () => {
+        registration.moved();
+      });
+      return () => {
+        detachResize();
+        registration.remove();
+      };
+    },
+    [kind],
+  );
 }
