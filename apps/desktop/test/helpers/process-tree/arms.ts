@@ -93,7 +93,6 @@
 // this module takes everywhere — a refusal a reader can see, rather than a clean
 // tree nobody can check.
 
-import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 import {
@@ -101,7 +100,12 @@ import {
   type CapturedTreeMember,
   type TreeRootIdentity,
 } from "./identity.js";
-import { descendantsOf, type ProcessTableReader, type ProcessTableRow } from "./readers.js";
+import {
+  descendantsOf,
+  runBoundedHostCommand,
+  type ProcessTableReader,
+  type ProcessTableRow,
+} from "./readers.js";
 
 /**
  * Whether a termination attempt left nothing to worry about.
@@ -323,14 +327,25 @@ function unverifiedRootClaimants(
  * the things taskkill refuses — so this reports the STATUS and the arm above
  * decides, asking the operating system rather than reading taskkill's message,
  * which is localised and must not depend on the runner's display language.
+ *
+ * Run through the one bounded door in `readers.ts` for the reason every other
+ * host command here is: it is a `spawnSync`, so a `taskkill` that does not
+ * return blocks the thread vitest's own timeout runs on. A caller inside a
+ * deadline passes what is left of it; a bound already spent runs nothing and
+ * reports the kill as undelivered, which is the reading that keeps the caller
+ * escalating rather than one that claims a tree it never signalled.
  */
-export function runPlatformTreeKill(processId: number, forced: boolean): boolean {
-  const result = spawnSync(
+export function runPlatformTreeKill(
+  processId: number,
+  forced: boolean,
+  remainingBudgetMilliseconds?: number,
+): boolean {
+  const result = runBoundedHostCommand(
     "taskkill",
     ["/pid", String(processId), "/t", ...(forced ? ["/f"] : [])],
-    { stdio: "ignore" },
+    remainingBudgetMilliseconds,
   );
-  return result.error === undefined && result.status === 0;
+  return result !== undefined && result.error === undefined && result.status === 0;
 }
 
 /**

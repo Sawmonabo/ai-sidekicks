@@ -31,9 +31,10 @@
 // state is answered by asking existence AGAIN rather than by assuming either way:
 // still there and stateless is `running`, and gone is `gone`.
 
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
+
+import { runBoundedHostQuery } from "./readers.js";
 
 /**
  * What a pid is doing, as three states rather than two.
@@ -139,6 +140,19 @@ export function processStateFromProcStat(statText: string): string | undefined {
 }
 
 /**
+ * How the macOS arm below asks this host, as one injectable reading.
+ *
+ * `runBoundedHostQuery`'s own shape and deliberately not `spawnSync`'s: what a
+ * caller here may choose is the QUESTION, never the bound, so the parameter
+ * this seam does not have is the point of it.
+ */
+type BoundedHostQuery = (
+  command: string,
+  args: readonly string[],
+  remainingBudgetMilliseconds?: number,
+) => string | undefined;
+
+/**
  * This platform's state code for `processId`, or `undefined` if it has none.
  *
  * `undefined` is returned for four different reasons and they are deliberately
@@ -149,9 +163,30 @@ export function processStateFromProcStat(statText: string): string | undefined {
  * out of this function would mean reading a platform's errno vocabulary into a
  * reading that has a cheaper and more honest way to settle it. The caller asks
  * existence again instead, which answers all four with one syscall.
+ *
+ * THE macOS ARM RUNS A COMMAND, AND A COMMAND THAT IS NOT BOUNDED IS A LEAK.
+ * `spawnSync` blocks this thread until its child exits, and this reading is
+ * taken from inside a disposal that is already racing a teardown: a `ps` that
+ * stalls blocks the very thread vitest's timeout runs on, so the worker is torn
+ * down with its Electron still alive. It therefore goes through
+ * `runBoundedHostQuery` — the one door in `readers.ts` that every host query in
+ * this directory takes, and the only place `HOST_QUERY_TIMEOUT_MS` is spelled.
+ * The Linux arm reads a file rather than running a command, so it is bounded by
+ * the read itself and has nothing to pass.
+ *
+ * `platform` and `runHostQuery` are parameters rather than reads of the ambient
+ * process for the reason every seam in this directory is one: a runner takes
+ * exactly one of these three arms, so the other two would otherwise be claims
+ * nothing on this host can check. They sit AFTER the budget because the budget
+ * is the parameter a production caller passes and they are the two a test does.
  */
-function readProcessStateCode(processId: number): string | undefined {
-  if (process.platform === "linux") {
+export function readProcessStateCode(
+  processId: number,
+  remainingBudgetMilliseconds?: number,
+  platform: NodeJS.Platform = process.platform,
+  runHostQuery: BoundedHostQuery = runBoundedHostQuery,
+): string | undefined {
+  if (platform === "linux") {
     try {
       return processStateFromProcStat(readFileSync(`/proc/${String(processId)}/stat`, "utf8"));
     } catch {
@@ -161,15 +196,12 @@ function readProcessStateCode(processId: number): string | undefined {
       return undefined;
     }
   }
-  if (process.platform === "darwin") {
-    const inspected = spawnSync("ps", ["-o", "stat=", "-p", String(processId)], {
-      encoding: "utf8",
-    });
-    if (inspected.error !== undefined || inspected.status !== 0) {
-      return undefined;
-    }
-    const reported = inspected.stdout.trim();
-    return reported === "" ? undefined : reported;
+  if (platform === "darwin") {
+    return runHostQuery(
+      "ps",
+      ["-o", "stat=", "-p", String(processId)],
+      remainingBudgetMilliseconds,
+    );
   }
   // Windows keeps no exited-but-unreaped entry to read, so there is nothing to
   // ask and disappearance is the only termination evidence the platform gives.
@@ -188,8 +220,19 @@ function readProcessStateCode(processId: number): string | undefined {
 export interface ProcessLivenessProbes {
   /** Whether the pid names a process at all — a zombie answers `true`. */
   readonly exists: (processId: number) => boolean;
-  /** This platform's process-table state code, or `undefined` if it has none. */
-  readonly stateCode: (processId: number) => string | undefined;
+  /**
+   * This platform's process-table state code, or `undefined` if it has none.
+   *
+   * The budget is what is LEFT of a caller's deadline, and the only probe of the
+   * pair that can spend any: existence is a syscall, and the state code on macOS
+   * is a command this thread blocks on. A budget at or below zero answers
+   * `undefined` without running it, which the reading below turns into the
+   * honest "still there, nothing known against it".
+   */
+  readonly stateCode: (
+    processId: number,
+    remainingBudgetMilliseconds?: number,
+  ) => string | undefined;
 }
 
 /** The real pair, which every production caller takes. */
@@ -219,16 +262,20 @@ const PLATFORM_LIVENESS_PROBES: ProcessLivenessProbes = {
  *
  * Failing towards `running` survives that: the recheck reports `running` for
  * every pid that is demonstrably still there, so the platform with no state to
- * read — Windows — reads exactly as it did.
+ * read — Windows — reads exactly as it did. It is also what makes an EXHAUSTED
+ * budget safe: the state probe answers nothing without running, the existence
+ * recheck costs a syscall rather than a spawn, and a pid still there reads
+ * `running`, which is "not terminated" and never a false clean tree.
  */
 export function readProcessLiveness(
   processId: number,
   probes: ProcessLivenessProbes = PLATFORM_LIVENESS_PROBES,
+  remainingBudgetMilliseconds?: number,
 ): ProcessLiveness {
   if (!probes.exists(processId)) {
     return "gone";
   }
-  const stateCode = probes.stateCode(processId);
+  const stateCode = probes.stateCode(processId, remainingBudgetMilliseconds);
   if (stateCode !== undefined) {
     return isTerminatedProcessState(stateCode) ? "zombie" : "running";
   }
@@ -242,7 +289,20 @@ export function readProcessLiveness(
  * pid and nothing else, and waiting for it to disappear waits on an init this
  * process does not own — which on a hosted runner is prompt and in a container
  * whose init does not reap is unbounded.
+ *
+ * A caller inside a deadline passes what is LEFT of it, because this reading is
+ * taken between termination attempts and its macOS arm runs a command: charged
+ * to nothing, three attempts spend three full query bounds outside a budget that
+ * was already over. Spent to zero it spawns nothing and reads not-terminated,
+ * which is the answer that keeps a caller escalating rather than one that
+ * reports a tree clean because there was no time to look.
  */
-export function processHasTerminated(processId: number): boolean {
-  return readProcessLiveness(processId) !== "running";
+export function processHasTerminated(
+  processId: number,
+  remainingBudgetMilliseconds?: number,
+): boolean {
+  return (
+    readProcessLiveness(processId, PLATFORM_LIVENESS_PROBES, remainingBudgetMilliseconds) !==
+    "running"
+  );
 }

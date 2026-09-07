@@ -25,6 +25,9 @@ import {
   parseProcessTable,
   readProcessStartStamp,
   readProcessTable,
+  runBoundedHostCommand,
+  runBoundedHostQuery,
+  type HostQueryOptions,
 } from "../../helpers/process-tree/readers.js";
 import { processTableOf } from "./process-table-fixture.test-support.js";
 
@@ -157,5 +160,97 @@ describe("the host query bound — a relation rather than a number", () => {
     // readable host, since PowerShell's cold start on a loaded Windows runner
     // is measured in seconds. The two together are what fix the figure.
     expect(HOST_QUERY_TIMEOUT_MS).toBeGreaterThan(1_000);
+  });
+});
+
+describe("the one bounded door — every host command this package runs goes through it", () => {
+  // WHY THE BOUND IS ON THE DOOR AND NOT AT THE CALL SITES. Every reading here
+  // is a `spawnSync`, which blocks this thread until its child exits, and each
+  // one is taken from inside a disposal that is already racing a teardown: a
+  // `ps` under a hung filesystem, or PowerShell whose CIM service is not
+  // answering, blocks the very thread vitest's timeout runs on, and a worker
+  // killed while blocked runs no teardown at all. Four sites carried their own
+  // options object and a fifth — the macOS state code — was written without the
+  // timeout at all, which is what a bound restated per site eventually costs.
+
+  /** A runner that records the command, its arguments, and the options it was given. */
+  function recordingRunner(stdout: string): {
+    readonly run: (
+      command: string,
+      args: readonly string[],
+      options: HostQueryOptions,
+    ) => { readonly status: number; readonly stdout: string };
+    readonly calls: { command: string; args: readonly string[]; options: HostQueryOptions }[];
+  } {
+    const calls: { command: string; args: readonly string[]; options: HostQueryOptions }[] = [];
+    return {
+      calls,
+      run: (command, args, options) => {
+        calls.push({ command, args, options });
+        return { status: 0, stdout };
+      },
+    };
+  }
+
+  it("gives an unbudgeted query the whole bound, as text with the whitespace off", () => {
+    const runner = recordingRunner("  S+  \n");
+    expect(runBoundedHostQuery("ps", ["-o", "stat=", "-p", "4242"], undefined, runner.run)).toBe(
+      "S+",
+    );
+    expect(runner.calls).toStrictEqual([
+      {
+        command: "ps",
+        args: ["-o", "stat=", "-p", "4242"],
+        options: { encoding: "utf8", timeout: HOST_QUERY_TIMEOUT_MS },
+      },
+    ]);
+  });
+
+  it("gives a budgeted query the smaller of the caller's remainder and its own bound", () => {
+    // THE FINDING BEHIND THE PARAMETER. `HOST_QUERY_TIMEOUT_MS` is derived
+    // against the WHOLE cleanup budget, so it is right for a query taken at the
+    // start of a disposal and far too generous for one taken after that disposal
+    // has spent itself — three escalations each spending five seconds is half a
+    // minute outside a budget that was already over.
+    const tight = recordingRunner("S");
+    runBoundedHostQuery("ps", [], 1_000, tight.run);
+    expect(tight.calls[0]?.options.timeout).toBe(1_000);
+
+    // And never LARGER than its own bound, whatever the caller has left.
+    const generous = recordingRunner("S");
+    runBoundedHostQuery("ps", [], HOST_QUERY_TIMEOUT_MS * 4, generous.run);
+    expect(generous.calls[0]?.options.timeout).toBe(HOST_QUERY_TIMEOUT_MS);
+  });
+
+  it("runs nothing at all once the caller's budget is spent", () => {
+    // There is no query that takes no time, so the honest answer to "you have no
+    // time left" is the unreadable one — arrived at without starting a process
+    // this thread would then block on, which is the whole point of asking.
+    const spent = recordingRunner("S");
+    expect(runBoundedHostQuery("ps", [], 0, spent.run)).toBeUndefined();
+    expect(runBoundedHostCommand("taskkill", ["/pid", "4242"], -1, spent.run)).toBeUndefined();
+    expect(
+      spent.calls,
+      "a query ran on an exhausted budget — the deadline it was charged to is already over",
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: every other way a query can fail reads unreadable too", () => {
+    // Without this the cases above are ambiguous between "it reports what the
+    // command said" and "it reports whatever came back", and the second puts a
+    // timed-out query's empty output into a parser as though it were a listing.
+    expect(
+      runBoundedHostQuery("ps", [], undefined, () => ({
+        error: new Error("spawnSync ps ETIMEDOUT"),
+        status: null,
+        stdout: "",
+      })),
+    ).toBeUndefined();
+    expect(
+      runBoundedHostQuery("ps", [], undefined, () => ({ status: 1, stdout: "no such process" })),
+    ).toBeUndefined();
+    expect(
+      runBoundedHostQuery("ps", [], undefined, () => ({ status: 0, stdout: "   \n" })),
+    ).toBeUndefined();
   });
 });

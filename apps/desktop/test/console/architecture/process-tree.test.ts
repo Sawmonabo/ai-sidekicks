@@ -32,6 +32,7 @@ import {
   processHasTerminated,
   processStateFromProcStat,
   readProcessLiveness,
+  readProcessStateCode,
   type ProcessLivenessProbes,
 } from "../../helpers/process-tree/liveness.js";
 
@@ -289,5 +290,87 @@ describe("process termination — a state that vanished is not a process still r
     const sleeping = new ScriptedLivenessProbes([true], "S");
     expect(readProcessLiveness(4242, sleeping)).toBe("running");
     expect(sleeping.existenceReads).toBe(1);
+  });
+});
+
+describe("process termination — the macOS state read is a command, and a command must be bounded", () => {
+  // THE FINDING. `readProcessStateCode`'s macOS arm ran its own `spawnSync("ps")`
+  // with no timeout while every other host query in this directory carried one.
+  // `spawnSync` blocks this thread until its child exits, and this reading is
+  // taken from inside a disposal that is already racing a teardown — so a `ps`
+  // that stalls blocks the very thread vitest's timeout runs on, the worker is
+  // killed while blocked, no teardown runs at all, and the detached Electron the
+  // reading was taken for outlives the run.
+  //
+  // WHY THE ARMS ARE INJECTED. A runner takes exactly one of the three, so the
+  // other two are claims nothing on this host could otherwise check — the same
+  // split the scripted probes below already make for the reading they feed.
+
+  /** A bounded-query stand-in that records what it was asked, and what it was charged. */
+  function recordingQuery(answer: string | undefined): {
+    readonly ask: (
+      command: string,
+      args: readonly string[],
+      remainingBudgetMilliseconds?: number,
+    ) => string | undefined;
+    readonly asked: {
+      command: string;
+      args: readonly string[];
+      remainingBudgetMilliseconds: number | undefined;
+    }[];
+  } {
+    const asked: {
+      command: string;
+      args: readonly string[];
+      remainingBudgetMilliseconds: number | undefined;
+    }[] = [];
+    return {
+      asked,
+      ask: (command, args, remainingBudgetMilliseconds) => {
+        asked.push({ command, args, remainingBudgetMilliseconds });
+        return answer;
+      },
+    };
+  }
+
+  it("asks `ps` through the one bounded door, and charges the caller's remainder to it", () => {
+    const query = recordingQuery("Z+");
+    expect(readProcessStateCode(4242, 1_000, "darwin", query.ask)).toBe("Z+");
+    expect(
+      query.asked,
+      "the macOS state lookup is running its own query rather than the bounded one",
+    ).toStrictEqual([
+      {
+        command: "ps",
+        args: ["-o", "stat=", "-p", "4242"],
+        remainingBudgetMilliseconds: 1_000,
+      },
+    ]);
+  });
+
+  it("negative control: the two arms that read no command run no query at all", () => {
+    // Without this the case above is ambiguous between "the macOS arm asks" and
+    // "every arm asks", and the second would run a `ps` on Windows — which keeps
+    // no such entry to read — inside the disposal the bound exists to protect.
+    const query = recordingQuery("Z+");
+    expect(readProcessStateCode(4242, undefined, "win32", query.ask)).toBeUndefined();
+    // Linux reads a file rather than running a command; what it finds under a pid
+    // this suite does not own is the host's business, and asking is not.
+    readProcessStateCode(4242, undefined, "linux", query.ask);
+    expect(query.asked).toStrictEqual([]);
+  });
+
+  it("reads a live process as not terminated on a budget that is already spent", () => {
+    // The answer an exhausted budget has to give, taken against the one pid
+    // guaranteed to be alive. The state probe runs nothing, so the reading falls
+    // to the existence recheck — a syscall rather than a spawn — and a pid still
+    // there is `running`. Not-terminated is what keeps a caller escalating; the
+    // opposite would report a tree clean because there was no time to look.
+    expect(processHasTerminated(process.pid, 0)).toBe(false);
+    // And an exhausted budget still reports a REAPED pid as terminated, because
+    // that answer never needed a command either.
+    const reaped = spawnSync(process.execPath, ["-e", ""]);
+    expect(reaped.pid).toBeGreaterThan(0);
+    expect(processHasTerminated(reaped.pid, 0)).toBe(true);
   });
 });
