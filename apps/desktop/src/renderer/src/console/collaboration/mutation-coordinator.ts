@@ -59,7 +59,6 @@ import { GenerationLatch } from "../store/index.js";
 import {
   callDaemon,
   type ConsoleBridge,
-  type ConsoleDaemonMethod,
   type DaemonReply,
   type DaemonRequestOf,
   type DaemonResponseOf,
@@ -327,8 +326,18 @@ export function useWireMutation<TRequest, TResponse>(
  * the registry does not bind does not compile, and one passing the wrong payload
  * does not either. Everything this adds is the binding — the bridge and the method
  * closed over — and nothing about what a reply means.
+ *
+ * AND THE CONSTRAINT IS THE RECORDING METHODS THIS FAMILY BINDS, not the registry.
+ * The call below hands the door no signal, which is right for a durable act — an act
+ * that has reached the daemon has HAPPENED, and abandoning the console's half of one
+ * would leave a person reading a surface that says it did not occur. Constrained to
+ * the whole registry, though, the same line binds a READ just as happily and hands it
+ * nothing to stop it either, which is the defect the read-cancellation gate exists to
+ * find: a forgotten signal and a deliberate absence are the same source text. Two
+ * members because two surfaces bind through here; a third is a compile error at this
+ * line, which is where the question belongs.
  */
-export function daemonMutation<MethodName extends ConsoleDaemonMethod>(
+export function daemonMutation<MethodName extends "invite.revoke" | "membership.update">(
   bridge: ConsoleBridge,
   method: MethodName,
 ): WireMutation<DaemonRequestOf<MethodName>, DaemonResponseOf<MethodName>> {

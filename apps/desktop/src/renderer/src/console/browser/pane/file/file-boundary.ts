@@ -32,7 +32,7 @@ import { useEffect } from "react";
 
 import { callDaemon, type ConsoleBridge } from "../../../bridge/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { useSubjectScopedState } from "../../../store/index.js";
+import { useReadScope, useSubjectScopedState } from "../../../store/index.js";
 
 /**
  * The registered code a destination outside the envelope is refused under.
@@ -98,22 +98,32 @@ const UNREAD_ROOTS: AdmittedRootsReading = { kind: "reading" };
  *
  * A pane with no session reads nothing and says nothing, which is not a refusal: the
  * question was never put.
+ *
+ * AND IT IS PUT ON A READ LINE, addressed at the same pairing the state above is, so
+ * the line and the value it fills begin and end together. What stood here was a
+ * `cancelled` boolean the effect's cleanup flipped, and a boolean stops nothing: the
+ * request stayed on the wire, the reply was still parsed against its registered
+ * schema, and the answer was still folded into a roots list — all of it for a pane
+ * that had gone, and all of it on the thread the streaming ledger paints on. Handing
+ * the round's signal to the door is what turns the discard into a stop, and
+ * `round.settle` is what replaces the flag: it answers both endings at once, the
+ * newer read that superseded this one and the surface that left, and it publishes
+ * neither the stale answer nor the door's own `read-abandoned` refusal — a departure
+ * is not a disclosure that could not be read.
  */
 export function useAdmittedRoots(
   bridge: ConsoleBridge,
   sessionId: string | undefined,
 ): AdmittedRootsReading {
-  const { value: reading, publish } = useSubjectScopedState(
-    bridge,
-    sessionId ?? "",
-    () => UNREAD_ROOTS,
-  );
+  const subjectKey = sessionId ?? "";
+  const { value: reading, publish } = useSubjectScopedState(bridge, subjectKey, () => UNREAD_ROOTS);
+  const readScope = useReadScope(bridge, subjectKey);
 
   useEffect(() => {
     if (sessionId === undefined) {
       return;
     }
-    let cancelled = false;
+    const round = readScope.openRound();
     void (async () => {
       // NO `catch` HERE, AND THAT IS THE POINT. `callDaemon` is total by construction
       // and by its own documented claim — every throw site inside it sits in its own
@@ -125,29 +135,28 @@ export function useAdmittedRoots(
       //
       // The console never MINTS a session id; it forwards the one it was given, and
       // the brand is a compile-time marker over the same opaque string.
-      const reply = await callDaemon(bridge, "repo.workspaceList", {
-        sessionId: sessionId as SessionId,
-      });
-      if (cancelled) {
-        return;
-      }
-      if (reply.status === "refused") {
-        publish({ kind: "refused", refusal: reply.refusal });
-        return;
-      }
-      const roots = reply.value.workspaces
-        .map((workspace) => workspace.fsRoot)
-        .filter((root): root is string => root !== undefined && root.length > 0);
-      publish({
-        kind: "served",
-        roots,
-        unreportedWorkspaceCount: reply.value.workspaces.length - roots.length,
+      const reply = await callDaemon(
+        bridge,
+        "repo.workspaceList",
+        { sessionId: sessionId as SessionId },
+        { signal: round.signal },
+      );
+      round.settle(() => {
+        if (reply.status === "refused") {
+          publish({ kind: "refused", refusal: reply.refusal });
+          return;
+        }
+        const roots = reply.value.workspaces
+          .map((workspace) => workspace.fsRoot)
+          .filter((root): root is string => root !== undefined && root.length > 0);
+        publish({
+          kind: "served",
+          roots,
+          unreportedWorkspaceCount: reply.value.workspaces.length - roots.length,
+        });
       });
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [bridge, publish, sessionId]);
+  }, [bridge, publish, readScope, sessionId]);
 
   return reading;
 }

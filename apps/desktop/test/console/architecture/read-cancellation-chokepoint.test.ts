@@ -17,6 +17,16 @@
 // Neither suite subsumes the other: this one would pass over a scheduler that handed
 // out a dead round, and that one would pass over a scheduler that accepted one.
 //
+// AND THE FOURTH CLAIM IS THE COMPLEMENT OF THE THIRD, which the first three left
+// open. `DaemonCallOptions.signal` is optional by design, so a read that simply forgot
+// one is the same source text as a mutation that deliberately passes none — absence
+// was legal, and two reads shipped through the gap before anything looked. The claim
+// below closes it from the other side: every call at the door is classified from the
+// source as a read or a record, a read carries a signal, a record carries none, and a
+// call this scan cannot classify is reported rather than exempted. Its model and its
+// needles live in `daemon-call-sites.ts` and `daemon-read-signal-census.ts`, on the
+// `daemon-call-census.ts` pattern; what stays here is the claim over the real tree.
+//
 // THE MUTATION CLAIM IS DERIVED, NOT LISTED — IN BOTH OF ITS HALVES. A hand-written
 // roster of run-control modules is a roster that goes stale the first time a control
 // moves, and the gate would keep passing while the module it was written about no
@@ -59,6 +69,13 @@ import {
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
+import type { DaemonCallSite } from "./daemon-call-sites.js";
+import {
+  classifyDaemonCallSite,
+  readConsoleDaemonCalls,
+  signalledRecordOffenders,
+  unsignalledReadOffenders,
+} from "./daemon-read-signal-census.js";
 
 /** The one module allowed to construct an abort controller. */
 const READ_CANCELLATION_SEAM = "console/store/read-cancellation.ts";
@@ -340,5 +357,37 @@ describe("read cancellation — a run control is never handed one", () => {
       abortSignatures('await callDaemon(bridge, "run.pause", request, { signal: round.signal });'),
     ).toContain("signal");
     expect(abortSignatures('await callDaemon(bridge, "run.pause", request);')).toStrictEqual([]);
+  });
+});
+
+describe("read cancellation — every door call declares which kind it is", () => {
+  const { readings, sites } = readConsoleDaemonCalls();
+  const verdicts = (kind: string): readonly DaemonCallSite[] =>
+    sites.filter((site) => classifyDaemonCallSite(site, readings) === kind);
+
+  it("finds the registry's partition and the calls held to it", () => {
+    // The derivation's floor, on both sides. A partition that classified everything
+    // one way, or a scan that resolved nothing, would make the two claims below
+    // vacuously true — which is the failure mode a derived set has and the reason the
+    // module the fix landed in is named rather than counted.
+    expect([...readings.values()].filter(Boolean).length).toBeGreaterThanOrEqual(10);
+    expect([...readings.values()].filter((reads) => !reads).length).toBeGreaterThanOrEqual(10);
+    expect(verdicts("read").length).toBeGreaterThanOrEqual(15);
+    expect(verdicts("record").length).toBeGreaterThanOrEqual(15);
+    expect(verdicts("unresolved")).toStrictEqual([]);
+    expect(sites.map((site) => site.displayPath)).toContain(
+      "console/browser/pane/file/file-boundary.ts",
+    );
+  });
+
+  it("every read carries the signal that stops it", () => {
+    expect(unsignalledReadOffenders(sites, readings)).toStrictEqual([]);
+  });
+
+  it("no record is handed one", () => {
+    // The positive control the mutation claim owes. Its sibling above holds run
+    // controls to naming no abort at all; this holds every recording call at the door
+    // to being unstoppable, which is the property a durable act needs.
+    expect(signalledRecordOffenders(sites, readings)).toStrictEqual([]);
   });
 });
