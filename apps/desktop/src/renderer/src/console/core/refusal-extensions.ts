@@ -113,6 +113,40 @@ export interface ConsoleRefusalExtensions {
    * member is present only where the refusing side sent it.
    */
   readonly holderParticipantId?: string;
+  /**
+   * Registered by `core/wire-rejection.ts`: the manifests that name a delete's target.
+   *
+   * `error-contracts.md §Artifact` puts a typed details shape on
+   * `artifact.delete_blocked` — the referencing ids, bounded to the first fifty
+   * ascending, beside the total — and a surface that says "delete the derivatives
+   * first" without naming one leaves a person with nothing to open. Two facts rather
+   * than one, and they ride TOGETHER on a single member for the reason
+   * {@link WireReferencingArtifacts} states: read as two flat members, a producer
+   * that sent only the count would put a total on screen over no list at all.
+   */
+  readonly referencingArtifacts?: WireReferencingArtifacts;
+}
+
+/**
+ * The manifests a refusal named as referencing its target, and how many there are.
+ *
+ * ONE MEMBER CARRYING BOTH, on {@link WireRetryHint}'s shape, because the pair is
+ * what a reader acts on: the list is what a person opens, and the total is only ever
+ * read against that list's length to say whether it was capped. Registered as two
+ * flat members they could arrive apart, and a total with no list is a figure the
+ * console would render with nothing behind it.
+ *
+ * `total` is OPTIONAL and the list is not, which is the same asymmetry: a refusal
+ * naming no id carries no reading at all and produces no member, while one naming ids
+ * and no readable count still tells a person exactly which manifests to delete. A
+ * count BELOW the ids read is dropped rather than rendered — it would print "3 of 2",
+ * which is a claim about the daemon that this console would be inventing.
+ */
+export interface WireReferencingArtifacts {
+  /** The referencing manifest ids, in the order the refusing side sent them. */
+  readonly ids: readonly string[];
+  /** How many manifests reference the target, where the refusing side counted them. */
+  readonly total?: number;
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
@@ -234,6 +268,62 @@ export function wireFailedBindingsExtension(source: unknown): ConsoleRefusalExte
 }
 
 /**
+ * Assemble a referencing-artifact reading from a list and a count, or answer none.
+ *
+ * The one assembler both readers share, on {@link retryHintOf}'s rule: they differ in
+ * WHERE the two values are read from — the wire's own spelling versus this console's —
+ * and agree on what counts as a reading, which is the half that would drift if it were
+ * written twice.
+ *
+ * NO LIST MEANS NO READING, and a count alone is therefore never carried: the total is
+ * read only against the list's own length, so a member holding one and not the other is
+ * a figure with nothing behind it. A count that is not a whole number at least as large
+ * as the ids read is dropped and the ids survive — a smaller total would render as "3
+ * of 2", which is a claim about the refusing side this console would be inventing.
+ */
+function referencingArtifactsOf(
+  ids: unknown,
+  total: unknown,
+): WireReferencingArtifacts | undefined {
+  const identifiers = identifierListOf(ids);
+  if (identifiers === undefined) {
+    return undefined;
+  }
+  return typeof total === "number" && Number.isInteger(total) && total >= identifiers.length
+    ? { ids: identifiers, total }
+    : { ids: identifiers };
+}
+
+/**
+ * The referencing manifests a WIRE envelope named, as an extension.
+ *
+ * The `data.fields` / `details` sibling of {@link wireRetryExtension}, and separate
+ * from the registry reader beside it for the same reason: this takes the wire's own
+ * spelling — `referencingArtifactIds` and `referencingArtifactTotal`, the members
+ * `error-contracts.md §Artifact` registers on `artifact.delete_blocked` — off an
+ * envelope that is not a refusal, while the reader takes a member off a candidate that
+ * already is one.
+ */
+export function wireReferencingArtifactsExtension(source: unknown): ConsoleRefusalExtensions {
+  const referencingArtifacts = referencingArtifactsOf(
+    readGuardedProperty(source, "referencingArtifactIds"),
+    readGuardedProperty(source, "referencingArtifactTotal"),
+  );
+  return referencingArtifacts === undefined ? {} : { referencingArtifacts };
+}
+
+/** The reading a refusal already carries, in this console's own spelling, read guardedly. */
+function carriedReferencingArtifacts(candidate: unknown): WireReferencingArtifacts | undefined {
+  // One read of the member, then two of the value it produced: a getter that answered
+  // differently the second time would otherwise assemble one reading from two objects.
+  const carried = readGuardedProperty(candidate, "referencingArtifacts");
+  return referencingArtifactsOf(
+    readGuardedProperty(carried, "ids"),
+    readGuardedProperty(carried, "total"),
+  );
+}
+
+/**
  * One reader per registered member, and the reason the set cannot drift.
  *
  * The mapped type over `Required<ConsoleRefusalExtensions>` is the mechanism: the
@@ -253,6 +343,7 @@ const REFUSAL_EXTENSION_READERS: {
   failedBindingIds: (candidate: unknown) =>
     identifierListOf(readGuardedProperty(candidate, "failedBindingIds")),
   holderParticipantId: identifierMemberReader("holderParticipantId"),
+  referencingArtifacts: carriedReferencingArtifacts,
 };
 
 /** Every registered extension member, as a set a test can walk. */

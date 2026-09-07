@@ -62,7 +62,6 @@ import { useMemo, useState } from "react";
 import { useSubjectScopedState } from "../../store/index.js";
 import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
 import {
   DerivedFigure,
   Glyph,
@@ -72,6 +71,8 @@ import {
   formatCount,
 } from "../../primitives/index.js";
 import { ArtifactRow, type DeleteConfirmState } from "./ArtifactRow.js";
+import { artifactRefusalAction } from "./ArtifactRefusalRecovery.js";
+import type { ArtifactSurfaceRefusal } from "./artifact-refusal-copy.js";
 import {
   ARTIFACT_TYPE_FILTER_ALL,
   artifactTypeCounts,
@@ -89,7 +90,7 @@ export interface ArtifactsPanelProps {
   /** The instant the surface read at. Ages move when it re-reads and never on a timer. */
   readonly nowMilliseconds: number;
   /** The refusal the last act on a row produced, keyed by artifact id. */
-  readonly rowRefusals?: ReadonlyMap<string, ConsoleRefusal> | undefined;
+  readonly rowRefusals?: ReadonlyMap<string, ArtifactSurfaceRefusal> | undefined;
   /** What the most recent delete reported. The result half of the consequence. */
   readonly lastDeleteReceipt?: ArtifactDeleteReceipt | undefined;
   /**
@@ -112,6 +113,15 @@ export interface ArtifactsPanelProps {
    * read-only mount.
    */
   readonly manifestReadInFlightArtifactIds?: ReadonlySet<string> | undefined;
+  /**
+   * The rows whose visibility change is on the wire, so each one's toggle holds.
+   *
+   * A SECOND REGISTER RATHER THAN A WIDENING OF THE ONE ABOVE, because the two acts
+   * are different: a row waiting on a manifest re-read may still be re-classified, and
+   * a row being re-classified may still be re-read. One set holding both would hold a
+   * control for a reason that is not about it.
+   */
+  readonly visibilityUpdateInFlightArtifactIds?: ReadonlySet<string> | undefined;
   readonly onChangeVisibility?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onDelete?: ((row: ArtifactManifestRow) => void) | undefined;
 }
@@ -276,8 +286,16 @@ function renderPanelBody(
   }
   if (props.state.kind === "refused") {
     // A card rather than a banner: the read failing changed nothing about what the
-    // room can do, and rule 9 picks the shape by blast radius.
-    return <RefusalCard code={props.state.refusal.code} detail={props.state.refusal.detail} />;
+    // room can do, and rule 9 picks the shape by blast radius. The next move for the
+    // code rides the action slot, so a list read refused as `artifact.not_found`
+    // reads the same here as the same code does beside a row's controls.
+    return (
+      <RefusalCard
+        code={props.state.refusal.code}
+        detail={props.state.refusal.detail}
+        action={artifactRefusalAction(props.state.refusal)}
+      />
+    );
   }
   if (props.state.rows.length === 0) {
     return (
@@ -312,6 +330,9 @@ function renderPanelBody(
             nowMilliseconds={props.nowMilliseconds}
             refusal={props.rowRefusals?.get(row.id)}
             isManifestReadInFlight={props.manifestReadInFlightArtifactIds?.has(row.id) ?? false}
+            isVisibilityUpdateInFlight={
+              props.visibilityUpdateInFlightArtifactIds?.has(row.id) ?? false
+            }
             onReadManifest={props.onReadManifest}
             onChangeVisibility={props.onChangeVisibility}
             onDelete={props.onDelete}

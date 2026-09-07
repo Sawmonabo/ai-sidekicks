@@ -39,6 +39,18 @@ export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, Grow
       "read the base, head, upstream, and worktree association a writable run executes against, for the repos surface's branch-context summary",
       "gitflow.branchContextRead",
     ),
+    // The diff artifact both diff surfaces render. A MUTATION and not a read, which
+    // is the registry's own classification and the reason the pane cannot simply ask
+    // for a diff: the call MINTS a `diff_artifacts` row and its linked manifest, so a
+    // surface asks for one to exist and then reads its payload through the artifact
+    // plane — two calls, because the reply carries ids and never bytes.
+    gitflowDiffArtifactCreate: op(
+      "gitflowDiffArtifactCreate",
+      "gitflow-actions",
+      "method",
+      "mint a diff artifact between two named states for one run or one workspace, so the diff pane and the inline diff card have a change set to render",
+      "gitflow.diffArtifactCreate",
+    ),
     gitflowPrPrepare: op(
       "gitflowPrPrepare",
       "gitflow-actions",

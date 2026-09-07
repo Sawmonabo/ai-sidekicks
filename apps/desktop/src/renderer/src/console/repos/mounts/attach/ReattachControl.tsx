@@ -39,11 +39,11 @@ import {
   InlineRefusal,
   Nothing,
   OverlayAlertDialogPopup,
+  RefusalRecovery,
   WireFigure,
 } from "../../../primitives/index.js";
 import { useConfirmationLifecycle } from "../confirmation/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
-import { RefusalRecovery } from "../RefusalRecovery.js";
 import { useAttachController, type AttachActReading } from "./attach-controller.js";
 
 export interface ReattachControlProps {

@@ -29,6 +29,7 @@ export {
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
+  DIFF_PATCH_CHARACTER_CAP,
   HIDDEN_INVITE_CAP,
   IDENTIFIER_MAX_LENGTH,
   INGEST_STALL_DISCLOSURE_MS,
@@ -151,6 +152,7 @@ export {
   type ExtendedConsoleRefusal,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
+  type WireReferencingArtifacts,
   readRefusalExtensions,
 } from "./refusal-extensions.js";
 // What a surface DOES about a named refusal, beside rendering the daemon's words:

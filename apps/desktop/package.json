@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@atlaskit/pragmatic-drag-and-drop": "3.1.0",
     "@base-ui/react": "1.7.0",
     "@tanstack/react-virtual": "3.14.10",
     "@xterm/addon-fit": "0.11.0",

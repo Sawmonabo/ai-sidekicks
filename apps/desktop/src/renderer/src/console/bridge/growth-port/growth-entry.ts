@@ -151,6 +151,7 @@ export type GrowthOperationId =
   | "artifactList"
   | "artifactRead"
   | "artifactDelete"
+  | "artifactVisibilityUpdate"
   | "artifactAllowlistRead"
   | "artifactIngestAbort"
   | "sessionSearch"
@@ -190,8 +191,12 @@ export type GrowthOperationId =
   | "workflowDefinitionRead"
   | "workflowVersionRead"
   | "workflowDefinitionCreate"
-  // gitflow
+  // gitflow — three of the four registered `gitflow.*` method strings.
+  // `diffArtifactCreate` mints the diff artifact both diff surfaces render; the
+  // fourth, `gitActionExecute`, is declared above with the act plane it belongs to
+  // rather than here.
   | "gitflowBranchContextRead"
+  | "gitflowDiffArtifactCreate"
   | "gitflowPrPrepare"
   // identity, and the callback-tool registry the approvals pane reads
   | "callerParticipantRead"

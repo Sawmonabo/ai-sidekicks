@@ -184,9 +184,20 @@ describe("repos family — the artifacts section", () => {
     const { sections } = composeRepos();
     const descriptor = sections.descriptorFor("artifacts");
     expect(descriptor).toBeDefined();
-    const open = render(<>{descriptor?.render(contextForSection(true))}</>);
+    // Under the console's own announcer, which the open body now needs: the carrier's
+    // list announces a reorder through the one region per window, and `useAnnounce`
+    // refuses to invent a second one.
+    const open = render(
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        {descriptor?.render(contextForSection(true))}
+      </LiveAnnouncerProvider>,
+    );
     expect(within(open.container).getByLabelText("Attach a file")).toBeDefined();
-    const collapsed = render(<>{descriptor?.render(contextForSection(false))}</>);
+    const collapsed = render(
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        {descriptor?.render(contextForSection(false))}
+      </LiveAnnouncerProvider>,
+    );
     expect(within(collapsed.container).queryByLabelText("Attach a file")).toBeNull();
   });
 });
