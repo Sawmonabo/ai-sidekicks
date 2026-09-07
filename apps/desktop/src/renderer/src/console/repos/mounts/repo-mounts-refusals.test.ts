@@ -23,13 +23,13 @@ import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { ParkedCalls } from "../held-calls.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";
 import { workspaceRefusalFor } from "./repo-mounts-model.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import { settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
-import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 // Every reader a case opens is tracked, and none of them outlives its case.
 afterEach(disposeTrackedReaders);
@@ -104,6 +104,12 @@ async function openSection(behaviour: PortBehaviour = {}): Promise<ReadUnderTest
   trackReader(reader);
   reader.start();
   await settle(clock, reader);
+  // AND THEN THE REST OF THE BURST. `settle` stops at the first `read` reading, which
+  // the section publishes once the roster and the mount reads have landed; the
+  // per-workspace capabilities legs settle behind it, and this scenario now holds three
+  // workspaces rather than two. Without this the case asserting a capabilities refusal
+  // reads the frame before that leg answered.
+  await crossMacrotaskBoundary();
   let sequence = 0;
   return {
     reader,
@@ -165,6 +171,9 @@ describe("the per-workspace refusals — one half per producer", () => {
 
     section.deliverLifecycleFrame("workspace.stale");
     await settle(section.clock, section.reader);
+    // The capabilities legs settle behind the reading `settle` stops at — see
+    // `openSection` for why that gap exists at all.
+    await crossMacrotaskBoundary();
 
     const reading = section.reader.snapshot;
     expect(reading.workspaceRefusals.byCapabilitiesRead[GIT_WORKSPACE_ID]).toBeUndefined();

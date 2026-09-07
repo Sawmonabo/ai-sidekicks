@@ -214,6 +214,31 @@ export const consoleSyntaxBans = [
           message:
             "Ordering two RFC 3339 stamps with `<` or `>` compares their TEXT: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `console/core/instant.ts`, which compares the moments; comparing two numeric figures is untouched.",
         },
+        {
+          // A COLLECTION PUBLISHED THROUGH A MODULE DOOR, which `apps/desktop/AGENTS.md`
+          // §State and views rejects and no gate could see: a `ReadonlySet` or
+          // `ReadonlyMap` annotation hides `add` and `set` from a READER and from
+          // nothing at runtime, so an exported one is a single object every importer
+          // in the window shares and any of them can grow. It is the one collection
+          // shape `Object.freeze` cannot close — freezing a `Set` leaves
+          // `Set.prototype.add` working — which is why the ban is on the CONTAINER
+          // rather than on a missing freeze.
+          //
+          // EXPORTED, AND DELIBERATELY NOT EVERY MODULE-LEVEL ONE. A collection a
+          // module keeps to itself is reachable from nowhere else and is a lookup
+          // table rather than shared state; banning those too would refuse the run
+          // states, the modifier keys, and the empty-reading sentinels this tree is
+          // full of, and a ban whose first findings are all false is a ban somebody
+          // turns off. What is refused is the publication.
+          //
+          // The remedy is the one the repos family's two event censuses already take:
+          // export the derived data — a `readonly T[]` — and let each consumer build
+          // the collection it needs, once, where it needs it.
+          selector:
+            "ExportNamedDeclaration > VariableDeclaration > VariableDeclarator > NewExpression[callee.name=/^(?:Set|Map|WeakSet|WeakMap)$/]",
+          message:
+            "An exported `Set` or `Map` is a mutable runtime singleton however it is annotated: `ReadonlySet` and `ReadonlyMap` hide the mutators from a reader and from nothing else, every importer shares the one object, and `Object.freeze` does not close it. Export the derived data instead — a `readonly T[]` of entries — and build the collection inside the module, class, or controller that reads it. A collection this module keeps to itself is untouched.",
+        },
       ],
     },
   },

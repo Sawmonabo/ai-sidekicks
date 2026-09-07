@@ -52,7 +52,30 @@ export interface WorkspaceRefusals {
   /** What the capabilities read could not answer, per workspace. Rebuilt by every read. */
   readonly byCapabilitiesRead: Readonly<Record<string, ConsoleRefusal>>;
   /** What a mode switch could not do, per workspace. Written and cleared by the act half. */
-  readonly bySelection: Readonly<Record<string, ConsoleRefusal>>;
+  readonly bySelection: Readonly<Record<string, SelectionRefusal>>;
+}
+
+/**
+ * A refused switch, and the mode it was about.
+ *
+ * THE MODE TRAVELS WITH THE REFUSAL BECAUSE ONE CODE'S RECOVERY IS A WIRE STRING.
+ * `workspace.mode_unsupported` is paired with the mount's own reason for the mode that
+ * was refused (`Spec-009 §Fallback Behavior` makes the capability gap explicit rather
+ * than silently substituted), and that reason lives on the capabilities reply keyed by
+ * mode. The pending-mode map cannot supply it: the entry is deleted in the `finally`
+ * that follows the settle, so by the time a surface renders the refusal the mode it was
+ * about is already gone. A refusal that arrived without its subject would leave the
+ * picker able to say only that SOME mode was refused.
+ *
+ * It is a pair rather than a second map for the reason the two maps above ARE two: the
+ * split that earns a map of its own is the PRODUCER — one rebuilt by the read, one
+ * written by the act — and the mode has the same producer, the same lifetime, and the
+ * same key as the refusal it belongs to. Two maps written and cleared together are one
+ * value with a chance to disagree.
+ */
+export interface SelectionRefusal {
+  readonly refusal: ConsoleRefusal;
+  readonly mode: ExecutionMode;
 }
 
 /** Neither half has anything to say yet. */
@@ -73,7 +96,22 @@ export function workspaceRefusalFor(
   refusals: WorkspaceRefusals,
   workspaceId: string,
 ): ConsoleRefusal | undefined {
-  return refusals.bySelection[workspaceId] ?? refusals.byCapabilitiesRead[workspaceId];
+  return refusals.bySelection[workspaceId]?.refusal ?? refusals.byCapabilitiesRead[workspaceId];
+}
+
+/**
+ * The mode a refused switch on this row was about, where the refusal is the act's.
+ *
+ * ANSWERS FOR THE SELECTION ARM ONLY, and the asymmetry is the point: a capabilities
+ * READ is about the workspace and names no mode, so a mode returned for it would be
+ * invented. A row whose rendered refusal came from the read therefore has no subject
+ * mode, and the recovery for it says so rather than reaching for the wrong reason.
+ */
+export function workspaceSelectionModeFor(
+  refusals: WorkspaceRefusals,
+  workspaceId: string,
+): ExecutionMode | undefined {
+  return refusals.bySelection[workspaceId]?.mode;
 }
 
 /**
@@ -84,15 +122,15 @@ export function workspaceRefusalFor(
  * long as the section is mounted. The refused-roster path carries the map unscoped
  * instead: it learned no roster, so it knows of no workspace that has gone.
  */
-export function retainForRoster(
-  bySelection: Readonly<Record<string, ConsoleRefusal>>,
+export function retainForRoster<TEntry>(
+  bySelection: Readonly<Record<string, TEntry>>,
   workspaces: readonly RepoWorkspaceRow[],
-): Record<string, ConsoleRefusal> {
-  const retained: Record<string, ConsoleRefusal> = {};
+): Record<string, TEntry> {
+  const retained: Record<string, TEntry> = {};
   for (const workspace of workspaces) {
-    const refusal = bySelection[workspace.id];
-    if (refusal !== undefined) {
-      retained[workspace.id] = refusal;
+    const entry = bySelection[workspace.id];
+    if (entry !== undefined) {
+      retained[workspace.id] = entry;
     }
   }
   return retained;

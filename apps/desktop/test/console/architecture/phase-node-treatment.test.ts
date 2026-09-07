@@ -52,7 +52,9 @@ function accentTokensAmong(colorTokenNames: Iterable<string>): readonly string[]
     .filter((variable) => variable === accentPrefix || variable.startsWith(`${accentPrefix}-`));
 }
 
-const ACCENT_TOKENS: readonly string[] = accentTokensAmong(SCHEME_COLOR_TOKENS.keys());
+const ACCENT_TOKENS: readonly string[] = accentTokensAmong(
+  SCHEME_COLOR_TOKENS.map(([tokenName]) => tokenName),
+);
 
 /**
  * Every declaration block whose selector names one phase state, with its selector.
@@ -119,7 +121,10 @@ describe("the phase node's state treatment", () => {
     // palette is a fifth name here without an edit. Against the hand-written list this
     // file used to carry, the same addition changed nothing and the new token stayed
     // spendable.
-    const withAnotherAccent = [...SCHEME_COLOR_TOKENS.keys(), "accent-muted"];
+    const withAnotherAccent = [
+      ...SCHEME_COLOR_TOKENS.map(([tokenName]) => tokenName),
+      "accent-muted",
+    ];
 
     expect(accentTokensAmong(withAnotherAccent)).toContain(tokenVariableName("accent-muted"));
     expect(accentTokensAmong(withAnotherAccent)).toHaveLength(ACCENT_TOKENS.length + 1);

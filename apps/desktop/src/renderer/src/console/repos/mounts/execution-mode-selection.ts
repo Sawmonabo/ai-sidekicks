@@ -130,6 +130,7 @@ export class ExecutionModeSelections {
       // dispatch first and discover afterwards that this press was not admitted.
       this.#recordRefusal(
         workspaceId,
+        executionMode,
         refuse(
           REPO_READS_REFUSAL_ORIGIN,
           "selection-in-flight" satisfies ExecutionModeSelectionRefusalCode,
@@ -146,7 +147,7 @@ export class ExecutionModeSelections {
       // and the latch is what decides that rather than a flag this class keeps.
       claim.settle(() => {
         if (outcome.status === "refused") {
-          this.#recordRefusal(workspaceId, outcome.refusal);
+          this.#recordRefusal(workspaceId, executionMode, outcome.refusal);
           return;
         }
         this.#host.requestRefreshAfterSelect();
@@ -222,13 +223,26 @@ export class ExecutionModeSelections {
     });
   }
 
-  #recordRefusal(workspaceId: string, refusal: ConsoleRefusal): void {
+  /**
+   * Record one refused switch, with the mode it was about.
+   *
+   * THE MODE IS THE PRESSED ONE ON BOTH ARMS, and on the in-flight arm that is the
+   * whole distinction the sentence beside it draws: the refusal is recorded against the
+   * mode the participant just chose, while the SENTENCE names the mode already on the
+   * wire. Two different modes, two different jobs — the subject of the refusal, and
+   * what it is waiting for — and recording the pending one here would attach the
+   * recovery for a mode nobody pressed.
+   */
+  #recordRefusal(workspaceId: string, executionMode: ExecutionMode, refusal: ConsoleRefusal): void {
     const reading = this.#host.currentReading();
     this.#host.publish({
       ...reading,
       workspaceRefusals: {
         ...reading.workspaceRefusals,
-        bySelection: { ...reading.workspaceRefusals.bySelection, [workspaceId]: refusal },
+        bySelection: {
+          ...reading.workspaceRefusals.bySelection,
+          [workspaceId]: { refusal, mode: executionMode },
+        },
       },
     });
   }
