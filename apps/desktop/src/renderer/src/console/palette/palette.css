@@ -297,3 +297,18 @@
   padding: var(--meridian-space-2) var(--meridian-space-4);
   border-bottom: 1px solid var(--meridian-edge);
 }
+
+/*
+ * The refused press, below the rows.
+ *
+ * A separate block from the read-only line above rather than the same class reused:
+ * the two can stand at once, they answer different questions — what half the list
+ * will do, and what the last press did — and one class carrying both meanings would
+ * put two identical rows on screen with nothing distinguishing them. The rule it
+ * differs by is where the edge sits, because this one closes the rows rather than
+ * opening the input.
+ */
+.console-palette__refusal {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-top: 1px solid var(--meridian-edge);
+}
