@@ -33,11 +33,11 @@ import {
   PARTICIPANT_PRIYA,
   PARTICIPANT_TOMAS,
   PARTICIPANT_YOU,
-} from "./collaboration.identifiers.js";
-import { collaborationGrowthReplies } from "./collaboration-growth-replies.js";
-import { parseInstant } from "../../core/index.js";
-import type { GrowthInviteSummary } from "../growth-values/index.js";
-import type { ConsoleScenario } from "../scenario-runtime/index.js";
+} from "./identifiers.js";
+import { collaborationGrowthReplies } from "./growth-replies.js";
+import { parseInstant } from "../../../core/index.js";
+import type { GrowthInviteSummary } from "../../growth-values/index.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 /**
  * The invitations this room has sent, as the ledger read answers them at tick zero.

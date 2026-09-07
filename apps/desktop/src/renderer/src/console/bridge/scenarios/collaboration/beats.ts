@@ -22,9 +22,9 @@ import {
   RUNTIME_NODE_SCRIPT,
   SESSION_ID,
   type CollaborationParticipant,
-} from "./collaboration.identifiers.js";
-import { collaborationRuntimeNodeBeats } from "./collaboration-runtime-nodes.js";
-import type { ConsoleScenario } from "../scenario-runtime/index.js";
+} from "./identifiers.js";
+import { collaborationRuntimeNodeBeats } from "./runtime-nodes.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 /**
  * The channels this script archives, with the tick each archival is due at.

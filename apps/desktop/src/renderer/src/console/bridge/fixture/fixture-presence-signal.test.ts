@@ -20,7 +20,7 @@ import type { DaemonEvent } from "@ai-sidekicks/contracts";
 
 import { PRESENCE_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
-import { PARTICIPANT_TOMAS } from "../scenarios/collaboration.identifiers.js";
+import { PARTICIPANT_TOMAS } from "../scenarios/collaboration/identifiers.js";
 import { createFixture, type FixtureUnderTest } from "./fixture-bridge.test-support.js";
 
 /** The tick the room's second activity frame falls due at. */

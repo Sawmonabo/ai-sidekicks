@@ -24,6 +24,22 @@ export const GIT_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000003";
 export const PLAIN_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000004";
 export const GIT_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-000000000005";
 export const PLAIN_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-000000000006";
+// The THIRD mount and its default workspace — a git checkout whose root still
+// resolves and is no longer the repository it was attached as. It is a mount of its
+// own rather than a re-verdicting of one of the two above, because the health verdict
+// it carries is reachable from neither: `identity_mismatch` requires a persisted
+// identity anchor, which the plain-directory mount has none of, and the git mount
+// above is the one healthy row the section's ordinary state is drawn from.
+export const DRIFTED_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000007";
+export const DRIFTED_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-000000000008";
+// The FOURTH mount and its default workspace, and the only pair no read answers for
+// until an act has been sent: they are what `repo.attach` mints. Declared here beside
+// the three the session opens with rather than in the mutation table, because they are
+// identifiers of the same cast — an id the attach reply names and the workspace card
+// then reads is one entity, and two spellings of it would be exactly the drift this
+// module exists to prevent. Nothing renders them until the dialog has been used.
+export const ATTACHED_MOUNT_ID: string = "9f2c4a10-0000-4000-8000-000000000009";
+export const ATTACHED_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-00000000000a";
 // The people and agents in the session. Wire-declared UUIDs rather than readable
 // placeholders: the wire-truth predicate presents each beat to the strict contract
 // layer as the whole envelope it claims to be, and a beat whose actor is not the
@@ -46,16 +62,54 @@ export const EPHEMERAL_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000022"
 // the reclaimed reading at all — which is the arm that says the files are gone rather
 // than hedging that they may be.
 export const RECLAIMED_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000023";
+// The two roots a PREPARE mints, and the branch context the worktree one carries.
+// Distinct from the four above for `ATTACHED_MOUNT_ID`'s reason: a prepare that
+// answered with a root the session already holds would be indistinguishable from a
+// reuse, which is the one distinction the reuse-check control exists to draw.
+export const PREPARED_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-000000000024";
+export const PREPARED_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000025";
 export const IMPLEMENTER_RUN_ID: string = "9f2c4a10-0000-4000-8000-000000000030";
 // One branch context per worktree, because `branch_contexts` upserts a row per
 // `(workspace, worktree)` binding: two roots in one workspace are two contexts, and a
 // fixture answering both with one would let a gate render the other root's branch.
 export const IMPLEMENTER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000040";
 export const REVIEWER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000041";
+export const PREPARED_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000042";
 export const DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000050";
 export const PINNED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000051";
 export const REPLICATING_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000052";
 export const EXPIRED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000053";
+
+/**
+ * Where the git workspace's runs execute, and the checkout that encloses it.
+ *
+ * TWO CONSTANTS BECAUSE TWO REPLIES STATE THEM and the pair is the subject of the
+ * three-path disclosure: the workspace roster reports the bound root as that
+ * workspace's `fsRoot`, and the execution-context read reports the same bound root
+ * beside the normalized checkout root the snapshot service operates on. Written as
+ * literals in both places they would drift in exactly the direction the disclosure
+ * reads, which is how the fixture came to state one directory spelled two ways and
+ * call it three roots that differ.
+ *
+ * THE BOUND ROOT IS NESTED INSIDE THE CHECKOUT ROOT, WHICH IS THE CASE THE DISCLOSURE
+ * EXISTS FOR. `Spec-010 §Turn-Boundary Snapshots` names it: a workspace bound at a
+ * subdirectory of its checkout normalizes to the enclosing working-tree TOP LEVEL,
+ * because capture is cwd-scoped while restore updates the whole tree — so the two
+ * values are genuinely different facts about one binding rather than two spellings of
+ * one path. The relationship is what the scenario asserts; byte inequality alone would
+ * have passed against the trailing-`/.` fixture that stated nothing.
+ *
+ * AND THE CHECKOUT IS A DIFFERENT TOP LEVEL FROM THE MOUNT'S OWN ROOT, which is what
+ * makes all three rows differ. That spec's branch-mode sentence admits it directly:
+ * the execution root is the participant's own live working tree, main checkout or
+ * linked worktree, whichever the workspace bound. Neither of the two daemon-created
+ * worktrees this scenario holds is reused for it — one is held by an active run and
+ * the other was provisioned for `worktree` mode, and a branch-mode binding sharing
+ * either would double-book a root the busy rule keys on.
+ */
+export const GIT_WORKSPACE_CHECKOUT_ROOT: string = "/Users/dev/code/ai-sidekicks-develop";
+/** The subdirectory of that checkout this workspace is bound at. */
+export const GIT_WORKSPACE_BOUND_ROOT: string = `${GIT_WORKSPACE_CHECKOUT_ROOT}/packages/contracts`;
 
 /** One agent in the cast, with the execution root the worktree beats give it. */
 export interface ReposScenarioAgent {

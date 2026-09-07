@@ -22,7 +22,7 @@
 // answer has not said anything happened, so both arms return the outcome untouched.
 //
 // THE THREE MOVES AND NOT THE CREATE. These three share one receipt shape and one
-// registered payload — `{sessionId, channelId}`, the shape `collaboration.beats.ts`'s
+// registered payload — `{sessionId, channelId}`, the shape `collaboration/beats.ts`'s
 // own `channel.archived` beat carries — so one derivation serves all three. A create is
 // a different act: its `channel.created` payload carries the NAME, which lives on the
 // request rather than on the receipt, and a row that did not exist before is not a
@@ -114,7 +114,7 @@ export class FixtureChannelLifecycle {
    *
    * The payload carries the session and the channel the envelope is about and invents
    * nothing else, because the census registers no payload variant for these four kinds
-   * — the same restraint `collaboration.beats.ts` states for the beat it writes by
+   * — the same restraint `collaboration/beats.ts` states for the beat it writes by
    * hand. The actor is the scenario's own viewer where it declares one and absent
    * otherwise, which the envelope composer renders as the system arm rather than as a
    * participant this fixture chose.

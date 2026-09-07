@@ -1,6 +1,6 @@
 // What the collaboration room answers for the wires the bridge does not carry yet.
 //
-// A sibling of `collaboration.ts` on `collaboration-runtime-nodes.ts`'s rule: this is
+// A part of `collaboration.ts` on `runtime-nodes.ts`'s rule: this is
 // a second script rather than more of the first one. Everything here is served through
 // the growth port rather than through `daemon.call`, every row is keyed on the growth
 // slate's own expected wire method, and none of it reaches a surface through the live
@@ -43,12 +43,12 @@
 // themselves, one per registered code. What this script covers is the path a person
 // takes when nothing goes wrong, which no unit test covers.
 
-import { requestedIdentifier, answerFor } from "./scripted-request.js";
+import { requestedIdentifier, answerFor } from "../scripted-request.js";
 import {
   MEMBERSHIP_ROSTER_READ_CALL,
   TERMINAL_CONTROL_HOLDER_READ_CALL,
-} from "../fixture/fixture-collaboration-reads.js";
-import type { ScenarioReply } from "../scenario-runtime/index.js";
+} from "../../fixture/fixture-collaboration-reads.js";
+import type { ScenarioReply } from "../../scenario-runtime/index.js";
 
 /** What this script needs from the room: who is in it, and which channels it has. */
 export interface CollaborationGrowthScript {

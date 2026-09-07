@@ -46,7 +46,7 @@
 // the multi-node case the registered roster read exists for. But that is a second
 // script rather than more of this one — it plays `runtime_node.*` beats and is read
 // back through `runtimenode.roster` rather than `presence.read` — so it lives in
-// `collaboration-runtime-nodes.js` and takes from here only the session, who owns
+// `collaboration/runtime-nodes.ts` and takes from here only the session, who owns
 // which machine, and the first free log position. That file states what the two
 // surfaces disagree about and why the disagreement is the point.
 //
@@ -58,27 +58,29 @@
 // `GrowthInviteSummary` shape the console itself declares — and no event payload is
 // invented for a read nothing performs.
 //
-// AND THE SCENARIO'S OWN PARTS ARE FIVE SIBLING FILES. What a reader meets here is
-// the room's composition — who is in it, what it answers with, what it plays — and
-// each of those is a table long enough to bury the others when they share a file.
-// The dot-named siblings (`collaboration.identifiers.ts`, `.beats.ts`, `.replies.ts`,
-// `.activity.ts`, `.pending-invites.ts`) are THIS scenario's own parts, on the split
-// `composer.ts` already makes; the hyphen-named ones
-// (`collaboration-runtime-nodes.ts`, `collaboration-growth-replies.ts`) are the
+// AND THE SCENARIO'S OWN PARTS ARE A DIRECTORY. What a reader meets here is the
+// room's composition — who is in it, what it answers with, what it plays — and each
+// of those is a table long enough to bury the others when they share a file. So this
+// module is the entry and `collaboration/` beside it holds the parts, which is the
+// shape `wire-truth.ts` and `wire-truth/` already keep in this directory: an entry a
+// reader opens first, and one axis per module under it, with no door, because nothing
+// outside the scenario composes them. `identifiers.ts`, `beats.ts`, `replies.ts`,
+// `activity.ts`, and `pending-invites.ts` are THIS scenario's own parts, on the split
+// `composer.ts` already makes; `runtime-nodes.ts` and `growth-replies.ts` are the
 // second scripts described above, which play other wires and are not more of this
 // one. The identifiers module is what keeps the parts naming the same room.
 
-import { COLLABORATION_ACTIVITY } from "./collaboration.activity.js";
-import { COLLABORATION_BEATS } from "./collaboration.beats.js";
+import { COLLABORATION_ACTIVITY } from "./collaboration/activity.js";
+import { COLLABORATION_BEATS } from "./collaboration/beats.js";
 import {
   COLLABORATION_PARTICIPANTS,
   PARTICIPANT_YOU,
   RUNTIME_NODE_SCRIPT,
   SESSION_ID,
-} from "./collaboration.identifiers.js";
-import { COLLABORATION_PENDING_INVITES } from "./collaboration.pending-invites.js";
-import { COLLABORATION_REPLIES } from "./collaboration.replies.js";
-import { collaborationRuntimeNodeRoster } from "./collaboration-runtime-nodes.js";
+} from "./collaboration/identifiers.js";
+import { COLLABORATION_PENDING_INVITES } from "./collaboration/pending-invites.js";
+import { COLLABORATION_REPLIES } from "./collaboration/replies.js";
+import { collaborationRuntimeNodeRoster } from "./collaboration/runtime-nodes.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const COLLABORATION_SCENARIO_ID = "collaboration";

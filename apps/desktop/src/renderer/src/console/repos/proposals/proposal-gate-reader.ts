@@ -59,6 +59,24 @@
 //
 // WHAT NO READ CAN PUBLISH is recorded on the arms themselves, in
 // `proposal-gate-state.ts`: three things a registered reply names nowhere.
+//
+// AND A FOURTH THING NO WIRE CARRIES, RECORDED HERE BECAUSE THIS IS WHERE IT WOULD BE
+// READ. A session whose mount has no git host configured at all is a different fact
+// from a host that answered and from a read that was refused: the proposal surface has
+// nothing to offer, and the reason is a property of the mount rather than a failure of
+// this call. Nothing on either side of the branch-context read reports it —
+// `mounts/hosting-status.ts` normalizes what a host SAYS about a proposal that already
+// exists, and every one of its vocabularies presumes there is a host — so a
+// hosting-unavailable mount is presently indistinguishable, on this surface, from one
+// whose read has not answered.
+//
+// THE CONSOLE DOES NOT SYNTHESISE IT, and that restraint is the point rather than an
+// omission: deriving "no host is configured" from a refusal code, from an absent
+// branch context, or from the growth port's own unregistered-wire answer would be the
+// renderer asserting a mount property out of a call's failure — three different causes
+// collapsed into one claim, and wrong for two of them. The honest state until a wire
+// member exists is the `not-checked` this reader already publishes, carrying whatever
+// sentence the producing side wrote.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { CallerParticipantRead } from "./caller-participant-read.js";

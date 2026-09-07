@@ -14,6 +14,9 @@ import { describe, expect, it } from "vitest";
 import { compareInstants, parseInstant } from "../../core/index.js";
 import { REPOS_SCENARIO_STARTED_AT_ISO } from "./repos-beats.js";
 import {
+  DRIFTED_MOUNT_ID,
+  DRIFTED_WORKSPACE_ID,
+  EPHEMERAL_CLONE_ID,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
@@ -63,18 +66,25 @@ function pastTenseInstantsIn(answer: unknown, found: [string, string][] = []): [
 /**
  * Every answer this scenario can serve, computed ones included.
  *
- * The three entity-scoped reads answer through `resultFor`, so a walk over the table
- * alone would see none of the rows those tables hold — which is where six of the
- * eleven stamps live. Each is asked under every identity this fixture declares.
+ * The entity-scoped reads answer through `resultFor`, so a walk over the table alone
+ * would see none of the rows those tables hold — which is where most of the stamps
+ * live. Each is asked under every identity this fixture declares, the mounts and
+ * workspaces the section draws and the roots and paths the mutating surfaces name.
  */
 function scriptedAnswers(): readonly unknown[] {
   const requests: readonly Readonly<Record<string, string>>[] = [
     { repoMountId: GIT_MOUNT_ID },
     { repoMountId: PLAIN_MOUNT_ID },
+    { repoMountId: DRIFTED_MOUNT_ID },
     { workspaceId: GIT_WORKSPACE_ID },
     { workspaceId: PLAIN_WORKSPACE_ID },
+    { workspaceId: DRIFTED_WORKSPACE_ID },
     { workspaceId: GIT_WORKSPACE_ID, worktreeId: IMPLEMENTER_WORKTREE_ID },
     { workspaceId: GIT_WORKSPACE_ID, worktreeId: REVIEWER_WORKTREE_ID },
+    { localPath: "/Users/dev/code/telemetry-agent" },
+    { workspaceId: GIT_WORKSPACE_ID, branchName: "feat/fresh-root" },
+    { worktreeId: REVIEWER_WORKTREE_ID },
+    { cloneId: EPHEMERAL_CLONE_ID },
   ];
   // Each computed answer is asked at the scenario's OWN start, which is the instant
   // this walk holds every stamp against — so a reply that varied with the clock would
@@ -83,8 +93,33 @@ function scriptedAnswers(): readonly unknown[] {
   return REPOS_SCENARIO_REPLIES.flatMap((reply) =>
     reply.resultFor === undefined
       ? [reply.result]
-      : requests.map((request) => reply.resultFor(request, startMilliseconds)),
+      : requests.map(answerOf(reply.resultFor, startMilliseconds)),
   );
+}
+
+/**
+ * One computed answer, or nothing where the fixture refuses that request.
+ *
+ * THE REFUSALS ARE ANSWERS TOO, and a scripted one is thrown rather than returned —
+ * that is how a computed reply holds a refusal and a success for one call, since the
+ * reply table is keyed by method and a second entry for one method is unreachable. A
+ * refusal carries no instants, so it contributes nothing to either walk; what matters
+ * is that asking for one does not abort the walk before it reaches the rows that do.
+ *
+ * The settle instant is bound here rather than taken per request, so every computed
+ * answer this walk collects is the one the scenario would serve at its own start.
+ */
+function answerOf(
+  resultFor: (request: unknown, settledAtMilliseconds: number) => unknown,
+  settledAtMilliseconds: number,
+): (request: unknown) => unknown {
+  return (request) => {
+    try {
+      return resultFor(request, settledAtMilliseconds);
+    } catch {
+      return undefined;
+    }
+  };
 }
 
 describe("the repos scenario — no scripted answer is dated in its own future", () => {

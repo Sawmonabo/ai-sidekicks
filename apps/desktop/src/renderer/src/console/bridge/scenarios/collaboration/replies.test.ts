@@ -15,10 +15,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../fixture/fixture-bridge.js";
-import type { ConsoleBridge } from "../console-bridge.js";
-import { COLLABORATION_SCENARIO } from "./collaboration.js";
-import { INVITE_ACCEPTED, INVITE_EXPIRING } from "./collaboration.identifiers.js";
+import { createFixtureBridge } from "../../fixture/fixture-bridge.js";
+import type { ConsoleBridge } from "../../console-bridge.js";
+import { COLLABORATION_SCENARIO } from "../collaboration.js";
+import { INVITE_ACCEPTED, INVITE_EXPIRING } from "./identifiers.js";
 
 /** How far past tick zero the pending invitation's declared expiry sits. */
 const INVITE_EXPIRY_MS = 40_000;

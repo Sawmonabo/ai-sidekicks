@@ -17,9 +17,9 @@ import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/members/presenc
 import { createFixtureBridge } from "../fixture/fixture-bridge.js";
 import { readConsoleSessionEvent } from "../daemon/session-event-payload.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
-import { collaborationSentInvitesAt } from "./collaboration.replies.js";
+import { collaborationSentInvitesAt } from "./collaboration/replies.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
-import { CHANNEL_HANDOFF, PARTICIPANT_YOU } from "./collaboration.identifiers.js";
+import { CHANNEL_HANDOFF, PARTICIPANT_YOU } from "./collaboration/identifiers.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import type { ScenarioReply, ScenarioResolvingReply } from "../scenario-runtime/scenario.js";
 
@@ -147,7 +147,7 @@ describe("the collaboration scenario", () => {
     // Through the ledger's own ageing function at the scenario's start instant,
     // because the reply is COMPUTED: it answers what the ledger holds at the moment
     // it settles, and tick zero is the moment this design claim is about. The
-    // ageing itself is `collaboration.replies.test.ts`.
+    // ageing itself is `collaboration/replies.test.ts`.
     const startMilliseconds = parseInstant(COLLABORATION_SCENARIO.startedAtIso).epochMilliseconds;
     expect(startMilliseconds).toBeDefined();
     const invites = collaborationSentInvitesAt(startMilliseconds ?? 0);

@@ -21,8 +21,8 @@ import {
   MEMBERSHIP_FROM_RETRY,
   PENDING_REFERENCE_AUDIT,
   PENDING_REFERENCE_DESIGN,
-} from "./collaboration.identifiers.js";
-import type { ConsoleScenario } from "../scenario-runtime/index.js";
+} from "./identifiers.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 /** The two invitations this window's deep link delivers, and how each settles. */
 export const COLLABORATION_PENDING_INVITES: NonNullable<ConsoleScenario["pendingInvites"]> = [

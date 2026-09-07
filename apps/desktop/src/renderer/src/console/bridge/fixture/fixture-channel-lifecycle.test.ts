@@ -21,7 +21,7 @@ import {
   CHANNEL_HANDOFF,
   CHANNEL_MAIN,
   CHANNEL_REVIEW,
-} from "../scenarios/collaboration.identifiers.js";
+} from "../scenarios/collaboration/identifiers.js";
 import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import {

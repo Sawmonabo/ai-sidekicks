@@ -18,7 +18,7 @@
 //
 // THE AGENT RUN NAMES A RUN THIS LOG HAS NOT CARRIED. This session attaches no
 // agent, and the run below belongs to a peer's machine — one of the three in
-// `collaboration-runtime-nodes.js` — whose `run.*` beats have not reached this
+// `runtime-nodes.ts` — whose `run.*` beats have not reached this
 // console. That is not a shape the wire cannot produce; it is the case
 // `sessionProjectionLabels.runLabel` has an id fallback FOR, and a fixture whose
 // every indicator resolved to a name would leave that arm unreachable.
@@ -29,8 +29,8 @@ import {
   PARTICIPANT_PRIYA,
   PARTICIPANT_TOMAS,
   PEER_RUN_ID,
-} from "./collaboration.identifiers.js";
-import type { ConsoleScenario } from "../scenario-runtime/index.js";
+} from "./identifiers.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 /** The frames the composing and agent-run indicators are read from. */
 export const COLLABORATION_ACTIVITY: NonNullable<ConsoleScenario["activity"]> = [

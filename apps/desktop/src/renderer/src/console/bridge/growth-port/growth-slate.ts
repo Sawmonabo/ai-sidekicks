@@ -13,71 +13,13 @@
 // is deleted here and from the plan in the same PR, and the test then fails on the
 // port entry that still claims fixture-only, which is exactly the reminder the
 // console wants at that moment.
+//
+// THE ROW SHAPE AND THE CLOSED ID SET ARE `growth-slate-row.ts`'S — read that module
+// for what a row IS. What is left here is the ledger itself and the two views over
+// it, which is the half that changes every time a surface is built against a wire
+// the corpus has not registered.
 
-/** A row's stable identifier. Used by port entries and by the manifest. */
-export type GrowthSlateRowId =
-  | "browser-pane-namespace"
-  | "browser-tool-relay"
-  | "terminal-pane"
-  | "dev-server-probe"
-  | "session-lifecycle-verbs"
-  | "session-directory-read"
-  | "daemon-control-methods"
-  | "onboarding-methods"
-  | "shell-config-preferences"
-  | "invites-list"
-  | "health-subscribe"
-  | "agent-snapshot-axes"
-  | "child-run-linkage"
-  | "agent-provider-switch-failure"
-  | "gitflow-actions"
-  | "artifact-ingest-and-crud"
-  | "artifact-allowlist-and-abort"
-  | "worktree-setup-recipe"
-  | "workflow-event-registration"
-  | "workflow-definition-scope"
-  | "timeline-epoch-attestation"
-  | "timeline-path-reference"
-  | "approval-method-payloads"
-  | "approval-remembered-rule"
-  | "approval-amendment-arm"
-  | "session-goal-methods"
-  | "session-search"
-  | "window-control-namespace"
-  | "provider-session-import"
-  | "attention-plane"
-  | "workflow-run-control"
-  | "workflow-run-enumeration"
-  | "caller-participant-identity"
-  | "callback-tool-registry-read"
-  | "sidekick-definition-registry"
-  | "hydrated-event-read"
-  | "cost-receipt-read"
-  | "workflow-version-chain"
-  | "channel-lifecycle-verbs"
-  | "channel-roster-read"
-  | "membership-roster-read"
-  | "participant-presence-detail"
-  | "terminal-control-holder"
-  | "presence-activity-fields"
-  | "control-plane-host"
-  | "pending-invite-namespace";
-
-export interface GrowthSlateRow {
-  readonly id: GrowthSlateRowId;
-  /** The wire the console needs, in the plan table's own words. */
-  readonly wire: string;
-  /** The document that owns registering it. */
-  readonly owningDocument: string;
-  /** The console surface family that consumes it. */
-  readonly consumingSurface: string;
-  /**
-   * Always false while the row is on the slate. Present as a field rather than
-   * implied so the test's assertion reads as a check rather than a tautology, and
-   * so the day a row is half-landed the discrepancy is representable.
-   */
-  readonly wireRegistered: false;
-}
+import type { GrowthSlateRow, GrowthSlateRowId } from "./growth-slate-row.js";
 
 /**
  * Every row, keyed by its id.
@@ -390,6 +332,24 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  "workspace-execution-context": {
+    id: "workspace-execution-context",
+    wire: "a workspace's own execution context — the normalized checkout root a turn-boundary snapshot operates on, and the marker that says a run is executing under a FALLBACK execution mode rather than the mode that was selected. Neither reaches a client: the checkout root is a column on run_execution_contexts and is carried by no reply, and no registered field anywhere carries the fallback marker, so the three roots a branch-mode workspace can hold cannot be shown together and a substituted mode cannot be told apart from a chosen one",
+    owningDocument:
+      "Spec-010 §Fallback Behavior (the selected mode is marked distinctly from normal worktree mode) + Spec-010 §Turn-Boundary Snapshots (the normalized checkout root, and the run_execution_contexts.checkout_root column that holds it); Plan-010 (the shared-contracts and client-SDK registration a read would join)",
+    consumingSurface:
+      "repos surface (the workspace card's three-path disclosure and its fallback badge)",
+    wireRegistered: false,
+  },
+  "mount-health-identity-verdict": {
+    id: "mount-health-identity-verdict",
+    wire: "the identity-mismatch verdict a mount's health projection reports — the third member of the mount-health status union. The member is on the contract and no producer can emit it: the daemon-side projection that would derive it is unbuilt, and the repo namespace that would carry a mount read is registered by no handler, so the console's fail-closed three-verdict projection has a live source for none of the three",
+    owningDocument:
+      "Spec-009 §Repo Mount Health (V1 Definition) + I-009-17 (the three-member union, its precedence, and the read-time derivation); Plan-009 T-009-2B-5 in Phase 2B (the daemon-side projection, which consumes that phase's own common-directory re-derivation and persisted anchor write) and Plan-009 Phase 3 (the daemon handler namespace and client-SDK surface that would carry the read)",
+    consumingSurface:
+      "repos surface (the mount card's health chip and the re-attach control the permanent verdict carries); settings mounts page (the mount row's verdict)",
     wireRegistered: false,
   },
   "channel-lifecycle-verbs": {

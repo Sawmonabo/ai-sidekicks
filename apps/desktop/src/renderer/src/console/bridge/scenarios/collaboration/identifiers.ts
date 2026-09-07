@@ -7,7 +7,7 @@
 // one of them would be a value the other three could only match by copying it, which
 // is how a fixture comes to answer a read about a person no beat admitted.
 //
-// THE ROSTER IS A TWO-ARM UNION AND THAT IS LOAD-BEARING. `collaboration.beats.ts`
+// THE ROSTER IS A TWO-ARM UNION AND THAT IS LOAD-BEARING. `beats.ts`
 // narrows it to the rows that are not `online` — through `Exclude` over
 // {@link CollaborationParticipant}, resolving to {@link CollaborationJoiner} — so the
 // three presence transitions are derived from the roster rather than written a second
@@ -21,7 +21,7 @@
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import type { MembershipRole, ParticipantId } from "@ai-sidekicks/contracts";
 
-import type { CollaborationRuntimeNodeScript } from "./collaboration-runtime-nodes.js";
+import type { CollaborationRuntimeNodeScript } from "./runtime-nodes.js";
 
 // Wire identifiers, spelled as the wire spells them — UUID v7 values whose leading
 // bytes are this scenario's own start instant, so a rendered id still tells one
@@ -114,7 +114,7 @@ interface CollaborationOpener extends CollaborationMember {
  * `presence.*` beat moved.
  *
  * Every member is required, which is the whole reason the two shapes are separate:
- * `collaboration.beats.ts` filters the roster to exactly this arm for the presence
+ * `beats.ts` filters the roster to exactly this arm for the presence
  * beats and then reads the event id with no optionality left to check.
  */
 interface CollaborationJoiner extends CollaborationMember {
@@ -201,7 +201,7 @@ export const COLLABORATION_PARTICIPANTS: readonly CollaborationParticipant[] = [
  * `ChannelListResponseChannel` is exactly `{id, name?, state, participantCount}`
  * (`packages/contracts/src/channels.ts`), so this table carries those four members and
  * nothing about audience, kind, or pairing: those reach the console from the roster
- * read in `collaboration-growth-replies.ts`, which is a different wire. The bootstrap
+ * read in `growth-replies.ts`, which is a different wire. The bootstrap
  * name is taken from `MAIN_CHANNEL_NAME` rather than spelled here — the value belongs
  * to the producer, and a fixture that wrote the word down would go on serving the old
  * one after the vocabulary moved.
