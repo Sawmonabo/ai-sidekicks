@@ -315,9 +315,8 @@ function renderSettlement(
             THE RE-READ IS A CONTROL, NOT AN EFFECT. A prepared root lands in the
             section's own roots list on its next read, and the participant asking for
             that read is one of the three refresh reasons `Spec-023 §Rules every console
-            surface obeys` admits. A `provisioning` root also has a second state to
-            reach, and this is what asks about it — which is why the control stays after
-            the first press rather than disappearing.
+            surface obeys` admits — which is why the control stays after the first
+            press rather than disappearing: the list can be asked again.
           */}
           <button type="button" className="meridian-prepare-root__reread" onClick={onPrepared}>
             Show it in the roots list
