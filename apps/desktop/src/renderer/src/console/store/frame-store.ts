@@ -20,6 +20,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ConsoleRefusal } from "../core/index.js";
 import type { SessionDegradedCause } from "./degradation.js";
+import { ModalSurfaceClaims } from "./modal-surface-claims.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
 import {
   UNREPORTED_SHELL_STATE,
@@ -96,10 +97,10 @@ export interface FrameStoreState {
    * to disagree with the first. The frame folds the two at the one place that reads
    * both.
    *
-   * ONE CELL RATHER THAN A REGISTRY OF OPEN SURFACES, because the console has exactly
-   * one such surface today. A SECOND publisher makes this a keyed set rather than a
-   * boolean: two cards up and whichever closed first would clear the cell under the
-   * one still open, and the background would come back reachable underneath it.
+   * DERIVED FROM A REGISTER AND WRITTEN BY NOBODY. Two window-scoped surfaces can be
+   * up at once, and while each published this cell directly the first to close cleared
+   * it under the one still open. {@link FrameStore.modalSurfaceClaims} holds the
+   * claimants and owns the only write; this cell is `size > 0` and nothing else.
    */
   readonly isModalSurfaceOpen: boolean;
   readonly banners: readonly FrameBanner[];
@@ -184,6 +185,14 @@ function documentReportsWindowFocus(): boolean {
 
 export class FrameStore {
   readonly #store: StoreApi<FrameStoreState>;
+  /**
+   * The open modal surfaces this window holds, and the one writer of the cell above.
+   *
+   * Constructed here rather than handed in, because its lifetime is this store's: the
+   * register and the cell it derives are two halves of one fact, and a caller able to
+   * supply a second register could publish into a cell no surface's claim reached.
+   */
+  readonly #modalSurfaceClaims: ModalSurfaceClaims;
 
   public constructor(options: FrameStoreOptions = {}) {
     const initialRoute = options.initialRoute ?? DEFAULT_ROUTE;
@@ -202,6 +211,9 @@ export class FrameStore {
       shellState: UNREPORTED_SHELL_STATE,
       railAttentionCount: undefined,
     }));
+    this.#modalSurfaceClaims = new ModalSurfaceClaims((isAnyHeld) => {
+      this.#setModalSurfaceOpen(isAnyHeld);
+    });
   }
 
   /** Read-only handle for components. No setter escapes the class. */
@@ -249,23 +261,14 @@ export class FrameStore {
   }
 
   /**
-   * Publish whether a family-owned modal surface has the window.
+   * Where a family-owned modal surface takes and gives up its claim on the window.
    *
-   * The one writer of {@link FrameStoreState.isModalSurfaceOpen}, and the surface
-   * that opens the card is the caller: it writes `true` while the card is up and
-   * `false` both when the card closes and when it unmounts, so a card React discards
-   * mid-ceremony cannot leave the window inert with nothing on screen to close.
-   *
-   * Compared before it is written, on {@link setWindowFocused}'s reasoning: the
-   * publisher writes from an effect that re-runs whenever its own inputs move, and an
-   * unguarded write on an unchanged value would re-render the rail, the surface, and
-   * every banner for a fact that did not move.
+   * Handed out rather than wrapped in a pair of methods on this class, so a claim is
+   * something a surface HOLDS: `modal-surface-claims.ts` states why the register can
+   * add and remove only the caller's own id and offers no clear-all.
    */
-  public setModalSurfaceOpen(isModalSurfaceOpen: boolean): void {
-    if (this.#store.getState().isModalSurfaceOpen === isModalSurfaceOpen) {
-      return;
-    }
-    this.#store.setState({ isModalSurfaceOpen });
+  public get modalSurfaceClaims(): ModalSurfaceClaims {
+    return this.#modalSurfaceClaims;
   }
 
   /**
@@ -356,6 +359,21 @@ export class FrameStore {
   public dismissBanner(bannerId: string): void {
     const banners = this.#store.getState().banners.filter((banner) => banner.id !== bannerId);
     this.#store.setState({ banners });
+  }
+
+  /**
+   * Write what the register says, once it has moved.
+   *
+   * Compared before it is written, on {@link setWindowFocused}'s reasoning: the
+   * publisher writes from an effect that re-runs whenever its own inputs move, and an
+   * unguarded write on an unchanged value would re-render the rail, the surface, and
+   * every banner for a fact that did not move.
+   */
+  #setModalSurfaceOpen(isModalSurfaceOpen: boolean): void {
+    if (this.#store.getState().isModalSurfaceOpen === isModalSurfaceOpen) {
+      return;
+    }
+    this.#store.setState({ isModalSurfaceOpen });
   }
 
   /**

@@ -16,11 +16,19 @@
 // has two halves that are easy to write and easy to write only one of: publish `true`
 // while the card is up, and publish `false` on BOTH endings.
 //
-// UNCONDITIONAL RATHER THAN UNDER AN `if (isOpen)`, so the cell this hook owns is
+// UNCONDITIONAL RATHER THAN UNDER AN `if (isOpen)`, so the claim this hook owns is
 // always exactly its caller's own open state; the cleanup covers a close and an
-// unmount alike, and the store's own comparison makes a repeated `false` cost nothing.
-// A render React discards mid-ceremony must not leave a window inert with nothing on
-// screen to close.
+// unmount alike, and a release of a claim already given up costs nothing. A render
+// React discards mid-ceremony must not leave a window inert with nothing on screen to
+// close.
+//
+// AND IT SPEAKS ONLY FOR ITS OWN CALLER, which is what the claim id buys. The two
+// window-scoped overlays can be up at once — the sign-in card while the palette runs
+// the onboarding command — and while this hook published a single boolean, the first
+// of them to close cleared the guard under the one still open and left the background
+// structurally reachable behind a `trap-focus` dialog. `modal-surface-claims.ts` holds
+// the register; every mount takes an id from `useId`, so two mounts of ONE component
+// are two claimants and a remount is a fresh one.
 //
 // IT PUBLISHES AND DOES NOT DECIDE. Whether the dialog is `modal="trap-focus"` is the
 // caller's own JSX, and `test/console/architecture/dialog-modal-mode.test.ts` is what
@@ -28,7 +36,7 @@
 // component it does not render, and a hook that returned one would be read as though
 // it had.
 
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 
 import type { FrameStore } from "./frame-store.js";
 
@@ -36,13 +44,21 @@ import type { FrameStore } from "./frame-store.js";
  * Publish a window-scoped dialog's open state for the shell's `inert` guard.
  *
  * The caller passes the same boolean its `Dialog.Root` takes as `open`, so the two
- * cannot disagree: there is no second condition here to keep in step.
+ * cannot disagree: there is no second condition here to keep in step. The signature
+ * carries no claim id — the hook mints its own, because an id a caller supplied could
+ * be supplied twice and two surfaces would then be one claimant.
  */
 export function useModalSurfaceLifetime(frameStore: FrameStore, isOpen: boolean): void {
+  const claimId = useId();
   useEffect(() => {
-    frameStore.setModalSurfaceOpen(isOpen);
+    const claims = frameStore.modalSurfaceClaims;
+    if (isOpen) {
+      claims.hold(claimId);
+    } else {
+      claims.release(claimId);
+    }
     return () => {
-      frameStore.setModalSurfaceOpen(false);
+      claims.release(claimId);
     };
-  }, [frameStore, isOpen]);
+  }, [claimId, frameStore, isOpen]);
 }

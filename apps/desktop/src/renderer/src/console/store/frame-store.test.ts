@@ -18,10 +18,12 @@
 //   • **The modal-surface cell.** The frame inerts its background for a modal
 //     overlay's lifetime, and it can only ask itself about the palette: a card a
 //     VIEW family renders is one `console-view-family-isolation` forbids the frame
-//     from naming at all. So the card publishes here and the frame reads one cell —
-//     which makes what the cell PUBLISHES the whole contract, and the control below
-//     is the one that matters: an unchanged write must publish nothing, because the
-//     writer is an effect that re-runs on inputs the cell does not depend on.
+//     from naming at all. So the card takes a CLAIM here and the frame reads the one
+//     cell that register derives — which makes what the cell PUBLISHES the whole
+//     contract, and the control below is the one that matters: an unchanged write
+//     must publish nothing, because the writer is an effect that re-runs on inputs
+//     the cell does not depend on. Whose claim is whose is
+//     `modal-surface-claims.test.ts`; what reaches the readable is here.
 //   • **The focus seed.** `isWindowFocused` was `true` at construction and moved only
 //     on a transition, so a window that opened without focus received no `blur` to
 //     correct it and claimed an audience it never had. It is read from the document
@@ -125,10 +127,10 @@ describe("FrameStore — a family-owned modal surface publishes whether it is up
       published.push(state.isModalSurfaceOpen);
     });
 
-    store.setModalSurfaceOpen(true);
+    store.modalSurfaceClaims.hold("the-sign-in-card");
     expect(store.readable.getState().isModalSurfaceOpen).toBe(true);
 
-    store.setModalSurfaceOpen(false);
+    store.modalSurfaceClaims.release("the-sign-in-card");
     expect(store.readable.getState().isModalSurfaceOpen).toBe(false);
 
     unsubscribe();
@@ -137,20 +139,26 @@ describe("FrameStore — a family-owned modal surface publishes whether it is up
 
   it("control: an unchanged write publishes nothing", () => {
     // The publisher is an effect keyed on the card's open flag AND on the store, so
-    // it re-runs whenever the window hands it a new one. Without the guard each of
-    // those passes would re-render the rail, the banner stack, and the whole route
-    // surface for a fact that did not move.
+    // it re-runs whenever the window hands it a new one — and the register speaks on
+    // every move it makes, which for a card closing while another is still up is the
+    // same `true` again. Without the guard each of those would re-render the rail,
+    // the banner stack, and the whole route surface for a fact that did not move.
     const store = new FrameStore();
     let publishCount = 0;
     const unsubscribe = store.readable.subscribe(() => {
       publishCount += 1;
     });
 
-    store.setModalSurfaceOpen(false);
+    store.modalSurfaceClaims.release("a-card-that-never-opened");
     expect(publishCount).toBe(0);
 
-    store.setModalSurfaceOpen(true);
-    store.setModalSurfaceOpen(true);
+    store.modalSurfaceClaims.hold("the-sign-in-card");
+    store.modalSurfaceClaims.hold("the-onboarding-walkthrough");
+    expect(publishCount).toBe(1);
+
+    // The register republishes `true` here, and the cell must absorb it: the sign-in
+    // card is still up, so nothing the frame renders has moved.
+    store.modalSurfaceClaims.release("the-onboarding-walkthrough");
     expect(publishCount).toBe(1);
 
     unsubscribe();

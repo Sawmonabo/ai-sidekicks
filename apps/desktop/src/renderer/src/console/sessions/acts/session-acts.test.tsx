@@ -67,6 +67,23 @@ function submit(container: HTMLElement): void {
   });
 }
 
+/**
+ * Press the control twice before the disabled state commits.
+ *
+ * BOTH DISPATCHES INSIDE ONE `act`, which is what makes this the race rather than two
+ * presses: React batches the running transition until the block ends, so the second
+ * event reaches the handler the FIRST render produced — the one whose control is still
+ * enabled. Two `submit` calls would flush in between and the second would find the
+ * disabled form, which is a different case and not the one that bites.
+ */
+function submitTwiceInOneTick(container: HTMLElement): void {
+  const form = container.querySelector("form");
+  act(() => {
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+}
+
 /** The refusal code the surface rendered, or `undefined` where it rendered none. */
 function refusalCode(container: HTMLElement): string | undefined {
   // The code rides the wire-figure span inside the refusal, which is the markup
@@ -172,6 +189,33 @@ describe("joining a session", () => {
 
     // Which is what makes the case above a claim about the unmount rather than about
     // a join that never settled at all.
+    expect(joined).toStrictEqual([JOINABLE_SESSION_ID]);
+  });
+
+  it("navigates once when two presses race the disabled state", async () => {
+    // THE DEFECT: the second press superseded the first press's navigation claim
+    // before the act told it a join was already running. The second continuation read
+    // the act as `running` and navigated nowhere, and the first — the one whose join
+    // actually landed — could no longer settle a claim something else had taken. A
+    // person was left durably joined to a session, on a form that said nothing, with
+    // neither the navigation nor the directory refresh `onJoined` carries.
+    const joined: string[] = [];
+    const { container } = render(
+      <JoinSessionForm
+        bridge={bridge()}
+        onJoined={(sessionId) => {
+          joined.push(sessionId);
+        }}
+      />,
+    );
+
+    fill(container, "Session", JOINABLE_SESSION_ID);
+    fill(container, "Your handle", "sam");
+    submitTwiceInOneTick(container);
+    await settle();
+
+    // Exactly one, and it is the join that was admitted: the second press took no
+    // claim, put no call, and settled nothing.
     expect(joined).toStrictEqual([JOINABLE_SESSION_ID]);
   });
 

@@ -24,6 +24,18 @@
 // stopped — the CONTINUATION is retired, through the mount-scoped generation latch
 // `store/generation-latch.ts` owns. The act's own settlement still installs (it is
 // held on the bridge and survives the mount); only the navigation is dropped.
+//
+// AND IT IS NEVER RETIRED BY A SECOND PRESS. The claim is taken with `claim`, which
+// REFUSES while one is held, and never with `supersedeAndClaim`. Two submissions can
+// reach one rendered handler before the disabled state commits — that is the whole
+// reason the latch is consulted in the handler rather than a rendered flag — and a
+// superseding claim retired the FIRST join's navigation on the way past: the second
+// press then read the act as already running and went nowhere, and the join that
+// actually landed could no longer settle its own claim. The person was left in a
+// session they had durably joined, on a form that said nothing, with neither the
+// navigation nor the directory refresh `onJoined` performs. Refusing costs that press
+// nothing a person can see: the act would have refused it audibly anyway, and the
+// control it was pressed on is disabled by the `running` arm on the next commit.
 
 import { useMemo, useState } from "react";
 
@@ -102,23 +114,31 @@ export function JoinSessionForm(props: JoinSessionFormProps): React.JSX.Element 
           return;
         }
         // Taken BEFORE the call, so the round this settlement is measured against is
-        // the one that dispatched it. `supersedeAndClaim` rather than `claim` because
-        // the act above already refuses a second press audibly, so a refusing claim
-        // here would only add an arm nothing can reach.
-        const navigation = navigationLatch.supersedeAndClaim(bridge, JOIN_ACT_KEY);
+        // the one that dispatched it, and so the unmount can retire it. Refused
+        // rather than superseded while a join this mount put is still out: the join
+        // that is running is the one the person is waiting on, and the newest press
+        // has nothing to add to it. Nothing is dispatched on that arm either — a
+        // second `run` would return the act's own duplicate refusal and then settle
+        // against a reading of an act still in flight.
+        const navigation = navigationLatch.claim(bridge, JOIN_ACT_KEY);
+        if (navigation === undefined) {
+          return;
+        }
         void join
           .run({ sessionId: typedSessionId(trimmedSessionId), identityHandle: trimmedHandle })
           .then(() => {
-            try {
-              navigation.settle(() => {
-                const settled = join.settlement();
-                if (settled.status === "settled") {
-                  onJoined(settled.answer.sessionId);
-                }
-              });
-            } finally {
-              navigation.release();
-            }
+            navigation.settle(() => {
+              const settled = join.settlement();
+              if (settled.status === "settled") {
+                onJoined(settled.answer.sessionId);
+              }
+            });
+          })
+          // The key goes back on both arms, settled or thrown, so a call that ends in
+          // neither of the act's two settlements cannot leave this form refusing
+          // every later press for the life of the mount.
+          .finally(() => {
+            navigation.release();
           });
       }}
     >
