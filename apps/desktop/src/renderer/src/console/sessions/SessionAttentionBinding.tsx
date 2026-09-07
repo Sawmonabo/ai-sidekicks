@@ -45,6 +45,16 @@
 // NOTHING HERE POLLS AND NOTHING HERE RENDERS. The read re-runs when the session
 // projections underneath it move, through the console's one push-driven read
 // discipline; this component draws no markup and returns the subtree it was handed.
+//
+// AND THE DIRECTORY RE-READS TOO, WHICH IS WHAT THE FRAME LIFETIME COST IT. A
+// binding outlives every navigation, so `useSessionDirectory`'s mount effect ran once
+// per WINDOW and a session the node gained afterwards — another window's, or one an
+// act here settled — was missing from the all-sessions list until this window came
+// down. The lifetime that fixed the rail's count is the lifetime that broke the list,
+// and the remedy is not to move the read back: `seats/session-directory.ts` now
+// re-reads on the window's own focus trigger and on a settled act's explicit ask,
+// which are the two moments `store/read-triggers.ts` already names for a node-scoped
+// reading. Nothing here arms a timer, and nothing here asks on a render.
 
 import { createContext, useContext, useMemo } from "react";
 

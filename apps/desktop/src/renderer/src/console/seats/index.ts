@@ -306,13 +306,23 @@ export type {
   SessionSubject,
 } from "./session-subject.js";
 
-// The node's session directory — the read, and the offer a picker draws from it.
+// The node's session directory — the read, the offer a picker draws from it, and the
+// one way a settled act says the node's list has moved.
 //
 // In this family because its one input is the growth port and `seats/` is the lowest
 // family above `bridge/`. It was authored in `frame/` when the frame was its only
 // reader; it has readers on both sides of the frame now, and neither `frame/` nor its
 // door is reachable from below.
-export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+//
+// The invalidation door travels with the read for the same reason the read is here: it
+// is addressed at the PORT, so the family that settles an act and the three families
+// that render the answer reach one generation rather than passing a refresh callback
+// down through whichever surfaces happen to sit between them.
+export {
+  offeredSessionIds,
+  requestSessionDirectoryRead,
+  useSessionDirectory,
+} from "./session-directory.js";
 export type { SessionDirectoryState } from "./session-directory.js";
 
 // The read discipline every live wire read in this console follows — subscribe
