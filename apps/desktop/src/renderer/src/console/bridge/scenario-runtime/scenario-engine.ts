@@ -22,12 +22,20 @@
 // there is no second copy of the beats to keep in step.
 //
 // The engine holds ONE more thing than the script: the replies a scripted latency
-// has parked. A `ScenarioReply` carrying `afterMs` is a request that has not been
-// answered yet, and on a frozen clock the only thing that can answer it is the
-// caller moving that clock. Holding them here rather than in the bridge is what
-// keeps the frozen clock the single source of scenario time — a bridge that spent
-// the delay itself would be a second clock, and the one property this module exists
-// for is that there is only one.
+// has parked, in `held-reply-queue.ts` beside it. That module states why they live
+// on this side of the bridge at all — a bridge that spent a scripted delay itself
+// would be a second clock, and the one property this module exists for is that there
+// is only one.
+//
+// AND AN ADVANCE IS PUBLISHED EVEN WHEN NO BEAT IS DUE, which is the second thing a
+// subscriber may ask for. Beats reach `subscribe`; every other frame a scenario
+// schedules against its own tick — the deep link's pending invitations are the first
+// — reaches `subscribeToAdvances`. Routing those through the beat emitter is not
+// available and would be wrong twice over: the beat emitter carries session events
+// and is silent on an advance that crosses no beat, so a frame whose tick fell in a
+// quiet stretch of the script would never be delivered. What travels is the tick the
+// clock now stands at, and each subscriber walks its OWN due rule against it — the
+// engine holds no second table of what is due for whom.
 
 import {
   Emitter,
@@ -41,6 +49,7 @@ import {
   type Unsubscribe,
 } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
+import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.js";
 import type { ConsoleScenario, ScenarioReply } from "./scenario.js";
 
 /** Where a scenario's playback has got to. Rendered by the fixture picker. */
@@ -60,92 +69,6 @@ export interface ScenarioProgress {
  * replace, and the alias keeps the engine's own vocabulary readable at call sites.
  */
 export type ScenarioSink = EmitterSink<readonly ConsoleSessionEvent[]>;
-
-/**
- * How a held reply ended.
- *
- * Three outcomes rather than a promise that resolves or hangs, because two of
- * them are refusals the caller has to render: an engine torn down under a request
- * and a backlog that is already full both leave the caller with nothing to show,
- * and a promise that never settles leaves a surface loading for the life of the
- * window. The engine reports which; naming the refusal belongs to the bridge.
- */
-export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
-
-/** One reply parked until the frozen clock reaches its tick. */
-interface HeldScenarioReply {
-  readonly dueAtMs: number;
-  readonly settle: (outcome: ScenarioReplyOutcome) => void;
-}
-
-/**
- * The replies a scenario is holding, and the bound on how many.
- *
- * Its own class rather than an array field on the engine because it owns a rule
- * the engine does not otherwise have: entries leave in DUE order, not in call
- * order, so two calls made together with different scripted latencies settle in
- * the order a real transport would settle them. Keeping that in one place is what
- * stops `advance` from growing a second sort.
- */
-class HeldReplyQueue {
-  readonly #held: HeldScenarioReply[] = [];
-  readonly #cap: number;
-
-  public constructor(cap: number) {
-    this.#cap = cap;
-  }
-
-  public get heldCount(): number {
-    return this.#held.length;
-  }
-
-  /** Park one reply. `false` when the queue is already at its cap. */
-  public hold(dueAtMs: number, settle: (outcome: ScenarioReplyOutcome) => void): boolean {
-    if (this.#held.length >= this.#cap) {
-      return false;
-    }
-    this.#held.push({ dueAtMs, settle });
-    return true;
-  }
-
-  /**
-   * Settle every reply due at or before `elapsedMs`, earliest first.
-   *
-   * The entries are removed BEFORE any of them is settled, so a continuation that
-   * issues another delayed call cannot be released by the same pass that released
-   * the call it came from. `sort` is stable, so replies sharing a due tick settle
-   * in the order they were made.
-   */
-  public releaseThrough(elapsedMs: number): void {
-    if (this.#held.length === 0) {
-      // The common case by far — every advance of a scenario that scripts no
-      // latency reaches here — and it allocates nothing.
-      return;
-    }
-    const due: HeldScenarioReply[] = [];
-    const stillHeld: HeldScenarioReply[] = [];
-    for (const reply of this.#held) {
-      (reply.dueAtMs <= elapsedMs ? due : stillHeld).push(reply);
-    }
-    if (due.length === 0) {
-      return;
-    }
-    this.#held.length = 0;
-    this.#held.push(...stillHeld);
-    due.sort((left, right) => left.dueAtMs - right.dueAtMs);
-    for (const reply of due) {
-      reply.settle("due");
-    }
-  }
-
-  /** Settle every held reply as abandoned. For teardown, and final. */
-  public abandonAll(): void {
-    const abandoned = this.#held.splice(0, this.#held.length);
-    for (const reply of abandoned) {
-      reply.settle("abandoned");
-    }
-  }
-}
 
 /** What one subscriber asks of the engine beyond being handed later beats. */
 export interface ScenarioSubscribeOptions {
@@ -177,6 +100,10 @@ export class ScenarioEngine {
   // still subscribed for; and a throwing sink does not silence the others, so one
   // broken surface does not stop a scenario delivering to the rest.
   readonly #beats = new Emitter<readonly ConsoleSessionEvent[]>("scenario beat");
+  // Every advance the engine performs, carrying the tick the frozen clock now stands
+  // at. Separate from the beat emitter because it fires on an advance that delivers
+  // no beat, which is exactly the case a frame scheduled between two beats needs.
+  readonly #advances = new Emitter<number>("scenario advance");
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
@@ -255,6 +182,25 @@ export class ScenarioEngine {
   }
 
   /**
+   * Subscribe to every advance of the frozen clock. Returns an idempotent unsubscribe.
+   *
+   * The sink is handed the tick the clock now stands at, and walks its own rule for
+   * what that made due. It is called on EVERY advance, including one that delivered
+   * no beat and one that moved the clock by zero — a caller that advanced by nothing
+   * is asking what is due now, and answering it costs one comparison.
+   *
+   * No replay, deliberately, and the asymmetry with the whole-session stream beside
+   * it is the point: a beat is a position in a log a late subscriber has to be caught
+   * up on, and an advance is a moment. What a subscriber missed is not a list of
+   * ticks — it is whatever ITS own due rule says is due at the tick standing now,
+   * which it can read off `progress` at attach and which every frame-serving fixture
+   * here already does when it opens a feed.
+   */
+  public subscribeToAdvances(sink: EmitterSink<number>): Unsubscribe {
+    return this.#advances.subscribe(sink);
+  }
+
+  /**
    * The beats the frozen clock has already delivered, in log order.
    *
    * Derived from the script and the consumed count rather than accumulated into a
@@ -316,11 +262,17 @@ export class ScenarioEngine {
     // their sinks first; what the order buys is that a caller cannot observe a
     // beat delivered by an advance whose own reply it is still waiting on.
     this.#heldReplies.releaseThrough(this.#elapsedMs);
-    if (due.length === 0) {
-      return;
+    if (due.length > 0) {
+      this.#deliveredBeatCount += due.length;
+      this.#beats.emit(due.map((beat) => beat.event));
     }
-    this.#deliveredBeatCount += due.length;
-    this.#beats.emit(due.map((beat) => beat.event));
+    // LAST, and unconditional. Last, because a subscriber walking its own due rule
+    // against this tick should see a scenario whose beats for the same tick have
+    // already landed — the session log first, then what the other namespaces made
+    // due. Unconditional, because an advance that crossed no beat still moved the
+    // clock, and a frame whose tick sits in a quiet stretch of the script is due
+    // exactly then.
+    this.#advances.emit(this.#elapsedMs);
   }
 
   /**
@@ -388,6 +340,7 @@ export class ScenarioEngine {
   public dispose(): void {
     this.#disposed = true;
     this.#beats.clear();
+    this.#advances.clear();
     this.#heldReplies.abandonAll();
   }
 }

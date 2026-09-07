@@ -22,8 +22,22 @@
 // A DISMISS RELEASES RATHER THAN REFUSES. `Spec-002 §Required Behavior` has no decline
 // verb, so dismissing is local by definition: the entry goes and no outcome is
 // published, because nothing happened that anyone is owed an answer about.
+//
+// AND A FRAME'S TICK IS A DELIVERY MOMENT, NOT AN ADMISSION TEST. A frame carries an
+// `atMs` measured from scenario start, exactly as a beat does, and a fixture that read
+// that tick only when a feed OPENED served whichever frames were already due and never
+// looked again: a deep link scripted to arrive after the console has settled — the
+// ordinary case for anything a person navigates to — was filtered out at subscription
+// and delivered by nothing afterwards, because this namespace watched neither the
+// engine nor the clock. So delivery hangs off scenario ADVANCEMENT, which is the one
+// thing that moves the frozen clock, and the due rule below has ONE home with two
+// triggers: a feed opening takes everything due so far, and an advance takes what the
+// tick it landed on newly made due. Nothing here polls and nothing here arms a timer —
+// a fixture that armed one would be a second clock, which is what `scenario-engine.ts`
+// exists to prevent.
 
 import { FixtureGrowthStream } from "./fixture-growth-stream.js";
+import type { Unsubscribe } from "../../core/index.js";
 import { growthUnscriptedReply, type GrowthOutcome } from "../growth-port/index.js";
 import type { GrowthInviteOutcome, GrowthPendingInviteState } from "../growth-values/index.js";
 import type { ScenarioEngine, ScenarioPendingInviteFrame } from "../scenario-runtime/index.js";
@@ -46,12 +60,27 @@ export class FixturePendingInvites {
   readonly #entriesByReference = new Map<string, PendingEntry>();
   readonly #pendingFeeds = new Set<FixtureGrowthStream<GrowthPendingInviteState>>();
   readonly #outcomeFeeds = new Set<FixtureGrowthStream<GrowthInviteOutcome>>();
+  readonly #unsubscribeFromAdvances: Unsubscribe;
+  /**
+   * The tick every OPEN feed has already been served through.
+   *
+   * One number rather than a per-entry delivered flag, because the two triggers have
+   * to compose: a feed opened after a frame fell due takes it from the open-time walk,
+   * and a per-entry flag set by that walk would then stop the advance walk delivering
+   * it to the feeds that were open before. A watermark asks the question the other way
+   * round — what did the feeds already open not get — and the two never overlap.
+   */
+  #deliveredThroughMs: number;
 
   public constructor(engine: ScenarioEngine) {
     this.#engine = engine;
     for (const frame of engine.scenario.pendingInvites ?? []) {
       this.#entriesByReference.set(frame.invite.reference, { frame, isSpent: false });
     }
+    this.#deliveredThroughMs = engine.progress.elapsedMs;
+    this.#unsubscribeFromAdvances = engine.subscribeToAdvances((elapsedMs) => {
+      this.#deliverNewlyDue(elapsedMs);
+    });
   }
 
   /**
@@ -65,7 +94,14 @@ export class FixturePendingInvites {
   public openPendingFeed(): FixtureGrowthStream<GrowthPendingInviteState> {
     const feed = new FixtureGrowthStream<GrowthPendingInviteState>();
     this.#pendingFeeds.add(feed);
-    for (const entry of this.#dueEntries()) {
+    // Everything due so far. There is no earlier tick for a feed opening now to be
+    // past, which is what the unbounded lower edge says — the bound that matters is
+    // the upper one, and it is the clock's own reading rather than this object's
+    // watermark, because that watermark describes the feeds that were ALREADY open.
+    for (const entry of this.#entriesDueBetween(
+      Number.NEGATIVE_INFINITY,
+      this.#engine.progress.elapsedMs,
+    )) {
       // The scenario scripts the ready arm's own facts; the discriminant the pending
       // feed is keyed by is stamped here, so a scenario table stays a table of
       // invitations rather than of wire states.
@@ -121,6 +157,7 @@ export class FixturePendingInvites {
 
   /** Close every open feed. Called when the bridge holding this fixture is retired. */
   public dispose(): void {
+    this.#unsubscribeFromAdvances();
     for (const feed of this.#pendingFeeds) {
       feed.close();
     }
@@ -131,11 +168,39 @@ export class FixturePendingInvites {
     this.#outcomeFeeds.clear();
   }
 
-  /** The entries whose tick has fallen due on the scenario's own frozen clock. */
-  #dueEntries(): readonly PendingEntry[] {
-    const { elapsedMs } = this.#engine.progress;
+  /**
+   * Hand every open feed the frames this advance newly made due.
+   *
+   * The watermark moves FIRST and unconditionally, so a scenario advanced while no
+   * feed is open does not leave those ticks pending for whichever feed opens next —
+   * that feed's own open-time walk already covers them, and delivering them twice is
+   * the failure this object's single due rule exists to prevent.
+   */
+  #deliverNewlyDue(elapsedMs: number): void {
+    const servedThrough = this.#deliveredThroughMs;
+    // `Math.max` rather than a plain assignment: the frozen clock only moves forward,
+    // and a watermark that could be walked back by a zero-delta advance would re-serve
+    // whatever the previous one had just handed out.
+    this.#deliveredThroughMs = Math.max(servedThrough, elapsedMs);
+    for (const entry of this.#entriesDueBetween(servedThrough, elapsedMs)) {
+      for (const feed of this.#pendingFeeds) {
+        feed.push({ status: "ready", ...entry.frame.invite });
+      }
+    }
+  }
+
+  /**
+   * The unspent entries whose tick falls in `(afterMs, throughMs]`.
+   *
+   * ONE due rule with two callers, and the half-open lower edge is what lets them
+   * compose: an entry is either already behind an open feed's watermark or it is not,
+   * so no frame reaches one feed twice and none is skipped between the two triggers.
+   * A SPENT entry is excluded on both, because the act that spent it is the answer and
+   * re-offering the invitation it came from would put a consumed reference on screen.
+   */
+  #entriesDueBetween(afterMs: number, throughMs: number): readonly PendingEntry[] {
     return [...this.#entriesByReference.values()].filter(
-      (entry) => entry.frame.atMs <= elapsedMs && !entry.isSpent,
+      (entry) => !entry.isSpent && entry.frame.atMs > afterMs && entry.frame.atMs <= throughMs,
     );
   }
 

@@ -10,12 +10,17 @@
 // `channel.archive` is the archive control reporting which verb it reached. That is
 // stronger than a spy on the port: it goes through the registry's own id-to-method
 // fold rather than around it.
+//
+// WHAT AN ANSWERED ACT DOES TO THE ROW IS THE SIBLING FILE. Every case here reads a
+// refusal or a verb; `ChannelList.receipt.test.tsx` reads the row a served receipt
+// moved, and the two share this directory's one cast.
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "../../core/settle.test-support.js";
+import { acts, confirmArchive, press, rowNames } from "./channel-rows.test-support.js";
 import {
   CHANNEL_OLD,
   CHANNEL_RELAY,
@@ -28,37 +33,6 @@ import {
   scenarioAnswering,
   scenarioRefusing,
 } from "./channels.test-support.js";
-
-/** Every lifecycle control on screen, in row order: mute or unmute, then archive. */
-function acts(container: HTMLElement): readonly HTMLButtonElement[] {
-  return [...container.querySelectorAll<HTMLButtonElement>(".meridian-channel-row__act")];
-}
-
-/** Every row still on screen, by the name it wears. */
-function rowNames(container: HTMLElement): readonly string[] {
-  return [...container.querySelectorAll(".meridian-channel-row__name")].map(
-    (name) => name.textContent ?? "",
-  );
-}
-
-/** Press one lifecycle control and let its answer land. */
-async function press(container: HTMLElement, index: number): Promise<void> {
-  act(() => {
-    acts(container)[index]?.click();
-  });
-  await settle();
-}
-
-/** Open one row's archive confirmation and press through it. */
-async function confirmArchive(container: HTMLElement, triggerIndex: number): Promise<void> {
-  act(() => {
-    acts(container)[triggerIndex]?.click();
-  });
-  act(() => {
-    document.querySelector<HTMLButtonElement>(".meridian-channels__dialog-confirm")?.click();
-  });
-  await settle();
-}
 
 describe("channel list — where each act goes", () => {
   it("sends a mute to the channel-mute verb", async () => {
