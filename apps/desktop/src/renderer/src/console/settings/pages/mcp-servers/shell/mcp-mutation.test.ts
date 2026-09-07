@@ -15,7 +15,8 @@ import {
   type GrowthMcpMutationResult,
   type GrowthOutcome,
 } from "../../../../bridge/index.js";
-import { bindingOutcomeKey, setBindingEnabled, setBindingTrust } from "./mcp-mutation.js";
+import { mcpBindingKeyOf } from "../../../../bridge/index.js";
+import { setBindingEnabled, setBindingTrust } from "./mcp-mutation.js";
 
 const USER_BINDING: GrowthMcpBindingRef = {
   provider: "claude",
@@ -75,24 +76,24 @@ function bridgeAnswering(outcome?: GrowthOutcome<GrowthMcpMutationResult>): {
   };
 }
 
-describe("bindingOutcomeKey", () => {
+describe("mcpBindingKeyOf", () => {
   it("keys one binding the same way twice", () => {
-    expect(bindingOutcomeKey(USER_BINDING)).toBe(bindingOutcomeKey({ ...USER_BINDING }));
+    expect(mcpBindingKeyOf(USER_BINDING)).toBe(mcpBindingKeyOf({ ...USER_BINDING }));
   });
 
   it("keys two same-named servers in two scopes differently", () => {
-    expect(bindingOutcomeKey(USER_BINDING)).not.toBe(bindingOutcomeKey(PROJECT_BINDING));
+    expect(mcpBindingKeyOf(USER_BINDING)).not.toBe(mcpBindingKeyOf(PROJECT_BINDING));
   });
 
   it("keys two same-named servers on two providers differently", () => {
-    expect(bindingOutcomeKey(PROJECT_BINDING)).not.toBe(
-      bindingOutcomeKey({ ...PROJECT_BINDING, provider: "codex" }),
+    expect(mcpBindingKeyOf(PROJECT_BINDING)).not.toBe(
+      mcpBindingKeyOf({ ...PROJECT_BINDING, provider: "codex" }),
     );
   });
 
   it("keys two project bindings under different roots differently", () => {
-    expect(bindingOutcomeKey(PROJECT_BINDING)).not.toBe(
-      bindingOutcomeKey({ ...PROJECT_BINDING, scopeRef: "/work/other" }),
+    expect(mcpBindingKeyOf(PROJECT_BINDING)).not.toBe(
+      mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "/work/other" }),
     );
   });
 
@@ -103,9 +104,9 @@ describe("bindingOutcomeKey", () => {
   // onto both controls.
   it("keys two bindings apart when a space moves across the scope/name boundary", () => {
     expect(
-      bindingOutcomeKey({ ...PROJECT_BINDING, scopeRef: "/repo one", serverName: "server" }),
+      mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "/repo one", serverName: "server" }),
     ).not.toBe(
-      bindingOutcomeKey({ ...PROJECT_BINDING, scopeRef: "/repo", serverName: "one server" }),
+      mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "/repo", serverName: "one server" }),
     );
   });
 
@@ -114,8 +115,8 @@ describe("bindingOutcomeKey", () => {
   // does not have — which is what keeps the two arms apart on their own shape and not
   // on the scope word alone.
   it("keys a user binding apart from a project binding rooted at the empty string", () => {
-    expect(bindingOutcomeKey(USER_BINDING)).not.toBe(
-      bindingOutcomeKey({ ...PROJECT_BINDING, scopeRef: "", serverName: USER_BINDING.serverName }),
+    expect(mcpBindingKeyOf(USER_BINDING)).not.toBe(
+      mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "", serverName: USER_BINDING.serverName }),
     );
   });
 

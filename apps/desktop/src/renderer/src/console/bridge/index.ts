@@ -512,3 +512,8 @@ export type {
   GrowthMcpServerStatus,
   GrowthMcpToolOverride,
 } from "./growth-values/mcp.js";
+// And the identity those rows are keyed by, from the same declaring module. It leaves
+// this family because the operator page keys one settlement per binding by it, and it
+// lives beside the shapes because the fixture's own inventory ledger keys by it too:
+// one binding, one identity, whichever height of the DAG is asking.
+export { mcpBindingKeyOf } from "./growth-values/mcp.js";

@@ -13,7 +13,9 @@
 // `fixture-attention-derivation.ts` folds beats into an attention projection,
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
+// them, `fixture-mcp-inventory.ts` holds what the governance inventory reads as after a
+// mutation this port already answered, and `fixture-scripted-answer.ts` maps a scripted
+// settlement onto an outcome.
 //
 
 import {
@@ -22,6 +24,7 @@ import {
   type ParsedRows,
 } from "../approvals/index.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
+import { FixtureMcpInventoryLedger } from "./fixture-mcp-inventory.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
@@ -49,6 +52,9 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  * function` in a surface.
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
+  // Held by this port's closure and by nothing else, which is the whole of its scope
+  // rule: one running scenario, one inventory. See `fixture-mcp-inventory.ts`.
+  const mcpInventory = new FixtureMcpInventoryLedger();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow — spread from the module that implements them, so the served ids next
     // door and the handlers here are held to each other by the `Pick` above.
@@ -309,15 +315,30 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     // sentence. The two mutations are script-only: each answers with the row as it now
     // stands plus per-leg outcomes, and a synthesized one would report that the daemon
     // reconciled live sessions no author ever declared.
+    //
+    // AND THE THREE ARE ONE PLANE RATHER THAN THREE REPLY ROWS, which is what
+    // `mcpInventory` above holds. A mutation answers with the row as it now stands and
+    // the read that follows it serves that row in the scripted row's place, so the grid
+    // does not put a disabled binding back on beside the mutation's own applied
+    // outcome. The ledger's own header states why it is here and not in the script.
     mcpList: async (request) =>
-      answerFromScriptedReply(engine, "mcp.list", "mcpList", request, () => ({
-        status: "served",
-        value: { servers: [] },
-      })),
+      mapGrowthServed(
+        await answerFromScriptedReply(engine, "mcp.list", "mcpList", request, () => ({
+          status: "served",
+          value: { servers: [] },
+        })),
+        (scripted) => mcpInventory.inventoryOver(scripted),
+      ),
     mcpSetEnabled: async (request) =>
-      await answerScriptOnly(engine, "mcp.setEnabled", "mcpSetEnabled", request),
+      mapGrowthServed(
+        await answerScriptOnly(engine, "mcp.setEnabled", "mcpSetEnabled", request),
+        (result) => mcpInventory.recordMutation(result),
+      ),
     mcpSetTrust: async (request) =>
-      await answerScriptOnly(engine, "mcp.setTrust", "mcpSetTrust", request),
+      mapGrowthServed(
+        await answerScriptOnly(engine, "mcp.setTrust", "mcpSetTrust", request),
+        (result) => mcpInventory.recordMutation(result),
+      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

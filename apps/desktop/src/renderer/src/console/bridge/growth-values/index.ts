@@ -117,3 +117,8 @@ export type {
   GrowthMcpInventoryEntry,
   GrowthMcpMutationResult,
 } from "./mcp.js";
+// The binding identity, through this door because a SIBLING takes it: the fixture's
+// inventory ledger substitutes a mutated row by the same key the operator page keys an
+// outcome by, and a second encoder in either place would be one binding under two
+// identities.
+export { mcpBindingKeyOf } from "./mcp.js";

@@ -23,6 +23,13 @@
 // environment-variable value, a header value, or a token. There is deliberately no
 // `McpServerConfigInput` here: this console does not author the configuration form,
 // and a shape for one would be a write surface minted ahead of its writer.
+//
+// ONE FUNCTION SITS AMONG THE SHAPES, and it is here for the reason the shapes are: a
+// binding's scope-qualified IDENTITY is a fact about the binding rather than about
+// whichever reader is keying by it, and its two readers sit at heights the console's
+// DAG keeps apart. See `mcpBindingKeyOf` at the foot of this file.
+
+import { structuralKey } from "../../core/index.js";
 
 /** The two providers a binding can be declared against. */
 export const GROWTH_MCP_PROVIDERS = ["claude", "codex"] as const;
@@ -227,4 +234,39 @@ export interface GrowthMcpMutationResult {
   readonly server: GrowthMcpInventoryEntry;
   readonly applied: GrowthMcpApplicationGrade;
   readonly liveResults?: readonly GrowthMcpLiveApplicationResult[];
+}
+
+/**
+ * The string one binding is keyed by — its scope-qualified identity, spelled once.
+ *
+ * THE IDENTITY IS THE WHOLE TUPLE AND NEVER THE SERVER NAME. Two same-named servers in
+ * two scopes are two bindings, and a reader that keyed on the name would put one row's
+ * outcome on the other's control — or, on the fixture side, answer a later inventory
+ * read with a row a different binding's mutation had replaced.
+ *
+ * AND THE TUPLE IS ENCODED RATHER THAN JOINED. Two of its four members are free-form
+ * wire strings this console does not author — a checkout path and a server name an
+ * operator typed — so a separator either of them may contain is not a separator:
+ * `('/repo one', 'server')` and `('/repo', 'one server')` were one key under a space
+ * join, which is two rows sharing a React identity and one binding's settlement landing
+ * on the other's control. `structuralKey` owns the injectivity; the arms below own only
+ * which segments the identity is made of.
+ *
+ * The `user` arm contributes one segment FEWER rather than a stand-in for the
+ * `scopeRef` it does not carry: substituting a value for an absent member is the same
+ * collision one union arm later, and the encoder separates arity.
+ *
+ * HERE RATHER THAN BESIDE EITHER READER, because two of them exist at two heights the
+ * console's DAG keeps apart: the operator page keys an outcome by a binding, and the
+ * fixture's inventory ledger substitutes a mutated row by one. A binding's identity is
+ * a property of the binding, so it is declared where the binding is; two spellings
+ * would drift the moment a scope axis moved, and the fixture would then serve a row
+ * the page believes belongs to something else.
+ */
+export function mcpBindingKeyOf(binding: GrowthMcpBindingRef): string {
+  return structuralKey(
+    binding.scope === "user"
+      ? [binding.provider, binding.scope, binding.serverName]
+      : [binding.provider, binding.scope, binding.scopeRef, binding.serverName],
+  );
 }

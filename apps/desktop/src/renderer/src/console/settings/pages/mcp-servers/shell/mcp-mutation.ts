@@ -24,7 +24,7 @@ import type {
   GrowthMcpBindingRef,
   GrowthMcpMutationResult,
 } from "../../../../bridge/index.js";
-import { structuralKey, type ConsoleRefusal } from "../../../../core/index.js";
+import type { ConsoleRefusal } from "../../../../core/index.js";
 
 /** How a mutation this shell sent has settled. */
 export type McpMutationOutcome =
@@ -96,35 +96,4 @@ export async function setBindingTrust(options: {
   return settlement.status === "served"
     ? { kind: "settled", binding, result: settlement.value }
     : { kind: "refused", binding, refusal: settlement };
-}
-
-/**
- * The string one binding is keyed by — its scope-qualified identity, spelled once.
- *
- * THE IDENTITY IS THE WHOLE TUPLE AND NEVER THE SERVER NAME. Two same-named servers in
- * two scopes are two bindings, and a surface that keyed on the name would put one row's
- * outcome on the other's control.
- *
- * AND THE TUPLE IS ENCODED RATHER THAN JOINED. Two of its four members are free-form
- * wire strings this console does not author — a checkout path and a server name an
- * operator typed — so a separator either of them may contain is not a separator:
- * `('/repo one', 'server')` and `('/repo', 'one server')` were one key under a space
- * join, which is two rows sharing a React identity and one binding's settlement landing
- * on the other's control. `structuralKey` owns the injectivity; the arms below own only
- * which segments the identity is made of.
- *
- * The `user` arm contributes one segment FEWER rather than a stand-in for the
- * `scopeRef` it does not carry: substituting a value for an absent member is the same
- * collision one union arm later, and the encoder separates arity.
- *
- * Here rather than beside the one component that maps over it, because the identity is
- * the mutation plane's own fact: the caller keys an outcome by it and the wire keys a
- * binding by it, and two spellings would drift the moment a scope axis moved.
- */
-export function bindingOutcomeKey(binding: GrowthMcpBindingRef): string {
-  return structuralKey(
-    binding.scope === "user"
-      ? [binding.provider, binding.scope, binding.serverName]
-      : [binding.provider, binding.scope, binding.scopeRef, binding.serverName],
-  );
 }

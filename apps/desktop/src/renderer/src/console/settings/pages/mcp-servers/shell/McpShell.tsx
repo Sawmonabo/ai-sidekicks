@@ -21,14 +21,13 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { useConsoleClock, type ConsoleBridge } from "../../../../bridge/index.js";
+import { mcpBindingKeyOf, useConsoleClock, type ConsoleBridge } from "../../../../bridge/index.js";
 import type { GrowthMcpBindingRef } from "../../../../bridge/index.js";
 import { Nothing } from "../../../../primitives/index.js";
 import { usePushDrivenRead } from "../../../../seats/index.js";
 import { createMcpInventoryRead } from "./mcp-inventory-reading.js";
 import {
   IDLE_MCP_MUTATION,
-  bindingOutcomeKey,
   mintIdempotencyKey,
   setBindingEnabled,
   setBindingTrust,
@@ -94,7 +93,7 @@ export function McpShell(props: {
     binding: GrowthMcpBindingRef,
     send: (idempotencyKey: string) => Promise<McpMutationOutcome>,
   ): void => {
-    const key = bindingOutcomeKey(binding);
+    const key = mcpBindingKeyOf(binding);
     recordOutcome(key, { kind: "sending", binding });
     void send(mintKey()).then((settled) => {
       recordOutcome(key, settled);
@@ -147,7 +146,7 @@ export function McpShell(props: {
   return (
     <ul className="meridian-mcp__rows">
       {servers.map((entry) => {
-        const key = bindingOutcomeKey(entry);
+        const key = mcpBindingKeyOf(entry);
         const outcome = outcomes.get(key) ?? IDLE_MCP_MUTATION;
         return (
           <ServerRow
