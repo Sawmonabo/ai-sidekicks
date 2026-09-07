@@ -221,6 +221,22 @@ export class CreateChannelDraft {
     if (this.#kind === "general" && turnsPerAgent === "unreadable") {
       missing.push("a whole number of turns per agent, or none at all");
     }
+    if (
+      this.#kind === "general" &&
+      this.#turnPolicy === "round-robin" &&
+      readIdentifierList(this.#roundRobinOrder) === undefined
+    ) {
+      // A non-empty agent order is part of what a round-robin channel IS
+      // (`Spec-016 §Turn Policies`), refused at create time when it is absent. A form
+      // that declared itself ready without one would compose a request the daemon
+      // must refuse, and the person would meet that refusal after the press instead
+      // of at the field that could still answer it.
+      //
+      // ONLY WHERE THIS FORM CHOSE THE POLICY. An unset policy is the session's own,
+      // and this console does not read which one that is — asking for an order there
+      // would be demanding a value against a policy nobody here can see.
+      missing.push("the round-robin order this policy requires");
+    }
     if (this.#kind === "direct") {
       if (this.#otherParticipantId === undefined) {
         missing.push("the other person in the pair");
@@ -256,7 +272,14 @@ export class CreateChannelDraft {
       : { sessionId, name, kind: "general", config };
   }
 
-  /** What the form actually collected, or `undefined` where it collected nothing. */
+  /**
+   * What the form actually collected, or `undefined` where it collected nothing.
+   *
+   * A `round-robin` policy always carries its order out of here, and that is the
+   * readiness check above rather than a rule restated: a draft holding that policy
+   * with an empty order composes no request at all, so there is no arm on which this
+   * could send the policy without it.
+   */
   #config(): GrowthChannelConfig | undefined {
     const roundRobinOrder = readIdentifierList(this.#roundRobinOrder);
     const turnsPerAgent = readTurnCap(this.#turnsPerAgent);

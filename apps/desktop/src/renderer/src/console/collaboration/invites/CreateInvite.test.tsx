@@ -6,125 +6,31 @@
 // a request this console could not actually send is refused by the call door here
 // rather than passing over a hand-built stub.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import {
-  fixtureBridgeWithGrowth,
-  growthRefusing,
-  growthServing,
-  unscriptedScenario,
-  withDaemonCall,
-  type BridgeUnderTest,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { growthRefusing, growthServing } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { GrowthOutcome } from "../../bridge/index.js";
-import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
-import { settle as settleReactWork } from "../../core/settle.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
+import {
+  CONTROL_PLANE_HOST,
+  DEFAULT_EXPIRY,
+  MINTED_INVITE_ID,
+  MINTED_TOKEN,
+  SHORT_EXPIRY,
+  bridgeFor,
+  choose,
+  mintsReaching,
+  pressSend,
+  scenarioMinting,
+  scenarioRefusingMint,
+  sendControl,
+  settle,
+} from "./create-invite.test-support.js";
 import { DEFAULT_JOIN_MODE } from "./invite-draft.js";
 import { SentInvites } from "./SentInvites.js";
 import { INVITE_1, SESSION_ID, VIEWING_PARTICIPANT, invite } from "./sent-invites.test-support.js";
-
-/** The invitation the scripted mint answers with. Branded UUID, like every wire id. */
-const MINTED_INVITE_ID = "019b7910-0007-7000-8000-000000000001";
-
-/** A plausible `v4.local` blob. Never rendered on its own — only inside the link. */
-const MINTED_TOKEN = "v4.local.dGhpcy1pcy1ub3QtYS1yZWFsLXRva2Vu";
-
-/** The host the scenario's node answers its control plane on. */
-const CONTROL_PLANE_HOST = "sidekicks.example";
-
-/** Seven days past the scenario's own frozen start, which is the default expiry. */
-const DEFAULT_EXPIRY = "2026-01-08T10:05:00.000Z";
-
-/** One day past it, which is the shortest the form offers. */
-const SHORT_EXPIRY = "2026-01-02T10:05:00.000Z";
-
-/**
- * A scenario that answers the mint with the expiry the caller asked for.
- *
- * Computed rather than fixed, because the reveal renders the reply's OWN expiry: a
- * scenario answering one constant would let a case pass over a surface that showed
- * the value it had asked for rather than the one it got back.
- */
-function scenarioMinting(): ConsoleScenario {
-  return {
-    ...unscriptedScenario("collaboration-create-invite-test"),
-    replies: [
-      {
-        call: "invite.create",
-        resultFor: (request) => {
-          const asked = request as { readonly expiresAt?: unknown };
-          return {
-            inviteId: MINTED_INVITE_ID,
-            token: MINTED_TOKEN,
-            expiresAt: typeof asked.expiresAt === "string" ? asked.expiresAt : DEFAULT_EXPIRY,
-          };
-        },
-      },
-    ],
-  };
-}
-
-/** A scenario whose mint refuses with one registered wire code. */
-function scenarioRefusingMint(code: string, message: string): ConsoleScenario {
-  return {
-    ...unscriptedScenario("collaboration-create-invite-refused-test"),
-    replies: [{ call: "invite.create", refusal: { code, message } }],
-  };
-}
-
-/**
- * The real fixture bridge, with the two growth reads this form takes served, and the
- * record of what it was asked.
- *
- * Through the shared call arm rather than a spy on the namespace: the console has one
- * seam for observing what reached the daemon, and a surface's test standing in for a
- * surface goes through the same door a surface does.
- */
-function bridgeFor(
-  scenario: ConsoleScenario,
-  overrides: Parameters<typeof fixtureBridgeWithGrowth>[1] = {},
-): BridgeUnderTest {
-  return withDaemonCall(
-    fixtureBridgeWithGrowth(scenario, {
-      callerParticipantRead: growthServing({ participantId: VIEWING_PARTICIPANT }),
-      controlPlaneHostRead: growthServing({ host: CONTROL_PLANE_HOST }),
-      invitesList: growthServing([invite()]),
-      ...overrides,
-    }),
-    // Every call is the scenario's own; this arm only records what went past.
-    async (_recorded, passThrough) => await passThrough(),
-  );
-}
-
-/** Let the reads, the mint, and the effects each schedules land. */
-async function settle(): Promise<void> {
-  await settleReactWork();
-}
-
-function sendControl(container: HTMLElement): HTMLButtonElement | null {
-  return container.querySelector<HTMLButtonElement>(".meridian-invite-create__send");
-}
-
-/** Press the send control and let the mint and the host read that follows it settle. */
-async function pressSend(container: HTMLElement): Promise<void> {
-  await act(async () => {
-    sendControl(container)?.click();
-    await crossMacrotaskBoundary();
-  });
-  await settle();
-}
-
-/** Choose one radio by the value the wire spells it with. */
-function choose(container: HTMLElement, value: string): void {
-  const control = container.querySelector<HTMLElement>(`[value="${value}"]`);
-  if (control === null) {
-    throw new Error(`no choice for ${value}`);
-  }
-  fireEvent.click(control);
-}
 
 /**
  * The host read held open, with the means to answer it later.
@@ -152,11 +58,6 @@ function heldHostRead(): {
       release();
     },
   };
-}
-
-/** How many invitations actually reached the daemon. */
-function mintsReaching(calls: readonly { readonly method: string }[]): number {
-  return calls.filter((recorded) => recorded.method === "invite.create").length;
 }
 
 describe("creating an invitation — what the request is composed from", () => {

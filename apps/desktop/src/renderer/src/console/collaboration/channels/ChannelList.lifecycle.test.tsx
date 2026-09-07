@@ -125,6 +125,62 @@ describe("channel list — one act at a time", () => {
   });
 });
 
+describe("channel list — the row a refused second press must not relabel", () => {
+  /** One control, addressed by the sentence a person reads on it. */
+  function control(container: HTMLElement, label: string): HTMLButtonElement {
+    const found = container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
+    if (found === null) {
+      throw new Error(`no control labelled ${label}`);
+    }
+    return found;
+  }
+
+  it("keeps the pressed row's own verb when a neighbour's act is refused mid-flight", async () => {
+    // The archive CONFIRMATION is the second press that reaches the handler while the
+    // first is unsettled, and it is not a contrived one: only the trigger carries the
+    // pending gate, and this dialog was opened before anything was in flight. The
+    // coordinator answers it under its single-flight rule and keeps the mute as the
+    // pending row — so the mute's own row must still say what it is doing.
+    const { container } = await renderChannelListSettled(
+      loaded([
+        channel(CHANNEL_REVIEW, "active", "review"),
+        channel(CHANNEL_RELAY, "active", "relay"),
+      ]),
+    );
+
+    act(() => {
+      control(container, "Archive relay").click();
+    });
+    act(() => {
+      control(container, "Mute review").click();
+    });
+    act(() => {
+      document.querySelector<HTMLButtonElement>(".meridian-channels__dialog-confirm")?.click();
+    });
+
+    expect(control(container, "Mute review").textContent).toBe("Muting…");
+    expect(control(container, "Archive review").textContent).toBe("Archive");
+    // And the refused press is ANSWERED rather than dropped, on the row that made it.
+    expect(container.textContent ?? "").toContain("mutation-in-flight");
+    await settle();
+  });
+
+  it("negative control: the pressed row says nothing once its own act settles", async () => {
+    // Without this the case above would pass over a list that rendered "Muting…"
+    // whatever had happened, which is a label rather than a pending state.
+    const { container } = await renderChannelListSettled(
+      loaded([
+        channel(CHANNEL_REVIEW, "active", "review"),
+        channel(CHANNEL_RELAY, "active", "relay"),
+      ]),
+    );
+
+    await press(container, 0);
+
+    expect(control(container, "Mute review").textContent).toBe("Mute");
+  });
+});
+
 describe("channel list — a channel that is gone", () => {
   const goneScenario = scenarioRefusing(
     "channel.mute",

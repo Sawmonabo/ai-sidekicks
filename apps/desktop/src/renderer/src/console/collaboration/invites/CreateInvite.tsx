@@ -45,7 +45,9 @@
 // more await is a credential that can be stranded. A host that refuses leaves the
 // invitation minted and real: the reveal shows the token's own identifier and says
 // the link could not be composed, which is the truth rather than a link with a
-// guessed host in it.
+// guessed host in it — and it offers the one act that still fixes it, a retry of the
+// host read composing from the token the reveal is holding. `use-minted-invite.ts`
+// owns that holding, and says why the token outlives the press that produced it.
 //
 // THE LEDGER IS RE-READ RATHER THAN WRITTEN INTO. `InviteCreateResponse` carries no
 // `state` and no `joinMode`, so folding a row in would mean the renderer composing
@@ -68,7 +70,6 @@ import {
 import { type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useGrowthReadOnMount } from "../../seats/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
 import {
   DEFAULT_INVITE_EXPIRY_ID,
   DEFAULT_JOIN_MODE,
@@ -80,7 +81,8 @@ import {
 } from "./invite-draft.js";
 import { inviteMintWithLink } from "./invite-mint.js";
 import { inviteCreateRemedy } from "./invite-refusal-copy.js";
-import { InviteLinkReveal, type MintedInvite } from "./InviteLinkReveal.js";
+import { InviteLinkReveal } from "./InviteLinkReveal.js";
+import { useMintedInvite } from "./use-minted-invite.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
@@ -141,13 +143,12 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
   const [joinMode, setJoinMode] = useState<JoinMode>(DEFAULT_JOIN_MODE);
   const [expiryId, setExpiryId] = useState<string>(DEFAULT_INVITE_EXPIRY_ID);
 
-  // Both held against the exact subject they belong to, on the ledger's rule beside
-  // this form: an identity read answers about ONE session's roster, and a minted
-  // token belongs to the session it was minted in — a window that moves while either
-  // is unsettled must not show the arriving session what the one it left produced.
-  // Through the growth-read seat rather than a hand-rolled effect: this is exactly
-  // the ask-once-per-subject read four surfaces in two view families already share,
-  // and a second copy would be a second answer to when a read is re-asked.
+  // Held against the exact subject it belongs to, on the ledger's rule beside this
+  // form: an identity read answers about ONE session's roster, so a window that moves
+  // while it is unsettled must not show the arriving session what the one it left was
+  // told. Through the growth-read seat rather than a hand-rolled effect: this is
+  // exactly the ask-once-per-subject read four surfaces in two view families already
+  // share, and a second copy would be a second answer to when a read is re-asked.
   const identity = callerIdentityFrom(
     useGrowthReadOnMount({
       bridge,
@@ -157,11 +158,16 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
       ask: (readBridge, request) => readBridge.growth.callerParticipantRead(request),
     }),
   );
-  const { value: minted, publish: publishMinted } = useSubjectScopedState<MintedInvite | undefined>(
-    bridge,
-    sessionId,
-    () => undefined,
-  );
+  // And what the mint produced, which is the same rule over a longer-lived value —
+  // its own module, because a token that outlives the press has a lifetime worth
+  // stating rather than a `useState` a reader has to reconstruct.
+  const {
+    minted,
+    isComposingLink,
+    hold: holdMinted,
+    release,
+    composeLink,
+  } = useMintedInvite(bridge, sessionId);
 
   const coordinator = useMemo(
     () =>
@@ -209,7 +215,7 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
       // the token's link was composed inside the act the coordinator held its latch
       // over, so the reveal is published in the same turn the control re-opens in and
       // there is no window in which a minted token is neither on screen nor in flight.
-      publishMinted({
+      holdMinted({
         inviteId: settlement.inviteId,
         expiresAt: settlement.expiresAt,
         joinMode,
@@ -217,7 +223,7 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
       });
       onMinted();
     });
-  }, [bridge, coordinator, expiryId, identity, joinMode, onMinted, publishMinted, sessionId]);
+  }, [bridge, coordinator, expiryId, holdMinted, identity, joinMode, onMinted, sessionId]);
 
   if (sessionId === undefined) {
     return (
@@ -234,10 +240,10 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
     return (
       <InviteLinkReveal
         minted={minted}
+        isComposingLink={isComposingLink}
         onCopy={(link) => bridge.sidekicks.native.copyToClipboard(link)}
-        onDone={() => {
-          publishMinted(undefined);
-        }}
+        onComposeLink={composeLink}
+        onDone={release}
       />
     );
   }
