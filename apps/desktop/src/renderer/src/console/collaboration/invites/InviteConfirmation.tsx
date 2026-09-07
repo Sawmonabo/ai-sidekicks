@@ -30,10 +30,20 @@
 //     `null` where the preview answered and the fact was empty — a different reading
 //     from a preview never put — and each absent one renders as an absence rather
 //     than as a blank or a guess.
-//   • It has no decline verb, because the wire has none. Escape, the backdrop, and
-//     **Not now** all put the card away and leave the invitation waiting; discarding
-//     it releases the reference main is holding and tells nobody, which is the only
-//     act the plane actually has.
+//   • It has no decline verb, because the wire has none. What it has is ONE
+//     dismissal, reached three ways — **Not now**, Escape, and the backdrop — and all
+//     three release the reference main is holding and tell nobody, which is the only
+//     act the plane actually has. T-023r-6-3 states it as a requirement: "dismissal
+//     by escape, backdrop, or the decline control routes to `invite.dismissPending`,
+//     never to confirm." A separate **Discard it** control used to sit beside **Not
+//     now** and is retired rather than re-labelled: once every close path releases the
+//     reference, the two controls performed one act under two names, and a card that
+//     offers one act twice is a card that says the quieter one does less.
+//   • Once an answer has settled the close path is ACKNOWLEDGEMENT and not dismissal.
+//     The reference is already spent, so there is nothing left to release and a
+//     `dismissPending` on it would be an act against a handle main no longer holds.
+//     The card owns that branch because it already makes it — it is the same test
+//     that chooses which of the two blocks below renders.
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useRef } from "react";
@@ -50,14 +60,25 @@ import type { PendingInviteSnapshot } from "./pending-invite.js";
 
 export interface InviteConfirmationProps {
   readonly open: boolean;
-  readonly onOpenChange: (open: boolean) => void;
   /** The lifecycle's current reading. Rendered only where it names an invitation. */
   readonly snapshot: PendingInviteSnapshot;
   readonly onConfirm: () => void;
   readonly onRetry: () => void;
-  /** Release the reference. Nobody is told; there is no decline to send. */
-  readonly onDiscard: () => void;
-  /** Put a settled outcome away and move to whatever was waiting behind it. */
+  /**
+   * Release the reference and put the card away — the card's whole close path while
+   * nothing has settled, reached from **Not now**, Escape, and the backdrop alike.
+   *
+   * Nobody is told; there is no decline to send. The lifecycle refuses it while an act
+   * on the same reference is unsettled, which is why the control that dispatches it
+   * closes for that lifetime.
+   */
+  readonly onDismiss: () => void;
+  /**
+   * Put a settled outcome away and move to whatever was waiting behind it.
+   *
+   * The close path too, once an outcome has arrived: the reference is spent, so there
+   * is nothing left to release.
+   */
   readonly onAcknowledge: () => void;
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
@@ -70,9 +91,22 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
     return null;
   }
   const isActing = snapshot.actInFlight !== undefined;
+  // The one close path, and the one branch that decides what closing MEANS. A
+  // settled outcome has already spent the reference, so the act that puts the card
+  // away is an acknowledgement; before one arrives it is the dismissal that releases
+  // what main is holding. The library hands this back for Escape and the backdrop as
+  // well as for the control, which is what makes the three entry points one act.
+  const close = snapshot.outcome === undefined ? props.onDismiss : props.onAcknowledge;
 
   return (
-    <Dialog.Root open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog.Root
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) {
+          close();
+        }
+      }}
+    >
       <Dialog.Portal container={props.overlayContainer}>
         <Dialog.Backdrop className="meridian-invite-confirmation__backdrop" />
         <Dialog.Popup
@@ -125,9 +159,8 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
                 type="button"
                 ref={dismissRef}
                 className="meridian-invite-confirmation__dismiss"
-                onClick={() => {
-                  props.onOpenChange(false);
-                }}
+                disabled={isActing}
+                onClick={props.onDismiss}
               >
                 Not now
               </button>
@@ -139,14 +172,6 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
                 onClick={props.onConfirm}
               >
                 {isActing ? "Joining…" : "Join this session"}
-              </button>
-              <button
-                type="button"
-                className="meridian-invite-confirmation__discard"
-                disabled={isActing}
-                onClick={props.onDiscard}
-              >
-                Discard it
               </button>
             </div>
           ) : (
@@ -164,10 +189,10 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
 
           <p className="meridian-invite-confirmation__footnote">
             {snapshot.waitingBehind > 0
-              ? `Not now leaves this waiting. ${String(snapshot.waitingBehind)} more ${
+              ? `Not now puts this away and tells nobody. ${String(snapshot.waitingBehind)} more ${
                   snapshot.waitingBehind === 1 ? "invitation is" : "invitations are"
                 } behind it.`
-              : "Not now leaves this waiting. Discarding it tells nobody, because there is no decline to send."}
+              : "Not now puts this away and tells nobody, because there is no decline to send. The link still works if you change your mind."}
           </p>
         </Dialog.Popup>
       </Dialog.Portal>

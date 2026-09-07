@@ -197,6 +197,17 @@ export {
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
+// The window's one overlay body, filled by the family that owns it and read by the
+// frame. `unregisterWindowOverlaySeat` is deliberately absent: its only reader is
+// this directory's own suite, and a door line no production module reads is what
+// `architecture/barrel-census.test.ts` fails.
+export {
+  registerWindowOverlaySeat,
+  sessionOpenerFor,
+  windowOverlayRenderer,
+  type WindowOverlaySeatProps,
+} from "./window-overlay-seat.js";
+
 export {
   /** @consumedBy T-023p-1C-2 */
   TIMELINE_ROW_DENSITIES,

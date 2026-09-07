@@ -29,6 +29,7 @@
 import {
   registerCollaborationProjectors,
   registerCollaborationSections,
+  registerInviteLifecycleOverlay,
 } from "./collaboration/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type { ConsoleSurfaceRegistry, SidebarSectionRegistry } from "./seats/index.js";
@@ -67,4 +68,10 @@ export function registerCollaborationFamily(
   registerAgentConsoleSurface(surfaces);
   registerCollaborationSections(sidebarSections);
   registerCollaborationProjectors(projectors);
+  // The window's one overlay body: the deep-link invite lifecycle, which is
+  // bridge-scoped rather than session-scoped and therefore belongs to the window and
+  // not to any surface in it. The seat takes no board parameter because it holds one
+  // occupant rather than a keyed table — `seats/window-overlay-seat.ts` says why — so
+  // the claim is this call and the frame reads whatever it left there.
+  registerInviteLifecycleOverlay();
 }

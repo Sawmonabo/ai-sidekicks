@@ -22,3 +22,4 @@ import "./members/members.css";
 
 export { registerCollaborationSections } from "./sections.js";
 export { registerCollaborationProjectors } from "./members/membership-projector.js";
+export { registerInviteLifecycleOverlay } from "./invites/invite-overlay-registration.js";

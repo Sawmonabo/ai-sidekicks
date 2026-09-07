@@ -28,20 +28,31 @@ export const SESSIONS_HASH = "#/sessions";
  * That context is what the frame builds and hands to every surface, so it is the
  * one seam that reports what the composition root wired without replacing any of
  * it — and a second observer beside it would be a second such seam.
+ *
+ * `scenarioId` names which scripted session the fixture plays, for the suites whose
+ * claim is about what a scenario DELIVERS rather than about the shell. Absent, the
+ * window opens on the first-run scenario, which is what every other suite drives.
  */
 export async function mountConsole(
   observe?: (context: ConsoleSurfaceContext) => void,
+  scenarioId?: string,
 ): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
-  const props: ConsoleRootProps =
-    observe === undefined
+  const props: ConsoleRootProps = {
+    ...(observe === undefined
       ? {}
       : {
           renderOverlays: (context) => {
             observe(context);
             return null;
           },
-        };
+        }),
+    // Spread rather than passed as `scenarioId={scenarioId}`: the prop is optional
+    // under `exactOptionalPropertyTypes`, so an explicit `undefined` is a different
+    // value from an absent prop — and an absent one is what makes the window open on
+    // the first-run scenario every other suite drives.
+    ...(scenarioId === undefined ? {} : { scenarioId }),
+  };
   await act(async () => {
     mounted = render(<ConsoleRoot {...props} />);
     await crossMacrotaskBoundary();
