@@ -80,7 +80,7 @@ import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/index.js";
 import { NotificationCenter, useAttentionSettlementAnnouncement } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
-import { renderAbsorbedSessionProbe } from "../seats/index.js";
+import { renderAbsorbedSessionProbe, requestSessionDirectoryRead } from "../seats/index.js";
 import { shellMutationBlock, useOpenSessionIds, useShellState } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionProjection } from "./rows/open-session-rows.js";
@@ -224,7 +224,17 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         }
         setStartRequestCount((previous) => previous + 1);
       }}
-      onJoined={openSession}
+      onJoined={(sessionId) => {
+        // A SETTLED join and never the press. The node's directory now answers a
+        // session it did not answer a moment ago, and this window's binding read that
+        // list once for the whole window — so without this the joined session is
+        // absent from the all-sessions list until the window comes down. The act has
+        // already settled and carries the session it joined, which is what makes this
+        // a read of something that HAPPENED rather than a guess put beside a call
+        // still in flight.
+        requestSessionDirectoryRead(growth);
+        openSession(sessionId);
+      }}
       blockedReason={blockedActSentence}
     />
   );

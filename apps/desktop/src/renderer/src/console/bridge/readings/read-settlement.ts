@@ -150,12 +150,27 @@ export interface SettledGrowthReadProjection<TOutcome, TState> {
  * carries the addressing it was captured under, so an answer arriving after the
  * subject moved writes nowhere, and the holder re-seeds during the render that brings
  * a new subject rather than in an effect one commit later.
+ *
+ * AND A READ REVISION, WHICH IS NOT A SECOND SUBJECT. A reading whose answer can go
+ * stale under a subject that has not moved needs a way to ask again, and the two
+ * mechanisms this hook already has are both wrong for it: re-addressing the holder
+ * re-seeds to `unsettled`, which blanks a list a person is reading, and there is no
+ * timer here and never will be. So the caller advances a counter and this effect
+ * re-runs over the SAME address — the previous answer stays on screen until the new
+ * one lands, and a re-render that advances nothing re-reads nothing. It defaults to a
+ * constant, so a reading with no staleness of its own is unchanged by its presence.
+ *
+ * It is a REVISION rather than a generation, and the word is the claim: a generation
+ * in this console is `store/generation-latch.ts`, which decides whether a settlement
+ * may install. This decides nothing about an answer that has arrived — it says only
+ * that the question is worth putting again.
  */
 export function useSettledGrowthRead<TOutcome, TState>(
   growth: GrowthPort,
   key: SubjectKey,
   read: (key: SubjectKey) => Promise<TOutcome> | undefined,
   project: SettledGrowthReadProjection<TOutcome, TState>,
+  readRevision = 0,
 ): SettledGrowthRead<TState> {
   const { value, publish } = useSubjectScopedState<TState>(growth, key, () =>
     project.unsettled(key),
@@ -172,9 +187,11 @@ export function useSettledGrowthRead<TOutcome, TState>(
     // `publish` re-identifies exactly when the holder is re-addressed, so it is both
     // the guard on this read's answer and the whole of what tells this effect to run
     // again — the dependency list the four hand-written copies of this effect already
-    // carried. `read` and `settled` are deliberately not in it: each is a closure the
-    // caller rebuilds every render over exactly the port and key already named here,
-    // so listing them would re-read on every render of every surface.
-  }, [growth, key, publish]);
+    // carried, plus the revision above, which is the caller's own way of saying the
+    // answer went stale under an address that did not move. `read` and `settled` are
+    // deliberately not in it: each is a closure the caller rebuilds every render over
+    // exactly the port and key already named here, so listing them would re-read on
+    // every render of every surface.
+  }, [growth, key, publish, readRevision]);
   return { value, publish };
 }
