@@ -3,6 +3,8 @@
 
 import { act, render } from "@testing-library/react";
 
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
+
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import {
   unscriptedScenario,
@@ -125,7 +127,9 @@ describe("the bulk action bar", () => {
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>(".meridian-sidebar-bulk__confirm-run")?.click();
-      await Promise.resolve();
+      // A boundary rather than a counted microtask: the confirm dispatches a fan-out
+      // whose depth is the act table's, not this case's.
+      await crossMacrotaskBoundary();
     });
 
     expect(calls.map((call) => call.method)).toStrictEqual(["run.queueCancel"]);

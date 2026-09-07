@@ -209,7 +209,6 @@ export {
 // runner; the two enumerations are what a view family derives its groups and acts from
 // rather than restating them.
 export {
-  SIDEBAR_BULK_ACTS,
   SIDEBAR_ROLLUP_GROUPS,
   type SidebarBulkAct,
   type SidebarBulkItem,

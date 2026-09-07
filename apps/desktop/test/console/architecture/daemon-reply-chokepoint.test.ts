@@ -158,6 +158,12 @@ function isBridgeFamilyModule(module: string): boolean {
  * describe what `callDaemon` answers, and the needle below separates an import clause
  * from a sentence.
  *
+ * Thirteenth: `workspace/sidebar/bulk/bulk-acts.ts`, the sidebar's bulk act table. It
+ * is the one module that names all three bulk verbs, and it names them as LITERALS so
+ * each request keeps the type the method fixes — a table holding the method as data
+ * would have to widen every request to `unknown`, which is the check the door exists
+ * to make.
+ *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
  * started reaching past it would be caught by the reach scan above rather than here.
@@ -166,7 +172,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 12;
+const CALL_DOOR_CONSUMER_COUNT = 13;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
