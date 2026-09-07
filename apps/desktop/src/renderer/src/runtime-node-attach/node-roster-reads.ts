@@ -12,9 +12,9 @@
 // home for both — the first is `console/bridge/runtime-nodes/runtime-node-roster.ts`, which is
 // where the registered procedure name and the presence event set are declared once
 // and where the all-or-nothing subscription policy is argued. The two homes had
-// already diverged: the bridge module subscribes to all five registered
-// state-transition names and refuses partially, and the default arm here subscribed
-// to `runtime_node.online` alone — one of five, which is the configuration the
+// already diverged: the bridge module subscribes to every registered
+// `runtime_node.*` name and refuses partially, and the default arm here subscribed
+// to `runtime_node.online` alone — one of seven, which is the configuration the
 // sibling module argues is the worst available, because a roster that updates
 // sometimes is the hardest kind of staleness to notice. So the default arm is gone
 // rather than repaired: every mount supplies the seam, `console/seats/absorbed-surfaces.ts`

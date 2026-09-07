@@ -1,3 +1,13 @@
+// The figure, what it is made of, and the three splits of it.
+//
+// THE PROVENANCE LINE IS FOUR FIGURES THE DAEMON SENT AND NO ARITHMETIC. The budget
+// state the receipt carries as its session total decomposes the committed figure into
+// what was priced, what was debited against an unpriced family, and what is reserved
+// and not yet spent — and every one of those is a member on the wire. They are
+// rendered as they arrived, each labelled, with no sum taken and no identity asserted
+// between them: the page's own rules forbid producing a figure, and adding two of
+// these to check the third would be exactly that.
+
 import { type ReactNode } from "react";
 import { Chip } from "../../../primitives/index.js";
 import { verifyReceiptPartitions, type CostReceipt } from "./cost-receipt-model.js";
@@ -11,7 +21,13 @@ import { PartitionSection } from "./PartitionSection.js";
 export function ServedReceipt(props: { readonly receipt: CostReceipt }): ReactNode {
   const { receipt } = props;
   const verdicts = verifyReceiptPartitions(receipt);
-  const { committedSpendCents, costStatus } = receipt.sessionTotal;
+  const {
+    committedSpendCents,
+    costStatus,
+    observedPricedCostCents,
+    observedUnpricedDebitCents,
+    reservedCostCents,
+  } = receipt.sessionTotal;
   return (
     <>
       <section className="meridian-settings-page__block" aria-label="What this session is charged">
@@ -25,6 +41,31 @@ export function ServedReceipt(props: { readonly receipt: CostReceipt }): ReactNo
             The status beside the figure says how it was arrived at. It decides nothing.
           </p>
         </div>
+        <dl className="meridian-cost-receipt__provenance">
+          <div>
+            <dt>Priced</dt>
+            <dd className="meridian-cost-receipt__amount">
+              <MoneyFigure cents={observedPricedCostCents} />
+            </dd>
+          </div>
+          <div>
+            <dt>Unpriced debit</dt>
+            <dd className="meridian-cost-receipt__amount">
+              <MoneyFigure cents={observedUnpricedDebitCents} />
+            </dd>
+          </div>
+          <div>
+            <dt>Reserved</dt>
+            <dd className="meridian-cost-receipt__amount">
+              <MoneyFigure cents={reservedCostCents} />
+            </dd>
+          </div>
+        </dl>
+        <p className="meridian-cost-receipt__figure-caption">
+          Each of these three is a figure the accountant sent, shown as it arrived. Work a model
+          family is not priced for is debited against that family&rsquo;s own cap rather than
+          quietly costing nothing, and reserved spend is committed and not yet observed.
+        </p>
       </section>
 
       <PartitionSection

@@ -23,6 +23,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { InvalidAuxiliaryRouteTargetError } from "../../../../shared/auxiliary-routes.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 import { settle as settleReactWork } from "../core/settle.test-support.js";
 import {
   FrameStore,
@@ -122,7 +123,10 @@ function BoundRouteSurface(props: {
   const route = useFrameStore(props.frameStore, (state) => state.route);
   const context = {
     route,
-    bridge: { growth: createRefusingGrowthPort() },
+    // The reconnect signal is the silent one: no case here drives an outage, and a
+    // probe that drives none takes it rather than leaving the member off a cast the
+    // compiler cannot check.
+    bridge: { growth: createRefusingGrowthPort(), transportReconnect: NO_TRANSPORT_RECONNECT },
     frameStore: props.frameStore,
     sessionStore: props.sessionStore,
     sessionStoreRegistry: props.registry,

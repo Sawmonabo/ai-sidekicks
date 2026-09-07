@@ -13,10 +13,8 @@ import { type ConsoleBridge, type GrowthOutcome } from "../../../bridge/index.js
 // its own, because no production module takes that arm by name — and a door line
 // whose only reader is a suite is the dead export `barrel-census.test.ts` reports.
 import type { GrowthUnavailable } from "../../../bridge/growth-port/growth-outcome.js";
-import {
-  createRefusingGrowthPort,
-  growthUnavailable,
-} from "../../../bridge/growth-port/growth-port.js";
+import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
+import { growthUnavailable } from "../../../bridge/growth-port/growth-refusals.js";
 import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { useSessionGoalMutation } from "../approvals-hooks.js";
 import { SECOND_SESSION_ID, SESSION_ID } from "../approvals-hooks.test-support.js";

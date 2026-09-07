@@ -40,6 +40,8 @@ import { resolveScriptedReply, assertScriptedReplyOnContract } from "./fixture-c
 import { createFixtureGrowthPort } from "./fixture-growth-port.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import { refuseAbsentCapability } from "./fixture-refusal.js";
+import { playScenarioTransportOutages } from "./fixture-transport-outages.js";
+import { TransportReconnectSignal } from "../transport/transport-reconnect.js";
 import { encodeCeremonyResolution } from "../web-authn/index.js";
 import type {
   ProducedCeremonyOutcome,
@@ -67,9 +69,16 @@ export interface FixtureBridgeOptions {
 /** Build the fixture bridge for one scenario. */
 export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridge {
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
+  const transportReconnect = new TransportReconnectSignal();
+  // Bound before anything can advance the clock, so an outage scripted at tick zero
+  // is observed rather than stepped over. The release is the engine subscription's,
+  // and `ScenarioEngine.dispose` clears every sink it holds — so a window torn down
+  // releases this with the rest rather than through a handle nobody holds.
+  playScenarioTransportOutages(scenarioEngine, transportReconnect);
   // One host per bridge, because the assertion sequence is per WINDOW: see its own
   // declaration for why the count lives here and not on the scenario.
   const ceremonyHost = new ScriptedCeremonyRunner(scenarioEngine);
+  const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
   const sidekicks: SidekicksBridge = {
     daemon: {
       // `DaemonResult<M>` is a Plan-007 stub that resolves to `unknown`, so the
@@ -142,9 +151,14 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       deriveKeyMaterial: () => refuseAbsentCapability("webAuthn.deriveKeyMaterial"),
     },
     update: {
-      getState: async (): Promise<UpdateState> => ({ status: "idle" }),
+      // The scenario's own declaration, or the bare `idle` this fixture answered
+      // before scenarios could state one. The default carries NO `lastCheckedAt`
+      // deliberately: that member is optional on the wire, absent means no check has
+      // ever completed, and a fixture that supplied an instant on every scenario
+      // would make the never-checked arm unreachable in the whole deck.
+      getState: async (): Promise<UpdateState> => updaterState,
       subscribe: (handler): Unsubscribe => {
-        handler({ status: "idle" });
+        handler(updaterState);
         return () => undefined;
       },
       requestCheck: () => refuseAbsentCapability("update.requestCheck"),
@@ -191,6 +205,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // end-to-end runs was suppressed and the attached path the wiring table
     // promises was exercised by nothing.
     paneViewHostScript: createScriptedPaneViewHost(),
+    transportReconnect,
     source: "fixture",
     scenarioEngine,
   };

@@ -55,8 +55,11 @@
 
 import { type DriverCapabilityFlag, type RunState } from "@ai-sidekicks/contracts";
 
-import { readingForRun, type DriverCapabilityReadout } from "../../../bridge/index.js";
-import { isLiveRunState } from "../run-status.js";
+import {
+  isLiveRunState,
+  readingForRun,
+  type DriverCapabilityReadout,
+} from "../../../bridge/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
 
 /**

@@ -45,7 +45,7 @@ describe("fixture bridge — the runtime-node roster and the signal that refresh
     ).toStrictEqual(["node-workstation", "node-builder"]);
   });
 
-  it("signals the subscriber when a registered transition beat falls due", () => {
+  it("signals the subscriber on every registered node beat that falls due", () => {
     const fixture = createFixture(SETTINGS_SCENARIO);
     let signals = 0;
     const subscription = fixture.bridge.runtimeNodePresenceSubscribe(
@@ -58,10 +58,13 @@ describe("fixture bridge — the runtime-node roster and the signal that refresh
     expect(subscription.status).toBe("subscribed");
     fixture.engine.advance(PAST_THE_DEGRADE_MS);
 
-    // Two registrations, two arrivals, one degrade — the five state-transition
-    // beats this script plays. The two `capability_declared` beats are NOT among
-    // them, which is what makes the count an assertion rather than a tally.
-    expect(signals).toBe(5);
+    // Two registrations, two capability declarations, two arrivals, one degrade —
+    // the seven `runtime_node.*` beats this script plays, and the subscription
+    // carries all seven registered names because every one of them moves a member
+    // of the roster reply. The two `capability_declared` beats were once outside
+    // the set, so this count is the regression's own assertion rather than a tally:
+    // it reads 5 again the moment the seam re-partitions the census.
+    expect(signals).toBe(7);
   });
 
   it("negative control: the same subscription is silent before its beats fall due", () => {

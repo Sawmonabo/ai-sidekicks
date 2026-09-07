@@ -2291,6 +2291,29 @@ describe("AttachService — readRoster (roster projection, T5.0c)", () => {
     expect(missingSessionRoster.nodes).toEqual([]);
   });
 
+  it("projects a null controlHolder while no lease row can exist (the shared-terminal projection)", async () => {
+    // `controlHolder` is REQUIRED on the wire and nullable in value, so this
+    // asserts the KEY is present and its value is `null` rather than asserting
+    // a falsy read that an omitted member would also satisfy. `null` here is
+    // the true reading: `session_terminal_leases` and its `runtimenode.
+    // leaseupdate` producer both belong to the Plan-024 Phase 3B lease leg, so
+    // nothing has written a lease for this session and no live holder exists to
+    // advertise.
+    await seedParticipant(ctx.querier, PARTICIPANT_ID);
+    await seedSession(ctx.querier, SESSION_ID);
+    await seedAttachment(ctx.querier, {
+      nodeId: NODE_ID,
+      sessionId: SESSION_ID,
+      participantId: PARTICIPANT_ID,
+      state: "online",
+    });
+
+    const roster = await ctx.service.readRoster({ sessionId: SESSION_ID });
+    expect(roster.nodes).toHaveLength(1);
+    expect(Object.hasOwn(roster, "controlHolder")).toBe(true);
+    expect(roster.controlHolder).toBeNull();
+  });
+
   it("writes NOTHING — attachments, presence, and session_memberships are byte-for-byte unchanged across a roster read (I-003-3; ADR-017)", async () => {
     // The read-only-projection property, asserted across the FULL write
     // surface with the suite's standard two disjoint mutation modes

@@ -20,9 +20,9 @@ import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { SessionStoreRegistry } from "../store/index.js";
 import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  SessionEventBinder,
   type ConsoleSessionDiagnostics,
-} from "./session-event-binder.js";
+} from "./session-diagnostics-handle.js";
+import { SessionEventBinder } from "./session-event-binder.js";
 import {
   SessionProbe,
   fixtureBridgeWrapper,

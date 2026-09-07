@@ -25,6 +25,7 @@ import { useMemo } from "react";
 import { describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider } from "../bridge/index.js";
+import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 // This family's own settle, rather than `core/`'s: the attention read goes through
 // the console's one refresh scheduler, so its first read lands a debounce interval
 // after the subscribe — measured on the wall clock, because the bridge these cases
@@ -130,6 +131,10 @@ function harness(
     // taking the published retry, so a bridge that signalled here would be a second
     // thing driving the read and the call counts would stop meaning anything.
     attentionSubscribe: () => () => undefined,
+    // The transport's reconnect signal, silent for the same reason and taken rather
+    // than left off: this bridge is cast, so a window trigger reading a member that
+    // is not here fails at the mount instead of at the compiler.
+    transportReconnect: NO_TRANSPORT_RECONNECT,
     // Recorded rather than asserted on the shell: the claim is that a call LEFT this
     // window, and `showNotification` returns `void` on the real bridge too, so the
     // count of calls is the whole observable.

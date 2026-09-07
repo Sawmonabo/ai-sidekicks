@@ -24,11 +24,30 @@ import { parseInstant } from "./instant.js";
 /** The wire spelling, so a case that renders it and a case that clocks it agree. */
 export const FROZEN_START_ISO = "2026-01-01T10:00:00.000Z";
 
+/**
+ * Any wire stamp a case names, as epoch milliseconds, through the console's reader.
+ *
+ * HERE RATHER THAN IN EACH SUITE THAT WANTS ONE. The stamp above is the frozen START
+ * and several suites need a DIFFERENT moment — a read taken two weeks after an
+ * observation, a clock read at the top of a stall case — and each of them reached for
+ * `Date.parse` to get it, which is the reading this module exists to keep out of test
+ * data. The general form is the same three lines as the specific one and belongs in
+ * the same file, so a suite naming its own moment has somewhere to go that is not the
+ * banned call.
+ *
+ * It RAISES rather than defaulting, for the reason the frozen start does: a stamp a
+ * case wrote and nobody can read is a broken fixture, and standing one up at epoch
+ * zero would run the case against a clock decades from its own data.
+ */
+export function instantMilliseconds(iso: string): number {
+  const reading = parseInstant(iso);
+  if (reading.kind !== "instant") {
+    throw new Error(`a case named an unreadable instant: ${iso}`);
+  }
+  return reading.epochMilliseconds;
+}
+
 /** {@link FROZEN_START_ISO} as epoch milliseconds, read through the console's reader. */
 export function frozenStartMilliseconds(): number {
-  const start = parseInstant(FROZEN_START_ISO);
-  if (start.kind !== "instant") {
-    throw new Error(`the frozen start instant is unreadable: ${FROZEN_START_ISO}`);
-  }
-  return start.epochMilliseconds;
+  return instantMilliseconds(FROZEN_START_ISO);
 }

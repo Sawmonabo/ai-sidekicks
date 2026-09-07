@@ -195,7 +195,7 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "shellNotificationPermissionRead",
       "notification-permission-read",
       "method",
-      "whether this machine will display an OS notification, so the notification centre can say when it is the only surface",
+      "whether this machine will display an OS notification, so the notification centre can say when it is the only surface and the notifications page can say what the machine has answered",
     ),
     shellStatusSubscribe: op(
       "shellStatusSubscribe",

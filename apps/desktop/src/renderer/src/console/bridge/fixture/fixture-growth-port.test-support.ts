@@ -1,8 +1,10 @@
 // What every fixture-growth-port suite needs before it can ask the port anything.
 //
-// One home for the three helpers more than one of the sibling suites uses: the
-// operation caller that does not retype the signature table, the fixture's own
-// port, and the scenario finder each refusal premise rests on. It holds nothing a
+// One home for the helpers more than one of the sibling suites uses: the operation
+// caller that does not retype the signature table, the fixture's own port, the scenario
+// finder each refusal premise rests on, and the served-outcome narrowing every plane
+// suite performs. They are named rather than counted, because a helper reaching its
+// second reader joins them in a diff that never reads this header. It holds nothing a
 // single suite uses — a helper with one reader stays beside its reader.
 
 import { createFixtureBridge } from "./fixture-bridge.js";
@@ -126,4 +128,18 @@ export function findScenariosNaming(
       return members.some((member) => serialised.includes(`"${member}"`));
     })
     .map((scenario) => scenario.id);
+}
+
+/**
+ * The value a served outcome carries, or a failure naming what the port answered.
+ *
+ * Hoisted here on its second reader rather than copied: the plane suites beside the
+ * port all narrow the same union the same way, and a second copy would report a
+ * refusal as an unhelpful `undefined` in whichever suite drifted.
+ */
+export function servedValueOf<TValue>(outcome: GrowthOutcome<TValue>): TValue {
+  if (outcome.status !== "served") {
+    throw new Error(`the fixture port answered ${outcome.status} rather than serving a value`);
+  }
+  return outcome.value;
 }

@@ -67,6 +67,17 @@ export const SHELL_DIRECTORY: string = join(RENDERER_SOURCE_ROOT, "shell");
 export const CONSOLE_SOURCE_ROOTS: readonly string[] = [CONSOLE_DIRECTORY, SHELL_DIRECTORY];
 
 /**
+ * Every hand-written module the package SHIPS, both processes included.
+ *
+ * The root for a gate whose subject spans the process boundary — a value main and the
+ * renderer both read, a shape neither may re-declare. `CONSOLE_SOURCE_ROOTS` cannot
+ * express such a claim at all, because half of what it forbids lives in `src/main/`,
+ * and `DESKTOP_PROSE_ROOTS` over-reaches it by carrying `test/`, where a case that
+ * proves a rule bites has to write the thing the rule forbids.
+ */
+export const DESKTOP_SOURCE_ROOT: string = join(DESKTOP_PACKAGE_ROOT, "src");
+
+/**
  * Every hand-written module in the package, in scan order.
  *
  * The roots for a gate whose subject is PROSE rather than console structure. A stacked
@@ -81,7 +92,7 @@ export const CONSOLE_SOURCE_ROOTS: readonly string[] = [CONSOLE_DIRECTORY, SHELL
  * `.test-support.*` half; the roots alone would still subtract it.
  */
 export const DESKTOP_PROSE_ROOTS: readonly string[] = [
-  join(DESKTOP_PACKAGE_ROOT, "src"),
+  DESKTOP_SOURCE_ROOT,
   join(DESKTOP_PACKAGE_ROOT, "test"),
 ];
 

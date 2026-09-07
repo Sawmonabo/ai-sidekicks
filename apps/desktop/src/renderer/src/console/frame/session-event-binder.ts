@@ -47,6 +47,27 @@
 //     as if no read existed. `#bindSession` requests the read in the same act as
 //     taking the subscription, so the two cannot be separated by a caller who
 //     remembers one of them.
+//   • **No session left unbound because the wire was away when it opened.** A
+//     `daemon.subscribe` that throws leaves the session with no stream and no base
+//     state, and the registry's `opened` change has already been delivered. What is
+//     remembered about that, and what one returning edge is worth, is
+//     `unbound-session-retry.ts` — a second subject this class was carrying.
+//
+// AND THE EDGE IT RETRIES ON IS NOT ONE THIS CLASS PRODUCES
+//
+// It was, and that was a deadlock rather than an economy. This class reported
+// `unreachable` from its own failed open and `reachable` from its own successful one,
+// and it is the only live-path consumer of the returning edge — so a window whose ONLY
+// session failed to bind held the one state that could never change: the retry needed
+// an edge, and the edge needed a bind. Transport recovery alone could not reach that
+// session, and nothing on screen said why.
+//
+// So the observation moved DOWN, onto the door every daemon subscription in the window
+// goes through (`bridge/transport/observed-subscription.ts`, reported into by
+// `bridge/daemon/daemon-streams.ts` and `seats/wire-access.ts` as well as by the open
+// below). This class reports nothing and subscribes once, for its whole life, to a
+// signal other openers move: the node's provider-account tail coming back is a
+// returning edge, and it is one a window with no bindable session can still observe.
 //
 // WHAT THE WIRE ACTUALLY OFFERS, AND WHAT THIS DOES ABOUT IT
 //
@@ -59,18 +80,27 @@
 // `session.subscribe` will need: when the wire grows a request shape, this call
 // gains an argument and nothing else about the lifecycle moves.
 //
-// Reading a delivered payload is a different job and lives in
-// `bridge/daemon/session-event-payload.ts`: this module owns WHICH sessions are bound and for how
-// long, that one owns WHAT a delivered payload has to look like. Neither can be
-// wrong in the other's way.
+// Reading a delivered payload is a different job, in `bridge/daemon/session-event-payload.ts`:
+// this module owns WHICH sessions are bound and for how long, that one owns WHAT a delivered
+// payload has to look like. The fixture handle is a third, in `session-diagnostics-handle.ts`:
+// this class composes what the endurance tier may read — the three reads below, closed over
+// this binder's own state — and that module owns the page property, the define that gates it,
+// and the identity check that keeps a replaced binder's teardown from deleting the live one's
+// handle. Splitting them is what stops a lifecycle file from being three files' worth of job.
 
 import type { Unsubscribe } from "../core/index.js";
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
+import { lossyStringify, reportTripwire } from "../core/index.js";
 import {
   SESSION_EVENT_STREAM,
+  openObservedSubscription,
   readConsoleSessionEvent,
   type ConsoleBridge,
 } from "../bridge/index.js";
+import {
+  SessionDiagnosticsHandle,
+  type ConsoleSessionDiagnostics,
+} from "./session-diagnostics-handle.js";
+import { UnboundSessionRetry } from "./unbound-session-retry.js";
 import type { SessionStoreRegistry } from "../store/index.js";
 
 /** The site every tripwire this module reports names. */
@@ -91,48 +121,6 @@ const SITE = "console/frame/session-event-binder.ts";
  */
 type SessionStreamSubscribe = (event: string, handler: (payload: unknown) => void) => Unsubscribe;
 
-/**
- * What a fixture build exposes to the endurance tier, and nothing more.
- *
- * Three reads, no writes and no handles: a tier driving a real window from outside
- * the renderer can ask what is open, what is bound, and how much has flowed, and
- * cannot open a session, close one, or apply an event.
- */
-export interface ConsoleSessionDiagnostics {
-  /** Sessions the registry currently holds a store for, in open order. */
-  openSessionIds: () => readonly string[];
-  /**
-   * Events this window has put through one session's apply chokepoint.
-   *
-   * Deliberately NOT the store's timeline length: a store admits nothing until a
-   * read gives it a base state, so a timeline reading is zero for every session
-   * whose read has not landed, and a diagnostic that reports the same number
-   * whether or not this binder exists is worse than no diagnostic at all. This
-   * counts admissions to the chokepoint: deliveries the registry accepted for a
-   * session's apply queue. It is zero — correctly, and beside `boundSessionIds()`
-   * reading empty — on a window whose registry can initialise no store, because
-   * that window takes no wire subscription in the first place.
-   *
-   * Retained after a session closes, so the count FREEZES rather than vanishing.
-   * A reading that disappeared on close could not be told apart from a session
-   * that never received anything.
-   */
-  appliedEventCountFor: (sessionId: string) => number;
-  /** Sessions this binder currently holds a wire subscription for. */
-  boundSessionIds: () => readonly string[];
-}
-
-/*
- * The property a fixture build hangs the session diagnostics on.
- *
- * Declared in `core/fixture-globals.ts` and re-exported here, so this installer
- * and the release-absence sweep that proves the handle absent read one string.
- * Re-exported rather than only imported because the tier that reads it reaches
- * this module by name, so a rename is a compile error there instead of a check
- * that silently starts reading `undefined` and reports nothing forever.
- */
-export { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL };
-
 export interface SessionEventBinderOptions {
   readonly registry: SessionStoreRegistry;
   readonly bridge: ConsoleBridge;
@@ -143,8 +131,11 @@ export class SessionEventBinder {
   readonly #bridge: ConsoleBridge;
   readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
+  /** Which failed opens are remembered, and what one returning edge is worth. */
+  readonly #retry: UnboundSessionRetry;
+  readonly #diagnosticsHandle = new SessionDiagnosticsHandle();
   #unsubscribeFromRegistry: Unsubscribe | undefined;
-  #installedDiagnostics: ConsoleSessionDiagnostics | undefined;
+  #unsubscribeFromTransportReconnect: Unsubscribe | undefined;
   #unreadableDeliveryCount = 0;
   #droppedAfterCloseCount = 0;
   #attached = false;
@@ -153,6 +144,15 @@ export class SessionEventBinder {
   public constructor(options: SessionEventBinderOptions) {
     this.#registry = options.registry;
     this.#bridge = options.bridge;
+    // The three questions a pass asks, answered from here so the retry can reach a
+    // retained id and nothing else — not a subscription map, not a store, not a wire.
+    this.#retry = new UnboundSessionRetry({
+      isRetired: () => this.#disposed,
+      isStillOpen: (sessionId) => this.#registry.has(sessionId),
+      rebind: (sessionId) => {
+        this.#bindSession(sessionId);
+      },
+    });
   }
 
   /**
@@ -170,6 +170,16 @@ export class SessionEventBinder {
    * is still installed on that arm: "bound: none, applied: zero" is a reading, and
    * an absent handle is indistinguishable from a build with no binder at all.
    *
+   * A THIRD SUBSCRIPTION IS TAKEN ON THAT SAME ARM: the transport's returning edge,
+   * which is what re-attempts the sessions whose open threw. ONE subscription for this
+   * binder's whole life, taken at its single lifecycle door rather than per session
+   * bind or per render — the retained set is what a returning edge is walked against,
+   * and a per-bind subscription would walk it once per session. The edge is produced by
+   * the console's subscription doors and never by this class, so the retry costs no
+   * probe, no timer, and no second reading of whether the wire is there — and the signal
+   * emits only on `unreachable → reachable`, so a window whose wire never went away pays
+   * nothing.
+   *
    * Idempotent, and a no-op once disposed: a disposed binder holds no
    * subscription and must not be able to start one from a late effect.
    */
@@ -186,16 +196,29 @@ export class SessionEventBinder {
         }
         this.#unbindSession(change.sessionId);
       });
+      this.#unsubscribeFromTransportReconnect = this.#bridge.transportReconnect.subscribe(() => {
+        this.#retry.runOnePass();
+      });
       for (const sessionId of this.#registry.openSessionIds) {
         this.#bindSession(sessionId);
       }
     }
-    this.#installFixtureDiagnostics();
+    this.#diagnosticsHandle.install(this.#buildFixtureDiagnostics());
   }
 
   /** Sessions this binder holds a wire subscription for, in bind order. */
   public get boundSessionIds(): readonly string[] {
     return [...this.#unsubscribeBySessionId.keys()];
+  }
+
+  /** Open sessions whose stream could not be opened. The retry's own reading. */
+  public get unboundSessionIds(): readonly string[] {
+    return this.#retry.retainedSessionIds;
+  }
+
+  /** Binds re-attempted on a returning transport edge, whether or not they took. */
+  public get retriedBindCount(): number {
+    return this.#retry.retriedBindCount;
   }
 
   /** Events admitted to one session's apply chokepoint. Frozen once it closes. */
@@ -247,24 +270,66 @@ export class SessionEventBinder {
     this.#disposed = true;
     this.#unsubscribeFromRegistry?.();
     this.#unsubscribeFromRegistry = undefined;
+    this.#unsubscribeFromTransportReconnect?.();
+    this.#unsubscribeFromTransportReconnect = undefined;
     for (const unsubscribe of this.#unsubscribeBySessionId.values()) {
       unsubscribe();
     }
     this.#unsubscribeBySessionId.clear();
-    this.#removeFixtureDiagnostics();
+    // Released with the rest: a retained id is a promise to re-attempt, and a
+    // disposed binder makes none.
+    this.#retry.clear();
+    this.#diagnosticsHandle.remove();
   }
 
+  /**
+   * Open one session's stream, and report what that told us about the transport.
+   *
+   * THE OPEN GOES THROUGH THE DOOR THAT OWNS WHAT AN OPEN PROVES, and this class
+   * therefore reports nothing itself. `openObservedSubscription` tells the signal what
+   * the transport did on this call exactly as it does for every other subscription the
+   * window takes; a second, hand-written report here would be the same claim made twice
+   * — and when it was the ONLY claim, this class was both the producer of the returning
+   * edge and its only consumer, which is a deadlock rather than an economy.
+   *
+   * A throw used to leave this method as itself, out of the registry callback that
+   * called it and into a mount effect, taking the window down for a transport that
+   * was merely away. It is now recorded on three surfaces, and each one answers a
+   * question the others cannot. The SIGNAL is told the wire is unreachable — by the
+   * door, on the way out — so the returning edge exists at all. The session's own STORE
+   * is marked `subscription-closed` through the registry — the declared degraded cause
+   * `degradation.ts` reserves for "a wire that stopped", so the session shows a stream
+   * it does not have as a named degradation rather than as a quiet, permanently empty
+   * projection. And the id is RETAINED, so the edge has something to re-attempt.
+   *
+   * The store's cause is sticky until a completed re-pull clears it, which is exactly
+   * right here — the retry asks for that re-pull, so a session that comes back stops
+   * being degraded because it was re-read and not because it was re-subscribed.
+   */
   #bindSession(sessionId: string): void {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
       return;
     }
     const subscribe = this.#bridge.sidekicks.daemon.subscribe as SessionStreamSubscribe;
-    this.#unsubscribeBySessionId.set(
-      sessionId,
-      subscribe(SESSION_EVENT_STREAM, (payload) => {
-        this.#deliver(sessionId, payload);
-      }),
-    );
+    let release: Unsubscribe;
+    try {
+      release = openObservedSubscription(this.#bridge.transportReconnect, () =>
+        subscribe(SESSION_EVENT_STREAM, (payload) => {
+          this.#deliver(sessionId, payload);
+        }),
+      );
+    } catch (subscriptionFailure: unknown) {
+      this.#retry.retain(sessionId);
+      this.#registry.markDegraded(sessionId, "subscription-closed");
+      reportTripwire(
+        "apply-chokepoint-bypass",
+        SITE,
+        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the binder holds no subscription for it, its store is marked subscription-closed, and the session is retried on the transport's returning edge`,
+      );
+      return;
+    }
+    this.#retry.forget(sessionId);
+    this.#unsubscribeBySessionId.set(sessionId, release);
     // The read that gives the store its base state, asked for at the one moment
     // that knows a stream just started. `subscribe` is a registered refresh reason
     // and means precisely this. Without it a bound session buffers forever —
@@ -277,6 +342,10 @@ export class SessionEventBinder {
   }
 
   #unbindSession(sessionId: string): void {
+    // Dropped whether or not a subscription was ever taken: a session that closes
+    // has nothing left to retry, and this is what bounds the retained set by the
+    // open set rather than by the window's life.
+    this.#retry.forget(sessionId);
     const unsubscribe = this.#unsubscribeBySessionId.get(sessionId);
     if (unsubscribe === undefined) {
       return;
@@ -327,46 +396,5 @@ export class SessionEventBinder {
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),
       boundSessionIds: (): readonly string[] => this.boundSessionIds,
     });
-  }
-
-  /*
-   * Expose the reads to the page under the fixture define, and only there.
-   *
-   * The same guard, and for the same reason, as the tripwire registry's: the
-   * endurance tier drives a real window from outside the renderer, so the only way
-   * it can read this binder is through the page, and letting the tier treat an
-   * unreachable binder as "nothing to assert" would be a check that passes whether
-   * or not the thing it measures exists.
-   *
-   * `__SIDEKICKS_CONSOLE_FIXTURES__` is a literal at build time, so a release
-   * bundle contains neither the property nor the object it would have held.
-   */
-  #installFixtureDiagnostics(): void {
-    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      const diagnostics = this.#buildFixtureDiagnostics();
-      this.#installedDiagnostics = diagnostics;
-      (globalThis as Record<string, unknown>)[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL] = diagnostics;
-    }
-  }
-
-  /**
-   * Remove this binder's handle, and only this binder's.
-   *
-   * One property, one renderer process — the tripwire registry's posture — so a
-   * second console mounted in the same page replaces the first one's handle. The
-   * identity check is what keeps the teardown of the REPLACED binder from deleting
-   * the live one's.
-   */
-  #removeFixtureDiagnostics(): void {
-    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      const page = globalThis as Record<string, unknown>;
-      if (
-        this.#installedDiagnostics !== undefined &&
-        page[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL] === this.#installedDiagnostics
-      ) {
-        delete page[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL];
-      }
-      this.#installedDiagnostics = undefined;
-    }
   }
 }

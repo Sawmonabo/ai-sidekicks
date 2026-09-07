@@ -416,8 +416,25 @@ export { subscribeDaemonEvent } from "./wire-access.js";
 // reaches them here like every other consumer.
 export {
   absorbedSurfaceAsks,
+  renderAbsorbedAttachFlow,
+  renderAbsorbedCapabilityDeclaration,
   renderAbsorbedInviteAcceptance,
+  renderAbsorbedMixedVersionStatus,
   renderAbsorbedNodeRoster,
   renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";
+
+// What the absorbed roster's own read answered, for a surface that renders beside it.
+//
+// The mount above is the only caller that needs the read SEAM, and it takes it by its
+// own specifier; what leaves this family is the OBSERVATION — a settings page renders a
+// node's declared capabilities and its version from the response that view already read,
+// rather than putting a second `runtimenode.roster` on the wire that could disagree with
+// what is on screen beside it.
+export { useNodeRosterObservation, type NodeRosterObservation } from "./node-roster-seam.js";
+
+// When that roster is asked to read again. Beside the observation because the settings
+// page takes both — it renders from the recorded read and owes that read the signals
+// the absorbed view's own presence channel does not carry.
+export { useNodeRosterReReadTriggers } from "./node-roster-triggers.js";

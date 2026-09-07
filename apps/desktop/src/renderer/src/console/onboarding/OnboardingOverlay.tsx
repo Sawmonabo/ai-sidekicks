@@ -317,6 +317,7 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
             flow={models.flow}
             readiness={models.readiness}
             openAtStep={activation.openAtStep}
+            transportReconnect={bridge.transportReconnect}
             onOpenAccountRegistry={(providerName) => {
               // The registry's own page owns registration and defaults; this step
               // is a view. Closing first, because leaving the walkthrough open over

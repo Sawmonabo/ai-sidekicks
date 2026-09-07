@@ -33,27 +33,38 @@ function dropOldestEntry<Key, Value>(cache: Map<Key, Value>, cap: number): void 
 }
 
 /**
- * How many named locales this console holds a relative-time formatter for.
+ * How many named locales this console holds one kind of formatter for.
  *
  * A window renders in one locale and its callers pass that or nothing, so a real
- * session holds one or two. The bound is for the other case, and it is why this
- * cache no longer calls itself bounded by construction: the parameter is a STRING
- * every family reaches through the primitives door, and "callers pass the host
- * locale" is a claim about callers rather than a property of the cache. The
+ * session holds one or two. The bound is for the other case, and it is why these
+ * caches no longer call themselves bounded by construction: the parameter is a
+ * STRING every family reaches through the primitives door, and "callers pass the
+ * host locale" is a claim about callers rather than a property of the cache. The
  * figure is the currency cache's, for its reason — far above any real render.
  */
-const RELATIVE_TIME_FORMATTER_CAP = 32;
+const LOCALE_FORMATTER_CAP = 32;
+
+/** What every `Intl` constructor answers about the locale it settled on. */
+interface LocaleResolvingFormatter {
+  resolvedOptions(): { readonly locale: string };
+}
 
 /**
- * The console's `Intl.RelativeTimeFormat` instances, one per RESOLVED locale.
+ * The console's `Intl` instances of one kind, one per RESOLVED locale.
  *
- * A CLASS WITH A PRIVATE FIELD rather than a module-level `Map`, per
+ * A CLASS WITH PRIVATE FIELDS rather than a module-level `Map`, per
  * `apps/desktop/AGENTS.md` §State and views — and it holds state at all because
  * constructing an `Intl` formatter resolves a locale and builds a message table,
  * which is the expensive half, while formatting with one is cheap. A relative time
  * is the console's most repeated figure: every ledger row carrying an age
  * re-renders on the reading tick, so a formatter minted per call is one locale
  * resolution per row per tick.
+ *
+ * GENERIC OVER THE FORMATTER because two kinds are now held on one policy — the
+ * relative time and the day duration — and a second copy of an eviction rule, a
+ * resolved-tag key and a host slot is exactly the drift `apps/desktop/AGENTS.md`
+ * §Shared code hoists on the second use. What differs between the two is the MINT,
+ * so that is what a caller supplies and the only thing it supplies.
  *
  * KEYED ON WHAT `Intl` RESOLVED, not on what the caller wrote. `en-US` and `en-us`
  * are one locale and were two entries holding two formatters that answer
@@ -67,10 +78,15 @@ const RELATIVE_TIME_FORMATTER_CAP = 32;
  * for nothing is asking for the host default rather than for the tag the host
  * carries today. A `""` key would have been neither — it throws.
  */
-class RelativeTimeFormatters {
-  readonly #byRequestedLocale = new Map<string, Intl.RelativeTimeFormat>();
-  readonly #byResolvedLocale = new Map<string, Intl.RelativeTimeFormat>();
-  #hostFormatter: Intl.RelativeTimeFormat | undefined;
+class LocaleKeyedFormatters<TFormatter extends LocaleResolvingFormatter> {
+  readonly #mint: (locale: string | undefined) => TFormatter;
+  readonly #byRequestedLocale = new Map<string, TFormatter>();
+  readonly #byResolvedLocale = new Map<string, TFormatter>();
+  #hostFormatter: TFormatter | undefined;
+
+  public constructor(mint: (locale: string | undefined) => TFormatter) {
+    this.#mint = mint;
+  }
 
   /** How many NAMED locales are held. The host slot is one more and never evicted. */
   public get namedLocaleCount(): number {
@@ -78,23 +94,23 @@ class RelativeTimeFormatters {
   }
 
   /** The formatter for `locale`, minted on first ask and kept. */
-  public formatterFor(locale: string | undefined): Intl.RelativeTimeFormat {
+  public formatterFor(locale: string | undefined): TFormatter {
     if (locale === undefined) {
-      this.#hostFormatter ??= new Intl.RelativeTimeFormat(undefined, RELATIVE_TIME_STYLE);
+      this.#hostFormatter ??= this.#mint(undefined);
       return this.#hostFormatter;
     }
     const remembered = this.#byRequestedLocale.get(locale);
     if (remembered !== undefined) {
       return remembered;
     }
-    const minted = new Intl.RelativeTimeFormat(locale, RELATIVE_TIME_STYLE);
+    const minted = this.#mint(locale);
     const resolvedLocale = minted.resolvedOptions().locale;
     const shared = this.#byResolvedLocale.get(resolvedLocale);
     if (shared === undefined) {
-      dropOldestEntry(this.#byResolvedLocale, RELATIVE_TIME_FORMATTER_CAP);
+      dropOldestEntry(this.#byResolvedLocale, LOCALE_FORMATTER_CAP);
       this.#byResolvedLocale.set(resolvedLocale, minted);
     }
-    dropOldestEntry(this.#byRequestedLocale, RELATIVE_TIME_FORMATTER_CAP);
+    dropOldestEntry(this.#byRequestedLocale, LOCALE_FORMATTER_CAP);
     const formatter = shared ?? minted;
     this.#byRequestedLocale.set(locale, formatter);
     return formatter;
@@ -104,7 +120,9 @@ class RelativeTimeFormatters {
 /** The one relative-time style the console renders in, stated where both mints read it. */
 const RELATIVE_TIME_STYLE: Intl.RelativeTimeFormatOptions = { numeric: "auto" };
 
-const relativeTimeFormatters = new RelativeTimeFormatters();
+const relativeTimeFormatters = new LocaleKeyedFormatters(
+  (locale) => new Intl.RelativeTimeFormat(locale, RELATIVE_TIME_STYLE),
+);
 
 /**
  * The one `Intl.RelativeTimeFormat` this console holds for `locale`.
@@ -122,6 +140,10 @@ export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat 
  *
  * Exported for the reason `relativeTimeFormatFor` is: a bound nothing can count
  * is a sentence in a comment. The host formatter is a slot, not in this figure.
+ *
+ * It reports the relative-time cache alone even though the day-duration cache runs
+ * the same policy on the same cap: the two hold disjoint keys, and one figure over
+ * both would report a bound neither of them is at.
  */
 export function relativeTimeFormatterCensus(): {
   readonly namedLocales: number;
@@ -129,8 +151,40 @@ export function relativeTimeFormatterCensus(): {
 } {
   return {
     namedLocales: relativeTimeFormatters.namedLocaleCount,
-    cap: RELATIVE_TIME_FORMATTER_CAP,
+    cap: LOCALE_FORMATTER_CAP,
   };
+}
+
+/**
+ * The one day-duration style the console renders in.
+ *
+ * `unitDisplay: "long"` rather than `"short"` because the figure it composes is
+ * read as a sentence — "kept for 3 days", "about 30 days after sign-in" — and it is
+ * what makes the platform decline the singular for one day rather than the caller
+ * appending a plural `s` the locale may not have. The unit is `day` and nothing
+ * else: a caller holding hours or months is asking for a figure this console does
+ * not render, and would be asking through `formatDuration` instead.
+ */
+const DAY_DURATION_STYLE: Intl.NumberFormatOptions = {
+  style: "unit",
+  unit: "day",
+  unitDisplay: "long",
+  maximumFractionDigits: 0,
+};
+
+const dayDurationFormatters = new LocaleKeyedFormatters(
+  (locale) => new Intl.NumberFormat(locale, DAY_DURATION_STYLE),
+);
+
+/**
+ * The one `Intl.NumberFormat` this console holds for day durations in `locale`.
+ *
+ * Held for `relativeTimeFormatFor`'s reason and bounded by the same cap: a
+ * retention table renders one of these per bucket per render, and the mint is the
+ * expensive half.
+ */
+export function dayDurationFormatFor(locale?: string): Intl.NumberFormat {
+  return dayDurationFormatters.formatterFor(locale);
 }
 
 /**

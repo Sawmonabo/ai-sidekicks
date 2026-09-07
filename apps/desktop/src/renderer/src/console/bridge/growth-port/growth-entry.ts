@@ -26,6 +26,18 @@ export type GrowthOperationKind = "method" | "subscription";
 /**
  * The non-callable prerequisites a row also needs.
  *
+ * `bridge-member` is the one that is not a wire shape: a reading the SHELL composes
+ * and hands the renderer over `SidekicksBridge`, which no port method can stand
+ * behind because the console resolves it off the bridge it already holds rather than
+ * calling for it. Filing one as a `type-member` would say it is a field on a reply
+ * some daemon sends, which is the opposite of where its composition lives.
+ *
+ * What separates it from a growth OPERATION that also reads the shell — the OS
+ * notification-permission probe is one — is when the answer can change: a probe's
+ * answer moves at runtime, so it is asked through a port method each time, while a
+ * bridge member is fixed at window construction and read during render, so a method
+ * that "fetched" it would be a promise wrapped around a value already in hand.
+ *
  * `daemon-producer` is the odd one and is here because the others could not hold it:
  * every kind above names something that is not DECLARED anywhere, and this one names a
  * value that is fully declared and that nothing on the producing side can ever emit.
@@ -41,6 +53,7 @@ export type GrowthPrerequisiteKind =
   | "event-type"
   | "error-namespace"
   | "tool-registration"
+  | "bridge-member"
   | "governing-document"
   | "daemon-producer";
 
@@ -75,8 +88,10 @@ export type GrowthOperationId =
   // first because the address field needed them; these are the page-lifecycle acts the
   // strip and the picker dispatch — select, reorder, show, hide, create, close, and
   // developer tools — the page reading both of them draw from, and the acts that are
-  // not page actions at all: capture, pick element, the file open that runs the
-  // mount-envelope check, and the site-data reset. `browserPaneAttach` /
+  // not page actions at all: capture, pick element, and the file open that runs the
+  // mount-envelope check. The site-data reset the pane's overflow dispatches is
+  // `browserSiteDataClear` below, beside the settings page's reads of the same
+  // partitions — one act, one row, whichever surface sends it. `browserPaneAttach` /
   // `browserPaneDetach` open and tear down the pane's view, `browserRevealPageFile`
   // hands a page's own local file to the file manager, and the chord mirror and the
   // accelerator stream are the keyboard handback's two halves. Every one of them
@@ -94,12 +109,15 @@ export type GrowthOperationId =
   | "browserProducedArtifacts"
   | "browserPickElement"
   | "browserOpenFile"
-  | "browserClearSiteData"
   | "browserRevealPageFile"
   | "browserPaneAttach"
   | "browserPaneDetach"
   | "browserPublishChordMirror"
   | "browserSubscribeAccelerators"
+  | "browserPolicyRead"
+  | "browserPolicyWrite"
+  | "browserSiteDataList"
+  | "browserSiteDataClear"
   | "terminalSubscribeOutput"
   | "terminalWrite"
   | "terminalResize"
@@ -215,7 +233,28 @@ export type GrowthOperationId =
   // the shell's own condition, which is a main-process fact and not a daemon call:
   // the supervisor's step and attempt count, the handshake ack, and the two notices
   // an install can be quietly weaker for.
-  | "shellStatusSubscribe";
+  | "shellStatusSubscribe"
+  // diagnostics — the registry's own order; each id is its wire method's tail with
+  // the root folded in, which `growth-operations/index.test.ts` holds every entry to.
+  // `healthSubscribe` above is deliberately NOT one of these: it is a stream serving
+  // a different slate row and a different surface.
+  | "healthStatusRead"
+  | "healthFailureDetailRead"
+  | "healthStuckRunInspect"
+  | "healthRecoveryActionRequest"
+  | "healthRedactionPolicyRead"
+  // provider accounts — the three the registry read and its tail do not cover. The
+  // list and the subscription are BOUND (`daemon/daemon-reply-registry.ts`,
+  // `daemon/daemon-streams.ts`), so they are deliberately absent from this union.
+  | "providerAccountLogin"
+  | "providerAccountLoginCancel"
+  | "providerAccountRegister"
+  // MCP governance — the inventory read and the two mutations the operator page
+  // sends. Each id is its wire method's tail with the root folded in, which
+  // `growth-operations/index.test.ts` holds every entry to.
+  | "mcpList"
+  | "mcpSetEnabled"
+  | "mcpSetTrust";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"
@@ -236,6 +275,7 @@ export type GrowthPrerequisiteId =
   | "approvalRememberedRuleMember"
   | "approvalAmendmentArm"
   | "agentProviderSwitchFailedEvent"
+  | "nodeSelfDeclarationCarrier"
   | "providerSessionImportSpec"
   | "mountHealthIdentityProjection"
   | "workflowParentContentHashMember";

@@ -40,6 +40,7 @@ export async function mountAt(
       flow={new OnboardingFlow(bridge)}
       readiness={new ProviderReadinessModel(bridge, new FrameStore())}
       openAtStep={openAtStep}
+      transportReconnect={bridge.transportReconnect}
       onOpenAccountRegistry={() => undefined}
       onDismiss={dismissal.handler}
     />,

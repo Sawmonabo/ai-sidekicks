@@ -48,8 +48,14 @@ class RosterUnderTest {
     const fixture = createFixtureBridge({ scenario: REPOS_SCENARIO });
     this.bridge = {
       ...fixture,
+      // `controlHolder` is a decided `null` and not a placeholder: this suite drives the
+      // attach dialog's node picker, which reads the roster's nodes and never its
+      // shared-terminal lease, and no case here scripts a holder for one.
       runtimeNodeRosterRead: async () =>
-        await Promise.resolve({ status: "served", value: { nodes: [...this.#nodes] } }),
+        await Promise.resolve({
+          status: "served",
+          value: { nodes: [...this.#nodes], controlHolder: null },
+        }),
     };
   }
 

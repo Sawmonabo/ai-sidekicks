@@ -336,7 +336,7 @@ export function useSidekickRegistryView(bridge: ConsoleBridge): {
   }, [view]);
   // The window half only: this registry has no session and no triggering event kind,
   // so the session half would have nothing to listen to.
-  useWindowReadTriggers(view);
+  useWindowReadTriggers(view, bridge.transportReconnect);
   const snapshot = useSyncExternalStore(
     (onStoreChange: () => void) => view.subscribe(onStoreChange),
     () => view.snapshot(),

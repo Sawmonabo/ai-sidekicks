@@ -29,10 +29,17 @@ import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { COLLABORATION_SCENARIO } from "../bridge/scenarios/collaboration.js";
 import { unscriptedScenario } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { ConsoleRefusalError } from "../core/index.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../core/settle.test-support.js";
 import { SurfaceAbsence } from "../primitives/index.js";
-import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
+import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
+import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../bridge/scenarios/settings/runtime-nodes.js";
+import { AttachFlow, NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
-import { renderAbsorbedNodeRoster, renderAbsorbedSessionProbe } from "./absorbed-surfaces.js";
+import {
+  renderAbsorbedAttachFlow,
+  renderAbsorbedNodeRoster,
+  renderAbsorbedSessionProbe,
+} from "./absorbed-surfaces.js";
 
 /** The element a helper produced, or a failure that names what came back instead. */
 function renderedElement(node: ReactNode): { type: unknown; props: Record<string, unknown> } {
@@ -157,6 +164,50 @@ describe("absorbed surfaces — the families a console surface mounts", () => {
   });
 });
 
+describe("absorbed surfaces — the attach flow and the declaration it reviews", () => {
+  /** A bridge over the one scenario whose deck supplies a node declaration. */
+  function bridgeWithDeclaration(): ConsoleBridge {
+    return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
+  }
+
+  it("mounts the flow with the resolved declaration and this bridge's transport", () => {
+    const element = renderedElement(
+      renderAbsorbedAttachFlow(bridgeWithDeclaration(), SETTINGS_SCENARIO.sessionId),
+    );
+    expect(element.type).toBe(AttachFlow);
+    expect(element.props["sessionId"]).toBe(SETTINGS_SCENARIO.sessionId);
+    expect(element.props["attachDraft"]).toBe(SETTINGS_RUNTIME_NODE_ATTACH_DRAFT);
+    // The transport is what makes this renderable at all: without a seam the view
+    // reaches the installed preload, which under a fixture build is either absent or
+    // the live daemon answering beside fixture data in the same window.
+    expect(element.props["reads"]).not.toBe(undefined);
+  });
+
+  it("composes no declaration where the deck supplies none", () => {
+    // The trust decision, made once here rather than at each caller: a helper that
+    // could be handed a draft is a helper whose callers could compose one.
+    const element = centredAbsence(
+      renderAbsorbedAttachFlow(fixtureBridge(), COLLABORATION_SCENARIO.sessionId),
+    );
+    expect(element.type).not.toBe(AttachFlow);
+    expect(element.props["kind"]).toBe("not-checked");
+  });
+
+  it("asks for a session before it offers to attach into one", () => {
+    const element = centredAbsence(renderAbsorbedAttachFlow(bridgeWithDeclaration(), undefined));
+    expect(element.type).not.toBe(AttachFlow);
+    expect(element.props["kind"]).toBe("empty");
+  });
+
+  it("says nothing was asked when the mount resolved no bridge to attach through", () => {
+    const element = centredAbsence(
+      renderAbsorbedAttachFlow(undefined, SETTINGS_SCENARIO.sessionId),
+    );
+    expect(element.type).not.toBe(AttachFlow);
+    expect(element.props["kind"]).toBe("not-checked");
+  });
+});
+
 describe("absorbed surfaces — the read seam the roster is handed", () => {
   /** The scenario that names no roster at all — the "nobody asked" arm. */
   const NO_ROSTER_SCENARIO = unscriptedScenario("no-roster");
@@ -257,10 +308,24 @@ describe("absorbed surfaces — the read seam the roster is handed", () => {
         signals += 1;
       },
     );
+    // The departure beat has to fall INSIDE the window-crossing advance below for
+    // the release assertion to mean anything. Shrink the coalescing window past this
+    // and the second advance stops reaching the beat, leaving a case that passes
+    // because nothing was ever scheduled — asserted rather than assumed.
+    expect(ROSTER_POPULATED_MS + PAST_REFRESH_DEBOUNCE_MS).toBeGreaterThan(RUNNER_DEPARTURE_MS);
+    // A presence beat asks for a re-read; it does not perform one. The ask lands in
+    // the seam's scheduler, so the clock has to cross the coalescing window before
+    // any reader is raised at all — advancing only to the roster beat would read
+    // zero here and say nothing about the release.
     bridge.scenarioEngine?.advance(ROSTER_POPULATED_MS);
+    bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
     const signalsWhileSubscribed = signals;
     release();
-    bridge.scenarioEngine?.advance(RUNNER_DEPARTURE_MS - ROSTER_POPULATED_MS);
+    // The departure beat has already landed inside that second advance, so a refresh
+    // is pending for it at the moment of release. Crossing the window again is what
+    // makes the assertion below load-bearing: the scheduled raise this reader would
+    // have taken fires into a released seam.
+    bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
 
     expect(signalsWhileSubscribed).toBeGreaterThan(0);
     // Released means released: the departure beat past the release reaches nobody.

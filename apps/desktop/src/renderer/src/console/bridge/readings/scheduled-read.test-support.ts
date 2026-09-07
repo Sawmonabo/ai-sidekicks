@@ -13,6 +13,13 @@
 // drain, which is how one of them came to advance by the debounce and pass only
 // because its case asked exactly once.
 //
+// TWO SETTLES, BECAUSE A REPLY CAN BE PARKED IN TWO PLACES. A suite whose growth or
+// daemon door is overridden with a resolved value waits only for the scheduler, and
+// moving the clock is the whole of that. A suite driving a SCENARIO waits for the
+// scheduler and then for the reply the scenario is holding, and only an engine advance
+// releases the second — so the pair below is one role split by what is being waited
+// for, never two ideas about how long to wait.
+//
 // IN `readings/` RATHER THAN AT `bridge/` TOP, where it was first written. The top of
 // this family is the bridge ITSELF — the contract, the shape claim, the live
 // implementation, the provider — and a harness is none of those. What it is about is
@@ -26,6 +33,7 @@ import { act } from "@testing-library/react";
 
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 
 /**
@@ -56,4 +64,43 @@ export async function settleScheduledRead(bridge: ConsoleBridge): Promise<void> 
     frozenClockOf(bridge).advance(REFRESH_MAX_WAIT_MS);
     await crossMacrotaskBoundary();
   });
+}
+
+/**
+ * How many scenario intervals a read costs whose reply the scenario HOLDS.
+ *
+ * Two, and the second is not belt-and-braces. A scripted reply carrying `afterMs` is
+ * parked on the engine and released by an ADVANCE OF THE ENGINE, so the first interval
+ * spends the scheduler's window and issues the read — and the reply parks at that
+ * moment, for its own latency, which only a further interval releases.
+ */
+const SCRIPTED_READ_INTERVALS = 2;
+
+/**
+ * Let a read settle whose reply the running scenario is holding.
+ *
+ * THROUGH THE ENGINE RATHER THAN THE CLOCK, which is the whole difference from
+ * {@link settleScheduledRead}. `ScenarioEngine.advance` moves the clock it owns AND
+ * releases every reply parked on it; the clock's own `advance` does the first half
+ * only, so a suite that moved the clock fired the scheduler's window, issued the read,
+ * and then waited out its budget against a reply nothing was ever going to release.
+ * A suite whose replies are overridden with resolved values needs neither half of that
+ * and takes the sibling.
+ *
+ * Throws where no scenario is running, for {@link frozenClockOf}'s reason: a bridge
+ * with no engine releases nothing, and the case should fail at the line that asked
+ * rather than at the assertion that read a loading state three settles later.
+ */
+export async function settleScriptedRead(bridge: ConsoleBridge): Promise<void> {
+  const { scenarioEngine } = bridge;
+  if (scenarioEngine === undefined) {
+    throw new Error("this bridge is running no scenario, so no scripted reply can be released");
+  }
+  for (let interval = 0; interval < SCRIPTED_READ_INTERVALS; interval += 1) {
+    await act(async () => {
+      scenarioEngine.advance(PAST_REFRESH_DEBOUNCE_MS);
+      await crossMacrotaskBoundary();
+    });
+    await settle();
+  }
 }

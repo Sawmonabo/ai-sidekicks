@@ -24,10 +24,15 @@
 // The engine holds ONE more thing than the script: the replies a scripted latency
 // has parked. A `ScenarioReply` carrying `afterMs` is a request that has not been
 // answered yet, and on a frozen clock the only thing that can answer it is the
-// caller moving that clock. Holding them here rather than in the bridge is what
-// keeps the frozen clock the single source of scenario time — a bridge that spent
-// the delay itself would be a second clock, and the one property this module exists
-// for is that there is only one.
+// caller moving that clock. Holding them on this side rather than in the bridge is
+// what keeps the frozen clock the single source of scenario time — a bridge that
+// spent the delay itself would be a second clock, and the one property this module
+// exists for is that there is only one.
+//
+// THE QUEUE ITSELF IS `held-reply-queue.ts`, one directory entry away, and the split
+// is where the two jobs meet rather than through the middle of either. This file owns
+// scenario TIME; that one owns SCHEDULING against it, reads no clock of its own, and
+// is reached from here at exactly two moments — every advance, and teardown.
 
 import {
   Emitter,
@@ -41,6 +46,7 @@ import {
   type Unsubscribe,
 } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
+import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.js";
 import type { ConsoleScenario, ScenarioReply } from "./scenario.js";
 
 /** Where a scenario's playback has got to. Rendered by the fixture picker. */
@@ -60,92 +66,6 @@ export interface ScenarioProgress {
  * replace, and the alias keeps the engine's own vocabulary readable at call sites.
  */
 export type ScenarioSink = EmitterSink<readonly ConsoleSessionEvent[]>;
-
-/**
- * How a held reply ended.
- *
- * Three outcomes rather than a promise that resolves or hangs, because two of
- * them are refusals the caller has to render: an engine torn down under a request
- * and a backlog that is already full both leave the caller with nothing to show,
- * and a promise that never settles leaves a surface loading for the life of the
- * window. The engine reports which; naming the refusal belongs to the bridge.
- */
-export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
-
-/** One reply parked until the frozen clock reaches its tick. */
-interface HeldScenarioReply {
-  readonly dueAtMs: number;
-  readonly settle: (outcome: ScenarioReplyOutcome) => void;
-}
-
-/**
- * The replies a scenario is holding, and the bound on how many.
- *
- * Its own class rather than an array field on the engine because it owns a rule
- * the engine does not otherwise have: entries leave in DUE order, not in call
- * order, so two calls made together with different scripted latencies settle in
- * the order a real transport would settle them. Keeping that in one place is what
- * stops `advance` from growing a second sort.
- */
-class HeldReplyQueue {
-  readonly #held: HeldScenarioReply[] = [];
-  readonly #cap: number;
-
-  public constructor(cap: number) {
-    this.#cap = cap;
-  }
-
-  public get heldCount(): number {
-    return this.#held.length;
-  }
-
-  /** Park one reply. `false` when the queue is already at its cap. */
-  public hold(dueAtMs: number, settle: (outcome: ScenarioReplyOutcome) => void): boolean {
-    if (this.#held.length >= this.#cap) {
-      return false;
-    }
-    this.#held.push({ dueAtMs, settle });
-    return true;
-  }
-
-  /**
-   * Settle every reply due at or before `elapsedMs`, earliest first.
-   *
-   * The entries are removed BEFORE any of them is settled, so a continuation that
-   * issues another delayed call cannot be released by the same pass that released
-   * the call it came from. `sort` is stable, so replies sharing a due tick settle
-   * in the order they were made.
-   */
-  public releaseThrough(elapsedMs: number): void {
-    if (this.#held.length === 0) {
-      // The common case by far — every advance of a scenario that scripts no
-      // latency reaches here — and it allocates nothing.
-      return;
-    }
-    const due: HeldScenarioReply[] = [];
-    const stillHeld: HeldScenarioReply[] = [];
-    for (const reply of this.#held) {
-      (reply.dueAtMs <= elapsedMs ? due : stillHeld).push(reply);
-    }
-    if (due.length === 0) {
-      return;
-    }
-    this.#held.length = 0;
-    this.#held.push(...stillHeld);
-    due.sort((left, right) => left.dueAtMs - right.dueAtMs);
-    for (const reply of due) {
-      reply.settle("due");
-    }
-  }
-
-  /** Settle every held reply as abandoned. For teardown, and final. */
-  public abandonAll(): void {
-    const abandoned = this.#held.splice(0, this.#held.length);
-    for (const reply of abandoned) {
-      reply.settle("abandoned");
-    }
-  }
-}
 
 /** What one subscriber asks of the engine beyond being handed later beats. */
 export interface ScenarioSubscribeOptions {
@@ -177,6 +97,14 @@ export class ScenarioEngine {
   // still subscribed for; and a throwing sink does not silence the others, so one
   // broken surface does not stop a scenario delivering to the rest.
   readonly #beats = new Emitter<readonly ConsoleSessionEvent[]>("scenario beat");
+  // A SECOND emitter beside the beats one, and not a widening of it. A beat sink is
+  // handed the events that fell due, so a subscriber interested in the CLOCK rather
+  // than in the log would have to be delivered an empty array on every advance that
+  // carried none — which is a delivery of nothing wearing a delivery's clothes, and
+  // it would reach every beat subscriber in the console. What rides this one is the
+  // elapsed scenario time after the advance, which is what a scripted schedule of
+  // non-event facts (a transport outage) is written against.
+  readonly #advances = new Emitter<number>("scenario advance");
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
@@ -267,6 +195,21 @@ export class ScenarioEngine {
     return this.#scenario.beats.slice(0, this.#deliveredBeatCount).map((beat) => beat.event);
   }
 
+  /**
+   * Subscribe to the frozen clock's own movement. Returns an idempotent unsubscribe.
+   *
+   * Delivered AFTER the advance's beats, with the elapsed scenario time the advance
+   * landed on, and delivered on every advance including the ones no beat fell due
+   * on — which is the whole reason it exists: a scripted fact that is not an event
+   * has no beat to ride, and a schedule that only woke when the log moved would fire
+   * late or never depending on where the author happened to put a beat.
+   *
+   * A disposed engine delivers nothing, on `advance`'s own rule.
+   */
+  public subscribeToAdvance(sink: EmitterSink<number>): Unsubscribe {
+    return this.#advances.subscribe(sink);
+  }
+
   /** Advance one tick. A no-op after teardown, reported rather than silent. */
   public tick(): void {
     this.advance(this.#tickMs);
@@ -316,11 +259,16 @@ export class ScenarioEngine {
     // their sinks first; what the order buys is that a caller cannot observe a
     // beat delivered by an advance whose own reply it is still waiting on.
     this.#heldReplies.releaseThrough(this.#elapsedMs);
-    if (due.length === 0) {
-      return;
+    if (due.length > 0) {
+      this.#deliveredBeatCount += due.length;
+      this.#beats.emit(due.map((beat) => beat.event));
     }
-    this.#deliveredBeatCount += due.length;
-    this.#beats.emit(due.map((beat) => beat.event));
+    // Last, and unconditional. Last because a schedule reading the clock should see
+    // the log this advance already delivered rather than the one before it;
+    // unconditional because an advance that delivered no beat still moved the clock,
+    // and the early return this replaced is exactly what would have made a scripted
+    // outage between two beats unobservable.
+    this.#advances.emit(this.#elapsedMs);
   }
 
   /**
@@ -388,6 +336,7 @@ export class ScenarioEngine {
   public dispose(): void {
     this.#disposed = true;
     this.#beats.clear();
+    this.#advances.clear();
     this.#heldReplies.abandonAll();
   }
 }
