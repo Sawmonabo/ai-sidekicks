@@ -68,6 +68,7 @@ import {
   attachedAtIso,
 } from "./ledger-cast.js";
 import { LEDGER_SCRIPT } from "./ledger-beats.js";
+import { REFUSED_NEGOTIATION_REPLY } from "./negotiation-replies.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const LEDGER_SCENARIO_ID = "ledger";
@@ -142,5 +143,16 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
         })),
       },
     },
+    // The REFUSED handshake, and this scenario is where it belongs: its job is to
+    // reach every state a surface renders, and the version banner has exactly one
+    // state — a console and a runtime that did not meet. Scripted nowhere else, so
+    // no demonstration window carries a claim about the operator's own install.
+    //
+    // It does not contradict the three lanes above it. An incompatible handshake
+    // blocks MUTATING dispatch and leaves reads alone (`Spec-023 §Daemon Supervision
+    // Lifecycle` step 3), and every beat this session plays is a replayed event —
+    // which is what makes a refusal and a streaming ledger true at once rather than
+    // an inconsistency the script papered over.
+    REFUSED_NEGOTIATION_REPLY,
   ],
 };

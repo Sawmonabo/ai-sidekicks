@@ -99,6 +99,7 @@ import {
   attachedAtIso,
 } from "./flagship-cast.js";
 import { FLAGSHIP_SCRIPT } from "./flagship-script.js";
+import { AGREED_NEGOTIATION_REPLY } from "./negotiation-replies.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
@@ -191,6 +192,21 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         ],
       },
     },
+    // The handshake this window's shell performed, which is an OBSERVATION of two
+    // builds meeting and so is scripted rather than folded out of beats: nothing in a
+    // session's log says which protocol the runtime agreed to.
+    //
+    // The AGREEING arm, deliberately. This is the composition a first launch opens
+    // into, and a scripted disagreement would put a refusal across a demonstration
+    // window every time — a claim about the operator's own install that no author
+    // made. The refusing arm is the ledger scenario's, which is the session whose job
+    // is to reach every state a surface renders.
+    //
+    // Nothing is drawn from this reply in this window: the agreeing arm renders no
+    // banner and no version line, which is the whole of what `Spec-023` asks for when
+    // the two builds met. It is scripted so the fixture HAS the agreeing outcome —
+    // the negative control for a surface that only ever appears on the other one.
+    AGREED_NEGOTIATION_REPLY,
     {
       // The accountant's own committed figure — the ONE source of a spend number for
       // every surface, and the reason the cast bar sums nothing. `priced` because

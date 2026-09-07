@@ -78,6 +78,12 @@ export type GrowthOperationId =
   | "daemonStatusRead"
   | "daemonStop"
   | "daemonRestart"
+  // a read of the negotiated ack the shell holds, put by a window rather
+  // than by the shell that performed the handshake: which protocol was negotiated,
+  // which set the daemon supports, and — when the two sides do not meet — why. The
+  // id names the READ and never `daemon.hello`, which a window must never re-issue:
+  // a second handshake on a live connection is refused by design.
+  | "daemonNegotiationRead"
   | "onboardingStateRead"
   | "onboardingStepAdvance"
   | "onboardingStepSkip"

@@ -63,7 +63,7 @@ describe("ConsoleRoot — the window opens at the address it was given", () => {
     window.location.hash = AUXILIARY_HASH;
     const observed: ConsoleRoute[] = [];
 
-    await mountConsole((context) => observed.push(context.route));
+    await mountConsole({ observe: (context) => observed.push(context.route) });
 
     // The FIRST render already carries the auxiliary route. A store that adopted
     // the hash from an effect would render the sessions route once before it, and
@@ -84,7 +84,7 @@ describe("ConsoleRoot — the window opens at the address it was given", () => {
     // navigated would satisfy the case above.
     const observed: ConsoleRoute[] = [];
 
-    await mountConsole((context) => observed.push(context.route));
+    await mountConsole({ observe: (context) => observed.push(context.route) });
 
     expect(observed[0]).toStrictEqual({ kind: "sessions" });
     expect(window.location.hash).toBe(SESSIONS_HASH);
@@ -145,8 +145,10 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
     // the way back has to survive the move. It is read from the frame store rather
     // than from the route, which is the distinction the retained id exists for.
     let observed: string | undefined;
-    const mounted = await mountConsole((context) => {
-      observed = context.frameStore.lastOpenedSessionId;
+    const mounted = await mountConsole({
+      observe: (context) => {
+        observed = context.frameStore.lastOpenedSessionId;
+      },
     });
 
     await clickRailDestination(mounted, "Settings");
@@ -160,8 +162,10 @@ describe("ConsoleRoot — the rail's three destinations, and where the window is
     // above and offer a way back into a session this window was never in.
     window.location.hash = SESSIONS_HASH;
     let observed: string | undefined = "not-read";
-    await mountConsole((context) => {
-      observed = context.frameStore.lastOpenedSessionId;
+    await mountConsole({
+      observe: (context) => {
+        observed = context.frameStore.lastOpenedSessionId;
+      },
     });
 
     expect(observed).toBeUndefined();

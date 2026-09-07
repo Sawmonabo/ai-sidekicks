@@ -51,7 +51,8 @@ export type GrowthSlateRowId =
   | "hydrated-event-read"
   | "cost-receipt-read"
   | "workflow-version-chain"
-  | "health-status-read";
+  | "health-status-read"
+  | "daemon-version-negotiation";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -366,6 +367,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-020 (the health projection); api-payload-contracts.md §Health Method-Name Registry (the method string and its two schemas, registered there and in no code package)",
     consumingSurface: "cast bar health form, health strip",
+    wireRegistered: false,
+  },
+  "daemon-version-negotiation": {
+    id: "daemon-version-negotiation",
+    wire: "a bridge read of the negotiated ack the shell holds — the agreed protocol version, the incompatible-handshake reason on a refusal, and the daemon's supported-protocol set on the two refusals that carry one, beside the version this console proposed. `daemon.hello` is registered, but a window may not re-issue it: the daemon latches the first handshake per connection and refuses every later one. What is missing is a READ of the reply the shell already holds, which no bridge or preload namespace carries",
+    owningDocument:
+      "Spec-023 §Daemon Supervision Lifecycle (step 3, which requires an incompatible handshake be surfaced to the renderer with reads permitted and names no seam that carries it); the envelopes themselves in packages/contracts/src/jsonrpc-negotiation.ts (DaemonHello / DaemonHelloAck and the three incompatible-handshake reasons)",
+    consumingSurface: "frame version banner",
     wireRegistered: false,
   },
 };
