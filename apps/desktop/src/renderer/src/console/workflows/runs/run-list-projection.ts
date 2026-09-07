@@ -78,6 +78,7 @@
 // level up.
 
 import { compareInstants, type InstantReading } from "../../core/index.js";
+import { foldParkAttention, type WorkflowParkAttentionEntry } from "./park-attention-fold.js";
 import {
   parkSchedule,
   phasePark,
@@ -256,6 +257,7 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
  */
 export class RunListProjection {
   readonly #rows: readonly WorkflowRunListRow[];
+  readonly #parkAttention: readonly WorkflowParkAttentionEntry[];
 
   public constructor(runs: readonly WorkflowRunSnapshot[]) {
     this.#rows = runs
@@ -281,11 +283,47 @@ export class RunListProjection {
         // later read that supplied them the other way round swapped them on screen.
         return startDelta !== 0 ? startDelta : workflowRunIdAscending(left, right);
       });
+    // Folded from the SORTED rows, so the entries come out in the same attention
+    // order the list draws — the fold takes first-encounter order and has no
+    // comparator of its own to disagree with the one above.
+    this.#parkAttention = foldParkAttention(
+      this.#rows.map((row) => ({
+        workflowRunId: row.run.workflowRunId,
+        parkedPhases: row.parkedPhases,
+      })),
+    );
   }
 
   /** Every row, attention first and newest first inside a band. */
   public get rows(): readonly WorkflowRunListRow[] {
     return this.#rows;
+  }
+
+  /**
+   * Every live park as the attention surface reads it: correlated waits folded into
+   * one entry each, uncorrelated ones standing alone.
+   *
+   * On the projection rather than computed by the surface, for the reason every other
+   * derivation here is: the fold and the count read off it are one computation with
+   * two consumers, and a header that counted separately from the body it heads is how
+   * the two come to disagree.
+   */
+  public get parkAttention(): readonly WorkflowParkAttentionEntry[] {
+    return this.#parkAttention;
+  }
+
+  /**
+   * The badge's figure: how many DISTINCT attention entries there are, never how many
+   * runs they stand for.
+   *
+   * That distinction is the whole point of the fold. Six runs parked on one spent
+   * provider account are one thing to look at, and a badge reading `6` would undo the
+   * fold on the surface most likely to be glanced at rather than read — while an
+   * operator comparing it against the list would find six rows and one line and have
+   * no way to tell which number was wrong.
+   */
+  public get parkAttentionCount(): number {
+    return this.#parkAttention.length;
   }
 
   /**

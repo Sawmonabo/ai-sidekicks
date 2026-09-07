@@ -425,6 +425,11 @@ export type { SettledReadRefusal } from "./readings/read-settlement.js";
 // registers the plane and `wire-shapes/workflow-projection.ts` is deleted with its
 // slate row.
 export { WORKFLOW_DEFINITION_SCOPES } from "./wire-shapes/workflow-projection.js";
+// The plane's EVENT taxonomy, beside its read shapes and from the module that
+// declares it. The run pane names these kinds to say when its snapshot goes stale;
+// `wire-shapes/workflow-events.ts` states why a kind set is safe to arm against an
+// unregistered wire where a payload shape would not be.
+export { WORKFLOW_EVENT_TYPES } from "./wire-shapes/workflow-events.js";
 export type {
   WorkflowDefinitionScope,
   WorkflowDefinitionSummary,

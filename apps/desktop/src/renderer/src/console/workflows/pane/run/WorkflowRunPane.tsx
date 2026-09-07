@@ -103,6 +103,7 @@ import { OperatorControls } from "./OperatorControls.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { useRunControlDispatch } from "./run-control-dispatch.js";
 import { RunReadState } from "./RunReadState.js";
+import { useWorkflowRunLiveRounds } from "./run-live-rounds.js";
 import { useWorkflowRunSnapshot } from "./run-snapshot.js";
 import { useWorkflowVersionChain } from "./version-chain.js";
 import { useHumanFormSelection } from "./human-form-selection.js";
@@ -139,10 +140,22 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // again rather than the reply's own state being spliced into the snapshot on screen —
   // one further read per served act, driven by the settlement and by no timer.
   const runControls = useRunControlDispatch(bridge.growth, addressedRunId);
+  // THE SECOND HALF OF THE ROUND, AND THE ONE NOBODY AT THIS KEYBOARD SUPPLIES. A run
+  // also moves because the engine advanced it, because a park armed a resume, or
+  // because somebody in another window cancelled it — and none of those reaches a
+  // control's settlement. `run-live-rounds.ts` counts those from the session's own
+  // frames, so the pane's answer stops being as old as the last thing this operator
+  // pressed.
+  const liveRound = useWorkflowRunLiveRounds(bridge, sessionStore);
+  // SUMMED, WHICH IS SOUND BECAUSE BOTH ONLY EVER RISE: the sum rises whenever either
+  // does and repeats no earlier value, so a subject key built from it is fresh on
+  // every advance and never collides with one already answered. Two separate key
+  // segments would carry the same information and make the key a place to decide
+  // which axis moved — a question no reader of this read has.
   const snapshot = useWorkflowRunSnapshot(
     bridge.growth,
     addressedRunId,
-    runControls.servedActCount,
+    runControls.servedActCount + liveRound,
   );
   // THE CHAIN COMES LAST BECAUSE ITS ADDRESS COMES OUT OF THE READ ABOVE. A re-pin
   // target is a version of the run's own definition, and the only thing that names one
