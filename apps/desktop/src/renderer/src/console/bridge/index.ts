@@ -477,6 +477,7 @@ export { readNodeState } from "./daemon/node-state-read.js";
 export {
   readCeremonyOutcome,
   type DeviceGrantHandoff,
+  type ParticipantIdentityClaims,
   type WebAuthnCeremonyOutcome,
   type WebAuthnCustody,
   type WebAuthnProbeResult,

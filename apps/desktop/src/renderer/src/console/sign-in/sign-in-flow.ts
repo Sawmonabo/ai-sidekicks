@@ -37,6 +37,7 @@
 import { Emitter, type Unsubscribe } from "../core/index.js";
 import type {
   DeviceGrantHandoff,
+  ParticipantIdentityClaims,
   WebAuthnCeremonyOutcome,
   WebAuthnCustody,
   WebAuthnProbeResult,
@@ -83,6 +84,15 @@ export type SignInState =
       readonly kind: "signed-in";
       readonly custody: WebAuthnCustody;
       /**
+       * Who this window is signed in AS, as the relying party's verdict named them.
+       *
+       * Carried on the state rather than re-read from anywhere, because there is
+       * nowhere to re-read it from: the ceremony's own resolution is the only place
+       * this fact reaches the renderer (`Spec-023 §WebAuthn Credential Flow` step 7),
+       * and a card that dropped it could say a sign-in happened and never whose.
+       */
+      readonly claims: ParticipantIdentityClaims;
+      /**
        * The last enrolment started from this session, when it added no passkey.
        *
        * Present only while it is unread: dismissing it clears the member and keeps
@@ -93,6 +103,18 @@ export type SignInState =
     }
   | { readonly kind: "refused"; readonly reason: WebAuthnRefusalReason }
   | { readonly kind: "unavailable"; readonly refusal: ConsoleRefusal };
+
+/**
+ * The one arm an enrolment runs FROM, named because two places settle back onto it.
+ *
+ * `Extract` over the union rather than a second declaration, on the rule its two
+ * neighbours already follow: the arm grows in exactly one place, and both settlements
+ * below carry the growth without being edited.
+ *
+ * Not exported — nothing outside this module names it, and a door line for a type
+ * with no production reader is the dead export the barrel census fails.
+ */
+type SignedInState = Extract<SignInState, { readonly kind: "signed-in" }>;
 
 /** Where a window starts: nothing asked, nothing claimed. */
 const SIGNED_OUT: SignInState = { kind: "signed-out" };
@@ -158,7 +180,7 @@ export class SignInFlow {
     await this.#drive(
       PASSKEY_IN_FLIGHT,
       async () => this.#ceremony.register(),
-      (outcome) => enrolmentSettlement(session.custody, outcome),
+      (outcome) => enrolmentSettlement(session, outcome),
     );
   }
 
@@ -193,7 +215,7 @@ export class SignInFlow {
     const current = this.#state;
     if (current.kind === "signed-in") {
       if (current.enrolmentRefusal !== undefined) {
-        this.#publish({ kind: "signed-in", custody: current.custody });
+        this.#publish({ kind: "signed-in", custody: current.custody, claims: current.claims });
       }
       return;
     }
@@ -256,20 +278,30 @@ export class SignInFlow {
  * The state one ENROLMENT outcome settles into, given the session it ran from.
  *
  * Only `authenticated` replaces the session, and it replaces it wholly: a passkey
- * that was added re-states where this session's credential is kept and drops any
- * earlier refusal, because the attempt that failed has now succeeded. Every other
- * arm republishes the custody it was handed with the refusal beside it, so nothing a
- * participant did to an optional extra can revoke what they are already signed in
- * with.
+ * that was added re-states where this session's credential is kept, names the
+ * participant the relying party verified it for, and drops any earlier refusal,
+ * because the attempt that failed has now succeeded. Every other arm republishes the
+ * session it was handed — custody and claims both — with the refusal beside it, so
+ * nothing a participant did to an optional extra can revoke what they are already
+ * signed in with, and nothing about who they are is dropped on the way.
+ *
+ * The whole SESSION is the parameter rather than its two members, so an arm added to
+ * the signed-in state is carried here by construction rather than by remembering to
+ * thread one more field through.
  */
 function enrolmentSettlement(
-  custody: WebAuthnCustody,
+  session: SignedInState,
   outcome: WebAuthnCeremonyOutcome,
 ): SignInState {
   if (outcome.kind === "authenticated") {
-    return { kind: "signed-in", custody: outcome.custody };
+    return { kind: "signed-in", custody: outcome.custody, claims: outcome.claims };
   }
-  return { kind: "signed-in", custody, enrolmentRefusal: outcome };
+  return {
+    kind: "signed-in",
+    custody: session.custody,
+    claims: session.claims,
+    enrolmentRefusal: outcome,
+  };
 }
 
 /**
@@ -283,7 +315,7 @@ function enrolmentSettlement(
 export function stateFromOutcome(outcome: WebAuthnCeremonyOutcome): SignInState {
   switch (outcome.kind) {
     case "authenticated":
-      return { kind: "signed-in", custody: outcome.custody };
+      return { kind: "signed-in", custody: outcome.custody, claims: outcome.claims };
     case "fallback-required":
       return {
         kind: "handing-off",

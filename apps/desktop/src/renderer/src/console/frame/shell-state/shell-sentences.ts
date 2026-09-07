@@ -6,7 +6,7 @@
 // have to agree about what is still true during an outage. Held here, the whole
 // vocabulary reads as one page, and the count claims below are checkable.
 //
-// TWO RULES GOVERN EVERY STRING HERE.
+// THREE RULES GOVERN EVERY STRING HERE.
 //
 // It says what is STALE rather than what is broken. A window whose runtime is
 // unreachable is still showing real state that was really delivered — it is just no
@@ -16,6 +16,17 @@
 // And it never names a governance document, a task id, or a method the daemon
 // registry owns as prose. The six method NAMES are wire strings and appear as wire
 // figures; what appears in a sentence is what each one does in a person's words.
+//
+// AND NO SENTENCE HERE CARRIES A VALUE THE SHELL REPORTED. That was the third rule
+// all along and this module was breaking it: the mismatch line pasted both protocol
+// versions into proportional prose and the outage lines pasted the attempt counters
+// in through `String()`, so four figures the shell had sent reached the screen with
+// none of the provenance `Spec-023 §Console Design (Meridian)` rule 4 requires and
+// none of them through the console's one formatter. Every such sentence is now a
+// SENTENCE MODEL — words and figure slots — and {@link ShellSentenceText} is what
+// turns one into elements. The words stay here where the whole vocabulary can be read
+// as one page; the figures leave through `primitives/wire-figures.ts`, which is the
+// only module allowed to format a wire value at all.
 
 import {
   MUTATING_DAEMON_METHODS,
@@ -24,6 +35,42 @@ import {
   type ShellConnection,
   type ShellNegotiation,
 } from "../../store/index.js";
+
+/**
+ * One part of a sentence the honest chrome says.
+ *
+ * THREE KINDS, AND THE LAST TWO ARE THE EIGHT RULES' OWN TWO CLASSES. A byte-for-byte
+ * string the shell sent — a protocol version — is a `figure` and renders verbatim; a
+ * quantity it sent — an attempt out of a ladder — is a `count` and renders through
+ * `Intl`. Neither is formatted here: this module states WHICH class a value is, and
+ * `primitives/wire-figures.ts` stays the only module that turns one into text.
+ *
+ * A model rather than a string is what makes that reachable at all. A sentence
+ * returned as text has exactly one way to carry a version — pasted into the prose —
+ * and no element to hang the mono signature on.
+ */
+export type ShellSentencePart =
+  | { readonly kind: "words"; readonly words: string }
+  | { readonly kind: "figure"; readonly value: string }
+  | { readonly kind: "count"; readonly count: number };
+
+/** One sentence, as alternating words and figure slots. Rendered, never joined. */
+export type ShellSentence = readonly ShellSentencePart[];
+
+/** The console's own words. Named so a builder below reads as the sentence it is. */
+function words(text: string): ShellSentencePart {
+  return { kind: "words", words: text };
+}
+
+/** A byte-for-byte string the shell reported. Rendered verbatim, in mono. */
+function figure(value: string): ShellSentencePart {
+  return { kind: "figure", value };
+}
+
+/** A quantity the shell reported. Rendered through `Intl`, in mono. */
+function count(value: number): ShellSentencePart {
+  return { kind: "count", count: value };
+}
 
 /** The console's own protocol version, as the negotiation reports this build's side. */
 export interface VersionRemedy {
@@ -69,9 +116,40 @@ export function versionRemedyFor(reason: string | undefined): VersionRemedy {
   }
 }
 
-/** The version pair, as one line: what this build speaks and what the runtime chose. */
-export function describeVersionPair(negotiation: ShellNegotiation): string {
-  return `This console speaks ${negotiation.consoleProtocolVersion}; the local runtime answered ${negotiation.daemonProtocolVersion}.`;
+/**
+ * The version pair, as one line: what this build speaks and what the runtime chose.
+ *
+ * Both versions are wire strings — `store/shell-state.ts` types each of them
+ * "verbatim" — so each takes a figure slot rather than a position in a template. A
+ * version pasted into prose is a version a person cannot tell from the sentence around
+ * it, and the one thing this banner exists to let them do is read the two and compare.
+ */
+export function describeVersionPair(negotiation: ShellNegotiation): ShellSentence {
+  return [
+    words("This console speaks "),
+    figure(negotiation.consoleProtocolVersion),
+    words("; the local runtime answered "),
+    figure(negotiation.daemonProtocolVersion),
+    words("."),
+  ];
+}
+
+/**
+ * What the runtime says it supports, or that it did not say.
+ *
+ * HERE RATHER THAN AT THE BANNER, where it was composed inline until this sweep. It is
+ * a sentence the honest-chrome plane says, so it belongs in the module whose header
+ * claims to hold every one of them — and it carries the same defect the pair above
+ * did, a list of wire versions joined into prose, so it takes the same repair.
+ */
+export function describeSupportedProtocols(negotiation: ShellNegotiation): ShellSentence {
+  if (negotiation.daemonSupportedProtocols.length === 0) {
+    return [words("The runtime did not list the versions it supports.")];
+  }
+  const listed = negotiation.daemonSupportedProtocols.flatMap<ShellSentencePart>(
+    (version, position) => (position === 0 ? [figure(version)] : [words(", "), figure(version)]),
+  );
+  return [words("The runtime supports "), ...listed, words(".")];
 }
 
 /**
@@ -103,8 +181,16 @@ export function readOnlyLine(): string {
   return `Read-only: ${listed} are unavailable. Reading, watching, and the provider catalogues stay live.`;
 }
 
-/** The connection banner's sentence, or `undefined` where the state raises none. */
-export function connectionLineFor(connection: ShellConnection): string | undefined {
+/**
+ * The connection banner's sentence, or `undefined` where the state raises none.
+ *
+ * The two ladder arms carry figures for the same reason the version pair does: the
+ * attempt and the limit are numbers the supervisor reported, and `String()` around one
+ * is a formatter this console does not own — it bypasses `Intl` and it puts a
+ * quantity on screen wearing no provenance at all. Every other arm is the console's
+ * own words end to end and is one part.
+ */
+export function connectionLineFor(connection: ShellConnection): ShellSentence | undefined {
   switch (connection.kind) {
     case "unreported":
     case "connected":
@@ -113,15 +199,35 @@ export function connectionLineFor(connection: ShellConnection): string | undefin
       // an incompatible handshake is not a disconnect and must not wear its chrome.
       return undefined;
     case "probing":
-      return "Checking whether the local runtime is already running. Nothing on screen is out of date yet.";
+      return [
+        words(
+          "Checking whether the local runtime is already running. Nothing on screen is out of date yet.",
+        ),
+      ];
     case "starting":
-      return "The local runtime is starting. This window is waiting for it, not frozen.";
+      return [words("The local runtime is starting. This window is waiting for it, not frozen.")];
     case "reconnecting":
-      return `The local runtime dropped. Reconnecting — attempt ${String(connection.attempt)} of ${String(connection.attemptLimit)}. Everything on screen is the last state that reached this window.`;
+      return [
+        words("The local runtime dropped. Reconnecting — attempt "),
+        count(connection.attempt),
+        words(" of "),
+        count(connection.attemptLimit),
+        words(". Everything on screen is the last state that reached this window."),
+      ];
     case "offline":
-      return `The local runtime did not come back after ${String(connection.attemptLimit)} attempts. Everything on screen is the last state that reached this window, and nothing new will arrive until it starts again.`;
+      return [
+        words("The local runtime did not come back after "),
+        count(connection.attemptLimit),
+        words(
+          " attempts. Everything on screen is the last state that reached this window, and nothing new will arrive until it starts again.",
+        ),
+      ];
     case "stopped":
-      return "The local runtime is stopped. Starting it again is a shell action rather than a call, because a stopped runtime has no server to receive one.";
+      return [
+        words(
+          "The local runtime is stopped. Starting it again is a shell action rather than a call, because a stopped runtime has no server to receive one.",
+        ),
+      ];
   }
 }
 

@@ -21,8 +21,10 @@
 
 import { RefusalBanner } from "../../primitives/index.js";
 import type { ShellState } from "../../store/index.js";
+import { ShellSentenceText } from "./ShellSentenceText.js";
 import {
   connectionLineFor,
+  describeSupportedProtocols,
   describeVersionPair,
   readOnlyLine,
   recoveryLineFor,
@@ -82,14 +84,20 @@ function renderVersionBanner(state: ShellState): React.JSX.Element | null {
     );
   }
   const remedy = versionRemedyFor(negotiation.reason);
-  const supported =
-    negotiation.daemonSupportedProtocols.length === 0
-      ? "The runtime did not list the versions it supports."
-      : `The runtime supports ${negotiation.daemonSupportedProtocols.join(", ")}.`;
   return (
     <RefusalBanner
       code={negotiation.reason ?? "shell-version-incompatible"}
-      detail={`${remedy.headline} ${describeVersionPair(negotiation)} ${supported} ${remedy.remedy} ${readOnlyLine()}`}
+      // The sentences are composed HERE rather than joined into one string, which is
+      // the whole of the repair: this is the component that owns the sentence, and it
+      // is the only level at which a version can be an element instead of a substring.
+      detail={
+        <>
+          {`${remedy.headline} `}
+          <ShellSentenceText sentence={describeVersionPair(negotiation)} />{" "}
+          <ShellSentenceText sentence={describeSupportedProtocols(negotiation)} />
+          {` ${remedy.remedy} ${readOnlyLine()}`}
+        </>
+      }
     />
   );
 }
@@ -107,7 +115,12 @@ function renderConnectionBanner(
   return (
     <RefusalBanner
       code={codeForConnection(state)}
-      detail={`${line} ${readOnlyLine()}`}
+      detail={
+        <>
+          <ShellSentenceText sentence={line} />
+          {` ${readOnlyLine()}`}
+        </>
+      }
       action={
         offersRetry ? (
           <button

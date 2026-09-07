@@ -23,6 +23,16 @@
 // report is a claim about right now; holding the last one after the channel closed
 // would leave a window saying "connected" on the strength of a message that arrived
 // before the process carrying it went away.
+//
+// AND SO DOES A NEW SUBSCRIPTION, BEFORE ITS OUTCOME. The same sentence read from the
+// other end: a report is a claim one supervisor made, so a window addressed at a
+// DIFFERENT one is holding a claim nobody is making about it. That is not a hypothesis
+// — a bridge is replaced when the fixture's scenario switches and when a window
+// re-pairs, and the replacement's first act is a subscribe that may be refused
+// outright, which publishes nothing at all. Clearing on the way OUT would not reach it
+// either: the drain that was torn down must not write over what its successor has
+// already said, so its own settlement is refused, and there is nothing left to clear
+// the value. So the reset is the first thing the new subscription does.
 
 import { useCallback, useEffect } from "react";
 
@@ -30,11 +40,20 @@ import { useConsoleBridge } from "../../bridge/index.js";
 import type { GrowthPort } from "../../bridge/index.js";
 import {
   UNREPORTED_SHELL_STATE,
+  useGenerationLatch,
   useWorstOpenSessionRecovery,
   type FrameStore,
   type SessionStoreRegistry,
   type ShellReport,
 } from "../../store/index.js";
+
+/**
+ * The one act this binding has in flight per port: draining that port's report stream.
+ *
+ * A key inside the port's own key space rather than an identity, per
+ * `store/generation-latch.ts`: one port carries one shell, so one drain.
+ */
+const SHELL_REPORT_DRAIN_KEY = "shell-report-drain";
 
 /**
  * Keep this window's shell state live for as long as the frame is mounted.
@@ -75,10 +94,26 @@ export function useShellStateBinding(
  * reading a clean end publishes, because a report is a claim about right now either
  * way. The stream goes with it, since a producer that threw part-way is still a
  * subscription somebody has to end.
+ *
+ * WHICH DRAIN MAY WRITE IS THE CONSOLE'S ONE LATCH, KEYED ON THE PORT. Every write
+ * below — each frame, and the channel-loss reading in the `finally` — goes through a
+ * claim taken when the subscription starts, so a drain whose port has been replaced
+ * settles NOWHERE rather than over what its successor has already published. A local
+ * boolean said the same thing in this one module and was the seventh copy of the guard
+ * `store/generation-latch.ts` owns, which is the shape that drifts: it read a teardown
+ * and could not read a re-address, and it went stale in a different place from every
+ * other copy of it. The subject is the PORT, because a port is minted once per bridge
+ * and its replacement is exactly what retires the calls made through it.
  */
 function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort): void {
+  const drains = useGenerationLatch();
   useEffect(() => {
-    let released = false;
+    // BEFORE THE OUTCOME, AND DELIBERATELY NOT AFTER IT. What the previous port said
+    // is not a claim about this one, and the two paths that would otherwise clear it
+    // both fail to: a refused subscribe publishes nothing at all, and the retired
+    // drain's own settlement is refused by the claim below.
+    frameStore.publishShellReport(unreportedShellReport());
+    const drainClaim = drains.supersedeAndClaim(growth, SHELL_REPORT_DRAIN_KEY);
     let stream: { close(): void } | undefined;
     /** Close the acquired stream at most once, from whichever path reaches it first. */
     const closeStream = (): void => {
@@ -90,22 +125,21 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
     const drain = async (): Promise<void> => {
       const outcome = await growth.shellStatusSubscribe({});
       if (outcome.status !== "served") {
-        // The build does not carry the wire. `unreported` is already the store's
-        // seeded value, so there is nothing to write and nothing to say: the chip
-        // renders the absence and no control is disabled on the strength of it.
+        // The build does not carry the wire. The reset above already said so, so
+        // there is nothing left to write: the chip renders the absence and no
+        // control is disabled on the strength of it.
         return;
       }
-      if (released) {
+      if (!drainClaim.isCurrent) {
         outcome.value.close();
         return;
       }
       stream = outcome.value;
       try {
         for await (const report of outcome.value.events) {
-          if (released) {
+          if (!drainClaim.settle(() => frameStore.publishShellReport(report))) {
             return;
           }
-          frameStore.publishShellReport(report);
         }
       } catch {
         // The channel BROKE rather than ended, and the difference is not one this
@@ -114,21 +148,20 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
         // the reading below is the same one a clean end publishes.
         closeStream();
       } finally {
-        if (!released) {
-          // The channel went away while this window was still watching it. What it
-          // last said is no longer a claim about now.
-          frameStore.publishShellReport(unreportedShellReport());
-        }
+        // The channel went away while this window was still watching it. What it last
+        // said is no longer a claim about now — and where the port itself is what went
+        // away, the claim refuses this and the successor's own reset stands.
+        drainClaim.settle(() => frameStore.publishShellReport(unreportedShellReport()));
       }
     };
 
     void drain();
 
     return () => {
-      released = true;
+      drainClaim.release();
       closeStream();
     };
-  }, [frameStore, growth]);
+  }, [drains, frameStore, growth]);
 }
 
 /**

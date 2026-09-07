@@ -17,6 +17,7 @@
 // what keeps a later edit from collapsing it back into the signed-out refusal.
 
 import { render } from "@testing-library/react";
+import type { ParticipantId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { SignInCard } from "./SignInCard.js";
@@ -24,16 +25,21 @@ import type { SignInState } from "./sign-in-flow.js";
 
 const HANDOFF = { verificationUri: "http://127.0.0.1:8419/callback", userCode: "JQPD-4KTM" };
 
+/** The participant the relying party verified. Rendered verbatim, so it is asserted so. */
+const PARTICIPANT_ID = "019b78c9-0a80-79a4-8110-cca0117a3301";
+const CLAIMS = { participantId: PARTICIPANT_ID as ParticipantId };
+
 const STATES: readonly SignInState[] = [
   { kind: "signed-out" },
   { kind: "passkey-in-flight" },
   { kind: "handing-off", probeResult: "no-prf", handoff: HANDOFF },
   { kind: "awaiting-callback", handoff: HANDOFF },
-  { kind: "signed-in", custody: "durable" },
-  { kind: "signed-in", custody: "memory-only" },
+  { kind: "signed-in", custody: "durable", claims: CLAIMS },
+  { kind: "signed-in", custody: "memory-only", claims: CLAIMS },
   {
     kind: "signed-in",
     custody: "durable",
+    claims: CLAIMS,
     enrolmentRefusal: { kind: "refused", reason: "cancelled" },
   },
   { kind: "refused", reason: "cancelled" },
@@ -84,8 +90,23 @@ describe("what each state actually says", () => {
     expect(text).toContain("Open the browser");
   });
 
+  it("names the participant it signed in, as a wire figure and not as prose", () => {
+    // The defect: the card stated where the credential was kept and never who it
+    // belonged to, on the one surface whose whole purpose is to establish an
+    // identity. The id wears the mono provenance signature (rule 4) because the
+    // relying party sent it — a paraphrase would be prose paraphrasing a figure.
+    const container = renderState({ kind: "signed-in", custody: "durable", claims: CLAIMS });
+    expect(container.textContent).toContain("Signed in as");
+
+    const figures = [...container.querySelectorAll(".meridian-figure--wire")].map(
+      (figure) => figure.textContent,
+    );
+    expect(figures).toContain(PARTICIPANT_ID);
+  });
+
   it("states the memory-only consequence at the moment it is minted", () => {
-    const text = renderState({ kind: "signed-in", custody: "memory-only" }).textContent ?? "";
+    const text =
+      renderState({ kind: "signed-in", custody: "memory-only", claims: CLAIMS }).textContent ?? "";
     expect(text).toContain("keystore is unavailable");
   });
 
@@ -107,6 +128,7 @@ describe("a refused enrolment keeps the session on screen", () => {
       renderState({
         kind: "signed-in",
         custody: "durable",
+        claims: CLAIMS,
         enrolmentRefusal: { kind: "refused", reason: "cancelled" },
       }).textContent ?? "";
 
@@ -123,6 +145,7 @@ describe("a refused enrolment keeps the session on screen", () => {
       renderState({
         kind: "signed-in",
         custody: "durable",
+        claims: CLAIMS,
         enrolmentRefusal: {
           kind: "fallback-required",
           probeResult: "no-prf",
@@ -142,6 +165,7 @@ describe("a refused enrolment keeps the session on screen", () => {
       renderState({
         kind: "signed-in",
         custody: "durable",
+        claims: CLAIMS,
         enrolmentRefusal: {
           kind: "unavailable",
           refusal: { code: "ceremony-unreadable", detail: "Nothing answered.", origin: "sign-in" },

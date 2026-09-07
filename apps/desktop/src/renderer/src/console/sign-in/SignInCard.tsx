@@ -20,13 +20,14 @@
 // is the other case — a refusal there has no session behind it, so it stands in for
 // the body rather than sitting under one.
 
-import { InlineRefusal, Nothing } from "../primitives/index.js";
+import { InlineRefusal, Nothing, WireFigure } from "../primitives/index.js";
 import { DeviceGrantCard } from "./DeviceGrantCard.js";
 import {
   CUSTODY_NOTES,
   LOCAL_SESSION_NOTE,
   PROBE_RESULT_NOTES,
   REFUSAL_REASON_NOTES,
+  SIGNED_IN_AS_LABEL,
   describeEnrolmentRefusal,
 } from "./sign-in-copy.js";
 import type { SignInState } from "./sign-in-flow.js";
@@ -95,6 +96,17 @@ function renderBody(props: SignInCardProps): React.ReactNode {
     case "signed-in":
       return (
         <>
+          {/*
+           * WHO, BEFORE WHERE THE CREDENTIAL IS KEPT. A receipt naming no subject is
+           * the defect this line closes: the card could say a sign-in happened and
+           * never whose, on a surface whose only purpose is to establish an identity.
+           * The id wears the mono provenance signature because it is a wire figure the
+           * relying party sent, and it is never re-cased or shortened.
+           */}
+          <p className="meridian-sign-in__note">
+            {`${SIGNED_IN_AS_LABEL} `}
+            <WireFigure value={state.claims.participantId} />
+          </p>
           <p
             className={
               state.custody === "memory-only"

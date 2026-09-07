@@ -22,11 +22,20 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { ParticipantId } from "@ai-sidekicks/contracts";
+
 import { SignInFlow, stateFromOutcome } from "./sign-in-flow.js";
 import type { SignInCeremony } from "./ceremony-adapter.js";
 import type { WebAuthnCeremonyOutcome } from "../bridge/index.js";
 
 const HANDOFF = { verificationUri: "http://127.0.0.1:8419/callback", userCode: "JQPD-4KTM" };
+
+/**
+ * Who the relying party said signed in. One participant across every case here,
+ * because what these cases are about is the flow's ordering rather than the identity
+ * — and a second id would only make the assertions harder to read.
+ */
+const CLAIMS = { participantId: "019b78c9-0a80-79a4-8110-cca0117a3301" as ParticipantId };
 
 /**
  * A ceremony that answers whatever the test scripted, in order.
@@ -83,7 +92,7 @@ function flowOver(answers: readonly WebAuthnCeremonyOutcome[]): {
 
 describe("what one outcome settles into", () => {
   it.each([
-    [{ kind: "authenticated", custody: "durable" } as const, "signed-in"],
+    [{ kind: "authenticated", custody: "durable", claims: CLAIMS } as const, "signed-in"],
     [
       { kind: "fallback-required", probeResult: "no-prf", handoff: HANDOFF } as const,
       "handing-off",
@@ -98,6 +107,39 @@ describe("what one outcome settles into", () => {
     ],
   ])("maps %o to the %s state", (outcome, expected) => {
     expect(stateFromOutcome(outcome).kind).toBe(expected);
+  });
+});
+
+describe("the session names who is in it", () => {
+  it("carries the ceremony's participant claims onto the signed-in state", async () => {
+    // `Spec-023 §WebAuthn Credential Flow` step 7 returns "only the ceremony success
+    // signal + participant identity claims", so this state is the only place that
+    // fact reaches a surface. Without it the card can say a sign-in happened and
+    // never whose — a receipt with no subject.
+    const { flow } = flowOver([{ kind: "authenticated", custody: "durable", claims: CLAIMS }]);
+    await flow.signIn();
+    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "durable", claims: CLAIMS });
+  });
+
+  it("keeps them through a refused enrolment and its dismissal", async () => {
+    // The enrolment rule applied to the identity half: an act that added no passkey
+    // changed nothing about who this window is signed in as, so neither settling the
+    // refusal nor dismissing it may drop the claims.
+    const { flow } = flowOver([
+      { kind: "authenticated", custody: "durable", claims: CLAIMS },
+      { kind: "refused", reason: "cancelled" },
+    ]);
+    await flow.signIn();
+    await flow.register();
+    expect(flow.state).toStrictEqual({
+      kind: "signed-in",
+      custody: "durable",
+      claims: CLAIMS,
+      enrolmentRefusal: { kind: "refused", reason: "cancelled" },
+    });
+
+    flow.dismissRefusal();
+    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "durable", claims: CLAIMS });
   });
 });
 
@@ -125,7 +167,7 @@ describe("the device grant finishes", () => {
   it("waits once from the hand-off and settles into the memory-only session", async () => {
     const { flow, ceremony } = flowOver([
       { kind: "fallback-required", probeResult: "no-prf", handoff: HANDOFF },
-      { kind: "authenticated", custody: "memory-only" },
+      { kind: "authenticated", custody: "memory-only", claims: CLAIMS },
     ]);
     await flow.signIn();
     expect(flow.state).toStrictEqual({
@@ -134,14 +176,16 @@ describe("the device grant finishes", () => {
       handoff: HANDOFF,
     });
     await flow.awaitDeviceGrant();
-    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "memory-only" });
+    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "memory-only", claims: CLAIMS });
     expect(ceremony.calls).toStrictEqual(["signIn", "awaitDeviceGrant"]);
   });
 });
 
 describe("one ceremony at a time", () => {
   it("does not start a second while one is unsettled", async () => {
-    const { flow, ceremony } = flowOver([{ kind: "authenticated", custody: "durable" }]);
+    const { flow, ceremony } = flowOver([
+      { kind: "authenticated", custody: "durable", claims: CLAIMS },
+    ]);
     const first = flow.signIn();
     // Issued while the first is in flight: without the single-flight guard this would
     // open a second OS dialog and exhaust the script.
@@ -161,7 +205,7 @@ describe("one ceremony at a time", () => {
 describe("an enrolment that adds nothing revokes nothing", () => {
   it("keeps the session and carries the refusal when the prompt is dismissed", async () => {
     const { flow, ceremony } = flowOver([
-      { kind: "authenticated", custody: "durable" },
+      { kind: "authenticated", custody: "durable", claims: CLAIMS },
       { kind: "refused", reason: "cancelled" },
     ]);
     await flow.signIn();
@@ -170,6 +214,7 @@ describe("an enrolment that adds nothing revokes nothing", () => {
     expect(flow.state).toStrictEqual({
       kind: "signed-in",
       custody: "durable",
+      claims: CLAIMS,
       enrolmentRefusal: { kind: "refused", reason: "cancelled" },
     });
 
@@ -177,14 +222,14 @@ describe("an enrolment that adds nothing revokes nothing", () => {
     // is asking to see the control again, which is what rule 9's dismissal means
     // everywhere else in this family.
     flow.dismissRefusal();
-    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "durable" });
+    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "durable", claims: CLAIMS });
     expect(ceremony.calls).toStrictEqual(["signIn", "register"]);
   });
 
   it("keeps the session when the build could not run the enrolment at all", async () => {
     const refusal = { code: "ceremony-unreadable", detail: "Nothing answered.", origin: "sign-in" };
     const { flow } = flowOver([
-      { kind: "authenticated", custody: "memory-only" },
+      { kind: "authenticated", custody: "memory-only", claims: CLAIMS },
       { kind: "unavailable", refusal },
     ]);
     await flow.signIn();
@@ -193,6 +238,7 @@ describe("an enrolment that adds nothing revokes nothing", () => {
     expect(flow.state).toStrictEqual({
       kind: "signed-in",
       custody: "memory-only",
+      claims: CLAIMS,
       enrolmentRefusal: { kind: "unavailable", refusal },
     });
   });
@@ -203,7 +249,7 @@ describe("an enrolment that adds nothing revokes nothing", () => {
     // somebody already signed in, so the probe result is carried as a refusal and
     // the wait stays unreachable — which the call log is what proves.
     const { flow, ceremony } = flowOver([
-      { kind: "authenticated", custody: "durable" },
+      { kind: "authenticated", custody: "durable", claims: CLAIMS },
       { kind: "fallback-required", probeResult: "no-prf", handoff: HANDOFF },
     ]);
     await flow.signIn();
@@ -212,6 +258,7 @@ describe("an enrolment that adds nothing revokes nothing", () => {
     expect(flow.state).toStrictEqual({
       kind: "signed-in",
       custody: "durable",
+      claims: CLAIMS,
       enrolmentRefusal: { kind: "fallback-required", probeResult: "no-prf", handoff: HANDOFF },
     });
     await flow.awaitDeviceGrant();
@@ -220,21 +267,21 @@ describe("an enrolment that adds nothing revokes nothing", () => {
 
   it("takes the new custody and drops the refusal once an enrolment succeeds", async () => {
     const { flow } = flowOver([
-      { kind: "authenticated", custody: "durable" },
+      { kind: "authenticated", custody: "durable", claims: CLAIMS },
       { kind: "refused", reason: "verification-failed" },
-      { kind: "authenticated", custody: "memory-only" },
+      { kind: "authenticated", custody: "memory-only", claims: CLAIMS },
     ]);
     await flow.signIn();
     await flow.register();
     await flow.register();
 
-    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "memory-only" });
+    expect(flow.state).toStrictEqual({ kind: "signed-in", custody: "memory-only", claims: CLAIMS });
   });
 });
 
 describe("supersession", () => {
   it("publishes nothing into a card that is gone", async () => {
-    const { flow } = flowOver([{ kind: "authenticated", custody: "durable" }]);
+    const { flow } = flowOver([{ kind: "authenticated", custody: "durable", claims: CLAIMS }]);
     const pending = flow.signIn();
     flow.supersede();
     await pending;

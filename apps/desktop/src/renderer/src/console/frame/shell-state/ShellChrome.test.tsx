@@ -209,6 +209,67 @@ describe("ShellChrome — the version banner", () => {
     reason: "version.ceiling_exceeded",
   };
 
+  /** Every figure the strip rendered, in order, as a person reads them. */
+  function wireFigures(container: HTMLElement): readonly (string | null)[] {
+    return [...container.querySelectorAll(".meridian-figure--wire")].map(
+      (figure) => figure.textContent,
+    );
+  }
+
+  it("renders both protocol versions as figures and neither as prose", () => {
+    // The defect: the sentence pasted both versions into proportional prose, so two
+    // values the runtime sent reached the screen with none of rule 4's provenance and
+    // through none of the console's one formatter. The claim is exact in both
+    // directions — the versions are figures, and no bare text carries them — because a
+    // sentence that merely GAINED two figures while keeping the old prose would pass a
+    // containment check twice over.
+    const { container } = render(
+      <ShellChrome
+        frameStore={storeReporting({ connection: { kind: "version-incompatible" }, negotiation })}
+      />,
+    );
+    const message = container.querySelector(".meridian-refusal__message");
+    expect(message).not.toBeNull();
+
+    const figures = wireFigures(container);
+    // The refusal's own code is the first, then this console's version, the runtime's,
+    // and the two it listed as supported.
+    expect(figures).toStrictEqual([
+      "version.ceiling_exceeded",
+      "2026-08-14",
+      "2026-04-30",
+      "2026-04-30",
+      "2026-05-28",
+    ]);
+
+    const proseOnly = [...(message?.querySelectorAll("span") ?? [])]
+      .filter((span) => !span.classList.contains("meridian-figure"))
+      .map((span) => span.textContent ?? "")
+      .join("");
+    expect(proseOnly).not.toContain("2026-08-14");
+    expect(proseOnly).not.toContain("2026-04-30");
+    expect(proseOnly).not.toContain("2026-05-28");
+    // And the sentence still reads as one: the figures sit inside it rather than
+    // beside it, so a person reads the pair without assembling it themselves.
+    expect(message?.textContent).toContain(
+      "This console speaks 2026-08-14; the local runtime answered 2026-04-30.",
+    );
+  });
+
+  it("renders the ladder counters as figures too — the class, not the instance", () => {
+    // The same defect on the other arm: `String(attempt)` is a formatter this console
+    // does not own, so the counters bypassed `Intl` and wore no provenance either.
+    const { container } = render(
+      <ShellChrome
+        frameStore={storeReporting({
+          connection: { kind: "reconnecting", attempt: 2, attemptLimit: 5 },
+        })}
+      />,
+    );
+    expect(wireFigures(container)).toStrictEqual(["shell-disconnected", "2", "5"]);
+    expect(container.textContent).toContain("attempt 2 of 5");
+  });
+
   it("says the RUNTIME moves when this console is above the ceiling", () => {
     const { container } = render(
       <ShellChrome

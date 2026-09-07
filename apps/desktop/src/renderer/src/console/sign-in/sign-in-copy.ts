@@ -49,6 +49,18 @@ export const CUSTODY_NOTES: Readonly<Record<WebAuthnCustody, string>> = {
 };
 
 /**
+ * What the signed-in card says before it names the participant.
+ *
+ * A LABEL AND NOT A SENTENCE, because what follows it is a wire figure: the
+ * participant id renders verbatim in mono through `WireFigure` (`Spec-023 §Console
+ * Design (Meridian)` rule 4), and a sentence with the id pasted into it would be
+ * prose paraphrasing a figure. The id is the whole of the identity this build can
+ * name — no participant display name is declared anywhere in the corpus — so it is
+ * shown rather than summarised.
+ */
+export const SIGNED_IN_AS_LABEL = "Signed in as";
+
+/**
  * The note the signed-out card carries under its one action.
  *
  * It is a standing product fact rather than a state: nothing in `Spec-023` or
