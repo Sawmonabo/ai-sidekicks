@@ -33,11 +33,27 @@
 //     session's attention. An unfocused window announces everything, including the
 //     session it is parked on, because nobody is reading it.
 //
-// AND THE FIRST SETTLED READ RAISES NOTHING. Mounting the sessions destination is not
-// an event: the projection's first answer is the state of the world as the surface
-// found it, and announcing it would fire a banner per outstanding approval every time
-// a person navigated to this screen. The baseline is taken from that first read and
-// every later arrival is measured against it.
+// AND THE FIRST SETTLED READ OF A SESSION RAISES NOTHING FOR IT. Opening a window is
+// not an event: the projection's first answer about a session is the state of the
+// world as this window found it, and announcing it would fire a banner per
+// outstanding approval every time somebody opened the console.
+//
+// PER SESSION, AND NOT ONCE FOR THE WINDOW, because the two halves of the address set
+// do not settle together. A window opened directly on one session reads that session's
+// attention immediately, while the node's directory — which is where every OTHER
+// session this window can name comes from — answers later. One flag for the whole
+// window took the first of those as the baseline for all of them, so every session the
+// directory added afterwards arrived already baselined: its standing approvals, its
+// waiting input requests, and its failed runs were measured against a read that had
+// never covered it, and a person who opened a window got an OS banner for each of them
+// seconds after the console appeared.
+//
+// So what is remembered is a SET of session ids, and a session's items may announce
+// only from the read AFTER the one that first covered it. The set is re-derived
+// against every settled read, which is what makes a session leaving the address set
+// forget its baseline: the events it was known by are evictable the moment they stop
+// being live, so a session that comes back after its events have been forgotten would
+// otherwise have its whole standing projection announced as arrivals.
 //
 // WHAT THIS CLASS DELIBERATELY DOES NOT DO. It applies no preference filter and no
 // quiet-hours rule. Non-matching events are dropped at the control plane before they
@@ -52,7 +68,7 @@ import { ATTENTION_NOTIFIED_ITEM_CAP } from "../../core/index.js";
 import type { AttentionItem, ConsoleBridge } from "../../bridge/index.js";
 import { routeSessionId } from "../../routing/index.js";
 import type { FrameStore } from "../../store/index.js";
-import { type AttentionReading } from "./attention-plane.js";
+import { type AnsweredAttentionReading, type AttentionReading } from "./attention-plane.js";
 import { type OsNotificationDelivery } from "./os-notification-delivery.js";
 
 /** What the window looks like at the moment a projection settles. */
@@ -84,13 +100,27 @@ export interface AttentionNotifierAudience {
  * Insertion order carries the eviction: a `Set` iterates in insertion order, so
  * walking it is walking the remembered ids oldest first and no second structure is
  * needed to know which to drop.
+ *
+ * TWO MEMORIES AND NOT ONE, because they answer different questions and are bounded
+ * by different things. The events are what this window has already told somebody
+ * about, bounded by a cap over the ones that have cleared. The baselined sessions are
+ * which sessions it has watched long enough to call an item news, bounded by the
+ * address set itself — every read drops the ids that read did not ask about, so this
+ * set is never larger than the sessions the window can name.
  */
 export class AttentionNotifier {
   readonly #announcedSourceEventIds = new Set<string>();
-  #hasBaseline = false;
+  readonly #baselinedSessionIds = new Set<string>();
 
   /**
    * Fold one settled projection into the items this window should announce.
+   *
+   * TAKES THE WHOLE SETTLED READ rather than its items, so its three answers come off
+   * ONE fan-out. What the read contained, which sessions it asked about, and which of
+   * those refused are three facts about one settlement, and a caller composing them
+   * from separate holdings could pair this read's items with the address set of the
+   * next one — which is the shape the audience rule beside this already avoids by
+   * taking a single snapshot of the window.
    *
    * AT MOST ONE ARRIVAL PER CANONICAL EVENT. Two items over one `sourceEventId` are
    * two views of one thing that happened — the run-scoped item and the session
@@ -98,6 +128,14 @@ export class AttentionNotifier {
    * for both and the rest are folded into it silently. Which one comes first is the
    * projection's order and it changes nothing a person sees: items sharing an event
    * share its session too, so the audience rule below answers the same either way.
+   *
+   * AND ONLY FROM A SESSION THIS WINDOW HAS ALREADY COVERED. The baseline is read
+   * BEFORE this read re-derives it, so a session appearing in the address set for the
+   * first time has its whole standing projection remembered and announced for none of
+   * it, and the next read is the first one whose arrivals for that session are news.
+   * An item naming a session outside the covered set is held back the same way and for
+   * the same reason: a read that did not cover a session cannot say whether its items
+   * just happened.
    *
    * Every live event is remembered whether or not it is announced — an item the
    * audience rule held back is still news this window has seen, and announcing it
@@ -109,25 +147,61 @@ export class AttentionNotifier {
    * remembered set alone — the rule the eviction below states.
    */
   public arrivalsToAnnounce(
-    liveItems: readonly AttentionItem[],
+    reading: AnsweredAttentionReading,
     audience: AttentionNotifierAudience,
   ): readonly AttentionItem[] {
-    const announceable = this.#hasBaseline;
-    this.#hasBaseline = true;
     const liveSourceEventIds = new Set<string>();
     const arrivals: AttentionItem[] = [];
-    for (const item of liveItems) {
+    for (const item of reading.plane.liveItems) {
       liveSourceEventIds.add(item.sourceEventId);
       if (this.#announcedSourceEventIds.has(item.sourceEventId)) {
         continue;
       }
       this.#announcedSourceEventIds.add(item.sourceEventId);
-      if (announceable && this.#reachesAPerson(item, audience)) {
+      if (this.#baselinedSessionIds.has(item.sessionId) && this.#reachesAPerson(item, audience)) {
         arrivals.push(item);
       }
     }
+    this.#rebaselineAgainstTheAddressSet(reading);
     this.#forgetClearedSourceEventIdsOverTheCap(liveSourceEventIds);
     return arrivals;
+  }
+
+  /**
+   * Bring the baselined sessions into line with the read that just settled.
+   *
+   * TWO MOVES, AND THE ORDER BETWEEN THEM DOES NOT MATTER because they act on
+   * disjoint ids. A session this read did not ASK about is dropped, and a session it
+   * asked about and got an answer for is added.
+   *
+   * A REFUSED SESSION IS NEITHER, and that is the whole reason the refusals are read
+   * here. It was asked, so it has not left the address set and keeps whatever
+   * baseline it had — forgetting it would re-announce its standing projection the
+   * moment the read recovered, which is the same mistake the eviction below refuses
+   * to make with its cleared events. And it was not answered, so a session whose
+   * FIRST read refused is not baselined by that refusal: this window still has not
+   * been told what it holds.
+   *
+   * The drop is what makes a session leaving and rejoining the address set safe. Its
+   * remembered events are cleared from the moment it goes, so the cap may forget them
+   * while it is away — and a window that kept the baseline would then meet the same
+   * standing items as arrivals and announce every one of them.
+   */
+  #rebaselineAgainstTheAddressSet(reading: AnsweredAttentionReading): void {
+    const addressedSessionIds = new Set(reading.addressedSessionIds);
+    for (const baselinedSessionId of this.#baselinedSessionIds) {
+      if (!addressedSessionIds.has(baselinedSessionId)) {
+        this.#baselinedSessionIds.delete(baselinedSessionId);
+      }
+    }
+    const refusedSessionIds = new Set(
+      reading.refusedSessions.map((refusedSession) => refusedSession.sessionId),
+    );
+    for (const addressedSessionId of addressedSessionIds) {
+      if (!refusedSessionIds.has(addressedSessionId)) {
+        this.#baselinedSessionIds.add(addressedSessionId);
+      }
+    }
   }
 
   /**
@@ -243,7 +317,7 @@ export function useAttentionNotifications(options: {
     if (reading.phase !== "read") {
       return;
     }
-    const arrivals = notifier.arrivalsToAnnounce(reading.plane.liveItems, audienceFor(frameStore));
+    const arrivals = notifier.arrivalsToAnnounce(reading, audienceFor(frameStore));
     if (isWithheld) {
       // Remembered and not raised. The read says this machine will show nothing, so
       // the call is spent for no one — and the events are still taken, because a

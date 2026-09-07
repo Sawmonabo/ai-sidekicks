@@ -39,8 +39,19 @@
 // never-stale rules are unchanged and live where they already did: no preference
 // filter and no quiet-hours rule is applied here (the control plane drops non-matching
 // events before emission and the shell honours do-not-disturb), a withheld permission
-// remembers the arrival without raising it, and the first settled read still raises
-// nothing at all.
+// remembers the arrival without raising it, and the first settled read that covers a
+// session still raises nothing for it.
+//
+// AND THAT LAST RULE IS PER SESSION BECAUSE THIS BINDING'S ADDRESS SET GROWS. The
+// merge below settles in two moves — this window's open sessions are known at mount
+// and the node's directory answers later — so a window opened directly on a session
+// reads that session's attention first, and every session the directory adds
+// afterwards joins a fan-out this window has already read once. A baseline held once
+// for the whole window therefore treated each of those sessions' STANDING items as
+// arrivals, and the person who had just opened the console got an OS banner for every
+// approval already waiting anywhere on the node. The emitter baselines per session,
+// against the address set each settled read carries, which is why that set travels on
+// the read rather than being taken from this component.
 //
 // NOTHING HERE POLLS AND NOTHING HERE RENDERS. The read re-runs when the session
 // projections underneath it move, through the console's one push-driven read

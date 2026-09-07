@@ -50,9 +50,17 @@ export function attentionItem(overrides: Readonly<Record<string, unknown>> = {})
  * Written once because six cases below need it: the reader answers coverage beside
  * content, and a case spelling out an empty `refusedSessions` each time would be six
  * places to forget which half of the answer it was asserting about.
+ *
+ * The address set is both sessions this harness names, which is what a fan-out over
+ * this window's directory would actually have asked about — the cases here drive the
+ * read's LIFETIME, so a narrower set would say something they do not mean.
  */
 export function coveredRead(members: readonly unknown[]): AttentionProjectionRead {
-  return { members, refusedSessions: [] };
+  return {
+    members,
+    refusedSessions: [],
+    addressedSessionIds: [FIRST_SESSION_ID, SECOND_SESSION_ID],
+  };
 }
 
 /** When the one scripted beat below falls due, for the cases that play it. */

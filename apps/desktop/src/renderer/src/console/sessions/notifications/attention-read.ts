@@ -110,9 +110,11 @@ function attentionReadingFrom(
     phase: "read",
     plane: new AttentionPlane(narrowed.items),
     droppedCount: narrowed.droppedCount,
-    // Carried through untouched: which sessions went unanswered is the reader's
-    // fact, and re-deriving it here would be a second authority on coverage.
+    // Both halves of coverage carried through untouched: which sessions were asked
+    // and which of them went unanswered are the reader's facts, and re-deriving
+    // either here would be a second authority on what this read speaks for.
     refusedSessions: state.value.refusedSessions,
+    addressedSessionIds: state.value.addressedSessionIds,
   };
 }
 

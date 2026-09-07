@@ -58,12 +58,20 @@ function itemFor(id: string): AttentionItem {
   };
 }
 
+/**
+ * A settled read over the one session these cases name.
+ *
+ * The window is parked on that session throughout, so it is baselined by the first
+ * settled read and every case's item is measured against it — which is what makes
+ * these cases about the AUDIENCE rather than about the address set.
+ */
 function readingOf(items: readonly AttentionItem[]): AttentionReading {
   return {
     phase: "read",
     plane: new AttentionPlane(items),
     droppedCount: 0,
     refusedSessions: [],
+    addressedSessionIds: [ACTIVE_SESSION_ID],
   };
 }
 

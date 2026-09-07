@@ -24,6 +24,9 @@ function attentionItem(overrides: Partial<AttentionItem> & { readonly id: string
   } as AttentionItem;
 }
 
+/** The sessions the fan-out asked about. The rail counts the answer, not the ask. */
+const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
+
 describe("railAttentionCountOf", () => {
   it("counts the sessions with actionable attention, not the items", () => {
     const plane = new AttentionPlane([
@@ -32,7 +35,13 @@ describe("railAttentionCountOf", () => {
       attentionItem({ id: "3", sessionId: "session-b" }),
     ]);
     expect(
-      railAttentionCountOf({ phase: "read", plane, droppedCount: 0, refusedSessions: [] }),
+      railAttentionCountOf({
+        phase: "read",
+        plane,
+        droppedCount: 0,
+        refusedSessions: [],
+        addressedSessionIds: ADDRESSED_SESSION_IDS,
+      }),
     ).toBe(2);
   });
 
@@ -42,7 +51,13 @@ describe("railAttentionCountOf", () => {
       attentionItem({ id: "2", sessionId: "session-b", severity: "informational" }),
     ]);
     expect(
-      railAttentionCountOf({ phase: "read", plane, droppedCount: 0, refusedSessions: [] }),
+      railAttentionCountOf({
+        phase: "read",
+        plane,
+        droppedCount: 0,
+        refusedSessions: [],
+        addressedSessionIds: ADDRESSED_SESSION_IDS,
+      }),
     ).toBe(1);
   });
 
@@ -51,7 +66,13 @@ describe("railAttentionCountOf", () => {
     // would be permanent furniture reporting the absence of news.
     const plane = new AttentionPlane([]);
     expect(
-      railAttentionCountOf({ phase: "read", plane, droppedCount: 0, refusedSessions: [] }),
+      railAttentionCountOf({
+        phase: "read",
+        plane,
+        droppedCount: 0,
+        refusedSessions: [],
+        addressedSessionIds: ADDRESSED_SESSION_IDS,
+      }),
     ).toBeUndefined();
   });
 
