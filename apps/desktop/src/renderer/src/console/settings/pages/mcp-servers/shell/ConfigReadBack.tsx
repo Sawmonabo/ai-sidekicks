@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Chip, DerivedFigure, WireFigure, formatCount } from "../../../../primitives/index.js";
+import { Chip, WireFigure } from "../../../../primitives/index.js";
 import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
 
 /**
@@ -23,9 +23,17 @@ import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
  * column reads as "the value is empty" rather than "there is no value here", which is
  * the confusion this whole split exists to remove.
  *
- * The two name groups render through a camelCase helper rather than a second
- * component, on the `primitives/Nothing.tsx` precedent: a `.tsx` module declares one
- * component, and a list body its only caller owns has no identity outside it.
+ * AND THE ARGUMENTS ARE RENDERED, NOT COUNTED. `--read-only` and `--allow-write` are
+ * the same command and opposite grants, so a read-back that reported how MANY
+ * arguments a binding declared told an operator that two bindings were identical when
+ * one of them could write. They are strings the daemon already serves in the redacted
+ * view — the same view the command itself arrives on — so rendering them withholds
+ * nothing that was ever withheld, and the governing surface requires the command and
+ * its arguments to stay inspectable.
+ *
+ * The three groups render through camelCase helpers rather than second components, on
+ * the `primitives/Nothing.tsx` precedent: a `.tsx` module declares one component, and
+ * a list body its only caller owns has no identity outside it.
  */
 export function ConfigReadBack(props: {
   readonly config: GrowthMcpInventoryEntry["config"];
@@ -37,11 +45,7 @@ export function ConfigReadBack(props: {
       {config.transport === "stdio" ? (
         <>
           <WireFigure value={config.command} />
-          {config.args === undefined || config.args.length === 0 ? null : (
-            <span className="meridian-settings-page__aside">
-              with <DerivedFigure text={formatCount(config.args.length)} /> declared arguments
-            </span>
-          )}
+          {renderArgumentList(config.args)}
           {renderNameList("Environment variables read", config.envVarNames)}
         </>
       ) : (
@@ -61,27 +65,75 @@ export function ConfigReadBack(props: {
   );
 }
 
+/** One rendered wire string, and the identity the list around it keys it by. */
+interface KeyedWireString {
+  readonly key: string;
+  readonly value: string;
+}
+
 /**
  * One group of names the daemon served in place of values.
+ *
+ * A name group is a SET — which variables are read, which headers are sent — so the
+ * name is its own identity and the order it arrives in carries nothing.
+ */
+function renderNameList(caption: string, names: readonly string[] | undefined): ReactNode {
+  return renderWireStrings({
+    caption,
+    entries: names?.map((name) => ({ key: name, value: name })),
+    positional: false,
+  });
+}
+
+/**
+ * The arguments the daemon served, in the order it served them.
+ *
+ * A POSITIONAL VECTOR RATHER THAN A SET, which is the whole difference from the
+ * groups above: `--root /a --root /b` carries `--root` twice and means two roots, so
+ * the position is the identity and the string is not, and reordering it would be this
+ * console rewriting the command.
+ */
+function renderArgumentList(args: readonly string[] | undefined): ReactNode {
+  return renderWireStrings({
+    caption: "Arguments",
+    entries: args?.map((argument, position) => ({ key: String(position), value: argument })),
+    positional: true,
+  });
+}
+
+/**
+ * One bounded, wrapping list of wire strings under its caption.
  *
  * Absent and empty are the same fact here and render the same way — as nothing —
  * because both mean this binding declares none of that kind, and inventing a
  * distinction the wire does not draw would be a reading rather than a render.
+ *
+ * `positional` decides the element AND the class together because those are one fact:
+ * an ordered list announces its members as a sequence, which is true of argv and false
+ * of a name group, and each shape carries the enumeration bound its own class holds.
  */
-function renderNameList(caption: string, names: readonly string[] | undefined): ReactNode {
-  if (names === undefined || names.length === 0) {
+function renderWireStrings(options: {
+  readonly caption: string;
+  readonly entries: readonly KeyedWireString[] | undefined;
+  readonly positional: boolean;
+}): ReactNode {
+  const { caption, entries, positional } = options;
+  if (entries === undefined || entries.length === 0) {
     return null;
   }
+  const items = entries.map((entry) => (
+    <li key={entry.key}>
+      <WireFigure value={entry.value} />
+    </li>
+  ));
   return (
     <div className="meridian-mcp__names">
       <span className="meridian-settings-page__aside">{caption}</span>
-      <ul className="meridian-mcp__name-list">
-        {names.map((name) => (
-          <li key={name}>
-            <WireFigure value={name} />
-          </li>
-        ))}
-      </ul>
+      {positional ? (
+        <ol className="meridian-mcp__argument-list">{items}</ol>
+      ) : (
+        <ul className="meridian-mcp__name-list">{items}</ul>
+      )}
     </div>
   );
 }
