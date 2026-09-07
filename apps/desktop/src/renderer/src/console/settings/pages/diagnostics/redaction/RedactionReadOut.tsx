@@ -27,7 +27,7 @@ import {
   DerivedFigure,
   Nothing,
   WireFigure,
-  formatCount,
+  formatDayDuration,
 } from "../../../../primitives/index.js";
 import type { GrowthRedactionPolicy } from "../../../../bridge/index.js";
 import { REDACTION_BUCKET_DESCRIPTIONS } from "../health-vocabulary.js";
@@ -76,7 +76,7 @@ export function RedactionReadOut(props: { readonly policy: GrowthRedactionPolicy
                   </span>
                 </th>
                 <td>
-                  <DerivedFigure text={`${formatCount(bucket.ttlDays)} days`} />
+                  <DerivedFigure text={formatDayDuration(bucket.ttlDays)} />
                 </td>
                 <td>{bucket.rawContentOptIn ? "Raw content kept" : "Redacted"}</td>
               </tr>

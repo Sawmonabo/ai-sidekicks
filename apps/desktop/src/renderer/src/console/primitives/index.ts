@@ -314,6 +314,7 @@ export {
   formatClockTime,
   formatCount,
   formatDateTime,
+  formatDayDuration,
   formatDuration,
   formatMoney,
   formatPercent,
