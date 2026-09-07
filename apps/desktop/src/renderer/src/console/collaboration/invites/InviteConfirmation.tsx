@@ -130,6 +130,11 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
           close();
         }
       }}
+      // The mode `Spec-023 §Console Libraries` adopts, and never the library default:
+      // fully modal locks body scroll and hangs `aria-hidden` on a background the
+      // shell was never told to inert. `trap-focus` keeps the keyboard inside this
+      // card and leaves the background to the shell.
+      modal="trap-focus"
     >
       {/* The popup shell is the primitive's, which is what puts this card in the
           window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
