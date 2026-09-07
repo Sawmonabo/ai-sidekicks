@@ -42,6 +42,24 @@ export interface ConsoleCommand {
    * renders it (`palette/bridge-commands.ts` is the worked example).
    */
   readonly run: () => void | Promise<void>;
+  /**
+   * Warm whatever `run` is about to open, while a person is still looking at the row.
+   *
+   * OPTIONAL, AND MOST COMMANDS DECLARE NONE. It exists for the one class of command
+   * whose act mounts a loader-backed body: a destination, a pane. The palette calls it
+   * when the row becomes the highlighted one — the moment a person's intent is legible
+   * and the act has not happened — so the chunk is in flight before Enter rather than
+   * after it.
+   *
+   * IT MUST BE IDEMPOTENT AND MUST NOT NAVIGATE. Highlight moves with every arrow key,
+   * so this runs far more often than `run` does and on rows nobody chooses. Both boards'
+   * `preload` satisfy that by construction: the loader's promise is memoised, so a
+   * second call joins the first, and a body already loaded settles immediately.
+   *
+   * It returns nothing rather than a promise, on the same rule `run` follows: the
+   * palette drops what it cannot wait for, and a speculative warm has nobody waiting.
+   */
+  readonly preload?: () => void;
 }
 
 /** One chord bound to one command, optionally scoped. */

@@ -42,7 +42,7 @@ export function RunControlOutcome(props: {
       return <Nothing kind="not-loaded" placement="inline" title="Waiting for the daemon." />;
     case "settled":
       return (
-        <p className="meridian-run-controls__outcome">
+        <p className="meridian-workflow-run-controls__outcome">
           <WireFigure value={outcome.runState} />
           <span>{outcome.detail}</span>
         </p>

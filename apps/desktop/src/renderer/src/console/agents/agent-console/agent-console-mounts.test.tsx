@@ -104,6 +104,12 @@ async function renderDeckPane(
 ): Promise<HTMLElement> {
   const registry = new ConsolePaneRegistry();
   registerAgentConsolePane(registry);
+  // The body is loader-backed, so it is fetched before the mount rather than during it —
+  // which is what a window does too, through the idle warm after its first frame. Without
+  // it every case below would be waiting on a dynamic import inside a bounded `findBy`,
+  // and would report the roster as never arriving whenever the import took longer than
+  // the wait.
+  await registry.preload("agent-console");
   const descriptor = registry.descriptorFor("agent-console");
   if (descriptor === undefined) {
     throw new Error("the agent console registered no pane descriptor");
@@ -129,6 +135,8 @@ async function renderDeckPane(
 async function renderWindowSurface(agentId: string | undefined): Promise<HTMLElement> {
   const registry = new ConsoleSurfaceRegistry();
   registerAgentConsoleSurface(registry);
+  // Fetched before the mount, for the pane's reason above.
+  await registry.preload("agent-console");
   const descriptor = registry.descriptorFor("agent-console");
   if (descriptor === undefined) {
     throw new Error("the agent console registered no surface descriptor");

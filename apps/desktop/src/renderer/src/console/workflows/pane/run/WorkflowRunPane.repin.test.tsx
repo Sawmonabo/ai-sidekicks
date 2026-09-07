@@ -50,7 +50,7 @@ function chainOfTheParkedRun(): readonly { readonly workflowVersionId: string }[
 
 /** The picker's options as the DOM carries them, or `undefined` while there is none. */
 function repinOptions(section: HTMLElement): readonly string[] | undefined {
-  const picker = section.querySelector("select.meridian-run-controls__select");
+  const picker = section.querySelector("select.meridian-workflow-run-controls__select");
   return picker instanceof HTMLSelectElement
     ? [...picker.options].map((option) => option.value)
     : undefined;
@@ -74,7 +74,7 @@ describe("the run pane's re-pin picker", () => {
     await waitFor(() => {
       expect(repinOptions(section)).not.toBeUndefined();
     });
-    const picker = section.querySelector("select.meridian-run-controls__select");
+    const picker = section.querySelector("select.meridian-workflow-run-controls__select");
     if (!(picker instanceof HTMLSelectElement)) {
       throw new Error("the pane drew no re-pin picker");
     }
@@ -95,11 +95,11 @@ describe("the run pane's re-pin picker", () => {
     const section = renderPane(paneContext(PARKED, silentBridge()));
 
     await waitFor(() => {
-      expect(section.querySelector(".meridian-run-controls")).not.toBeNull();
+      expect(section.querySelector(".meridian-workflow-run-controls")).not.toBeNull();
     });
     expect(repinOptions(section)).toBeUndefined();
-    expect(section.querySelector(".meridian-run-controls__repin")).toBeNull();
-    const resume = [...section.querySelectorAll(".meridian-run-controls__action")].some(
+    expect(section.querySelector(".meridian-workflow-run-controls__repin")).toBeNull();
+    const resume = [...section.querySelectorAll(".meridian-workflow-run-controls__action")].some(
       (action) => action.textContent?.includes("Resume this run") === true,
     );
     expect(resume).toBe(true);

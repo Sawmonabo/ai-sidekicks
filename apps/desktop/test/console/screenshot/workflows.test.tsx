@@ -33,7 +33,7 @@
 // A host that did not declare that runner skips unless it opts in by name; an opted-in
 // developer Mac is advisory in the measured way `frame.test.tsx` records.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
@@ -43,6 +43,7 @@ import {
   type MountedFamilySurface,
 } from "../surfaces/workflows.js";
 import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
+import { captureSettled } from "./settled-capture.js";
 import { awaitPhaseGraphSettled } from "../phase-graph-settled.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
@@ -93,7 +94,7 @@ describe("screenshot — the workflows surfaces", () => {
         // module beside this one carries what a capture taken without it pinned.
         await awaitPhaseGraphSettled(mounted.element);
 
-        await expect(mounted.element).toMatchScreenshot(`${surface.referenceName}-${scheme}`);
+        await captureSettled(mounted.element, `${surface.referenceName}-${scheme}`);
       });
     }
   }
