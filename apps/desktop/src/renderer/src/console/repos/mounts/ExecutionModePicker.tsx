@@ -6,6 +6,7 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import { ModeRowView } from "./ModeRowView.js";
 import { executionModeRows } from "./mode-row.js";
+import type { WorkspaceControlPosture } from "./mount-health.js";
 import { modeRestrictionReason, mountRefusalRecovery } from "./mount-refusal-copy.js";
 import { RefusalRecovery } from "./RefusalRecovery.js";
 
@@ -28,8 +29,16 @@ export interface ExecutionModePickerProps {
    * reach for a reason belonging to a mode nobody pressed.
    */
   readonly refusalMode: ExecutionMode | undefined;
-  /** Whether the surrounding card offers its bind controls at all. */
-  readonly disabled: boolean;
+  /**
+   * Whether this workspace's binding controls are live, derived ONCE by the card.
+   *
+   * Both halves of it used to be read here — the card's `disabled` and the presence of
+   * `pendingMode` — which made this the second place the rule was stated and left the
+   * root preparation beside it running on the first. `workspaceControlPosture` is the
+   * one derivation now; `pendingMode` survives beside it because the announcement below
+   * names the mode, which a posture does not carry.
+   */
+  readonly posture: WorkspaceControlPosture;
   readonly onSelect: (executionMode: ExecutionMode) => void;
 }
 
@@ -75,10 +84,7 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
   const { pendingMode } = props;
   return (
     <div className="meridian-mode-picker">
-      <fieldset
-        className="meridian-mode-picker__group"
-        disabled={props.disabled || pendingMode !== undefined}
-      >
+      <fieldset className="meridian-mode-picker__group" disabled={!props.posture.live}>
         <legend className="meridian-mode-picker__legend">
           What a run bound here may do to the repository
         </legend>

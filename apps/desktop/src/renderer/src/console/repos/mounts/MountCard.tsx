@@ -282,7 +282,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 bridge={props.bridge}
                 sessionStore={props.sessionStore}
                 onRequestRead={props.onRequestRead}
-                modeControlsOffered={posture.offered}
+                bindControls={posture}
                 onSelectExecutionMode={(executionMode) => {
                   props.onSelectExecutionMode(workspace.id, executionMode);
                 }}

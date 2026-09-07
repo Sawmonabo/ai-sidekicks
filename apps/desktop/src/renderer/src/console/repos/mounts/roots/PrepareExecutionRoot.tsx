@@ -22,6 +22,14 @@
 // IT IS COLLAPSED, on the gate disclosure's posture: preparing a root ahead of a run is
 // deliberate and infrequent, and an open form on every workspace card would put four
 // controls on a surface whose subject is what the session already holds.
+//
+// AND IT IS HELD BY THE SAME POSTURE THE MODE PICKER IS. A prepare IS a bind, so a
+// mount that refuses every bind refuses this one, and the mode a prepare is read off is
+// exactly what a pending switch is replacing — so the row derives one
+// `workspaceControlPosture` and hands it to both controls. Held rather than withheld,
+// on `mount-health.ts`'s own rule: the form stays where a person left it and the
+// sentence says what is holding it, because a control that vanished would report a
+// capability this workspace does not have rather than one that is momentarily closed.
 
 import { useCallback, useState } from "react";
 
@@ -30,6 +38,7 @@ import type { ExecutionMode } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
 import type { SessionStore } from "../../../store/index.js";
+import type { WorkspaceControlPosture } from "../mount-health.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
 import { usePrepareController } from "./prepare-binding.js";
@@ -58,6 +67,8 @@ export interface PrepareExecutionRootProps {
   readonly executionMode: ExecutionMode;
   /** The session whose reconnect edge and repo frames re-ask the reuse question. */
   readonly sessionStore: SessionStore;
+  /** Whether this workspace's binding controls are live. Derived once by the card. */
+  readonly posture: WorkspaceControlPosture;
   /** Read the section again, so a prepared root appears in the roots list. */
   readonly onPrepared: () => void;
 }
@@ -77,6 +88,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
   const verdict = reuseVerdictOf(reading);
   const formVerdict = prepareFormVerdict(form, verdict);
   const { onPrepared } = props;
+  const heldBecause = props.posture.live ? undefined : props.posture.heldBecause;
 
   const nameBranch = useCallback(
     (branchName: string) => {
@@ -130,6 +142,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           value={form.branchName}
           spellCheck={false}
           autoComplete="off"
+          disabled={heldBecause !== undefined}
           onChange={(event) => {
             nameBranch(event.target.value);
           }}
@@ -142,6 +155,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         <label className="meridian-prepare-root__consent">
           <input
             type="checkbox"
+            disabled={heldBecause !== undefined}
             checked={form.acknowledgeDirtyCandidate}
             onChange={(event) => {
               setForm((current) => ({
@@ -159,11 +173,22 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       <button
         type="button"
         className="meridian-prepare-root__confirm"
-        disabled={formVerdict.status !== "sendable" || reading.act.status === "sending"}
+        disabled={
+          heldBecause !== undefined ||
+          formVerdict.status !== "sendable" ||
+          reading.act.status === "sending"
+        }
         onClick={submit}
       >
         {isClone ? "Prepare a clone" : "Prepare"}
       </button>
+      {heldBecause === undefined ? null : (
+        // The mount's own sentence, or the selection act's — never a third wording for
+        // a state two other surfaces are already reporting.
+        <p className="meridian-prepare-root__held" role="status">
+          {heldBecause}
+        </p>
+      )}
       {formVerdict.status === "incomplete" ? (
         <p className="meridian-prepare-root__blocked" role="status">
           {formVerdict.because}

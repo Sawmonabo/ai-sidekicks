@@ -71,6 +71,17 @@
   cursor: pointer;
 }
 
+/* Why the preparation is closed, restated from the state that closed it — the mount's
+   own withheld reason, or the sentence a pending switch is already refusing presses
+   with. MUTED and not red: whichever of the two it is, that state is already reported
+   in its own colour further up this same card, and a second alarm for one fact reads
+   as two problems. */
+.meridian-prepare-root__held {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
 .meridian-prepare-root__prepared,
 .meridian-root-disposal__settled {
   display: flex;
