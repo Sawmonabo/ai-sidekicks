@@ -124,7 +124,12 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T11:05:03.060Z",
         },
-        timelineCursors: { latest: "ledger-cursor-33" },
+        // An ACKNOWLEDGED position beside the latest one, which is what makes the
+        // resume cycle reachable at all: the store submits whatever a read
+        // acknowledged on its NEXT read, and a reply carrying only `latest` names
+        // no position to submit. Behind `latest`, as a real one is — this
+        // participant has read most of the log and not all of it.
+        timelineCursors: { latest: "ledger-cursor-33", acknowledged: "ledger-cursor-30" },
       },
     },
     {
@@ -155,4 +160,19 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
     // an inconsistency the script papered over.
     REFUSED_NEGOTIATION_REPLY,
   ],
+  // The REFUSED resume position, and this scenario is where it belongs for the reason
+  // the handshake above it is: its job is to reach every state a surface renders, and
+  // `SessionResumeDegraded` has exactly one — a position this console submitted that
+  // the daemon could not resolve. It is a LEDGER surface, so a ledger-family scenario
+  // is where a reader looks for it, and the family's other three each rule themselves
+  // out by their own stated purpose: `ledger-quiet.ts` exists to hold the clean EMPTY
+  // state, `ledger-first-sixty.ts` IS `DEFAULT_SCENARIO_ID` and no first-launch
+  // demonstration should open onto a degradation, and `ledger-endurance.ts` is not in
+  // the picker at all.
+  //
+  // It costs the committed captures nothing. The refusal needs a SECOND read — the
+  // first submits no position — and a settled render performs one only on a focus, a
+  // reconnect, or a named frame, none of which a screenshot pass raises. Reaching it
+  // in the console is a person leaving the window and coming back.
+  refusesSubmittedResumeCursor: true,
 };

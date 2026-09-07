@@ -24,7 +24,23 @@ export interface SessionGrowthSignatures {
   sessionArchive: { request: { readonly sessionId: string }; value: void };
   sessionClose: { request: { readonly sessionId: string }; value: void };
   sessionReactivate: { request: { readonly sessionId: string }; value: void };
-  sessionRead: { request: { readonly sessionId: string }; value: SessionSnapshot };
+  // The snapshot read, and the position the caller wants the stream picked up from.
+  //
+  // `fromCursor` IS OPTIONAL AND ITS ABSENCE IS A MEANING rather than a default: it
+  // says the caller has no acknowledged position and the beginning of the window is
+  // where the read starts. A required member would have to be filled with a sentinel
+  // for the ordinary first read of every session, and a sentinel is a position the
+  // daemon then has to be told to ignore.
+  //
+  // IT IS ON THE REQUEST BECAUSE NO REGISTERED REQUEST CARRIES IT. `SessionReadRequest`
+  // is `.strict()` over `sessionId` alone and `SessionSubscribeRequest.afterCursor` is
+  // the only cursor a registered request has, so the resume position this console
+  // decides has no wire to travel on — which is the growth-slate row's own claim, and
+  // this is where the console states the shape it is asking for.
+  sessionRead: {
+    request: { readonly sessionId: string; readonly fromCursor?: string };
+    value: SessionSnapshot;
+  };
   sessionList: { request: Record<string, never>; value: readonly GrowthSessionSummary[] };
   sessionIdentityRead: { request: { readonly sessionId: string }; value: GrowthSessionSummary };
   daemonStatusRead: {

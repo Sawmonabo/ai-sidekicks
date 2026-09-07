@@ -138,7 +138,7 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "timelineResumeCursorMember",
       "session-directory-read",
       "type-member",
-      "the session read's earliest cursor — the floor the resume rule is taken against, registered in the canonical contract and absent from the strict reply schema",
+      "the resume-position member on the session read's request — where the console asks the stream to be picked up from, absent from the strict request schema, which carries `sessionId` alone",
     ),
   };
 

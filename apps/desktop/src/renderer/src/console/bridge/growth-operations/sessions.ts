@@ -46,11 +46,11 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "read one session's snapshot, so its store can reach a base state and project the stream bound to it",
       "session.read",
     ),
-    // the identity a session header renders. A read of its own
-    // rather than a member on `sessionRead`, because that operation answers with the
-    // console's STORE-shaped snapshot: a base state for a projection, which carries a
-    // cursor and a roster and deliberately no display title and no session state.
-    // Widening it would make every store initialisation carry two unrelated jobs.
+    // The identity a session header renders. A read of its own rather than a member on
+    // `sessionRead`, because that operation answers with the console's STORE-shaped
+    // snapshot: a base state for a projection, which carries a cursor and a roster and
+    // deliberately no display title and no session state. Widening it would make every
+    // store initialisation carry two unrelated jobs.
     sessionIdentityRead: op(
       "sessionIdentityRead",
       "session-directory-read",

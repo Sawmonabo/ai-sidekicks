@@ -32,6 +32,8 @@ import { createLiveBridge } from "../live-bridge.js";
 import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { CONSOLE_SCENARIOS } from "../scenarios/index.js";
+import { LEDGER_SCENARIO } from "../scenarios/ledger.js";
+import { RESUME_CURSOR_UNRESOLVABLE_CODE } from "../../store/index.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
 /**
@@ -204,5 +206,38 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
         expect(outcome.owningDocument, operationId).toContain(owner);
       }
     }
+  });
+});
+
+describe("the fixture's session read — a submitted position the daemon cannot resolve", () => {
+  it("refuses a read carrying a cursor and serves the same read without one", async () => {
+    // The DAEMON's refusal and not the fixture's, which is the whole point of the
+    // arm: the entry recovers only if it recognises the wire's own code, so a
+    // growth-scoped paraphrase here would leave the recovery unreachable and this
+    // suite green. Thrown rather than returned for the same reason — the port's
+    // outcome union has no arm for a refusal the other side raised.
+    const ledgerPort = createFixtureBridge({ scenario: LEDGER_SCENARIO }).growth;
+
+    await expect(
+      ledgerPort.sessionRead({
+        sessionId: LEDGER_SCENARIO.sessionId,
+        fromCursor: "a-position-this-daemon-cannot-resolve",
+      }),
+    ).rejects.toMatchObject({ code: RESUME_CURSOR_UNRESOLVABLE_CODE });
+
+    // The recovery arm, and it is what makes the refusal a lost PLACE rather than an
+    // outage: the entry re-reads the same session with no position, and that read
+    // has to be served or the store never reaches a base state at all.
+    const recovered = await ledgerPort.sessionRead({ sessionId: LEDGER_SCENARIO.sessionId });
+    expect(recovered.status).toBe("served");
+
+    // Negative control: the same cursor against a scenario that declares nothing is
+    // served, so the refusal above is the scenario's declaration and not the fixture
+    // refusing every position it is handed.
+    const flagshipOutcome = await fixturePort().sessionRead({
+      sessionId: FLAGSHIP_SCENARIO.sessionId,
+      fromCursor: "a-position-this-daemon-cannot-resolve",
+    });
+    expect(flagshipOutcome.status).toBe("served");
   });
 });

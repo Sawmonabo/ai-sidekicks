@@ -85,11 +85,17 @@ import {
  * clear its degraded flag on a read that never happened.
  *
  * `resumeFromCursor` is where the reader is asked to start: the position the previous
- * read acknowledged, or `undefined` for the beginning of the window. A REQUIRED third
- * parameter rather than an optional one, so the composition root that adapts a wire
- * onto this shape has to say what it does with the position — an optional parameter is
- * one a reader can keep ignoring while every gate stays green, which is the defect
- * this argument exists to end.
+ * read acknowledged, or `undefined` for the beginning of the window.
+ *
+ * DECLARED REQUIRED, AND THAT DECLARATION GATES NOTHING BY ITSELF. A function of fewer
+ * parameters is assignable to a function type with more, so an adapter written as
+ * `async (sessionId) => …` satisfies this type exactly and drops the position in
+ * silence — which is what shipped, and what `tsc` had no opinion about. The parameter
+ * is required because it is not optional information: every caller of this type has a
+ * position or has decided it has none. What HOLDS the forwarding is the behavioural
+ * gate in `frame/session-lifecycle.bridge-swap.test.tsx`, which composes the real
+ * adapter over a recording bridge and asserts the cursor reaches the request — a test
+ * of the seam rather than of its signature, because the signature cannot fail.
  */
 export type SessionSnapshotReader = (
   sessionId: string,

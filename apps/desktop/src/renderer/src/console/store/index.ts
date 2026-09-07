@@ -205,3 +205,11 @@ export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hook
 // reader — which is the dead export the census fails, and the type is reached deep
 // inside this family by the registry that forwards it.
 export { useTimelineResume } from "./session-projection-hooks.js";
+
+// The wire code a daemon answers with when a position this console submitted cannot be
+// resolved. Its one home is `timeline-resume.ts` — `@ai-sidekicks/contracts` exports no
+// constant for it — and its reader outside this family is the fixture growth port,
+// which refuses a cursor-carrying session read under the same string the entry
+// recognises the refusal by. Two spellings would make the arm unreachable in the
+// fixture and green in the suite.
+export { RESUME_CURSOR_UNRESOLVABLE_CODE } from "./timeline-resume.js";

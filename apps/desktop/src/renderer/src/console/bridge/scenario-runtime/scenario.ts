@@ -201,6 +201,27 @@ export interface ConsoleScenario {
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /**
+   * Whether this scenario's daemon refuses a resume position the console submits.
+   *
+   * A BOOLEAN AND NOT THE CURSOR ITSELF, because the cursor is already stated once —
+   * a scenario's `session.read` reply carries the acknowledged position, the store
+   * submits exactly that string on its next read, and a second copy of it here would
+   * be one value in two places, silently unreachable the moment they drifted. So the
+   * scenario declares the DISPOSITION and the fixture applies it to whatever position
+   * arrives.
+   *
+   * It is a scenario member rather than a `replies` row for the reason the roster
+   * above is: the reply table answers a call with one fixed value, and this refuses
+   * one ARM of a call — a read carrying a position — while the same call with no
+   * position is served in the same scenario, which is what makes the console's
+   * recovery observable at all.
+   *
+   * OPTIONAL, and its absence means the ordinary thing: this daemon resolves what it
+   * acknowledged. A scenario that scripts no acknowledged position submits nothing and
+   * is unaffected either way.
+   */
+  readonly refusesSubmittedResumeCursor?: boolean;
+  /**
    * The session's runtime-node roster as it reads over scenario time.
    *
    * OPTIONAL, and the optionality is the answer rather than a gap: a scenario that

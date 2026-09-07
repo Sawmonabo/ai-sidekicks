@@ -89,6 +89,7 @@ import {
   useOpenSessionStore,
   useSubjectScopedResource,
   type ConsoleEntityProjectorRegistry,
+  type RefreshReason,
   type SessionSnapshot,
   type SessionSnapshotRead,
   type SessionStore,
@@ -289,13 +290,39 @@ const WINDOW_SESSION_PLUMBING_DISPOSAL: SubjectScopedDisposal<WindowSessionPlumb
  * takes a different path: it is raised, so the refresh scheduler's error arm marks
  * the store degraded rather than the adapter reporting "read nothing", which would
  * clear no degraded flag and look like a quiet success.
+ *
+ * AND THE RESUME POSITION IS FORWARDED, which is the half this adapter was missing.
+ * `open-session-entry.ts` decides where the next read starts and hands the position
+ * over as the reader's third argument; an adapter that named one parameter took the
+ * decision and dropped it on the floor, and every read went on opening wherever it
+ * opened before. TypeScript does not report that — a function of fewer parameters is
+ * assignable to a function type with more — so the whole signature is written out here
+ * and the behavioural gate in `session-lifecycle.bridge-swap.test.tsx` is what holds
+ * the forwarding, not the arity.
+ *
+ * `reasons` is deliberately UNREAD rather than absent: it is why this read was asked
+ * for, which is the scheduler's own bookkeeping and no part of what the daemon is
+ * being asked. Naming it is what makes the third parameter reachable at all, and
+ * naming it without using it is the honest record that this seam has nothing to say
+ * about it.
+ *
+ * The member is spread conditionally because `exactOptionalPropertyTypes` makes an
+ * explicit `undefined` a different value from an absent member — and the absence IS
+ * the meaning: no acknowledged position, so the read starts at the window's beginning.
  */
 function createSessionSnapshotRead(bridge: ConsoleBridge): SessionSnapshotRead {
   if (!bridge.growthServedOperations.has("sessionRead")) {
     return growthUnavailable("sessionRead");
   }
-  return async (sessionId: string): Promise<SessionSnapshot> => {
-    const outcome = await bridge.growth.sessionRead({ sessionId });
+  return async (
+    sessionId: string,
+    _reasons: readonly RefreshReason[],
+    resumeFromCursor: string | undefined,
+  ): Promise<SessionSnapshot> => {
+    const outcome = await bridge.growth.sessionRead({
+      sessionId,
+      ...(resumeFromCursor === undefined ? {} : { fromCursor: resumeFromCursor }),
+    });
     if (outcome.status === "served") {
       return outcome.value;
     }

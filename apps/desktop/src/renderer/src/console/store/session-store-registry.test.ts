@@ -13,7 +13,12 @@
 import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, ManualClock, isConsoleRefusal } from "../core/index.js";
-import { eventAt, readsNothing } from "./session-store-registry.test-support.js";
+import {
+  emptySnapshot,
+  eventAt,
+  readsNothing,
+  settleMicrotasks,
+} from "./session-store-registry.test-support.js";
 import {
   SESSION_REGISTRY_ORIGIN,
   SessionStoreRegistry,
@@ -95,6 +100,51 @@ describe("SessionStoreRegistry — one store per open session", () => {
     expect(registry.requestRefresh("session-1", "reconnect")).toBeUndefined();
     expect(registry.flush("session-1")).toBeUndefined();
     registry.disposeAll();
+  });
+
+  it("stops telling a resume subscriber that unsubscribed, and drops every sink on dispose", async () => {
+    // The second fan-out, and it had neither claim driven. Its sinks each close over
+    // a React subscription belonging to a tree that may already have unmounted, so a
+    // subscriber the registry keeps calling after its `Unsubscribe` ran — or one
+    // `disposeAll` leaves attached — holds that tree alive for the life of the window.
+    const clock = new ManualClock(0);
+    const settledFor: string[] = [];
+    const registry = new SessionStoreRegistry({
+      clock,
+      refreshDebounceMs: 20,
+      read: () => Promise.resolve(emptySnapshot(0)),
+    });
+    registry.open("session-1");
+    const unsubscribe = registry.subscribeToTimelineResume((sessionId) => {
+      settledFor.push(sessionId);
+    });
+    expect(registry.resumeSettlementListenerCount).toBe(1);
+
+    registry.requestRefresh("session-1", "reconnect");
+    clock.advance(20);
+    await settleMicrotasks();
+    expect(settledFor).toStrictEqual(["session-1"]);
+
+    unsubscribe();
+    registry.requestRefresh("session-1", "window-focus");
+    clock.advance(20);
+    await settleMicrotasks();
+
+    // The read really did happen — otherwise the unchanged list below would be about
+    // a refresh that never landed rather than about a sink that was dropped.
+    expect(registry.refreshCountFor("session-1")).toBe(2);
+    expect(settledFor).toStrictEqual(["session-1"]);
+    expect(registry.resumeSettlementListenerCount).toBe(0);
+
+    // And the teardown drops a sink nobody unsubscribed, which is the half no
+    // settlement can report: `disposeAll` closes every entry in the same act, so
+    // after it there is nothing left that could raise one.
+    registry.subscribeToTimelineResume(() => {
+      settledFor.push("after-dispose");
+    });
+    expect(registry.resumeSettlementListenerCount).toBe(1);
+    registry.disposeAll();
+    expect(registry.resumeSettlementListenerCount).toBe(0);
   });
 
   it("throws a console refusal when a disposed registry is asked to open", () => {

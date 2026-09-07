@@ -281,6 +281,22 @@ export class SessionStoreRegistry {
     return this.#changes.sinkCount;
   }
 
+  /**
+   * Resume-settlement listeners attached. The sibling of the count above, and it
+   * exists because the two fan-outs are dropped by the same teardown and only one of
+   * them could be asked about.
+   *
+   * An assertion seam on the same terms as the read and drain counts: its readers are
+   * tests and no surface renders it. `disposeAll` clearing this emitter is otherwise
+   * unobservable from outside — every entry is closed in the same act, so no later
+   * settlement can be raised to prove the sinks went with them, and a subscriber left
+   * attached to a disposed registry would keep a React tree's closure alive with
+   * nothing ever reporting it.
+   */
+  public get resumeSettlementListenerCount(): number {
+    return this.#resumeSettlements.sinkCount;
+  }
+
   /** True once `disposeAll` has run. A disposed registry opens nothing. */
   public get isDisposed(): boolean {
     return this.#disposed;

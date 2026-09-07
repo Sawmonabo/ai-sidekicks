@@ -124,7 +124,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "session-directory-read": {
     id: "session-directory-read",
-    wire: "typed session snapshot read for a store's base state, and the participant's session directory read, over the daemon method union",
+    wire: "typed session snapshot read for a store's base state, and the participant's session directory read, over the daemon method union, plus the resume-position member on that read's request — `SessionReadRequest` is strict over `sessionId` alone and `SessionSubscribeRequest.afterCursor` is the only cursor a registered request carries",
     owningDocument:
       "Spec-007 (the daemon method union); Spec-001 (the session.read payloads; no directory read is registered)",
     consumingSurface: "session-store initialisation, all-sessions list, auxiliary context picker",
