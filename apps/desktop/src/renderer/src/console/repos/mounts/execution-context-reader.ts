@@ -39,6 +39,7 @@ import {
   type ReadTriggerTarget,
   type RefreshReason,
   type SessionStore,
+  type SessionStoreScoped,
 } from "../../store/index.js";
 import { readGrowthAnswer } from "../growth-call.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
@@ -68,7 +69,7 @@ export interface WorkspaceExecutionContextReaderOptions {
  * re-subscribe, and a re-render all call it, and a reader that armed a second trigger
  * set for each would answer one reconnect with as many reads as it had been rendered.
  */
-export class WorkspaceExecutionContextReader implements ReadTriggerTarget {
+export class WorkspaceExecutionContextReader implements ReadTriggerTarget, SessionStoreScoped {
   /**
    * The frames that owe this reading a fresh read.
    *
@@ -82,6 +83,7 @@ export class WorkspaceExecutionContextReader implements ReadTriggerTarget {
   );
   readonly #bridge: ConsoleBridge;
   readonly #workspaceId: string;
+  readonly #sessionStore: SessionStore;
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: SessionRefreshTriggers;
   readonly #changes = new Emitter<ExecutionContextReading>("workspace execution context reading");
@@ -92,6 +94,7 @@ export class WorkspaceExecutionContextReader implements ReadTriggerTarget {
   public constructor(options: WorkspaceExecutionContextReaderOptions) {
     this.#bridge = options.bridge;
     this.#workspaceId = options.workspaceId;
+    this.#sessionStore = options.sessionStore;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
       perform: async () => {
@@ -126,6 +129,18 @@ export class WorkspaceExecutionContextReader implements ReadTriggerTarget {
    */
   public get isDisposed(): boolean {
     return this.#disposed;
+  }
+
+  /**
+   * Whether this reader's triggers are armed on `sessionStore`.
+   *
+   * `RepoMountsReader.isReadingFor`'s name and its reason, and the member
+   * `store/session-store-rebind.ts` types: the seam keys on the workspace, which names
+   * its session and so cannot separate two projections of one — and a store rebuilt
+   * across a reconnect is exactly that.
+   */
+  public isReadingFor(sessionStore: SessionStore): boolean {
+    return this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ExecutionContextReading) => void): Unsubscribe {

@@ -39,6 +39,7 @@ import { ActController } from "./act-controller.js";
 import type { ActOutcome, ActOwnArm, ActReading, ActSettlementArm } from "./act-reading.js";
 import type { ReadTriggerTarget } from "./read-triggers.js";
 import type { RefreshReason } from "./scheduling.js";
+import type { SessionStoreScoped } from "./session-store-rebind.js";
 import type { SessionStore } from "./session-store.js";
 
 /**
@@ -70,16 +71,17 @@ export interface ActSurfaceControllerOptions {
  * modes it admits, per workspace-and-mode for an execution root — which is why a
  * prerequisite survives a dialog that is closed and reopened.
  */
-export abstract class ActSurfaceController<
-  TValue,
-  TSettlement extends ActSettlementArm,
-> implements ReadTriggerTarget {
+export abstract class ActSurfaceController<TValue, TSettlement extends ActSettlementArm>
+  implements ReadTriggerTarget, SessionStoreScoped
+{
   /** The frames that owe this controller's prerequisite a fresh answer. */
   public readonly triggeringEventKinds: ReadonlySet<string>;
   readonly #acts: ActController<TValue, TSettlement>;
+  readonly #sessionStore: SessionStore;
 
   protected constructor(options: ActSurfaceControllerOptions) {
     this.triggeringEventKinds = options.triggeringEventKinds;
+    this.#sessionStore = options.sessionStore;
     this.#acts = new ActController<TValue, TSettlement>({
       label: options.label,
       clock: options.clock,
@@ -106,6 +108,18 @@ export abstract class ActSurfaceController<
 
   public get isDisposed(): boolean {
     return this.#acts.isDisposed;
+  }
+
+  /**
+   * Whether this controller's triggers are armed on `sessionStore`.
+   *
+   * `session-store-rebind.ts` states the axis; this is where every act controller
+   * answers it, rather than three subclasses each holding the store again. A store
+   * replaced under an unchanged bridge and identity retires the triggers this
+   * controller armed, and the binding above it mints a replacement on this answer.
+   */
+  public isReadingFor(sessionStore: SessionStore): boolean {
+    return this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ActReading<TValue, TSettlement>) => void): Unsubscribe {

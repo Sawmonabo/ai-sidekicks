@@ -66,6 +66,7 @@ export function usePrepareController(
   const { controller, reading } = useActController(
     bridge,
     `${subject.workspaceId} ${subject.executionMode}`,
+    sessionStore,
     () => new ExecutionRootPrepareController({ bridge, subject, sessionStore, clock }),
   );
   useEffect(() => {

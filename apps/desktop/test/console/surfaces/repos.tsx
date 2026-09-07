@@ -62,7 +62,7 @@ import {
 
 import {
   PREPARED_GATE_STATE,
-  PUSH_REFUSAL,
+  pushRefusal,
   extendedHeaderChangeSet,
   paneBinding,
   scenarioCollaborators,
@@ -212,7 +212,7 @@ export async function mountProposalGate(): Promise<MountedFamilySurface> {
     <ProposalGate
       state={PREPARED_GATE_STATE}
       onRequestAction={() => undefined}
-      actionRefusals={PUSH_REFUSAL}
+      actionRefusals={pushRefusal()}
       onOpenChangedPath={() => undefined}
     />,
   );

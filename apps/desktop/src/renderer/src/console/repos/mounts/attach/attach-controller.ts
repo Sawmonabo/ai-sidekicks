@@ -105,8 +105,10 @@ export class AttachController extends ActSurfaceController<
       clock: options.clock,
       sessionStore: options.sessionStore,
       // The frames that change a session's node roster. See the header for why not
-      // repo ones.
-      triggeringEventKinds: RUNTIME_NODE_ROSTER_EVENT_KINDS,
+      // repo ones. The census is DATA and the set is this controller's, on the bind
+      // controller's shape one directory over: an exported `Set` would be one mutable
+      // object every controller in the window shared.
+      triggeringEventKinds: new Set<string>(RUNTIME_NODE_ROSTER_EVENT_KINDS),
       refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
       readRejection: {
         code: "call-rejected",
@@ -182,6 +184,7 @@ export function useAttachController(
   const { controller, reading } = useActController(
     bridge,
     sessionStore.sessionId,
+    sessionStore,
     () => new AttachController({ bridge, sessionStore, clock }),
   );
   const requestRoster = useCallback(() => {

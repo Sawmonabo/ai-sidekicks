@@ -33,6 +33,7 @@ import type { WorkspaceState } from "@ai-sidekicks/contracts";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import {
   CONTROLLER_DISPOSAL,
+  useSessionStoreRebind,
   useSubjectScopedResource,
   type SessionStore,
 } from "../../store/index.js";
@@ -60,12 +61,16 @@ export function useWorkspaceExecutionContext(
   // advances on. Memoised because the real arm mints a fresh clock per call and a new
   // object every render would re-mint the reader beneath it.
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const { value: reader } = useSubjectScopedResource(
-    bridge,
-    workspaceId,
-    () => new WorkspaceExecutionContextReader({ bridge, workspaceId, sessionStore, clock }),
-    CONTROLLER_DISPOSAL,
-  );
+  const open = (): WorkspaceExecutionContextReader =>
+    new WorkspaceExecutionContextReader({ bridge, workspaceId, sessionStore, clock });
+  const held = useSubjectScopedResource(bridge, workspaceId, open, CONTROLLER_DISPOSAL);
+  // THE STORE AXIS, AND ONLY IT. The seam holds one reader per `(bridge, workspace
+  // id)`, and a projection replaced under that same address retires the triggers this
+  // reader armed — so the disclosure would go on reading a store nothing else reads
+  // and would miss every reconnect and lifecycle frame after the swap. The rule is
+  // `store/session-store-rebind.ts`'s and is applied here rather than restated.
+  useSessionStoreRebind(held, sessionStore, open);
+  const { value: reader } = held;
   useEffect(() => {
     reader.start();
   }, [reader]);
