@@ -27,7 +27,7 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { readProviderAccountId } from "../bridge/index.js";
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import type { OnboardingStepId } from "./steps/step-model.js";
+import { ONBOARDING_STEPS, type OnboardingStepId } from "./steps/step-model.js";
 
 /**
  * The account-plane refusals that should open the provider step.
@@ -96,6 +96,28 @@ export class OnboardingActivationSignal {
 
 /** This window's signal. One per renderer, like the command registry beside it. */
 export const onboardingActivation: OnboardingActivationSignal = new OnboardingActivationSignal();
+
+/**
+ * Whether an activation opens group A — the half the corpus makes non-dismissible.
+ *
+ * WHICH GROUP AN ACTIVATION IS FOR IS ALREADY ON IT, in the step it asks to open at,
+ * and this reads that rather than adding a discriminator beside it: `step-model.ts`
+ * assigns every step a group, so an activation naming a step names a group, and a
+ * second field would be a fact with two homes that disagree the first time one of
+ * them is edited.
+ *
+ * WHY IT IS ASKED AT ALL. `Spec-026 §Desktop Surface` makes the walkthrough
+ * non-dismissible until the relay choice is made, and that rule is about the flow an
+ * outbound invite triggers. Two of the three openings are group B's — the _Set up
+ * providers_ command and the post-refusal activation, both of which name the provider
+ * step — and `Spec-026 §Provider Authentication (Group B)` has those "offered and
+ * never demanded", reached after a refusal that has already happened. Locking those
+ * behind an unmade relay choice would turn a look at provider readiness into a setup
+ * flow nobody asked for, with no way out of the dialog.
+ */
+export function activationRequiresRelayChoice(activation: OnboardingActivation): boolean {
+  return ONBOARDING_STEPS[activation.openAtStep].group === "relay";
+}
 
 /**
  * The activation a refused run should raise, or `undefined` where it should raise none.

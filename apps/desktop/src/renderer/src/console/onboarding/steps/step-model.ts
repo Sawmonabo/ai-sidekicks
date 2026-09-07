@@ -67,15 +67,38 @@ export interface OnboardingStepDescriptor {
    * to be skipped rather than a second rule somewhere saying it must not be.
    */
   readonly isSkippable: boolean;
+  /**
+   * The step that has to be resolved before this one may be opened, where there is
+   * one at all.
+   *
+   * ONE STEP HAS A PREREQUISITE, and it is telemetry: `Spec-026 §Telemetry Opt-In`
+   * puts that question "after the relay choice resolves", and `Spec-026 §Pitfalls To
+   * Avoid` names asking it alongside the choice as a defect. A rail that let a person
+   * open it first, and a control that put the question when they did, is that defect
+   * reached the long way round — the answer would be recorded before the choice it is
+   * supposed to follow.
+   *
+   * THE PROVIDER STEP HAS NONE, and that is a decision rather than an omission. Group
+   * B is "offered and never demanded" (`Spec-026 §Provider Authentication (Group B)`)
+   * and is reached by its own entry point and by an account-plane refusal, neither of
+   * which passes through the relay choice — so ordering it behind group A would turn
+   * an independent workflow into a mandatory setup flow.
+   *
+   * READ THROUGH `stepBlockedReason` AND NOWHERE ELSE, so the rail's disabled entry
+   * and the step's own control answer one question once instead of two that agree
+   * until one of them is edited.
+   */
+  readonly opensAfter: OnboardingStepId | undefined;
 }
 
 /**
  * The steps, as data.
  *
  * A TOTAL record keyed by the id union rather than an array beside it, so a fourth
- * step is a compile error here until its group, label, summary, and skippability are
- * decided — the shape `settings-page-registry.ts` uses for its section labels, and
- * for the same reason: a rail entry cannot silently default to its id.
+ * step is a compile error here until its group, label, summary, skippability, and
+ * prerequisite are decided — the shape `settings-page-registry.ts` uses for its
+ * section labels, and for the same reason: a rail entry cannot silently default to
+ * its id.
  */
 export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepDescriptor>> = {
   relay: {
@@ -84,6 +107,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     label: "Where this node relays",
     summary: "Three ways to reach other people. One has to be chosen before an invite goes out.",
     isSkippable: false,
+    opensAfter: undefined,
   },
   telemetry: {
     id: "telemetry",
@@ -91,6 +115,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     label: "Telemetry",
     summary: "Its own question, asked after the relay choice and answered explicitly.",
     isSkippable: false,
+    opensAfter: "relay",
   },
   providers: {
     id: "providers",
@@ -98,6 +123,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     label: "Providers",
     summary: "Which providers this node can run right now, and how to close the gaps.",
     isSkippable: true,
+    opensAfter: undefined,
   },
 };
 
@@ -137,4 +163,32 @@ export function firstUnresolvedStep(
   completed: ReadonlySet<OnboardingStepId>,
 ): OnboardingStepId | undefined {
   return ONBOARDING_STEP_IDS.find((stepId) => !completed.has(stepId));
+}
+
+/**
+ * Why a step may not be opened yet, or `undefined` where nothing holds it.
+ *
+ * A SENTENCE RATHER THAN A BOOLEAN, because both readers need the reason and not
+ * only the verdict: the rail renders it as the disabled entry's own text, and the
+ * step renders it beside the control it has taken away. A boolean would have each of
+ * them write that sentence itself, which is the same claim in two places.
+ *
+ * THE PREREQUISITE IS NAMED BY ITS OWN LABEL, so a step renamed above is renamed
+ * here — a hand-written "the relay choice" would be a second name for a step that
+ * already has one.
+ *
+ * WHAT "RESOLVED" MEANS IS THE DAEMON'S, read off the completed set the state read
+ * carries. Nothing here re-derives progress, and a step the daemon does not mention
+ * is simply not done — which is why a walkthrough whose read has not answered blocks
+ * rather than opens: an unanswered read is not permission.
+ */
+export function stepBlockedReason(
+  stepId: OnboardingStepId,
+  completed: ReadonlySet<OnboardingStepId>,
+): string | undefined {
+  const prerequisite = ONBOARDING_STEPS[stepId].opensAfter;
+  if (prerequisite === undefined || completed.has(prerequisite)) {
+    return undefined;
+  }
+  return `Opens once “${ONBOARDING_STEPS[prerequisite].label}” is settled.`;
 }

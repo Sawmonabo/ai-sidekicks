@@ -87,6 +87,11 @@
   outline-offset: 2px;
 }
 
+.meridian-onboarding__rail-entry:disabled {
+  cursor: default;
+  color: var(--meridian-text-muted);
+}
+
 .meridian-onboarding__rail-label {
   font-size: var(--meridian-text-sm);
 }
@@ -100,6 +105,14 @@
   grid-column: 1 / -1;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
+}
+
+/* Why a held step cannot be opened. Its own line, because it is the one thing on a
+   disabled entry a reader has to be able to find. */
+.meridian-onboarding__rail-blocked {
+  grid-column: 1 / -1;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
 }
 
 .meridian-onboarding__pane {

@@ -18,6 +18,12 @@
 // THE ANSWER IS NOT COLLECTED HERE. `onboarding.telemetryPrompt` is a main-process
 // question, so this step offers the act and renders what came back. There is no
 // toggle in this file, which is why the default cannot be silently applied by it.
+//
+// AND THE ACT IS WITHDRAWN RATHER THAN GUARDED while the relay choice is unresolved.
+// `blockedReason` is the whole of that fact — one value decides both the disabled
+// control and the missing handler, so there is no second condition to keep in step
+// with the first, and this file states no ordering rule of its own: the reason
+// arrives composed from the step model, which is where the ordering lives.
 
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import type { TelemetryReading } from "../onboarding-flow.js";
@@ -43,11 +49,22 @@ const CHANGE_LATER_NOTE =
 
 export interface TelemetryStepProps {
   readonly reading: TelemetryReading;
+  /**
+   * Why the question may not be put yet, or `undefined` when it may.
+   *
+   * Present, it takes the control away as well as explaining it: the handler is not
+   * wired at all, so nothing here can reach the prompt whatever a caller does to the
+   * button. `Spec-026 §Telemetry Opt-In` puts this question after the relay choice
+   * resolves, and an answer recorded ahead of that choice is that rule broken in the
+   * one way nothing could take back — the question has been asked and answered.
+   */
+  readonly blockedReason: string | undefined;
   readonly onPresentPrompt: () => void;
 }
 
 export function TelemetryStep(props: TelemetryStepProps): React.JSX.Element {
-  const { reading } = props;
+  const { blockedReason, reading } = props;
+  const isBlocked = blockedReason !== undefined;
   return (
     <section className="meridian-onboarding__step" aria-label="Telemetry">
       <p className="meridian-onboarding__note">
@@ -73,11 +90,16 @@ export function TelemetryStep(props: TelemetryStepProps): React.JSX.Element {
         this window. {CHANGE_LATER_NOTE}
       </p>
       {renderReading(reading)}
+      {blockedReason === undefined ? null : (
+        <p className="meridian-onboarding__note meridian-onboarding__note--quiet">
+          {blockedReason}
+        </p>
+      )}
       <button
         type="button"
         className="meridian-onboarding__act"
-        onClick={props.onPresentPrompt}
-        disabled={reading.kind === "asking"}
+        onClick={isBlocked ? undefined : props.onPresentPrompt}
+        disabled={isBlocked || reading.kind === "asking"}
       >
         {reading.kind === "answered" ? "Answer again" : "Answer the telemetry question"}
       </button>

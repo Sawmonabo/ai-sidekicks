@@ -19,6 +19,14 @@
 // inside a dialog on the strength of a read that failed would be a trap built out of
 // an absence. So the lock is applied on the answered arm and on no other.
 //
+// AND ONLY OVER THE ACTIVATION THAT ASKED FOR GROUP A. The other half of "where that
+// is true" is WHICH opening is on screen: the two group-B openings are offered and
+// never demanded, and one of them is raised after a run has already been refused. A
+// lock keyed on the relay reading alone held those too, so a person who asked to look
+// at provider readiness on a node with no relay configured could not close the dialog
+// until they had configured one — a mandatory setup flow assembled out of a rule
+// written for a different flow.
+//
 // THE MODELS ARE PER BRIDGE AND SUPERSEDED, held through the console's one
 // subject-scoped holder. A replacement bridge retires both — their unsettled calls
 // would answer over a transport that no longer exists — and unmount retires them too,
@@ -33,7 +41,11 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { consoleCommands, registerConsoleCommands } from "../palette/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "../store/index.js";
-import { onboardingActivation, type OnboardingActivation } from "./onboarding-activation.js";
+import {
+  activationRequiresRelayChoice,
+  onboardingActivation,
+  type OnboardingActivation,
+} from "./onboarding-activation.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
@@ -57,6 +69,24 @@ const PROVIDERS_ACTIVATION: OnboardingActivation = {
 
 /** The completed set a walkthrough resumes from before its first read answers. */
 const NO_STEPS_DONE: ReadonlySet<OnboardingStepId> = new Set<OnboardingStepId>();
+
+/**
+ * The settings section the provider-account registry is registered under.
+ *
+ * NAMED HERE RATHER THAN IMPORTED, and the reason is the DAG: `settings/` and this
+ * family are sibling VIEW families, and one never imports another
+ * (`console-view-family-isolation`), so `SETTINGS_SECTION_IDS` cannot be reached from
+ * this side. The route is what the two share — `routing/routes.ts` parses and formats
+ * `#/settings/<page>` and takes the section as its `page` — so the value travels as a
+ * route rather than as a hand-built address.
+ *
+ * A SECTION THIS BUILD NAMED WRONG WOULD REPORT ITSELF: an unrecognised page reaches
+ * the settings surface's own not-found absence, which prints the id it was handed.
+ * `page: undefined` — which this once navigated to — reaches the rail's "Choose a
+ * section" instead, so a step that promised the registry landed a person somewhere
+ * they still had to go looking, and nothing anywhere said so.
+ */
+const ACCOUNT_REGISTRY_SECTION = "accounts";
 
 /** What one window holds for this walkthrough, rebuilt only when the bridge moves. */
 interface OnboardingModels {
@@ -147,8 +177,13 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
     };
   }, [models]);
 
-  // The one condition the corpus locks on, read off the answered arm alone.
-  const isLocked = snapshot.reading.kind === "read" && !snapshot.reading.completed.has("relay");
+  // The one condition the corpus locks on — read off the answered arm alone, and
+  // asked only of an activation that opens group A.
+  const isLocked =
+    activation !== undefined &&
+    activationRequiresRelayChoice(activation) &&
+    snapshot.reading.kind === "read" &&
+    !snapshot.reading.completed.has("relay");
 
   return (
     <Dialog.Root
@@ -175,9 +210,10 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
               onOpenAccountRegistry={() => {
                 // The registry's own page owns registration and defaults; this step
                 // is a view. Closing first, because leaving the walkthrough open over
-                // a rail move would put two surfaces on screen for one act.
+                // a rail move would put two surfaces on screen for one act — and
+                // landing on the SECTION, because the control names it.
                 setActivation(undefined);
-                frameStore.navigate({ kind: "settings", page: undefined });
+                frameStore.navigate({ kind: "settings", page: ACCOUNT_REGISTRY_SECTION });
               }}
             />
           )}

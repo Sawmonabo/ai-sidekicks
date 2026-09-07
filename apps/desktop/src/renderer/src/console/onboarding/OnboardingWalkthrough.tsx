@@ -27,6 +27,11 @@
 // AND NOTHING RE-READS ON A TIMER. Every other read is the tail of an act somebody
 // performed: a step recorded, a choice made, a sign-in handed off, a re-check asked
 // for.
+//
+// STEP ORDERING IS THE STEP MODEL'S AND IS ASKED FOR ONCE. `stepBlockedReason` is
+// what says a step may not be opened yet; the rail asks it per entry and this file
+// asks it for the step that is open, so the entry a person cannot press and the
+// control they would have found behind it are the same refusal rather than two.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
@@ -43,7 +48,7 @@ import type {
 } from "./provider-readiness/provider-readiness.js";
 import { RelayChoiceStep } from "./relay/RelayChoiceStep.js";
 import { StepRail } from "./steps/StepRail.js";
-import { ONBOARDING_STEPS, type OnboardingStepId } from "./steps/step-model.js";
+import { ONBOARDING_STEPS, stepBlockedReason, type OnboardingStepId } from "./steps/step-model.js";
 import { TelemetryStep } from "./steps/TelemetryStep.js";
 
 export interface OnboardingWalkthroughProps {
@@ -106,6 +111,11 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
           snapshot,
           readinessReading,
           isRelayResolved: completed.has("relay"),
+          // The open step's own hold, composed once here from the same completed set
+          // the rail reads. The rail keeps a held step from being opened; this is
+          // what an activation that opened AT one renders, and neither is the other's
+          // fallback — both ask the step model.
+          blockedReason: stepBlockedReason(chosenStepId, completed),
         })}
       </div>
       <footer className="meridian-onboarding__footer">
@@ -129,6 +139,8 @@ interface StepRenderState {
   readonly snapshot: OnboardingSnapshot;
   readonly readinessReading: ProviderReadinessReading;
   readonly isRelayResolved: boolean;
+  /** Why the OPEN step is held, or `undefined` when nothing holds it. */
+  readonly blockedReason: string | undefined;
 }
 
 /**
@@ -162,6 +174,7 @@ function renderStep(
       return (
         <TelemetryStep
           reading={state.snapshot.telemetry}
+          blockedReason={state.blockedReason}
           onPresentPrompt={() => {
             void flow.presentTelemetryPrompt();
           }}
