@@ -67,6 +67,14 @@ export type { SessionSnapshot } from "./session-store.js";
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
+// The window-scoped modal's half of the shell's `inert` guard. Through this door
+// rather than either overlay's, because its two callers are sibling VIEW families —
+// `sign-in/` and `onboarding/` — which reach each other through nothing, and because
+// the cell it writes lives in this family's own store. Written twice before it was
+// hoisted, and the second copy was missing: a walkthrough that trapped focus and left
+// the whole route surface reachable behind it.
+export { useModalSurfaceLifetime } from "./modal-surface-lifetime.js";
+
 // The shell's own condition, and the two derivations every reader of it shares.
 //
 // Through this door rather than the frame's, because the readers span the DAG in

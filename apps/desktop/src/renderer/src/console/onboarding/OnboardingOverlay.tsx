@@ -27,12 +27,19 @@
 // until they had configured one — a mandatory setup flow assembled out of a rule
 // written for a different flow.
 //
-// AND IT HOLDS NO COMPLETED-STEP BASELINE OF ITS OWN. Where a resumed walkthrough
-// opens is read off the flow's snapshot, which carries a completed set on every arm.
-// This file and the walkthrough each used to keep a module-level `new Set()` for the
-// case where the read has not answered — and `ReadonlySet` is a compile-time view of
-// a runtime-mutable collection, so one stray `add` would have contaminated the
-// baseline of every later activation in the renderer.
+// AND IT RESOLVES NO OPENING OF ITS OWN. The collaboration command raises a `resume`
+// activation and the walkthrough resolves it; this file decides nothing about where a
+// walkthrough starts beyond which of the three openings was asked for. It used to pick
+// the step at press time from the flow's snapshot, and the flow's window triggers
+// mount inside the walkthrough — so before the first activation that snapshot was the
+// opening zero value and every press opened at `relay`, on a node that may have
+// settled two steps already.
+//
+// AND IT TELLS THE FRAME IT IS UP. `modal="trap-focus"` is what `Spec-023 §Console
+// Libraries` adopts — the default mode locks body scroll, which that row forbids — and
+// it leaves inerting the app root to the shell, which cannot see a view family's
+// dialog. So this publishes into the window store through the same hook the sign-in
+// card takes, and the frame folds the two.
 //
 // THE MODELS ARE PER BRIDGE AND SUPERSEDED, held through the console's one
 // subject-scoped holder. A replacement bridge retires both — their unsettled calls
@@ -48,7 +55,11 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { consoleCommands, registerConsoleCommands } from "../palette/index.js";
 import { settingsRoute } from "../routing/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
-import { useSubjectScopedResource, type SubjectScopedDisposal } from "../store/index.js";
+import {
+  useModalSurfaceLifetime,
+  useSubjectScopedResource,
+  type SubjectScopedDisposal,
+} from "../store/index.js";
 import {
   activationRequiresRelayChoice,
   onboardingActivation,
@@ -57,7 +68,7 @@ import {
 import { OnboardingFlow } from "./onboarding-flow.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
-import { firstUnresolvedStep } from "./steps/step-model.js";
+import { RESUME_OPENING } from "./steps/step-model.js";
 
 /** The command ids this family owns. Namespaced by family, per the command rules. */
 const OPEN_COMMAND_ID = "onboarding.open";
@@ -66,9 +77,9 @@ const PROVIDERS_COMMAND_ID = "onboarding.setUpProviders";
 /**
  * What _Set up providers_ opens at. A constant: that command names its own step.
  *
- * The collaboration command has no constant, because where it opens depends on where
- * this node already is — a resumed walkthrough opens at the first step nothing says is
- * done, which is a reading rather than a decision this file can make in advance.
+ * The collaboration command raises `RESUME_OPENING` instead, because where it opens
+ * depends on where this node already is — a reading rather than a decision this file
+ * can make in advance, and one the walkthrough performs.
  */
 const PROVIDERS_ACTIVATION: OnboardingActivation = {
   openAtStep: "providers",
@@ -154,15 +165,15 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
         group: "Setup",
         keywords: ["onboarding", "relay", "first run", "telemetry"],
         run: () => {
-          // Where it opens is read at PRESS time, not at registration: a walkthrough
-          // resumes at the first step nothing says is done, and what is done can have
-          // changed since this command was contributed. The unanswered case is the
-          // flow's own — a snapshot always carries a completed set, so there is no
-          // zero value held here for a reading that has not landed.
-          open({
-            openAtStep: firstUnresolvedStep(models.flow.snapshot.completedSteps) ?? "relay",
-            accountScope: undefined,
-          });
+          // The INTENT, and not a step resolved from whatever this window had read by
+          // the time somebody pressed. A walkthrough resumes at the first step nothing
+          // says is done, and what is done is the daemon's answer — which this command
+          // may fire before: the flow's window triggers mount inside the walkthrough,
+          // so before the first activation the snapshot carries the opening zero value
+          // and every press resolved to `relay`, on a node that may have settled two
+          // steps already. `useOpeningStep` resolves this against the read the
+          // walkthrough performs, under that read's own generation.
+          open({ openAtStep: RESUME_OPENING, accountScope: undefined });
         },
       },
       {
@@ -189,10 +200,24 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
     activationRequiresRelayChoice(activation) &&
     snapshot.reading.kind === "read" &&
     !snapshot.reading.completed.has("relay");
+  const isOpen = activation !== undefined;
+
+  // The window's background is inert for exactly this dialog's lifetime. Under
+  // `modal="trap-focus"` Base UI marks `.meridian-frame` `aria-hidden` and leaves the
+  // structural half to the shell, so without this publish the rail and the whole route
+  // surface stayed reachable behind an open walkthrough. Through the store family's
+  // own hook, which the sign-in card takes too.
+  useModalSurfaceLifetime(frameStore, isOpen);
 
   return (
     <Dialog.Root
-      open={activation !== undefined}
+      open={isOpen}
+      // `Spec-023 §Console Libraries` adopts this family under `trap-focus` and no
+      // other mode: the default `modal` also locks body scroll, which that row
+      // forbids, and inerting the app root is the shell's job rather than the
+      // library's. Held for every console dialog by
+      // `test/console/architecture/dialog-modal-mode.test.ts`.
+      modal="trap-focus"
       disablePointerDismissal={isLocked}
       onOpenChange={(nextOpen) => {
         if (nextOpen || isLocked) {
@@ -227,6 +252,16 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
                 setActivation(undefined);
                 frameStore.navigate(settingsRoute(ACCOUNT_REGISTRY_SECTION, providerName));
               }}
+              // The way out the provider step's **Not now** puts this away into, and
+              // `undefined` where this dialog refuses to close at all. One condition,
+              // read once: the lock the dismissal path already answers to.
+              onDismiss={
+                isLocked
+                  ? undefined
+                  : () => {
+                      setActivation(undefined);
+                    }
+              }
             />
           )}
           <Dialog.Close

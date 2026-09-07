@@ -10,8 +10,10 @@ import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_PLANE_RUN_REFUSAL_CODES,
   activationForRunRefusal,
+  activationRequiresRelayChoice,
   onboardingActivation,
 } from "./onboarding-activation.js";
+import { RESUME_OPENING } from "./steps/step-model.js";
 
 /** A refusal shaped the way the console's one refusal shape is shaped. */
 function refusalWith(code: string): { code: string; detail: string; origin: string } {
@@ -68,5 +70,27 @@ describe("the activation signal", () => {
     stop();
     onboardingActivation.request({ openAtStep: "relay", accountScope: undefined });
     expect(seen).toStrictEqual(["providers"]);
+  });
+});
+
+describe("which activations the relay lock may hold shut", () => {
+  it("holds the resume opening, which is the collaboration entry point's", () => {
+    // `Spec-026 §Desktop Surface` writes the non-dismissible rule for the flow an
+    // outbound invite triggers, and that is the one opening that resumes. Read from
+    // the sentinel rather than after the state read, so the lock is answerable on the
+    // frame the dialog opens on.
+    expect(
+      activationRequiresRelayChoice({ openAtStep: RESUME_OPENING, accountScope: undefined }),
+    ).toBe(true);
+  });
+
+  it("holds a group-A step and holds no group-B one", () => {
+    // The rest of the same reading, so the case above is not passing on a constant.
+    expect(activationRequiresRelayChoice({ openAtStep: "relay", accountScope: undefined })).toBe(
+      true,
+    );
+    expect(
+      activationRequiresRelayChoice({ openAtStep: "providers", accountScope: undefined }),
+    ).toBe(false);
   });
 });

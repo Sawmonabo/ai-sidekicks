@@ -1,10 +1,21 @@
 // The walkthrough's state, and every growth call it makes.
 //
-// ONE CLASS RATHER THAN A HOOK PER CALL, because the seven onboarding operations are
-// one conversation: the state read says where a person is, the two dialogs answer the
-// two group-A questions, and the three step verbs record what happened. Split across
+// ONE CLASS RATHER THAN A HOOK PER CALL, because the five operations it makes are one
+// conversation: the state read says where a person is, the two dialogs answer the two
+// group-A questions, and the two step verbs record what happened. Split across
 // components each would need its own in-flight flag and its own supersession rule,
 // and the rules would diverge the first time one of them was written twice.
+//
+// AND NOT ONE OF THEM RECORDS THE PROVIDER STEP. `Spec-026 §Provider Authentication
+// (Group B)` has that group persist "no config key, no partial-state entry, no
+// keystore entry, and no event" — the account registry is where every fact it
+// establishes already lives. This class therefore has no skip verb at all: it used to,
+// and the provider step's own control was wired to it, so leaving that step wrote a
+// completed-step entry into the daemon's set for a group the corpus says holds no
+// state. Leaving is a LOCAL act now — the walkthrough's **Not now** — and the absence
+// of the verb is what keeps it one rather than a comment asking the next author not to
+// call it. `onboardingStepSkip` is still served by the fixture and still on the wire;
+// nothing in this console reaches it.
 //
 // EVERY CALL GOES THROUGH THE GROWTH PORT, which is what makes this surface honest on
 // a live build: the console growth slate carries the five daemon methods on its
@@ -15,7 +26,7 @@
 //
 // NOTHING POLLS, AND THE READ GOES THROUGH THE ONE SCHEDULER. The state is read when
 // the walkthrough opens and again after each act that could have changed it — a step
-// recorded, a step skipped, a choice made — and every other reason to re-read arrives
+// recorded, a choice made, a node finished — and every other reason to re-read arrives
 // through `requestRead`, which is `RefreshScheduler`'s to coalesce. There is no timer
 // anywhere in this family, and no second scheduler: `store/scheduling.ts` owns the one
 // this flow constructs. The walkthrough hands this flow to the WINDOW trigger set,
@@ -38,7 +49,7 @@
 // and it re-reads on each of them.
 //
 // SUPERSESSION IS THE STORE'S REGISTER AND NOT AN EPOCH OF THIS FILE'S OWN. Four
-// conversations run over one snapshot — the state read, the three step verbs, and the
+// conversations run over one snapshot — the state read, the two step verbs, and the
 // two main-process dialogs — and each takes its own key on one `GenerationLatch`, so a
 // settlement is admitted only while the key it holds still names its round. The
 // dialogs are main's and outlive this window's interest in them.
@@ -315,14 +326,16 @@ export class OnboardingFlow implements ReadTriggerTarget {
     await this.advance("telemetry");
   }
 
-  /** Record a step as done, then re-read — the daemon owns what "done" means. */
+  /**
+   * Record a step as done, then re-read — the daemon owns what "done" means.
+   *
+   * REACHED BY GROUP A'S TWO ANSWERS AND BY NOTHING ELSE. Both call sites are above:
+   * a relay choice that came back with an identifier this build recognises, and a
+   * telemetry question that was actually put. There is no third, and no verb of this
+   * class records the provider step — see the header.
+   */
   public async advance(stepId: OnboardingStepId): Promise<void> {
     await this.#recordThenRead(this.#bridge.growth.onboardingStepAdvance({ stepId }));
-  }
-
-  /** Record a step as skipped. A skip is an answer, and it is recorded as one. */
-  public async skip(stepId: OnboardingStepId): Promise<void> {
-    await this.#recordThenRead(this.#bridge.growth.onboardingStepSkip({ stepId }));
   }
 
   /** Finish. Legitimate with providers untouched — group B is never demanded. */

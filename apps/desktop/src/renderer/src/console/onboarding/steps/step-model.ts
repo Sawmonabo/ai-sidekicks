@@ -22,10 +22,18 @@
 // THE STEP IDS ARE THIS CONSOLE'S. `Spec-026` names no step-id vocabulary — what it
 // names normatively is the three RELAY method identifiers, which live next door in
 // `relay-choice.ts`. These ids are what this walkthrough sends back on
-// `onboardingStepAdvance` / `onboardingStepSkip`, so they are declared once here and
-// the daemon's completed-step set is matched against them fail-closed: an id this
-// build does not recognise is ignored rather than guessed at, and a step it does not
-// mention is not done.
+// `onboardingStepAdvance`, so they are declared once here and the daemon's
+// completed-step set is matched against them fail-closed: an id this build does not
+// recognise is ignored rather than guessed at, and a step it does not mention is not
+// done.
+//
+// AND ONLY GROUP A IS EVER SENT BACK. `Spec-026 §Provider Authentication (Group B)`
+// has that group persist "no config key, no partial-state entry, no keystore entry,
+// and no event", because the account registry already holds every fact it
+// establishes. Leaving the provider step is therefore a LOCAL act — the walkthrough's
+// **Not now** — and no verb of this family records it: a completed-step entry for
+// group B would be exactly the second record that spec refuses, accurate about a
+// moment and wrong about the node as soon as an account is signed out.
 
 /**
  * Every step, in rail order. Closed; the rail renders exactly these.
@@ -37,6 +45,22 @@
 export const ONBOARDING_STEP_IDS = ["relay", "telemetry", "providers"] as const;
 
 export type OnboardingStepId = (typeof ONBOARDING_STEP_IDS)[number];
+
+/**
+ * The opening that means "wherever this node has got to" rather than a named step.
+ *
+ * A SENTINEL RATHER THAN A STEP CHOSEN AT PRESS TIME. The collaboration entry point
+ * resumes, and where a resumed walkthrough opens is a reading of the daemon's
+ * completed set — which the command that contributes it cannot have, because the
+ * activation may be raised before any state read has answered. A press that picked a
+ * step from an unanswered snapshot picked `relay` every time, whatever the node had
+ * already settled. Carrying the INTENT instead lets the walkthrough resolve it from
+ * the read it is already performing, under that read's own generation.
+ */
+export const RESUME_OPENING = "resume" as const;
+
+/** Where an activation opens: one named step, or wherever this node has got to. */
+export type OnboardingOpening = OnboardingStepId | typeof RESUME_OPENING;
 
 /** Which of `Spec-026`'s two step groups a step belongs to. */
 export type OnboardingStepGroup = "relay" | "providers";
@@ -63,22 +87,27 @@ export interface OnboardingStepDescriptor {
   /**
    * Whether a person may leave this step without answering it.
    *
-   * EXACTLY ONE STEP IS SKIPPABLE, and it is the provider step: `Spec-026 §Provider
-   * Authentication (Group B)` makes it "offered and never demanded", and onboarding
-   * completes with zero registered accounts. The other two are not. `Spec-026
-   * §Desktop Surface` puts the relay choice behind a modal that is "non-dismissible
-   * until a choice is made or the user explicitly cancels the outbound invite that
-   * triggered it", and telemetry — which this field once called skippable — is the
-   * step that spec is most explicit about: "The flow must not proceed past telemetry
-   * opt-in without an explicit choice; no silent default" (`Spec-026 §Telemetry
-   * Opt-In`). Default-OFF is what the answer defaults to, not permission to leave
-   * without giving one.
+   * EXACTLY ONE STEP MAY BE LEFT UNANSWERED, and it is the provider step: `Spec-026
+   * §Provider Authentication (Group B)` makes it "offered and never demanded", and
+   * onboarding completes with zero registered accounts. The other two are not.
+   * `Spec-026 §Desktop Surface` puts the relay choice behind a modal that is
+   * "non-dismissible until a choice is made or the user explicitly cancels the
+   * outbound invite that triggered it", and telemetry — which this field once called
+   * skippable — is the step that spec is most explicit about: "The flow must not
+   * proceed past telemetry opt-in without an explicit choice; no silent default"
+   * (`Spec-026 §Telemetry Opt-In`). Default-OFF is what the answer defaults to, not
+   * permission to leave without giving one.
+   *
+   * NAMED FOR LEAVING RATHER THAN FOR SKIPPING, because a skip is something the
+   * daemon is told and this is not: the one step it admits is group B's, which
+   * persists nothing (see the header). The word carried the write with it, and a
+   * field called `isSkippable` is the field the next author wires to a skip verb.
    *
    * READ BY THE WALKTHROUGH AND BY NOTHING ELSE, which is what keeps it honest: the
-   * skip control is offered from this field, so a step marked unskippable has no way
-   * to be skipped rather than a second rule somewhere saying it must not be.
+   * local exit is offered from this field, so a step it holds shut has no way out
+   * rather than a second rule somewhere saying it must not have one.
    */
-  readonly isSkippable: boolean;
+  readonly mayBeLeftUnanswered: boolean;
   /**
    * The step that has to be resolved before this one may be opened, where there is
    * one at all.
@@ -118,7 +147,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     group: "relay",
     label: "Where this node relays",
     summary: "Three ways to reach other people. One has to be chosen before an invite goes out.",
-    isSkippable: false,
+    mayBeLeftUnanswered: false,
     opensAfter: undefined,
   },
   telemetry: {
@@ -126,7 +155,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     group: "relay",
     label: "Telemetry",
     summary: "Its own question, asked after the relay choice and answered explicitly.",
-    isSkippable: false,
+    mayBeLeftUnanswered: false,
     opensAfter: "relay",
   },
   providers: {
@@ -134,7 +163,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepId, OnboardingStepD
     group: "providers",
     label: "Providers",
     summary: "Which providers this node can run right now, and how to close the gaps.",
-    isSkippable: true,
+    mayBeLeftUnanswered: true,
     opensAfter: undefined,
   },
 };
@@ -206,11 +235,32 @@ export function stepBlockedReason(
 }
 
 /**
- * Why this node may not be recorded as set up yet, or `undefined` when it may.
+ * Where the completion act stands: settled already, held, or simply offered.
  *
- * GROUP A IS THE WHOLE OF THE CONDITION, asked of the same field the dismissal lock
- * asks: a step's group. `Spec-026 §Desktop Surface` puts the relay choice behind a
- * modal that stays shut until it is made, `Spec-026 §Telemetry Opt-In` refuses to
+ * ONE CLOSED VALUE RATHER THAN A REASON BESIDE A FLAG, because the three states are
+ * mutually exclusive and a footer handed two independent inputs can render a
+ * combination that means nothing — a control offered over a node the daemon has
+ * already recorded as set up, which is exactly the state that let a finished
+ * walkthrough re-dispatch `onboarding.complete`.
+ */
+export type OnboardingCompletionStanding =
+  | { readonly kind: "settled" }
+  | { readonly kind: "held"; readonly reason: string }
+  | { readonly kind: "offered" };
+
+/**
+ * Where the completion act stands, from the daemon's own reading and nothing else.
+ *
+ * THE SETTLED ARM IS THE READ'S AND NOT THE MUTATION'S. `onboarding.complete`
+ * answering is the daemon accepting the act; this node being SET UP is what the state
+ * read says afterwards, and only the second retires the control. A footer that
+ * retired on the reply would go quiet over a completion the re-read then contradicted,
+ * and one that retired on neither offered the same act again the moment its in-flight
+ * flag cleared.
+ *
+ * GROUP A IS THE WHOLE OF THE HELD CONDITION, asked of the same field the dismissal
+ * lock asks: a step's group. `Spec-026 §Desktop Surface` puts the relay choice behind
+ * a modal that stays shut until it is made, `Spec-026 §Telemetry Opt-In` refuses to
  * "proceed past telemetry opt-in without an explicit choice", and `Spec-026 §Provider
  * Authentication (Group B)` has the provider step "offered and never demanded" with
  * onboarding completing at zero registered accounts. So completion is held on group A
@@ -218,26 +268,30 @@ export function stepBlockedReason(
  * two answers would ask the daemon to record a node as set up over questions nobody
  * put, and the daemon accepting it is the case that cannot be taken back.
  *
- * KEYED ON THE GROUP RATHER THAN ON `isSkippable`, so the lock, the rail, and this
- * read one field. Skippability answers whether a person may LEAVE a step; this
- * answers whether the walkthrough may be finished, and today the two coincide only
- * because the same split produced both.
+ * KEYED ON THE GROUP RATHER THAN ON `mayBeLeftUnanswered`, so the lock, the rail, and
+ * this read one field. Leaving answers whether a person may walk away from a step;
+ * this answers whether the walkthrough may be finished, and today the two coincide
+ * only because the same split produced both.
  *
  * A SENTENCE NAMING THE OUTSTANDING STEPS, on `stepBlockedReason`'s rule: the footer
  * renders it beside the control it has taken away, and "finishing is unavailable" is
  * not something a person can act on. The steps are named by their own labels, so one
  * renamed above is renamed here.
  */
-export function completionBlockedReason(
+export function completionStanding(
   completed: ReadonlySet<OnboardingStepId>,
-): string | undefined {
+  isRecordedComplete: boolean,
+): OnboardingCompletionStanding {
+  if (isRecordedComplete) {
+    return { kind: "settled" };
+  }
   const outstanding = ONBOARDING_STEPS_IN_ORDER.filter(
     (step) => step.group === MANDATORY_STEP_GROUP && !completed.has(step.id),
   ).map((step) => `“${step.label}”`);
   if (outstanding.length === 0) {
-    return undefined;
+    return { kind: "offered" };
   }
-  return `Answer ${joinInRailOrder(outstanding)} to finish setting up.`;
+  return { kind: "held", reason: `Answer ${joinInRailOrder(outstanding)} to finish setting up.` };
 }
 
 /** The outstanding step names as one phrase, in the order the rail lists them. */

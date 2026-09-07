@@ -271,12 +271,12 @@ describe("the order two state reads land in", () => {
     // quietly replaced by a progress list.
     const { bridge, release } = heldStateReads(
       [OPENING_ANSWER],
-      scenarioWithout("growth:onboardingStepSkip"),
+      scenarioWithout("growth:onboardingComplete"),
     );
     const flow = new OnboardingFlow(bridge);
 
     const openingRead = flow.read();
-    await flow.skip("providers");
+    await flow.complete();
     expect(flow.snapshot.reading.kind).toBe("unreadable");
 
     release(0);

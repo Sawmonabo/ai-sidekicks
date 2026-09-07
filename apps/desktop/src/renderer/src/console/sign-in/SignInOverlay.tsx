@@ -22,7 +22,9 @@
 // naming a view family. So the card publishes into the WINDOW store and the frame
 // folds it with the palette's own state, which is the one seam the two are allowed to
 // meet at. Cleared on close AND on unmount, in one cleanup: a render React discards
-// mid-ceremony must not leave a window inert with nothing on screen to close.
+// mid-ceremony must not leave a window inert with nothing on screen to close. That
+// wiring is `store/modal-surface-lifetime.ts` now — hoisted when the onboarding
+// walkthrough became the second window-scoped overlay to owe it.
 //
 // THE FLOW IS SUPERSEDED ON UNMOUNT AND ON A BRIDGE SWAP, and it is held through the
 // console's one subject-scoped holder to get that. An OS dialog belongs to main and
@@ -37,7 +39,11 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { consoleCommands, registerConsoleCommands } from "../palette/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
-import { useSubjectScopedResource, type SubjectScopedDisposal } from "../store/index.js";
+import {
+  useModalSurfaceLifetime,
+  useSubjectScopedResource,
+  type SubjectScopedDisposal,
+} from "../store/index.js";
 import { SignInCeremony } from "./ceremony-adapter.js";
 import { SignInCard } from "./SignInCard.js";
 import { SignInFlow } from "./sign-in-flow.js";
@@ -100,16 +106,10 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
   }, []);
 
   // The window's background is inert for exactly this card's lifetime — see the
-  // header note. Written unconditionally rather than under an `if (open)`, so the
-  // cell this component owns is always exactly `open`; the cleanup covers both
-  // endings, a close and an unmount, and the store's own guard makes a repeated
-  // `false` cost nothing.
-  useEffect(() => {
-    frameStore.setModalSurfaceOpen(open);
-    return () => {
-      frameStore.setModalSurfaceOpen(false);
-    };
-  }, [frameStore, open]);
+  // header note. Through the store family's own hook rather than an effect here,
+  // since the onboarding walkthrough is the second window-scoped overlay to need it
+  // and the half that is easy to omit is the cleanup.
+  useModalSurfaceLifetime(frameStore, open);
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen} modal="trap-focus">
