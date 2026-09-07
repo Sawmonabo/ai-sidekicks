@@ -11,6 +11,13 @@
 // no server to receive one — and that control lives on the frame's own offline
 // banner, beside the state that makes it the right thing to press.
 //
+// AND THE TWO READINGS ON IT ARE ONE ANSWER, NOT TWO. The supervisor's state is the
+// window's, arriving on this page's context; the daemon's own reported status line is
+// this page's read. They answer different questions and they are rendered apart — but
+// a stop this page dispatched, and a supervisor transition it merely watched, both
+// make the second one old, so the state on the context is handed to that read as half
+// of what says when to put it again. Nothing here polls to find that out.
+//
 // EVERY CONTROL CONFIRMS, and the confirmation names what it will interrupt rather
 // than asking "are you sure": stopping the runtime ends every run on this machine,
 // and a person who reads only the verb has not been told that.
@@ -81,7 +88,6 @@ export interface DaemonPageProps {
 
 export function DaemonPage(props: DaemonPageProps): ReactNode {
   const { shellState } = props.context;
-  const status = useDaemonStatus(props.context.bridge.growth);
   const [confirming, setConfirming] = useState<DaemonControl | undefined>(undefined);
   const [settlement, setSettlement] = useState<DaemonControlSettlement | undefined>(undefined);
   const onSettled = useCallback((next: DaemonControlSettlement) => {
@@ -89,6 +95,15 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
     setConfirming(undefined);
   }, []);
   const control = useDaemonControl(props.context.bridge.growth, onSettled);
+  // Read AFTER the controls, because what stales its answer is partly theirs. The page
+  // composes the two facts and decides neither: which moments change the runtime's own
+  // status line is `daemon-controls.ts`'s claim, and this supplies the two it names —
+  // the supervisor's reported state, off the one subscription the frame keeps live for
+  // the window, and the settlements this page's own dispatches produced.
+  const status = useDaemonStatus(props.context.bridge.growth, {
+    connection: shellState.connection,
+    settledControlCount: control.settledCount,
+  });
 
   return (
     <section className="meridian-settings-page" aria-label="Local runtime">

@@ -66,11 +66,26 @@ export function useShellStateBinding(
  * the four ways this ends — the stream ending, the stream throwing, the effect being
  * cleaned up, and the port refusing before a stream exists — four ordinary control
  * paths rather than four listeners to remember to remove.
+ *
+ * AND ALL FOUR ARE ORDINARY, THE THROW INCLUDED. A subscription that is torn down
+ * mid-flight, or a frame that will not decode, REJECTS the iterator rather than ending
+ * it — and this drain's promise is discarded, so an escaping rejection is not a
+ * failure anybody sees but an unhandled rejection in the renderer. It is caught here
+ * and settled as what it actually is: the channel going away, which is the same
+ * reading a clean end publishes, because a report is a claim about right now either
+ * way. The stream goes with it, since a producer that threw part-way is still a
+ * subscription somebody has to end.
  */
 function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort): void {
   useEffect(() => {
     let released = false;
     let stream: { close(): void } | undefined;
+    /** Close the acquired stream at most once, from whichever path reaches it first. */
+    const closeStream = (): void => {
+      const acquired = stream;
+      stream = undefined;
+      acquired?.close();
+    };
 
     const drain = async (): Promise<void> => {
       const outcome = await growth.shellStatusSubscribe({});
@@ -92,6 +107,12 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
           }
           frameStore.publishShellReport(report);
         }
+      } catch {
+        // The channel BROKE rather than ended, and the difference is not one this
+        // window can act on: either way it is no longer being told anything. The
+        // handle goes here because nothing else will reach it — the loop is over, and
+        // the reading below is the same one a clean end publishes.
+        closeStream();
       } finally {
         if (!released) {
           // The channel went away while this window was still watching it. What it
@@ -105,7 +126,7 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
 
     return () => {
       released = true;
-      stream?.close();
+      closeStream();
     };
   }, [frameStore, growth]);
 }
