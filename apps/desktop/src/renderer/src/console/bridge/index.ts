@@ -304,15 +304,17 @@ export type { GrowthStream } from "./growth-port/growth-outcome.js";
 // carries no port with it, so nothing gains a way to CALL an operation through it.
 export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
 
-// The `invitesList` outcome and its served row. Published because TWO sibling view
-// families read that one operation — the sent ledger and the received shelf — and a
-// view family may not import its sibling, so each had declared the pair itself under
-// a name of its own. Derived off the growth signature here, once.
+// The `invitesList` outcome, its served row, and the armable expiries of a set of
+// them. Published because TWO sibling view families read that one operation — the sent
+// ledger and the received shelf — and a view family may not import its sibling, so
+// each had declared the pair itself under a name of its own, and each then wrote the
+// expiry walk a second time. Derived off the growth signature here, once.
 export type {
   InvitesListOutcome,
   InvitesListRefusal,
   ServedInvite,
 } from "./growth-port/invites-outcome.js";
+export { expiryDeadlinesOf } from "./growth-port/invites-outcome.js";
 
 // The channel plane's shapes, published because the collaboration family RENDERS
 // them: an audience badge, a pair-labelled row, a create form whose every field is one
