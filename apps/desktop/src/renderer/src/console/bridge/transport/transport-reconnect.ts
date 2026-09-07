@@ -11,20 +11,28 @@
 //
 // ONE EMITTER, AND IT OBSERVES RATHER THAN POLLS
 //
-// Nothing here asks anything. The signal is TOLD what happened, by the one thing in
-// the console that talks to the transport (`frame/session-event-binder.ts`, which owns
-// every `daemon.subscribe` this window takes) and, under the fixture, by the scenario's
-// own scripted outages. There is no timer, no probe, and no retry ladder: a renderer
-// that polled to find out whether the wire was back would be the interval polling the
-// design forbids, and a renderer that inferred it from a call that happened to succeed
-// would be synthesising a connection state the supervisor owns.
+// Nothing here asks anything. The signal is TOLD what happened, by every daemon
+// subscription this window opens — through `observed-subscription.ts` beside this file,
+// which holds the one rule for what an open proves and is reported into by the family's
+// stream door, by the seat every view family subscribes through, and by the frame's
+// session-event binder — and, under the fixture, by the scenario's own scripted outages.
+// There is no timer, no probe, and no retry ladder: a renderer that polled to find out
+// whether the wire was back would be the interval polling the design forbids, and a
+// renderer that inferred it from a call that happened to succeed would be synthesising a
+// connection state the supervisor owns.
+//
+// NO OBSERVER IS ALSO THE ONLY CONSUMER, which is a property rather than a coincidence.
+// The binder used to be the sole live producer AND the sole consumer of the edge, so a
+// window whose only session failed to bind could never emit the edge that would retry
+// it. The observation belongs to the door every subscription passes, so the edge is a
+// fact about the wire rather than about one session's binding.
 //
 // WHAT THE LIVE HALF IS NOT TOLD, STATED RATHER THAN LEFT TO BE DISCOVERED
 //
-// It is told about ONE moment: whether `daemon.subscribe` returned or threw when the
-// binder called it. A subscription that opened and then DIED — the daemon exiting, the
+// It is told about ONE moment: whether `daemon.subscribe` returned or threw when a
+// caller opened one. A subscription that opened and then DIED — the daemon exiting, the
 // IPC channel closing, the stream ending without another payload — reaches this signal
-// through nothing, so a window whose wire goes away after every session is bound stays
+// through nothing, so a window whose wire goes away after every stream is open stays
 // at `reachable` and the returning edge never fires for it. The readings that name
 // `reconnect` in their refresh policy are correct about the signal they subscribe to
 // and wrong about the transport, on that one path.
@@ -34,17 +42,17 @@
 // Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
 // handle only cancels, and no member anywhere on that bridge — `daemon`,
 // `controlPlane`, `native`, `webAuthn`, `update`, `app` — reports connection state.
-// There is nothing the binder could listen to. The alternatives are the two this file
+// There is nothing an observer could listen to. The alternatives are the two this file
 // already refuses: a heartbeat probe is the interval polling the design forbids, and
 // treating a failed unrelated call as a loss is a connection state this renderer would
 // be inventing rather than observing.
 //
 // THE RE-ARM IS NAMED. The day the preload contract grows a stream-termination arm —
 // a handler that is told the stream ended, or a bridge-level connection observable —
-// the binder reports `unreachable` from it and this paragraph goes. Until then the
-// live half covers the loss it can see, the fixture covers both edges by script, and
-// the gap is written down here rather than implied by a header that reads as though
-// every loss were observed.
+// the subscription door reports `unreachable` from it and this paragraph goes. Until
+// then the live half covers the loss it can see, the fixture covers both edges by
+// script, and the gap is written down here rather than implied by a header that reads
+// as though every loss were observed.
 //
 // WHAT AN EDGE IS, AND WHY A FIRST CONNECTION IS NOT ONE
 //
@@ -57,10 +65,10 @@
 // surface that mounts, on a signal whose whole justification is that it costs nothing
 // when nothing happened.
 //
-// REPEATED OBSERVATIONS OF THE SAME STATE ARE FREE. The binder reports `reachable`
-// once per bound session, so a window with four sessions open reports it four times
-// for one transport; only a state CHANGE is a change, so the three redundant reports
-// cost nothing and no reading re-reads for them.
+// REPEATED OBSERVATIONS OF THE SAME STATE ARE FREE. Every subscription reports, so a
+// window with four sessions open and two node-scoped tails reports `reachable` six
+// times for one transport; only a state CHANGE is a change, so the five redundant
+// reports cost nothing and no reading re-reads for them.
 //
 // WHY IT IS NOT ON `SidekicksBridge`
 //

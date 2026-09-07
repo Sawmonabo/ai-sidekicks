@@ -5,12 +5,22 @@
 // that settles it. A bare `render` would leave the health reply landing after the
 // case had finished, which is a warning in one case and a state update on an
 // unmounted tree in the next.
+//
+// SETTLING IT MEANS ADVANCING A CLOCK, and that is why the mount is inside the bridge
+// provider. The store block's read is scheduled through `store/scheduling.ts` — one
+// debounced, serialized read per burst of triggers, so a mount and a focus cannot put
+// two quota estimates in flight — and a scheduler arms a timeout on the WINDOW's
+// clock, which is the fixture engine's frozen one. The page still reads no wire: the
+// bridge is here for the clock, and a case that reached a namespace would be reaching
+// a real fixture rather than the `undefined` this harness used to hand over.
 
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
+import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
+import { unscriptedScenario } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { SCHEME_ATTRIBUTE } from "../../../tokens/index.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";
@@ -19,23 +29,37 @@ import {
   settingsPageContextWith,
 } from "../../settings-page-mount.test-support.js";
 import { MemoryPersistenceAdapter, type UiStateStore } from "../../../persistence/index.js";
-import { settle } from "../../../core/settle.test-support.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { formatByteQuantity } from "../../../primitives/index.js";
 
 /**
  * Mount the page over a store, and let its one read land before anything is asserted.
  *
- * The bridge is `undefined as never` and the claim is deliberate: this page reads no
- * wire at all, so a fixture bridge here would be a collaborator nothing calls, and a
- * case that later DID reach one would fail loudly rather than quietly answering out
- * of a fixture nobody meant to consult.
+ * THE SCENARIO SCRIPTS NOTHING, which is the claim this harness still makes about the
+ * page: it reads no wire, so a scenario with replies and beats would be a collaborator
+ * nothing calls, and one that scripted a reply would answer a call this page never
+ * makes. What the fixture supplies is the window's frozen CLOCK — the engine owns it,
+ * the store block's schedule arms on it, and advancing it is what makes the health
+ * reading land inside the case rather than after it.
  */
 async function renderAppearancePage(
   uiStateStore: UiStateStore = consoleTestUiStateStore(),
 ): Promise<HTMLElement> {
-  const context = settingsPageContextWith(undefined as never, undefined, undefined, uiStateStore);
-  const { container } = render(<AppearancePage context={context} />);
-  await settle();
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario("appearance-page") });
+  const engine = bridge.scenarioEngine;
+  if (engine === undefined) {
+    throw new Error("the fixture bridge built no scenario engine, so there is no clock to advance");
+  }
+  const context = settingsPageContextWith(bridge, undefined, undefined, uiStateStore);
+  const { container } = render(
+    <SidekicksBridgeProvider bridge={bridge}>
+      <AppearancePage context={context} />
+    </SidekicksBridgeProvider>,
+  );
+  await act(async () => {
+    engine.advance(PAST_REFRESH_DEBOUNCE_MS);
+    await crossMacrotaskBoundary();
+  });
   return container;
 }
 

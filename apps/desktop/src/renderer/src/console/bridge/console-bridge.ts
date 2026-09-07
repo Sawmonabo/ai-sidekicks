@@ -92,10 +92,11 @@ export interface ConsoleBridge {
    * would make the fixture shape-identical to something the preload does not have.
    *
    * BOTH HALVES, deliberately. The observers that report into it live above this
-   * family (the session-event binder, which owns every `daemon.subscribe` this window
-   * takes) and inside it (the fixture's scripted outages), and a bridge publishing
-   * only the subscribe view would leave them nothing to report to. Readings take the
-   * `TransportReconnectObservable` view declared at the floor, which is subscribe-only.
+   * family (the seat every view family subscribes through, and the session-event
+   * binder) and inside it (this family's own stream door, and the fixture's scripted
+   * outages), and a bridge publishing only the subscribe view would leave them nothing
+   * to report to. Readings take the `TransportReconnectObservable` view declared at the
+   * floor, which is subscribe-only.
    */
   readonly transportReconnect: TransportReconnectSignal;
   readonly source: ConsoleBridgeSource;

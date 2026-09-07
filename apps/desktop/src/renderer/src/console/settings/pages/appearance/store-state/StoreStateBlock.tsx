@@ -6,14 +6,14 @@
 // scheme applies and is gone at the next launch, and a person had no way to learn
 // that except by restarting and finding it gone.
 //
-// The block owns the read and the frame; `StoreStateBody.tsx` owns what each of the
-// three states draws.
-
+// The block owns the frame and nothing else; `store-state-read.ts` owns when the
+// store is asked, and `StoreStateBody.tsx` owns what each of the three states draws.
+//
 import type { ReactNode } from "react";
 
 import { type UiStateStore } from "../../../../persistence/index.js";
 import { StoreStateBody } from "./StoreStateBody.js";
-import { useStoreStateReading } from "./store-state-reading.js";
+import { useStoreStateReading } from "./store-state-read.js";
 
 export function StoreStateBlock(props: { readonly uiStateStore: UiStateStore }): ReactNode {
   const reading = useStoreStateReading(props.uiStateStore);
