@@ -716,7 +716,11 @@ describe("InterventionRequestResponse", () => {
 
   describe("the rejectionGuard member", () => {
     // The composite's four structural refusal guards, typed so a renderer maps
-    // guard -> remedy instead of phrase-matching `rejectionReason`.
+    // guard -> remedy by an exhaustive switch. `rejectionReason` is a
+    // machine-readable cause and not prose (see the module comment), but its
+    // vocabulary is OPEN — `error-contracts.md` §Intervention registers no code
+    // for an intervention outcome — so it can be shown and not switched on.
+    // Every fixture below therefore carries an identifier, never a sentence.
     const guards = [
       "no-active-turn",
       "no-pending-send",
@@ -729,7 +733,7 @@ describe("InterventionRequestResponse", () => {
         ...responseBase,
         interventionType: "rollback",
         state: "rejected",
-        rejectionReason: "the replacement leg refuses a running target",
+        rejectionReason: "run.invalid_transition",
         rejectionGuard: guard,
       };
       expect(InterventionRequestResponseSchema.parse(rejected)).toEqual(rejected);
@@ -747,15 +751,15 @@ describe("InterventionRequestResponse", () => {
     });
 
     it("refuses a guard value outside the closed four", () => {
-      // Negative control: a free string would make the member as unreadable as
-      // the sentence it exists to replace.
+      // Negative control: a free string would leave the member as open as the
+      // cause vocabulary it exists to close.
       expect(() => RollbackCompositeRejectionGuardSchema.parse("no-active-run")).toThrow();
       expect(() =>
         InterventionRequestResponseSchema.parse({
           ...responseBase,
           interventionType: "rollback",
           state: "rejected",
-          rejectionReason: "the replacement leg refuses a running target",
+          rejectionReason: "run.invalid_transition",
           rejectionGuard: "no-active-run",
         }),
       ).toThrow();
@@ -769,7 +773,7 @@ describe("InterventionRequestResponse", () => {
           ...responseBase,
           interventionType: "steer",
           state: "rejected",
-          rejectionReason: "not a composite",
+          rejectionReason: "run.invalid_transition",
           rejectionGuard: "no-active-turn",
         }),
       ).toThrow();

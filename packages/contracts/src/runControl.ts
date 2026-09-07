@@ -632,13 +632,30 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 // remaining states and non-rollback types.
 //
 // `rejectionGuard` names WHICH of the atomic edit-and-resend composite's four
-// structural refusal guards refused, when one of them did. `rejectionReason`
-// stays the human sentence; without a typed sibling a renderer wanting to show
-// a per-guard remedy has to phrase-match that sentence, which breaks the moment
-// a daemon author rewords it. The four literals are the guard names of
-// `Spec-004 §Required Behavior` (its four-structural-refusal-guards paragraph)
-// kebab-cased with the leading article dropped, so each names the condition the
-// guard requires rather than a restatement of the failure.
+// structural refusal guards refused, when one of them did. It is NOT a typed
+// restatement of prose: `rejectionReason` is a machine-readable cause (above)
+// and never a sentence — the shipped console renders it verbatim in its refusal
+// CODE slot, which is "never prose, never localized, never reworded between the
+// producer and the screen"
+// (`apps/desktop/src/renderer/src/console/core/refusal.ts`). What that member is
+// NOT is a CLOSED VOCABULARY: `error-contracts.md` §Intervention deliberately
+// registers no code for an intervention OUTCOME (`rejected` / `expired` /
+// `degraded` "are states, not error codes"; that namespace covers only
+// request-level refusals that produce no intervention row), so no contract
+// anywhere enumerates the causes a rollback `rejected` may carry, and the
+// `wireFreeFormString` below bounds length / whitespace / NUL at the trust
+// boundary rather than fixing a value set. A client can therefore SHOW the cause
+// and cannot SWITCH on it: a refusal family added later carries a new identifier
+// that every exhaustive read falls through, silently and at no compile-time
+// cost. This member is the closed union that closes exactly that gap for the
+// four guards — the shape `refusal.ts` already prescribes, where each producer
+// "keeps its own closed code union and widens into this shape at its boundary" —
+// so a fifth guard breaks compilation at every exhaustive reader and a per-guard
+// remedy render is total by construction rather than by care. The four literals
+// are the guard names of `Spec-004 §Required Behavior` (its
+// four-structural-refusal-guards paragraph) kebab-cased with the leading article
+// dropped, so each names the condition the guard requires rather than a
+// restatement of the failure.
 //
 // ARM-SCOPED, NOT BASE-SCOPED. Only the composite raises these guards, and only
 // a `rollback` request can be a composite, so the member is declared on the
@@ -650,16 +667,23 @@ export const RollbackInterventionResultSchema: z.ZodType<RollbackInterventionRes
 // request as composite (`replacementSend` is request-side and the response does
 // not echo it), so requiredness is not expressible at the strict-parse boundary.
 // The daemon's tested obligation is that a refusal raised by one of the four
-// guards always populates it and every other refusal family never does; the
-// obligation is asserted by the composite's settlement tests (Plan-004 T3.17).
+// guards always populates it and every other refusal family never does — the
+// EIGHT `Queue And Intervention Model §Intervention State Transition Table`
+// admits for a rollback: the capability gate, authorization, the target-position
+// domain check, the compaction-boundary classification, an incompatible target
+// run state, the Spec-010 restore precondition, the uncompacted-rewind-span
+// intersection, and execution-root `busy`. The obligation is asserted by the
+// composite's settlement tests (Plan-004 T3.17), whose negative control runs all
+// eight.
 //
 // REPLAY-DURABLE, AND NOT DERIVABLE FROM ITS SIBLING. A `rejected` response
 // carries no `result` (the state-split arm below declares `result?: never`), so
 // an idempotent replay of the same `clientIdempotencyKey` reconstructs the whole
 // response from the durable intervention row — which is why `rejectionReason`
 // has a column of its own. The guard literal cannot be recovered from that
-// sibling: it is a free-form human sentence, and reading a literal back out of
-// it would be the phrase-match this member exists to abolish. The daemon
+// sibling: its vocabulary is open and unenumerated (above), so reading a literal
+// back out of it would be a match against a value set no contract publishes —
+// exactly what this member exists to abolish. The daemon
 // therefore persists the literal beside the sentence (`interventions`
 // `rejection_guard`, additive nullable, its column-attached CHECK closing the
 // same four literals and binding them to the rollback `rejected` arm this member

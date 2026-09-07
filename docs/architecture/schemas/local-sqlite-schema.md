@@ -235,13 +235,17 @@ CREATE TABLE interventions (
   -- REPLAY-DURABLE for the same reason rejection_reason is, and NOT derivable from that sibling:
   -- the wire contract forbids result on rejected, so an idempotent replay of the same
   -- client_idempotency_key -- across a daemon restart included -- reconstructs the response from
-  -- this row alone, and rejection_reason is a free-form human sentence, so recovering the literal
-  -- from it would be exactly the phrase-match the typed member exists to abolish. Written by
+  -- this row alone, and rejection_reason -- a machine-readable cause, never prose -- carries an
+  -- OPEN vocabulary that no contract enumerates (error-contracts.md §Intervention registers no
+  -- code for an intervention outcome), so recovering the literal from it would be exactly the
+  -- match against an unpublished value set the typed member exists to abolish. Written by
   -- Plan-004 T3.17 in the SAME write that settles state = 'rejected' (the four guards are
   -- pre-dispatch admission refusals, so the settlement is one write); read back by T3.12's replay
-  -- reconstruction. NULL on every other refusal family (the capability gate, the authorization
-  -- refusal, the target-position domain check, the compaction-boundary classification) and on
-  -- every non-rejected row, so presence reads as "a composite guard refused" and never as "some
+  -- reconstruction. NULL on every other refusal family -- the EIGHT the transition table admits
+  -- for a rollback: the capability gate, the authorization refusal, the target-position domain
+  -- check, the compaction-boundary classification, an incompatible target run state, the Spec-010
+  -- restore precondition, the uncompacted-rewind-span intersection, and execution-root busy -- and
+  -- on every non-rejected row, so presence reads as "a composite guard refused" and never as "some
   -- rollback refused".
   --
   -- The CHECK is attached to the COLUMN rather than stated as a table constraint, deliberately.
