@@ -95,8 +95,12 @@ function BoundRouteSurface(props: {
    * session whose store is not open — stands between the commit and the registry, so a
    * case that wants to see the surface mount has to hand the frame the store the window's
    * own session lifecycle would have opened.
+   *
+   * `| undefined` and not a bare `?`: `exactOptionalPropertyTypes` is on, and the caller
+   * below forwards its own optional parameter — which is `SessionStore | undefined` and
+   * not an absent property — so the bare form refuses every call that passes it through.
    */
-  readonly sessionStore?: SessionStore;
+  readonly sessionStore?: SessionStore | undefined;
 }): React.JSX.Element {
   const hash = useLocationHash();
   useHashRouteBinding(props.frameStore, hash);
