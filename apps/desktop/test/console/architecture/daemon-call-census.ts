@@ -39,8 +39,14 @@ const BRIDGE_NAMESPACE = "sidekicks";
 /** The door itself. */
 const CALL_MEMBER = "call";
 
-/** The door's consumer-facing name, as `bridge/index.ts` publishes it. */
-const CALL_DOOR_EXPORT = "callDaemon";
+/**
+ * The door's consumer-facing name, as `bridge/index.ts` publishes it.
+ *
+ * Exported because the call-site scan beside this one needs the same name to find the
+ * door's local spellings, and a second declaration of it there would be a closed set
+ * written twice.
+ */
+export const CALL_DOOR_EXPORT = "callDaemon";
 
 /** The three ways a value is handed on rather than invoked. */
 const HANDOFF_MEMBERS: readonly string[] = ["bind", "apply", "call"];
@@ -129,14 +135,29 @@ const REACH_FORM_ORDER: readonly string[] = [
  * it; requiring a brace between the two words fixed that one case and still matched a
  * comment that happened to contain one. An import clause is a node, and a comment is
  * not.
+ */
+export function importsCallDoor(source: string, fileName = "probe.ts"): boolean {
+  return callDoorLocalNames(parseSourceText(fileName, source)).size > 0;
+}
+
+/**
+ * The LOCAL names this module reaches the door under, aliases included.
+ *
+ * The consumer reading above and the call-site scan next door ask one question of one
+ * import clause and used to answer it twice: this one read `propertyName ?? name` and
+ * counted an aliased import, while the call-site scan matched the exported spelling
+ * against the callee and dropped every call an alias renamed — so a module could be
+ * counted a consumer and contribute no calls at all, which is a signal check passing
+ * over nothing. One resolution, and the scan takes its door names from here.
  *
  * A NAMESPACE import is deliberately not counted, on the reasoning the walk chokepoint
  * takes for the same shape: `import * as bridge` names no specifier this scan can
  * enumerate, and reporting it as a consumer would attribute the door to every module
  * that imports the family for anything at all.
  */
-export function importsCallDoor(source: string, fileName = "probe.ts"): boolean {
-  for (const statement of parseSourceText(fileName, source).statements) {
+export function callDoorLocalNames(parsed: ts.SourceFile): ReadonlySet<string> {
+  const localNames = new Set<string>();
+  for (const statement of parsed.statements) {
     if (!ts.isImportDeclaration(statement)) {
       continue;
     }
@@ -144,15 +165,13 @@ export function importsCallDoor(source: string, fileName = "probe.ts"): boolean 
     if (bindings === undefined || ts.isNamespaceImport(bindings)) {
       continue;
     }
-    if (
-      bindings.elements.some(
-        (element) => (element.propertyName ?? element.name).text === CALL_DOOR_EXPORT,
-      )
-    ) {
-      return true;
+    for (const element of bindings.elements) {
+      if ((element.propertyName ?? element.name).text === CALL_DOOR_EXPORT) {
+        localNames.add(element.name.text);
+      }
     }
   }
-  return false;
+  return localNames;
 }
 
 /** Whether `node` reads `<something>.<member>`. */

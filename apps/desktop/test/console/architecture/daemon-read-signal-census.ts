@@ -13,20 +13,26 @@
 // the call was a reading, because that is what the wire names it. `bindDaemonMethod`
 // pairs each method with its response schema in one table, so the classification is
 // read off that pairing — a method row added tomorrow is classified by the schema it
-// is bound to and is held to the rule without anybody naming it here.
+// is bound to and is held to the rule without anybody naming it here. The reading
+// VERBS themselves live in `daemon-reading-verbs.ts`, which both this file and that
+// one derive from, because a closed set spelled in two places moves in one.
 //
-// WORDS AND NOT SUBSTRINGS, which is the whole difference between a classifier and a
-// coincidence. `ChecklistUpdateResponse` CONTAINS "Check" and records; `ListModelsResult`
-// carries its reading verb at the head rather than the tail, so a suffix rule misses
-// it. Splitting the operation name on its own capital-letter boundaries answers both:
-// a reading verb is a WORD of the operation, wherever in the name it sits.
-//
-// WHY A VERDICT AND NOT A BOOLEAN. Three answers, because a call whose method this
+// FOUR VERDICTS, BECAUSE THREE COLLAPSED TWO FACTS INTO ONE. A call whose method this
 // scan could not resolve is a different fact from one it resolved to a mutation, and
-// collapsing them is how an exemption gets granted to whatever the parse cannot see.
-// The unresolved arm is held to the READ rule for the same reason the parse fails
-// closed: a call that could name a read and hands the door nothing to stop it is the
-// defect regardless of which method today's caller passes.
+// collapsing them is how an exemption gets granted to whatever the parse cannot see;
+// the unresolved arm is held to the READ rule for the same reason the parse fails
+// closed. And a method union admitting BOTH kinds is a fourth fact again: reading it
+// as `"read"` satisfied the signal check on the read arm while
+// `stoppableRecordOffenders` skipped the site entirely — its verdict was not
+// `"record"` — so a signal that would abandon a durable mutation passed both readings.
+// That union is `"mixed"`, it fails the gate on its own reading whatever it was
+// handed, and the fix is at the call: split it, or narrow the union until one call is
+// one kind.
+//
+// AND STOPPABILITY IS ASKED OF BOTH SIDES, in the two directions their rules run. A
+// read must SHOW the signal that stops it; a record must SHOW it carries none. An
+// options argument this parse cannot read satisfies neither, which is why
+// `SignalArgumentReading` has an `"opaque"` arm rather than a boolean's silence.
 
 import ts from "typescript";
 
@@ -36,11 +42,9 @@ import {
   readModuleNamed,
 } from "../console-source-modules.js";
 import { parseSourceText } from "../typescript-source.js";
-import {
-  DaemonMethodConstantIndex,
-  daemonCallSitesIn,
-  type DaemonCallSite,
-} from "./daemon-call-sites.js";
+import { daemonCallSitesIn, type DaemonCallSite } from "./daemon-call-sites.js";
+import { DaemonMethodConstantIndex } from "./daemon-method-bindings.js";
+import { namesReadingVerb } from "./daemon-reading-verbs.js";
 
 /** Where the method-to-schema table the partition is read off lives. */
 const DAEMON_REPLY_REGISTRY_MODULE = "console/bridge/daemon/daemon-reply-registry.ts";
@@ -50,22 +54,6 @@ const BINDING_FACTORY = "bindDaemonMethod";
 
 /** Where the response schema sits in that factory's arguments. */
 const RESPONSE_SCHEMA_ARGUMENT_INDEX = 1;
-
-/** The nouns a response type is named with, stripped before the verb is looked for. */
-const RESPONSE_NOUNS: readonly string[] = ["Response", "Result"];
-
-/** The suffix every bound schema identifier carries. */
-const SCHEMA_SUFFIX = "Schema";
-
-/**
- * The operation words that make a call a reading, as the wire's own verbs.
- *
- * Three, and the set is closed on purpose: a fourth reading verb landing in the
- * contracts is a deliberate edit here, where a reviewer meets the classification,
- * rather than a method that silently classifies as a mutation and stops being held to
- * the signal rule.
- */
-const READING_VERBS: readonly string[] = ["Read", "List", "Check"];
 
 /** One reading of the console: the wire's partition, and every call made against it. */
 export interface ConsoleDaemonCallReading {
@@ -83,7 +71,7 @@ export interface ConsoleDaemonCallReading {
  * takes source text as a parameter, so a control drives it with a source whose verdict
  * is known, and this is the one place that reads the real tree. The constant index is
  * folded across the WHOLE scan before any call is resolved, because two of the console's
- * call sites name a method constant another module declares.
+ * call sites name a method constant another module declares and reach it by import.
  */
 export function readConsoleDaemonCalls(): ConsoleDaemonCallReading {
   const modules = consoleSourceModules();
@@ -107,7 +95,7 @@ export function readConsoleDaemonCalls(): ConsoleDaemonCallReading {
 }
 
 /** What one call site is, once its method has been classified. */
-export type DaemonCallSiteVerdict = "read" | "record" | "unresolved";
+export type DaemonCallSiteVerdict = "read" | "record" | "mixed" | "unresolved";
 
 /**
  * Every registered method, and whether its response says it read.
@@ -123,22 +111,18 @@ export function daemonMethodReadings(
 ): ReadonlyMap<string, boolean> {
   const readings = new Map<string, boolean>();
   for (const binding of bindingTableEntries(parseSourceText(fileName, registrySource))) {
-    readings.set(binding.method, isReadingResponse(binding.responseSchema));
+    readings.set(binding.method, namesReadingVerb(binding.responseSchema));
   }
   return readings;
 }
 
-/** Whether a response schema identifier names a reading's answer. */
-export function isReadingResponse(responseSchemaName: string): boolean {
-  return operationWords(responseSchemaName).some((word) => READING_VERBS.includes(word));
-}
-
 /**
- * What this call site is: a read, a record, or a method the parse could not resolve.
+ * What this call site is: a read, a record, a union of both, or an unresolved method.
  *
- * A SITE THAT CAN NAME A READ IS A READ. Where a parameter's declared union admits
- * both kinds the verdict is `"read"`, because the call has to be stoppable on the arm
- * where it is one and no signal can be conditional on which arm ran.
+ * A UNION OF BOTH IS NEITHER. Reading it as `"read"` made the signal check pass on a
+ * site whose record arm the signal would abandon, and reading it as `"record"` would
+ * exempt the read arm from carrying one — no single verdict is right for a call that
+ * is two kinds, which is why the answer is that the call has to stop being two kinds.
  */
 export function classifyDaemonCallSite(
   site: DaemonCallSite,
@@ -147,43 +131,83 @@ export function classifyDaemonCallSite(
   if (site.resolvedMethods.length === 0) {
     return "unresolved";
   }
-  return site.resolvedMethods.some((method) => readings.get(method) === true) ? "read" : "record";
+  const reads = readMethodsOf(site, readings);
+  if (reads.length === site.resolvedMethods.length) {
+    return "read";
+  }
+  return reads.length === 0 ? "record" : "mixed";
 }
 
 /**
- * The sites that must carry a signal and do not, each with its reason.
+ * The sites that must show the signal that stops them and do not, each with its reason.
  *
  * THE UNRESOLVED ARM IS HELD TO THIS RULE and not exempted from it — see this
  * module's header. A site reported here is fixed either by handing it the round it
  * belongs to or by narrowing the method it names until the parse can see that it
  * records; both are the call site saying what it is, which is what the gate wants.
  */
-export function unsignalledReadOffenders(
+export function unstoppableReadOffenders(
   sites: readonly DaemonCallSite[],
   readings: ReadonlyMap<string, boolean>,
 ): readonly string[] {
   return sites
-    .filter((site) => !site.carriesSignal && classifyDaemonCallSite(site, readings) !== "record")
-    .map((site) => `${describeSite(site)} — ${describeUnsignalled(site, readings)}`);
+    .filter((site) => site.signalArgument !== "present" && isHeldToReadRule(site, readings))
+    .map((site) => `${describeSite(site)} — ${describeUnstoppableRead(site, readings)}`);
 }
 
 /**
- * The sites that record and were handed a signal anyway.
+ * The sites that record and cannot show they are unstoppable.
  *
  * The positive control the mutation claim owes: a durable act that has reached the
  * daemon has HAPPENED, so a signal on one would abandon the console's half of a write
- * mid-flight and leave a person reading a surface that says it did not occur.
+ * mid-flight and leave a person reading a surface that says it did not occur. An
+ * options argument this parse cannot read is reported beside a signal it can, because
+ * the rule is that the call SHOWS it carries none and an unreadable one shows nothing.
  */
-export function signalledRecordOffenders(
+export function stoppableRecordOffenders(
   sites: readonly DaemonCallSite[],
   readings: ReadonlyMap<string, boolean>,
 ): readonly string[] {
   return sites
-    .filter((site) => site.carriesSignal && classifyDaemonCallSite(site, readings) === "record")
-    .map(
+    .filter(
       (site) =>
-        `${describeSite(site)} — records ${site.resolvedMethods.join(", ")} and was handed a signal`,
-    );
+        site.signalArgument !== "absent" && classifyDaemonCallSite(site, readings) === "record",
+    )
+    .map((site) => `${describeSite(site)} — ${describeStoppableRecord(site)}`);
+}
+
+/**
+ * The sites whose method union names a read and a record at once.
+ *
+ * Reported whatever they were handed, because no signal argument makes such a call
+ * right: the signal cannot be conditional on which arm ran, and both arms are reachable
+ * from the one line.
+ */
+export function mixedMethodOffenders(
+  sites: readonly DaemonCallSite[],
+  readings: ReadonlyMap<string, boolean>,
+): readonly string[] {
+  return sites
+    .filter((site) => classifyDaemonCallSite(site, readings) === "mixed")
+    .map((site) => {
+      const reads = readMethodsOf(site, readings);
+      const records = site.resolvedMethods.filter((method) => !reads.includes(method));
+      return `${describeSite(site)} — ${namedMethodOf(site)} names both a read (${reads.join(", ")}) and a record (${records.join(", ")}); split the call or narrow the union so one call is one kind`;
+    });
+}
+
+/** Whether the read rule governs this site: it reads, or nothing here says it does not. */
+function isHeldToReadRule(site: DaemonCallSite, readings: ReadonlyMap<string, boolean>): boolean {
+  const verdict = classifyDaemonCallSite(site, readings);
+  return verdict === "read" || verdict === "unresolved";
+}
+
+/** The methods this site can name whose response says they read. */
+function readMethodsOf(
+  site: DaemonCallSite,
+  readings: ReadonlyMap<string, boolean>,
+): readonly string[] {
+  return site.resolvedMethods.filter((method) => readings.get(method) === true);
 }
 
 /** Where a failure sends a reader: the module, and the line the call is on. */
@@ -191,14 +215,32 @@ function describeSite(site: DaemonCallSite): string {
   return `${site.displayPath}:${String(site.line)}`;
 }
 
-/** Why this unsignalled site was reported, in the reader's own terms. */
-function describeUnsignalled(site: DaemonCallSite, readings: ReadonlyMap<string, boolean>): string {
-  const named = site.methodExpression === "" ? "no method" : site.methodExpression;
+/** The method argument as the source wrote it, or the fact that there was none. */
+function namedMethodOf(site: DaemonCallSite): string {
+  return site.methodExpression === "" ? "no method" : site.methodExpression;
+}
+
+/** Why this site was reported as unable to show what stops it. */
+function describeUnstoppableRead(
+  site: DaemonCallSite,
+  readings: ReadonlyMap<string, boolean>,
+): string {
+  const named = namedMethodOf(site);
   if (classifyDaemonCallSite(site, readings) === "unresolved") {
     return `${named} resolves to no registered method, so this call could name a read and can be stopped by nothing`;
   }
-  const reads = site.resolvedMethods.filter((method) => readings.get(method) === true);
-  return `${named} reads (${reads.join(", ")}) and was handed no signal`;
+  const reads = readMethodsOf(site, readings).join(", ");
+  return site.signalArgument === "opaque"
+    ? `${named} reads (${reads}) and was handed options this parse cannot read, so nothing here shows a signal`
+    : `${named} reads (${reads}) and was handed no signal`;
+}
+
+/** Why this recording site was reported as possibly stoppable. */
+function describeStoppableRecord(site: DaemonCallSite): string {
+  const methods = site.resolvedMethods.join(", ");
+  return site.signalArgument === "opaque"
+    ? `records ${methods} and was handed options this parse cannot read, so nothing here shows it carries no signal`
+    : `records ${methods} and was handed a signal`;
 }
 
 /** One row of the registry's binding table. */
@@ -236,25 +278,4 @@ function boundResponseSchema(initializer: ts.Expression): string | undefined {
   return responseSchema !== undefined && ts.isIdentifier(responseSchema)
     ? responseSchema.text
     : undefined;
-}
-
-/**
- * The operation a response schema names, split into its own capital-bounded words.
- *
- * `QueueItemListResponseSchema` is the operation `QueueItemList` and the words
- * `Queue`, `Item`, `List`; `RunControlAckSchema` carries no response noun to strip and
- * is `Run`, `Control`, `Ack`. Stripping the noun matters because it is where a reading
- * verb would otherwise be looked for and never found.
- */
-function operationWords(responseSchemaName: string): readonly string[] {
-  let operation = responseSchemaName.endsWith(SCHEMA_SUFFIX)
-    ? responseSchemaName.slice(0, -SCHEMA_SUFFIX.length)
-    : responseSchemaName;
-  for (const noun of RESPONSE_NOUNS) {
-    if (operation.endsWith(noun)) {
-      operation = operation.slice(0, -noun.length);
-      break;
-    }
-  }
-  return operation.match(/[A-Z][a-z0-9]*/g) ?? [];
 }

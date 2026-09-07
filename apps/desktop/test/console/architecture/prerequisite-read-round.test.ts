@@ -20,6 +20,13 @@
 // remembering to name it here. The floors below are what keep the derivation from
 // quietly reporting on nothing.
 //
+// AND THE THREE VERBS THEMSELVES ARE NOT DECLARED HERE EITHER. They were, as a suffix
+// list, while `daemon-read-signal-census.ts` held the same closed set spelled as words
+// — so a fourth reading verb landing in the contracts moved whichever list its author
+// remembered and left the other gate reading that verb as a mutation. Both derive from
+// `daemon-reading-verbs.ts` now, and its own control widens the set and watches the two
+// derivations move together.
+//
 // AND THE CONTROLLER CLAIM IS DERIVED THE SAME WAY: every module that extends the act
 // controller base is found by its `extends` clause, and each is held to declaring the
 // signal AND using it. Declaring one and ignoring it is the failure this gate is really
@@ -43,6 +50,7 @@ import {
   readModuleNamed,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
+import { answersReadingResponse } from "./daemon-reading-verbs.js";
 
 /** The repos family's one module of `repo.*` call wrappers. */
 const REPO_READS_MODULE = "console/repos/repo-reads.ts";
@@ -55,15 +63,6 @@ const ACT_CONTROLLER_MODULE = "console/store/act-controller.ts";
 
 /** How a subclass declares itself one. The needle the controller census derives from. */
 const ACT_CONTROLLER_EXTENDS_FORM = "extends ActSurfaceController<";
-
-/**
- * The response-type suffixes that name a READ, taken from the wire's own verbs.
- *
- * Not a list of functions: a list of the shapes a reading method answers with. Every
- * `repo.*` read in the registry answers one of these three and no recording method
- * answers any of them, which is what makes the classifier total over the module.
- */
-const READ_RESPONSE_SUFFIXES: readonly string[] = ["ReadResponse", "ListResponse", "CheckResponse"];
 
 /** One `callDaemon` wrapper, as its source text describes it. */
 interface CallWrapper {
@@ -123,9 +122,16 @@ function callWrappers(source: string): readonly CallWrapper[] {
   return wrappers;
 }
 
-/** Whether this wrapper's declared response type is a reading's. */
+/**
+ * Whether this wrapper's declared response type is a reading's.
+ *
+ * Not a list of functions: a question about the shape a reading method answers with.
+ * Every `repo.*` read in the registry answers one of the three verbs' response types
+ * and no recording method answers any of them, which is what makes the classifier
+ * total over the module — and the verbs come from the one home both gates read.
+ */
 function isReadWrapper(wrapper: CallWrapper): boolean {
-  return READ_RESPONSE_SUFFIXES.some((suffix) => wrapper.responseType.endsWith(suffix));
+  return answersReadingResponse(wrapper.responseType);
 }
 
 /** The `readPrerequisite` override's own text, or `""` where the module has none. */
