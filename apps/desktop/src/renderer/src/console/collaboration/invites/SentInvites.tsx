@@ -27,9 +27,9 @@
 //     `https://<control-plane-host>/invite/<token>`. The token is returned exactly
 //     once by `invite.create` and by nothing else, so the copy control belongs to
 //     the moment of the mint and not to a ledger row — `InviteLinkReveal.tsx` is
-//     that moment. The host is the growth port's `controlPlaneHostRead`; a host
-//     that refuses leaves the invitation minted and says the link could not be
-//     composed, rather than composing one around a guess.
+//     that moment. The host is the growth port's `controlPlaneHostRead`, taken
+//     BEFORE the mint; a host that refuses ends the act there and mints nothing, so
+//     no row this ledger could show is ever one whose link could not be written.
 //
 // A MINT RE-READS THE LEDGER RATHER THAN WRITING INTO IT. `InviteCreateResponse`
 // carries no `state` and no `joinMode`, so folding a row in would mean composing two
