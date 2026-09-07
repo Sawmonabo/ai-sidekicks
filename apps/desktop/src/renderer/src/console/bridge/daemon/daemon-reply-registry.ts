@@ -84,6 +84,8 @@ import {
   RunResumeRequestSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
+  TimelineReadRequestSchema,
+  TimelineReadResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadRequestSchema,
   WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceListRequestSchema,
@@ -214,6 +216,7 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
     ChildRunExpandRequestSchema,
     ChildRunExpandResponseSchema,
   ),
+  "timeline.read": bindDaemonMethod(TimelineReadRequestSchema, TimelineReadResponseSchema),
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
     ProviderAccountListResponseSchema,

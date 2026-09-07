@@ -469,6 +469,11 @@ export { DEFAULT_SCENARIO_ID } from "./scenario-runtime/scenario-selection.js";
 // wire's own shapes are read here and nowhere above.
 export { readConsoleSessionEvent } from "./daemon/session-event-payload.js";
 export { readRollbackBoundaryPayload } from "./daemon/rollback-boundary-payload.js";
+// And the boundary for the OTHER frame a session's log arrives in: one backward
+// `timeline.read` window. Through the door for the same reason — the ledger's walk
+// back past its window head is the reader, and a family above this one may not read a
+// `TimelineRow`.
+export { readEarlierTimelinePage } from "./daemon/timeline-page.js";
 
 // The three body reads that narrow a wire shape, all through the door because each
 // has a production reader above this family. `membershipRoleOf` is the injected

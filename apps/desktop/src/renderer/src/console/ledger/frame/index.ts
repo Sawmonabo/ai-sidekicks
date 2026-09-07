@@ -78,6 +78,10 @@ export { LedgerViewport } from "./viewport/LedgerViewport.js";
 export { type LedgerScope } from "./viewport/empty-window-words.js";
 export { type LedgerRowRenderer } from "./LedgerRowMount.js";
 export { useLedgerViewport } from "./viewport/viewport-binding.js";
+// The walk back into the rows before this window's head. Published because the FEED
+// mints it — it is the mount that holds the session store — and hands the value to
+// the viewport, which is where the head control is placed.
+export { useLedgerEarlierPaging } from "./paging/paging-binding.js";
 export { type LedgerViewportRow } from "./viewport/viewport-snapshot.js";
 export { type LedgerRowLease } from "./row-lease-table.js";
 

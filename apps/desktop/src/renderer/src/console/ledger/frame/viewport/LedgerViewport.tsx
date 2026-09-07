@@ -44,6 +44,7 @@ import { type LedgerScope } from "./empty-window-words.js";
 import { LedgerErrorSlot, type LedgerErrorEntry } from "../ErrorSlot.js";
 import { LedgerRowMount, type LedgerRowRenderer } from "../LedgerRowMount.js";
 import { LedgerTailAffordance } from "../LedgerTailAffordance.js";
+import { LoadEarlierAffordance, type LedgerEarlierPaging } from "../paging/index.js";
 import { type LedgerViewportBinding } from "./viewport-binding.js";
 
 export interface LedgerViewportProps {
@@ -91,6 +92,16 @@ export interface LedgerViewportProps {
   readonly firstReadSettled: boolean;
   /** A turn is mid-flight — the same value the caller reconciled the binding with. */
   readonly hasActiveTurn?: boolean;
+  /**
+   * The walk back into the rows before this window's head, where the caller has one.
+   *
+   * OPTIONAL, because a viewport can be mounted over rows that are not a session's
+   * log at all — a fixture harness, a measurement probe — and a head control offering
+   * to fetch history for a window that has none would be a promise nothing can keep.
+   * Absent, nothing renders at the head, which is also what a present value says while
+   * the window opens at the beginning of its log.
+   */
+  readonly earlierPaging?: LedgerEarlierPaging | undefined;
   readonly errorEntries?: readonly LedgerErrorEntry[];
 }
 
@@ -103,6 +114,15 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
   return (
     <div className="meridian-ledger-viewport">
       <LedgerErrorSlot entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
+      {/*
+       * The head act, floating over the top of the surface exactly as the tail
+       * affordance floats over the bottom — both outside the scroll box, because a
+       * control in the flow changes the content height and the reading position each
+       * of them exists to protect is measured against that height.
+       */}
+      {props.earlierPaging === undefined ? null : (
+        <LoadEarlierAffordance paging={props.earlierPaging} />
+      )}
       <div
         className="meridian-ledger-viewport__surface"
         ref={binding.attachSurface}

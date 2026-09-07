@@ -16,6 +16,12 @@ import { ManualClock } from "../../../core/index.js";
 import { countingSurface } from "../scroll/scroll-surface.test-support.js";
 import { LedgerViewportController } from "./viewport-controller.js";
 import { CALM, syntheticRows } from "./viewport-controller.test-support.js";
+import { type LedgerViewportRow } from "./viewport-snapshot.js";
+
+/** Rows named by key, for the cases about which END of the window a set grew at. */
+function rowsFrom(keys: readonly string[]): readonly LedgerViewportRow[] {
+  return keys.map((key) => ({ key, parentKey: undefined, rootCursor: `cursor-${key}` }));
+}
 
 function attachedController(): { controller: LedgerViewportController; clock: ManualClock } {
   const clock = new ManualClock();
@@ -99,7 +105,7 @@ describe("the viewport controller — holding the reading position", () => {
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     // The tail glide is ARMED by the reconcile and performed once the new height is
     // committed — see the group below for why, and for the case that pins it.
-    controller.commitPendingTailGlide();
+    controller.commitPendingPositionHold();
     expect(controller.scroll.writeCount("follow-tail")).toBeGreaterThan(0);
 
     controller.anchor.observeGeometry({
@@ -279,7 +285,7 @@ describe("the viewport controller — the tail glide and the height it lands aga
     const controller = new LedgerViewportController({ clock: new ManualClock() });
     controller.attach(surface);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
-    controller.commitPendingTailGlide();
+    controller.commitPendingPositionHold();
     expect(controller.anchor.state.mode).toBe("following");
     return { controller, surface };
   }
@@ -297,7 +303,7 @@ describe("the viewport controller — the tail glide and the height it lands aga
     expect(surface.scrollTop).toBe(TAIL_BEFORE_PX);
 
     surface.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
-    controller.commitPendingTailGlide();
+    controller.commitPendingPositionHold();
 
     expect(surface.scrollTop).toBe(TAIL_AFTER_PX);
     // The negative control rides the same two readings: the offset the pre-commit
@@ -313,9 +319,9 @@ describe("the viewport controller — the tail glide and the height it lands aga
     controller.reconcile({ rows: syntheticRows(24), ...CALM });
     const followsBeforeCommit = controller.scroll.writeCount("follow-tail");
 
-    controller.commitPendingTailGlide();
-    controller.commitPendingTailGlide();
-    controller.commitPendingTailGlide();
+    controller.commitPendingPositionHold();
+    controller.commitPendingPositionHold();
+    controller.commitPendingPositionHold();
 
     expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeCommit + 1);
   });
@@ -332,7 +338,7 @@ describe("the viewport controller — the tail glide and the height it lands aga
     surface.moveTo(500);
     expect(controller.anchor.state.mode).not.toBe("following");
     surface.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
-    controller.commitPendingTailGlide();
+    controller.commitPendingPositionHold();
 
     expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeCommit);
     expect(surface.scrollTop).toBe(500);
@@ -367,5 +373,74 @@ describe("the viewport controller — teardown", () => {
     expect(clock.pendingCount).toBe(0);
     controller.schedulePublish();
     expect(clock.pendingCount).toBe(0);
+  });
+});
+
+describe("the viewport controller — a page landing in front of the window", () => {
+  it("pins history at the new head, so the cap stops trimming under the reader", () => {
+    const { controller } = attachedController();
+    controller.reconcile({ rows: rowsFrom(["c", "d"]), ...CALM });
+
+    controller.reconcile({ rows: rowsFrom(["a", "b", "c", "d"]), ...CALM });
+
+    expect(controller.snapshot().reading.pinnedRootCursor).toBe("cursor-a");
+  });
+
+  it("negative control: an append at the tail pins nothing", () => {
+    // The pin suppresses prune wholesale, so arming it on any growth at all would
+    // stop a busy session's window from ever trimming again.
+    const { controller } = attachedController();
+    controller.reconcile({ rows: rowsFrom(["c", "d"]), ...CALM });
+
+    controller.reconcile({ rows: rowsFrom(["c", "d", "e"]), ...CALM });
+
+    expect(controller.snapshot().reading.pinnedRootCursor).toBeUndefined();
+  });
+
+  it("keeps the rows the page brought, over the cap, rather than pruning them away", () => {
+    // THE CASE THE WHOLE PIN EXISTS FOR. A backward page lands over the row cap by
+    // exactly its own length and the cap prunes oldest-first, so without the pin this
+    // reconcile would take all fifty rows that had just arrived: the press would cost
+    // a round trip and leave the window exactly as it was, forever.
+    const { controller } = attachedController();
+    const earlier = rowsFrom(Array.from({ length: 50 }, (_unused, index) => `earlier-${index}`));
+    controller.reconcile({ rows: syntheticRows(400), ...CALM });
+
+    controller.reconcile({ rows: [...earlier, ...syntheticRows(400)], ...CALM });
+
+    expect(controller.snapshot().lastPrune?.deferredBecause).toBe("pinned-history");
+    expect(controller.snapshot().rows).toHaveLength(450);
+    expect(controller.snapshot().rowKeys[0]).toBe("earlier-0");
+  });
+
+  it("negative control: re-supplying a trimmed set pins nothing and keeps pruning", () => {
+    // The cap takes rows from the oldest end and the surrounding surface keeps handing
+    // over the whole projection, so the rows it took lead the very next set. Read as a
+    // page landing at the head, this pins history on an ordinary reconcile and the cap
+    // never trims again for the life of the session.
+    const { controller } = attachedController();
+    const whole = syntheticRows(4000);
+    controller.reconcile({ rows: whole, ...CALM });
+    expect(controller.snapshot().rows).toHaveLength(400);
+
+    controller.reconcile({ rows: whole, ...CALM });
+
+    expect(controller.snapshot().reading.pinnedRootCursor).toBeUndefined();
+    expect(controller.snapshot().rows).toHaveLength(400);
+  });
+
+  it("defers the hold to the commit rather than writing in the pre-insert space", () => {
+    // The offsets a hold reads are the virtualizer's, and it has not re-answered them
+    // when `reconcile` runs in its passive effect. A write here would put the reader
+    // where the row it named USED to be, which is above every row the page delivered.
+    const { controller } = attachedController();
+    controller.reconcile({ rows: rowsFrom(["c", "d"]), ...CALM });
+    const writesBefore = controller.scroll.writeCount("hold-reading-position");
+
+    controller.reconcile({ rows: rowsFrom(["a", "b", "c", "d"]), ...CALM });
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(writesBefore);
+
+    controller.commitPendingPositionHold();
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(writesBefore + 1);
   });
 });

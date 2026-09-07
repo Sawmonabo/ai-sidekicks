@@ -227,13 +227,15 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     controller.retryDeferredPrune();
   }, [controller, readingMode, pinnedRootCursor, lastPrune]);
 
-  // THE TAIL GLIDE, PERFORMED AFTER THE HEIGHT IT DEPENDS ON IS COMMITTED.
+  // THE POSITION HOLD, PERFORMED AFTER THE HEIGHT IT DEPENDS ON IS COMMITTED.
   //
   // `reconcile` runs in a PASSIVE effect, so the rows it took have not rendered when
-  // it runs and the sizer still carries the previous total size — a glide to the tail
-  // there lands on the bottom of the log as it was before the append, and nothing
-  // glides again afterwards. The controller therefore arms the glide and this
-  // performs it.
+  // it runs and the sizer still carries the previous total size. Both deferred arms
+  // fail there for that one reason: a glide to the tail lands on the bottom of the log
+  // as it was before the append, and a head hold reads the offset the row that used to
+  // be first had before a page was inserted above it. The controller therefore arms
+  // whichever is owed and this performs it — `viewport-deferred-hold.ts` states which
+  // is which.
   //
   // A LAYOUT effect, declared AFTER `useVirtualizer`, and both halves are the
   // mechanism rather than style. The adapter writes the container's height under
@@ -250,7 +252,7 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     if (controller.isDisposed) {
       return;
     }
-    controller.commitPendingTailGlide();
+    controller.commitPendingPositionHold();
   });
 
   // A lease write is state the WINDOW owns, so it is not React state — but the tree

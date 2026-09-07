@@ -18,10 +18,33 @@ export interface SessionStoreState {
   readonly initialised: boolean;
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
-  /** Append-only ordered event log for the session, the ledger's source. */
+  /**
+   * Ordered event log for the session, the ledger's source.
+   *
+   * Append-only at the TAIL, which is where the subscription writes. It also grows at
+   * the HEAD, and only there and only through `prependEarlierEvents`: a session's
+   * stream is replayed from the position this participant was last acknowledged at, so
+   * the log below that position exists and this window has never been sent it.
+   */
   readonly timeline: readonly ConsoleSessionEvent[];
   /** The highest sequence this store has admitted. */
   readonly cursor: number;
+  /**
+   * The daemon-issued position the read that established this window was performed
+   * FROM, or `undefined` for a read from the beginning of the log.
+   *
+   * THE HEAD OF THE WINDOW, AND THE ONLY CURSOR THIS CONSOLE HAS FOR IT. A session's
+   * stream replays from the position the previous read acknowledged, so the rows
+   * below that position were never delivered — and `SessionReadResponse` carries no
+   * member naming the oldest row it sent, so nothing else here can name where the
+   * window starts. Held UNREAD as the opaque string the daemon issued
+   * (`timeline-resume.ts`' rule), because the only thing a caller may do with it is
+   * hand it back.
+   *
+   * `undefined` is therefore the honest "there is nothing before this window": a read
+   * that submitted no position opened at the beginning of the log.
+   */
+  readonly windowHeadCursor: string | undefined;
   /** Sticky while the projection is known-incomplete; cleared only by a re-pull. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
@@ -55,6 +78,17 @@ export interface SessionSnapshot {
    * member here would assert away the very absence that module has to detect.
    */
   readonly timelineCursors?: unknown;
+  /**
+   * The position this read was performed FROM, as the caller submitted it.
+   *
+   * Not a member of the reply and deliberately not read out of one: it is what the
+   * CONSOLE sent, so the object that submitted it is the only thing that knows it. The
+   * entry that performs the read supplies it here, and the store carries it onto
+   * {@link SessionStoreState.windowHeadCursor} — which is what makes "the rows before
+   * this window" a position the console can name rather than one it would have to
+   * invent out of an opaque cursor's bytes.
+   */
+  readonly readFromCursor?: string | undefined;
 }
 
 /**
@@ -104,6 +138,7 @@ export function uninitialisedState(input: {
     partitions: emptyPartitions(),
     timeline: [],
     cursor: UNINITIALISED_CURSOR,
+    windowHeadCursor: undefined,
     degradedCause: input.degradedCause,
     gaps: [],
     revision: input.revision,
@@ -137,8 +172,9 @@ export function establishedState(input: {
     sessionId: input.sessionId,
     initialised: true,
     partitions,
-    timeline: capTimeline(input.orderedTimeline, input.timelineCap),
+    timeline: capTimeline(input.orderedTimeline, input.timelineCap, "newest"),
     cursor: input.snapshot.cursor,
+    windowHeadCursor: input.snapshot.readFromCursor,
     degradedCause: undefined,
     gaps: [],
     revision: input.revision,
@@ -146,19 +182,39 @@ export function establishedState(input: {
 }
 
 /**
- * The newest `cap` events of a timeline, or all of them where there is no cap.
+ * Which end of an over-cap log survives.
+ *
+ * `"newest"` is the ordinary rule: a session's window is its tail, so the cap drops
+ * the oldest rows. `"oldest"` is what a backward page buys — the reader has moved to
+ * the head and asked for the rows before it, so a cap that still cut there would
+ * discard the page as it landed and every press after it, forever.
+ */
+export type TimelineRetainedEnd = "newest" | "oldest";
+
+/**
+ * The `cap` events of a timeline nearest the retained end, or all of them where there
+ * is no cap.
  *
  * Here rather than beside the store that applies it because the cap is a property of
- * the STATE — what a `timeline` member is allowed to hold — and both writers of that
- * member, the read that establishes it and the batch that appends to it, take the
- * same answer from this one function.
+ * the STATE — what a `timeline` member is allowed to hold — and all three writers of
+ * that member (the read that establishes it, the batch that appends to it, and the
+ * backward page that grows it at the head) take the same answer from this one
+ * function.
+ *
+ * THE END IS THE CALLER'S AND HAS NO DEFAULT. A cap silently cutting the end a reader
+ * is standing at is the whole failure this parameter exists to make unrepresentable,
+ * and a default would put that failure one forgotten argument away. Whichever end is
+ * cut, the cut is silent for the same reason it has always been: the cap is a
+ * retention bound rather than a claim about the log, and the rows the console has
+ * NOT been sent are reported by the window's own absences.
  */
 export function capTimeline(
   timeline: readonly ConsoleSessionEvent[],
   cap: number | undefined,
+  retainedEnd: TimelineRetainedEnd,
 ): readonly ConsoleSessionEvent[] {
   if (cap === undefined || timeline.length <= cap) {
     return timeline;
   }
-  return timeline.slice(timeline.length - cap);
+  return retainedEnd === "newest" ? timeline.slice(timeline.length - cap) : timeline.slice(0, cap);
 }

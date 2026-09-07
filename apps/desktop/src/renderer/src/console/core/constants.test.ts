@@ -11,7 +11,7 @@
 //
 // So this file states each relation once, next to the reason it holds.
 
-import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
+import { MAX_MESSAGE_BYTES, TIMELINE_READ_LIMIT_MAX } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -32,6 +32,7 @@ import {
   INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
   LEDGER_PARKED_LEASE_CAP,
+  LEDGER_EARLIER_PAGE_ROWS,
   LEDGER_WINDOW_ROW_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
@@ -91,6 +92,7 @@ const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
   ["RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX", RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX],
   ["WORKFLOW_CANCEL_REASON_BYTE_CAP", WORKFLOW_CANCEL_REASON_BYTE_CAP],
   ["LEDGER_WINDOW_ROW_CAP", LEDGER_WINDOW_ROW_CAP],
+  ["LEDGER_EARLIER_PAGE_ROWS", LEDGER_EARLIER_PAGE_ROWS],
   ["LEDGER_PARKED_LEASE_CAP", LEDGER_PARKED_LEASE_CAP],
   ["CHAPTER_VISIBLE_ROW_CAP", CHAPTER_VISIBLE_ROW_CAP],
   ["FIND_MATCH_CAP", FIND_MATCH_CAP],
@@ -332,7 +334,7 @@ describe("console bounds — the phase graph's zoom range", () => {
   });
 });
 
-describe("console bounds — the ledger's four caps describe one window", () => {
+describe("console bounds — the ledger's five caps describe one window", () => {
   it("parks exactly one window's worth of leases", () => {
     // `LEDGER_PARKED_LEASE_CAP`'s own rationale states the bound as a RELATION —
     // "parking one window's worth covers a page back and no more" — so the two
@@ -348,6 +350,16 @@ describe("console bounds — the ledger's four caps describe one window", () => 
     // ledger retains, and "scrolling inside a chapter is reading rather than paging"
     // would be describing the ledger rather than the chapter.
     expect(CHAPTER_VISIBLE_ROW_CAP).toBeLessThan(LEDGER_WINDOW_ROW_CAP);
+  });
+
+  it("fetches a page the window can hold, and the wire will serve", () => {
+    // TWO RELATIONS, and both are the reason this number is not free. At or above the
+    // window's row cap one press would deliver a page the cap has to trim before the
+    // reader can reach the end of it — the round trip spent on rows nobody sees. And
+    // past the wire's own ceiling the request is refused by the contract rather than
+    // answered, so the control would offer a walk that never takes a step.
+    expect(LEDGER_EARLIER_PAGE_ROWS).toBeLessThan(LEDGER_WINDOW_ROW_CAP);
+    expect(LEDGER_EARLIER_PAGE_ROWS).toBeLessThanOrEqual(TIMELINE_READ_LIMIT_MAX);
   });
 
   it("ranks more matches than the window can hold rows", () => {
