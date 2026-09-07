@@ -39,13 +39,31 @@
 import { Fragment } from "react";
 
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
-import { formatRoute, isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
+import {
+  formatRoute,
+  isAuxiliaryRoute,
+  needsContextPicker,
+  type ConsoleRoute,
+} from "../routing/index.js";
 import { ContextPicker } from "./ContextPicker.js";
+import { warmRouteSurface } from "./rail-navigation.js";
 import {
   consoleSurfaceRegistry,
   surfaceSlotFor,
   type ConsoleSurfaceContext,
 } from "../seats/index.js";
+import { useGenerationLatch } from "../store/index.js";
+
+/**
+ * The latch key the picker's warm-then-commit round is held under.
+ *
+ * ONE KEY AND NOT ONE PER ROUTE. A window shows at most one picker, and the rule this
+ * expresses is "one pending commit per window" — a second choice is the same person
+ * changing their mind about the same act. Keying it on the route would give a choice made
+ * on one auxiliary route and a choice made on another separate rounds, which is precisely
+ * the pair that must not both land.
+ */
+const PICKER_COMMIT_KEY = "context-picker-commit";
 
 export interface RouteSurfaceProps {
   readonly context: ConsoleSurfaceContext;
@@ -55,6 +73,9 @@ export interface RouteSurfaceProps {
 export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
   const { context } = props;
   const { route } = context;
+  // Unconditionally, above every absence arm: the picker branch below is one of five
+  // returns and a hook taken inside it would be taken on some renders and not others.
+  const pickerCommitLatch = useGenerationLatch();
 
   if (route.kind === "not-found") {
     return (
@@ -85,7 +106,55 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
           // agent-console route produced a session with no agent, a shape the
           // shared grammar refuses by throwing, from inside the route-to-hash
           // effect where no surface boundary catches it.
-          context.frameStore.navigate({ kind: "auxiliary", ...target });
+          const chosen: ConsoleRoute = { kind: "auxiliary", ...target };
+          // WARMED, AND UNLIKE THE RAIL'S PRESS THIS ONE WAITS. Both use the same
+          // helper, and the difference is what is on screen while it runs. A rail
+          // press has a painted surface under it, so the fetch rides beside the
+          // commit and the reserved frame is the honest thing to show for the frames
+          // it is still in flight. This window has NOTHING under it: the picker is
+          // the whole surface, and committing first replaced a working control with
+          // a reserved region — after an explicit act, on the one path where the
+          // console knew the destination before the person let go of the mouse. So
+          // the picker stays up until the body has landed and the route commits onto
+          // a settled module.
+          //
+          // `warmRouteSurface` never rejects, so a chunk that will not load still
+          // navigates and surfaces at the mount, inside the console's own error
+          // boundary — the window is not left sitting on a picker with no way out.
+          //
+          // AND THE COMMIT IS GUARDED ON BOTH WAYS THE WAIT CAN BE OVERTAKEN, because
+          // waiting is what creates the window in which something else can happen. The
+          // load takes as long as a chunk takes, and a continuation that simply
+          // navigated when it settled wrote the destination it had been holding over
+          // whatever the window had reached in the meantime.
+          //
+          //   • A SECOND CHOICE. `supersedeAndClaim` is the newest-intent-wins arm, which
+          //     is what a person changing their mind about a subject is: the round the
+          //     first choice took is abandoned, its `settle` installs nothing, and only
+          //     the last press commits. Nothing behind a chunk fetch is cancellable, so
+          //     the earlier load still finishes — it just lands nowhere.
+          //   • A NAVIGATION AWAY. The latch does not see this one and must not be made
+          //     to: nobody superseded the round, so it is still the newest choice, and
+          //     the fact that disqualifies it is that the window is no longer where the
+          //     choice was made. So the address is read from the store AT SETTLE TIME and
+          //     compared with the one the picker was rendered at. Reading the store
+          //     rather than the closed-over `route` is the whole point — the closure
+          //     holds the render's route, which is the stale value.
+          //
+          // Both guards refuse silently, which is correct here and not a swallow: the
+          // person is already looking at the destination they chose second, or at the one
+          // they navigated to. A banner would report a race they resolved themselves.
+          const openedAt = formatRoute(route);
+          const commit = pickerCommitLatch.supersedeAndClaim(context.frameStore, PICKER_COMMIT_KEY);
+          void warmRouteSurface(consoleSurfaceRegistry, chosen).then(() => {
+            commit.settle(() => {
+              if (formatRoute(context.frameStore.getState().route) !== openedAt) {
+                return;
+              }
+              context.frameStore.navigate(chosen);
+            });
+            commit.release();
+          });
         }}
       />
     );

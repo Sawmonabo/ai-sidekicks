@@ -15,6 +15,14 @@
 // holds every inbound edge to that, which needs no list of exceptions and follows a
 // directory the day it grows a door.
 //
+// AND ITS PATHS ARE POSIX-SEPARATED, WHATEVER THE HOST. A tree path is compared against
+// a barrel's `/index.ts` suffix, against a chunk root's directory prefix, and against a
+// specifier resolved with `path.posix` — so one spelling is the only arrangement in which
+// any of those comparisons mean anything. The shared walk answers in the host's
+// separator, so the conversion happens HERE, at the one boundary that mints a tree path,
+// and every consumer downstream speaks `/` and nothing else: the predicates below, the
+// reach index, the gates that read them, and the literal keys of a synthetic tree.
+//
 // COUNTED, NOT COLLAPSED, and that is this module's whole reason for existing in the
 // shape it has. An earlier revision gathered the walk into a `Set` of reached sheets
 // and asked only whether each sheet was in it, so a sheet imported from two barrels,
@@ -24,12 +32,13 @@
 // from — so both duplicates are countable and both are reported with their causes.
 
 import { readFileSync } from "node:fs";
-import { dirname, join, posix, sep } from "node:path";
+import { join, posix } from "node:path";
 
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
   consoleStylesheets,
+  toPosixSeparators,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import {
@@ -80,7 +89,7 @@ export interface StylesheetEdgeOffences {
  * the chunk root below, which is a fact about the graph rather than about the name.
  */
 export function isOwningBarrel(modulePath: string): boolean {
-  return modulePath.endsWith(`${sep}index.ts`);
+  return modulePath.endsWith(`${posix.sep}index.ts`);
 }
 
 /**
@@ -151,9 +160,9 @@ function moduleCandidatesFor(resolvedSpecifier: string): readonly string[] {
  */
 export function owningBarrelOf(tree: StylesheetTree, filePath: string): string | undefined {
   const barrels = new Set(tree.modulePaths.filter(isOwningBarrel));
-  const segments = filePath.split(sep);
+  const segments = filePath.split(posix.sep);
   for (let depth = segments.length - 1; depth > 0; depth -= 1) {
-    const candidate = [...segments.slice(0, depth), "index.ts"].join(sep);
+    const candidate = [...segments.slice(0, depth), "index.ts"].join(posix.sep);
     if (barrels.has(candidate)) {
       return candidate;
     }
@@ -168,13 +177,17 @@ export function owningBarrelOf(tree: StylesheetTree, filePath: string): string |
  * The graph library's own `base.css` is the case that returns `undefined`: it is a
  * bare specifier, it is not this tree's to place, and the reachability claim is about
  * sheets the console owns.
+ *
+ * RESOLVED ENTIRELY IN `path.posix`, on both sides. The importer is a tree path and the
+ * answer is one, and this module's header says why those carry `/` on every host; a
+ * derivation reaching for the HOST's `dirname` would read a Windows-spelled importer as
+ * having no directory at all and resolve every specifier against the tree's root.
  */
 export function resolveStylesheet(importerPath: string, specifier: string): string | undefined {
   if (!specifier.startsWith(".")) {
     return undefined;
   }
-  const importerDirectory = dirname(importerPath).split(sep).join(posix.sep);
-  return posix.normalize(posix.join(importerDirectory, specifier)).split(posix.sep).join(sep);
+  return posix.normalize(posix.join(posix.dirname(importerPath), specifier));
 }
 
 /**
@@ -274,6 +287,65 @@ function isOwnedEdge(tree: StylesheetTree, sheet: string, edge: StylesheetEdge):
   return edge.importer === owner || owningBarrelOf(tree, edge.importer) === owner;
 }
 
+/**
+ * Whether a sheet's several importers are alternative entries to its own directory.
+ *
+ * THE ONE ADMITTED FAN-IN, and it is narrow on purpose. The single-edge rule exists so
+ * that no sheet is pulled into a document by two different owners — one directory made
+ * the reason another is styled. Two lazy chunk roots under the SAME owning barrel are
+ * not two owners: they are two ways into one body, and the bundler emits the sheet once
+ * into an asset whichever root pulls. `agents/agent-console/` is the live case — the
+ * deck's pane and the auxiliary window's surface are independent first paints of
+ * `AgentConsoleBody`, so each has to name the rules that body needs; a sheet named by
+ * only one of them leaves the other window rendering undressed.
+ *
+ * EVERY importer must qualify, so a barrel joining two chunk roots still offends: what
+ * is admitted is a fan-in whose members are all deferred entries to one directory, not
+ * a sheet that happens to have a chunk root among its importers.
+ *
+ * AND AN ADMITTED SHEET'S OWN `@import`S INHERIT IT, which is the second clause and not
+ * a widening of the first. A family sheet three sibling roots pull carries the sheets
+ * that family owns at its head, and each of those is then reached once per root — same
+ * importer, three edges — for a reason that is a property of the roots rather than of
+ * the sheet. Without this clause the model would forbid a fanned-in family sheet from
+ * carrying any `@import` at all, which is an accident of how the walk counts rather than
+ * a rule anybody decided: what makes the fan-in safe is that the members are alternative
+ * entries to ONE body, and a sheet that body's chrome pulls in is on exactly the same
+ * asset. A BARREL among the importers still offends, at this level and at every level
+ * below it, because the recursion admits only importers that are themselves admitted.
+ */
+function isSiblingChunkRootFanIn(
+  tree: StylesheetTree,
+  sheet: string,
+  inbound: readonly StylesheetEdge[],
+  chunkRoots: ReadonlySet<string>,
+  edges: StylesheetEdgeGraph,
+  // The cycle guard, and the only reason this parameter exists: two sheets that
+  // `@import` each other would otherwise recur forever, and a malformed tree must fail
+  // the gate rather than hang it.
+  visiting: ReadonlySet<string> = new Set(),
+): boolean {
+  const owner = owningBarrelOf(tree, sheet);
+  if (owner === undefined || visiting.has(sheet)) {
+    return false;
+  }
+  const descended = new Set([...visiting, sheet]);
+  return inbound.every((edge) => {
+    if (owningBarrelOf(tree, edge.importer) !== owner) {
+      return false;
+    }
+    if (chunkRoots.has(edge.importer)) {
+      return true;
+    }
+    const importerInbound = edges.get(edge.importer);
+    return (
+      importerInbound !== undefined &&
+      importerInbound.length > 0 &&
+      isSiblingChunkRootFanIn(tree, edge.importer, importerInbound, chunkRoots, edges, descended)
+    );
+  });
+}
+
 /** The offending sheets, each reported with the edges that made it one. */
 export function stylesheetEdgeOffences(
   tree: StylesheetTree,
@@ -283,18 +355,20 @@ export function stylesheetEdgeOffences(
   const duplicatePaths: string[] = [];
   const duplicateBarrels: string[] = [];
   const misowned: string[] = [];
+  const chunkRoots = lazyChunkRoots(tree);
   for (const sheet of tree.stylesheetPaths) {
     const inbound = edges.get(sheet) ?? [];
     if (inbound.length === 0) {
       unreached.push(sheet);
       continue;
     }
-    if (inbound.length > 1) {
+    const siblingRoots = isSiblingChunkRootFanIn(tree, sheet, inbound, chunkRoots, edges);
+    if (inbound.length > 1 && !siblingRoots) {
       const paths = inbound.map((edge) => `${edge.importer} → "${edge.specifier}"`).join("; ");
       duplicatePaths.push(`${sheet}: ${inbound.length} inbound edges — ${paths}`);
     }
     const owningBarrels = [...new Set(inbound.map((edge) => edge.owningBarrel))].sort();
-    if (owningBarrels.length > 1) {
+    if (owningBarrels.length > 1 && !siblingRoots) {
       duplicateBarrels.push(`${sheet}: reached from ${owningBarrels.join(", ")}`);
     }
     // THE CLAIM THE OTHER THREE CANNOT MAKE. Reached, reached once, and reached from
@@ -315,6 +389,9 @@ export function stylesheetEdgeOffences(
  *
  * A missing file throws rather than reading as empty: a control whose own typo made a
  * sheet silently sourceless would assert over a graph it did not describe.
+ *
+ * Its keys are tree paths, so they are written with `/` like every other one — a control
+ * spelling them the host's way would be asserting about a tree the console never mints.
  */
 export function syntheticStylesheetTree(sources: ReadonlyMap<string, string>): StylesheetTree {
   const paths = [...sources.keys()];
@@ -342,16 +419,24 @@ export function syntheticStylesheetTree(sources: ReadonlyMap<string, string>): S
  * through {@link consoleSourceModules}, stylesheets through {@link consoleStylesheets}
  * — and a root that moves moves in one place.
  *
- * SORTED HERE, on the raw relative path. The shared walk orders by a display path that
+ * SORTED HERE, on the tree path itself. The shared walk orders by a display path that
  * prefixes the root, which is the right order for a failure message and a different
  * order for this set; the barrel order `collectStylesheetEdges` walks in is part of
  * what an edge reports, so it is pinned to the path a tree is keyed by.
+ *
+ * AND RE-SPELLED HERE, which is the boundary this module's header names: the walk hands
+ * back whatever separator the host's `relative` used, and one conversion at the mint is
+ * what lets every predicate and every gate below compare paths at all.
  */
 function consoleRelativePaths(modules: readonly ConsoleSourceModule[]): readonly string[] {
-  return modules.map((module) => module.relativePath).sort();
+  return modules.map((module) => toPosixSeparators(module.relativePath)).sort();
 }
 
-/** Read a console-relative path. Exported because a claim reads one file by name. */
+/**
+ * Read a console-relative path. Exported because a claim reads one file by name.
+ *
+ * Takes the tree's own `/`-separated spelling; `join` re-separates it for the host.
+ */
 export function readConsoleFile(consoleRelativePath: string): string {
   return readFileSync(join(CONSOLE_DIRECTORY, consoleRelativePath), "utf8");
 }

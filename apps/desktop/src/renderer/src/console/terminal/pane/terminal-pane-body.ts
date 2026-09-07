@@ -9,6 +9,17 @@
 // Split from the component beside it for that file's reason too: the registration terms
 // are assertable without rendering anything, and a module rather than a sub-module door.
 
+// THE FAMILY'S FOUR STYLESHEETS ENTER HERE, which finishes the split the emulator
+// already had half of: `@xterm/xterm/css/xterm.css` has always ridden the emulator's own
+// chunk, and these four sat on the initial document beside it. The family registers one
+// kind, as a loader, so this module is the only way into any of it — rules included.
+// The focus ring is at the family root because two directories spend it; it travels
+// here with the rest because both of them are behind this boundary.
+import "./pane.css";
+import "../lease/lease.css";
+import "../emulator/emulator.css";
+import "../focus-ring.css";
+
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 

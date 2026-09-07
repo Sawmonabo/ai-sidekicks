@@ -292,12 +292,24 @@ function buildFrameCommands(
       group: "Navigate",
       keywords: RAIL_NAVIGATION_DETAILS[destination].keywords,
       run: () => {
+        // WARMED HERE AS WELL AS ON THE PRELOAD CALLBACK, because the callback is the
+        // palette's and a chord is not the palette. `frame.goToWorkflows` bound to a key
+        // runs this and only this — no row is ever highlighted, so nothing speculative
+        // fires — and navigating with the surface's chunk unrequested is precisely how
+        // a person meets the reserved frame the loader form exists to hide. Started
+        // BEFORE `navigate` so the fetch and the commit race in the right order; it is
+        // not awaited, because a navigation that waited on a chunk would be the stall
+        // this whole boundary was drawn to avoid, and the reserved frame is the honest
+        // thing to show for the frames it is still in flight.
+        warmDestination(surfaceRegistry, destination);
         frameStore.navigate(routeForDestination(destination));
       },
       // Every destination warms the surface it would mount, while its row is
       // highlighted. Written on the walk rather than on three commands, for the
       // reason the walk itself exists: a destination added to the rail acquires this
-      // without anyone remembering to give it one.
+      // without anyone remembering to give it one. It stays beside the `run` warm
+      // above rather than being replaced by it: this one fires while a person is still
+      // reading the row, which is earlier than any act.
       preload: () => {
         warmDestination(surfaceRegistry, destination);
       },
@@ -320,6 +332,9 @@ function buildFrameCommands(
         // the session it returns to changes with every navigation.
         const sessionId = frameStore.lastOpenedSessionId;
         if (sessionId !== undefined) {
+          // Warmed on the run path too, for the destination walk's reason: a chord
+          // reaches this command without the palette's highlight ever firing.
+          void surfaceRegistry.preload("workspace");
           frameStore.navigate({ kind: "workspace", sessionId });
         }
       },
