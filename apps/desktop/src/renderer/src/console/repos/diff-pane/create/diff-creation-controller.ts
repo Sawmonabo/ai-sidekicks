@@ -23,10 +23,22 @@
 // NOTHING HERE RE-READS AFTER A SETTLEMENT. A minted diff is a durable artifact and the
 // pane renders the model it parsed; a controller that also re-read would put a second
 // call on the wire for one press.
+//
+// AND THE REFUSAL THIS PUBLISHES IS THE DAEMON'S, NOT THE SEAM'S. Both growth legs go
+// through `repos/growth-call.ts`, which hands a call that REJECTED back as the port's
+// own `call-rejected` with the daemon's refusal on `cause` — so a controller publishing
+// the arm exactly as it arrived put `call-rejected` and a seam sentence on screen for
+// every typed daemon refusal the two legs can receive, and the code a person would
+// paste (`run.not_found`, `workspace.not_found`, `artifact.not_found`) reached no
+// surface at all. `daemonSpokenRefusal` is that reading, and it is the artifacts
+// family's own rather than a second copy: a diff IS an artifact once minted, the
+// payload leg is literally that plane's `artifactRead`, and the question — which of the
+// two refusals did the other side speak — has one answer per family.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { refuse, type ConsoleClock } from "../../../core/index.js";
+import { refuse, type ConsoleClock, type ConsoleRefusal } from "../../../core/index.js";
 import { ActSurfaceController, type ActOutcome, type SessionStore } from "../../../store/index.js";
+import { daemonSpokenRefusal } from "../../artifacts/artifact-refusal-copy.js";
 import { readGrowthAnswer } from "../../growth-call.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
 import { readWorktreeStatus, REPO_READS_REFUSAL_ORIGIN } from "../../repo-reads.js";
@@ -188,7 +200,7 @@ export class DiffArtifactCreationController extends ActSurfaceController<
       this.#bridge.growth.gitflowDiffArtifactCreate(diffCreateRequestFor(resolved, comparedStates)),
     );
     if (minted.status === "refused") {
-      return minted;
+      return this.#refusedByTheOtherSide(minted.refusal);
     }
     const artifactId = minted.value.artifactManifestId;
     // `includePayload` IS THE WIRE'S OWN DISCRIMINATOR and is set because this leg wants
@@ -198,7 +210,7 @@ export class DiffArtifactCreationController extends ActSurfaceController<
       this.#bridge.growth.artifactRead({ artifactId, includePayload: true }),
     );
     if (payload.status === "refused") {
-      return payload;
+      return this.#refusedByTheOtherSide(payload.refusal);
     }
     const payloadReading = diffPayloadReadingFrom(payload.value);
     if (payloadReading.status !== "patch") {
@@ -233,6 +245,23 @@ export class DiffArtifactCreationController extends ActSurfaceController<
         ),
       };
     }
+  }
+
+  /**
+   * What one refused growth leg settles as: the refusal the OTHER SIDE spoke.
+   *
+   * BOTH LEGS AND NOT ONE, which is why it is a method rather than an expression at the
+   * mint. The reading is the same for either — one level in where the port wrapped a
+   * rejection, and the arrival itself where it did not — and a leg that unwrapped while
+   * its sibling did not would put two vocabularies on one form.
+   *
+   * WHAT IS DELIBERATELY DROPPED is the port's own ledger: `operationId`, `slateRow`,
+   * and `owningDocument` ride the seam refusal rather than the daemon's, and this
+   * surface renders a code and a sentence and reads none of the three. A wrapper kept
+   * for them would be a wrapper whose code is the one thing on screen.
+   */
+  #refusedByTheOtherSide(refusal: ConsoleRefusal): ActOutcome<ConsoleDiffModel> {
+    return { status: "refused", refusal: daemonSpokenRefusal(refusal) };
   }
 
   /** One unresolved-subject refusal, so the two ways to reach it share a shape. */

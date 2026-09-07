@@ -16,6 +16,10 @@ import {
 } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import {
+  UNSCRIPTED_COMPARISON_REFUSAL_CODE,
+  WORKSPACE_FALLBACK_COMPARED_STATES,
+} from "../../../bridge/scenarios/repos-diff-replies.js";
+import {
   GIT_WORKSPACE_ID,
   REVIEWER_WORKTREE_ID,
   SESSION_ID,
@@ -118,8 +122,11 @@ describe("DiffCreateSurface — a minted change set", () => {
     await advanceUntil(() => {
       expect(container.querySelector(".meridian-diff-create__attribution")).not.toBeNull();
     });
-    nameState(container, "Base", "origin/develop");
-    nameState(container, "Head", "feat/rate-limit-wiring");
+    // The comparison the git workspace actually resolves. The fixture answers a
+    // subject for exactly the pair that subject compares, so a case naming any other
+    // two refs is asking for the refusal rather than for a change set.
+    nameState(container, "Base", WORKSPACE_FALLBACK_COMPARED_STATES.baseRef);
+    nameState(container, "Head", WORKSPACE_FALLBACK_COMPARED_STATES.headRef);
     fireEvent.click(confirm(container));
     await advanceUntil(() => {
       expect(container.querySelector(".probe-change-set")).not.toBeNull();
@@ -127,6 +134,28 @@ describe("DiffCreateSurface — a minted change set", () => {
     expect(container.textContent).toContain("scripts/prepare-execution-root.sh");
     // And the way back is beside it, so one comparison is not the end of the pane.
     expect(container.textContent).toContain("Compare two other states");
+  });
+
+  it("puts the daemon's own code under the form when a comparison is refused", async () => {
+    // The whole route, end to end: the fixture refuses a comparison it does not
+    // script, the port wraps that rejection in its own `call-rejected`, and the
+    // controller publishes the refusal the DAEMON spoke — so what a person reads and
+    // can paste is the daemon's code rather than the name of a seam inside this
+    // renderer. The form stays, because a refused comparison is not a lost capability.
+    const { container, advanceUntil } = renderSurface();
+    await advanceUntil(() => {
+      expect(container.querySelector(".meridian-diff-create__attribution")).not.toBeNull();
+    });
+    nameState(container, "Base", "no-such-base");
+    nameState(container, "Head", "no-such-head");
+    fireEvent.click(confirm(container));
+    await advanceUntil(() => {
+      expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    });
+    const refusal = container.querySelector(".meridian-refusal--inline")?.textContent ?? "";
+    expect(refusal).toContain(UNSCRIPTED_COMPARISON_REFUSAL_CODE);
+    expect(refusal).not.toContain("call-rejected");
+    expect(container.querySelector(".meridian-diff-create")).not.toBeNull();
   });
 
   it("negative control: renaming a state drops the refusal it was not about", async () => {
@@ -140,8 +169,8 @@ describe("DiffCreateSurface — a minted change set", () => {
     await advanceUntil(() => {
       expect(container.querySelector(".meridian-diff-create__attribution")).not.toBeNull();
     });
-    nameState(container, "Base", "origin/develop");
-    nameState(container, "Head", "feat/rate-limit-wiring");
+    nameState(container, "Base", WORKSPACE_FALLBACK_COMPARED_STATES.baseRef);
+    nameState(container, "Head", WORKSPACE_FALLBACK_COMPARED_STATES.headRef);
     fireEvent.click(confirm(container));
     await advanceUntil(() => {
       expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();

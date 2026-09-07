@@ -15,6 +15,11 @@ import {
 } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import {
+  RUN_ATTRIBUTED_COMPARED_STATES,
+  UNSCRIPTED_COMPARISON_REFUSAL_CODE,
+  WORKSPACE_FALLBACK_COMPARED_STATES,
+} from "../../../bridge/scenarios/repos-diff-replies.js";
+import {
   GIT_WORKSPACE_ID,
   IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
@@ -42,8 +47,10 @@ const IMPLEMENTER_SUBJECT: DiffCreateSubject = {
   sessionId: SESSION_ID,
 };
 
-/** The two states every case below compares, named once. */
-const COMPARED_STATES = { baseRef: "origin/develop", headRef: "feat/rate-limit-wiring" };
+// THE TWO PAIRS ARE THE SCENARIO'S OWN, and a case takes the one its subject scripts.
+// The fixture answers a subject for exactly the comparison that subject resolves, so a
+// literal written here would drift into an unscripted pair the moment either moved —
+// and every case below would then be asserting a refusal it did not mean to ask for.
 
 const controllers: DiffArtifactCreationController[] = [];
 
@@ -143,7 +150,7 @@ describe("DiffArtifactCreationController — the mint and the payload read", () 
   it("puts a parsed change set on the reading for the workspace arm", async () => {
     const { controller, clock } = open(WORKSPACE_SUBJECT);
     await settleResolution(controller, clock);
-    await controller.createDiff(COMPARED_STATES);
+    await controller.createDiff(WORKSPACE_FALLBACK_COMPARED_STATES);
     const { act } = controller.snapshot;
     expect(act.status).toBe("created");
     if (act.status !== "created") {
@@ -168,7 +175,7 @@ describe("DiffArtifactCreationController — the mint and the payload read", () 
   it("puts the run-attributed change set on the reading for the worktree arm", async () => {
     const { controller, clock } = open(IMPLEMENTER_SUBJECT);
     await settleResolution(controller, clock);
-    await controller.createDiff(COMPARED_STATES);
+    await controller.createDiff(RUN_ATTRIBUTED_COMPARED_STATES);
     const { act } = controller.snapshot;
     expect(act.status === "created" && act.diff.attribution).toStrictEqual({
       mode: "run_attributed",
@@ -188,7 +195,7 @@ describe("DiffArtifactCreationController — the mint and the payload read", () 
       fixtureBridgeWithGrowth(REPOS_SCENARIO, { artifactRead: growthRefusing("artifactRead") }),
     );
     await settleResolution(controller, clock);
-    await controller.createDiff(COMPARED_STATES);
+    await controller.createDiff(WORKSPACE_FALLBACK_COMPARED_STATES);
     expect(controller.snapshot.act.status).toBe("refused");
   });
 
@@ -206,15 +213,54 @@ describe("DiffArtifactCreationController — the mint and the payload read", () 
       }),
     );
     await settleResolution(controller, clock);
-    await controller.createDiff(COMPARED_STATES);
+    await controller.createDiff(WORKSPACE_FALLBACK_COMPARED_STATES);
     const { act } = controller.snapshot;
     expect(act.status).toBe("refused");
     expect(act.status === "refused" && act.refusal.code).toBe("payload-not-a-patch");
   });
 
+  it("settles a typed daemon rejection under the daemon's own code, not the seam's", async () => {
+    // The mint reaches the scenario over the real port, so a refusal it throws arrives
+    // as the port's `call-rejected` with the daemon's refusal on `cause`. Published as
+    // it arrived, the form drew `call-rejected` and a seam sentence for every typed
+    // refusal these two legs can receive — and the code a person would paste reached no
+    // surface at all. An unscripted comparison over a subject this session DOES hold is
+    // the shortest route to that shape.
+    const { controller, clock } = open(WORKSPACE_SUBJECT);
+    await settleResolution(controller, clock);
+    await controller.createDiff({ baseRef: "foo", headRef: "bar" });
+    const { act } = controller.snapshot;
+    expect(act.status).toBe("refused");
+    expect(act.status === "refused" && act.refusal.code).toBe(UNSCRIPTED_COMPARISON_REFUSAL_CODE);
+    // The daemon's own sentence travels with its code: a controller that unwrapped the
+    // code and kept the seam's detail would put two halves of two refusals on screen.
+    // The sentence names the comparison THIS subject resolves — the workspace pair,
+    // because that is the subject the case opened.
+    expect(act.status === "refused" && act.refusal.detail).toContain(
+      WORKSPACE_FALLBACK_COMPARED_STATES.baseRef,
+    );
+  });
+
+  it("negative control: a seam refusal carrying no daemon word keeps its own code", async () => {
+    // The unwrap must be a no-op where there is nothing wrapped. `growthRefusing`
+    // answers the port's own `wire-unregistered` — a refusal with no `cause` — and a
+    // reader that reached for one unconditionally would publish `undefined` here.
+    const { controller, clock } = open(
+      WORKSPACE_SUBJECT,
+      fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+        gitflowDiffArtifactCreate: growthRefusing("gitflowDiffArtifactCreate"),
+      }),
+    );
+    await settleResolution(controller, clock);
+    await controller.createDiff(WORKSPACE_FALLBACK_COMPARED_STATES);
+    const { act } = controller.snapshot;
+    expect(act.status === "refused" && act.refusal.code).toBe("wire-unregistered");
+    expect(act.status === "refused" && act.refusal.detail.length).toBeGreaterThan(0);
+  });
+
   it("negative control: a press before the attribution resolves says so instead of doing nothing", async () => {
     const { controller } = open(IMPLEMENTER_SUBJECT);
-    await controller.createDiff(COMPARED_STATES);
+    await controller.createDiff(RUN_ATTRIBUTED_COMPARED_STATES);
     const { act } = controller.snapshot;
     expect(act.status === "refused" && act.refusal.code).toBe("subject-unresolved");
     expect(act.status === "refused" && act.refusal.detail).toBe(SUBJECT_NOT_RESOLVED_DETAIL);
