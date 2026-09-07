@@ -111,6 +111,14 @@ export { LiveAnnouncer } from "./live-announcer.js";
 // the rule is the whole reason this hook exists rather than a bare call.
 export { useSettlementAnnouncement } from "./settlement-announcement.js";
 
+// The latest-committed-value ref every long-lived callback in the tree reads through.
+// On this door because its readers are VIEW families — the approvals pane's palette
+// rows and the runs pane's — which are siblings of one another and may reach nothing
+// in each other, so the lowest family that owns the concern publishes it once. The
+// alternative is what it replaced: each surface writing its own ref in a render body,
+// which is the one place React says a ref must not be written.
+export { useLatestRef } from "./latest-ref.js";
+
 export { Nothing } from "./Nothing.js";
 
 // The incomplete-reading vocabulary and its one notice. Through the door for the

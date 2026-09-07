@@ -17,15 +17,17 @@
 // it. The frame gets away with the plural call because it bumps the revision
 // itself, in the same effect; a pane has no revision to bump.
 //
-// ONE LIVE CONTRIBUTOR PER OWNER, AND THE SURFACE KEEPS THAT — NOT THIS HOOK. Two
-// mounts of one surface would otherwise tear down in the wrong order and the first
-// one's cleanup would clear rows the second still owns. The token that decides
-// which contributor is live belongs beside the owner-scoped replace it disambiguates,
-// so `contribute` hands back a release that is a no-op once superseded and this hook
-// returns it as its effect cleanup. What that buys beyond tidiness is instance
-// scoping: a token map at module scope is shared by every composition in the process
-// — a second window, a second test mount building its own registry — and one of them
-// superseding an owner it has no rows in silently disarms the other's release.
+// WHICH MOUNT OWNS THE ROWS IS THE SURFACE'S BOOKKEEPING — NOT THIS HOOK'S. Two
+// mounts of one surface would otherwise tear down in the wrong order: the first one's
+// cleanup clearing rows the second still owns, or the second's clearing an owner the
+// first is still on screen under. The register that decides which contribution is
+// live, and what the rows fall back to when it goes, belongs beside the owner-scoped
+// replace it disambiguates — so `contribute` hands back a release scoped to its own
+// contribution and this hook returns it as its effect cleanup. What that buys beyond
+// tidiness is instance scoping: a register at module scope is shared by every
+// composition in the process — a second window, a second test mount building its own
+// registry — and one of them superseding an owner it has no rows in silently disarms
+// the other's release.
 //
 // NO CHORDS. The seat contributes acts and binds no keys: a chord is a
 // window-wide claim, the key-binding table refuses two bindings on one chord, and
@@ -53,10 +55,11 @@ const NO_KEY_BINDINGS: readonly [] = Object.freeze([]);
  */
 export function useConsoleCommandSeat(owner: string, commands: readonly ConsoleCommand[]): void {
   useEffect(
-    // The release IS the cleanup. Only the live contributor clears the owner: a mount
+    // The release IS the cleanup, and it withdraws this contribution alone. A mount
     // React has already replaced — a second pane of this kind, a development-mode
-    // remount — tears down after the one that superseded it, and the release it holds
-    // is already a no-op by then.
+    // remount — tears down after the one that superseded it and takes nothing off the
+    // registry; and a mount torn down while an earlier one is still on screen hands
+    // the rows back to it rather than emptying the owner underneath it.
     () => consoleCommandSurface.contribute({ owner, commands, keyBindings: NO_KEY_BINDINGS }),
     [owner, commands],
   );

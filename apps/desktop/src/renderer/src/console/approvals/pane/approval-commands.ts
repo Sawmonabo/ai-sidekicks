@@ -28,9 +28,10 @@
 // takes the two buttons off the card and the two rows out of the palette in one
 // reading, and there is no second expression to drift.
 
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../palette/index.js";
+import { useLatestRef } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { type ApprovalRecord, type SessionGoalProjection } from "../../bridge/index.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
@@ -85,20 +86,24 @@ export interface ApprovalCommandInput {
 /** Contribute this pane's acts for as long as it is mounted. */
 export function useApprovalCommands(input: ApprovalCommandInput): void {
   const rows = approvalCommandRows(input);
-  // Assigned during render, before the memo below reads it, so a rebuild triggered
-  // by a changed signature sees this render's rows. The shape
-  // `frame/frame-commands.ts` uses for its when-context.
-  const rowsRef = useRef<readonly ApprovalCommandRow[]>(rows);
-  rowsRef.current = rows;
-  const inputRef = useRef<ApprovalCommandInput>(input);
-  inputRef.current = input;
+  // Refreshed by every COMMITTED render and never in the render body: a registered
+  // row reads its records and its two dispatchers through this at invoke time, and a
+  // render-body write would let a concurrent pass React throws away — one composed
+  // against another session's records, another bridge's `resolve` — leave the row on
+  // screen invoking what that discarded pass saw.
+  const inputRef = useLatestRef(input);
 
   const signature = rows
     .map((row) => `${row.kind} ${row.record?.approvalRequestId ?? ""} ${row.title}`)
     .join("|");
+  // Built from THIS render's rows rather than through a ref. The memo runs during the
+  // render whose signature changed, which is before that render's layout effect has
+  // refreshed anything, so a ref read here would build this render's commands out of
+  // the previous pass's rows. The signature is the dependency because it is what the
+  // rows SAY: keying on the array's identity would re-register on every event.
   const commands = useMemo(
-    () => rowsRef.current.map((row) => buildApprovalCommand(row, inputRef)),
-    [signature],
+    () => rows.map((row) => buildApprovalCommand(row, inputRef)),
+    [signature, inputRef],
   );
 
   useConsoleCommandSeat(APPROVAL_COMMAND_OWNER, commands);
