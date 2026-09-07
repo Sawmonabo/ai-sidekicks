@@ -2,7 +2,7 @@
 //
 // Not a test file — no `include` glob reaches it; the architecture tier imports it,
 // the way that tier already imports `barrel-census.ts` and `stylesheet-selectors.ts`.
-// It exists because the airspace rule grew from three questions to five and the file
+// It exists because the airspace rule grew from three questions to six and the file
 // asking them went past the size this package splits at: the CLAIMS are one job and
 // the SOURCE SHAPES they are made of are another, and reading them out of one module
 // made the rule's subject hard to find.
@@ -144,6 +144,134 @@ export function overlayPopupPartsMounted(parsed: ts.SourceFile): readonly string
     mounted.add(`${tagName.expression.text}.${tagName.name.text}`);
   });
   return [...mounted].sort();
+}
+
+/**
+ * Every hook that hands back an airspace registration ref.
+ *
+ * Two, and the second is not a wrapper around the first for tidiness: a MODAL puts two
+ * rectangles in the airspace and `primitives/overlay/modal-airspace.ts` is where that
+ * decision lives, so a wrapper reaching it registers through a name of its own. A rule
+ * that knew only the door hook would read every modal wrapper as registering nothing.
+ */
+export const AIRSPACE_REGISTRATION_HOOKS: readonly string[] = [
+  "useAirspaceRegistration",
+  "useModalOverlayAirspace",
+];
+
+/** The overlay part that covers the whole window, and the reason claim 6 exists. */
+export const MODAL_BACKDROP_PART = "Backdrop";
+
+/** Whether a module calls ANY of the named functions. The set form of {@link callsFunctionNamed}. */
+export function callsAnyFunctionNamed(
+  parsed: ts.SourceFile,
+  functionNames: readonly string[],
+): boolean {
+  return functionNames.some((functionName) => callsFunctionNamed(parsed, functionName));
+}
+
+/**
+ * The names a module binds from an airspace registration hook, however it binds them.
+ *
+ * Both shapes are real in the tree — `const airspaceRef = useAirspaceRegistration(kind)`
+ * and `const airspace = useModalOverlayAirspace(kind)`, the second reached at a tag as
+ * `airspace.backdropRef` — so the set holds the BINDING and the reader below resolves a
+ * member access back to its root. A destructured `const { backdropRef } = …` binds its
+ * elements and is admitted the same way.
+ */
+export function airspaceRefBindings(parsed: ts.SourceFile): ReadonlySet<string> {
+  const bindings = new Set<string>();
+  forEachDescendant(parsed, (node) => {
+    if (
+      !ts.isVariableDeclaration(node) ||
+      node.initializer === undefined ||
+      !ts.isCallExpression(node.initializer) ||
+      !ts.isIdentifier(node.initializer.expression) ||
+      !AIRSPACE_REGISTRATION_HOOKS.includes(node.initializer.expression.text)
+    ) {
+      return;
+    }
+    if (ts.isIdentifier(node.name)) {
+      bindings.add(node.name.text);
+      return;
+    }
+    if (ts.isObjectBindingPattern(node.name)) {
+      for (const element of node.name.elements) {
+        if (ts.isIdentifier(element.name)) {
+          bindings.add(element.name.text);
+        }
+      }
+    }
+  });
+  return bindings;
+}
+
+/** The identifier a `ref={…}` expression is rooted at, or `undefined` for any other shape. */
+function refExpressionRoot(attribute: ts.JsxAttribute): string | undefined {
+  const initializer = attribute.initializer;
+  if (initializer === undefined || !ts.isJsxExpression(initializer)) {
+    return undefined;
+  }
+  const expression = initializer.expression;
+  if (expression === undefined) {
+    return undefined;
+  }
+  if (ts.isIdentifier(expression)) {
+    return expression.text;
+  }
+  if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression)) {
+    return expression.expression.text;
+  }
+  return undefined;
+}
+
+/**
+ * Every Base UI backdrop this module mounts WITHOUT an airspace ref on it, named as a
+ * reader meets it.
+ *
+ * The claim is about the element and not about the module: a wrapper that registers its
+ * popup and leaves the backdrop bare passes every other rule here while leaving the one
+ * rectangle that covers the window out of the airspace, which is the defect this
+ * predicate was written after finding. Keyed on the ref BINDING rather than on any
+ * attribute called `ref`, so a ref that carries something else — a local `useRef`, a
+ * forwarded one — is reported exactly as a missing one is.
+ */
+export function backdropsMountedWithoutAirspaceRef(parsed: ts.SourceFile): readonly string[] {
+  const localNames = baseUiLocalNames(parsed);
+  if (localNames.size === 0) {
+    return [];
+  }
+  const bindings = airspaceRefBindings(parsed);
+  const bare = new Set<string>();
+  forEachDescendant(parsed, (node) => {
+    if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) {
+      return;
+    }
+    const tagName = node.tagName;
+    if (
+      !ts.isPropertyAccessExpression(tagName) ||
+      !ts.isIdentifier(tagName.expression) ||
+      !localNames.has(tagName.expression.text) ||
+      tagName.name.text !== MODAL_BACKDROP_PART
+    ) {
+      return;
+    }
+    const registered = node.attributes.properties.some((attribute) => {
+      if (
+        !ts.isJsxAttribute(attribute) ||
+        !ts.isIdentifier(attribute.name) ||
+        attribute.name.text !== "ref"
+      ) {
+        return false;
+      }
+      const root = refExpressionRoot(attribute);
+      return root !== undefined && bindings.has(root);
+    });
+    if (!registered) {
+      bare.add(`${tagName.expression.text}.${tagName.name.text}`);
+    }
+  });
+  return [...bare].sort();
 }
 
 /** One console module, parsed once for every claim a gate makes about it. */

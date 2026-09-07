@@ -20,7 +20,7 @@
 
 import { Dialog } from "@base-ui/react/dialog";
 
-import { useAirspaceRegistration } from "../airspace-registration.js";
+import { useModalOverlayAirspace } from "./modal-airspace.js";
 import type { AirspaceOverlayKind } from "../../core/index.js";
 
 export interface OverlayDialogPopupProps {
@@ -38,12 +38,12 @@ export interface OverlayDialogPopupProps {
 }
 
 export function OverlayDialogPopup(props: OverlayDialogPopupProps): React.JSX.Element {
-  const airspaceRef = useAirspaceRegistration(props.airspaceKind ?? "dialog");
+  const airspace = useModalOverlayAirspace(props.airspaceKind ?? "dialog");
   return (
     <Dialog.Portal container={props.container}>
-      <Dialog.Backdrop className={props.backdropClassName} />
+      <Dialog.Backdrop ref={airspace.backdropRef} className={props.backdropClassName} />
       <Dialog.Popup
-        ref={airspaceRef}
+        ref={airspace.popupRef}
         className={props.className}
         aria-label={props.label}
         initialFocus={props.initialFocus}

@@ -11,7 +11,7 @@
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
-import { useAirspaceRegistration } from "../airspace-registration.js";
+import { useModalOverlayAirspace } from "./modal-airspace.js";
 
 export interface OverlayAlertDialogPopupProps {
   /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
@@ -22,11 +22,11 @@ export interface OverlayAlertDialogPopupProps {
 }
 
 export function OverlayAlertDialogPopup(props: OverlayAlertDialogPopupProps): React.JSX.Element {
-  const airspaceRef = useAirspaceRegistration("dialog");
+  const airspace = useModalOverlayAirspace("dialog");
   return (
     <AlertDialog.Portal container={props.container}>
-      <AlertDialog.Backdrop className={props.backdropClassName} />
-      <AlertDialog.Popup ref={airspaceRef} className={props.className}>
+      <AlertDialog.Backdrop ref={airspace.backdropRef} className={props.backdropClassName} />
+      <AlertDialog.Popup ref={airspace.popupRef} className={props.className}>
         {props.children}
       </AlertDialog.Popup>
     </AlertDialog.Portal>

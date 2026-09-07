@@ -40,6 +40,24 @@ export function FileControl(props: FileControlProps): React.JSX.Element {
   const { acts, roots, refusal } = props;
   const [draftPath, setDraftPath] = useState("");
   const fieldId = useId();
+  // TRIMMED ONLY TO DECIDE BLANKNESS. A draft of nothing but spaces is a person who
+  // has typed no path, and dispatching it would spend an act on a question nobody
+  // asked. What the trim must never do is decide the PATH: resolution and
+  // containment are the daemon's, they run against the bytes they are given, and a
+  // control that sent `/repo/report` for a field reading `/repo/report ` would open
+  // a different file from the one on screen with nothing saying so. A trailing space
+  // is a legal path segment on both filesystems this ships to.
+  const isBlankDraft = draftPath.trim().length === 0;
+  // ONE SUBMISSION, TWO ENTRY POINTS. The form's own submit is what a key press in
+  // the field reaches and the control's activation is what a click reaches; both
+  // land here, so there is one guard and one dispatch rather than two copies that
+  // agree until somebody edits one.
+  const submitDraft = (): void => {
+    if (isBlankDraft) {
+      return;
+    }
+    acts.openLocalFile(draftPath);
+  };
 
   return (
     <div className="meridian-browser-file">
@@ -47,11 +65,7 @@ export function FileControl(props: FileControlProps): React.JSX.Element {
         className="meridian-browser-file__form"
         onSubmit={(event) => {
           event.preventDefault();
-          const path = draftPath.trim();
-          if (path.length === 0) {
-            return;
-          }
-          acts.openLocalFile(path);
+          submitDraft();
         }}
       >
         <label htmlFor={fieldId} className="meridian-browser-file__label">
@@ -67,16 +81,7 @@ export function FileControl(props: FileControlProps): React.JSX.Element {
           }}
           className="meridian-browser-file__field"
         />
-        <ChromeControl
-          label="Open file"
-          disabled={draftPath.trim().length === 0}
-          onActivate={() => {
-            const path = draftPath.trim();
-            if (path.length > 0) {
-              acts.openLocalFile(path);
-            }
-          }}
-        />
+        <ChromeControl label="Open file" disabled={isBlankDraft} onActivate={submitDraft} />
       </form>
 
       {isOutsideTrustEnvelope(refusal) ? (

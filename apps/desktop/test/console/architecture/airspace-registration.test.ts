@@ -16,7 +16,7 @@
 // one of Base UI's popup parts is an overlay primitive, and every overlay primitive
 // registers.
 //
-// FIVE CLAIMS, and they are different.
+// SIX CLAIMS, and they are different.
 //
 //   1. The hook is REACHED: at least one console module calls
 //      `useAirspaceRegistration`, so the airspace has a registrant at all.
@@ -32,6 +32,11 @@
 //      site is the shape that forgets to remove.
 //   5. The registry is SINGULAR: exactly one production module constructs an
 //      `AirspaceRegistry`, and it is the holder.
+//   6. Every MODAL wrapper registers its BACKDROP. Claim 3 is satisfied by a module
+//      that registers one rectangle, and for a modal the popup is the wrong one to
+//      stop at: the backdrop is the part that covers the window, so a wrapper that
+//      registered only the popup left a native view painted and interactive over
+//      every pane the dialog's own box did not happen to cross.
 //
 // THE FIFTH IS NOT IMPLIED BY THE FOURTH, which is why it is written. The accessor
 // rule constrains who may ASK the holder for a registry and says nothing about who may
@@ -48,6 +53,10 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  AIRSPACE_REGISTRATION_HOOKS,
+  airspaceRefBindings,
+  backdropsMountedWithoutAirspaceRef,
+  callsAnyFunctionNamed,
   callsFunctionNamed,
   constructsClassNamed,
   overlayPopupPartsMounted,
@@ -74,6 +83,15 @@ const REGISTRY_HOLDER = "core/airspace-registries.ts";
 
 /** The module that declares the hook, and therefore registers nothing itself. */
 const REGISTRATION_DOOR = "primitives/airspace-registration.ts";
+
+/**
+ * The module that decides which parts of a MODAL are airspace, and mounts none of them.
+ *
+ * Excluded from the vacuity guard beside the door for the same reason: it calls the
+ * registration hook, so a claim that "somebody registers" would be satisfied by the two
+ * modules whose whole job is to declare the seam, with no overlay on screen anywhere.
+ */
+const MODAL_AIRSPACE_DOOR = "primitives/overlay/modal-airspace.ts";
 
 /** The one directory an overlay popup part may be mounted in. */
 const OVERLAY_PRIMITIVE_PREFIX = "primitives/";
@@ -102,6 +120,7 @@ describe("airspace — every overlay registers, through one door", () => {
   it("finds a console tree to scan at all", () => {
     expect(tree.relativePaths.length).toBeGreaterThan(20);
     expect(tree.relativePaths).toContain(REGISTRATION_DOOR);
+    expect(tree.relativePaths).toContain(MODAL_AIRSPACE_DOOR);
   });
 
   it("at least one console surface registers an overlay", () => {
@@ -109,8 +128,11 @@ describe("airspace — every overlay registers, through one door", () => {
     // visibility predicate consults and nothing ever writes to, which is the state
     // this rule was written after finding.
     const registrants = tree.modules
-      .filter((module) => module.relativePath !== REGISTRATION_DOOR)
-      .filter((module) => callsFunctionNamed(module.parsed, REGISTRATION_HOOK))
+      .filter(
+        (module) =>
+          module.relativePath !== REGISTRATION_DOOR && module.relativePath !== MODAL_AIRSPACE_DOOR,
+      )
+      .filter((module) => callsAnyFunctionNamed(module.parsed, AIRSPACE_REGISTRATION_HOOKS))
       .map((module) => module.relativePath);
     expect(registrants.length).toBeGreaterThan(0);
   });
@@ -138,9 +160,31 @@ describe("airspace — every overlay registers, through one door", () => {
     );
     expect(overlayPrimitives.length).toBeGreaterThan(0);
     const unregistered = overlayPrimitives
-      .filter((module) => !callsFunctionNamed(module.parsed, REGISTRATION_HOOK))
+      .filter((module) => !callsAnyFunctionNamed(module.parsed, AIRSPACE_REGISTRATION_HOOKS))
       .map((module) => module.relativePath);
     expect(unregistered).toStrictEqual([]);
+  });
+
+  it("every modal wrapper registers the backdrop it mounts", () => {
+    // Claim 6, and the vacuity floor with it: the console has to be mounting a
+    // backdrop somewhere for the rule to be about anything, and every one it mounts
+    // has to carry the registration. Read over the WHOLE tree rather than over
+    // `primitives/` alone — claim 2 is what keeps the mounts in the primitive layer,
+    // and this claim would be worth less if it quietly assumed that claim's result.
+    const backdropMounts = tree.modules.filter((module) =>
+      overlayPopupPartsMounted(module.parsed).some((part) => part.endsWith(".Backdrop")),
+    );
+    expect(backdropMounts.length).toBeGreaterThan(0);
+    const bare = tree.modules
+      .map((module) => ({
+        module,
+        backdrops: backdropsMountedWithoutAirspaceRef(module.parsed),
+      }))
+      .filter(({ backdrops }) => backdrops.length > 0)
+      .map(
+        ({ module, backdrops }) => `${module.relativePath} mounts a bare ${backdrops.join(", ")}`,
+      );
+    expect(bare).toStrictEqual([]);
   });
 
   it("no surface reaches the registry around the hook", () => {
@@ -210,6 +254,81 @@ describe("airspace — every overlay registers, through one door", () => {
         "export const Renamed = () => <Sheet.Positioner />;",
     );
     expect(overlayPopupPartsMounted(renamed)).toStrictEqual(["Sheet.Positioner"]);
+  });
+
+  it("negative control: the checker bites on a bare backdrop and clears a registered one", () => {
+    // Without this pair the claim above is a rule whose clean result means nothing:
+    // a predicate that never fired would exonerate exactly the shape it was written
+    // for, which is how the popup-only registration survived four other claims.
+    const bare = parseSourceText(
+      "bare.tsx",
+      'import { Dialog } from "@base-ui/react/dialog";\n' +
+        "export const Bare = () => (\n" +
+        "  <Dialog.Portal>\n" +
+        '    <Dialog.Backdrop className="x" />\n' +
+        '    <Dialog.Popup className="y">body</Dialog.Popup>\n' +
+        "  </Dialog.Portal>\n" +
+        ");",
+    );
+    expect(backdropsMountedWithoutAirspaceRef(bare)).toStrictEqual(["Dialog.Backdrop"]);
+    const registered = parseSourceText(
+      "registered.tsx",
+      'import { Dialog } from "@base-ui/react/dialog";\n' +
+        "export const Registered = () => {\n" +
+        '  const airspace = useModalOverlayAirspace("dialog");\n' +
+        "  return (\n" +
+        "    <Dialog.Portal>\n" +
+        '      <Dialog.Backdrop ref={airspace.backdropRef} className="x" />\n' +
+        "    </Dialog.Portal>\n" +
+        "  );\n" +
+        "};",
+    );
+    expect(backdropsMountedWithoutAirspaceRef(registered)).toStrictEqual([]);
+    // The destructured form and the door hook's own single ref are the same claim
+    // reached two other ways, and a rule that admitted only one shape would push the
+    // next wrapper into rewriting itself to satisfy the gate.
+    const destructured = parseSourceText(
+      "destructured.tsx",
+      'import { AlertDialog } from "@base-ui/react/alert-dialog";\n' +
+        "export const Destructured = () => {\n" +
+        '  const { backdropRef } = useModalOverlayAirspace("dialog");\n' +
+        "  return <AlertDialog.Backdrop ref={backdropRef} />;\n" +
+        "};",
+    );
+    expect(backdropsMountedWithoutAirspaceRef(destructured)).toStrictEqual([]);
+    const doorHook = parseSourceText(
+      "door-hook.tsx",
+      'import { Dialog } from "@base-ui/react/dialog";\n' +
+        "export const DoorHook = () => {\n" +
+        '  const airspaceRef = useAirspaceRegistration("dialog");\n' +
+        "  return <Dialog.Backdrop ref={airspaceRef} />;\n" +
+        "};",
+    );
+    expect(backdropsMountedWithoutAirspaceRef(doorHook)).toStrictEqual([]);
+    // A ref carrying something else is a bare backdrop as far as the airspace is
+    // concerned, and the rule says so rather than accepting any attribute named `ref`.
+    const foreignRef = parseSourceText(
+      "foreign-ref.tsx",
+      'import { Dialog } from "@base-ui/react/dialog";\n' +
+        "export const ForeignRef = () => {\n" +
+        "  const held = useRef(null);\n" +
+        "  return <Dialog.Backdrop ref={held} />;\n" +
+        "};",
+    );
+    expect(backdropsMountedWithoutAirspaceRef(foreignRef)).toStrictEqual(["Dialog.Backdrop"]);
+    // And a backdrop from somewhere that is not the widget package is not this rule's
+    // subject at all — the airspace is about what Base UI lifts out of the layout.
+    const foreignFamily = parseSourceText(
+      "foreign-family.tsx",
+      'import { Story } from "./story.js";\nexport const Foreign = () => <Story.Backdrop />;',
+    );
+    expect(backdropsMountedWithoutAirspaceRef(foreignFamily)).toStrictEqual([]);
+    // And the binding reader underneath all four, asserted directly: it is what
+    // separates `ref={airspace.backdropRef}` from `ref={held}`, and a reader that
+    // returned every `const` would clear the bare case above by accident.
+    expect([...airspaceRefBindings(foreignRef)]).toStrictEqual([]);
+    expect([...airspaceRefBindings(registered)]).toStrictEqual(["airspace"]);
+    expect([...airspaceRefBindings(destructured)]).toStrictEqual(["backdropRef"]);
   });
 
   it("negative control: a sentence about the hook is not a call", () => {

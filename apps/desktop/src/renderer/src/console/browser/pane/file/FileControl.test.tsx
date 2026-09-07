@@ -29,6 +29,15 @@ function renderControl(
   return recorded;
 }
 
+/** The control's own form — the entry point a key press in the field reaches. */
+function fileForm(): HTMLFormElement {
+  const form = document.querySelector(".meridian-browser-file__form");
+  if (!(form instanceof HTMLFormElement)) {
+    throw new Error("the file control drew no form");
+  }
+  return form;
+}
+
 describe("the pane's local-file control", () => {
   it("dispatches the path it was given without checking it first", () => {
     const recorded = renderControl(SERVED_ROOTS);
@@ -42,6 +51,40 @@ describe("the pane's local-file control", () => {
 
   it("dispatches nothing for an empty draft", () => {
     const recorded = renderControl(SERVED_ROOTS);
+    fireEvent.click(screen.getByRole("button", { name: "Open file" }));
+    expect(recorded).toEqual([]);
+  });
+
+  it("hands over the path exactly as typed, trailing space and all", () => {
+    // The containment check is the daemon's, and it resolves the path it is GIVEN.
+    // A control that trimmed first would open `/repo/report` while the field still
+    // showed `/repo/report ` — a different file from the one the person asked for,
+    // with nothing on screen saying so.
+    const recorded = renderControl(SERVED_ROOTS);
+    fireEvent.change(screen.getByLabelText("Local file"), {
+      target: { value: "/repo/report " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open file" }));
+    expect(recorded).toEqual([{ member: "openLocalFile", argument: "/repo/report " }]);
+  });
+
+  it("submits through the form the same path the control submits", () => {
+    // Two entry points, one submission. A second copy of the guard is a second place
+    // for a normalization to be added to one path and not the other.
+    const recorded = renderControl(SERVED_ROOTS);
+    fireEvent.change(screen.getByLabelText("Local file"), {
+      target: { value: " /repo/report" },
+    });
+    fireEvent.submit(fileForm());
+    expect(recorded).toEqual([{ member: "openLocalFile", argument: " /repo/report" }]);
+  });
+
+  it("refuses a whitespace-only draft as blank through either entry point", () => {
+    const recorded = renderControl(SERVED_ROOTS);
+    fireEvent.change(screen.getByLabelText("Local file"), { target: { value: "   " } });
+    // The control is disabled on a blank draft, so the form is what can still reach
+    // the guard — a key press in the field submits it whatever the button says.
+    fireEvent.submit(fileForm());
     fireEvent.click(screen.getByRole("button", { name: "Open file" }));
     expect(recorded).toEqual([]);
   });
