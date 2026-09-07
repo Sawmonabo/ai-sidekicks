@@ -73,9 +73,10 @@ import process from "node:process";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
-import { IDENTITY_CAPTURE_CEILING_MS, TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "./electron-probe.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
+import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
 
 /** The line prefix the probe tags its single JSON reading with. */
 export const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
@@ -86,11 +87,12 @@ export const SPAWN_TIMEOUT_MS = 30_000;
 
 /**
  * The enclosing vitest budget, DERIVED from the phases it must contain rather
- * than written down: the spawn's own blocking identity capture, then the spawn
- * budget, then the SIGTERM-to-SIGKILL grace, then the shared reserve. The
- * capture leads because it is a phase no spawn deadline contains — it runs
- * inside `spawnManagedElectronChild`, before the deadline below is armed — and
- * omitting it left the worst legal run outside this enclosure by exactly its
+ * than written down: the spawn's own blocking host queries, then the spawn
+ * budget, then the SIGTERM-to-SIGKILL grace, then the shared reserve. Those
+ * queries lead because they are a phase no spawn deadline contains — the root
+ * capture runs inside `spawnManagedElectronChild`, before the deadline below is
+ * armed, and the descendant readings sit inside nobody's deadline at all — and
+ * omitting them left the worst legal run outside this enclosure by exactly their
  * ceiling. The relation is the one `TEST_TIMEOUT_SLACK_MS` states —
  * the suite's own deadline has to fire first, because a vitest timeout tears
  * the worker down and every pending timer in it, and the Electron that timer
@@ -105,7 +107,10 @@ export const SPAWN_TIMEOUT_MS = 30_000;
  * and its directory bounded when it is not.
  */
 export const GC_TEST_TIMEOUT_MS: number =
-  IDENTITY_CAPTURE_CEILING_MS + SPAWN_TIMEOUT_MS + TERMINATION_GRACE_MS + TEST_TIMEOUT_SLACK_MS;
+  SPAWNED_TREE_HOST_QUERY_CEILING_MS +
+  SPAWN_TIMEOUT_MS +
+  TERMINATION_GRACE_MS +
+  TEST_TIMEOUT_SLACK_MS;
 
 /** One reading emitted by the main process's GC probe branch. */
 interface GcProbe {
@@ -247,6 +252,13 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
     }, SPAWN_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk: Buffer) => {
+      // OUTPUT IS THIS HARNESS'S EVIDENCE THAT THE TREE IS UP, and the tree is
+      // what a rootless kill has to be addressed by once the launcher shim is
+      // reaped. Recording it once, here, is the whole reason the shape this
+      // probe leaks behind — a browser holding the inherited stdout after its
+      // shim exits — is nameable at all; `spawned-tree-record.ts` has why the
+      // root's own `exit` is too late and why this costs one listing per child.
+      managed.captureTreeDescendants();
       const text = chunk.toString("utf8");
       stdout += text;
       pending += text;

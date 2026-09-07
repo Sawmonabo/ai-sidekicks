@@ -107,17 +107,14 @@
 
 import process from "node:process";
 
-import {
-  verifyCapturedMembers,
-  type CapturedTreeMember,
-  type TreeRootIdentity,
-} from "./identity.js";
+import { type TreeRootIdentity } from "./identity.js";
 import {
   descendantsOf,
   runBoundedHostCommand,
   type ProcessTableReader,
   type ProcessTableRow,
 } from "./readers.js";
+import { verifyCapturedMembers, type CapturedTreeMember } from "./start-stamps.js";
 
 /**
  * Whether a termination attempt left nothing to worry about.

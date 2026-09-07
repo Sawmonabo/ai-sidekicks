@@ -1,4 +1,5 @@
-// What is left of a caller's deadline, as one object every command re-reads.
+// What a tree termination is allowed to spend: the deadline it re-reads, and the
+// host queries every enclosing per-test budget has to reserve for it.
 //
 // THE ROLE, AND WHY IT IS NOT A NUMBER. `readers.ts` bounds ONE host command: it
 // takes the smaller of `HOST_QUERY_TIMEOUT_MS` and what it is handed, and it
@@ -26,6 +27,93 @@
 // the capture taken at a spawn is inside nobody's disposal. Such a budget
 // answers `undefined` forever, which is what `readers.ts` already reads as "your
 // own ceiling", so a caller that never asked for a bound is never given one.
+//
+// AND THE READINGS THAT SIT INSIDE NOBODY'S DEADLINE ARE RESERVED HERE
+//
+// A managed child performs host queries that no termination's budget contains:
+// the root's start stamp at the spawn, the descendant capture its owner takes
+// while the child is up, and the intersection the root's `exit` runs. Each of
+// those is a `spawnSync` bounded at `HOST_QUERY_TIMEOUT_MS` and each blocks the
+// thread vitest's own timeout runs on, so an enclosing per-test budget that does
+// not RESERVE them is a budget the generic timeout wins inside — the harness's
+// diagnostic path is never reached and the child it was going to describe is torn
+// down with the worker. Every spawner therefore derives its enclosure from
+// `SPAWNED_TREE_HOST_QUERY_CEILING_MS` rather than writing a figure down, and
+// `probe-budget-derivation.test.ts` is what holds the containment.
+//
+// The reservation is PLATFORM-CONDITIONAL because the cost is. Only the Windows
+// arm consumes a captured descendant set — the POSIX arm addresses the process
+// group and reads no capture at all — so on POSIX those two readings are never
+// taken and reserving for them would inflate every enclosure for a query that
+// cannot happen. One predicate decides both, which is the whole reason it is a
+// constant rather than a sentence in two comments.
+
+import process from "node:process";
+
+import { HOST_QUERY_TIMEOUT_MS } from "./readers.js";
+
+/**
+ * Whether this platform's tree kill is addressed through a CAPTURED member set.
+ *
+ * The one predicate behind three things that must agree: which arm
+ * `dispatch.ts` takes, whether `identity.ts` reads a listing at all, and how much
+ * of an enclosing per-test budget is reserved for those readings. Windows has no
+ * process group, so `taskkill /pid <root> /t` rediscovers a tree by walking down
+ * from the root — and a root that has exited hands it nothing, which is why the
+ * capture exists there and why nothing on POSIX reads one.
+ */
+export const TERMINATION_CONSUMES_CAPTURED_DESCENDANTS: boolean = process.platform === "win32";
+
+/**
+ * The descendant listings ONE managed child takes outside any termination budget.
+ *
+ * Two, and they are named rather than counted: the owner's live capture, taken
+ * once while the child has not yet reported an exit, and the intersection the
+ * root's `exit` runs over what that capture recorded. A third reading added here
+ * without moving this figure is a reading no enclosure has room for.
+ */
+export const DESCENDANT_LISTINGS_PER_CHILD = 2;
+
+/**
+ * What a managed child's own host queries may cost, per enclosing per-test budget.
+ *
+ * A FUNCTION so both arms are checkable from either platform. The suite runs
+ * where the descendant readings are never taken, so a constant alone would leave
+ * the arithmetic that matters on Windows unasserted anywhere — and this is
+ * arithmetic, which is the one kind of claim a test can make about the other
+ * platform without being on it.
+ *
+ * The root's start stamp is charged on every platform because it is read on every
+ * platform: `SpawnedTreeIdentity`'s constructor takes it at the spawn, before any
+ * harness has armed the timer bounding its own phases.
+ */
+export function spawnedTreeHostQueryCeilingMs(consumesCapturedDescendants: boolean): number {
+  const descendantListings = consumesCapturedDescendants ? DESCENDANT_LISTINGS_PER_CHILD : 0;
+  return HOST_QUERY_TIMEOUT_MS * (1 + descendantListings);
+}
+
+/**
+ * The reserve every spawner's enclosing budget keeps for this host's own queries.
+ *
+ * A PHASE OF THE TEST THAT NO SPAWN DEADLINE CONTAINS. The capture runs inside
+ * `spawnManagedElectronChild`, which is to say before the probe harness that
+ * called it has armed the timer bounding its spawn — so a host whose `ps` or
+ * PowerShell answers slowly spends this here and the harness's own spawn budget
+ * still starts at zero afterwards. Reserving only the later phases therefore left
+ * the worst legal run outside its enclosure: on the GC probe's figures, 5 s of
+ * query plus a 30 s spawn budget plus the termination grace plus the reserve is
+ * 40 s against a 35 s enclosure, and vitest's generic timeout wins before the
+ * harness's own diagnostic path settles.
+ *
+ * It is spelled in `HOST_QUERY_TIMEOUT_MS` rather than as a figure beside it,
+ * because each reading's cost IS that bound — the query is `spawnSync`'s and the
+ * timeout is what abandons it. Named here rather than in each harness so the two
+ * derived budgets add a term that says WHICH phase it pays for, and so a change
+ * to the query bound moves both of them in one edit.
+ */
+export const SPAWNED_TREE_HOST_QUERY_CEILING_MS: number = spawnedTreeHostQueryCeilingMs(
+  TERMINATION_CONSUMES_CAPTURED_DESCENDANTS,
+);
 
 /**
  * One deadline, shared by every host command a single termination runs.

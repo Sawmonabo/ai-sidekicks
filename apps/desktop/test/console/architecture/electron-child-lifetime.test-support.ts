@@ -30,8 +30,8 @@ import {
 import type {
   ManagedElectronChild,
   ProcessTreeTerminator,
-  SpawnedTreeIdentityCapture,
 } from "../../helpers/managed-electron-child.js";
+import type { SpawnedTreeIdentityCapture } from "../../helpers/spawned-tree-record.js";
 import {
   ObservedTreeTerminator,
   RefusingSettleRegistrar,

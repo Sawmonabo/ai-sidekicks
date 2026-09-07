@@ -39,11 +39,8 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import {
-  consoleSourceModules,
-  readConsoleSourceModule,
-  TYPESCRIPT_MODULE_EXTENSIONS,
-} from "../console-source-modules.js";
+import { TYPESCRIPT_MODULE_EXTENSIONS } from "../console-source-classification.js";
+import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import { moduleSpecifiersIn } from "./source-walk-census.js";
 

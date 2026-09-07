@@ -36,6 +36,19 @@ export const TEST_BUDGET_MS = 120;
 export const TEST_TERMINATION_WAIT_MS = 5;
 
 /**
+ * A grace long enough to OBSERVE, and short enough that every attempt gets one.
+ *
+ * Between the two figures around it, and both bounds are load-bearing. Below the
+ * termination phase's whole budget divided by the attempt bound, so a pause
+ * never exhausts the phase and the loop really does ask again — the figure above
+ * is deliberately larger than the budget and truncates to one pause, which is a
+ * different claim. Above the millisecond a loop that does not pause at all takes
+ * to reach that bound, so the two shapes are separated by a state and not by a
+ * threshold.
+ */
+export const TEST_SPACED_TERMINATION_WAIT_MS = 30;
+
+/**
  * A grace interval deliberately LONGER than the whole close budget above.
  *
  * The one figure that separates a retry charged to that budget from one added
@@ -177,6 +190,35 @@ export function terminatorRefusingThenDelivering(
         return false;
       }
       return true;
+    },
+  };
+}
+
+/**
+ * A terminator whose refusal CLEARS on its own, `clearsAfterMs` after the first ask.
+ *
+ * The shape `terminatorRefusingThenDelivering` cannot express, and the one the
+ * retry's pause exists for: a platform that refuses because something is still
+ * winding down rather than because it will never comply — a `taskkill` racing a
+ * process that is already exiting, which takes the next ask a moment later and
+ * refuses every ask issued in the same instant. Counting refusals cannot tell
+ * those apart, because a loop that never pauses reaches its bound inside one
+ * millisecond and a loop that pauses reaches the same bound after the tree is
+ * gone. The window opens at the FIRST ask rather than at construction, so what it
+ * measures is the spacing of the retries and not the length of the close.
+ */
+export function terminatorRefusingUntil(
+  clearsAfterMs: number,
+): ProcessTerminator & { readonly killed: number[] } {
+  const killed: number[] = [];
+  let clearsAt: number | undefined;
+  return {
+    killed,
+    isRunning: () => true,
+    terminate: (processId: number) => {
+      killed.push(processId);
+      clearsAt ??= Date.now() + clearsAfterMs;
+      return Date.now() >= clearsAt;
     },
   };
 }

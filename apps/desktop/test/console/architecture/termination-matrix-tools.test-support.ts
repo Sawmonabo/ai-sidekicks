@@ -20,11 +20,9 @@
 // claims, and one pid playing both parts would let a fix for either satisfy both.
 
 import { type ExternalTreeTools, type SignalTreeTools } from "../../helpers/process-tree/arms.js";
-import {
-  type CapturedTreeMember,
-  type TreeRootIdentity,
-} from "../../helpers/process-tree/identity.js";
+import { type TreeRootIdentity } from "../../helpers/process-tree/identity.js";
 import { type ProcessTableRow } from "../../helpers/process-tree/readers.js";
+import { type CapturedTreeMember } from "../../helpers/process-tree/start-stamps.js";
 import { processTableOf } from "./process-table-fixture.test-support.js";
 
 /** A pid that names nothing here, since every cell scripts its own answers. */
