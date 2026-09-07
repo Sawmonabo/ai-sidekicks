@@ -289,3 +289,126 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* The rollup summary on a section header: the console's own counts, so proportional
+   and quiet. It sits between the label and the attention mark and never wraps — a
+   header that grew a second line would move every section below it. */
+.meridian-sidebar__rollup {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--meridian-space-2);
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  white-space: nowrap;
+}
+
+/* Bulk operations. The bar is pinned to the foot of the column so it does not move
+   the tree when it appears, and the confirm is drawn over the bar rather than over the
+   whole window: the set it names is the column's, and a full-window scrim would darken
+   panes the act does not touch. */
+.meridian-sidebar-bulk {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-sidebar-bulk__selection {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-sidebar-bulk__act,
+.meridian-sidebar-bulk__clear,
+.meridian-sidebar-bulk__dismiss,
+.meridian-sidebar-bulk__confirm-cancel,
+.meridian-sidebar-bulk__confirm-run {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-family: var(--meridian-font-sans);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-sidebar-bulk__act:focus-visible,
+.meridian-sidebar-bulk__clear:focus-visible,
+.meridian-sidebar-bulk__dismiss:focus-visible,
+.meridian-sidebar-bulk__confirm-cancel:focus-visible,
+.meridian-sidebar-bulk__confirm-run:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The destructive button carries the failure hue, which is the one place in this
+   surface rule 3 spends it: the act is irreversible and the confirm is where a person
+   decides. */
+.meridian-sidebar-bulk__confirm-run {
+  color: var(--meridian-red-text);
+  border-color: var(--meridian-red-mark);
+}
+
+.meridian-sidebar-bulk__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-sidebar-bulk__confirm-summary {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+/* Every item is named, and the list scrolls rather than growing the column: a set of
+   forty is still a set a person may check, and a preview that pushed the confirm
+   button off screen would be a preview nobody could act on. */
+.meridian-sidebar-bulk__confirm-items {
+  max-height: 12rem;
+  margin: 0;
+  padding-left: var(--meridian-space-4);
+  overflow-y: auto;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-sidebar-bulk__confirm-controls {
+  display: flex;
+  gap: var(--meridian-space-2);
+  justify-content: flex-end;
+}
+
+.meridian-sidebar-bulk__outcome-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-sidebar-bulk__outcome {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-sidebar-bulk__outcome-label {
+  color: var(--meridian-text);
+}
+
+.meridian-sidebar-bulk__outcome-state {
+  color: var(--meridian-text-muted);
+}

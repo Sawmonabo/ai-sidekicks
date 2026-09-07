@@ -22,14 +22,19 @@
 import { useId } from "react";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
+import { DerivedFigure, Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { GLYPH_SIZE_CHROME, GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import {
+  SIDEBAR_ROLLUP_GROUPS,
   type ConsolePaneOpener,
+  type SidebarBulkSelection,
+  type SidebarRollupGroup,
+  type SidebarRowDragBinder,
   type SidebarSectionContext,
   type SidebarSectionId,
 } from "../../seats/index.js";
+import { type SectionRollup } from "./model/section-rollup.js";
 import { SECTION_HEADER_ATTRIBUTE, SIDEBAR_SECTION_LABELS } from "./model/sidebar-labels.js";
 import { type SidebarSectionAttention } from "./model/sidebar-model.js";
 
@@ -70,6 +75,19 @@ const ATTENTION_PHRASE: Readonly<Record<SidebarSectionAttention, string>> = {
  */
 const SECTION_GLYPH_SIZE = GLYPH_SIZE_CHROME;
 
+/**
+ * What each rollup group is called on the header.
+ *
+ * Total over the closed set, so a fifth group fails to compile here rather than
+ * rendering as its own identifier. The words are the design track's own.
+ */
+const ROLLUP_GROUP_LABELS: Readonly<Record<SidebarRollupGroup, string>> = {
+  pinned: "pinned",
+  "needs-attention": "needs attention",
+  running: "running",
+  rest: "other",
+};
+
 export interface SidebarSectionProps {
   readonly sectionId: SidebarSectionId;
   /**
@@ -89,6 +107,18 @@ export interface SidebarSectionProps {
   readonly openPane: ConsolePaneOpener;
   /** Press the header: put the cursor here, and open or shut this section. */
   readonly onPress: (sectionId: SidebarSectionId) => void;
+  /**
+   * What this section's own tree folded to, or `undefined` while it supplied none.
+   *
+   * A FOLD of what the section served and never a badge this file counted: a section
+   * whose read has not answered supplies no tree, and no tree renders no numbers —
+   * which is the difference between "unavailable" and zero.
+   */
+  readonly rollup: SectionRollup | undefined;
+  /** The column's shared bulk selection, handed on to the section's own rows. */
+  readonly bulk: SidebarBulkSelection;
+  /** How a row of this section becomes draggable onto the deck. */
+  readonly dragRow: SidebarRowDragBinder;
   /** Handed the disclosure element so the cursor can move focus onto it. */
   readonly registerDisclosure: (
     sectionId: SidebarSectionId,
@@ -126,6 +156,22 @@ export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
           <Glyph name={props.isOpen ? "chevron-down" : "chevron-right"} size={GLYPH_SIZE_ROW} />
           <Glyph name={GLYPH_BY_SECTION_ID[props.sectionId]} size={SECTION_GLYPH_SIZE} />
           <span className="meridian-sidebar__label">{label}</span>
+          {props.rollup === undefined || props.rollup.nodeCount === 0 ? null : (
+            // The grouped counts, in the group tuple's own order, and only for groups
+            // that hold something: a row of zeroes is four numbers a person has to
+            // read to learn nothing. The whole line is the console's own reading of
+            // what the section served, so it is proportional rather than mono.
+            <span className="meridian-sidebar__rollup">
+              {SIDEBAR_ROLLUP_GROUPS.filter(
+                (group) => (props.rollup?.countsByGroup[group] ?? 0) > 0,
+              ).map((group) => (
+                <DerivedFigure
+                  key={group}
+                  text={`${String(props.rollup?.countsByGroup[group] ?? 0)} ${ROLLUP_GROUP_LABELS[group]}`}
+                />
+              ))}
+            </span>
+          )}
           {props.attention === undefined ? null : (
             // The mark itself is the header's leading edge, drawn by the stylesheet off
             // `data-attention` — ONE visual owner for the datum. What lives here is the
@@ -155,6 +201,8 @@ export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
               openPane: props.openPane,
               isOpen: true,
               filterQuery: props.filterQuery,
+              bulk: props.bulk,
+              dragRow: props.dragRow,
             })
           )}
         </div>

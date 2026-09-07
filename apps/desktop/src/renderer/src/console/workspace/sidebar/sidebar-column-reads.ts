@@ -16,14 +16,24 @@ import {
 } from "../../seats/index.js";
 import { useSessionProjectionRevision, type SessionStore } from "../../store/index.js";
 import { SIDEBAR_SECTION_LABELS } from "./model/sidebar-labels.js";
+import { foldSectionRollup, type SectionRollup } from "./model/section-rollup.js";
 import type {
   SidebarAttentionBySectionId,
   SidebarModel,
   SidebarSnapshot,
 } from "./model/sidebar-model.js";
 
+/** What each section's tree folded to. Absent means the section supplied no tree. */
+export type SidebarRollupBySectionId = Readonly<Partial<Record<SidebarSectionId, SectionRollup>>>;
+
+/** Both readings the column takes off the seat in one pass over the descriptors. */
+export interface SidebarSectionReadings {
+  readonly attentionBySectionId: SidebarAttentionBySectionId;
+  readonly rollupBySectionId: SidebarRollupBySectionId;
+}
+
 /**
- * Read every section's own rollup, and hand the map to the model.
+ * Read every section's own rollup, and hand the attention map to the model.
  *
  * THE PROJECTION MOVES UNDER THIS COLUMN, and the containers it moves inside do not. A
  * section reports off its own family's projection of the session store, and that store
@@ -36,6 +46,12 @@ import type {
  * ONE SUBSCRIPTION FOR THE COLUMN, not one per section: the counter names no partition,
  * so eight of them would deliver the same number eight times.
  *
+ * ONE PASS FOR BOTH READINGS. The tree and the level answer the same question at two
+ * grains, and a section that supplies a tree has its level FOLDED from it rather than
+ * asked for separately — `SidebarSectionDescriptor.rollup` states that precedence, and
+ * this is where it is applied: the explicit claim wins, the fold stands in where there
+ * is none, and neither is computed twice.
+ *
  * Handed over from an EFFECT rather than during the render that computed it, because
  * the model's own rule opens a newly calling section — a state change, and a component
  * that moved its parent's state mid-pass would be rendering and writing at once. The
@@ -47,26 +63,37 @@ export function useSectionAttention(
   sectionRegistry: SidebarSectionRegistry,
   sessionStore: SessionStore,
   bridge: ConsoleBridge,
-): void {
+): SidebarRollupBySectionId {
   const projectionRevision = useSessionProjectionRevision(sessionStore);
-  const attentionBySectionId = useMemo<SidebarAttentionBySectionId>(() => {
+  const readings = useMemo<SidebarSectionReadings>(() => {
     const attention: Partial<Record<SidebarSectionId, "attention" | "failure">> = {};
+    const rollupBySectionId: Partial<Record<SidebarSectionId, SectionRollup>> = {};
     for (const sectionId of SIDEBAR_SECTION_IDS) {
-      const reported = sectionRegistry
-        .descriptorFor(sectionId)
-        ?.attention?.({ sessionStore, bridge });
+      const descriptor = sectionRegistry.descriptorFor(sectionId);
+      if (descriptor === undefined) {
+        continue;
+      }
+      const context = { sessionStore, bridge };
+      const nodes = descriptor.rollup?.(context);
+      const folded = nodes === undefined ? undefined : foldSectionRollup(nodes);
+      if (folded !== undefined) {
+        rollupBySectionId[sectionId] = folded;
+      }
+      const reported = descriptor.attention?.(context) ?? folded?.attention;
       if (reported !== undefined) {
         attention[sectionId] = reported;
       }
     }
-    return attention;
+    return { attentionBySectionId: attention, rollupBySectionId };
     // `projectionRevision` is read by the readers above rather than by this body, which
     // is the whole of why it is here: it is the dependency that makes them re-run.
   }, [sectionRegistry, sessionStore, bridge, projectionRevision]);
 
   useEffect(() => {
-    model.syncAttention(attentionBySectionId);
-  }, [model, attentionBySectionId]);
+    model.syncAttention(readings.attentionBySectionId);
+  }, [model, readings]);
+
+  return readings.rollupBySectionId;
 }
 
 /**
