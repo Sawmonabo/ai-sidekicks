@@ -2,7 +2,7 @@ import {
   SETTINGS_SECTION_IDS,
   SETTINGS_SECTION_LABELS,
   type SettingsSectionId,
-} from "./settings-page-registry.js";
+} from "./settings-sections.js";
 
 export interface SettingsSectionRailProps {
   readonly selectedSection: SettingsSectionId | undefined;

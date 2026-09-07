@@ -19,12 +19,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Nothing } from "../primitives/index.js";
-import {
-  SETTINGS_SECTION_LABELS,
-  type SettingsPageContext,
-  type SettingsPageRegistry,
-  type SettingsSectionId,
-} from "./settings-page-registry.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "./settings-page-registry.js";
+import { SETTINGS_SECTION_LABELS, type SettingsSectionId } from "./settings-sections.js";
 
 export interface SettingsSectionPageProps {
   readonly section: SettingsSectionId;

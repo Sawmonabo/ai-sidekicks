@@ -7,11 +7,8 @@
 // screen.
 import { Nothing } from "../primitives/index.js";
 import { SettingsSectionPage } from "./SettingsSectionPage.js";
-import type {
-  SettingsPageContext,
-  SettingsPageRegistry,
-  SettingsSectionId,
-} from "./settings-page-registry.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "./settings-page-registry.js";
+import type { SettingsSectionId } from "./settings-sections.js";
 
 export interface SettingsPaneProps {
   readonly section: SettingsSectionId | undefined;

@@ -35,7 +35,7 @@
 
 import type { ProviderRemedy } from "@ai-sidekicks/contracts";
 
-import type { SettingsSectionId } from "../../settings-page-registry.js";
+import type { SettingsSectionId } from "../../settings-sections.js";
 
 /**
  * Every refusal code the account plane raises.

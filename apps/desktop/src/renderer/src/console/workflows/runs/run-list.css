@@ -1,10 +1,14 @@
 /*
  * The run list: its header counts, its rows, and what a row says about one run.
  *
- * Owned by `RunList.tsx`, and reached through `workflows.css`, which is the entry
- * point for the sheets this directory owns. The park badges a row stacks are next door
- * in `park-badge.css` — they are shown by the run pane too, and a rule shared by two
- * surfaces belongs to neither of them alone.
+ * Owned by `RunList.tsx`, and reached from `workflows/index.ts` — the family DOOR, which
+ * is where no other sheet of this family enters any more. It declares
+ * `.meridian-run-row__failure` and so does `runs/pane/runs.css`: which of the two the
+ * browser sees last decides how a failed run's line reads in both families, so this sheet
+ * cannot ride a chunk without making a bundle boundary the answer to that. It stays on the
+ * initial document until the class has one owner. The park badges a row stacks are next
+ * door in `park-badge.css` — they are shown by the run pane too, and a rule shared by two
+ * surfaces belongs to neither of them alone, so that one rides the chunks with the rest.
  */
 
 /* ----------------------------------------------------------------- run list */

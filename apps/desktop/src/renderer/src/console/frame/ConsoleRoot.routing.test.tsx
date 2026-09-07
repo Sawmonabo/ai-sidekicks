@@ -22,7 +22,7 @@ import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { formatRoute, type ConsoleRoute } from "../routing/index.js";
-import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
+import { SESSIONS_HASH, mountConsole, settleRegisteredBodies } from "./ConsoleRoot.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 
 /** An auxiliary window's address: a route the sessions list is not. */
@@ -42,6 +42,10 @@ async function clickRailDestination(mounted: RenderResult, label: string): Promi
     fireEvent.click(button);
     await crossMacrotaskBoundary();
   });
+  // The press warms the destination it navigates to, and a destination whose family
+  // registered a loader arrives a chunk later. Waited through the shared helper rather
+  // than a boundary count here, for the reason that helper gives.
+  await settleRegisteredBodies();
 }
 
 /** Which destination the rail is showing as current, by its accessible name. */

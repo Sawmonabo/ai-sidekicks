@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 
 import { type ConsoleRefusal } from "../../../core/index.js";
 import { InlineRefusal } from "../../../primitives/index.js";
-import { SETTINGS_SECTION_LABELS, type SettingsSectionId } from "../../settings-page-registry.js";
+import { SETTINGS_SECTION_LABELS, type SettingsSectionId } from "../../settings-sections.js";
 import { accountPlaneHandoffFor } from "./account-plane-handoff.js";
 import { ACCOUNT_PLANE_ACT_SENTENCES } from "./account-plane-sentences.js";
 
