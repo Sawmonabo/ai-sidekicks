@@ -28,6 +28,13 @@
 // is the union of them — whether an import is underway at all — and that is composed
 // once here rather than at each control, because two controls deriving it separately
 // would eventually disagree about which frame an import ends on.
+//
+// AND THE GUARD OUTLIVES THE SUBSCRIPTION THAT REPORTS IT. A stream that broke after
+// the begin settled leaves this window unable to see an import the daemon may still
+// be running, so the predicate holds and the model carries the one act that can end
+// the standoff honestly: re-attach to the SAME id. `provider-import.ts` owns which
+// arms mean what; what is composed here is the pair a surface renders — the closed
+// control and the way back onto the stream that closed it.
 
 import { SessionAct, useSessionAct, type ActSettlement } from "./act-settlement.js";
 import {
@@ -75,6 +82,15 @@ export interface ProviderImportModel {
    * effect that opens its stream.
    */
   readonly isUnderway: boolean;
+  /**
+   * Re-attach to the running import's progress, or `undefined` where nothing can be.
+   *
+   * The one act a lost subscription leaves, and the reason the guard above can stay
+   * closed without stranding anybody: a broken delivery holds the submit control shut
+   * because the daemon may still be reading, and this is how a person gets the
+   * reading back rather than being told to start a second import to find out.
+   */
+  readonly retryProgress: (() => void) | undefined;
   /** Put one import. Refuses in the act's own words while one is already running. */
   readonly put: (request: ProviderImportRequest) => void;
 }
@@ -126,7 +142,8 @@ export function useProviderImport(growth: GrowthPort): ProviderImportModel {
   ).value;
   const settlement = useSessionAct(act);
   const importId = settlement.status === "settled" ? settlement.answer.importId : undefined;
-  const progress = useImportProgress(growth, importId);
+  const subscription = useImportProgress(growth, importId);
+  const progress = subscription.reading;
   const isBeginning = settlement.status === "running";
   const isReading = isImportUnderway(importId, progress);
   return {
@@ -135,6 +152,7 @@ export function useProviderImport(growth: GrowthPort): ProviderImportModel {
     isBeginning,
     isReading,
     isUnderway: isBeginning || isReading,
+    retryProgress: subscription.retry,
     put: (request) => {
       // Not awaited, and nothing escapes: the act answers a duplicate press on its
       // return rather than by rejecting, and the attempt above has no throwing arm.

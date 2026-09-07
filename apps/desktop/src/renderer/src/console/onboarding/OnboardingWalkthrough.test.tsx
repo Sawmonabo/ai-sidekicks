@@ -415,7 +415,6 @@ describe("the window trigger set", () => {
         flow={new OnboardingFlow(bridge)}
         readiness={new ProviderReadinessModel(bridge, new FrameStore())}
         openAtStep="providers"
-        accountScope={undefined}
         onOpenAccountRegistry={() => undefined}
         onDismiss={() => undefined}
       />,

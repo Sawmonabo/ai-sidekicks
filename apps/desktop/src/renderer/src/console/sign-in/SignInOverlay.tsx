@@ -26,6 +26,17 @@
 // wiring is `store/modal-surface-lifetime.ts` now — hoisted when the onboarding
 // walkthrough became the second window-scoped overlay to owe it.
 //
+// AND IT IS A DIALOG WITH A NAME, through the primitive that owns both halves. The
+// popup carried `role="dialog"` and no `Dialog.Title`, no `aria-label`, and no
+// `aria-labelledby` — the card's ordinary `<h2>` names a section and never the dialog
+// role above it — so focus was trapped inside a modal a screen reader announced with
+// no context at all. `OverlayDialogPopup` takes the name as `label` for exactly this
+// case, a surface that heads its popup with an ordinary element rather than a title,
+// and mounting through it also puts this card in the window's airspace: a dialog
+// portalled by hand here was in none, so a native browser-pane view painted over it
+// and took its input. One migration answers both, which is why the popup is not
+// mounted here any more.
+//
 // THE FLOW IS SUPERSEDED ON UNMOUNT AND ON A BRIDGE SWAP, and it is held through the
 // console's one subject-scoped holder to get that. An OS dialog belongs to main and
 // outlives this component; the settlement that arrives afterwards has to publish
@@ -38,6 +49,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { consoleCommands, registerConsoleCommands } from "../palette/index.js";
+import { OverlayDialogPopup } from "../primitives/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
   useModalSurfaceLifetime,
@@ -50,6 +62,17 @@ import { SignInFlow } from "./sign-in-flow.js";
 
 /** The command id this family owns. Namespaced by family, per the command rules. */
 const SIGN_IN_COMMAND_ID = "signIn.open";
+
+/**
+ * What a reader hears when focus is trapped inside this card.
+ *
+ * The same words as the card's own visible heading, and named once here so the two
+ * cannot drift into announcing one thing and showing another. It travels as `label`
+ * rather than as a `Dialog.Title` because the heading belongs to `SignInCard`, which
+ * is a card and not a dialog — a second heading mounted beside it for the role's sake
+ * would put the same sentence on screen twice.
+ */
+const SIGN_IN_DIALOG_LABEL = "Sign in";
 
 /**
  * How a retired flow ends: superseded, and still a working object afterwards.
@@ -113,42 +136,43 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen} modal="trap-focus">
-      <Dialog.Portal>
-        <Dialog.Backdrop className="meridian-sign-in__backdrop" />
-        <Dialog.Popup className="meridian-sign-in__popup">
-          <SignInCard
-            state={state}
-            isBusy={flow.isBusy}
-            onSignIn={() => {
-              void flow.signIn();
-            }}
-            onRegisterAnother={() => {
-              void flow.register();
-            }}
-            onOpenBrowser={() => {
-              if (state.kind !== "handing-off") {
-                return;
-              }
-              // The hand-off and the wait, in that order and in one act. The browser
-              // is opened through `native.openExternal`, which the process model
-              // makes the only sanctioned way out — a renderer-opened window would
-              // put a control-plane origin inside this renderer's own frame tree.
-              // Its rejection is deliberately not rendered separately: the wait
-              // below settles into whatever the ceremony reports, and a person who
-              // saw no browser open has the address and the code on screen already.
-              void bridge.sidekicks.native.openExternal(state.handoff.verificationUri).catch(() => {
-                // Swallowed on purpose, and only here: nothing about this window's
-                // state depends on whether the OS had a browser to hand, and the
-                // ceremony's own settlement is what the card renders next.
-              });
-              void flow.awaitDeviceGrant();
-            }}
-            onDismissRefusal={() => {
-              flow.dismissRefusal();
-            }}
-          />
-        </Dialog.Popup>
-      </Dialog.Portal>
+      <OverlayDialogPopup
+        backdropClassName="meridian-sign-in__backdrop"
+        className="meridian-sign-in__popup"
+        label={SIGN_IN_DIALOG_LABEL}
+      >
+        <SignInCard
+          state={state}
+          isBusy={flow.isBusy}
+          onSignIn={() => {
+            void flow.signIn();
+          }}
+          onRegisterAnother={() => {
+            void flow.register();
+          }}
+          onOpenBrowser={() => {
+            if (state.kind !== "handing-off") {
+              return;
+            }
+            // The hand-off and the wait, in that order and in one act. The browser
+            // is opened through `native.openExternal`, which the process model
+            // makes the only sanctioned way out — a renderer-opened window would
+            // put a control-plane origin inside this renderer's own frame tree.
+            // Its rejection is deliberately not rendered separately: the wait
+            // below settles into whatever the ceremony reports, and a person who
+            // saw no browser open has the address and the code on screen already.
+            void bridge.sidekicks.native.openExternal(state.handoff.verificationUri).catch(() => {
+              // Swallowed on purpose, and only here: nothing about this window's
+              // state depends on whether the OS had a browser to hand, and the
+              // ceremony's own settlement is what the card renders next.
+            });
+            void flow.awaitDeviceGrant();
+          }}
+          onDismissRefusal={() => {
+            flow.dismissRefusal();
+          }}
+        />
+      </OverlayDialogPopup>
     </Dialog.Root>
   );
 }

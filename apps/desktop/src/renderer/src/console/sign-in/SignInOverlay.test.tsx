@@ -10,6 +10,11 @@
 // control-plane identity a precondition for a local session, so a console that opened
 // this on mount would be demanding an account to do work that needs none.
 //
+// AND THE MODAL HAS A NAME, which is the one thing a trapped reader needs and the one
+// thing the popup did not have. It is asserted through the role query rather than by
+// reading an attribute, because what a reader hears is the accessible-name
+// computation's answer and not whichever attribute happened to be set.
+//
 // AND THE WINDOW BEHIND IT IS UNREACHABLE WHILE IT IS UP, which is the third subject
 // below and the one claim this component cannot make alone. Base UI's `trap-focus`
 // marks `.meridian-frame` `aria-hidden` for us and stops there: the rail and the whole
@@ -19,7 +24,7 @@
 // module on either side of it can prove on its own, which is why those cases drive the
 // composed `ConsoleRoot` rather than this component alone.
 
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
@@ -88,6 +93,43 @@ describe("how the card opens", () => {
     await settle();
     await openTheCard();
     expect(document.body.textContent).toContain("Sign in with a passkey");
+  });
+});
+
+describe("the name focus is trapped inside", () => {
+  it("names the popup, and the name is the card's own visible heading", async () => {
+    // The popup carried `role="dialog"` and no name at all: no `Dialog.Title`, no
+    // `aria-label`, and no `aria-labelledby`, with the card's ordinary `<h2>` naming a
+    // section nested inside rather than the dialog role above it. A reader whose focus
+    // is trapped in an unnamed modal is told a dialog opened and nothing about which.
+    render(
+      <SignInOverlay
+        context={contextOver(createFixtureBridge({ scenario: ONBOARDING_SCENARIO }))}
+      />,
+    );
+    await settle();
+    await openTheCard();
+
+    // Asked through the ROLE query, which computes the name the way a reader's
+    // software does rather than reading an attribute and calling that the name.
+    const popup = screen.getByRole("dialog", { name: "Sign in" });
+    // And it is the popup that carries it, not the section inside the card: both are
+    // named the same words on purpose, so the case says which element it found.
+    expect(popup.className).toContain("meridian-sign-in__popup");
+    expect(popup.getAttribute("aria-label")).toBe("Sign in");
+  });
+
+  it("negative control: nothing carries the dialog role until the card is open", async () => {
+    // Without this the case above would pass over a query matching some element that
+    // is on screen whether or not a ceremony was ever asked for.
+    render(
+      <SignInOverlay
+        context={contextOver(createFixtureBridge({ scenario: ONBOARDING_SCENARIO }))}
+      />,
+    );
+    await settle();
+
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

@@ -11,6 +11,11 @@
 // The refusal is `normalizeWireRejection`'s and not this module's, and both of its
 // arms are driven: a rejection that names its own code keeps it, and one that names
 // nothing takes the sentence this family wrote for exactly that.
+//
+// THE HOOK ANSWERS A SUBSCRIPTION — the reading and the way back onto it — so these
+// cases read the reading off it. What the second half does is the subject of
+// `provider-import.single-flight.test.tsx`, which drives the guard and the re-attach
+// together; splitting them keeps this file about the four arms it was written for.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -21,7 +26,7 @@ import type { GrowthImportProgress, GrowthPort } from "../../bridge/index.js";
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { unhandledRejectionsDuring } from "../../core/unhandled-rejection.test-support.js";
-import { useImportProgress } from "./provider-import.js";
+import { useImportProgress, type ImportProgressReading } from "./provider-import.js";
 
 const IMPORT_ID = "provider-import-7";
 
@@ -42,7 +47,7 @@ function portServing(stream: DrivenGrowthStream<GrowthImportProgress>): GrowthPo
 
 /** Mount the reading over a driven stream, and let its first frame land. */
 async function readingOver(stream: DrivenGrowthStream<GrowthImportProgress>): Promise<{
-  readonly current: () => ReturnType<typeof useImportProgress>;
+  readonly current: () => ImportProgressReading;
 }> {
   const port = portServing(stream);
   const { result } = renderHook(() => useImportProgress(port, IMPORT_ID));
@@ -50,13 +55,13 @@ async function readingOver(stream: DrivenGrowthStream<GrowthImportProgress>): Pr
     stream.emit(FIRST_FRAME);
     await crossMacrotaskBoundary();
   });
-  return { current: () => result.current };
+  return { current: () => result.current.reading };
 }
 
 describe("useImportProgress — a stream that rejects part-way", () => {
   it("settles the reading as refused, closes the stream, and lets nothing escape", async () => {
     const stream = new DrivenGrowthStream<GrowthImportProgress>();
-    let reading: ReturnType<typeof useImportProgress> | undefined;
+    let reading: ImportProgressReading | undefined;
     const escaped = await unhandledRejectionsDuring(async () => {
       const { current } = await readingOver(stream);
       await act(async () => {
