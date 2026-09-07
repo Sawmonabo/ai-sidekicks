@@ -60,8 +60,10 @@
 // dispatching control goes through — which is also why the read beside it survives the
 // same outage, since that seam answers about a method and not about the window.
 //
-// SUPERSESSION IS THE FLOW'S RULE. A generation stamps every call and a settlement
-// arriving after this model was retired publishes nowhere.
+// SUPERSESSION IS THE FLOW'S RULE, IN TWO LAYERS. A generation stamps every call, so
+// a settlement arriving after this model was retired or re-addressed publishes
+// nowhere; beneath it every READ rides a round on one line, so the older of two
+// overlapping replies at one scope publishes nowhere either.
 //
 // AND WHAT A SURFACE SUBSCRIBES TO IS ONE SNAPSHOT, on `onboarding-flow.ts`' rule next
 // door. The acts move without the projection — a hand-off publishes `handing-off` and
@@ -83,6 +85,7 @@ import {
 } from "../../bridge/index.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
+  ReadScope,
   RefreshScheduler,
   shellBlockForMethod,
   shellBlocksAreEqual,
@@ -145,6 +148,20 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    */
   #accountScope: ProviderAccountId | undefined = undefined;
   #generation = 0;
+  /**
+   * The line every readiness read is on, whichever reason opened it.
+   *
+   * BENEATH THE GENERATION AND NOT INSTEAD OF IT. That counter asks whether the SCOPE
+   * moved, which retires a hand-off and a re-check as well as a read; this asks
+   * whether a NEWER read of the same scope has been put, which the counter cannot
+   * answer because it does not move when one is — so the arrival read and a focus
+   * refresh shared one generation and the OLDER of two overlapping replies passed the
+   * check, installing a projection the daemon had already replaced. Owned by the
+   * READING and not the scheduler, on `bridge/quotas/provider-account-quota.ts`'
+   * reading: a per-fire round orders the scheduler's own fires and nothing else, and
+   * the arrival read never goes through the scheduler at all.
+   */
+  readonly #readLine = new ReadScope();
 
   public constructor(bridge: ConsoleBridge, frameStore: FrameStore) {
     this.#bridge = bridge;
@@ -161,6 +178,9 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
       // The fixture's frozen clock wherever a scenario is playing and the real one
       // otherwise, resolved once per model.
       clock: consoleClockFor(bridge),
+      // The round a performer is handed is deliberately not the one this read rides:
+      // it orders the scheduler's own fires and nothing else, and a focus refresh has
+      // to be superseded by an arrival read the scheduler never fired.
       perform: async () => {
         await this.#read();
       },
@@ -237,6 +257,10 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   public supersede(): void {
     this.#retireInFlight();
     this.#stopWatchingShell();
+    // Abandoned rather than merely out-generationed: an outstanding read is dropped
+    // where it stands, so a retired step neither awaits nor parses a reply nobody
+    // will render.
+    this.#readLine.abandon();
     this.#refresh.dispose();
   }
 
@@ -281,24 +305,35 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    * The scope exists for the post-refusal path alone: a run bound to a per-run
    * account override was refused about THAT account, and an unscoped read would hand
    * back the provider default's remedy — a different account, possibly healthy.
+   *
+   * EVERY READ OPENS A ROUND ON THIS MODEL'S LINE — the arrival, the scheduler's
+   * fire, and the two acts' own re-reads alike — so the newest is the only one whose
+   * reply may publish, and a superseded one STOPS rather than being ignored. `settle`
+   * and not a second comparison, so the superseded and the abandoned arms are one
+   * act: neither publishes, and neither renders the door's own `read-abandoned`
+   * refusal as this step's `unreadable` arm.
    */
   async #read(): Promise<void> {
     const generation = this.#generation;
     const accountScope = this.#accountScope;
+    const round = this.#readLine.openRound();
     const reply = await callDaemon(
       this.#bridge,
       "providerAccount.list",
       accountScope === undefined ? {} : { accountId: accountScope },
+      { signal: round.signal },
     );
-    if (generation !== this.#generation) {
-      return;
-    }
-    this.#publish({
-      ...this.#snapshot,
-      reading:
-        reply.status === "served"
-          ? { kind: "read", entries: reply.value.readiness, accounts: reply.value.accounts }
-          : { kind: "unreadable", refusal: reply.refusal },
+    round.settle(() => {
+      if (generation !== this.#generation) {
+        return;
+      }
+      this.#publish({
+        ...this.#snapshot,
+        reading:
+          reply.status === "served"
+            ? { kind: "read", entries: reply.value.readiness, accounts: reply.value.accounts }
+            : { kind: "unreadable", refusal: reply.refusal },
+      });
     });
   }
 
