@@ -87,6 +87,18 @@
 //     tree's, and a live stranger with a child would hold the verdict at `false`
 //     for as long as it lived — a refusal that can never clear.
 //
+// AND A TABLE THAT WAS NEVER READ IS NOT AN EMPTY ONE
+//
+// The asymmetry above rests entirely on the host having ANSWERED: "no row claims
+// the dead root" is evidence only because it was asked. PowerShell refusing to
+// start, spending its bound, or a disposal with no budget left all produce no
+// rows either, and read as a table they say "nothing claims it" — the one
+// sentence that clears a rootless verdict, reachable on both shapes that carry
+// no capture to hold it false (a Playwright-supplied pid, which has no spawn
+// moment to capture at, and a managed child whose exit-time capture WAS the
+// reading that failed). So `readers.ts` answers an unreadable host with a
+// SENTINEL rather than an empty map, and this arm fails closed on it.
+//
 // The residual is named rather than hidden: under `gone`, a stale row whose
 // process outlives the run holds the verdict at `false` for the caller's bounded
 // attempts and ends as a reported `unterminable`. That is the failure direction
@@ -142,7 +154,13 @@ export interface SignalTreeTools {
 export interface ExternalTreeTools {
   /** Run the platform's tree kill downwards from `processId`; `true` if it exited clean. */
   readonly killTreeFrom: (processId: number, forced: boolean) => boolean;
-  /** Every process on this host, as pid to its recorded parent and start stamp. */
+  /**
+   * Every process on this host, or `undefined` when it would not answer at all.
+   *
+   * Told apart by the sentinel and never by counting rows: an empty table is a
+   * host that listed nothing beneath the root, `undefined` is one that listed
+   * nothing at all, and only the first is evidence.
+   */
   readonly processTable: ProcessTableReader;
   /** Whether `processId` will never run another instruction. */
   readonly hasTerminated: (processId: number) => boolean;
@@ -212,7 +230,8 @@ export function terminateSignalledTree(
  * verdict is over every one of them AND over every row this host still hangs off
  * the root pid: a rootless termination is never accepted as delivered on the
  * strength of the root being gone, and a row this tree cannot vouch for is a
- * reason to refuse rather than a pid to signal.
+ * reason to refuse rather than a pid to signal — as is a host that would not
+ * produce the rows at all, which is the same refusal one step further back.
  */
 export function terminateExternalTree(
   processId: number,
@@ -227,7 +246,12 @@ export function terminateExternalTree(
   // ONE READ, then every decision below is taken over the same snapshot. Two
   // reads would let the kill list and the survival reading disagree about which
   // host they describe, which is the class of race this whole module is about.
-  const processTable = tools.processTable();
+  const listing = tools.processTable();
+  // An unreadable host still gets a kill list: the CAPTURE is this tree's own
+  // evidence and needs no table, since `verifyCapturedMembers` convicts on a
+  // stamp that disagrees and never on a row that is missing. What the sentinel
+  // must not do is reach the VERDICT as a reading, which is the guard below.
+  const processTable = listing ?? new Map<number, ProcessTableRow>();
   const captured = tools.capturedDescendants();
   const members = addressableTreeMembers(processId, identity, processTable, captured);
   const unreachedMembers = members.filter((member) => !tools.hasTerminated(member));
@@ -249,6 +273,12 @@ export function terminateExternalTree(
   return terminationSucceeded(
     false,
     () =>
+      // FIRST, BECAUSE IT IS THE ONE ANSWER THE OTHER THREE CANNOT GIVE: each of
+      // them reads the table, and on a host that would not answer each reads
+      // clean — dead root, no unreached member, no claimant — which is how an
+      // unreadable listing reported a live browser as a terminated tree. It
+      // short-circuits too, so a host already refusing one query is asked no more.
+      listing === undefined ||
       // The root is part of the survival question only while it is still this
       // tree's. Under `recycled` it is a stranger, and a live stranger would
       // report this tree as unkillable forever; under `gone` it answers

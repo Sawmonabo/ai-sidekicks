@@ -9,10 +9,10 @@
 //
 // This module is the DOOR and the dispatch, and deliberately nothing else. The
 // readings live in `readers.ts` and `liveness.ts`, the pid-versus-process
-// question in `identity.ts`, and the two platform decisions in `arms.ts` — four
-// roles that were one 509-line file until each of them grew its own findings.
-// What is left here is the choice between the two arms, which is one fact about
-// this platform and one function.
+// question in `identity.ts`, the shared deadline in `budget.ts`, and the two
+// platform decisions in `arms.ts` — five roles that were one 509-line file until
+// each of them grew its own findings. What is left here is the choice between
+// the two arms, and the binding of each arm's collaborators to that deadline.
 //
 // The facts that decide the dispatch, each measured rather than assumed:
 //
@@ -56,10 +56,12 @@ import {
   runPlatformTreeKill,
   terminateExternalTree,
   terminateSignalledTree,
+  type ExternalTreeTools,
 } from "./arms.js";
+import { HostCommandBudget } from "./budget.js";
 import { SpawnedTreeIdentity } from "./identity.js";
 import { processGroupExists, processHasTerminated } from "./liveness.js";
-import { readProcessTable } from "./readers.js";
+import { readProcessTable, type ProcessTableReader } from "./readers.js";
 
 /** How this platform's tree kill reaches a tree. */
 export type ProcessTreeTerminationMode = "signal" | "external";
@@ -76,6 +78,65 @@ export type ProcessTreeTerminationMode = "signal" | "external";
  */
 export const PROCESS_TREE_TERMINATION_MODE: ProcessTreeTerminationMode =
   process.platform === "win32" ? "external" : "signal";
+
+/**
+ * The three host acts the Windows arm performs, as one injectable set.
+ *
+ * Injected for the reason every seam in this directory is: a macOS runner never
+ * enters that arm, so the binding below — which figure each command is charged,
+ * and when it is read — would otherwise be a claim nothing on this host could
+ * check. Each member takes the budget as its LAST parameter, matching the shape
+ * `readers.ts` and `liveness.ts` already publish, so the production set is the
+ * three functions themselves rather than three wrappers.
+ */
+export interface ExternalHostCommands {
+  readonly killTreeFrom: (
+    processId: number,
+    forced: boolean,
+    remainingBudgetMilliseconds?: number,
+  ) => boolean;
+  readonly readProcessTable: ProcessTableReader;
+  readonly hasTerminated: (processId: number, remainingBudgetMilliseconds?: number) => boolean;
+}
+
+/** The real three, which every production termination takes. */
+const PLATFORM_EXTERNAL_HOST_COMMANDS: ExternalHostCommands = {
+  killTreeFrom: runPlatformTreeKill,
+  readProcessTable,
+  hasTerminated: processHasTerminated,
+};
+
+/**
+ * The Windows arm's collaborators, every one of them charged to ONE deadline.
+ *
+ * THE BINDING IS THE FIX, AND IT IS WHY THIS IS A NAMED FUNCTION. These closures
+ * used to capture a `remainingBudgetMilliseconds` NUMBER, so each command they
+ * ran was entitled to the whole remainder: `taskkill` could spend it and the
+ * fallback process-table listing after it could spend it again, and one
+ * `terminateProcessTree` call overran the deadline it was given several times
+ * over before `BoundedCleanup` could re-read the clock. They capture the BUDGET
+ * now and ask it afresh at each call, so the figures decline across a sequence
+ * rather than repeating, and their sum is the deadline rather than a multiple.
+ *
+ * `capturedDescendants` is the one member that reads nothing and is charged
+ * nothing — it returns a set already in memory.
+ */
+export function externalTreeToolsOver(
+  processId: number,
+  rootIdentity: SpawnedTreeIdentity,
+  budget: HostCommandBudget,
+  hostCommands: ExternalHostCommands = PLATFORM_EXTERNAL_HOST_COMMANDS,
+): ExternalTreeTools {
+  return {
+    killTreeFrom: (treeMemberProcessId: number, forced: boolean): boolean =>
+      hostCommands.killTreeFrom(treeMemberProcessId, forced, budget.remainingMilliseconds()),
+    processTable: () => hostCommands.readProcessTable(budget.remainingMilliseconds()),
+    hasTerminated: (treeMemberProcessId: number): boolean =>
+      hostCommands.hasTerminated(treeMemberProcessId, budget.remainingMilliseconds()),
+    rootIdentity: () => rootIdentity.readIdentity(budget.remainingMilliseconds()),
+    capturedDescendants: () => rootIdentity.capturedDescendants,
+  };
+}
 
 /**
  * Signal the process tree led by `processId`, and say whether the TREE is gone.
@@ -98,39 +159,46 @@ export const PROCESS_TREE_TERMINATION_MODE: ProcessTreeTerminationMode =
  * compare the pid against itself an instant later and answer `same` for every
  * pid on the host, which is a check that cannot fail dressed as one that can.
  *
- * AND EVERY HOST COMMAND THIS RUNS IS CHARGED TO THE CALLER'S DEADLINE WHEN IT
- * HAS ONE. This whole call is synchronous — the stamp read, the process-table
- * listing, `taskkill`, and the state code behind each survival reading are all
- * `spawnSync`, each bounded at `HOST_QUERY_TIMEOUT_MS` on its own — so a caller
- * that escalates three times can spend several multiples of a cleanup budget
- * that was already over, with vitest's timeout firing on this blocked thread
- * before the verdict it was waiting for exists. `remainingBudgetMilliseconds` is
- * what is LEFT of that deadline: every command below takes the smaller of it and
- * its own bound, and a budget at or below zero runs none of them and reports the
- * tree as neither signalled nor terminated, which is the reading that keeps a
- * caller escalating rather than one that claims a kill it never attempted.
+ * AND EVERY HOST COMMAND THIS RUNS IS CHARGED TO ONE SHARED DEADLINE. This whole
+ * call is synchronous — the stamp read, the process-table listing, `taskkill`,
+ * and the state code behind each survival reading are all `spawnSync`, each
+ * bounded at `HOST_QUERY_TIMEOUT_MS` on its own and none of them bounded
+ * collectively — so a caller that escalates three times can spend several
+ * multiples of a cleanup budget that was already over, with vitest's timeout
+ * firing on this blocked thread before the verdict it was waiting for exists.
+ *
+ * `remainingBudgetMilliseconds` is what is LEFT of that deadline WHEN THIS IS
+ * CALLED, and `HostCommandBudget` turns it into an absolute instant re-read
+ * before each command rather than a snapshot handed to all of them: a figure
+ * copied to every call site entitles each command to the whole remainder, so
+ * `taskkill` spends it and the listing after it spends it again. Each command
+ * takes the smaller of what is left and its own bound; a budget spent to zero
+ * runs none of them and reports the tree as neither signalled nor terminated,
+ * which is the reading that keeps a caller escalating rather than one that
+ * claims a kill it never attempted.
+ *
+ * `readClock` sits last for `readProcessStateCode`'s reason: the budget is what
+ * a production caller passes, and the clock is what a case does.
  */
 export function terminateProcessTree(
   processId: number,
   signal: NodeJS.Signals = "SIGKILL",
   rootIdentity: SpawnedTreeIdentity = SpawnedTreeIdentity.unverified(processId),
   remainingBudgetMilliseconds?: number,
+  readClock: () => number = Date.now,
 ): boolean {
-  const hasTerminated = (treeMemberProcessId: number): boolean =>
-    processHasTerminated(treeMemberProcessId, remainingBudgetMilliseconds);
+  const budget = new HostCommandBudget(remainingBudgetMilliseconds, readClock);
   if (PROCESS_TREE_TERMINATION_MODE === "external") {
-    return terminateExternalTree(processId, signal, {
-      killTreeFrom: (treeMemberProcessId, forced) =>
-        runPlatformTreeKill(treeMemberProcessId, forced, remainingBudgetMilliseconds),
-      processTable: () => readProcessTable(remainingBudgetMilliseconds),
-      hasTerminated,
-      rootIdentity: () => rootIdentity.readIdentity(remainingBudgetMilliseconds),
-      capturedDescendants: () => rootIdentity.capturedDescendants,
-    });
+    return terminateExternalTree(
+      processId,
+      signal,
+      externalTreeToolsOver(processId, rootIdentity, budget),
+    );
   }
   return terminateSignalledTree(processId, signal, {
     deliver: deliverSignal,
     groupHasMember: processGroupExists,
-    hasTerminated,
+    hasTerminated: (treeMemberProcessId: number): boolean =>
+      processHasTerminated(treeMemberProcessId, budget.remainingMilliseconds()),
   });
 }

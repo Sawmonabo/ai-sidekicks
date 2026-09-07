@@ -31,6 +31,7 @@ import {
   scriptedExternalTools,
   STALE_PARENT_ROW_PID,
   STALE_PARENT_ROW_TABLE,
+  UNREADABLE_TABLE,
 } from "./termination-matrix-tools.test-support.js";
 
 /** Every cell whose subject is `terminateExternalTree`. */
@@ -229,6 +230,47 @@ export const EXTERNAL_ARM_CELLS: readonly TerminationCell[] = [
       expect(
         tools.killedFrom,
         "a pid was signalled although the root names nothing and nothing was captured — something was guessed at",
+      ).toStrictEqual([]);
+      return Promise.resolve(terminated);
+    },
+  },
+  {
+    // THE HOST THAT WOULD NOT ANSWER, and the exact foil for the cell above.
+    // Same dead root, same absent capture, same empty result from the parent
+    // walk — and a different reason for it. There the listing RAN and named
+    // nothing beneath the pid, which on Windows is positive evidence that
+    // nothing survives it; here the query would not start, spent its bound, or
+    // exited non-zero, and no row is evidence of anything at all.
+    //
+    // Read as an empty table, this answered `true`: dead root, no unreached
+    // member, no claimant, tree reported gone — with a live browser under it.
+    // It is reachable on exactly the two shapes that carry no capture to hold
+    // the verdict false, a Playwright-supplied pid and a managed child whose
+    // exit-time capture was itself the reading that failed. So `readers.ts`
+    // answers an unreadable host with a sentinel and the verdict fails closed:
+    // the caller retries and ends at an honest `unterminable`.
+    name: "an unreadable process listing is a refusal, not a dead root with nothing behind it",
+    axes: {
+      root: "exited-holding-stdio",
+      platformAnswer: "never-asked",
+      treeMode: "external",
+      surviving: "unobservable",
+      settleRegistration: "accepted",
+    },
+    owedTermination: false,
+    answer: () => {
+      const tools = scriptedExternalTools({
+        killTreeFrom: () => true,
+        processTable: UNREADABLE_TABLE,
+        // The root is genuinely gone and every other reading this arm takes is
+        // clean, which is precisely what made the false success reachable.
+        hasTerminated: (processId: number) => processId === ROOT_PID,
+        rootIdentity: "gone",
+      });
+      const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
+      expect(
+        tools.killedFrom,
+        "a pid was signalled although this host named none — an unreadable listing is being read as a table",
       ).toStrictEqual([]);
       return Promise.resolve(terminated);
     },

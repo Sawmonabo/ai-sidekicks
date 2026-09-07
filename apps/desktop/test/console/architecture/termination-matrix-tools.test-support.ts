@@ -61,6 +61,18 @@ export const CAPTURED_DESCENDANT: CapturedTreeMember = {
 /** A host on which nothing at all claims the root pid. */
 export const EMPTY_TABLE: ReadonlyMap<number, ProcessTableRow> = processTableOf([]);
 
+/**
+ * A host that would not answer — the sentinel, and not a table with no rows.
+ *
+ * Its whole job is to be the foil for `EMPTY_TABLE`. That one is a listing that
+ * RAN and named nothing beneath the root, which on Windows is positive evidence
+ * that nothing survives the dead pid; this one is a query that would not start,
+ * spent its bound, or exited non-zero, which is evidence of nothing at all. The
+ * two cells that differ only in this constant are what keeps the distinction
+ * from collapsing back into "no rows".
+ */
+export const UNREADABLE_TABLE: undefined = undefined;
+
 /** A table in which `DESCENDANT_PID` still records `ROOT_PID` as its parent. */
 export const ROOTLESS_TREE_TABLE: ReadonlyMap<number, ProcessTableRow> = processTableOf([
   [DESCENDANT_PID, ROOT_PID, DESCENDANT_STAMP],
@@ -107,7 +119,13 @@ export const REISSUED_ROOT_TABLE: ReadonlyMap<number, ProcessTableRow> = process
  */
 export function scriptedExternalTools(script: {
   readonly killTreeFrom: (processId: number) => boolean;
-  readonly processTable: ReadonlyMap<number, ProcessTableRow>;
+  /**
+   * The listing this scripted host produces, or `undefined` for one that will
+   * not answer at all. Spelled explicitly rather than left optional, because
+   * the whole point of the value is that an unreadable host and a host that
+   * lists nothing are two different readings a cell has to choose between.
+   */
+  readonly processTable: ReadonlyMap<number, ProcessTableRow> | undefined;
   readonly hasTerminated: (processId: number, killAttempts: readonly number[]) => boolean;
   readonly rootIdentity?: TreeRootIdentity;
   readonly capturedDescendants?: readonly CapturedTreeMember[];
