@@ -49,6 +49,7 @@ import {
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
 import { resolvedPaneBody } from "./pane-body-resolution.js";
+import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
 
 /**
  * The browser or terminal pane body the deck holds for a kind, loaded.
@@ -99,9 +100,17 @@ function paneBinding(
  * reasons and then loses the host holding the lease, so the pane folded off it
  * carries the degraded reading over a full transition ledger — the surface these
  * tiers are for.
+ *
+ * OPENED WITH THE FOLD A WINDOW COMPOSES, never with none. This scenario plays four
+ * `run.*` beats, and a store built without projectors folds them into no entity at
+ * all — so every partition a surface here might read reports the empty map a session
+ * with no runs reports, which is a wrong answer that reads exactly like a right one.
  */
 function terminalSessionStore(): SessionStore {
-  const store = new SessionStore({ sessionId: TERMINAL_SCENARIO.sessionId });
+  const store = new SessionStore({
+    sessionId: TERMINAL_SCENARIO.sessionId,
+    projectors: COMPOSED_CONSOLE_PROJECTORS,
+  });
   // The scenario's own roster, which is what the composition root initialises a store
   // from. An empty base state is not a cheaper version of it: the console registers no
   // `membership.*` projector, so the roster arrives only here — and a lease surface

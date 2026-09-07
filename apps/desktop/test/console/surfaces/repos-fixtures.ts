@@ -52,12 +52,33 @@ import {
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
 import { resolvedPaneBody } from "./pane-body-resolution.js";
+import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
+
+/**
+ * A store over this family's scenario, opened with the fold a window composes.
+ *
+ * ITS OWN FUNCTION BECAUSE TWO MOUNT MODULES OPEN ONE: the pane mounts take it beside
+ * a scenario bridge through {@link scenarioCollaborators}, and the payload mounts take
+ * it beside a scripted port instead. A second `new SessionStore` at the second site is
+ * how one of them ends up opened with a different fold — which is exactly the defect
+ * `projector-composition.ts` exists to close.
+ *
+ * The fold is not optional here. A store built without projectors folds every event
+ * into no entity, so a partition a surface reads answers the empty map an empty
+ * session answers, and a mount cannot tell the two apart.
+ */
+export function scenarioSessionStore(): SessionStore {
+  return new SessionStore({
+    sessionId: REPOS_SCENARIO.sessionId,
+    projectors: COMPOSED_CONSOLE_PROJECTORS,
+  });
+}
 
 /** A bridge and a store both drawn from the repos scenario, which is the family's own. */
 export function scenarioCollaborators(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
   return {
     bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
-    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
+    sessionStore: scenarioSessionStore(),
   };
 }
 

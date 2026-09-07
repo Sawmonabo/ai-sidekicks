@@ -92,6 +92,7 @@ import {
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
 import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
+import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -141,7 +142,13 @@ function paneContext(
     linkedSourcePaneId: undefined,
     focusHue: undefined,
     bridge,
-    sessionStore: new SessionStore({ sessionId: WORKFLOWS_SESSION_ID }),
+    // Opened with the fold a window composes rather than with none: a store built
+    // without projectors folds every event into no entity, so a partition a surface
+    // reads answers the empty map a session with no runs answers.
+    sessionStore: new SessionStore({
+      sessionId: WORKFLOWS_SESSION_ID,
+      projectors: COMPOSED_CONSOLE_PROJECTORS,
+    }),
   };
 }
 
@@ -212,7 +219,13 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
     bridge,
     frameStore,
     sessionStore: undefined,
-    sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
+    // The registry hands its fold to every store it opens, so it takes the window's
+    // composition for `paneContext`'s reason one screen up — a registry opened with
+    // none would give a session this surface navigates into an unprojected store.
+    sessionStoreRegistry: new SessionStoreRegistry({
+      read: () => Promise.resolve(undefined),
+      projectors: COMPOSED_CONSOLE_PROJECTORS,
+    }),
     // This composition's own board, which is what the surface opens panes out of —
     // the same instance the pane helper above mounts bodies from, so a tier that
     // opens a run from the destination reaches the body this file registered.
