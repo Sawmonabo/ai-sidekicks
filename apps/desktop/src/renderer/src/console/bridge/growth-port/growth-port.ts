@@ -382,6 +382,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     windowFocusAuxiliary: async () => growthUnavailable("windowFocusAuxiliary"),
     windowCloseAuxiliary: async () => growthUnavailable("windowCloseAuxiliary"),
     windowSubscribePaneErrors: async () => growthUnavailable("windowSubscribePaneErrors"),
+    windowSubscribePaneReturns: async () => growthUnavailable("windowSubscribePaneReturns"),
     providerSessionImportBegin: async () => growthUnavailable("providerSessionImportBegin"),
     providerSessionImportSubscribe: async () => growthUnavailable("providerSessionImportSubscribe"),
     attentionProjectionRead: async () => growthUnavailable("attentionProjectionRead"),

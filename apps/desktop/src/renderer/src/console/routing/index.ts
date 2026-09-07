@@ -18,6 +18,7 @@ export {
   needsContextPicker,
   parseRoute,
   railDestinationFor,
+  routeAuxiliaryWindowId,
   routeSessionId,
   routesAreEqual,
   type ConsoleRoute,
@@ -36,8 +37,14 @@ export {
 export {
   AUXILIARY_ROUTE_LABELS,
   IMPLEMENTED_AUXILIARY_ROUTES,
-  InvalidAuxiliaryRouteTargetError,
-  formatAuxiliaryFragment,
   isAuxiliaryRouteName,
   type AuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
+// The grammar's own half, from the leaf that holds both sides of it. Two lines
+// rather than one because the cross-process leaf is two modules — what routes
+// exist, and how one becomes an address — and forwarding the second through the
+// first would put a re-export chain across the process boundary.
+export {
+  InvalidAuxiliaryRouteTargetError,
+  formatAuxiliaryFragment,
+} from "../../../../shared/auxiliary-route-fragment.js";

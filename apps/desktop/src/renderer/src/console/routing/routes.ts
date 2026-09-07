@@ -35,10 +35,11 @@
 // the console cannot accept a fragment the menu cannot produce or the reverse.
 
 import {
+  auxiliaryWindowIdOf,
   formatAuxiliaryFragment,
   parseAuxiliaryFragment,
   type AuxiliaryRouteTarget,
-} from "../../../../shared/auxiliary-routes.js";
+} from "../../../../shared/auxiliary-route-fragment.js";
 
 /**
  * Destinations on the icon rail, in rail order. Closed; the rail renders exactly
@@ -328,6 +329,26 @@ function routeAgentId(route: ConsoleRoute): string | undefined {
 }
 
 /**
+ * The shell's handle for THIS window, or `undefined` where the address carries none.
+ *
+ * Exported, unlike {@link routeAgentId} beside it, because a surface asks it a product
+ * question rather than a comparison one: a window whose address carries a handle is one a
+ * deck opened and is keeping a slot for, so it can offer to put its pane back — and a
+ * window without one was opened from the menu bar, has no slot behind it, and must not
+ * offer a control that would address a window nobody is waiting on.
+ *
+ * Delegated to the shared grammar rather than walking the union here, so which arms may
+ * carry a handle is answered in the one module that also encodes and decodes it.
+ */
+export function routeAuxiliaryWindowId(route: ConsoleRoute): string | undefined {
+  if (route.kind !== "auxiliary") {
+    return undefined;
+  }
+  const { kind: _consoleRouteKind, ...target } = route;
+  return auxiliaryWindowIdOf(target);
+}
+
+/**
  * True when an auxiliary route needs the context picker: it named a window but not
  * what to show in it.
  */
@@ -359,7 +380,13 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
         right.kind === "auxiliary" &&
         left.route === right.route &&
         routeSessionId(left) === routeSessionId(right) &&
-        routeAgentId(left) === routeAgentId(right)
+        routeAgentId(left) === routeAgentId(right) &&
+        // The handle is compared like any other member of the address: two
+        // windows on one session and one route are still two addresses when the
+        // shell minted different handles for them, and a comparison that
+        // ignored it would call an unchanged hash out of a re-detach the same
+        // address and skip the transition.
+        routeAuxiliaryWindowId(left) === routeAuxiliaryWindowId(right)
       );
     case "not-found":
       return right.kind === "not-found" && left.attempted === right.attempted;

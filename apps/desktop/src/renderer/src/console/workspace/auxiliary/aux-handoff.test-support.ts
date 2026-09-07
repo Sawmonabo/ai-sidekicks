@@ -30,7 +30,7 @@ const rejectWireCall = async (): Promise<never> => {
   throw new Error(WIRE_REJECTION_MESSAGE);
 };
 
-/** A port whose four window operations reject rather than answering. */
+/** A port whose five window operations reject rather than answering. */
 export function rejectingPort(): GrowthPort {
   return {
     ...createRefusingGrowthPort(),
@@ -38,6 +38,7 @@ export function rejectingPort(): GrowthPort {
     windowFocusAuxiliary: rejectWireCall,
     windowCloseAuxiliary: rejectWireCall,
     windowSubscribePaneErrors: rejectWireCall,
+    windowSubscribePaneReturns: rejectWireCall,
   };
 }
 

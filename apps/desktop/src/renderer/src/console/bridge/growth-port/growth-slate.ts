@@ -302,7 +302,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "window-control-namespace": {
     id: "window-control-namespace",
-    wire: "window-control bridge namespace — renderer-initiated pane detach into an auxiliary window, auxiliary-window focus and close, and the crashed-window pane-error signal",
+    wire: "window-control bridge namespace — renderer-initiated pane detach into an auxiliary window, auxiliary-window focus and close, and the two signals that report a pane coming back: the crashed-window pane-error signal and the orderly-return signal a window raises when it closes itself",
     owningDocument: "Spec-023 §Preload Bridge Contract + §Console Design (Meridian)",
     consumingSurface: "session workspace deck, auxiliary windows",
     wireRegistered: false,

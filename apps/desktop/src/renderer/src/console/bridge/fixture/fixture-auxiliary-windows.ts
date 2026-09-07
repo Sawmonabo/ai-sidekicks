@@ -5,18 +5,19 @@
 // fabrication. Every other operation the fixture serves stands in for the DAEMON,
 // and `fixture-served-operations.ts` states the rule those answers obey: an
 // operation is served when a scenario states something it can be answered from.
-// These four are addressed to the SHELL rather than to the daemon — the window
+// These five are addressed to the SHELL rather than to the daemon — the window
 // bridge `Spec-023 §Windows` describes — and a scenario carries no windows, so the
-// rule as written would refuse all four forever. It also would not be measuring the
+// rule as written would refuse all five forever. It also would not be measuring the
 // right thing: the fixture bridge stands in for the whole preload surface, and for a
 // shell-addressed operation the fixture IS the shell. So the plane below is a real
 // model of one, kept per bridge, and every answer it gives is a fact about that
 // model rather than a guess about a window somewhere else.
 //
-// WHAT THAT UNLOCKS, WHICH IS THE POINT. With all four refusing, a hand-off ended at
+// WHAT THAT UNLOCKS, WHICH IS THE POINT. With them all refusing, a hand-off ended at
 // its fourth gate under every scenario, screenshot and browser-tier run: no window
-// ever opened, so the deck's placeholder, its focus control, its return control and
-// the crash note beside them were unreachable states of a surface nothing had drawn.
+// ever opened, so the deck's placeholder, its focus control, its return control, the
+// auxiliary window's own return control and the crash note beside them were
+// unreachable states of a surface nothing had drawn.
 // A surface whose only reachable state is its refusal is the shape
 // `fixture-served-operations.ts` names for the agent roster read, and it is this one
 // too.
@@ -34,11 +35,12 @@
 //
 // THE LIVE STATUS DOES NOT MOVE. `window-control-namespace` stays on
 // `Plan-023 §Console growth slate` with `wireRegistered: false`, and the live bridge
-// goes on refusing all four by name. Nothing here is a wire.
+// goes on refusing every one of them by name. Nothing here is a wire.
 
-import type { GrowthPaneError } from "../growth-values/index.js";
+import type { GrowthPaneError, GrowthPaneReturn } from "../growth-values/index.js";
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import { growthUnscriptedReply, type GrowthOutcome } from "../growth-port/index.js";
+import { FixtureWindowSignalStreams } from "./fixture-window-signal-stream.js";
 
 /** The prefix every window handle this plane mints carries. */
 const FIXTURE_WINDOW_ID_PREFIX = "fixture-auxiliary-window";
@@ -57,98 +59,6 @@ interface FixtureAuxiliaryWindow {
 }
 
 /**
- * The crashed-window signal, as an open stream that reports what the plane tells it.
- *
- * A REAL STREAM AND NOT AN EMPTY ONE. An iterable that ended immediately would reach
- * the watch's drain as a producer closing the signal, and the placeholder would carry
- * "the signal that reports a lost window ended" in every fixture window — a stated
- * fault where the truth is that nothing has gone wrong. So it stays open until the
- * subscriber closes it, exactly as the daemon's would.
- *
- * ONE CONSUMER, and the generator is minted once for that reason: the watch drains
- * `events` in a single `for await`, and handing a second reader its own generator
- * over one queue would let two drains split a loss between them.
- */
-class FixturePaneErrorStream implements GrowthStream<GrowthPaneError> {
-  readonly #pending: GrowthPaneError[] = [];
-  readonly #onClosed: (stream: FixturePaneErrorStream) => void;
-  #events: AsyncGenerator<GrowthPaneError> | undefined;
-  #wake: (() => void) | undefined;
-  #isClosed = false;
-
-  public constructor(onClosed: (stream: FixturePaneErrorStream) => void) {
-    this.#onClosed = onClosed;
-  }
-
-  public get events(): AsyncIterable<GrowthPaneError> {
-    this.#events ??= this.#deliver();
-    return this.#events;
-  }
-
-  /**
-   * Put one loss on the stream.
-   *
-   * Queued and then woken, in that order, so a report that lands while the drain is
-   * parked on the wake promise is read on the pass the wake releases rather than on
-   * the one after it.
-   */
-  public report(paneError: GrowthPaneError): void {
-    if (this.#isClosed) {
-      return;
-    }
-    this.#pending.push(paneError);
-    this.#release();
-  }
-
-  /**
-   * Close the signal, which is what ends the drain.
-   *
-   * Idempotent, because the watch closes a stream it was handed after its round was
-   * superseded as well as the one it installed, and both paths reach here.
-   */
-  public close(): void {
-    if (this.#isClosed) {
-      return;
-    }
-    this.#isClosed = true;
-    this.#release();
-    this.#onClosed(this);
-  }
-
-  #release(): void {
-    const wake = this.#wake;
-    this.#wake = undefined;
-    wake?.();
-  }
-
-  /**
-   * Hand over every queued loss, then wait for the next one or for the close.
-   *
-   * The queue is drained BEFORE the closed flag is read, so a loss reported in the
-   * same turn as a close is still delivered: a report that reached the plane and then
-   * vanished because the subscriber was tearing down would be a lost window nothing
-   * ever mentioned.
-   */
-  async *#deliver(): AsyncGenerator<GrowthPaneError> {
-    let isDraining = true;
-    while (isDraining) {
-      const next = this.#pending.shift();
-      if (next !== undefined) {
-        yield next;
-        continue;
-      }
-      if (this.#isClosed) {
-        isDraining = false;
-        continue;
-      }
-      await new Promise<void>((resolve) => {
-        this.#wake = resolve;
-      });
-    }
-  }
-}
-
-/**
  * The shell's auxiliary windows, for one fixture bridge.
  *
  * ONE PLANE PER BRIDGE, constructed where the port is. A window handle is meaningful
@@ -160,7 +70,8 @@ class FixturePaneErrorStream implements GrowthStream<GrowthPaneError> {
 export class FixtureAuxiliaryWindowPlane {
   readonly #windowByPaneId = new Map<string, FixtureAuxiliaryWindow>();
   readonly #windowById = new Map<string, FixtureAuxiliaryWindow>();
-  readonly #paneErrorStreams = new Set<FixturePaneErrorStream>();
+  readonly #paneErrorStreams = new FixtureWindowSignalStreams<GrowthPaneError>();
+  readonly #paneReturnStreams = new FixtureWindowSignalStreams<GrowthPaneReturn>();
   #mintedWindowCount = 0;
 
   /**
@@ -215,10 +126,14 @@ export class FixtureAuxiliaryWindowPlane {
   /**
    * Close one window, returning its pane to the deck.
    *
-   * NO LOSS IS REPORTED, and that is the distinction the signal exists for: a window
-   * the console closed is a window the console already knows about, and putting it on
-   * the crashed-window signal would tell the deck a pane came back unexpectedly when
-   * it came back because somebody asked.
+   * NO LOSS IS REPORTED, and that is the distinction the two signals exist for: a
+   * window the console closed came back because somebody asked, and putting that on
+   * the crashed-window signal would tell the deck a pane returned unexpectedly when it
+   * did not. It goes on the RETURN signal instead, and unconditionally — including
+   * when the deck itself asked, where the report reaches a deck that has already
+   * restored the slot and does nothing. Reporting only the window's own closes would
+   * make the shell's account of a window depend on who asked, which is exactly the
+   * fact the shell is the authority on and the console is not.
    */
   public closeAuxiliary(request: { readonly windowId: string }): GrowthOutcome<void> {
     const open = this.#windowById.get(request.windowId);
@@ -226,6 +141,7 @@ export class FixtureAuxiliaryWindowPlane {
       return growthUnscriptedReply("windowCloseAuxiliary", "a window by that handle");
     }
     this.#forget(open);
+    this.#paneReturnStreams.report({ windowId: open.windowId, paneId: open.paneId });
     return { status: "served", value: undefined };
   }
 
@@ -238,11 +154,22 @@ export class FixtureAuxiliaryWindowPlane {
    * have — which is the reading `aux-pane-error-watch.ts` was written under.
    */
   public subscribePaneErrors(): GrowthOutcome<GrowthStream<GrowthPaneError>> {
-    const stream = new FixturePaneErrorStream((closed) => {
-      this.#paneErrorStreams.delete(closed);
-    });
-    this.#paneErrorStreams.add(stream);
-    return { status: "served", value: stream };
+    return { status: "served", value: this.#paneErrorStreams.subscribe() };
+  }
+
+  /**
+   * Open the orderly-return signal.
+   *
+   * Served on the same terms as the crash signal beside it, and quiet for the same
+   * reason: it reports acts, and until a window is closed there have been none. Its
+   * producer is {@link closeAuxiliary} rather than an act of this module's own —
+   * which is the whole distinction between the two signals. A loss has to be DRIVEN
+   * because nothing in a scenario crashes a window; a return needs no such act,
+   * because closing a window is an ordinary operation the console itself performs
+   * and the shell is entitled to report.
+   */
+  public subscribePaneReturns(): GrowthOutcome<GrowthStream<GrowthPaneReturn>> {
+    return { status: "served", value: this.#paneReturnStreams.subscribe() };
   }
 
   /**
@@ -265,9 +192,7 @@ export class FixtureAuxiliaryWindowPlane {
       return false;
     }
     this.#forget(open);
-    for (const stream of this.#paneErrorStreams) {
-      stream.report({ paneId: open.paneId, reason });
-    }
+    this.#paneErrorStreams.report({ paneId: open.paneId, reason });
     return true;
   }
 

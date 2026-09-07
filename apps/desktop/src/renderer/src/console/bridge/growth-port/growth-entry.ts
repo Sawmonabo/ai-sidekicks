@@ -110,6 +110,7 @@ export type GrowthOperationId =
   | "windowFocusAuxiliary"
   | "windowCloseAuxiliary"
   | "windowSubscribePaneErrors"
+  | "windowSubscribePaneReturns"
   | "providerSessionImportBegin"
   | "providerSessionImportSubscribe"
   | "attentionProjectionRead"

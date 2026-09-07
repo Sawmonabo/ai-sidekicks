@@ -327,6 +327,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     windowFocusAuxiliary: async (request) => auxiliaryWindows.focusAuxiliary(request),
     windowCloseAuxiliary: async (request) => auxiliaryWindows.closeAuxiliary(request),
     windowSubscribePaneErrors: async () => auxiliaryWindows.subscribePaneErrors(),
+    windowSubscribePaneReturns: async () => auxiliaryWindows.subscribePaneReturns(),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

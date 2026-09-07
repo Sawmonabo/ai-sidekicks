@@ -65,6 +65,20 @@ export interface FrameChromeProps {
    * row rather than to whichever row happens to be raised.
    */
   readonly renderBannerSupplement?: (banner: FrameBanner) => React.ReactNode;
+  /**
+   * Controls that address THIS WINDOW rather than anything in it.
+   *
+   * Above the banners and OUTSIDE the surface's error boundary, which is the whole
+   * reason it is a slot on the chrome rather than something a surface draws: a window
+   * whose surface threw is the state in which being unable to give its pane back
+   * would matter most, and a control mounted inside that boundary would be the first
+   * thing to disappear.
+   *
+   * A prop for the reason `surfaces` is one — the frame renders what it is handed and
+   * owns no act — and the one filler today is the auxiliary window's return control,
+   * which draws nothing at all on a window that no deck is holding a slot for.
+   */
+  readonly windowControls?: React.ReactNode;
   /** The surface the route resolves to. Mounted inside its own error boundary. */
   readonly children: React.ReactNode;
   /** Rendered above the surface: the palette, dialogs, anything window-scoped. */
@@ -95,6 +109,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           />
         )}
         <div className="meridian-frame__column">
+          {props.windowControls}
           {props.banners.length === 0 ? null : (
             <div className="meridian-frame__banners">
               {props.banners.map((banner) => (

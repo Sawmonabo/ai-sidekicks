@@ -99,6 +99,49 @@ describe("the fixture's auxiliary-window plane", () => {
     expect(hasEnded).toBe(true);
   });
 
+  it("reports a close on the return signal and never on the crash one", async () => {
+    // The distinction the two signals exist for. A window that was ASKED to close is
+    // not a window that stopped being open on its own, and putting the two on one
+    // stream would make telling them apart a member read — with every reader that
+    // forgot reporting a crash that did not happen.
+    const plane = new FixtureAuxiliaryWindowPlane();
+    const windowId = servedWindowId(plane.detachPane({ paneId: PANE_ID }));
+    const returns = plane.subscribePaneReturns();
+    const errors = plane.subscribePaneErrors();
+    expect(returns.status).toBe("served");
+    expect(errors.status).toBe("served");
+    if (returns.status !== "served" || errors.status !== "served") {
+      return;
+    }
+
+    const returned: { readonly windowId: string; readonly paneId: string }[] = [];
+    const lost: unknown[] = [];
+    const drains = Promise.all([
+      (async () => {
+        for await (const paneReturn of returns.value.events) {
+          returned.push(paneReturn);
+        }
+      })(),
+      (async () => {
+        for await (const paneError of errors.value.events) {
+          lost.push(paneError);
+        }
+      })(),
+    ]);
+
+    expect(plane.closeAuxiliary({ windowId }).status).toBe("served");
+    await crossMacrotaskBoundary();
+
+    expect(returned).toStrictEqual([{ windowId, paneId: PANE_ID }]);
+    // The negative half, and the one that matters: a crash signal that spoke here
+    // would put a note in the deck's error slot about a close somebody performed.
+    expect(lost).toStrictEqual([]);
+
+    returns.value.close();
+    errors.value.close();
+    await drains;
+  });
+
   it("reports the shell closing a window, to every open signal, and forgets it", async () => {
     const plane = new FixtureAuxiliaryWindowPlane();
     const windowId = servedWindowId(plane.detachPane({ paneId: PANE_ID }));
