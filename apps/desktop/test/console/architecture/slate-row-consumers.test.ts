@@ -30,10 +30,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { GROWTH_OPERATIONS } from "../../../src/renderer/src/console/bridge/growth-operations/index.js";
-import {
-  GROWTH_SLATE_ROWS,
-  type GrowthSlateRowId,
-} from "../../../src/renderer/src/console/bridge/growth-port/growth-slate.js";
+import { GROWTH_SLATE_ROWS } from "../../../src/renderer/src/console/bridge/growth-port/growth-slate.js";
+import type { GrowthSlateRowId } from "../../../src/renderer/src/console/bridge/growth-port/growth-slate-row.js";
 import { ConsoleSourceTree, type ConsoleModuleText } from "../console-source-modules.js";
 
 /**
