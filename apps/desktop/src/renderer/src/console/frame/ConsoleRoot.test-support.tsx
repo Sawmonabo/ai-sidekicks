@@ -15,7 +15,7 @@ import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.
 /** Where a window with no particular address lands. */
 export const SESSIONS_HASH = "#/sessions";
 
-/** What a caller may vary about the mount. Both are the composition root's own props. */
+/** What a caller may vary about the mount: this window's opening, and one seam. */
 export interface MountConsoleOptions {
   /**
    * Which fixture scenario the window plays.
@@ -25,6 +25,24 @@ export interface MountConsoleOptions {
    * script — a scripted handshake refusal, say, which no window reaches by default.
    */
   readonly scenarioId?: string;
+  /**
+   * The address the window is BORN at, put in place before the first render.
+   *
+   * Omitted, a mount with no address at all is given the sessions list's, and an
+   * address the case set for itself is left exactly as the case set it.
+   *
+   * THAT DEFAULT IS LOAD-BEARING RATHER THAN TIDY. A window born at no address is an
+   * install's first launch, and a fixture build opens one into the demonstration
+   * session instead of the sessions list — a different composition, whose deck pulls
+   * its pane chunks in while the mount is still settling, so the mount settles in
+   * hundreds of milliseconds rather than tens and the window's own idle warm walk
+   * reaches the surface board inside it. A unit suite is not an install's first
+   * launch and does not become one by saying nothing; the three suites that set an
+   * address in a `beforeEach` already said so, and this is the same statement made
+   * once for the suites that do not. A case that MEANS the first launch names the
+   * empty address and gets it.
+   */
+  readonly openedAtHash?: string;
   /**
    * The whole surface context the frame built, handed back once per render.
    *
@@ -47,6 +65,7 @@ export interface MountConsoleOptions {
 export async function mountConsole(options: MountConsoleOptions = {}): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
   const { scenarioId, observe } = options;
+  openWindowAt(options.openedAtHash);
   const props: ConsoleRootProps = {
     ...(scenarioId === undefined ? {} : { scenarioId }),
     ...(observe === undefined
@@ -66,6 +85,28 @@ export async function mountConsole(options: MountConsoleOptions = {}): Promise<R
     throw new Error("the console never mounted");
   }
   return mounted;
+}
+
+/**
+ * Put this window's opening address in place, before anything reads it.
+ *
+ * WRITTEN ONTO THE WINDOW RATHER THAN PASSED AS A PROP, because that is where the
+ * console reads it from: the frame store parses `window.location.hash` in its own
+ * constructor and the first-launch rule is decided on the same value, so an address
+ * handed through a prop would be an address neither of them consults.
+ *
+ * THE EMPTY READING IS THE ONLY ONE IT OVERRIDES. A case that set an address before
+ * mounting is stating the window's opening, and a helper that overwrote it would be
+ * the second writer `hash-route-binding.ts` exists to keep off this value.
+ */
+function openWindowAt(openedAtHash: string | undefined): void {
+  if (openedAtHash !== undefined) {
+    window.location.hash = openedAtHash;
+    return;
+  }
+  if (window.location.hash === "") {
+    window.location.hash = SESSIONS_HASH;
+  }
 }
 
 /**
