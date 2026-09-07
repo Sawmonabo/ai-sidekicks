@@ -4,10 +4,13 @@
 // copy: a test restating the six readiness states would be a second closed set, and
 // the first one to go stale when a seventh lands.
 //
-// THE REMEDY IS DISPLAY TEXT. The two remedies whose act is a mutating registry verb
-// have no control here at all — a button that registered an account or set a default
-// from this step would be a second place the registry is written from — so the case
-// below counts the controls a `register` row offers, and it is none.
+// THE REMEDY IS DISPLAY TEXT AND EVERY ARM STILL HAS AN ACTION. The two remedies whose
+// act is a mutating registry verb are never PERFORMED here — a button that registered
+// an account or set a default from this step would be a second place the registry is
+// written from, and no console route serves either verb — so what those arms offer is
+// the way to the surface that owns them, scoped to the row's own provider. The case
+// below counts the controls a `register` row offers and asserts where the row's one
+// control goes; `ProviderRow.test.tsx` drives the row directly for the other arms.
 //
 // AND `observedAt` IS RENDERED AS WHAT IT IS. The contract carries no read-path age
 // test and no stale arm, so a badge computed from a clock would be this console
@@ -27,14 +30,17 @@ const ACCOUNT_ID = "019b78c9-0a80-7c31-8110-cca0117a3302" as NonNullable<
   ProviderReadiness["resolvedAccountId"]
 >;
 
-function renderStep(reading: ProviderReadinessReading): HTMLElement {
+function renderStep(
+  reading: ProviderReadinessReading,
+  onOpenAccountRegistry: (providerName: string | undefined) => void = () => undefined,
+): HTMLElement {
   const { container } = render(
     <ProviderReadinessStep
       reading={reading}
       actionFor={() => ({ kind: "idle" })}
       onSignIn={() => undefined}
       onRecheck={() => undefined}
-      onOpenAccountRegistry={() => undefined}
+      onOpenAccountRegistry={onOpenAccountRegistry}
       onSkip={() => undefined}
     />,
   );
@@ -77,7 +83,8 @@ describe("the readiness vocabulary", () => {
 });
 
 describe("the remedy", () => {
-  it("renders the register remedy as text and offers no control for it", () => {
+  it("renders the register remedy as text and offers the way to the registry", () => {
+    const opened: (string | undefined)[] = [];
     const container = renderStep(
       readingWith([
         {
@@ -86,11 +93,38 @@ describe("the remedy", () => {
           remedy: { kind: "register", provider: "claude" },
         },
       ]),
+      (providerName) => opened.push(providerName),
     );
     expect(container.textContent).toContain("Register an account for this provider");
-    // Only the step's own two controls — the registry and the skip — and nothing on
-    // the row, because registration is a mutating registry verb.
-    expect(container.querySelectorAll("button")).toHaveLength(2);
+    // The step's own two controls — the registry and the skip — plus the row's one,
+    // which is a deep link and never the registry verb itself.
+    const controls = [...container.querySelectorAll("button")];
+    expect(controls).toHaveLength(3);
+    const rowAction = controls.find(
+      (control) => control.textContent === "Open the registry to add an account",
+    );
+    expect(rowAction).toBeDefined();
+    rowAction?.click();
+    // Scoped to the row's provider, which is the whole difference from the step's own
+    // unscoped button: the page it lands on says which provider it was opened for.
+    expect(opened).toStrictEqual(["claude"]);
+  });
+
+  it("names no provider when the step's own button is the one pressed", () => {
+    // The negative control for the scoping above: one handler serves both controls, so
+    // a row action that leaked its provider into the step's button would open the page
+    // for a provider nobody was reading about.
+    const opened: (string | undefined)[] = [];
+    const container = renderStep(
+      readingWith([{ provider: "claude", state: "authenticated" }]),
+      (providerName) => opened.push(providerName),
+    );
+    const stepAction = [...container.querySelectorAll("button")].find(
+      (control) => control.textContent === "Open the account registry",
+    );
+    expect(stepAction).toBeDefined();
+    stepAction?.click();
+    expect(opened).toStrictEqual([undefined]);
   });
 
   it("offers the sign-in control only where the daemon composed that remedy", () => {

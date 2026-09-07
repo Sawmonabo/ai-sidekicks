@@ -7,10 +7,13 @@
 //
 // THE REMEDY IS DISPLAY TEXT AND NEVER AN EXECUTABLE CONTROL. The daemon composes it
 // per arm; this renders it. The two remedies whose act is a MUTATING registry verb —
-// registering an account, marking one as the default — therefore have no button here
-// at all, and the step instead offers a way to the account registry, which is the
-// surface that owns those verbs. A button that performed them from this step would be
-// a second place the registry is written from.
+// registering an account, marking one as the default — are therefore never PERFORMED
+// from here, because a button that performed them would be a second place the registry
+// is written from and no console route serves either verb anyway. Each of those arms
+// still gets an action, and it is the way to the surface that owns the verb: the row
+// deep-links to the account registry opened FOR its provider, and this step keeps the
+// unscoped way there beside the skip. One handler serves both — `ProviderRow.tsx`
+// says why — and the provider is what tells them apart.
 //
 // NO STALENESS BADGE. `observedAt` is rendered as the wire value it is. The contract
 // carries no read-path age test and no stale arm, so a badge here would be this
@@ -40,7 +43,15 @@ export interface ProviderReadinessStepProps {
   readonly actionFor: (providerName: string) => ProviderActionReading;
   readonly onSignIn: (providerName: string) => void;
   readonly onRecheck: (providerName: string, accountId: ProviderAccountId) => void;
-  readonly onOpenAccountRegistry: () => void;
+  /**
+   * Open the account registry, scoped to a provider where the caller names one.
+   *
+   * ONE HANDLER FOR TWO CONTROLS. The step's own button is the unscoped way there and
+   * passes `undefined`; a row's registry action names its provider, and the page it
+   * lands on says which one it was opened for. Two handlers would be two places the
+   * destination section is named, free to disagree the first time one moved.
+   */
+  readonly onOpenAccountRegistry: (providerName: string | undefined) => void;
   /**
    * Skip this step, where the rail's model says it may be skipped.
    *
@@ -64,7 +75,9 @@ export function ProviderReadinessStep(props: ProviderReadinessStepProps): React.
         <button
           type="button"
           className="meridian-onboarding__act meridian-onboarding__act--secondary"
-          onClick={props.onOpenAccountRegistry}
+          onClick={() => {
+            props.onOpenAccountRegistry(undefined);
+          }}
         >
           Open the account registry
         </button>
@@ -119,6 +132,7 @@ function renderReading(props: ProviderReadinessStepProps): React.ReactNode {
               action={props.actionFor(entry.provider)}
               onSignIn={props.onSignIn}
               onRecheck={props.onRecheck}
+              onOpenAccountRegistry={props.onOpenAccountRegistry}
             />
           ))}
         </ul>

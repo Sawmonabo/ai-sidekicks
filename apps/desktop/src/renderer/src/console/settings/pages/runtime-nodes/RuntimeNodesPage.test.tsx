@@ -36,6 +36,7 @@ function contextFor(
     retainedSessionId,
     retainedSessionStore: undefined,
     shellState: UNREPORTED_SHELL_STATE,
+    selection: undefined,
   };
 }
 

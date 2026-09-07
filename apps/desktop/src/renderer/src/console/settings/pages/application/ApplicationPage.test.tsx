@@ -49,6 +49,7 @@ function contextFor(): SettingsPageContext {
     retainedSessionId: undefined,
     retainedSessionStore: undefined,
     shellState: UNREPORTED_SHELL_STATE,
+    selection: undefined,
   };
 }
 

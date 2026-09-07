@@ -6,10 +6,19 @@
 // composed the `sign_in` arm, a re-check only where an account actually resolved, and
 // a disclosure carrying the wire figures verbatim.
 //
-// THE REMEDY IS NEVER AN EXECUTABLE CONTROL. `register` and `choose_default` are
-// mutating registry verbs the account registry owns; a button here would be a second
-// place that registry is written from, so those two arms render as a headline and
-// nothing else.
+// THE REMEDY IS NEVER EXECUTED HERE, AND EVERY ARM STILL HAS AN ACTION. `register` and
+// `choose_default` are mutating registry verbs the account registry owns, and no
+// console route serves either — `bridge/daemon/daemon-reply-registry.ts` carries
+// `providerAccount.list` and `providerAccount.probe` and nothing else — so a button
+// here that performed one would be a second place that registry is written from AND a
+// control with nothing to call. What those two arms get instead is a DEEP LINK: the
+// registry page, opened for this provider, which is the surface that owns the verb.
+//
+// A LINK PER ROW AND NOT ONLY THE STEP'S ONE BUTTON. The step already offers the
+// registry, unscoped; a person reading a row about one provider and pressing a control
+// beneath it arrives on a page that says which provider they came for and what the
+// first run against it will do. The step's button is the way to the registry, and this
+// is the way to the registry ABOUT THIS ROW.
 //
 // NO STALENESS BADGE. `observedAt` is rendered as the wire value it is — the contract
 // carries no read-path age test and no stale arm, so a badge would be this console
@@ -35,6 +44,7 @@ import {
   READINESS_STATE_LABELS,
   READINESS_STATE_NOTES,
   remedyHeadline,
+  remedyRegistryActionLabel,
 } from "./provider-readiness-copy.js";
 import type { ProviderActionReading } from "./provider-readiness.js";
 
@@ -52,6 +62,14 @@ export interface ProviderRowProps {
   readonly action: ProviderActionReading;
   readonly onSignIn: (providerName: string) => void;
   readonly onRecheck: (providerName: string, accountId: ProviderAccountId) => void;
+  /**
+   * Open the account registry, scoped to the provider the caller names.
+   *
+   * The SAME handler the step's own unscoped button takes, given a provider here and
+   * nothing there. One destination reached two ways rather than two handlers that
+   * would each have to be kept pointing at the same section.
+   */
+  readonly onOpenAccountRegistry: (providerName: string) => void;
 }
 
 /** What the disclosure says where this provider's registry holds nothing at all. */
@@ -71,6 +89,10 @@ export function ProviderRow(props: ProviderRowProps): React.JSX.Element {
   const { entry } = props;
   const { resolvedAccountId } = entry;
   const isBusy = props.action.kind === "handing-off" || props.action.kind === "rechecking";
+  // `undefined` on the one arm the console dispatches itself, which is what keeps this
+  // from being a second control for the sign-in the row already offers.
+  const registryActionLabel =
+    entry.remedy === undefined ? undefined : remedyRegistryActionLabel(entry.remedy);
   return (
     <li className="meridian-onboarding__provider">
       <div className="meridian-onboarding__provider-head">
@@ -96,6 +118,20 @@ export function ProviderRow(props: ProviderRowProps): React.JSX.Element {
             Sign in to this provider
           </button>
         ) : null}
+        {registryActionLabel === undefined ? null : (
+          // NOT disabled while this row is busy, unlike the two beside it. Those
+          // dispatch a call and a second press would be a second call; this one leaves
+          // for another surface, which a person may always do.
+          <button
+            type="button"
+            className="meridian-onboarding__act meridian-onboarding__act--secondary"
+            onClick={() => {
+              props.onOpenAccountRegistry(entry.provider);
+            }}
+          >
+            {registryActionLabel}
+          </button>
+        )}
         {resolvedAccountId === undefined ? null : (
           <button
             type="button"

@@ -33,16 +33,22 @@ import type { SettingsPageContext } from "./settings-page-registry.js";
  * healthy one: a page mounted by a case that says nothing about the shell is a page in
  * a window nobody has told anything, which is the state every shipped build is in
  * until the wire lands. A case that renders a degraded arm names its own.
+ *
+ * `selection` is defaulted for the same reason and to the same kind of value: a page
+ * reached from the settings rail was opened for nothing in particular, which is how
+ * most of it is reached. A case driving the deep link names its own subject.
  */
 export function settingsPageContextWith(
   bridge: ConsoleBridge,
   retainedSessionId: string | undefined,
   retainedSessionStore?: SessionStore | undefined,
   shellState: ShellState = UNREPORTED_SHELL_STATE,
+  selection: string | undefined = undefined,
 ): SettingsPageContext {
   return {
     bridge,
     openSection: () => undefined,
+    selection,
     retainedSessionId,
     retainedSessionStore,
     shellState,

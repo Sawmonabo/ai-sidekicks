@@ -1,9 +1,17 @@
 // The accounts page speaks the registry's own vocabulary, invents no row, composes
-// no remedy, and mounts a seat rather than a body.
+// no remedy, mounts a seat rather than a body, and says which provider it was
+// opened for when an address named one.
 //
 // The vocabulary cases drive the CONTRACT's own arrays rather than a hand-listed
 // copy: a test restating the six readiness states would be a second closed set, and
 // the first one to go stale when a seventh lands.
+//
+// THE SELECTION CASES ARE ABOUT A RESERVATION THAT HAS TO CARRY ITS OWN CONTEXT.
+// A first-run row sends a person here for one provider whose remedy is "register an
+// account", and the body that would register it is not built — so what they meet is
+// a reservation, and a reservation that named neither the provider nor the cost of
+// leaving would be a dead end. The address is also a path segment anyone can type,
+// so the last case is the one that keeps an arbitrary string off the screen.
 
 import {
   BILLING_MODES,
@@ -25,10 +33,16 @@ const CONTEXT = {
   retainedSessionId: undefined,
   retainedSessionStore: undefined,
   shellState: UNREPORTED_SHELL_STATE,
+  selection: undefined,
 } satisfies SettingsPageContext;
 
-function renderedText(): string {
-  const { container } = render(<ProviderAccountsPage context={CONTEXT} />);
+/** The same context, reached by an address whose second segment named something. */
+function contextOpenedFor(selection: string): SettingsPageContext {
+  return { ...CONTEXT, selection };
+}
+
+function renderedText(context: SettingsPageContext = CONTEXT): string {
+  const { container } = render(<ProviderAccountsPage context={context} />);
   return container.textContent ?? "";
 }
 
@@ -122,5 +136,32 @@ describe("the accounts page — the seat it mounts", () => {
     const descriptor = registry.descriptorFor("accounts");
     expect(descriptor?.label).toBe("Provider accounts");
     expect(descriptor?.keywords).toContain("sign in");
+  });
+});
+
+describe("the accounts page — the provider it was opened for", () => {
+  it("names that provider and what the first run against it will do", () => {
+    const text = renderedText(contextOpenedFor("codex"));
+    expect(text).toContain("codex");
+    // Not merely the name: the reservation says what leaving it unregistered costs,
+    // which is the sentence the walkthrough's own completion summary makes true.
+    expect(text).toContain("the first run against this provider is refused");
+  });
+
+  it("says nothing of the sort when the rail opened it", () => {
+    // The negative control for the case above and the reason the section is
+    // conditional: a page reached from the rail was opened for nobody, and a
+    // reservation that spoke as though somebody had been sent here would be
+    // addressing a reader who does not exist.
+    expect(renderedText()).not.toContain("You were sent here");
+  });
+
+  it("renders nothing for a segment the contract never declared", () => {
+    // The selection is a path segment anyone can type. A page that echoed it back
+    // would put an arbitrary string on screen in the position a provider name
+    // occupies, so an unrecognised one resolves to the same state the rail hands it.
+    const text = renderedText(contextOpenedFor("<script>notaprovider</script>"));
+    expect(text).not.toContain("notaprovider");
+    expect(text).not.toContain("You were sent here");
   });
 });

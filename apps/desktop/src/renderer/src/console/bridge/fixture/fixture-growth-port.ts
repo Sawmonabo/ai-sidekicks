@@ -13,7 +13,9 @@
 // `fixture-attention-derivation.ts` folds beats into an attention projection,
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
+// them, `fixture-onboarding-answers.ts` holds the onboarding plane and the ledger its
+// own mutations move, and `fixture-scripted-answer.ts` maps a scripted settlement onto
+// an outcome — reads and writes both.
 //
 
 import {
@@ -23,15 +25,14 @@ import {
 } from "../approvals/index.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
-import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
+import { answerFromScriptedReply, answerScriptedWrite } from "./fixture-scripted-answer.js";
+import { fixtureOnboardingAnswers } from "./fixture-onboarding-answers.js";
 import {
   FixtureShellChannel,
   SHELL_STATUS_SCRIPT,
   startingReport,
   stoppedReport,
 } from "./fixture-shell-status.js";
-import type { GrowthOperationId } from "../growth-port/growth-entry.js";
-import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
@@ -67,9 +68,13 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   // shell and a control pressed in this window cannot move another window's.
   const shellChannel = new FixtureShellChannel(engine);
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
-    // workflow — spread from the module that implements them, so the served ids next
-    // door and the handlers here are held to each other by the `Pick` above.
+    // workflow and onboarding — spread from the modules that implement them, so the
+    // served ids next door and the handlers there are held to each other by the `Pick`
+    // above. The onboarding plane also owns the fixture's one piece of caller-moved
+    // state, which is why it is a module and not a block here: its ledger is minted per
+    // port inside that call, so a step recorded in this window reaches no other.
     ...fixtureWorkflowReads(engine),
+    ...fixtureOnboardingAnswers(engine),
     sessionRead: async (request) => ({
       status: "served",
       value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
@@ -108,9 +113,9 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // smuggled through an absent value and re-read by the caller.
       //
       // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
-      // `answerScriptedWrite` below states in full: this fixture serves the
-      // operation, so `wire-unregistered` would be false about the build and would
-      // send a reader to a document owing a wire that already has a stand-in.
+      // `answerScriptedWrite` states in full in `fixture-scripted-answer.ts`: this
+      // fixture serves the operation, so `wire-unregistered` would be false about the
+      // build and would send a reader to a document owing a wire that has a stand-in.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
@@ -344,55 +349,6 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     daemonStop: async () => publishShellControl(shellChannel, "daemonStop", stoppedReport),
     daemonRestart: async () => publishShellControl(shellChannel, "daemonRestart", startingReport),
     daemonStart: async () => publishShellControl(shellChannel, "daemonStart", startingReport),
-    // onboarding — keyed by OPERATION ID under the `growth:` prefix rather than by a
-    // method string, because none of these rows declares an expected wire method:
-    // the five daemon methods are a Plan-026 registration the corpus has not made,
-    // and the two bridge methods cross the preload boundary rather than the wire.
-    // `reply-walk.ts` admits exactly this shape for a row with no name to transcribe.
-    onboardingStateRead: async (request) =>
-      answerFromScriptedReply(
-        engine,
-        "growth:onboardingStateRead",
-        "onboardingStateRead",
-        request,
-        // The one onboarding answer with an honest empty form. A node nobody has
-        // onboarded has completed no step and is not complete — that is a state the
-        // walkthrough draws on its own first frame, and it is the state a fresh
-        // install is genuinely in, so serving it invents nothing.
-        () => ({ status: "served", value: { completedStepIds: [], isComplete: false } }),
-      ),
-    onboardingStepAdvance: async (request) =>
-      await answerScriptedWrite(
-        engine,
-        "growth:onboardingStepAdvance",
-        "onboardingStepAdvance",
-        request,
-      ),
-    onboardingStepSkip: async (request) =>
-      await answerScriptedWrite(engine, "growth:onboardingStepSkip", "onboardingStepSkip", request),
-    onboardingComplete: async (request) =>
-      await answerScriptedWrite(engine, "growth:onboardingComplete", "onboardingComplete", request),
-    onboardingProviderSignInHandoff: async (request) =>
-      await answerScriptedWrite(
-        engine,
-        "growth:onboardingProviderSignInHandoff",
-        "onboardingProviderSignInHandoff",
-        request,
-      ),
-    onboardingPresentChoice: async (request) =>
-      await answerScriptedWrite(
-        engine,
-        "growth:onboardingPresentChoice",
-        "onboardingPresentChoice",
-        request,
-      ),
-    onboardingTelemetryPrompt: async (request) =>
-      await answerScriptedWrite(
-        engine,
-        "growth:onboardingTelemetryPrompt",
-        "onboardingTelemetryPrompt",
-        request,
-      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }
@@ -424,46 +380,6 @@ async function answerApprovalRead<TRow>(
     ),
     narrow,
   );
-}
-
-/**
- * Answer one WRITE from the script, and refuse where the scenario scripts none.
- *
- * A read has an empty state and a write does not: "this session has no agents" is a
- * state the console draws, and there is no such thing as "the attach that happened
- * and produced nothing". So a write that no scenario answers cannot take the served
- * arm with a synthesized receipt — that would tell a surface the daemon did
- * something no author ever said it did, and for an attach it would mint an identity
- * every later read is keyed by.
- *
- * The precondition is checked here rather than inside the seam because it is a fact
- * about the SCENARIO rather than about the settlement — `callerParticipantRead` next
- * door reads its own precondition off `engine.scenario` for the same reason. What is
- * left after the check is exactly the settlement the seam reports, so the parked,
- * abandoned, and over-cap arms all keep their own answers.
- */
-async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
-  engine: ScenarioEngine,
-  call: string,
-  operationId: TOperationId,
-  request: unknown,
-): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
-  if (engine.replyFor(call) === undefined) {
-    // The SCENARIO's gap and never the build's. `growthUnavailable` would compose
-    // "this build does not carry the wire", which is false for an operation this
-    // fixture serves and would send a reader to the document that owes a wire the
-    // fixture already stands in for — the distinction `growthUnscriptedReply`'s own
-    // header draws, and the one `fixture-growth-port.test.ts` holds every served
-    // operation to.
-    return growthUnscriptedReply(operationId, call);
-  }
-  return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
-    // Unreachable: the guard above already refused every unscripted call, and the
-    // seam reports `unscripted` only for exactly that. Named rather than cast, so a
-    // later change that moves the guard fails here loudly instead of serving a value
-    // that was never scripted.
-    throw new Error(`${call} reached the unscripted arm behind its own scripted guard`);
-  });
 }
 
 /**
