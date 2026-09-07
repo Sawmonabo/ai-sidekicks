@@ -7,13 +7,13 @@
 // own through the same seat — which is the whole reason the seat exists, because
 // eight bodies edited into one component would be seven merge conflicts.
 //
-// OF THIS FAMILY'S THREE, ONE HAS A BODY HERE: `runs`. A session's goal and its
-// pending approvals are read on this branch through the approvals pane, which is
-// a whole surface a person navigates to rather than an independently loaded
-// section of the sidebar — the two are not substitutes, and the seat says so. So
-// `goal` and `approvals` render the sidebar's own "reserved, not stubbed" answer,
-// exactly as an unlanded family's sections do, and seating them is a body this
-// list grows rather than a contract anyone has to reopen.
+// OF THIS FAMILY'S THREE, TWO HAVE A BODY HERE: `runs` and `approvals`. The seat's
+// own header states why the approvals PANE was never a substitute for the section —
+// the pane is a whole surface a person navigates to and the section is the sidebar's
+// own independently loaded read of what this session is waiting on — so the section
+// is seated rather than deferred to the pane. `goal` still renders the sidebar's own
+// "reserved, not stubbed" answer, exactly as an unlanded family's sections do, and
+// seating it is a body this list grows rather than a contract anyone has to reopen.
 //
 // A CALL, NOT A MODULE SIDE EFFECT, for `shell/index.ts`'s reason: registering at
 // module top level would fill an owner-scoped seat for anyone who imported this
@@ -26,6 +26,7 @@ import {
   type SidebarSectionDescriptor,
   type SidebarSectionRegistry,
 } from "../../../seats/index.js";
+import { ApprovalsSection, approvalsSectionAttention } from "./ApprovalsSection.js";
 import { RunsSection, runsSectionAttention } from "./RunsSection.js";
 
 /**
@@ -49,6 +50,16 @@ const COMPOSER_SIDEBAR_SECTIONS: readonly SidebarSectionDescriptor[] = [
     // reached for from the sidebar, so one registration carries both halves of what
     // this family owns about its section.
     attention: runsSectionAttention,
+  },
+  {
+    id: "approvals",
+    owner: "composer-family",
+    render: (context) => createElement(ApprovalsSection, context),
+    // Its rollup, seated beside its body for the reason the runs row gives: one
+    // registration carries both halves of what this family owns about its section,
+    // and the sidebar reads the rollup while the section is COLLAPSED, which is when
+    // the rule that opens it has to decide.
+    attention: approvalsSectionAttention,
   },
 ];
 

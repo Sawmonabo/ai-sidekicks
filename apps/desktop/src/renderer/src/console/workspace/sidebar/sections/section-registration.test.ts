@@ -24,8 +24,11 @@ import {
 } from "../../../seats/index.js";
 import { registerComposerSidebarSections } from "./section-registration.js";
 
-/** The sections this family fills today. The header's second half, as data. */
-const SEATED_BY_THIS_FAMILY: readonly SidebarSectionId[] = ["runs"];
+/**
+ * The sections this family fills today, in registration order — which is the order the
+ * sidebar walks them in. The header's second half, as data.
+ */
+const SEATED_BY_THIS_FAMILY: readonly SidebarSectionId[] = ["runs", "approvals"];
 
 describe("the composer family's sidebar sections", () => {
   it("fills exactly the seats its header claims, and leaves the rest reserved", () => {

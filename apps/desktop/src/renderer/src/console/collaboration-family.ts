@@ -28,7 +28,7 @@
 
 import { registerCollaborationSections } from "./collaboration/index.js";
 import type { ConsoleSurfaceRegistry, SidebarSectionRegistry } from "./seats/index.js";
-import { registerAgentConsoleSurface } from "./agents/index.js";
+import { registerAgentConsoleSurface, registerAgentsSidebarSection } from "./agents/index.js";
 import { registerSessionsSurface, type SessionsSurfaceComposition } from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 
@@ -59,4 +59,10 @@ export function registerCollaborationFamily(
   registerSettingsSurface(surfaces);
   registerAgentConsoleSurface(surfaces);
   registerCollaborationSections(sidebarSections);
+  // The third of this family's sidebar sections, and the one whose body lives in the
+  // agents subtree rather than in `collaboration/`: it renders the agent roster, so it
+  // belongs to the family that owns that vocabulary. Seated here for the same reason
+  // everything else in this file is — naming two view families is what a composition
+  // site is for.
+  registerAgentsSidebarSection(sidebarSections);
 }

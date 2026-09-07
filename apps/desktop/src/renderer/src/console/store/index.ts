@@ -157,6 +157,13 @@ export {
   useSessionPartition,
   useSessionStore,
 } from "./hooks.js";
+// `useSessionEntity` joins them for its own reason rather than theirs: it is the
+// NARROWEST subscription this family offers — one row, re-rendering when that row
+// changes and not when its neighbour does — and the surfaces that want one are view
+// families. The cast bar's participant card is the first: it reads one roster entry
+// out of the `participant` partition, and reaching for the partition instead would
+// re-render every open card whenever any member's row moved.
+export { useSessionEntity } from "./hooks.js";
 // The readings ABOUT a projection, from the module that holds them. Declared in a
 // second line rather than folded into the one above because they come from a second
 // module — a door re-exports a symbol from the module that DECLARES it, never through

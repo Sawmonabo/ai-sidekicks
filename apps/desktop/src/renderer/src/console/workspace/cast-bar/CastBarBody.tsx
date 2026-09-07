@@ -5,17 +5,19 @@
 // the bar would mean either subscribing to a store that may be `undefined` or
 // rendering the session's identity only after the session opened.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Tooltip } from "@base-ui/react/tooltip";
 
 import { CAST_BAR_CHIP_CAP } from "../../core/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { useSessionStore, type SessionStore } from "../../store/index.js";
 import { CastChip } from "./CastChip.js";
+import { ParticipantCardHost } from "./ParticipantCardHost.js";
 import { CastBarSpend } from "./CastBarSpend.js";
 import { FoldedMembers } from "./FoldedMembers.js";
 import { type CastBarSpendReading } from "./cast-bar-readings.js";
 import { type CastBarReadState } from "./cast-bar-reads.js";
-import { deriveCastBar } from "./cast-bar-model.js";
+import { deriveCastBar, type CastMember } from "./cast-bar-model.js";
 
 export interface CastBarBodyProps {
   readonly sessionStore: SessionStore;
@@ -37,6 +39,9 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, (state) => state.timeline);
   const degradedCause = useSessionStore(props.sessionStore, (state) => state.degradedCause);
   const hueAllocator = props.sessionStore.hueAllocator;
+  // Minted once and kept, per `apps/desktop/AGENTS.md`: a handle rebuilt on a render
+  // would detach every chip in the bar from the card they were opening into.
+  const [participantCardHandle] = useState(() => Tooltip.createHandle<CastMember>());
 
   // Derived under `useMemo` rather than inside the selector: a selector that BUILT
   // a value would defeat zustand's `Object.is` comparison and re-render the bar
@@ -67,10 +72,16 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
       <ul className="meridian-cast-bar__members">
         {model.members.map((member) => (
           <li key={member.participantId}>
-            <CastChip member={member} onFollow={props.onFollow} />
+            <CastChip
+              member={member}
+              cardHandle={participantCardHandle}
+              onFollow={props.onFollow}
+            />
           </li>
         ))}
       </ul>
+      {/* One card for the whole bar, opened by whichever chip is holding it. */}
+      <ParticipantCardHost handle={participantCardHandle} sessionStore={props.sessionStore} />
       {model.foldedMemberCount === 0 ? null : (
         <FoldedMembers
           count={model.foldedMemberCount}

@@ -77,6 +77,7 @@
 // imports the symbol — a tag that outlives its consumer fails the run.
 
 import "./pane-chrome.css";
+import "./sidebar-section-list.css";
 
 // How a family reaches the screen: the registry it claims a slot in, the call that
 // claims one, and everything a mounted surface is handed. Here rather than in
@@ -358,3 +359,21 @@ export {
   renderAbsorbedNodeRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";
+
+// The shared body every sidebar section draws with: the count, the group headings, and
+// the rows that open panes, plus the fold that splits a section's rows into groups.
+//
+// On this door and not in any family's subtree because three DIFFERENT families own the
+// eight section bodies — the composer family's `runs` and `approvals`, the collaboration
+// family's `channels`, `agents` and `members`, the repos family's `repos` and
+// `artifacts` — and one view family may not import another. This is the layer that
+// already owns the sidebar-section contract, so the markup that contract implies and
+// the fold every body performs leave through the same door the contract does.
+//
+// `SectionListRow`, `SidebarSectionListProps` and `RowGroupingRules` are deliberately
+// absent: a section body composes the groups and names the component, and no reader
+// outside this family spells either of those types, so a line for one would be a door
+// specifier no production module reads.
+export { SidebarSectionList } from "./SidebarSectionList.js";
+export type { SectionListGroup } from "./SidebarSectionList.js";
+export { groupSectionRows, groupedRowCount, normaliseFilterQuery } from "./section-grouping.js";

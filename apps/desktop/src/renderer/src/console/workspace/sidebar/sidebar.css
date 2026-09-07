@@ -228,68 +228,6 @@
   outline-offset: -2px;
 }
 
-/* --- The runs section, the composer family's own body. ------------------- */
-
-.meridian-sidebar-runs__count {
-  margin: 0 0 var(--meridian-space-2);
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-sidebar-runs__group + .meridian-sidebar-runs__group {
-  margin-top: var(--meridian-space-3);
-}
-
-.meridian-sidebar-runs__group-heading {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: center;
-  margin: 0 0 var(--meridian-space-1);
-  font-size: var(--meridian-text-xs);
-  font-weight: inherit;
-}
-
-.meridian-sidebar-runs__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.meridian-sidebar-runs__open {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: center;
-  width: 100%;
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-sm);
-  font-family: var(--meridian-font-sans);
-  text-align: left;
-  background: transparent;
-  border: 0;
-  border-radius: var(--meridian-radius-sm);
-  cursor: pointer;
-}
-
-.meridian-sidebar-runs__open:hover {
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-sidebar-runs__open:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
-}
-
-/* The identifier is wire-verbatim, so it is set in mono and truncates rather than
-   wrapping — a wrapped identifier reads as two. */
-.meridian-sidebar-runs__id {
-  flex: 1 1 auto;
-  overflow: hidden;
-  font-family: var(--meridian-font-mono);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
 /* The rollup summary on a section header: the console's own counts, so proportional
    and quiet. It sits between the label and the attention mark and never wraps — a
    header that grew a second line would move every section below it. */

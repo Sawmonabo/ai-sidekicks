@@ -65,14 +65,14 @@ function renderSection(options: {
 }
 
 function groupHeadings(section: HTMLElement): readonly string[] {
-  return [...section.querySelectorAll(".meridian-sidebar-runs__group")].map((group) =>
+  return [...section.querySelectorAll(".meridian-section-list__group")].map((group) =>
     String(group.getAttribute("aria-label")),
   );
 }
 
 function rowsUnder(section: HTMLElement, groupLabel: string): readonly string[] {
   const group = section.querySelector(`[aria-label="${groupLabel}"]`);
-  return [...(group?.querySelectorAll(".meridian-sidebar-runs__id") ?? [])].map((element) =>
+  return [...(group?.querySelectorAll(".meridian-section-list__id") ?? [])].map((element) =>
     String(element.textContent),
   );
 }
@@ -92,7 +92,7 @@ describe("RunsSection — the three absences are three sentences", () => {
     expect(section.textContent).toContain("read-failed");
     // A degraded store holding a run must not render the run: a partial list
     // shown as a whole one is the failure this branch exists to prevent.
-    expect(section.querySelector(".meridian-sidebar-runs__id")).toBeNull();
+    expect(section.querySelector(".meridian-section-list__id")).toBeNull();
   });
 
   it("says no run has started when the read answered and was whole", () => {
@@ -181,7 +181,7 @@ describe("RunsSection — the sidebar's filter narrows this section's rows", () 
 describe("RunsSection — opening a pane", () => {
   it("opens the inspector on the run the person activated", () => {
     const { section, openedPanes } = renderSection({ runs: [run("run-1", "running")] });
-    const open = section.querySelector(".meridian-sidebar-runs__open");
+    const open = section.querySelector(".meridian-section-list__open");
     act(() => {
       (open as HTMLButtonElement).click();
     });

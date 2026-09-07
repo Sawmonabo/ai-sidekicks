@@ -34,22 +34,22 @@ import { useMemo } from "react";
 
 import { type RunState } from "@ai-sidekicks/contracts";
 
-import {
-  Chip,
-  DerivedFigure,
-  Nothing,
-  formatCount,
-  type ChipTone,
-} from "../../../primitives/index.js";
+import { Nothing, type ChipTone } from "../../../primitives/index.js";
 import {
   useSessionDegradedCause,
   useSessionInitialised,
   useSessionPartition,
   type ConsoleEntity,
 } from "../../../store/index.js";
-import { type SidebarSectionContext } from "../../../seats/index.js";
+import {
+  SidebarSectionList,
+  groupSectionRows,
+  groupedRowCount,
+  normaliseFilterQuery,
+  type SectionListGroup,
+  type SidebarSectionContext,
+} from "../../../seats/index.js";
 import { type SidebarSectionAttention } from "../model/sidebar-model.js";
-import { compareInstants, parseInstant } from "../../../core/index.js";
 
 /**
  * Which group a run's state sorts into, total over the registered union.
@@ -103,7 +103,7 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
   const degradedCause = useSessionDegradedCause(context.sessionStore);
 
   const grouped = useMemo(
-    () => groupRuns(Object.values(runsById), context.filterQuery ?? ""),
+    () => groupRuns(Object.values(runsById), context.filterQuery),
     [runsById, context.filterQuery],
   );
 
@@ -123,13 +123,12 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
     );
   }
 
-  const totalRunCount = [...grouped.values()].reduce((count, runs) => count + runs.length, 0);
-  if (totalRunCount === 0) {
+  if (groupedRowCount(grouped) === 0) {
     return (
       <Nothing
         kind="empty"
         title={
-          (context.filterQuery ?? "") === ""
+          normaliseFilterQuery(context.filterQuery) === ""
             ? "No run has been started in this session."
             : "No run matches the filter."
         }
@@ -138,50 +137,33 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
     );
   }
 
-  return (
-    <div className="meridian-sidebar-runs">
-      <p className="meridian-sidebar-runs__count">
-        <DerivedFigure text={`${formatCount(totalRunCount)} runs`} />
-      </p>
-      {RUN_GROUPS.map((group) => {
-        const runs = grouped.get(group);
-        return runs === undefined ? null : (
-          <section
-            className="meridian-sidebar-runs__group"
-            key={group}
-            aria-label={GROUP_LABEL[group]}
-          >
-            <h3 className="meridian-sidebar-runs__group-heading">
-              <Chip tone={GROUP_TONE[group]} label={GROUP_LABEL[group]} />
-              <DerivedFigure text={formatCount(runs.length)} />
-            </h3>
-            <ul className="meridian-sidebar-runs__list">
-              {runs.map((run) => (
-                <li className="meridian-sidebar-runs__row" key={run.id}>
-                  <button
-                    type="button"
-                    className="meridian-sidebar-runs__open"
-                    onClick={() => {
-                      // The session's runs pane, not an inspector over this row. No
-                      // pane kind is a view of one run — `seats/pane-address.ts`
-                      // settles which entity kinds each kind admits, and the
-                      // inspector's are the five sidebar-card kinds the spec
-                      // enumerates — so a row opens the surface that holds every run
-                      // rather than an address the deck would have to refuse.
-                      context.openPane({ kind: "runs" });
-                    }}
-                  >
-                    <span className="meridian-sidebar-runs__id">{run.id}</span>
-                    <Chip mono label={run.state ?? "unknown"} tone={GROUP_TONE[group]} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        );
-      })}
-    </div>
-  );
+  const groups: SectionListGroup[] = [];
+  for (const group of RUN_GROUPS) {
+    const runs = grouped.get(group);
+    if (runs === undefined) {
+      continue;
+    }
+    groups.push({
+      id: group,
+      label: GROUP_LABEL[group],
+      tone: GROUP_TONE[group],
+      rows: runs.map((run) => ({
+        id: run.id,
+        stateLabel: run.state ?? "unknown",
+        openLabel: `${GROUP_LABEL[group]}: run ${run.id}`,
+        // The session's runs pane, not an inspector over this row. No pane kind is
+        // a view of one run — `seats/pane-address.ts` settles which entity kinds
+        // each kind admits, and the inspector's are the five sidebar-card kinds the
+        // spec enumerates — so a row opens the surface that holds every run rather
+        // than an address the deck would have to refuse.
+        open: () => {
+          context.openPane({ kind: "runs" });
+        },
+      })),
+    });
+  }
+
+  return <SidebarSectionList countNoun="runs" groups={groups} />;
 }
 
 /**
@@ -222,42 +204,20 @@ export function runsSectionAttention(
 /**
  * Split the runs into their groups, dropping the ones the filter excludes.
  *
- * A `Map` keyed by group with absent rather than empty entries, so a caller
- * renders a heading only for a group that has rows — the alternative, four
- * headings of which three say nothing, is the chrome the sidebar's counts-not-lists
- * density rule exists to avoid.
+ * The fold itself is `section-grouping.ts`'s, shared with the other section bodies;
+ * what stays here is the three answers only this section can give — which group a
+ * run belongs to, what its filter matches, and what it is ordered by.
  */
 function groupRuns(
   runs: readonly ConsoleEntity[],
-  filterQuery: string,
+  filterQuery: string | undefined,
 ): ReadonlyMap<RunGroup, readonly ConsoleEntity[]> {
-  const normalisedQuery = filterQuery.trim().toLocaleLowerCase();
-  const grouped = new Map<RunGroup, ConsoleEntity[]>();
-  for (const run of runs) {
-    if (normalisedQuery !== "" && !matchesFilter(run, normalisedQuery)) {
-      continue;
-    }
-    const group = groupOf(run.state);
-    const existing = grouped.get(group);
-    if (existing === undefined) {
-      grouped.set(group, [run]);
-    } else {
-      existing.push(run);
-    }
-  }
-  for (const rows of grouped.values()) {
-    // Newest first within a group, ordered as MOMENTS. Lexical order agrees with
-    // instant order only while every stamp carries the same offset, and the console
-    // does not get to assume the wire never sends another one.
-    rows.sort((left, right) =>
-      compareInstants(
-        parseInstant(left.touchedAt ?? ""),
-        parseInstant(right.touchedAt ?? ""),
-        "newest-first",
-      ),
-    );
-  }
-  return grouped;
+  const normalisedQuery = normaliseFilterQuery(filterQuery);
+  return groupSectionRows(runs, {
+    groupOf: (run) => groupOf(run.state),
+    matches: (run) => normalisedQuery === "" || matchesFilter(run, normalisedQuery),
+    orderedBy: (run) => run.touchedAt,
+  });
 }
 
 /** The sidebar filter runs over titles and paths; a run's are its identifier and

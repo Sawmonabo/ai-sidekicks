@@ -129,7 +129,7 @@ describe("CastBar — one chip per participant", () => {
 });
 
 describe("CastBar — the name the wire gave each participant", () => {
-  it("renders the identity handle a membership beat carried, and keeps the id as its tooltip", () => {
+  it("renders the identity handle a membership beat carried, and no id in a `title`", () => {
     const bar = renderBar(
       <CastBar
         sessionId={SESSION_ID}
@@ -142,9 +142,10 @@ describe("CastBar — the name the wire gave each participant", () => {
     );
     const name = bar.querySelector(".meridian-cast-chip__name");
     expect(name?.textContent).toBe("priya");
-    // The id is not lost — it is where a person can reach it without it being the
-    // only thing on the chip.
-    expect(name?.getAttribute("title")).toBe(PARTICIPANT_PRIYA);
+    // The id is not lost and it is not a `title` either: it is a selectable wire
+    // figure in the participant card behind the chip, beside the facts the design
+    // names. An identifier on its own was never one of them.
+    expect(name?.getAttribute("title")).toBeNull();
     expect(name?.textContent).not.toContain(PARTICIPANT_PRIYA);
   });
 

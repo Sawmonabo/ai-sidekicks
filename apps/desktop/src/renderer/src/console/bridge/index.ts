@@ -126,6 +126,12 @@ export {
   rememberedScopeKindPhrase,
   type RememberedScopeKind,
 } from "./approvals/approval-vocabulary.js";
+// The state union itself, beside the narrowing and the two tables already published
+// here. A surface that grouped by state could reach the narrowing and the phrases and
+// still had no way to write a table TOTAL over the five, so it would have had to
+// restate them — which is the second spelling of a wire vocabulary this door exists
+// to prevent. The sidebar's approvals section is its first reader.
+export type { ApprovalState } from "./approvals/approval-vocabulary.js";
 export { registerApprovalFlowProjectors } from "./approvals/approval-flow-projection.js";
 
 // The goal payload readings. Through this door because the approvals surface is a

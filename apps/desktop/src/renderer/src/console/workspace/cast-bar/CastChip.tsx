@@ -8,21 +8,21 @@
 // where the act is — the approval card, the sidebar row, the rail tick — and what
 // this chip carries instead is a WORD.
 
-import { Glyph, WireFigure } from "../../primitives/index.js";
-import { GLYPH_SIZE_DENSE, tokenReference } from "../../tokens/index.js";
-import {
-  CAST_ATTENTION_CLAUSE,
-  castChipAccessibleName,
-  type CastMember,
-} from "./cast-bar-model.js";
+import { Tooltip } from "@base-ui/react/tooltip";
 
-/** Carries one participant's hue into the chip's ring, without a style attribute per rule. */
-interface CastChipStyle extends React.CSSProperties {
-  readonly "--meridian-cast-hue": string;
-}
+import { tokenReference } from "../../tokens/index.js";
+import { type CastMember } from "./cast-bar-model.js";
+import { CastChipButton, type CastChipStyle } from "./CastChipButton.js";
 
 export interface CastChipProps {
   readonly member: CastMember;
+  /**
+   * The bar's one card handle, which this chip triggers with itself as the payload.
+   *
+   * Handed down rather than minted here: a handle per chip would be a card per chip,
+   * which is the arrangement `ParticipantCardHost.tsx` records the measured cost of.
+   */
+  readonly cardHandle: Tooltip.Handle<CastMember>;
   readonly onFollow: (participantId: string) => void;
 }
 
@@ -50,45 +50,23 @@ export interface CastChipProps {
  * a superset of what the chip draws.
  *
  * The visible name is the one the WIRE gave this participant — a membership beat's
- * identity handle, an agent's attached name — and the id when the log named none.
- * The id stays reachable as the name's tooltip: two participants admitted in the
- * same millisecond share a UUID prefix long enough that the chip's own ellipsis
- * truncates both to the same string, so the id alone identifies nobody.
+ * identity handle, an agent's attached name — and the id when the log named none. The
+ * id is reachable in the CARD rather than in a `title`: two participants admitted in
+ * the same millisecond share a UUID prefix long enough that the chip's own ellipsis
+ * truncates both to the same string, so the id alone identifies nobody, and an
+ * identifier on its own was never one of the four facts the design asks a hover for.
  */
 export function CastChip(props: CastChipProps): React.JSX.Element {
   const { member } = props;
   const style: CastChipStyle = { "--meridian-cast-hue": tokenReference(member.hue.tokenName) };
 
+  // A TRIGGER AND NOT A ROOT. The bar mounts one card for every chip in it and binds
+  // them with a handle, so what belongs here is the half that names this participant.
   return (
-    <button
-      type="button"
-      className="meridian-cast-chip"
-      style={style}
-      data-ring={member.hue.ringTreatment}
-      data-shares-step={member.hue.sharesStepWithEarlierParticipant}
-      data-attention={member.needsAttention}
-      aria-label={castChipAccessibleName(member)}
-      onClick={() => {
-        props.onFollow(member.participantId);
-      }}
-    >
-      {/* Presence is not a wire the console has. The glyph is drawn in the
-          not-checked treatment rather than as a state, because "we have not asked"
-          and "they are online" are different facts. */}
-      <Glyph name="dot" size={GLYPH_SIZE_DENSE} title="Presence has not been read" />
-      <span
-        className="meridian-cast-chip__name"
-        title={member.label === undefined ? undefined : member.participantId}
-      >
-        <WireFigure value={member.label ?? member.participantId} />
-      </span>
-      {member.needsAttention ? (
-        <span className="meridian-cast-chip__verb">{CAST_ATTENTION_CLAUSE}</span>
-      ) : member.verb === undefined ? null : (
-        <span className="meridian-cast-chip__verb" data-stale={member.isVerbStale}>
-          {member.verb}
-        </span>
-      )}
-    </button>
+    <Tooltip.Trigger
+      handle={props.cardHandle}
+      payload={member}
+      render={<CastChipButton member={member} style={style} onFollow={props.onFollow} />}
+    />
   );
 }
