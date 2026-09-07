@@ -90,7 +90,7 @@ export function contextReading(options: {
     context: settingsPageContextWith(
       bridge,
       "retainedSessionId" in options ? options.retainedSessionId : SESSION_ID,
-      options.sessionStore,
+      { retainedSessionStore: options.sessionStore },
     ),
     clock,
   };

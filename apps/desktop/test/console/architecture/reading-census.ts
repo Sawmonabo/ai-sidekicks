@@ -30,7 +30,7 @@ import ts from "typescript";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /** The member names this console gives to "what a surface reads off me". */
-const READING_MEMBER_NAMES: ReadonlySet<string> = new Set(["snapshot", "readout"]);
+const READING_MEMBER_NAMES: ReadonlySet<string> = new Set(["snapshot", "readout", "reading"]);
 
 /**
  * What constructing a scheduler LOOKS like, in the two shapes this console has.
@@ -193,8 +193,12 @@ function publishesReading(member: ts.ClassElement): boolean {
  * Whether this class holds the daemon connection.
  *
  * Read off a declared TYPE and never off a field name, so a field called something
- * else still counts and one called `bridge` holding something else does not. Both a
- * property declaration and a constructor parameter count.
+ * else still counts and one called `bridge` holding something else does not. A
+ * property declaration and a CONSTRUCTOR parameter count; a METHOD parameter
+ * deliberately does not, which is the rule `read-triggers.test.ts` states in full — a
+ * per-bridge cache exposing `reading(bridge, …)` resolves a reading for a connection its
+ * caller holds and keeps none of its own, so a descendant walk would have admitted every
+ * one of them the moment `reading` joined {@link READING_MEMBER_NAMES}.
  */
 function holdsBridge(
   declaration: ts.ClassDeclaration,
@@ -203,19 +207,23 @@ function holdsBridge(
   if (!boundTo(bindings, "ConsoleBridge", BRIDGE_MODULES)) {
     return false;
   }
-  let found = false;
-  forEachDescendant(declaration, (descendant) => {
-    if (
-      (ts.isPropertyDeclaration(descendant) || ts.isParameter(descendant)) &&
-      descendant.type !== undefined &&
-      ts.isTypeReferenceNode(descendant.type) &&
-      ts.isIdentifier(descendant.type.typeName) &&
-      descendant.type.typeName.text === "ConsoleBridge"
-    ) {
-      found = true;
+  return declaration.members.some((member) => {
+    if (ts.isPropertyDeclaration(member)) {
+      return namesBridgeType(member);
     }
+    return ts.isConstructorDeclaration(member) && member.parameters.some(namesBridgeType);
   });
-  return found;
+}
+
+/** Whether one declaration's written type is the console's bridge. */
+function namesBridgeType(declaration: ts.PropertyDeclaration | ts.ParameterDeclaration): boolean {
+  const { type } = declaration;
+  return (
+    type !== undefined &&
+    ts.isTypeReferenceNode(type) &&
+    ts.isIdentifier(type.typeName) &&
+    type.typeName.text === "ConsoleBridge"
+  );
 }
 
 /** Whether this class constructs one of the scheduler holders, BOUND to the store. */

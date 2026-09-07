@@ -11,9 +11,10 @@
 //
 // `answerScriptOnly` below is the one disposition of that mapping that more than one
 // plane takes, so it is hoisted here rather than written twice: the port keeps the agent
-// and sidekick writes, and `fixture-diagnostics-reads.ts`, `fixture-provider-account-writes.ts`
-// and `fixture-mcp-governance.ts` each take it for their own. A second copy would drift
-// on exactly the half that matters — WHICH refusal an unscripted call meets.
+// and sidekick writes, and `fixture-diagnostics-reads.ts`, `fixture-provider-account-writes.ts`,
+// `fixture-mcp-governance.ts` and `fixture-onboarding-answers.ts` each take it for their
+// own. A second copy would drift on exactly the half that matters — WHICH refusal an
+// unscripted call meets.
 
 import {
   growthScriptedReplyUnavailable,
@@ -106,6 +107,11 @@ export async function answerFromScriptedReply<TOperationId extends GrowthOperati
 
 /**
  * Answer one SCRIPT-ONLY operation from the script, and refuse where none is scripted.
+ *
+ * BESIDE ITS READING SIBLING because it is the same join: a settlement mapped onto an
+ * outcome. It lived in `fixture-growth-port.ts` while that port was its only caller, and
+ * moved here as soon as a second plane took a module of its own — one rule, and a copy
+ * in the second caller would have been free to disagree about the one decision below.
  *
  * Two classes land here, and `fixture-served-operations.ts` names both because the
  * membership decision is that module's. A WRITE: "this session has no agents" is a

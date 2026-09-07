@@ -228,7 +228,11 @@ export function renderPage(bridge: ConsoleBridge, sessionStore?: SessionStore): 
   const { container } = render(
     <SidekicksBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <DiagnosticsPage context={settingsPageContextWith(bridge, SESSION_ID, sessionStore)} />
+        <DiagnosticsPage
+          context={settingsPageContextWith(bridge, SESSION_ID, {
+            retainedSessionStore: sessionStore,
+          })}
+        />
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>,
   );

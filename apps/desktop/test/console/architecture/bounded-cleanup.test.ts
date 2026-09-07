@@ -23,81 +23,45 @@
 // verdict, and which of two failures a reader sees when the body failed too, is
 // `cleanup-disposition.test.ts`: the two were one file until it passed 400 lines
 // carrying both subjects, which is the split `frame-witness.test.ts` and
-// `launch-deadline.test.ts` already made for the same reason.
+// `launch-deadline.test.ts` already made for the same reason — and
+// `bounded-cleanup-retry.test.ts` is that same split made a second time, for the
+// one outcome that is not a race: a platform that reports the kill was refused,
+// and how many times the cleanup then asks. The stand-ins all three drive live in
+// `bounded-cleanup.test-support.ts`.
 //
 // The launch clock these cases deliberately do NOT draw from is
 // `launch-deadline.test.ts` — cleanup's bound is the registered ceiling rather
 // than a slice of whatever is left; the verdict the witness renders just before
 // them is `frame-witness.test.ts`.
 
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import {
-  BoundedCleanup,
-  type ClosableApplication,
-  type ProcessTerminator,
-} from "../bounded-cleanup.js";
+import { processHasTerminated } from "../../helpers/process-tree/liveness.js";
+import { HOST_QUERY_TIMEOUT_MS } from "../../helpers/process-tree/readers.js";
+import { BoundedCleanup } from "../bounded-cleanup.js";
+import { ELECTRON_PROCESS_TERMINATOR } from "../cleanup-contract.js";
 import { withCleanupOutcome } from "../cleanup-disposition.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
-import { type LaunchProfile } from "../launch-profile.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import {
+  applicationThatNeverCloses,
+  applicationWhoseCloseRejects,
+  profileSpy,
+  TEST_BUDGET_MS,
+  TEST_PROFILE_DIRECTORY,
+  TEST_TERMINATION_WAIT_MS,
+  terminatorSpy,
+} from "./bounded-cleanup.test-support.js";
 import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 describe("bounded cleanup — a close that never settles", () => {
-  /** A close bound short enough that exhausting it costs the suite nothing. */
-  const TEST_BUDGET_MS = 120;
-
-  /** An application whose close never settles, and whose process has a pid. */
-  function applicationThatNeverCloses(processId: number | undefined): ClosableApplication {
-    return { close: () => new Promise<void>(() => undefined), processId: () => processId };
-  }
-
-  /**
-   * A terminator that records rather than signals — killing for real would take
-   * this runner with it — and answers liveness however the case needs.
-   */
-  function terminatorSpy(
-    delivers: boolean,
-    running = true,
-  ): ProcessTerminator & { readonly killed: number[] } {
-    const killed: number[] = [];
-    return {
-      killed,
-      isRunning: () => running,
-      terminate: (processId: number) => {
-        killed.push(processId);
-        return delivers;
-      },
-    };
-  }
-
-  /** The directory a spy profile claims, so a message that names one can be checked. */
-  const TEST_PROFILE_DIRECTORY = "/tmp/ai-sidekicks-console-spy";
-
-  /**
-   * A profile that records the ATTEMPT rather than touching a disk — and refuses
-   * it when the case is about a directory that will not go. Recording the attempt
-   * rather than the success is what lets a case assert both halves: that the
-   * removal was tried at all, and what came of it.
-   */
-  function profileSpy(refuseWith?: Error): LaunchProfile & { readonly removalAttempts: string[] } {
-    const removalAttempts: string[] = [];
-    return {
-      directory: TEST_PROFILE_DIRECTORY,
-      removalAttempts,
-      remove: () => {
-        removalAttempts.push(TEST_PROFILE_DIRECTORY);
-        if (refuseWith !== undefined) {
-          throw refuseWith;
-        }
-      },
-    };
-  }
-
-  /** An application whose close rejects, with a pid the case decides the fate of. */
-  function applicationWhoseCloseRejects(rejection: Error): ClosableApplication {
-    return { close: () => Promise.reject(rejection), processId: () => 4242 };
-  }
-
   it("settles inside the bound and SIGKILLs the process tree", async () => {
     // THE FINDING, in one case. Before this, close() was awaited with no bound at
     // all, so this application hung the launch until vitest killed the test — the
@@ -258,6 +222,7 @@ describe("bounded cleanup — a close that never settles", () => {
       terminatorSpy(false),
       profileSpy(),
       TEST_BUDGET_MS,
+      TEST_TERMINATION_WAIT_MS,
     ).close();
     expect([withoutPid.settlement, refusedSignal.settlement]).toStrictEqual([
       "unterminable",
@@ -345,5 +310,78 @@ describe("bounded cleanup — a close that never settles", () => {
     await expectNoUnhandledRejection(() => {
       abandonedClose.reject(new Error("Target page, context or browser has been closed"));
     });
+  });
+});
+
+/** The two modules whose verdicts the reading below decides, read as source once. */
+const CONSOLE_ROOT = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", ".."), "console");
+
+/**
+ * BOTH halves, because the claim is about the class AND its binding.
+ *
+ * `ELECTRON_PROCESS_TERMINATOR` lives in `cleanup-contract.ts` and the race that
+ * consumes it in `bounded-cleanup.ts`, and either could reach a bare existence
+ * probe: the binding by resolving `isRunning` to the wrong reading, the class by
+ * asking one of its own beside the seam. Scanning one file would leave the other
+ * unclaimed, which is exactly the drift a split invites.
+ */
+const VERDICT_MODULE_PATHS: readonly string[] = [
+  join(CONSOLE_ROOT, "cleanup-contract.ts"),
+  join(CONSOLE_ROOT, "bounded-cleanup.ts"),
+];
+
+/** Every identifier the module CALLS, out of the parse rather than a pattern. */
+function calleeNamesIn(sourcePath: string): ReadonlySet<string> {
+  const parsed = parseSourceText(sourcePath, readFileSync(sourcePath, "utf8"));
+  const calleeNames = new Set<string>();
+  forEachDescendant(parsed, (node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      calleeNames.add(node.expression.text);
+    }
+  });
+  return calleeNames;
+}
+
+describe("bounded cleanup — which liveness reading a verdict rests on", () => {
+  // THE CLASS, not the one call site. `processExists` answers whether a pid
+  // NAMES anything, and a process that has exited and not been reaped still
+  // does — which is the state a group SIGKILL leaves every grandchild in, for
+  // as long as whichever init inherited it takes to reap. Both of this class's
+  // verdicts read that seam, so bare existence there reports `unterminable`
+  // over a tree that is gone, and `unterminable` is the settlement that fails a
+  // tier and warns about the launches after it.
+
+  it("binds the real terminator to the reading that counts a zombie as gone", () => {
+    const reaped = spawnSync(process.execPath, ["-e", ""]);
+    expect(reaped.pid).toBeGreaterThan(0);
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, HOST_QUERY_TIMEOUT_MS)).toBe(true);
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(reaped.pid, HOST_QUERY_TIMEOUT_MS)).toBe(false);
+    // The two pids above agree under either reading, which is exactly why they
+    // cannot settle the class on their own — the one pid that separates them is
+    // an unreaped zombie, and whether one lingers is the reaping behaviour of an
+    // init this process does not own. So the binding is asserted as well.
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, HOST_QUERY_TIMEOUT_MS)).toBe(
+      !processHasTerminated(process.pid, HOST_QUERY_TIMEOUT_MS),
+    );
+  });
+
+  it("reaches no bare existence probe anywhere in the module", () => {
+    const calleeNames = new Set<string>(
+      VERDICT_MODULE_PATHS.flatMap((modulePath) => [...calleeNamesIn(modulePath)]),
+    );
+    // Non-vacuity first: a reader that found no calls at all would pass the
+    // claim below over an empty set.
+    expect(
+      calleeNames.size,
+      "the parse found no calls, so the absence below is vacuous",
+    ).toBeGreaterThan(0);
+    expect(
+      calleeNames,
+      "a verdict path reached `processExists` — an unreaped zombie reads as a live process there",
+    ).not.toContain("processExists");
+    expect(
+      calleeNames,
+      "no verdict path reads liveness at all — the terminator binding has gone somewhere else",
+    ).toContain("processHasTerminated");
   });
 });

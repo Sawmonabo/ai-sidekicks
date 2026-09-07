@@ -16,7 +16,7 @@
 // which event kinds each one carries — lives in `session-event-streams.ts` rather
 // than here: both sides of that seam read it, and neither of them is this file.
 
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import type { SidekicksBridge, Unsubscribe } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
 import type { GrowthOperationId, GrowthPort } from "./growth-port/index.js";
@@ -26,6 +26,15 @@ import type { TransportReconnectSignal } from "./transport/transport-reconnect.j
 
 /** Which bridge the console is running against. Rendered, never inferred. */
 export type ConsoleBridgeSource = "live" | "fixture";
+
+/**
+ * Subscribe to the attention plane's movement. Returns the disposer the caller owes.
+ *
+ * The shape `store/open-session-signal.ts` already publishes for the stores half of
+ * the same question — a callback that carries nothing and a handle that releases it —
+ * so a consumer can hold both halves without narrowing on two vocabularies at once.
+ */
+export type AttentionPlaneSubscribe = (onAttentionChange: () => void) => Unsubscribe;
 
 export interface ConsoleBridge {
   /** Exactly the preload contract. Shape-identical across both sources. */
@@ -69,6 +78,28 @@ export interface ConsoleBridge {
    * would crash inside the mount effect that opened the surface.
    */
   readonly runtimeNodePresenceSubscribe: RuntimeNodePresenceSubscribe;
+  /**
+   * The attention plane moving, as one opaque change signal over every session this
+   * bridge can name.
+   *
+   * BESIDE THE SESSION STORES RATHER THAN INSTEAD OF THEM, and the gap it closes is
+   * the whole reason it exists. The console's other signal over attention is
+   * `store/open-session-signal.ts`, which watches the stores this window has OPEN —
+   * so a session the node reports and nobody in this window ever opened has no store
+   * to move, and its approval, its input request, and its failed run reached the
+   * badge, the centre, and the banner never. The projection read is fanned out over
+   * every session this window can NAME, and this is the signal on the same set.
+   *
+   * OPAQUE, because the only consumer re-reads the whole projection: nothing about
+   * which session moved travels with the call, exactly as the open-session signal
+   * carries nothing about which store did.
+   *
+   * ANSWERED BY EVERY BRIDGE, so no caller branches on the source. A bridge that
+   * publishes no attention plane hands back a disposer and signals nothing, which is
+   * a reading rather than a refusal: it is not declining to say when attention moved,
+   * it holds no attention plane whose movement it could report.
+   */
+  readonly attentionSubscribe: AttentionPlaneSubscribe;
   /**
    * The scripted view host a pane publishes its rectangle to, or `undefined` where
    * no view can exist in this window.

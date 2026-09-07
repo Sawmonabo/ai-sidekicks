@@ -29,6 +29,7 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import type { UiStateStore } from "../../persistence/index.js";
 import { HIDDEN_INVITE_CAP } from "../../core/index.js";
 import {
+  DurableViewBindingHolder,
   noDurableViewSubscription,
   useDurableViewBinding,
 } from "../durable-view/durable-view-binding.js";
@@ -158,6 +159,15 @@ function mintHiddenInviteStore(store: UiStateStore): HiddenInviteStore {
 }
 
 /**
+ * This window's hide set, held for as long as the window is open.
+ *
+ * One holder per window, on the reasoning `session-pins.ts` states beside its own: a
+ * holder minted inside the hook is one per mounted component, and the shelf is
+ * mounted afresh every time somebody comes back to this destination.
+ */
+const consoleHiddenInvites = new DurableViewBindingHolder(mintHiddenInviteStore);
+
+/**
  * Bind the hide set into a component.
  *
  * Same shape as `useSessionPins`, and for the same reasons: the binding is keyed on
@@ -167,7 +177,7 @@ function mintHiddenInviteStore(store: UiStateStore): HiddenInviteStore {
  * failure as a recorded refusal, so nothing here has a rejection to catch.
  */
 export function useHiddenInvites(store: UiStateStore): HiddenInviteBinding {
-  const { binding, acquire } = useDurableViewBinding(store, mintHiddenInviteStore);
+  const { binding, acquire } = useDurableViewBinding(consoleHiddenInvites, store);
   const subscribe = useCallback(
     (onStoreChange: () => void) => binding?.subscribe(onStoreChange) ?? noDurableViewSubscription,
     [binding],

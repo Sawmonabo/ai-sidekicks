@@ -26,6 +26,7 @@ export type {
   ScenarioBeat,
   ScenarioReply,
   ScenarioRuntimeNodeRosterFrame,
+  ScenarioShellStatusFrame,
   ScenarioTransportOutage,
 } from "./scenario.js";
 

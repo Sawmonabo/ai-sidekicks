@@ -8,7 +8,7 @@
 //
 // WHY A REGISTRY RATHER THAN A SWITCH
 //
-// The thirteen sections are built by four lanes at once and three of them are bodies
+// The fourteen sections are built by four lanes at once and three of them are bodies
 // this repository does not author at all. A `switch` over section ids would be one
 // file every lane edits — the conflict the console's seat boards exist to avoid,
 // one level down. A page claims its section through {@link registerSettingsPage}
@@ -27,10 +27,9 @@ import { createElement, type ReactNode } from "react";
 import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { scoreSubsequence } from "../palette/index.js";
-import { Nothing } from "../primitives/index.js";
 import type { UiStateStore } from "../persistence/index.js";
-import type { SessionStore } from "../store/index.js";
-import { LoadedLazyBody, type LazyBodyLoader, type OwnerSlotProps } from "../seats/index.js";
+import type { SessionStore, ShellState } from "../store/index.js";
+import { LoadedLazyBody, type LazyBodyLoader } from "../seats/index.js";
 import { PendingSettingsPageBody } from "./PendingSettingsPageBody.js";
 import {
   SETTINGS_SECTION_IDS,
@@ -49,6 +48,26 @@ export interface SettingsPageContext {
   readonly bridge: ConsoleBridge;
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
   readonly openSection: (section: SettingsSectionId) => void;
+  /**
+   * What the address asked this page to be opened FOR, where it asked for anything.
+   *
+   * `#/settings/<page>/<selection>`'s second segment, carried through untouched. It is
+   * how a surface elsewhere in the console hands a page its subject — the onboarding
+   * walkthrough's provider row deep-links here naming the provider whose remedy the
+   * person pressed — so a page opened from a row and the same page opened from the
+   * rail are the same page with and without a subject, rather than two entry points.
+   *
+   * A BARE STRING AND NEVER A NARROWED ONE. `routing/` sits below this family and owns
+   * only the grammar; what the segment MEANS is the page's, and the page that reads it
+   * narrows it against its own vocabulary fail-closed. A selection this build does not
+   * recognise is therefore a page opened for nothing, which is what the rail hands it
+   * anyway — never a page that refuses to open.
+   *
+   * It authorizes nothing and selects nothing on its own: a page reads it to say what
+   * it was opened for, and every read it performs is the read it would have performed
+   * from the rail.
+   */
+  readonly selection: string | undefined;
   /**
    * The session this window most recently opened, or `undefined` where it has
    * opened none.
@@ -82,6 +101,15 @@ export interface SettingsPageContext {
    * and a page reads that as one refresh signal fewer rather than as a failure.
    */
   readonly retainedSessionStore: SessionStore | undefined;
+  /**
+   * What this window has been told about the shell it is running against.
+   *
+   * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
+   * subscription for it and every consumer — the frame's chip, the palette's
+   * read-only line, and the local-runtime page — renders the same value, so the three
+   * surfaces cannot report different supervisor states in one window.
+   */
+  readonly shellState: ShellState;
   /**
    * This window's durable store, for the one page that reports on the store itself.
    *
@@ -359,55 +387,4 @@ export function matchSettingsEntries(
     }
   }
   return matches.sort((left, right) => right.score - left.score);
-}
-
-// --- Pages whose body another plan authors ---------------------------------
-//
-// Two settings sections are holes another plan fills: the provider-account
-// registry and the MCP server inventory. Each is a PAGE this repository builds the
-// chrome for and a BODY it does not author at all, so the arrangement is the seat
-// contract `seats/owner-slot.ts` declares — who owns the body, what the
-// mount owes it, and where the shell dies.
-//
-// WHY THE RENDERER IS HERE AND THE SLOTS ARE NOT
-//
-// Each slot lives beside the page that mounts it, because the reservation copy, the
-// body's props, and the section registration are one decision. What is shared is
-// the four lines that CHOOSE between a body and its reservation, and those were
-// written twice before this function existed — `apps/desktop/AGENTS.md` hoists on
-// the second use, and this module is the lowest one both pages already import.
-//
-// The reservation copy names the FEATURE and never the governance work — a slot
-// contract is developer-facing (`seats/owner-slot.ts` says so in terms),
-// and the repository's standing rule keeps governance identifiers out of what a
-// participant reads.
-
-/** One page whose body another plan authors: the seat, and what it says today. */
-export interface OwnerSlotPage {
-  readonly slot: OwnerSlotProps<SettingsPageBody>;
-  /** What is absent, in one sentence. The feature, never the work that owes it. */
-  readonly reservationTitle: string;
-  /** The second line: what the body will hold, and what has not been asked for. */
-  readonly reservationDetail: string;
-}
-
-/**
- * Render one such page: the body if it has arrived, the reservation if not.
- *
- * "Reserved, not stubbed" — the console says the body has not been built rather
- * than drawing an empty pane that reads as a broken feature. The absence is a
- * `surface` placement because it stands in for the region the body would fill, not
- * for one value inside it.
- */
-export function renderOwnerSlotPage(page: OwnerSlotPage, context: SettingsPageContext): ReactNode {
-  const { body } = page.slot;
-  if (body !== undefined) {
-    return body(context);
-  }
-  return createElement(Nothing, {
-    kind: "empty",
-    placement: "surface",
-    title: page.reservationTitle,
-    detail: page.reservationDetail,
-  });
 }

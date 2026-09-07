@@ -7,12 +7,12 @@
 // the registrar's `body` loader, so what it imports is what a person pays for when they
 // open settings and never before.
 //
-// WHICH IS WHY THE THIRTEEN PAGES AND THE SHEETS THIS CHUNK OWNS ARE IMPORTED HERE. The
-// pages are the family's weight — thirteen forms, their tables, and the combobox stack
+// WHICH IS WHY THE FOURTEEN PAGES AND THE SHEETS THIS CHUNK OWNS ARE IMPORTED HERE. The
+// pages are the family's weight — fourteen forms, their tables, and the combobox stack
 // two of them mount — and none of it is reachable except through this surface.
 // `apps/desktop`'s stylesheet rule names this exact case: a directory carrying a
 // lazily-loaded chunk has an owner of its own, and importing its sheets from the family
-// door would put the rules for thirteen settings pages on the initial document of every
+// door would put the rules for fourteen settings pages on the initial document of every
 // session that never opens one.
 //
 // AND THE SAME RULE IS WHY TWO SHEETS ARE ABSENT FROM THE LIST BELOW. It reads from both
@@ -45,6 +45,7 @@ import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { registerAppearancePage } from "./pages/appearance/AppearancePage.js";
 import { registerApplicationPage } from "./pages/application/ApplicationPage.js";
 import { registerCostReceiptPage } from "./pages/cost/CostReceiptPage.js";
+import { registerDaemonPage } from "./pages/daemon/DaemonPage.js";
 import { registerDataErasurePage } from "./pages/data-erasure/DataErasurePage.js";
 import { registerDiagnosticsPage } from "./pages/diagnostics/DiagnosticsPage.js";
 import { registerKeyboardPage } from "./pages/keyboard/KeyboardPage.js";
@@ -93,6 +94,9 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerCostReceiptPage(registry);
   // The browser page: the console root's second one-line seam, the browser family's body.
   registerBrowserSettingsPage(registry);
+  // The local runtime's own page: the supervisor detail the frame's chip is one
+  // click away from.
+  registerDaemonPage(registry);
 }
 
 /**

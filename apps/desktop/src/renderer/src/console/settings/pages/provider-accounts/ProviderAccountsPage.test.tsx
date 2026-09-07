@@ -1,5 +1,6 @@
 // The accounts page speaks the registry's own vocabulary, invents no row, composes
-// no remedy, and mounts a seat that carries a body under the fixture.
+// no remedy, mounts a seat that carries a body under the fixture, and says which
+// provider it was opened for when an address named one.
 //
 // The vocabulary cases drive the CONTRACT's own arrays rather than a hand-listed
 // copy: a test restating the six readiness states would be a second closed set, and
@@ -11,6 +12,13 @@
 // vocabulary in its rows. A vocabulary case reading the whole container would then
 // pass on the BODY's words while the frame explained none of them, which is the one
 // direction this file exists to exclude.
+//
+// THE SELECTION CASES READ THE WHOLE CONTAINER, AND DELIBERATELY. A first-run row
+// sends a person here for one provider whose remedy is "register an account", and what
+// they meet above the seat has to name the provider and the cost of leaving or it is a
+// dead end. The address is also a path segment anyone can type, so the last of those
+// cases asserts the string reaches NO part of the page — the body below the seat
+// included, which is the half a frame-scoped read would not have covered.
 
 import {
   BILLING_MODES,
@@ -62,19 +70,27 @@ afterEach(async () => {
  * outside it throws there rather than rendering. Nothing here settles the body's read:
  * these cases are the frame's, and the body's own suite drives its arms.
  *
- * The bridge is a PARAMETER because the refusal cases below decide what the registry
- * read answers, and the console's one normalizer is what they exist to drive. Left to
- * its default it is the shipped fixture over this family's scenario, which is what a
- * release build answers for a call no scenario scripts.
+ * The bridge is an OPTION because the refusal cases below decide what the registry
+ * read answers, and the console's one normalizer is what they exist to drive. Left
+ * unnamed it is the shipped fixture over this family's scenario, which is what a
+ * release build answers for a call no scenario scripts. The selection is an option for
+ * the other half of the same reason: it is the address's, and most of this page is
+ * reached from a rail that names none.
  */
-function renderPage(
-  bridge: ConsoleBridge = createFixtureBridge({ scenario: SETTINGS_SCENARIO }),
-): HTMLElement {
+interface PageMount {
+  readonly bridge?: ConsoleBridge | undefined;
+  readonly selection?: string | undefined;
+}
+
+function renderPage(mount: PageMount = {}): HTMLElement {
+  const bridge = mount.bridge ?? createFixtureBridge({ scenario: SETTINGS_SCENARIO });
   const { container } = render(
     <SidekicksBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
         <ProviderAccountsPage
-          context={settingsPageContextWith(bridge, SETTINGS_SCENARIO.sessionId)}
+          context={settingsPageContextWith(bridge, SETTINGS_SCENARIO.sessionId, {
+            selection: mount.selection,
+          })}
         />
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>,
@@ -85,6 +101,18 @@ function renderPage(
 /** What the page itself says, with the seat's body left out. */
 function chromeText(): string {
   return pageChromeText(renderPage());
+}
+
+/**
+ * The whole page — the seat's body included — for a case about an address's subject.
+ *
+ * A SECOND READER RATHER THAN A SECOND MOUNT: it composes through {@link renderPage}
+ * and differs only in what it reads back, so there is one place that knows how this
+ * page is mounted. The selection travels as the context override the address supplies,
+ * which is the same member `SettingsSurface` fills from the route.
+ */
+function renderedText(selection?: string): string {
+  return renderPage({ selection }).textContent ?? "";
 }
 
 describe("the accounts page — the vocabulary it renders", () => {
@@ -176,7 +204,7 @@ describe("the accounts page — a registry read that refused", () => {
 
   it("says the read failed, in the daemon's own code, rather than leaving the page silent", async () => {
     const bridge = bridgeRefusingWith("provideraccount.permission_denied");
-    const container = renderPage(bridge);
+    const container = renderPage({ bridge });
     await settleScheduledRead(bridge);
     const text = container.textContent ?? "";
     expect(text).toContain("Reading the registry");
@@ -187,7 +215,7 @@ describe("the accounts page — a registry read that refused", () => {
 
   it("names the act that closes a refusal a console page answers, without offering to go here", async () => {
     const bridge = bridgeRefusingWith("provideraccount.no_default");
-    const container = renderPage(bridge);
+    const container = renderPage({ bridge });
     await settleScheduledRead(bridge);
     expect(container.textContent ?? "").toContain("Choosing which account answers");
     // The handoff routes to this very section, so the navigation is withheld while
@@ -242,5 +270,32 @@ describe("the accounts page — the seat it mounts", () => {
     const descriptor = registry.descriptorFor("accounts");
     expect(descriptor?.label).toBe("Provider accounts");
     expect(descriptor?.keywords).toContain("sign in");
+  });
+});
+
+describe("the accounts page — the provider it was opened for", () => {
+  it("names that provider and what the first run against it will do", () => {
+    const text = renderedText("codex");
+    expect(text).toContain("codex");
+    // Not merely the name: the reservation says what leaving it unregistered costs,
+    // which is the sentence the walkthrough's own completion summary makes true.
+    expect(text).toContain("the first run against this provider is refused");
+  });
+
+  it("says nothing of the sort when the rail opened it", () => {
+    // The negative control for the case above and the reason the section is
+    // conditional: a page reached from the rail was opened for nobody, and a
+    // reservation that spoke as though somebody had been sent here would be
+    // addressing a reader who does not exist.
+    expect(renderedText()).not.toContain("You were sent here");
+  });
+
+  it("renders nothing for a segment the contract never declared", () => {
+    // The selection is a path segment anyone can type. A page that echoed it back
+    // would put an arbitrary string on screen in the position a provider name
+    // occupies, so an unrecognised one resolves to the same state the rail hands it.
+    const text = renderedText("<script>notaprovider</script>");
+    expect(text).not.toContain("notaprovider");
+    expect(text).not.toContain("You were sent here");
   });
 });

@@ -59,6 +59,12 @@ export interface TransportReconnectObservable {
  * all, and subscribing to a signal it would ignore would be the second copy of a
  * decision this constant states once.
  *
+ * A UNIT PROBE THAT DRIVES NO OUTAGE ALSO TAKES IT, and that is not a second reading:
+ * a probe mounting a hook outside any bridge provider has no transport to lose, so
+ * the honest observable to hand it is the one that never fires. What such a probe may
+ * not do is stand in for a case ABOUT reconnect — that case drives a real
+ * `TransportReconnectSignal`, which is what makes the trigger observable at all.
+ *
  * Subscribing returns an unsubscribe that has nothing to undo, so a caller's teardown
  * needs no arm of its own.
  */

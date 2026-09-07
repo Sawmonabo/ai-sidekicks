@@ -22,15 +22,18 @@
 // that make sense with no family loaded; family scenarios follow in task order.
 
 import { AGENTS_SCENARIO } from "./agents.js";
+import { BRING_YOUR_HISTORY_SCENARIO } from "./bring-your-history.js";
 import { APPROVALS_SCENARIO } from "./approvals.js";
 import { BROWSER_SCENARIO } from "./browser.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { ONBOARDING_SCENARIO } from "./onboarding.js";
 import { REPOS_SCENARIO } from "./repos.js";
 import { RUNS_SCENARIO } from "./runs.js";
 import { SETTINGS_SCENARIO } from "./settings.js";
+import { SHELL_SCENARIO } from "./shell.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
 import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
@@ -55,5 +58,8 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   WORKFLOWS_SCENARIO, // T-023p-1C-6 workflows
   BROWSER_SCENARIO,
   TERMINAL_SCENARIO,
+  SHELL_SCENARIO,
   // T-023p-1C-8 gallery
+  BRING_YOUR_HISTORY_SCENARIO,
+  ONBOARDING_SCENARIO, // sign-in and onboarding
 ];

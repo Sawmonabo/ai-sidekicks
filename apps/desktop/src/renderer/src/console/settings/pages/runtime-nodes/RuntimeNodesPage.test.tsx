@@ -21,6 +21,7 @@ import {
 } from "../../../bridge/scenarios/settings-runtime-nodes.js";
 import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
+import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";
 
 /**
  * The tick this scenario's two machines are both online at, one axis apart.
@@ -50,6 +51,8 @@ function contextFor(
     openSection: () => undefined,
     retainedSessionId,
     retainedSessionStore: undefined,
+    shellState: UNREPORTED_SHELL_STATE,
+    selection: undefined,
     uiStateStore: consoleTestUiStateStore(),
   };
 }

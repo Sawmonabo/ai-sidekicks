@@ -86,6 +86,7 @@ import {
   channel,
   participant,
 } from "../surfaces/collaboration-fixtures.js";
+import { UNREPORTED_SHELL_STATE } from "../../../src/renderer/src/console/store/index.js";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -252,6 +253,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
               refusal: growthUnavailable("attentionProjectionRead"),
             },
           ],
+          addressedSessionIds: [COLLABORATION_SCENARIO.sessionId],
         }}
       />,
     );
@@ -278,6 +280,8 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
       openSection: () => undefined,
       retainedSessionId: COLLABORATION_SCENARIO.sessionId,
       retainedSessionStore: undefined,
+      selection: undefined,
+      shellState: UNREPORTED_SHELL_STATE,
       uiStateStore: consoleTestUiStateStore(),
     };
     const { container } = await renderSettled(<RuntimeNodesPage context={pageContext} />);

@@ -41,6 +41,7 @@ import { expect } from "vitest";
 import type { ConsoleApplication, LaunchConsoleOptions } from "../electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../launch-body.js";
 import { ENDURANCE_BODY_ALLOWANCE_MS } from "../launch-budgets.js";
+import { closePalette, openPalette } from "../palette-interaction.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
@@ -233,17 +234,14 @@ export async function churnOnce(
   advanceMilliseconds: number,
 ): Promise<number | null> {
   const consoleWindow = consoleApplication.window;
-  await consoleWindow.keyboard.press("ControlOrMeta+KeyK");
-  await consoleWindow.getByRole("dialog").waitFor({
-    state: "visible",
-    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-  });
+  // Through the shared door, which waits for the input to hold focus before this
+  // returns. Typing into an unfocused palette is silent here rather than red — the
+  // keystrokes go to the document, the filter never runs, and the cycle reports a
+  // clean churn over machinery it did not touch. That is the worse failure of the
+  // two, because a measurement nobody can tell was not taken keeps being trusted.
+  await openPalette(consoleApplication);
   await consoleWindow.keyboard.type("Go to");
-  await consoleWindow.keyboard.press("Escape");
-  await consoleWindow.getByRole("dialog").waitFor({
-    state: "hidden",
-    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
-  });
+  await closePalette(consoleApplication);
 
   // Route changes mount and unmount the surface subtree through the error
   // boundary's keyed remount — the path most likely to strand a listener. One of

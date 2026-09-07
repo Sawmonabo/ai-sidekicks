@@ -9,17 +9,21 @@
 //
 // Nothing here holds state, reads the DOM, or knows a store exists. A route is a
 // value parsed from a string and rendered back to one.
+//
+// TWO MODULES BEHIND ONE DOOR. `routes.ts` is the grammar — the union, the parser, and
+// the formatter that inverts it — and `route-readers.ts` is what a caller asks of a
+// route it already has. The door re-exports from whichever module DECLARES a symbol,
+// so a reader following a name lands on the reasoning that owns it.
 
+export { DEFAULT_ROUTE, formatRoute, parseRoute, type ConsoleRoute } from "./routes.js";
 export {
-  DEFAULT_ROUTE,
   RAIL_DESTINATIONS,
-  formatRoute,
   isAuxiliaryRoute,
   needsContextPicker,
-  parseRoute,
   railDestinationFor,
   routeSessionId,
   routesAreEqual,
-  type ConsoleRoute,
+  settingsRoute,
+  settingsSelection,
   type RailDestination,
-} from "./routes.js";
+} from "./route-readers.js";

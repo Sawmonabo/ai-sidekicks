@@ -50,7 +50,7 @@ async function renderAppearancePage(
   if (engine === undefined) {
     throw new Error("the fixture bridge built no scenario engine, so there is no clock to advance");
   }
-  const context = settingsPageContextWith(bridge, undefined, undefined, uiStateStore);
+  const context = settingsPageContextWith(bridge, undefined, { uiStateStore });
   const { container } = render(
     <SidekicksBridgeProvider bridge={bridge}>
       <AppearancePage context={context} />

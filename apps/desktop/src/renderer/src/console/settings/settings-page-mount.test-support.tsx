@@ -19,29 +19,64 @@ import type { ReactNode } from "react";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { SessionStore, type ConsoleEntity } from "../store/index.js";
+import {
+  SessionStore,
+  UNREPORTED_SHELL_STATE,
+  type ConsoleEntity,
+  type ShellState,
+} from "../store/index.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import type { SettingsPageContext } from "./settings-page-registry.js";
 
 /**
+ * What a case says about the window its page is mounted in, where it says anything.
+ *
+ * NAMED RATHER THAN POSITIONAL, and that is the shape rather than a preference. Every
+ * member here is a context axis some page reads and most pages do not, so a positional
+ * tail would make a case naming the last of them write placeholders for the ones
+ * before it — and two of these are defaulted values, which is exactly the position a
+ * reader cannot tell apart from "this case meant `undefined`".
+ */
+export interface SettingsPageContextOverrides {
+  readonly retainedSessionStore?: SessionStore | undefined;
+  readonly shellState?: ShellState | undefined;
+  readonly selection?: string | undefined;
+  readonly uiStateStore?: UiStateStore | undefined;
+}
+
+/**
  * The context a settings page is handed, over a bridge and a retained session.
  *
- * `retainedSessionId` is a required parameter and not a defaulted one: `undefined` is
- * the window that has opened no session, which several cases exist to drive, and a
- * default would silently answer those with a session id instead.
+ * `retainedSessionId` is a required parameter and not an override: `undefined` is the
+ * window that has opened no session, which several cases exist to drive, and a default
+ * would silently answer those with a session id instead.
+ *
+ * `shellState` defaults to the seeded unreported value rather than to a healthy one: a
+ * page mounted by a case that says nothing about the shell is a page in a window nobody
+ * has told anything, which is the state every shipped build is in until the wire lands.
+ * A case that renders a degraded arm names its own.
+ *
+ * `selection` is absent for the same reason and to the same effect: a page reached from
+ * the settings rail was opened for nothing in particular, which is how most of it is
+ * reached. A case driving the deep link names its own subject.
+ *
+ * `uiStateStore` defaults to a fresh memory-backed store — see
+ * {@link consoleTestUiStateStore} for why the real one and not a double, and why one
+ * per call.
  */
 export function settingsPageContextWith(
   bridge: ConsoleBridge,
   retainedSessionId: string | undefined,
-  retainedSessionStore?: SessionStore | undefined,
-  uiStateStore: UiStateStore = consoleTestUiStateStore(),
+  overrides: SettingsPageContextOverrides = {},
 ): SettingsPageContext {
   return {
     bridge,
     openSection: () => undefined,
+    selection: overrides.selection,
     retainedSessionId,
-    retainedSessionStore,
-    uiStateStore,
+    retainedSessionStore: overrides.retainedSessionStore,
+    shellState: overrides.shellState ?? UNREPORTED_SHELL_STATE,
+    uiStateStore: overrides.uiStateStore ?? consoleTestUiStateStore(),
   } satisfies SettingsPageContext;
 }
 

@@ -29,6 +29,7 @@
     "test:console-endurance": "vitest run --project=console-endurance",
     "test:console-bundle": "vitest run --project=console-bundle",
     "test:console-bench": "vitest run --project=console-bench",
+    "test:changed": "node --experimental-strip-types scripts/test-changed.ts",
     "budget:bundle": "node --experimental-strip-types scripts/budget/measure-bundle.mts",
     "budget:heap": "node --experimental-strip-types scripts/budget/measure-heap.mts",
     "structure:dead-code": "knip --directory ../.. --config apps/desktop/knip.json --workspace apps/desktop --treat-config-hints-as-errors --treat-tag-hints-as-errors",

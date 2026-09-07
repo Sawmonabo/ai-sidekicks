@@ -23,6 +23,7 @@ import { unscriptedScenario } from "../../../bridge/fixture/fixture-bridge.test-
 import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
 import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
+import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";
 
 /** The tick this scenario's roster names two machines at, one of them below floor. */
 const BOTH_MACHINES_ONLINE_MS = 200;
@@ -39,6 +40,8 @@ function contextFor(
     openSection: () => undefined,
     retainedSessionId,
     retainedSessionStore: undefined,
+    selection: undefined,
+    shellState: UNREPORTED_SHELL_STATE,
     uiStateStore: consoleTestUiStateStore(),
   };
 }

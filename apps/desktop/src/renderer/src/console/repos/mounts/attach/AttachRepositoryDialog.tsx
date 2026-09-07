@@ -110,7 +110,7 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
   }, [attach, verdict]);
 
   return (
-    <Dialog.Root onOpenChange={openChanged}>
+    <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
       <Dialog.Trigger className="meridian-repo-attach__trigger">Attach a repository</Dialog.Trigger>
       {/* The popup shell is the primitive's, which is also what puts this dialog in the
           window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native

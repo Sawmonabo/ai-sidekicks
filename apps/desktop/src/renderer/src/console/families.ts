@@ -54,16 +54,18 @@ import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsolePaneRegistry,
   ConsoleSurfaceRegistry,
+  FrameBindingRegistry,
   InlineCardSeatRegistry,
   SidebarSectionRegistry,
 } from "./seats/index.js";
 import { registerWorkflowSurfaces } from "./workflows/index.js";
 
 /**
- * Register every shipped view family against the five boards a composition owns.
+ * Register every shipped view family against the six boards a composition owns.
  *
- * ALL FIVE ARE PARAMETERS, and each one after the first is this signature's history. The surface registry was passed in from the start so a test could compose
- * into a registry it owns and an auxiliary window could compose a subset; the pane
+ * ALL SIX ARE PARAMETERS, and each one after the first is this signature's history.
+ * The surface registry was passed in from the start so a test could compose into a
+ * registry it owns and an auxiliary window could compose a subset; the pane
  * board beside it reached for the module-scope singleton, so a caller composing its
  * own family set still registered panes into the production one. That is inert only
  * while every pane seat is still reserved — the moment the first family registers a
@@ -90,9 +92,19 @@ import { registerWorkflowSurfaces } from "./workflows/index.js";
  * they have not happened yet. Taking them as parameters now is what gives the first
  * family that fills a section or a card something to be handed instead.
  *
+ * The frame-binding board is the sixth, and it is the first that is not a place to
+ * hand over a BODY. The four above it are all mounted when something is looking at
+ * them and unmounted when the route moves on, which is right for a body and wrong for
+ * a read the frame renders: the rail's attention count comes from a view family's
+ * read, and while that read was mounted by a destination the count vanished whenever
+ * a person navigated away — a suppressed badge on a perfectly reachable machine,
+ * which is the one thing the design's degraded rule exists to distinguish. A binding
+ * is mounted once, around the frame's own subtree, for as long as the window holds a
+ * bridge, and `seats/frame-bindings.ts` says the rest.
+ *
  * Required rather than defaulted to the singletons, because a default is the same
  * hard-coding one parameter along: a caller that forgets it still writes into
- * production. Naming all five at the one composition site is what makes a composition
+ * production. Naming all six at the one composition site is what makes a composition
  * legible as a whole.
  */
 export function registerConsoleFamilies(
@@ -101,6 +113,7 @@ export function registerConsoleFamilies(
   projectors: ConsoleEntityProjectorRegistry,
   sidebarSections: SidebarSectionRegistry,
   inlineCardSeats: InlineCardSeatRegistry,
+  frameBindings: FrameBindingRegistry,
 ): void {
   // The three shipped Tier-1 families come first, because they were mounted
   // before any of the seats below existed. A family filling a seat that one of
@@ -137,7 +150,7 @@ export function registerConsoleFamilies(
   // The seat line itself stays in its reserved shape, which is the shape it would
   // take either way — a seat is a seat filled or not, and the board counts it. Said
   // HERE rather than beside that line, because the census below admits seats only.
-  // Each seat below receives the boards it writes into, out of the five this
+  // Each seat below receives the boards it writes into, out of the six this
   // composition was handed. A family claims a surface slot, a pane kind, the event
   // kinds whose fold it owns, a sidebar section, and an inline-card body — through
   // its own `register<Family>` entry point, never by editing a shared spine and
@@ -157,7 +170,7 @@ export function registerConsoleFamilies(
   // reads the block as a census and refuses anything that is not a seat.
   // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
-  registerCollaborationFamily(surfaces, sidebarSections); // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections, frameBindings); // T-023p-1C-4 collaboration
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
   registerWorkflowSurfaces(surfaces); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal
