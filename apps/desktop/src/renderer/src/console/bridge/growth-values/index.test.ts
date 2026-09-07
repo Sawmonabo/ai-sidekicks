@@ -51,9 +51,12 @@ const barrelSource = Object.values(barrelSources)[0] ?? "";
  * preserve, and its whole job is to disagree with the barrel if a name is lost. A
  * name is added here only in the diff that adds the export, which is what keeps
  * "nothing silently added under cover of a refactor" a real claim rather than a
- * comment. `GrowthBranchContextReadRequest` is the one such addition: the registered
- * branch-context read is keyed by one of two arms, and the union naming them earned a
- * name once the signature table and the gate's read plan both read it.
+ * comment. Two such additions stand today, and each names the sibling that earned it:
+ * `GrowthBranchContextReadRequest`, because the registered branch-context read is keyed
+ * by one of two arms and the union naming them earned a name once the signature table
+ * and the gate's read plan both read it; and `GrowthMcpLiveApplicationResult`, because
+ * the settings scenario computes each governance mutation's answer from the binding the
+ * request named and carries the per-leg outcomes of applying it on that answer.
  */
 const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -112,6 +115,7 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   // diagnostics plane's do — no sibling in this family reads them.
   "GrowthMcpBindingRef",
   "GrowthMcpInventoryEntry",
+  "GrowthMcpLiveApplicationResult",
   "GrowthMcpMutationResult",
   // And the key those bindings are compared by, added with the fixture ledger that
   // serves the inventory read past a governance mutation. The one FUNCTION on this
