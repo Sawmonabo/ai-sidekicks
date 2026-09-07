@@ -10,32 +10,19 @@
 
 import { Tooltip } from "@base-ui/react/tooltip";
 
-import { type SessionStore } from "../../store/index.js";
 import { tokenReference } from "../../tokens/index.js";
-import { ParticipantCard } from "./ParticipantCard.js";
 import { type CastMember } from "./cast-bar-model.js";
 import { CastChipButton, type CastChipStyle } from "./CastChipButton.js";
-
-/**
- * How far the card sits off the chip.
- *
- * A positioning offset rather than a density cap: it is the tooltip library's own
- * geometry argument and nothing else in the console spends it, so it stays beside the
- * one call that passes it rather than in the cap home, which holds the budgets a
- * surface is held to.
- */
-const CARD_OFFSET_PX = 6;
 
 export interface CastChipProps {
   readonly member: CastMember;
   /**
-   * The store the participant card reads its four facts out of.
+   * The bar's one card handle, which this chip triggers with itself as the payload.
    *
-   * Handed down rather than reached for, on the same terms every other reading in this
-   * console is: a bar rendered in an auxiliary window reads THAT window's store. The
-   * card is mounted only while it is open, so a closed chip costs no subscription.
+   * Handed down rather than minted here: a handle per chip would be a card per chip,
+   * which is the arrangement `ParticipantCardHost.tsx` records the measured cost of.
    */
-  readonly sessionStore: SessionStore;
+  readonly cardHandle: Tooltip.Handle<CastMember>;
   readonly onFollow: (participantId: string) => void;
 }
 
@@ -73,26 +60,13 @@ export function CastChip(props: CastChipProps): React.JSX.Element {
   const { member } = props;
   const style: CastChipStyle = { "--meridian-cast-hue": tokenReference(member.hue.tokenName) };
 
+  // A TRIGGER AND NOT A ROOT. The bar mounts one card for every chip in it and binds
+  // them with a handle, so what belongs here is the half that names this participant.
   return (
-    <Tooltip.Root>
-      <Tooltip.Trigger
-        render={<CastChipButton member={member} style={style} onFollow={props.onFollow} />}
-      />
-      <Tooltip.Portal>
-        {/* The card is a POPUP the tooltip mounts only while it is open, so the reading
-            behind it starts when somebody hovers or tabs to the chip and stops when they
-            leave. A card mounted with the chip would hold one store subscription per
-            participant for the life of the bar. */}
-        <Tooltip.Positioner sideOffset={CARD_OFFSET_PX}>
-          <Tooltip.Popup className="meridian-cast-chip__card">
-            <ParticipantCard
-              sessionStore={props.sessionStore}
-              participantId={member.participantId}
-              label={member.label}
-            />
-          </Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+    <Tooltip.Trigger
+      handle={props.cardHandle}
+      payload={member}
+      render={<CastChipButton member={member} style={style} onFollow={props.onFollow} />}
+    />
   );
 }
