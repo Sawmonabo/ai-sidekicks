@@ -85,6 +85,15 @@ export type SettleTimeDisposer = () => void | Promise<void>;
 export type SettleTimeRegistrar = (dispose: SettleTimeDisposer) => void;
 
 /**
+ * What a settle-time disposal's own failure does to the run.
+ *
+ * Two dispositions and not a flag: `"swallowed"` keeps the test's own outcome the
+ * one a reader sees, and `"fails-the-test"` lets the disposal's failure become
+ * the outcome. Which one a disposer takes is stated where it is registered.
+ */
+export type DisposalFailureDisposition = "swallowed" | "fails-the-test";
+
+/**
  * Bind a disposer to the end of the current test, however it ends.
  *
  * The door every Electron harness in this package walks through, including the
@@ -92,17 +101,33 @@ export type SettleTimeRegistrar = (dispose: SettleTimeDisposer) => void;
  * its `close` runs in the body's own settlement, and a vitest timeout does not
  * run the body's settlement.
  *
- * A rejection is swallowed on purpose. By the time this runs the test has
- * already settled and its own outcome is what explains the run; a late cleanup
- * failure surfacing here would replace that outcome with a sentence about
- * teardown. Harnesses that need the cleanup verdict report it on their own
- * path, where it is still the caller's to see.
+ * A rejection is swallowed by DEFAULT, and the default is the judgment rather
+ * than the mechanism. By the time this runs the test has already settled and its
+ * own outcome is what explains the run; a late cleanup failure surfacing here
+ * would replace that outcome with a sentence about teardown. Harnesses that need
+ * the cleanup verdict report it on their own path, where it is still the
+ * caller's to see.
+ *
+ * `"fails-the-test"` is for the disposal whose failure IS the run's outcome, and
+ * there is exactly one class of those: a disposal that could not stop a process.
+ * The Playwright launcher's settle-time close reaches it — that close is the ONLY
+ * path on a vitest timeout, its own bounded retries are already spent by the time
+ * it raises, and an Electron tree nothing could kill outlives the worker and
+ * every launch after it. Swallowing there does not keep a teardown sentence off a
+ * reader's screen; it reports a run as clean that left a browser running. The
+ * disposition is named at the call site rather than inferred from the error,
+ * because which failures a caller can afford to lose is the caller's question.
  */
 export function disposeWhenTestFinishes(
   dispose: SettleTimeDisposer,
   register: SettleTimeRegistrar = onTestFinished,
+  disposalFailure: DisposalFailureDisposition = "swallowed",
 ): void {
   register(async () => {
+    if (disposalFailure === "fails-the-test") {
+      await dispose();
+      return;
+    }
     try {
       await dispose();
     } catch {

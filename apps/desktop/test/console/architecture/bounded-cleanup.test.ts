@@ -23,7 +23,11 @@
 // verdict, and which of two failures a reader sees when the body failed too, is
 // `cleanup-disposition.test.ts`: the two were one file until it passed 400 lines
 // carrying both subjects, which is the split `frame-witness.test.ts` and
-// `launch-deadline.test.ts` already made for the same reason.
+// `launch-deadline.test.ts` already made for the same reason — and
+// `bounded-cleanup-retry.test.ts` is that same split made a second time, for the
+// one outcome that is not a race: a platform that reports the kill was refused,
+// and how many times the cleanup then asks. The stand-ins all three drive live in
+// `bounded-cleanup.test-support.ts`.
 //
 // The launch clock these cases deliberately do NOT draw from is
 // `launch-deadline.test.ts` — cleanup's bound is the registered ceiling rather
@@ -32,72 +36,21 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  BoundedCleanup,
-  type ClosableApplication,
-  type ProcessTerminator,
-} from "../bounded-cleanup.js";
+import { BoundedCleanup } from "../bounded-cleanup.js";
 import { withCleanupOutcome } from "../cleanup-disposition.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
-import { type LaunchProfile } from "../launch-profile.js";
+import {
+  applicationThatNeverCloses,
+  applicationWhoseCloseRejects,
+  profileSpy,
+  TEST_BUDGET_MS,
+  TEST_PROFILE_DIRECTORY,
+  TEST_TERMINATION_WAIT_MS,
+  terminatorSpy,
+} from "./bounded-cleanup.test-support.js";
 import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 describe("bounded cleanup — a close that never settles", () => {
-  /** A close bound short enough that exhausting it costs the suite nothing. */
-  const TEST_BUDGET_MS = 120;
-
-  /** An application whose close never settles, and whose process has a pid. */
-  function applicationThatNeverCloses(processId: number | undefined): ClosableApplication {
-    return { close: () => new Promise<void>(() => undefined), processId: () => processId };
-  }
-
-  /**
-   * A terminator that records rather than signals — killing for real would take
-   * this runner with it — and answers liveness however the case needs.
-   */
-  function terminatorSpy(
-    delivers: boolean,
-    running = true,
-  ): ProcessTerminator & { readonly killed: number[] } {
-    const killed: number[] = [];
-    return {
-      killed,
-      isRunning: () => running,
-      terminate: (processId: number) => {
-        killed.push(processId);
-        return delivers;
-      },
-    };
-  }
-
-  /** The directory a spy profile claims, so a message that names one can be checked. */
-  const TEST_PROFILE_DIRECTORY = "/tmp/ai-sidekicks-console-spy";
-
-  /**
-   * A profile that records the ATTEMPT rather than touching a disk — and refuses
-   * it when the case is about a directory that will not go. Recording the attempt
-   * rather than the success is what lets a case assert both halves: that the
-   * removal was tried at all, and what came of it.
-   */
-  function profileSpy(refuseWith?: Error): LaunchProfile & { readonly removalAttempts: string[] } {
-    const removalAttempts: string[] = [];
-    return {
-      directory: TEST_PROFILE_DIRECTORY,
-      removalAttempts,
-      remove: () => {
-        removalAttempts.push(TEST_PROFILE_DIRECTORY);
-        if (refuseWith !== undefined) {
-          throw refuseWith;
-        }
-      },
-    };
-  }
-
-  /** An application whose close rejects, with a pid the case decides the fate of. */
-  function applicationWhoseCloseRejects(rejection: Error): ClosableApplication {
-    return { close: () => Promise.reject(rejection), processId: () => 4242 };
-  }
-
   it("settles inside the bound and SIGKILLs the process tree", async () => {
     // THE FINDING, in one case. Before this, close() was awaited with no bound at
     // all, so this application hung the launch until vitest killed the test — the
@@ -258,6 +211,7 @@ describe("bounded cleanup — a close that never settles", () => {
       terminatorSpy(false),
       profileSpy(),
       TEST_BUDGET_MS,
+      TEST_TERMINATION_WAIT_MS,
     ).close();
     expect([withoutPid.settlement, refusedSignal.settlement]).toStrictEqual([
       "unterminable",

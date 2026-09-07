@@ -15,6 +15,15 @@
 // judgment `spawnManagedElectronChild` already makes one layer down — so these
 // cases are that judgment applied to the launched console.
 //
+// AND WHAT THAT REGISTERED CLOSE'S OWN FAILURE DOES TO THE RUN is the second
+// subject here, because it is the same registration. The shared settle-time door
+// swallows a disposal failure by default — the test has already settled and its
+// outcome is what explains the run — and this is the one caller that asks it not
+// to. On a vitest timeout nothing else closes the launch, the close is idempotent
+// so nobody can ask again, and its bounded retries against the tree are already
+// spent: a verdict of `unterminable` reaching here means a browser nothing could
+// kill is still running, which a green tier must not report over.
+//
 // NO ELECTRON IS LAUNCHED HERE. `registerSettleTimeClose` takes the close alone,
 // for `cleanup-disposition.ts`'s reason: a close that itself fails is one object
 // literal and is unproducible with a real browser, and the refusal is a registrar
@@ -46,18 +55,25 @@ const UNTERMINABLE_OUTCOME: CleanupOutcome = {
 };
 
 /**
- * A launched console that counts its closes and can fail one on demand.
+ * A launched console that counts its closes and can fail the FIRST one.
  *
  * Counting is the claim, not a convenience: "the handle was closed" and "the
  * handle was closed exactly once" are different properties, and only the second
  * one says the recovery did not run beside a registration that had already taken.
+ *
+ * The failure is one-shot because the real close is: `withLaunchedConsole`'s
+ * `close` sets its `closed` guard BEFORE the cleanup runs and returns on it
+ * afterwards, so a second call resolves without repeating the verdict — which is
+ * exactly why the retry against a tree that refused the kill had to move inside
+ * `BoundedCleanup` rather than be asked of a later close. A stand-in that threw
+ * every time would model a handle this package does not have.
  */
 class RecordingLaunch {
   #closeCount = 0;
-  readonly #closeFailure: unknown;
+  readonly #firstCloseFailure: unknown;
 
-  constructor(closeFailure?: unknown) {
-    this.#closeFailure = closeFailure;
+  constructor(firstCloseFailure?: unknown) {
+    this.#firstCloseFailure = firstCloseFailure;
   }
 
   get closeCount(): number {
@@ -66,8 +82,8 @@ class RecordingLaunch {
 
   readonly close = async (): Promise<void> => {
     this.#closeCount += 1;
-    if (this.#closeFailure !== undefined) {
-      throw this.#closeFailure;
+    if (this.#closeCount === 1 && this.#firstCloseFailure !== undefined) {
+      throw this.#firstCloseFailure;
     }
     await Promise.resolve();
   };
@@ -107,6 +123,39 @@ describe("a launch binds its close to the end of the test, or closes now", () =>
       "the refusal was rethrown without closing — a real Electron and its private profile " +
         "directory are still on the machine and no handle can reach either",
     ).toBe(1);
+  });
+
+  it("fails the test when the settled close could not terminate the tree", async () => {
+    // THE FINDING. This registration is the ONLY close on a vitest timeout — the
+    // body's settlement never runs — and its rejection used to be swallowed by
+    // the shared settle-time door, whose default is to keep the test's own
+    // outcome the one a reader sees. Here there is no other outcome to protect:
+    // `BoundedCleanup` has already spent its bounded retries by the time it
+    // raises, so the verdict means an Electron nothing could kill is still
+    // running and every launch after it inherits the machine it is holding.
+    const registrar = new RecordingSettleRegistrar();
+    const launch = new RecordingLaunch(new CleanupFailedError(UNTERMINABLE_OUTCOME));
+
+    await registerSettleTimeClose(launch, registrar.register);
+
+    await expect(
+      registrar.settle(),
+      "the settle-time close swallowed its verdict — a run that leaked a browser reports clean",
+    ).rejects.toThrow(`unterminable for pid ${String(UNTERMINABLE_OUTCOME.processId)}`);
+    expect(launch.closeCount).toBe(1);
+  });
+
+  it("negative control: a close that settles cleanly fails nothing", async () => {
+    // Without this the case above is ambiguous between "the disposition surfaces
+    // a failure" and "the registration now rejects whatever happens", and the
+    // second would turn every passing launching tier red at teardown.
+    const registrar = new RecordingSettleRegistrar();
+    const launch = new RecordingLaunch();
+
+    await registerSettleTimeClose(launch, registrar.register);
+
+    await expect(registrar.settle()).resolves.toBeUndefined();
+    expect(launch.closeCount).toBe(1);
   });
 
   it("keeps the refusal as the failure that explains the run when the close fails too", async () => {

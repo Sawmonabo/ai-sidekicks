@@ -29,8 +29,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
-import { cleanUpAfterChildAtSettleTime } from "./electron-child-cleanup.js";
-import { spawnManagedElectronChild, TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
+import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -768,72 +768,76 @@ export function spawnElectron(): Promise<SpawnResult> {
     // covers a stalled boot, and the settle-time registration covers every
     // other way the test ends — a pass, an assertion failure, and vitest's own
     // timeout kill, none of which runs a timer armed for a stall.
-    const managed = spawnManagedElectronChild({
-      command: spawnCommand,
-      args: spawnArguments,
-      cwd: PACKAGE_ROOT,
-      env: {
-        // Under the forced-stall override the probe opt-in is DROPPED from the
-        // inherited environment, not merely left unset below. A developer with
-        // `SIDEKICKS_SMOKE_PROBE=1` exported in their shell would otherwise
-        // have it inherited through the spread, the app would emit a real probe
-        // line, and the stalled-boot control would quietly stop testing a
-        // stall. Same guard, and same reason, as `lifecycle.gc.test.ts`'s
-        // `envWithoutSmoke`.
-        ...spawnBaseEnv,
-        // Pinned rather than inherited so the child cannot fall back to the
-        // ambient display. This matters exactly when the readiness gate has
-        // regressed: without it a spawn that should have been refused would
-        // open on the developer's real display and pass, hiding the regression.
-        ...(childDisplay === undefined ? {} : { DISPLAY: childDisplay }),
-        // Activates the main-process smoke-mode branch declared in
-        // `apps/desktop/src/main/index.ts`. The branch is conditional on
-        // exactly the string "1" so it is a deliberate opt-in. The
-        // outer branch condition is the compile-time-static
-        // `__SIDEKICKS_SMOKE_BUILD__` flag (Vite `define`); in a release
-        // bundle that flag is substituted with `false` and the entire
-        // branch — including this env-var lookup — is eliminated by
-        // Rollup's dead-code pass. So this env var has NO effect on a
-        // release binary: the code that reads it is physically absent
-        // (`grep -c SIDEKICKS_SMOKE_PROBE out/main/index.js` returns 0
-        // after `pnpm build`). In a smoke bundle, the runtime env-var
-        // check remains as defense-in-depth so the probe never
-        // auto-runs without explicit opt-in per invocation.
-        // Withheld under the forced-stall override: with no probe opt-in the
-        // app boots normally and simply never emits a probe line, which is a
-        // REAL stall for this harness rather than a simulated one, and is what
-        // lets the stalled-boot test drive the deadline path end to end. The
-        // inherited value is stripped above, so this is the only source.
-        ...(forcedStall ? {} : { SIDEKICKS_SMOKE_PROBE: "1" }),
-        // Emit the corroborating readiness breadcrumbs (`dom-ready`,
-        // `ready-to-show`) beside the asserted `did-finish-load`. Opt-in per
-        // invocation for the same reason the probe itself is: the main process
-        // must never take a test-only code path it was not explicitly asked to.
-        SIDEKICKS_SMOKE_TRACE_READINESS: "1",
-        // Reveal the window without activating the application: an ordinary
-        // reveal on macOS steals focus and switches the operator's Space on
-        // every spawn. Honoured by the smoke build only (see
-        // `src/main/window-reveal.ts`).
-        [UNOBTRUSIVE_WINDOWS_ENV]: "1",
-        // Give Chromium a session-bus address that fails FAST rather than
-        // leaving it unset. With `DBUS_SESSION_BUS_ADDRESS` unset, libdbus
-        // attempts an X11/autolaunch fallback to find a bus; on a hosted runner
-        // no bus exists, and the probe is a boot-path round trip that can only
-        // cost time. `disabled:` is unparseable as an address, so the lookup
-        // fails immediately instead of autolaunching. Paired with
-        // `--password-store=basic` above, which removes the secret-service
-        // consumer that would want the bus in the first place.
-        ...(process.platform === "linux"
-          ? { DBUS_SESSION_BUS_ADDRESS: "disabled:", NO_AT_BRIDGE: "1" }
-          : {}),
-      },
-    });
+    //
     // The profile outlives the child unless something removes it on the paths
-    // the child's own events do not reach. `spawnManagedElectronChild` already
-    // bound the KILL to this test; this binds the REMOVAL to it, after the kill
-    // has landed — see `electron-child-cleanup.ts` for why the wait between them
-    // is load-bearing rather than defensive.
-    cleanUpAfterChildAtSettleTime(managed, removeProfileDirectory);
+    // the child's own events do not reach, so the same call binds the REMOVAL to
+    // this test after the kill has landed — and releases it outright on the one
+    // path where there is no child to wait for, a settle-time registration that
+    // itself refuses. Both halves are `electron-child-cleanup.ts`'s, which is
+    // why this is one call and not two.
+    const managed = spawnChildCleanedUpAtSettleTime(
+      {
+        command: spawnCommand,
+        args: spawnArguments,
+        cwd: PACKAGE_ROOT,
+        env: {
+          // Under the forced-stall override the probe opt-in is DROPPED from the
+          // inherited environment, not merely left unset below. A developer with
+          // `SIDEKICKS_SMOKE_PROBE=1` exported in their shell would otherwise
+          // have it inherited through the spread, the app would emit a real probe
+          // line, and the stalled-boot control would quietly stop testing a
+          // stall. Same guard, and same reason, as `lifecycle.gc.test.ts`'s
+          // `envWithoutSmoke`.
+          ...spawnBaseEnv,
+          // Pinned rather than inherited so the child cannot fall back to the
+          // ambient display. This matters exactly when the readiness gate has
+          // regressed: without it a spawn that should have been refused would
+          // open on the developer's real display and pass, hiding the regression.
+          ...(childDisplay === undefined ? {} : { DISPLAY: childDisplay }),
+          // Activates the main-process smoke-mode branch declared in
+          // `apps/desktop/src/main/index.ts`. The branch is conditional on
+          // exactly the string "1" so it is a deliberate opt-in. The
+          // outer branch condition is the compile-time-static
+          // `__SIDEKICKS_SMOKE_BUILD__` flag (Vite `define`); in a release
+          // bundle that flag is substituted with `false` and the entire
+          // branch — including this env-var lookup — is eliminated by
+          // Rollup's dead-code pass. So this env var has NO effect on a
+          // release binary: the code that reads it is physically absent
+          // (`grep -c SIDEKICKS_SMOKE_PROBE out/main/index.js` returns 0
+          // after `pnpm build`). In a smoke bundle, the runtime env-var
+          // check remains as defense-in-depth so the probe never
+          // auto-runs without explicit opt-in per invocation.
+          // Withheld under the forced-stall override: with no probe opt-in the
+          // app boots normally and simply never emits a probe line, which is a
+          // REAL stall for this harness rather than a simulated one, and is what
+          // lets the stalled-boot test drive the deadline path end to end. The
+          // inherited value is stripped above, so this is the only source.
+          ...(forcedStall ? {} : { SIDEKICKS_SMOKE_PROBE: "1" }),
+          // Emit the corroborating readiness breadcrumbs (`dom-ready`,
+          // `ready-to-show`) beside the asserted `did-finish-load`. Opt-in per
+          // invocation for the same reason the probe itself is: the main process
+          // must never take a test-only code path it was not explicitly asked to.
+          SIDEKICKS_SMOKE_TRACE_READINESS: "1",
+          // Reveal the window without activating the application: an ordinary
+          // reveal on macOS steals focus and switches the operator's Space on
+          // every spawn. Honoured by the smoke build only (see
+          // `src/main/window-reveal.ts`).
+          [UNOBTRUSIVE_WINDOWS_ENV]: "1",
+          // Give Chromium a session-bus address that fails FAST rather than
+          // leaving it unset. With `DBUS_SESSION_BUS_ADDRESS` unset, libdbus
+          // attempts an X11/autolaunch fallback to find a bus; on a hosted runner
+          // no bus exists, and the probe is a boot-path round trip that can only
+          // cost time. `disabled:` is unparseable as an address, so the lookup
+          // fails immediately instead of autolaunching. Paired with
+          // `--password-store=basic` above, which removes the secret-service
+          // consumer that would want the bus in the first place.
+          ...(process.platform === "linux"
+            ? { DBUS_SESSION_BUS_ADDRESS: "disabled:", NO_AT_BRIDGE: "1" }
+            : {}),
+        },
+      },
+      removeProfileDirectory,
+    );
 
     // The stream wiring below reads the handle; every kill goes through
     // `managed`, which owns the process group the detached spawn created.

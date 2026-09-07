@@ -33,7 +33,10 @@
 // The process tree is SIGKILLed, and the outcome is reported rather than thrown.
 // Cleanup is never the interesting failure — something else already went wrong to
 // get here — so it returns a verdict the caller attaches to the error it was
-// already carrying, in the shape `FrameWitness` uses for the same reason.
+// already carrying, in the shape `FrameWitness` uses for the same reason. A kill
+// the platform REFUSES is asked again inside that one pass, bounded by the same
+// figure the settle-time child disposal uses — `#terminateUntilGone` has the
+// reason it cannot be left to a second call.
 //
 // THE PROFILE IS PART OF THE VERDICT, NOT A STEP BESIDE IT
 //
@@ -45,6 +48,8 @@
 // about any of this — including which outcomes raise — is
 // `cleanup-disposition.ts`.
 
+import { DISPOSAL_ATTEMPTS } from "../helpers/electron-child-cleanup.js";
+import { TERMINATION_GRACE_MS } from "../helpers/managed-electron-child.js";
 import { processExists, terminateProcessTree } from "../helpers/process-tree.js";
 import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
 import {
@@ -169,24 +174,28 @@ export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
  * worth checking — a close that never settles, a removal that will not — are
  * unreachable through the real ones. The bound is the fourth argument for the
  * same reason and no other: a case that has to EXHAUST it cannot afford to wait
- * the registered ten seconds out.
+ * the registered ten seconds out, and the fifth — how long a REFUSED kill is
+ * given to leave nothing running — is the same argument for the same reason.
  */
 export class BoundedCleanup {
   readonly #application: ClosableApplication;
   readonly #terminator: ProcessTerminator;
   readonly #profile: LaunchProfile;
   readonly #budgetMs: number;
+  readonly #terminationWaitMs: number;
 
   constructor(
     application: ClosableApplication,
     terminator: ProcessTerminator,
     profile: LaunchProfile,
     budgetMs: number = CLEANUP_BUDGET_MS,
+    terminationWaitMs: number = TERMINATION_GRACE_MS,
   ) {
     this.#application = application;
     this.#terminator = terminator;
     this.#profile = profile;
     this.#budgetMs = budgetMs;
+    this.#terminationWaitMs = terminationWaitMs;
   }
 
   /**
@@ -259,7 +268,7 @@ export class BoundedCleanup {
         };
       }
       return {
-        settlement: this.#terminator.terminate(processId) ? "terminated" : "unterminable",
+        settlement: (await this.#terminateUntilGone(processId)) ? "terminated" : "unterminable",
         waitedMs: Date.now() - startedAt,
         budgetMs,
         closeRejection,
@@ -269,12 +278,54 @@ export class BoundedCleanup {
     // The budget expired with the close still outstanding, so the process is
     // presumed alive and the probe is skipped: a SIGKILL has not been reaped yet
     // at this instant, and asking would only make a live target look gone.
-    const terminated = processId !== undefined && this.#terminator.terminate(processId);
+    const terminated = processId !== undefined && (await this.#terminateUntilGone(processId));
     return {
       settlement: terminated ? "terminated" : "unterminable",
       waitedMs: Date.now() - startedAt,
       budgetMs,
       processId,
     };
+  }
+
+  /**
+   * Signal the tree, and ask again while the platform says it refused.
+   *
+   * ONE ASK WAS NOT ENOUGH, and the settle-time path is where that showed. A
+   * refused kill is a real outcome rather than a hypothetical — a `taskkill` that
+   * spawns, exits non-zero and leaves Electron running, which is why
+   * `terminateProcessTree` reports delivery and survival as two answers — and the
+   * close this cleanup performs is idempotent by a `closed` guard set BEFORE the
+   * cleanup runs, so a caller that received `unterminable` could not ask again by
+   * closing again. The retry therefore belongs inside the one pass, and the shape
+   * is `disposeUntilChildHasClosed`'s in `test/helpers/electron-child-cleanup.ts`
+   * down to the constant: attempt, wait for evidence, return the moment the tree
+   * is gone. `DISPOSAL_ATTEMPTS` is imported from there rather than restated,
+   * because two `3`s in two files are two bounds that will disagree.
+   *
+   * THE DELIVERY REPORT SHORT-CIRCUITS AND THE EVIDENCE DECIDES. A terminator
+   * that says it delivered is believed and the loop ends there, which is what
+   * keeps every ordinary cleanup exactly one call long and unchanged by this. A
+   * REFUSAL is what costs a wait, and after that wait the question is asked of the
+   * process rather than of the platform's exit status: a tree that is gone is
+   * gone, whatever `taskkill` said about it.
+   */
+  async #terminateUntilGone(processId: number): Promise<boolean> {
+    for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
+      if (this.#terminator.terminate(processId)) {
+        return true;
+      }
+      await this.#whenTerminationHasHadTime();
+      if (!this.#terminator.isRunning(processId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The bounded pause a refused attempt spends before the tree is asked about again. */
+  async #whenTerminationHasHadTime(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, this.#terminationWaitMs);
+    });
   }
 }

@@ -18,19 +18,34 @@
 // its waits inside the body just as much as one written there does, and the
 // difference is where the code sits rather than what the clock is.
 //
+// AND WHICH MODULES THOSE ARE IS DERIVED, NOT LISTED. The flat helpers were named
+// one by one, which made the scanned set a closed list with no reader: the next
+// helper a body called was outside the rule and nothing anywhere said so. The set
+// is now the tiers plus everything they import, transitively, stopped at the
+// launcher — `withLaunchedConsole` is the line between the launch's clock and the
+// body's, so a module reached only through it is the launch's machinery and a
+// module reached any other way is the body's. The reach is read by
+// `source-walk-census.ts`'s `moduleSpecifiersIn`, which is the same reader the
+// spawn chokepoint and the parse-home gate ask their reach questions through.
+//
 // A PARSER, NOT A PATTERN. Which calls a file makes is a question about the
 // tree, and a pattern over the text answers it wrongly at the first nested
 // object literal or multi-line argument list. `typescript-source.ts` holds the
 // parse; the budget tier asks the same kind of question of the same parser.
 
-import { dirname, resolve } from "node:path";
+import { dirname, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
+import {
+  consoleSourceModules,
+  readConsoleSourceModule,
+  TYPESCRIPT_MODULE_EXTENSIONS,
+} from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import { moduleSpecifiersIn } from "./source-walk-census.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONSOLE_TEST_DIRECTORY = resolve(HERE, "..");
@@ -39,17 +54,24 @@ const CONSOLE_TEST_DIRECTORY = resolve(HERE, "..");
 const LAUNCHING_TIER_DIRECTORIES: readonly string[] = ["e2e", "endurance"];
 
 /**
- * Flat `test/console/` modules a launched body calls, named one by one.
+ * The launcher, which is the EDGE the body's side of this rule stops at.
  *
- * The two tier directories are taken whole, because everything in them runs
- * inside a body. The flat directory beside them cannot be: `launch-readiness.ts`
- * waits there too, and its waits are the LAUNCH's — bounded by the launch
- * deadline, since no allowance exists until the launch has settled. So a shared
- * module that performs waits on the body's side of that line joins this list in
- * the commit that adds it, and a module scanned by neither rule is a wait bounded
- * by whatever it invented.
+ * The line this rule draws is real and was drawn by hand: `launch-readiness.ts`
+ * performs bounded waits too, and they are the LAUNCH's — held to the launch
+ * deadline, since no allowance exists until the launch has settled. What was
+ * wrong was the instrument. A roster of shared body helpers named
+ * `palette-interaction.ts` and nothing else, so the next flat module an e2e or
+ * endurance body called was silently outside the claim this file makes — the
+ * stale closed set `apps/desktop/AGENTS.md` prohibits, in the shape it warns
+ * about: nothing reports a set that quietly stopped covering its own sentence.
+ *
+ * Reachability draws the same line mechanically, because `withLaunchedConsole` IS
+ * that line: the launcher's own imports are the launch's machinery, and a module
+ * a body reaches by any path OTHER than through the launcher runs inside the
+ * body. So the walk is seeded with the tiers and closed over their imports, and
+ * this one name is where the closure stops.
  */
-const LAUNCH_BODY_SHARED_MODULES: readonly string[] = ["palette-interaction.ts"];
+const LAUNCHER_MODULE = "electron-harness.ts";
 
 /**
  * The call names that take a timeout and wait it out.
@@ -120,13 +142,75 @@ function boundedWaitCalls(fileName: string, sourceText: string): readonly Bounde
   return calls;
 }
 
-/** Whether a path under `test/console/` holds code that runs inside a launched body. */
-function runsInsideALaunchedBody(path: string): boolean {
+/** Whether a path under `test/console/` sits inside one of the launching tiers. */
+function isLaunchingTierModule(path: string): boolean {
   const [head] = path.split("/");
-  return (
-    (head !== undefined && LAUNCHING_TIER_DIRECTORIES.includes(head)) ||
-    LAUNCH_BODY_SHARED_MODULES.includes(path)
-  );
+  return head !== undefined && LAUNCHING_TIER_DIRECTORIES.includes(head);
+}
+
+/**
+ * Which module a relative specifier names, as a path inside `test/console/`.
+ *
+ * `undefined` for everything that leaves the tier — a package, the renderer tree,
+ * `test/helpers/` — because the subject of this rule is the flat modules beside
+ * the tiers and a specifier that lands outside the walk's own set has nothing to
+ * resolve to. An ESM specifier carries the COMPILED name, so the extension is
+ * swapped for each of the declared TypeScript ones rather than trusted; the set
+ * comes from `console-source-modules.ts`, which is the same one the walk that
+ * produced `known` admitted by.
+ */
+function resolveWithinTier(
+  fromPath: string,
+  specifier: string,
+  known: ReadonlySet<string>,
+): string | undefined {
+  if (!specifier.startsWith(".")) {
+    return undefined;
+  }
+  const resolved = posix.normalize(`${posix.dirname(fromPath)}/${specifier}`);
+  const withoutExtension = resolved.replace(/\.[cm]?js$/u, "");
+  for (const extension of TYPESCRIPT_MODULE_EXTENSIONS) {
+    const candidate = `${withoutExtension}${extension}`;
+    if (known.has(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Every module a launched body reaches, closed over imports and stopped at the launcher.
+ *
+ * A pure function over the walk's own modules, so the planted control below can
+ * drive it with a corpus whose verdict is known. The tiers are seeds rather than
+ * the answer: everything in them runs inside a body, and what they IMPORT runs
+ * inside one too unless the path to it goes through the launcher.
+ */
+function launchBodyModulePaths(
+  modules: readonly { readonly path: string; readonly text: string }[],
+): ReadonlySet<string> {
+  const known = new Set(modules.map((module) => module.path));
+  const sourceByPath = new Map(modules.map((module) => [module.path, module.text]));
+  const reached = new Set<string>();
+  const frontier = modules.map((module) => module.path).filter(isLaunchingTierModule);
+  while (frontier.length > 0) {
+    const current = frontier.pop();
+    if (current === undefined || reached.has(current) || current.endsWith(LAUNCHER_MODULE)) {
+      continue;
+    }
+    reached.add(current);
+    const source = sourceByPath.get(current);
+    if (source === undefined) {
+      continue;
+    }
+    for (const specifier of moduleSpecifiersIn(source, current)) {
+      const target = resolveWithinTier(current, specifier, known);
+      if (target !== undefined && !reached.has(target)) {
+        frontier.push(target);
+      }
+    }
+  }
+  return reached;
 }
 
 /**
@@ -135,20 +219,21 @@ function runsInsideALaunchedBody(path: string): boolean {
  * Not a `readdirSync` of its own: `source-walk-chokepoint.test.ts` next door
  * fails a gate in this directory that walks a tree itself, for the reason that
  * gate's header gives — a claim is only as good as the set it quantifies over,
- * and per-gate walks drift silently. ONE walk of `test/console/` filtered by the
- * predicate above rather than one walk per tier, because the shared modules sit
- * beside the tiers rather than inside them and a second walk to reach them is the
- * exact shape that chokepoint forbids. The tier prefix survives in `path` because
- * a failure here names a file the way a person opens it.
+ * and per-gate walks drift silently. ONE walk of `test/console/`, filtered by the
+ * reachability above rather than by a hand-kept list, because the shared modules
+ * sit beside the tiers rather than inside them and a second walk to reach them is
+ * the exact shape that chokepoint forbids. The tier prefix survives in `path`
+ * because a failure here names a file the way a person opens it.
  */
 function launchBodySources(): readonly { readonly path: string; readonly text: string }[] {
-  return consoleSourceModules({ roots: [CONSOLE_TEST_DIRECTORY], tests: true })
-    .map((module) => ({ module, path: module.relativePath.split("\\").join("/") }))
-    .filter((candidate) => runsInsideALaunchedBody(candidate.path))
-    .map((candidate) => ({
-      path: candidate.path,
-      text: readConsoleSourceModule(candidate.module),
-    }));
+  const tierModules = consoleSourceModules({ roots: [CONSOLE_TEST_DIRECTORY], tests: true }).map(
+    (module) => ({
+      path: module.relativePath.split("\\").join("/"),
+      text: readConsoleSourceModule(module),
+    }),
+  );
+  const reached = launchBodyModulePaths(tierModules);
+  return tierModules.filter((module) => reached.has(module.path));
 }
 
 describe("launched bodies charge every bounded wait to the allowance", () => {
@@ -166,8 +251,12 @@ describe("launched bodies charge every bounded wait to the allowance", () => {
     // dropped every flat module, which is the state that let a body's waits sit
     // outside this rule by being hoisted out of the tier that performs them.
     expect(sources.map((source) => source.path)).toContain("palette-interaction.ts");
-    // And the line the predicate draws: the launch's own waits are bounded by the
-    // launch deadline and are not this rule's subject.
+    // And the half a hand-kept roster could not have: a flat module the tiers
+    // import that nobody thought to list, in the set because it is reached.
+    expect(sources.map((source) => source.path)).toContain("launch-body.ts");
+    // The line the reachability draws: the launch's own waits are bounded by the
+    // launch deadline and are not this rule's subject, and `launch-readiness.ts`
+    // is reached only THROUGH the launcher, which is where the closure stops.
     expect(sources.map((source) => source.path)).not.toContain("launch-readiness.ts");
     expect(calls.length, "the walk found no bounded wait at all").toBeGreaterThan(8);
   });
@@ -177,6 +266,60 @@ describe("launched bodies charge every bounded wait to the allowance", () => {
       .filter((call) => !call.consumesAllowance)
       .map((call) => `${call.path}:${String(call.line)} ${call.method}()`);
     expect(unconsumed).toStrictEqual([]);
+  });
+
+  it("negative control: a helper a body reaches is scanned, and one only the launcher reaches is not", () => {
+    // THE FINDING, driven through the real derivation. The corpus is four
+    // modules: a tier test, a flat helper it calls, the launcher it also calls,
+    // and a flat helper only the launcher calls. Under the roster this replaced,
+    // the first flat helper was invisible — it is not `palette-interaction.ts` —
+    // and its uncharged wait was reported by nothing.
+    const planted: readonly { readonly path: string; readonly text: string }[] = [
+      {
+        path: "e2e/planted-boot.test.ts",
+        text: [
+          'import { withLaunchedConsole } from "../electron-harness.js";',
+          'import { openPlantedPalette } from "../planted-interaction.js";',
+          "export const body = [withLaunchedConsole, openPlantedPalette];",
+        ].join("\n"),
+      },
+      {
+        path: "planted-interaction.ts",
+        text: [
+          "export async function openPlantedPalette(window) {",
+          "  await window.getByRole('dialog').waitFor({ state: 'visible', timeout: 10_000 });",
+          "}",
+        ].join("\n"),
+      },
+      {
+        path: "electron-harness.ts",
+        text: 'import { awaitPlantedReadiness } from "./planted-readiness.js";',
+      },
+      {
+        path: "planted-readiness.ts",
+        text: [
+          "export async function awaitPlantedReadiness(window) {",
+          "  await window.waitForFunction(() => true, undefined, { timeout: 10_000 });",
+          "}",
+        ].join("\n"),
+      },
+    ];
+
+    const reached = launchBodyModulePaths(planted);
+    expect([...reached].sort()).toStrictEqual([
+      "e2e/planted-boot.test.ts",
+      "planted-interaction.ts",
+    ]);
+    // And the reached helper's uncharged wait is what the gate then reports —
+    // the half that makes the derived set worth deriving.
+    const unconsumed = planted
+      .filter((module) => reached.has(module.path))
+      .flatMap((module) =>
+        boundedWaitCalls(module.path, module.text)
+          .filter((call) => !call.consumesAllowance)
+          .map((call) => `${module.path}:${String(call.line)} ${call.method}()`),
+      );
+    expect(unconsumed).toStrictEqual(["planted-interaction.ts:2 waitFor()"]);
   });
 
   it("negative control: a wait with a bare timeout is reported", () => {

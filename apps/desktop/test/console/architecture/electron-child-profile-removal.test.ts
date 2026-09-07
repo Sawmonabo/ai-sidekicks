@@ -37,9 +37,7 @@
 // The stand-ins are `electron-child-lifetime.test-support.ts`'s and the bounded
 // readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
 
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { existsSync, rmSync } from "node:fs";
 import process from "node:process";
 
 import { describe, expect, it } from "vitest";
@@ -52,6 +50,7 @@ import type {
 } from "../../helpers/managed-electron-child.js";
 import { readProcessLiveness } from "../../helpers/process-tree.js";
 import {
+  heldProfile,
   LIFETIME_TEST_TIMEOUT_MS,
   NON_TERMINATING_PROGRAM,
   ObservedTreeTerminator,
@@ -69,40 +68,6 @@ import { expectTerminatedWithin, reap } from "./electron-child-liveness.test-sup
  * SIGKILL against a `node -e` child and the stdio release behind its `close`.
  */
 const REFUSED_KILL_SETTLE_WAIT_MS = 1_000;
-
-/** A profile directory and the one function that takes it off disk, as a harness holds them. */
-interface HeldProfile {
-  readonly directory: string;
-  /** How many times the remover has been called — one per path that reached it. */
-  readonly removalCount: () => number;
-  /** The ONE remover, exactly as both spawners spell it: best-effort and forced. */
-  readonly removeProfileDirectory: () => void;
-}
-
-/**
- * A temporary profile plus the remover a harness reaches from every path.
- *
- * Written once here rather than per case because the claim under test is that
- * ONE function serves both paths — a second copy in the second case would make
- * the count that proves it meaningless.
- */
-function heldProfile(): HeldProfile {
-  const directory = mkdtempSync(path.join(tmpdir(), "sidekicks-profile-removal-"));
-  let removals = 0;
-  return {
-    directory,
-    removalCount: () => removals,
-    removeProfileDirectory: () => {
-      removals += 1;
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch {
-        // Best-effort, as both spawners are: a leftover directory is a smaller
-        // fact than whichever result the caller actually came for.
-      }
-    },
-  };
-}
 
 /**
  * A child that will not exit on its own, spawned through the real chokepoint.

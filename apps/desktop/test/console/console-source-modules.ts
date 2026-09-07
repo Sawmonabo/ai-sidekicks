@@ -81,6 +81,33 @@ export const DESKTOP_PROSE_ROOTS: readonly string[] = [
   join(DESKTOP_PACKAGE_ROOT, "test"),
 ];
 
+/**
+ * What a TypeScript module file name ends in — the ONE declared set.
+ *
+ * Four extensions and not two, because `.mts` and `.cts` are TypeScript modules
+ * this package actually writes: `AGENTS.md §Executables` makes every file under
+ * `scripts/**` and `build/**` a `.ts` or a `.mts`, and seven `.mts` executables
+ * live under `scripts/budget/` today. A walk keyed on `/\.tsx?$/` therefore
+ * quantifies over less than its own sentence claims, and the failure is silent by
+ * construction: the module it skipped is absent from the set, so no claim about
+ * that set can report it. `electron-spawn-chokepoint.test.ts` is where that bit —
+ * a `.mts` helper reaching `spawn` and never appearing among the spawners — and
+ * this is the one home both walks now take it from.
+ *
+ * `.d.ts` is subtracted by `isSourceModulePath` below rather than here: it IS a
+ * TypeScript module file name, and what disqualifies it is that it declares
+ * rather than implements.
+ */
+export const TYPESCRIPT_MODULE_EXTENSIONS: readonly string[] = [".ts", ".tsx", ".mts", ".cts"];
+
+/** A declaration file of any of the four, which declares rather than implements. */
+const DECLARATION_MODULE_NAME = /\.d\.[cm]?ts$/;
+
+/** Whether `fileName` names a TypeScript module, by extension alone. */
+export function isTypeScriptModuleFileName(fileName: string): boolean {
+  return TYPESCRIPT_MODULE_EXTENSIONS.some((extension) => fileName.endsWith(extension));
+}
+
 /** One source module, named by the root it was found under. */
 export interface ConsoleSourceModule {
   readonly directory: string;
@@ -292,13 +319,16 @@ export class ConsoleSourceTree {
 }
 
 function isSourceModulePath(entry: string, tests: boolean): boolean {
-  if (entry.endsWith(".d.ts")) {
+  // Every declaration flavour of the set above, and not `.d.ts` alone: a
+  // declaration is a claim rather than an implementation whichever module system
+  // it declares for, and matching one spelling would admit the other two.
+  if (DECLARATION_MODULE_NAME.test(entry)) {
     return false;
   }
   if (!tests && isTestModulePath(entry)) {
     return false;
   }
-  return entry.endsWith(".ts") || entry.endsWith(".tsx");
+  return isTypeScriptModuleFileName(entry);
 }
 
 /** A co-located test or the support module one imports. One answer, for both walks. */

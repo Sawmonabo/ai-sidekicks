@@ -315,6 +315,18 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedCon
  * explains the run and the cleanup verdict rides on it as a clause, never over
  * it — the inversion `cleanup-disposition.ts` exists to stop.
  *
+ * AND THE REGISTERED CLOSE FAILS THE TEST RATHER THAN BEING SWALLOWED, which is
+ * the one place this package asks that of the settle-time door. On a vitest
+ * timeout this registration is the only close there is: the body's own
+ * settlement never runs, so nothing else can report the verdict later, and the
+ * close is idempotent by a `closed` guard set before its cleanup runs — so a
+ * caller cannot ask again by closing again either. `BoundedCleanup` has already
+ * spent its bounded retries against the tree by the time it raises, so the
+ * failure that reaches here means an Electron nothing could kill is still
+ * running, holding its profile, and about to be inherited by every launch after
+ * it. That is not a teardown sentence displacing a reader's failure; on a run
+ * that would otherwise report clean it is the failure.
+ *
  * Takes the close alone rather than a whole launched application, for that same
  * module's reason: the refusal is then reachable without an Electron, and
  * `architecture/settle-time-close.test.ts` is what drives it.
@@ -324,9 +336,13 @@ export async function registerSettleTimeClose(
   register?: SettleTimeRegistrar,
 ): Promise<void> {
   try {
-    disposeWhenTestFinishes(async () => {
-      await application.close();
-    }, register);
+    disposeWhenTestFinishes(
+      async () => {
+        await application.close();
+      },
+      register,
+      "fails-the-test",
+    );
   } catch (registrationRefusal: unknown) {
     await closeAfterBody(application, (): Promise<never> => {
       throw registrationRefusal;

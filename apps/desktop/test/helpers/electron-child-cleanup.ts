@@ -47,6 +47,13 @@
 // and kill the tree, with no removal anywhere after it. The locked directory
 // that survived is the one thing this module exists to take off disk.
 //
+// AND THE THIRD PATH IS THE ONE WHERE THERE IS NO CHILD TO WAIT FOR. The profile
+// exists before the spawn does, so a spawn that REFUSES — the settle-time
+// registration throwing, which is a spawn from `beforeAll` — leaves a directory
+// behind with the caller's own registration never reached. That is the same
+// resource and the same release, so `spawnChildCleanedUpAtSettleTime` below owns
+// the ordering for both spawners rather than each of them re-deriving it.
+//
 // So the disposal is retried HERE rather than left to whoever runs next.
 // `dispose` is already idempotent in the sense that matters — a delivered kill
 // signals nothing a second time, a refused one asks again — so the retry is a
@@ -55,7 +62,12 @@
 
 import { onTestFinished } from "vitest";
 
-import { disposeWhenTestFinishes, type SettleTimeRegistrar } from "./electron-child.js";
+import {
+  disposeWhenTestFinishes,
+  spawnManagedElectronChild,
+  type ElectronChildSpawnOptions,
+  type SettleTimeRegistrar,
+} from "./electron-child.js";
 import { TERMINATION_GRACE_MS, type ManagedElectronChild } from "./managed-electron-child.js";
 
 /**
@@ -66,8 +78,55 @@ import { TERMINATION_GRACE_MS, type ManagedElectronChild } from "./managed-elect
  * refused one kill and takes the next — and past that the tree is unkillable by
  * this process. A further ask would hold teardown open for the same answer,
  * which is the trade the bounded wait below already refuses.
+ *
+ * Exported because the Playwright launcher's settle-time close asks the same
+ * question of the same kind of tree, and answering it with a second `3` beside
+ * this one would be two homes for one bound — `test/console/bounded-cleanup.ts`
+ * takes this figure rather than restating it.
  */
-const DISPOSAL_ATTEMPTS = 3;
+export const DISPOSAL_ATTEMPTS = 3;
+
+/**
+ * Spawn a child that is already holding a resource, and release it if the spawn
+ * refuses.
+ *
+ * THE ORDER IS THE WHOLE POINT, and getting it wrong is invisible on every
+ * ordinary run. A harness creates the temporary Chromium profile BEFORE the
+ * spawn — the path is a spawn argument — so from that moment there is a
+ * directory on disk that only this process knows about. `spawnManagedElectronChild`
+ * throws when its settle-time registration refuses, which is what a spawn from
+ * `beforeAll` reaches, and that throw leaves the caller's own registration of the
+ * REMOVAL unreached: the child is disposed, the misuse is reported, and the
+ * profile stays on disk with nothing anywhere that names it. Both of this
+ * package's Electron spawners had that shape and both had it identically, which
+ * is why the guard is here rather than twice at the call sites.
+ *
+ * The registration below is inside the same `try` for the same reason and not
+ * for symmetry: it takes a registrar too, so it can refuse for the same cause,
+ * and a refusal there would leave the directory exactly as unreachable.
+ *
+ * `cleanUp` on the refusal path runs IMMEDIATELY rather than after a wait for
+ * the child's `close`, which is the one thing this arm cannot offer: the child
+ * has just been disposed by the recovery inside the spawn and there is no later
+ * path to hang the removal on. It is the same best-effort removal both spawners
+ * already spell, and a directory removed a moment early is a smaller fact than
+ * one never removed at all.
+ */
+export function spawnChildCleanedUpAtSettleTime(
+  options: ElectronChildSpawnOptions,
+  cleanUp: () => void,
+  register: SettleTimeRegistrar = onTestFinished,
+  exitWaitMs: number = TERMINATION_GRACE_MS,
+): ManagedElectronChild {
+  try {
+    const managed = spawnManagedElectronChild(options);
+    cleanUpAfterChildAtSettleTime(managed, cleanUp, register, exitWaitMs);
+    return managed;
+  } catch (spawnRefusal: unknown) {
+    cleanUp();
+    throw spawnRefusal;
+  }
+}
 
 /**
  * Kill `managed` when the test ends, wait until it is gone, then run `cleanUp`.

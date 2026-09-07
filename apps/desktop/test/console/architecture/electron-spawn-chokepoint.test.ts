@@ -18,12 +18,14 @@
 // `disposeWhenTestFinishes`, which the last case below asserts rather than
 // assumes.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { isTypeScriptModuleFileName } from "../console-source-modules.js";
 import { reachesAsynchronousSpawn } from "./child-process-reach.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -76,19 +78,33 @@ function supersededNamedImportReader(source: string): boolean {
   return false;
 }
 
-/** Every `.ts` / `.tsx` file under `test/`, as paths relative to `test/`. */
-function testSourceFiles(directory: string = TEST_ROOT): string[] {
+/**
+ * The extension test this walk used to apply, kept as the foil below.
+ *
+ * `.ts` and `.tsx` and nothing else, which is two of the four spellings a
+ * TypeScript module in this package actually has — so a `.mts` helper reaching
+ * `spawn` was never a candidate for the claim this file makes, and a set that
+ * omits a file cannot report it. `console-source-modules.ts` owns the real set;
+ * this stays only to show what it bought.
+ */
+const SUPERSEDED_EXTENSION_TEST = /\.tsx?$/;
+
+/** Every TypeScript module under `root`, as paths relative to `root`. */
+function typeScriptModulesUnder(root: string): string[] {
   const collected: string[] = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      collected.push(...testSourceFiles(absolute));
-      continue;
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+        continue;
+      }
+      if (entry.isFile() && isTypeScriptModuleFileName(entry.name)) {
+        collected.push(path.relative(root, absolute));
+      }
     }
-    if (entry.isFile() && /\.tsx?$/.test(entry.name)) {
-      collected.push(path.relative(TEST_ROOT, absolute));
-    }
-  }
+  };
+  visit(root);
   return collected;
 }
 
@@ -144,8 +160,11 @@ const REACHES_THAT_ARE_NOT_ONE: readonly string[] = [
   'const advice = "import { spawn } from \\"node:child_process\\"";',
 ];
 
+/** A module whose only job is to reach the asynchronous spawn, for the planted walk. */
+const PLANTED_SPAWNER_SOURCE = 'import { spawn } from "node:child_process";\nspawn("electron");\n';
+
 describe("every Electron spawn under test/ goes through one owner", () => {
-  const files = testSourceFiles();
+  const files = typeScriptModulesUnder(TEST_ROOT);
 
   it("finds a test tree to read at all", () => {
     // The zero-match failure this tier requires of every tripwire: a rule that
@@ -225,6 +244,38 @@ describe("every Electron spawn under test/ goes through one owner", () => {
   it("still clears the forms that cannot start a process", () => {
     for (const planted of REACHES_THAT_ARE_NOT_ONE) {
       expect(reachesAsynchronousSpawn(planted, "planted.ts"), planted).toBe(false);
+    }
+  });
+
+  it("walks the module extensions a TypeScript module actually has", () => {
+    // THE FINDING, driven end to end rather than asserted about a regex. The walk
+    // is run over a planted tree holding one spawner per module-system extension,
+    // and the foil is run over the same names: the reader was never the hole —
+    // it reports both of these as spawners — the SET was, and a file the walk
+    // never collected could reach `spawn` under a green check forever.
+    const plantedRoot = mkdtempSync(path.join(tmpdir(), "sidekicks-spawn-walk-"));
+    try {
+      const plantedNames: readonly string[] = ["planted-spawner.mts", "planted-spawner.cts"];
+      mkdirSync(path.join(plantedRoot, "helpers"));
+      for (const name of plantedNames) {
+        writeFileSync(path.join(plantedRoot, "helpers", name), PLANTED_SPAWNER_SOURCE, "utf8");
+      }
+      // A non-module file in the same directory, so the walk is shown to be
+      // selecting rather than collecting everything it finds.
+      writeFileSync(path.join(plantedRoot, "helpers", "planted-notes.md"), "not source\n", "utf8");
+
+      expect([...typeScriptModulesUnder(plantedRoot)].sort()).toStrictEqual(
+        [...plantedNames].map((name) => path.join("helpers", name)).sort(),
+      );
+      for (const name of plantedNames) {
+        expect(reachesAsynchronousSpawn(PLANTED_SPAWNER_SOURCE, name), name).toBe(true);
+        expect(
+          SUPERSEDED_EXTENSION_TEST.test(name),
+          `${name} was already inside the walk, so this control proves nothing`,
+        ).toBe(false);
+      }
+    } finally {
+      rmSync(plantedRoot, { recursive: true, force: true });
     }
   });
 

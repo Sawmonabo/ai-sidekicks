@@ -111,8 +111,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../src/main/window-reveal.js";
-import { cleanUpAfterChildAtSettleTime } from "./helpers/electron-child-cleanup.js";
-import { spawnManagedElectronChild, TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
+import { spawnChildCleanedUpAtSettleTime } from "./helpers/electron-child-cleanup.js";
+import { TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
 import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -238,25 +238,29 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
     // measured orphans were made — and the kill is registered on
     // `onTestFinished`, so it runs on every outcome this test has rather than
     // only on the one a timer was armed for.
-    const managed = spawnManagedElectronChild({
-      command: spawnCommand,
-      args: spawnArguments,
-      cwd: PACKAGE_ROOT,
-      env: {
-        ...envWithoutSmoke,
-        SIDEKICKS_GC_PROBE: "1",
-        // No focus steal on the operator's machine; see `src/main/window-reveal.ts`.
-        [UNOBTRUSIVE_WINDOWS_ENV]: "1",
-      },
-    });
+    //
     // The profile outlives the child unless something removes it on the paths
-    // the child's own events do not reach. `spawnManagedElectronChild` already
-    // bound the KILL to this test; this binds the REMOVAL to it, after the kill
-    // has landed. Without it a vitest timeout — the one outcome that runs
-    // neither `close` nor `error` — left the `sidekicks-gc-test-` profile on
-    // disk for the rest of the run to accumulate, which is how four of them were
-    // found beside four orphans.
-    cleanUpAfterChildAtSettleTime(managed, removeProfileDirectory);
+    // the child's own events do not reach, so the same call binds the REMOVAL to
+    // this test after the kill has landed. Without it a vitest timeout — the one
+    // outcome that runs neither `close` nor `error` — left the
+    // `sidekicks-gc-test-` profile on disk for the rest of the run to
+    // accumulate, which is how four of them were found beside four orphans; and
+    // a settle-time registration that itself REFUSES is the path where there is
+    // no child to wait for at all, which the same door releases outright.
+    const managed = spawnChildCleanedUpAtSettleTime(
+      {
+        command: spawnCommand,
+        args: spawnArguments,
+        cwd: PACKAGE_ROOT,
+        env: {
+          ...envWithoutSmoke,
+          SIDEKICKS_GC_PROBE: "1",
+          // No focus steal on the operator's machine; see `src/main/window-reveal.ts`.
+          [UNOBTRUSIVE_WINDOWS_ENV]: "1",
+        },
+      },
+      removeProfileDirectory,
+    );
 
     const child = managed.child;
 

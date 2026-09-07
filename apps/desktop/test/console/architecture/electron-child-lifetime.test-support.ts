@@ -16,6 +16,9 @@
 // suites beside it, which is what `test-support-has-no-shipping-reader` in
 // `.dependency-cruiser.mjs` enforces.
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import process from "node:process";
 
 import { expect, onTestFinished } from "vitest";
@@ -48,6 +51,41 @@ const SPAWN_ANNOUNCEMENT_BUDGET_MS = 5_000;
  */
 export const LIFETIME_TEST_TIMEOUT_MS: number =
   SPAWN_ANNOUNCEMENT_BUDGET_MS + 2 * TERMINATION_OBSERVATION_MS + TEST_TIMEOUT_SLACK_MS;
+
+/** A profile directory and the one function that takes it off disk, as a harness holds them. */
+export interface HeldProfile {
+  readonly directory: string;
+  /** How many times the remover has been called — one per path that reached it. */
+  readonly removalCount: () => number;
+  /** The ONE remover, exactly as both spawners spell it: best-effort and forced. */
+  readonly removeProfileDirectory: () => void;
+}
+
+/**
+ * A temporary profile plus the remover a harness reaches from every path.
+ *
+ * Written once here because the claim two suites make with it is that ONE
+ * function serves every path — a second copy would make the count that proves it
+ * meaningless. A stand-in and not a reading, which is what puts it here rather
+ * than beside the liveness probes.
+ */
+export function heldProfile(): HeldProfile {
+  const directory = mkdtempSync(path.join(tmpdir(), "sidekicks-profile-removal-"));
+  let removals = 0;
+  return {
+    directory,
+    removalCount: () => removals,
+    removeProfileDirectory: () => {
+      removals += 1;
+      try {
+        rmSync(directory, { recursive: true, force: true });
+      } catch {
+        // Best-effort, as both spawners are: a leftover directory is a smaller
+        // fact than whichever result the caller actually came for.
+      }
+    },
+  };
+}
 
 /** What a setup that abandons its child throws, so a case can name it. */
 export const ABANDONED_SETUP_MESSAGE = "the setup failed after the child was already spawned";
