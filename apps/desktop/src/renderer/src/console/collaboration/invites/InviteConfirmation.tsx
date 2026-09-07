@@ -60,7 +60,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useRef } from "react";
 
-import { InlineRefusal } from "../../primitives/index.js";
+import { InlineRefusal, OverlayDialogPopup } from "../../primitives/index.js";
 import { InvitationReading } from "./InvitationReading.js";
 import { InvitePreviewFailureReading } from "./InvitePreviewFailureReading.js";
 import type { PendingInviteSnapshot } from "./pending-invite.js";
@@ -131,42 +131,45 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
         }
       }}
     >
-      <Dialog.Portal container={props.overlayContainer}>
-        <Dialog.Backdrop className="meridian-invite-confirmation__backdrop" />
-        <Dialog.Popup
-          className="meridian-invite-confirmation"
-          aria-label={
-            previewFailure === undefined
-              ? "Confirm this invitation"
-              : "This invitation did not open"
-          }
-          initialFocus={dismissRef}
-        >
-          {previewFailure === undefined ? (
-            <InvitationReading
-              snapshot={snapshot}
-              isActing={isActing}
-              dismissRef={dismissRef}
-              onConfirm={props.onConfirm}
-              onDismiss={props.onDismiss}
-              onAcknowledge={props.onAcknowledge}
-            />
-          ) : (
-            <InvitePreviewFailureReading
-              failure={previewFailure}
-              canRetry={snapshot.canRetry}
-              isActing={isActing}
-              onRetry={props.onRetry}
-              onAcknowledge={props.onAcknowledge}
-              acknowledgeRef={dismissRef}
-            />
-          )}
+      {/* The popup shell is the primitive's, which is what puts this card in the
+          window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to what is registered there, and a decision it
+          painted over is the one thing 12.3 forbids outright. The card heads its body
+          with an ordinary element rather than a `Dialog.Title`, so the name travels as
+          the label — which is what the popup carried before the shell moved. */}
+      <OverlayDialogPopup
+        container={props.overlayContainer}
+        backdropClassName="meridian-invite-confirmation__backdrop"
+        className="meridian-invite-confirmation"
+        label={
+          previewFailure === undefined ? "Confirm this invitation" : "This invitation did not open"
+        }
+        initialFocus={dismissRef}
+      >
+        {previewFailure === undefined ? (
+          <InvitationReading
+            snapshot={snapshot}
+            isActing={isActing}
+            dismissRef={dismissRef}
+            onConfirm={props.onConfirm}
+            onDismiss={props.onDismiss}
+            onAcknowledge={props.onAcknowledge}
+          />
+        ) : (
+          <InvitePreviewFailureReading
+            failure={previewFailure}
+            canRetry={snapshot.canRetry}
+            isActing={isActing}
+            onRetry={props.onRetry}
+            onAcknowledge={props.onAcknowledge}
+            acknowledgeRef={dismissRef}
+          />
+        )}
 
-          {snapshot.actRefusal === undefined ? null : (
-            <InlineRefusal code={snapshot.actRefusal.code} detail={snapshot.actRefusal.detail} />
-          )}
-        </Dialog.Popup>
-      </Dialog.Portal>
+        {snapshot.actRefusal === undefined ? null : (
+          <InlineRefusal code={snapshot.actRefusal.code} detail={snapshot.actRefusal.detail} />
+        )}
+      </OverlayDialogPopup>
     </Dialog.Root>
   );
 }
