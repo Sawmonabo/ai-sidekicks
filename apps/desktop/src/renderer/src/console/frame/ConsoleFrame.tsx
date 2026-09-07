@@ -51,6 +51,7 @@ import {
   useLocationHash,
 } from "../store/index.js";
 import { AppFrame } from "./AppFrame.js";
+import { AuxiliaryReturn } from "./AuxiliaryReturn.js";
 import { DemoScenarioMark } from "./DemoScenarioMark.js";
 import { playsTheDemonstrationScenario } from "./first-launch.js";
 import { useFirstLaunchOpening } from "./first-launch-opening.js";
@@ -223,6 +224,20 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     draftStore,
   };
 
+  // The window's own return control, which draws nothing unless this window is one a
+  // deck asked for. Its refusal goes to the frame's banner list, the one rendering
+  // available to an act with no surface of its own — and this act has none in the
+  // strongest sense, since what it asks for is this window's end.
+  const windowControls = (
+    <AuxiliaryReturn
+      route={route}
+      growth={props.bridge.growth}
+      onRefused={(refusal) => {
+        frameStore.raiseRefusalBanner(refusal);
+      }}
+    />
+  );
+
   return (
     <AppFrame
       route={route}
@@ -238,6 +253,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
         frameStore.navigate(routeForDestination(destination));
       }}
       modalOverlayOpen={commandSurface.paletteOpen}
+      windowControls={windowControls}
       banners={banners}
       onDismissBanner={(bannerId) => {
         frameStore.dismissBanner(bannerId);

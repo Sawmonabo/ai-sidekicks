@@ -193,7 +193,7 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
-// WHY THE FOUR WINDOW OPERATIONS ARE SERVED WITHOUT A SCENARIO SCRIPTING ANYTHING
+// WHY THE FIVE WINDOW OPERATIONS ARE SERVED WITHOUT A SCENARIO SCRIPTING ANYTHING
 //
 // They are the one plane here addressed to the SHELL rather than to the daemon — the
 // window bridge `Spec-023 §Windows` describes — and the rule above cannot be applied
@@ -201,8 +201,8 @@
 // shell-addressed operation the fixture IS the shell, so the answers come from a real
 // model of one that `fixture-auxiliary-windows.ts` holds per bridge, and every one of
 // them is a fact about that model: a detach mints a handle, a focus or a close is
-// served for a handle the model opened and refuses for any other, and the crashed-
-// window signal is opened, real, and quiet.
+// served for a handle the model opened and refuses for any other, and both signals —
+// the crashed-window one and the orderly-return one — are opened, real, and quiet.
 //
 // AND THEY ARE NOT ON THE SCRIPT-ONLY LIST BELOW, which is the same judgement from the
 // other side. A script-only write has no honest empty state; these have an honest
@@ -278,6 +278,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "windowFocusAuxiliary",
   "windowCloseAuxiliary",
   "windowSubscribePaneErrors",
+  "windowSubscribePaneReturns",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -334,12 +335,13 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
-  // window — the shell's own plane rather than the daemon's, which is why these four
+  // window — the shell's own plane rather than the daemon's, which is why these five
   // are served without a scenario scripting anything: see the header.
   "windowDetachPane",
   "windowFocusAuxiliary",
   "windowCloseAuxiliary",
   "windowSubscribePaneErrors",
+  "windowSubscribePaneReturns",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */

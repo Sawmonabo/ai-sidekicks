@@ -4,9 +4,9 @@
 // composes a cast bar, a deck, a sidebar and a composer, and owns the split between
 // them. This file owns one thing: the lifecycle of `AuxiliaryHandoff` inside a
 // surface — constructing it, following what it publishes, opening and closing the
-// crashed-window signal with the detached set, and turning the four acts a slot
-// offers into calls. Neither half reads the other's state, which is why the cut is
-// here rather than at a line count.
+// window signals with the detached set, and turning the four acts a slot offers into
+// calls. Neither half reads the other's state, which is why the cut is here rather
+// than at a line count.
 //
 // WHAT IT PUBLISHES, AND WHY THE TWO SETS NEVER OVERLAP. A pane whose body is in a
 // window of its own is in `paneIds`; a pane whose window was LOST is not — its body
@@ -38,12 +38,12 @@ import type { DeckPane } from "../deck/deck-model.js";
 const NO_LOST_WINDOW_NOTICES: ReadonlyMap<string, ConsoleRefusal> = new Map();
 
 /**
- * What a retired hand-off gives back: the crashed-window subscription, and nothing else.
+ * What a retired hand-off gives back: its two window subscriptions, and nothing else.
  *
  * THE RELEASING ARM, BECAUSE THE HAND-OFF SURVIVES ITS OWN DISPOSAL. Stopping the
- * watch is what `watchPaneErrors` restarts when the next pane goes into a window, so
- * there is no closed state to read and no way for the holder to be handed a corpse —
- * which is exactly what the two arms distinguish, and why supplying a reading here
+ * watches is what `watchWindowSignals` restarts when the next pane goes into a window,
+ * so there is no closed state to read and no way for the holder to be handed a corpse
+ * — which is exactly what the two arms distinguish, and why supplying a reading here
  * would be a claim about a lifetime that does not end.
  *
  * Declared once at module scope rather than minted per render — the hook holds the
@@ -52,13 +52,22 @@ const NO_LOST_WINDOW_NOTICES: ReadonlyMap<string, ConsoleRefusal> = new Map();
  */
 const HANDOFF_DISPOSAL: SubjectScopedDisposal<AuxiliaryHandoff> = {
   release: (retired) => {
-    retired.stopWatchingPaneErrors();
+    retired.stopWatchingWindowSignals();
   },
 };
 
-/** Which panes are showing in windows of their own, and what the signal refused. */
+/** Which panes are showing in windows of their own, and what a signal refused. */
 export interface DetachedPaneProjection {
   readonly paneIds: readonly string[];
+  /**
+   * Why a window signal is not being received, where one is not.
+   *
+   * ONE SLOT FOR TWO SIGNALS, and the crash signal is read first — not because the
+   * return signal matters less, but because the slot renders one line and a window
+   * whose crash signal is down loses its pane outright, while one whose return signal
+   * is down keeps a placeholder it can still clear by hand. Both are refusals of the
+   * same reach, so a second slot would be a second banner about one subsystem.
+   */
   readonly signalRefusal: ConsoleRefusal | undefined;
   /**
    * The crash note each returned pane carries, by pane id.
@@ -173,13 +182,13 @@ export function useAuxiliaryPanes(options: {
 }
 
 /**
- * Follow the hand-off's published state, and watch the crashed-window signal while
- * something is detached.
+ * Follow the hand-off's published state, and watch both window signals while something
+ * is detached.
  *
- * The signal is opened on the first detach and closed when the last pane comes back,
- * rather than held for the surface's lifetime: a subscription over an empty set can
- * report nothing, and its refusal would sit on screen as a permanent notice about a
- * hazard this window does not currently have.
+ * They are opened on the first detach and closed when the last pane comes back, rather
+ * than held for the surface's lifetime: a subscription over an empty set can report
+ * nothing, and its refusal would sit on screen as a permanent notice about a hazard
+ * this window does not currently have.
  */
 function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
   const [projection, setProjection] = useState<DetachedPaneProjection>({
@@ -193,7 +202,7 @@ function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
       const lost = handoff.lostWindows();
       setProjection({
         paneIds: handoff.detached().map((pane) => pane.paneId),
-        signalRefusal: handoff.paneErrorRefusal,
+        signalRefusal: handoff.paneErrorRefusal ?? handoff.paneReturnRefusal,
         lostWindowNoticesByPaneId:
           lost.length === 0
             ? NO_LOST_WINDOW_NOTICES
@@ -202,24 +211,24 @@ function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
     };
     const unsubscribe = handoff.subscribe(read);
     read();
-    // The watch itself is NOT stopped here: it is the resource's own disposal, run
-    // by `HANDOFF_DISPOSAL` whether this hand-off is retired by a bridge that moved
-    // or by the surface unmounting. Stopping it here too would be a second place
-    // that decides when a subscription ends.
+    // The watches themselves are NOT stopped here: they are the resource's own
+    // disposal, run by `HANDOFF_DISPOSAL` whether this hand-off is retired by a bridge
+    // that moved or by the surface unmounting. Stopping them here too would be a second
+    // place that decides when a subscription ends.
     return unsubscribe;
   }, [handoff]);
 
   const hasDetachedPane = projection.paneIds.length > 0;
   useEffect(() => {
     if (!hasDetachedPane) {
-      handoff.stopWatchingPaneErrors();
+      handoff.stopWatchingWindowSignals();
       return;
     }
     // No arm here, and that is the design rather than the omission this used to be:
-    // the watch installs from an effect with no surface to refuse into, so it settles
-    // its own failures into the placeholder's refusal slot and resolves either way.
-    // An arm on a promise that cannot reject would be a branch nothing can reach.
-    void handoff.watchPaneErrors();
+    // the watches install from an effect with no surface to refuse into, so each
+    // settles its own failures into the placeholder's refusal slot and resolves either
+    // way. An arm on a promise that cannot reject would be a branch nothing can reach.
+    void handoff.watchWindowSignals();
   }, [handoff, hasDetachedPane]);
 
   return projection;

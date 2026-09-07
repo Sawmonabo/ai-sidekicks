@@ -24,10 +24,12 @@ import { SessionIdSchema } from "@ai-sidekicks/contracts/session";
 
 import {
   formatAuxiliaryFragment,
+  type AuxiliaryRouteTarget,
+} from "../shared/auxiliary-route-fragment.js";
+import {
   IMPLEMENTED_AUXILIARY_ROUTES,
   isAuxiliaryRouteName,
   type AuxiliaryRouteName,
-  type AuxiliaryRouteTarget,
 } from "../shared/auxiliary-routes.js";
 import {
   constructLockedWindow,
@@ -37,16 +39,18 @@ import {
   type WindowLoadOptions,
 } from "./window.js";
 
-// The closed route set, the implemented subset, and the fragment shape all live
-// in `../shared/auxiliary-routes.ts`, which the renderer imports too — see that
-// module's header for why the "which routes exist" answer cannot live in a
-// main-process registry. Re-exported here so a caller reaching for the window
-// factory needs no second import for the type of the thing it opens.
+// The closed route set and the implemented subset live in
+// `../shared/auxiliary-routes.ts` and the fragment shape in its sibling
+// `../shared/auxiliary-route-fragment.ts`, both of which the renderer imports
+// too — see the first module's header for why the "which routes exist" answer
+// cannot live in a main-process registry. The name is re-exported here so a
+// caller reaching for the window factory needs no second import for the type of
+// the thing it opens.
 export type { AuxiliaryRouteName } from "../shared/auxiliary-routes.js";
 
 /**
- * What to open an auxiliary window on: the route, plus the pane context a
- * detach carries.
+ * What to open an auxiliary window on: the route, the pane context a detach
+ * carries, and the handle the shell minted for the window itself.
  *
  * Two shapes, not one optional bag, because the two routes do not take the same
  * context: a detached agent console is meaningless without the agent it is a
@@ -54,13 +58,23 @@ export type { AuxiliaryRouteName } from "../shared/auxiliary-routes.js";
  * is present. The menu-bar path carries no context at all — it has no pane to
  * read one from — and opens the bare route, leaving the choice to the auxiliary
  * renderer's own context picker (Phase 1C).
+ *
+ * `windowId` is the DETACH path's member and the menu-bar path's absence. The
+ * shell mints a handle when a deck asks for a window and keeps a slot for the
+ * pane it took; stamping that handle into the route is the only thing that
+ * tells the window which window it is, and therefore the only thing that lets
+ * it address the shell about itself rather than closing itself and leaving the
+ * deck holding a placeholder. A menu-bar window has no deck slot behind it, so
+ * it carries none — and the grammar refuses one on a bare route, so a caller
+ * cannot ask for a handle without saying what the window is a view of.
  */
 export type AuxiliaryWindowLaunch =
-  | { readonly route: "timeline"; readonly sessionId?: string }
+  | { readonly route: "timeline"; readonly sessionId?: string; readonly windowId?: string }
   | {
       readonly route: "agent-console";
       readonly sessionId?: string;
       readonly agentId?: string;
+      readonly windowId?: string;
     };
 
 /**
@@ -120,6 +134,25 @@ const AUXILIARY_WINDOW_GEOMETRY: Record<AuxiliaryRouteName, LockedWindowOptions>
 const AgentIdShapeSchema = z.string().uuid();
 
 /**
+ * The shell's own window handle, held to a shape rather than taken on trust.
+ *
+ * It is OPAQUE to everything downstream — the console addresses focus, close
+ * and return by it and never parses it — so there is no canonical schema to
+ * reuse and nothing here decodes it. What this bounds is the one property the
+ * fragment cares about: a handle is a single route segment, and a value
+ * carrying a separator, a control character, or an unbounded length is a
+ * payload rather than a handle. The check runs in the main process for
+ * `resolveAuxiliaryLaunch`'s stated reason — the fragment is the one part of
+ * the loaded URL a caller controls — and it refuses before a window exists
+ * rather than after one is pointed at a route.
+ */
+const WindowHandleShapeSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+/**
  * Validates a launch descriptor and renders it as a route fragment.
  *
  * Runs to completion BEFORE any window is constructed, so a malformed
@@ -143,14 +176,27 @@ function resolveAuxiliaryLaunch(launch: AuxiliaryWindowLaunch): ResolvedAuxiliar
   }
   const geometry = AUXILIARY_WINDOW_GEOMETRY[launch.route];
 
-  const { sessionId } = launch;
+  const { sessionId, windowId } = launch;
   const agentId = launch.route === "agent-console" ? launch.agentId : undefined;
+
+  if (windowId !== undefined && !WindowHandleShapeSchema.safeParse(windowId).success) {
+    throw new InvalidAuxiliaryWindowLaunchError("windowId is not a window handle");
+  }
 
   if (sessionId === undefined) {
     // No context at all is the menu-bar shape. An agent id with no session to
     // read it in is not a partial descriptor, it is an incoherent one.
     if (agentId !== undefined) {
       throw new InvalidAuxiliaryWindowLaunchError("agentId supplied without sessionId");
+    }
+    // And a handle with no context is the same class of incoherence from the
+    // other side: the shell mints one when a deck asks for a window on one of
+    // its panes, so a handle arriving with nothing for the window to show names
+    // a deck slot for a pane the descriptor does not identify. Refused here as
+    // well as by the shared grammar, so the failure names the descriptor rather
+    // than surfacing as an encoding error from a module the caller never called.
+    if (windowId !== undefined) {
+      throw new InvalidAuxiliaryWindowLaunchError("windowId supplied without sessionId");
     }
     // Re-selected per route rather than spread from `launch.route`:
     // `AuxiliaryRouteTarget` is a union discriminated ON the route, and a value
@@ -168,10 +214,11 @@ function resolveAuxiliaryLaunch(launch: AuxiliaryWindowLaunch): ResolvedAuxiliar
   }
 
   if (launch.route === "timeline") {
-    return {
-      geometry,
-      routeFragment: formatAuxiliaryFragment({ route: launch.route, sessionId }),
-    };
+    const target: AuxiliaryRouteTarget =
+      windowId === undefined
+        ? { route: launch.route, sessionId }
+        : { route: launch.route, sessionId, windowId };
+    return { geometry, routeFragment: formatAuxiliaryFragment(target) };
   }
 
   // Context on the agent-console route is only meaningful with the agent: a
@@ -182,7 +229,10 @@ function resolveAuxiliaryLaunch(launch: AuxiliaryWindowLaunch): ResolvedAuxiliar
   if (!AgentIdShapeSchema.safeParse(agentId).success) {
     throw new InvalidAuxiliaryWindowLaunchError("agentId is not a canonical UUID");
   }
-  const target: AuxiliaryRouteTarget = { route: launch.route, sessionId, agentId };
+  const target: AuxiliaryRouteTarget =
+    windowId === undefined
+      ? { route: launch.route, sessionId, agentId }
+      : { route: launch.route, sessionId, agentId, windowId };
   return { geometry, routeFragment: formatAuxiliaryFragment(target) };
 }
 

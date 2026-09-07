@@ -285,7 +285,7 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
     // over a crash signal that was never opened.
     const handoff = new AuxiliaryHandoff({ growth: rejectingPort() });
 
-    await handoff.watchPaneErrors();
+    await handoff.watchWindowSignals();
 
     expect(handoff.paneErrorRefusal?.code).toBe("wire-rejected");
     expect(handoff.paneErrorRefusal?.detail).toContain(WIRE_REJECTION_MESSAGE);
@@ -306,7 +306,7 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
     expect(await handoff.returnToDeck("pane-1")).toBeUndefined();
     // The watch answers `unavailable` on this port rather than rejecting, so its
     // refusal is the unregistered one — a different fact, which is the point.
-    await handoff.watchPaneErrors();
+    await handoff.watchWindowSignals();
     expect(handoff.paneErrorRefusal?.code).toBe("wire-unregistered");
   });
 });

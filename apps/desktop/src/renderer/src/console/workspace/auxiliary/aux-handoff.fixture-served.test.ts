@@ -71,15 +71,15 @@ describe("the hand-off over the fixture bridge", () => {
       sessionId: FLAGSHIP_SCENARIO.sessionId,
     });
 
-    // Not awaited to completion: `watchPaneErrors` resolves only when the drain ends,
+    // Not awaited to completion: `watchWindowSignals` resolves only when the drain ends,
     // and the drain is the subscription's whole life. Crossing a macrotask boundary is
     // what lets the subscribe settle and the drain park on its first read.
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
 
     // The refusal this used to hold rendered in the placeholder as a permanent notice
     // about a hazard the window does not have.
     expect(handoff.paneErrorRefusal).toBeUndefined();
-    handoff.stopWatchingPaneErrors();
+    handoff.stopWatchingWindowSignals();
   });
 });

@@ -1,6 +1,8 @@
 // The pane plane's ledger rows: the browser namespace and its tool relay, the
 // terminal namespace and its write lease, the dev-server probe, and the window
-// operations that detach a pane and report the errors it raises.
+// operations that detach a pane, address the window it went into, and report the
+// two ways that window can hand the pane back — the crash it did not ask for and
+// the return it did.
 //
 // One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`.
 
@@ -129,5 +131,11 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "window-control-namespace",
     "subscription",
     "the crashed-window pane-error signal",
+  ),
+  windowSubscribePaneReturns: op(
+    "windowSubscribePaneReturns",
+    "window-control-namespace",
+    "subscription",
+    "the orderly-return signal: a window that closed put its pane back",
   ),
 };

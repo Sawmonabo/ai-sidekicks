@@ -51,7 +51,12 @@
 // declares it, and `console-no-barrel-chain` in `.dependency-cruiser.mjs` fails the
 // build if that ever regresses to a forward through this file.
 
-export type { GrowthNavigationState, GrowthPaneError, GrowthTerminalChunk } from "./panes.js";
+export type {
+  GrowthNavigationState,
+  GrowthPaneError,
+  GrowthPaneReturn,
+  GrowthTerminalChunk,
+} from "./panes.js";
 
 export type { GrowthCallbackTool, GrowthToolCall } from "./tools.js";
 

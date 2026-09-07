@@ -62,7 +62,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     expect(handoff.detached()).toHaveLength(1);
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
 
     expect(handoff.detached()).toHaveLength(0);
@@ -83,7 +83,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
 
     expect(handoff.detached()).toHaveLength(1);
@@ -99,7 +99,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    await handoff.watchPaneErrors();
+    await handoff.watchWindowSignals();
 
     expect(handoff.paneErrorRefusal?.code).toBe("signal-ended");
     // And the pane is still in its window: an ended signal is a notice about what is
@@ -114,7 +114,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     const handoff = new AuxiliaryHandoff({ growth: streamingPort([]) });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
 
     expect(handoff.paneErrorRefusal).toBeUndefined();
@@ -127,10 +127,10 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
       growth: streamingPort([], { endsAfterDelivering: true }),
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
-    await handoff.watchPaneErrors();
+    await handoff.watchWindowSignals();
     expect(handoff.paneErrorRefusal?.code).toBe("signal-ended");
 
-    handoff.stopWatchingPaneErrors();
+    handoff.stopWatchingWindowSignals();
 
     expect(handoff.paneErrorRefusal).toBeUndefined();
   });
@@ -144,7 +144,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    await handoff.watchPaneErrors();
+    await handoff.watchWindowSignals();
 
     expect(handoff.paneErrorRefusal?.code).toBe("wire-unregistered");
     expect(handoff.detached()).toHaveLength(1);
@@ -207,9 +207,9 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     const handoff = new AuxiliaryHandoff({ growth: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
-    handoff.stopWatchingPaneErrors();
+    handoff.stopWatchingWindowSignals();
     held.settleNext();
     await crossMacrotaskBoundary();
 
@@ -226,10 +226,10 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     const handoff = new AuxiliaryHandoff({ growth: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
-    handoff.stopWatchingPaneErrors();
-    void handoff.watchPaneErrors();
+    handoff.stopWatchingWindowSignals();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
 
     held.settleNext();
@@ -249,8 +249,8 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     const handoff = new AuxiliaryHandoff({ growth: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
     held.settleNext();
     held.settleNext();
@@ -267,7 +267,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     const handoff = new AuxiliaryHandoff({ growth: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
     held.settleNext();
     await crossMacrotaskBoundary();
@@ -298,7 +298,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    await handoff.watchPaneErrors();
+    await handoff.watchWindowSignals();
 
     expect(handoff.paneErrorRefusal?.detail).toContain("the channel dropped");
   });
@@ -357,17 +357,17 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     const handoff = new AuxiliaryHandoff({ growth: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
-    handoff.stopWatchingPaneErrors();
-    void handoff.watchPaneErrors();
+    handoff.stopWatchingWindowSignals();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
 
     expect(held.openedCount()).toBe(2);
     expect(handoff.paneErrorRefusal).toBeUndefined();
     // And the healthy stream is still the installed one: the stale drain's clear is a
     // settlement too, and it went nowhere.
-    handoff.stopWatchingPaneErrors();
+    handoff.stopWatchingWindowSignals();
     await crossMacrotaskBoundary();
     expect(handoff.paneErrorRefusal).toBeUndefined();
   });
@@ -379,7 +379,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     const handoff = new AuxiliaryHandoff({ growth: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    void handoff.watchPaneErrors();
+    void handoff.watchWindowSignals();
     await crossMacrotaskBoundary();
     held.failDeliveryOn(0);
     await crossMacrotaskBoundary();

@@ -61,11 +61,13 @@ import { AgentChoice } from "./AgentChoice.js";
 import { offeredSessionIds, useSessionDirectory } from "../seats/index.js";
 import { useActiveSessionStore } from "./session-lifecycle.js";
 import {
-  AUXILIARY_ROUTE_LABELS,
   auxiliaryRouteTargetFor,
-  type AuxiliaryRouteName,
   type AuxiliaryRouteTarget,
   type PartialAuxiliaryContext,
+} from "../../../../shared/auxiliary-route-fragment.js";
+import {
+  AUXILIARY_ROUTE_LABELS,
+  type AuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
 
 export interface ContextPickerProps {
