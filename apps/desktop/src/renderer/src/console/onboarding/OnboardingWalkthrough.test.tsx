@@ -28,10 +28,15 @@
 // pair next door already measured.
 //
 // AND A PER-PROVIDER ACT RE-RENDERS THE STEP. The readiness model publishes the
-// projection and this window's acts, and only the first used to be comparable — so a
-// hand-off emitted, React compared a reading that had not moved, and the row's buttons
+// projection and this window's act, and only the first used to be comparable — so an
+// act published, React compared a reading that had not moved, and the row's buttons
 // stayed enabled with the refusal off screen. What the case asserts is what is ON
 // SCREEN after an act that touches no projection.
+//
+// THAT THE SIGN-IN REMEDY IS HANDED OVER AND NEVER PERFORMED is asserted next door in
+// `OnboardingWalkthrough.no-sign-in.test.tsx`, which presses every control this step
+// offers and finds the growth port untouched — split off when it took this file
+// further past the package's ceiling.
 //
 // AND BOTH READINGS TAKE THE WINDOW TRIGGER SET. Both models implement
 // `ReadTriggerTarget`, and implementing it is not the same as being wired to it: this
@@ -56,45 +61,10 @@ import {
   bridgeWithStepsDone,
 } from "./onboarding-state.test-support.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
+import { mountAt } from "./OnboardingWalkthrough.test-support.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
 import { RELAY_METHOD_OPTIONS_IN_ORDER } from "./relay/relay-choice.js";
-import { ONBOARDING_STEPS, RESUME_OPENING, type OnboardingOpening } from "./steps/step-model.js";
-
-/**
- * What the surface holding this walkthrough offers as a way out.
- *
- * A WRAPPER RATHER THAN A BARE PARAMETER, because the value under test in one case is
- * `undefined` itself — a dialog that refuses to close — and a default parameter is
- * applied to an explicitly passed `undefined`, so the case would have been handed the
- * default and asserted nothing.
- */
-interface DismissalUnderTest {
-  readonly handler: (() => void) | undefined;
-}
-
-async function mountAt(
-  openAtStep: OnboardingOpening,
-  bridge: ConsoleBridge = createFixtureBridge({ scenario: ONBOARDING_SCENARIO }),
-  dismissal: DismissalUnderTest = { handler: () => undefined },
-): Promise<HTMLElement> {
-  const rendered = render(
-    <OnboardingWalkthrough
-      flow={new OnboardingFlow(bridge)}
-      readiness={new ProviderReadinessModel(bridge, new FrameStore())}
-      openAtStep={openAtStep}
-      accountScope={undefined}
-      onOpenAccountRegistry={() => undefined}
-      onDismiss={dismissal.handler}
-    />,
-  );
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
-  return rendered.container;
-}
+import { ONBOARDING_STEPS, RESUME_OPENING } from "./steps/step-model.js";
 
 /** The one control that puts a step away without answering it, whatever it reads. */
 function dismissControl(container: HTMLElement): HTMLButtonElement | undefined {
@@ -387,32 +357,32 @@ describe("finishing before group A is answered", () => {
 
 describe("a per-provider act", () => {
   it("re-renders the step, though the projection behind it has not moved", async () => {
-    // A hand-off that never settles: the only publish is `handing-off`, so nothing has
+    // A probe that never settles: the only publish is `rechecking`, so nothing has
     // replaced the reading object. Under a subscription to the projection alone React
     // compared an unmoved value and rendered nothing, leaving the row's controls
     // enabled and any refusal off screen.
-    const base = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
     const neverSettles = new Promise<never>(() => undefined);
-    const hanging: ConsoleBridge = {
-      ...base,
-      growth: { ...base.growth, onboardingProviderSignInHandoff: () => neverSettles },
-    };
-    const container = await mountAt("providers", hanging);
-    const signIn = [...container.querySelectorAll("button")].find(
-      (one) => one.textContent === "Sign in to this provider",
+    const { bridge } = withDaemonCall(
+      createFixtureBridge({ scenario: ONBOARDING_SCENARIO }),
+      async (call, passThrough) =>
+        call.method === "providerAccount.probe" ? neverSettles : passThrough(),
     );
-    expect(signIn).toBeDefined();
-    expect(container.textContent ?? "").not.toContain("Handing off to the provider");
+    const container = await mountAt("providers", bridge);
+    const recheck = [...container.querySelectorAll("button")].find(
+      (one) => one.textContent === "Check again",
+    );
+    expect(recheck).toBeDefined();
+    expect(container.textContent ?? "").not.toContain("Checking this account again");
 
     await act(async () => {
-      signIn?.click();
+      recheck?.click();
       await crossMacrotaskBoundary();
     });
 
-    expect(container.textContent ?? "").toContain("Handing off to the provider");
+    expect(container.textContent ?? "").toContain("Checking this account again");
     // And the control the act took away, which is the half a stale render leaves
-    // pressable: a second press would start a second hand-off.
-    expect(signIn?.disabled).toBe(true);
+    // pressable: a second press would put a second probe.
+    expect(recheck?.disabled).toBe(true);
   });
 });
 

@@ -325,12 +325,12 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // nothing reports, and all four refuse under a scenario that scripts no shell
   // condition for the same reason the feed does.
   ...FIXTURE_SERVED_SHELL_OPERATION_IDS,
-  // onboarding — the whole seven-operation surface, taken from the module that
+  // onboarding — the whole six-operation surface, taken from the module that
   // implements it so the ids and the handlers cannot disagree. The split between them
   // is this module's own rule rather than a preference. The state read has an honest
   // answer for a scenario that scripts nothing: a node nobody has onboarded has no
   // completed steps and is not complete, which is a real state the walkthrough draws
-  // and the state a fresh install is genuinely in. The other six are WRITES or
+  // and the state a fresh install is genuinely in. The other five are WRITES or
   // main-process dialogs — there is no such thing as "the step that was recorded and
   // recorded nothing", and a synthesized relay choice would tell the walkthrough a
   // person answered a question nobody was asked — so each of them refuses by name
@@ -381,7 +381,6 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "onboardingStepAdvance",
   "onboardingStepSkip",
   "onboardingComplete",
-  "onboardingProviderSignInHandoff",
   "onboardingPresentChoice",
   "onboardingTelemetryPrompt",
 ];

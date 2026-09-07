@@ -12,12 +12,23 @@
 // meeting an account-plane refusal raises AFTER that refusal has already happened.
 // None of them is a check placed ahead of work.
 //
-// NON-DISMISSIBLE, BUT ONLY WHERE THAT IS TRUE. The corpus makes the walkthrough
-// non-dismissible until a choice is made or the triggering invite is cancelled — and
-// that holds only once the daemon has ANSWERED that the relay step is unresolved. A
-// build whose onboarding wire is unregistered refuses the read, and locking a person
-// inside a dialog on the strength of a read that failed would be a trap built out of
-// an absence. So the lock is applied on the answered arm and on no other.
+// NON-DISMISSIBLE UNTIL AN ANSWER SAYS OTHERWISE, WHICH IS FAIL-CLOSED. `Spec-026
+// §Desktop Surface` makes the walkthrough non-dismissible "until a choice is made", and
+// a choice being made is a POSITIVE fact: only a served state read carrying `relay` in
+// its completed set establishes it. So the lock lifts on that reading and on no other
+// — a read still in flight and a read the daemon refused both leave the choice
+// unestablished, and unlocking there would open the dialog on the strength of a state
+// nothing said. This once read the other way round, locking only on the answered-and-
+// unresolved arm, which meant the walkthrough opened by the collaboration command was
+// closeable during the first frame of every mount and for the whole life of a build
+// whose onboarding wire is unregistered.
+//
+// AND THE UNANSWERED ARM SAYS SO RATHER THAN ASKING FOR A CHOICE. The two lock reasons
+// are different facts and the control names which one it is on: an unresolved choice
+// asks for a choice, and an unanswered reading says the node has not answered. One
+// label for both would tell a person to choose their way out of a dialog that will not
+// open until a read succeeds. The way out of the unanswered arm is the answer arriving
+// — this reading re-reads on the window's own trigger set — and never a guess made here.
 //
 // AND ONLY OVER THE ACTIVATION THAT ASKED FOR GROUP A. The other half of "where that
 // is true" is WHICH opening is on screen: the two group-B openings are offered and
@@ -65,7 +76,7 @@ import {
   onboardingActivation,
   type OnboardingActivation,
 } from "./onboarding-activation.js";
-import { OnboardingFlow } from "./onboarding-flow.js";
+import { OnboardingFlow, type OnboardingReading } from "./onboarding-flow.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
 import { RESUME_OPENING } from "./steps/step-model.js";
@@ -103,6 +114,42 @@ const PROVIDERS_ACTIVATION: OnboardingActivation = {
  * they still had to go looking, and nothing anywhere said so.
  */
 const ACCOUNT_REGISTRY_SECTION = "accounts";
+
+/**
+ * Why a group-A activation may not be closed. Two facts, and never one.
+ *
+ * `unresolved` is the daemon answering that the relay step is not done, and
+ * `unanswered` is the daemon not having answered at all — a read still in flight, or
+ * one it refused. Both hold the dialog, because `Spec-026 §Desktop Surface` lifts the
+ * lock on a choice being MADE and neither of these establishes one; they are two arms
+ * rather than a boolean because only the first is something a person can act on.
+ */
+type RelayLockReason = "unresolved" | "unanswered";
+
+/** What the close control says under each lock. A total record over the two arms. */
+const RELAY_LOCK_LABELS: Readonly<Record<RelayLockReason, string>> = {
+  unresolved: "Choose a relay to continue",
+  unanswered: "Waiting for this node to answer",
+};
+
+/**
+ * Whether this reading lets a group-A activation close, and why it does not.
+ *
+ * FAIL-CLOSED ON EVERY ARM BUT ONE. Only a served reading carrying `relay` among the
+ * completed steps is the corpus's "a choice is made"; the in-flight arm has not asked
+ * yet and the refused arm asked and was told nothing, so neither may open a dialog the
+ * spec holds shut. Reading the reading here rather than at the call site keeps the
+ * three arms in one place, where the day a fourth lands is a compile error.
+ */
+function relayLockFor(reading: OnboardingReading): RelayLockReason | undefined {
+  switch (reading.kind) {
+    case "read":
+      return reading.completed.has("relay") ? undefined : "unresolved";
+    case "reading":
+    case "unreadable":
+      return "unanswered";
+  }
+}
 
 /** What one window holds for this walkthrough, rebuilt only when the bridge moves. */
 interface OnboardingModels {
@@ -193,13 +240,13 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
     };
   }, [models]);
 
-  // The one condition the corpus locks on — read off the answered arm alone, and
-  // asked only of an activation that opens group A.
-  const isLocked =
-    activation !== undefined &&
-    activationRequiresRelayChoice(activation) &&
-    snapshot.reading.kind === "read" &&
-    !snapshot.reading.completed.has("relay");
+  // The one condition the corpus locks on — fail-closed on the reading, and asked only
+  // of an activation that opens group A.
+  const lockReason =
+    activation !== undefined && activationRequiresRelayChoice(activation)
+      ? relayLockFor(snapshot.reading)
+      : undefined;
+  const isLocked = lockReason !== undefined;
   const isOpen = activation !== undefined;
 
   // The window's background is inert for exactly this dialog's lifetime. Under
@@ -268,7 +315,7 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
             className="meridian-onboarding__act meridian-onboarding__act--secondary"
             disabled={isLocked}
           >
-            {isLocked ? "Choose a relay to continue" : "Close"}
+            {lockReason === undefined ? "Close" : RELAY_LOCK_LABELS[lockReason]}
           </Dialog.Close>
         </Dialog.Popup>
       </Dialog.Portal>

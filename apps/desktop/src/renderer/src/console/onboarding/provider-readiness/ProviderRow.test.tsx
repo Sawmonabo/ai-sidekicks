@@ -8,12 +8,17 @@
 // are excluded by construction: a `" (default)"` suffix concatenated onto the label,
 // and a comma-joined string that makes a label CONTAINING a comma read as two accounts.
 //
-// THE REMEDY CASES ARE ABOUT WHICH ARMS GET A CONTROL. Two of the three remedies name
-// a mutating registry verb no console route serves, so the row offers the way to the
-// surface that owns them, scoped to this row's provider; the third composes a sign-in
-// the row already performs, and giving it a second control would put two acts under
-// one remedy. Every case below drives the real row, so a control that stopped being
-// rendered or stopped carrying its provider fails here rather than in a snapshot.
+// THE REMEDY CASES ARE ABOUT WHICH ARMS GET A CONTROL, AND THE SIGN-IN ARM GETS NONE.
+// Two of the three remedies name a mutating registry verb no console route serves, so
+// the row offers the way to the surface that owns them, scoped to this row's provider.
+// The third is the provider's OWN first-party sign-in, which `Spec-026 §Provider
+// Authentication (Group B)` requires this step to display and "never run on the
+// operator's behalf" — so that arm renders the invocation and the credential home the
+// daemon composed and offers no control at all. This row used to carry a **Sign in to
+// this provider** button that dispatched a growth operation asking the daemon to start
+// the login; the case below is the negative control for its removal. Every case here
+// drives the real row, so a control that stopped being rendered or stopped carrying its
+// provider fails here rather than in a snapshot.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -51,7 +56,6 @@ function renderRow(
         entry={entry}
         accounts={accounts}
         action={{ kind: "idle" }}
-        onSignIn={() => undefined}
         onRecheck={() => undefined}
         recheckBlock={recheckBlock}
         onOpenAccountRegistry={onOpenAccountRegistry}
@@ -184,9 +188,13 @@ describe("the remedy this row cannot perform", () => {
     expect(opened).toStrictEqual(["claude"]);
   });
 
-  it("gives a sign-in remedy no second control", () => {
-    // The negative control for the two above: this arm's act is one the row already
-    // performs, so a registry link beside it would be two acts under one remedy.
+  it("renders a sign-in remedy in full and offers no control that performs it", () => {
+    // The negative control for the two above, and for the button this row used to
+    // carry: `Spec-026 §Provider Authentication (Group B)` has the step display the
+    // invocation and never run it, so the whole remedy is on screen — which provider,
+    // the invocation, the credential home — and the control set is EMPTY. No account
+    // resolved on this entry, so the re-check is absent too and the assertion is about
+    // the sign-in arm alone.
     const container = renderRow([], {
       provider: "claude",
       state: "reauth_required",
@@ -198,7 +206,13 @@ describe("the remedy this row cannot perform", () => {
       },
     });
 
-    expect(controlLabels(container)).toStrictEqual(["Sign in to this provider"]);
+    expect(controlLabels(container)).toStrictEqual([]);
+    const text = container.textContent ?? "";
+    expect(text).toContain("claude /login");
+    expect(text).toContain("/homes/claude");
+    // And it says whose job running it is, so a person is not left waiting for a
+    // console that is never going to start anything.
+    expect(text).toContain("this console never starts a provider's sign-in");
   });
 });
 

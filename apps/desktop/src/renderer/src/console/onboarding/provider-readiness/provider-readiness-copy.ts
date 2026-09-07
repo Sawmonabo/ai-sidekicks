@@ -67,9 +67,12 @@ export function remedyHeadline(remedy: ProviderRemedy): string {
  * The label on the control that carries a remedy this console cannot itself dispatch.
  *
  * TOTAL over the same union as {@link remedyHeadline}, and `undefined` on exactly the
- * one arm the console CAN dispatch: `sign_in` is brokered by the daemon through
- * `onboarding.providerSignInHandoff`, the row already offers it, and a second label for
- * it here would be two names for one act.
+ * one arm that is neither a registry verb nor an act any surface performs: a `sign_in`
+ * remedy is the provider's OWN first-party flow, which `Spec-026 §Provider
+ * Authentication (Group B)` requires this step to display and never to run, and
+ * `Spec-029 §Brokered interactive sign-in` keeps out of the first-run flow even on the
+ * account plane's own verbs. The row renders the invocation and the credential home
+ * verbatim, so a control here would offer to perform something nothing performs.
  *
  * THE OTHER TWO ARMS ARE MUTATING REGISTRY VERBS AND NO CONSOLE ROUTE SERVES THEM.
  * `bridge/daemon/daemon-reply-registry.ts` carries `providerAccount.list` and

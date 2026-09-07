@@ -45,8 +45,7 @@
 // first time somebody came back to the window, with nothing on screen saying so.
 //
 // AND NOTHING RE-READS ON A TIMER. Every other read is the tail of an act somebody
-// performed: a step recorded, a choice made, a sign-in handed off, a re-check asked
-// for.
+// performed: a step recorded, a choice made, a re-check asked for.
 //
 // AND THE READINESS SUBSCRIPTION TAKES THAT MODEL'S SNAPSHOT AND NOT ITS PROJECTION.
 // A per-provider act moves without the projection moving, so subscribing to the
@@ -239,9 +238,6 @@ function renderStep(
         <ProviderReadinessStep
           reading={state.readinessReading}
           actionFor={(providerName) => readiness.actionFor(providerName)}
-          onSignIn={(providerName) => {
-            void readiness.handOffSignIn(providerName);
-          }}
           onRecheck={(providerName, accountId) => {
             void readiness.recheck(providerName, accountId);
           }}

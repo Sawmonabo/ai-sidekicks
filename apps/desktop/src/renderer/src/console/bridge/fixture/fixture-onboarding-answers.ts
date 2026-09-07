@@ -1,4 +1,4 @@
-// Onboarding: the seven answers, and the one piece of fixture state a caller MOVES.
+// Onboarding: the six answers, and the one piece of fixture state a caller MOVES.
 //
 // WHY THIS PLANE HAS A MODULE. `fixture-workflow-reads.ts` beside it states the shape
 // — a plane whose answers need reasoning of their own leaves the port and takes its
@@ -39,7 +39,7 @@ import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import type { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
 
 /**
- * The seven onboarding operations the fixture answers.
+ * The six onboarding operations the fixture answers.
  *
  * Declared here and spread into `FIXTURE_SERVED_GROWTH_OPERATION_IDS` next door, on
  * `FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`' rule: the ids and the implementations below
@@ -51,7 +51,6 @@ export const FIXTURE_SERVED_ONBOARDING_OPERATION_IDS = [
   "onboardingStepAdvance",
   "onboardingStepSkip",
   "onboardingComplete",
-  "onboardingProviderSignInHandoff",
   "onboardingPresentChoice",
   "onboardingTelemetryPrompt",
 ] as const;
@@ -139,7 +138,7 @@ export class FixtureOnboardingLedger {
 }
 
 /**
- * The fixture's seven onboarding answers for one running scenario.
+ * The fixture's six onboarding answers for one running scenario.
  *
  * `Pick` over the port rather than a shape of its own, on `fixtureWorkflowReads`'
  * reason: a handler whose signature drifts from the operation it serves is a compile
@@ -199,17 +198,9 @@ export function fixtureOnboardingAnswers(
           request,
         ),
       ),
-    // The three writes that move nothing this fixture answers. A sign-in hand-off is
-    // main's own act and the two prompts answer with what a person typed in main's
-    // window, so there is no state here for them to record: what the script decides is
-    // only whether the call was accepted.
-    onboardingProviderSignInHandoff: async (request) =>
-      await answerScriptedWrite(
-        engine,
-        "growth:onboardingProviderSignInHandoff",
-        "onboardingProviderSignInHandoff",
-        request,
-      ),
+    // The two writes that move nothing this fixture answers. Both prompts answer with
+    // what a person typed in main's own window, so there is no state here for them to
+    // record: what the script decides is only whether the call was accepted.
     onboardingPresentChoice: async (request) =>
       await answerScriptedWrite(
         engine,

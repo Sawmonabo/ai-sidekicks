@@ -5,15 +5,19 @@
 // provider is reported as set up on the `authenticated` arm and on nothing else — not
 // on a billing mode, not on an observed email, not on a credential home that exists.
 //
-// THE REMEDY IS DISPLAY TEXT AND NEVER AN EXECUTABLE CONTROL. The daemon composes it
-// per arm; this renders it. The two remedies whose act is a MUTATING registry verb —
-// registering an account, marking one as the default — are therefore never PERFORMED
-// from here, because a button that performed them would be a second place the registry
-// is written from and no console route serves either verb anyway. Each of those arms
-// still gets an action, and it is the way to the surface that owns the verb: the row
+// THE REMEDY IS DISPLAY TEXT AND NEVER AN EXECUTABLE CONTROL — every arm of it. The
+// daemon composes the remedy; this renders it. The two whose act is a MUTATING registry
+// verb — registering an account, marking one as the default — are never PERFORMED from
+// here, because a button that performed them would be a second place the registry is
+// written from and no console route serves either verb anyway; each of those arms still
+// gets an action, and it is the way to the surface that owns the verb: the row
 // deep-links to the account registry opened FOR its provider, and this step keeps the
 // unscoped way there beside **Not now**. One handler serves both — `ProviderRow.tsx`
-// says why — and the provider is what tells them apart.
+// says why — and the provider is what tells them apart. The THIRD arm, `sign_in`, has
+// no control at all: `Spec-026 §Provider Authentication (Group B)` has this step
+// display the provider's own invocation and "never run it on the operator's behalf",
+// so the row renders the invocation and the credential home and the person runs it
+// where they can complete it.
 //
 // AND LEAVING THIS STEP TELLS THE DAEMON NOTHING. Group B "persists nothing: no config
 // key, no partial-state entry, no keystore entry, and no event", so the way out of it
@@ -23,10 +27,11 @@
 // carries no read-path age test and no stale arm, so a badge here would be this
 // console inventing a freshness policy and applying it to somebody else's reading.
 //
-// THE SIGN-IN OUTPUT NEVER REACHES THIS FILE. What the hand-off answers is a
-// settlement, and what the row shows afterwards is the projection re-read. The
-// provider's own sign-in output may carry OAuth state, PKCE values, or credential
-// fields, and nothing in this family has a member it could arrive on.
+// THE SIGN-IN OUTPUT NEVER REACHES THIS FILE, and now it cannot: nothing here starts a
+// sign-in, so there is no process whose output could arrive. That was already the rule
+// while a hand-off existed — the provider's own sign-in output may carry OAuth state,
+// PKCE values, or credential fields, and nothing in this family has a member it could
+// arrive on — and it is a property of the shape rather than a discipline now.
 //
 // THE ROW ITSELF IS `ProviderRow.tsx` beside this file. This module owns the step —
 // which arm of the reading is on screen, and the two step-level acts — and the row
@@ -46,7 +51,6 @@ import {
 export interface ProviderReadinessStepProps {
   readonly reading: ProviderReadinessReading;
   readonly actionFor: (providerName: string) => ProviderActionReading;
-  readonly onSignIn: (providerName: string) => void;
   readonly onRecheck: (providerName: string, accountId: ProviderAccountId) => void;
   /**
    * Why a re-check may not be put right now, passed straight through to every row.
@@ -159,7 +163,6 @@ function renderReading(props: ProviderReadinessStepProps): React.ReactNode {
               // back apart from the console's own words — see `ProviderRow.tsx`.
               accounts={accountsForProvider(reading.accounts, entry.provider)}
               action={props.actionFor(entry.provider)}
-              onSignIn={props.onSignIn}
               onRecheck={props.onRecheck}
               recheckBlock={props.recheckBlock}
               onOpenAccountRegistry={props.onOpenAccountRegistry}

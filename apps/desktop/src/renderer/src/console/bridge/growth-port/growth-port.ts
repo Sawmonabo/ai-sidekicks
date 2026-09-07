@@ -329,8 +329,6 @@ export function createRefusingGrowthPort(): GrowthPort {
     onboardingStepAdvance: async () => growthUnavailable("onboardingStepAdvance"),
     onboardingStepSkip: async () => growthUnavailable("onboardingStepSkip"),
     onboardingComplete: async () => growthUnavailable("onboardingComplete"),
-    onboardingProviderSignInHandoff: async () =>
-      growthUnavailable("onboardingProviderSignInHandoff"),
     onboardingPresentChoice: async () => growthUnavailable("onboardingPresentChoice"),
     onboardingTelemetryPrompt: async () => growthUnavailable("onboardingTelemetryPrompt"),
     shellConfigRead: async () => growthUnavailable("shellConfigRead"),

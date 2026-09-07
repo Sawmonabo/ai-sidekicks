@@ -91,7 +91,6 @@ export type GrowthOperationId =
   | "onboardingStepAdvance"
   | "onboardingStepSkip"
   | "onboardingComplete"
-  | "onboardingProviderSignInHandoff"
   | "onboardingPresentChoice"
   | "onboardingTelemetryPrompt"
   | "shellConfigRead"

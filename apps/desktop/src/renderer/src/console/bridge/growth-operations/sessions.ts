@@ -107,12 +107,13 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "method",
       "finish first-run setup",
     ),
-    onboardingProviderSignInHandoff: op(
-      "onboardingProviderSignInHandoff",
-      "onboarding-methods",
-      "method",
-      "hand the participant off to a provider's own sign-in flow",
-    ),
+    // NO SIXTH ONBOARDING OPERATION, and the absence is the contract rather than a
+    // gap. `Spec-026 §Provider Authentication (Group B)` holds the five daemon methods
+    // above "unchanged in name, count, and shape" and composes the provider step out of
+    // the node-local `providerAccount.*` surface instead — and `Spec-029 §Brokered
+    // interactive sign-in` excludes even that plane's own login verbs from this flow,
+    // so onboarding stays a HANDOFF: the step displays the invocation the readiness
+    // remedy already carries and starts nothing on the operator's behalf.
     // The two bridge methods `Spec-026 §Desktop Surface` names, on their own slate
     // row rather than folded into the five daemon methods above: those are a daemon
     // registration and these are a preload-bridge surface, and a row that bundled

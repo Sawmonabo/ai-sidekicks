@@ -1,14 +1,19 @@
-// What the provider step's two suites build their cases out of.
+// What the provider step's four suites build their cases out of.
 //
-// The step's own suite and the multi-account suite beside it each drive this model
-// over the shipped fixture, and this is what they share: the readiness method's name,
-// how a case gets a model and an arrival, and the scripted two-account projection.
-// Written once so the two files cannot drift into disagreeing about what a registry
+// The step's own suite and the three beside it each drive this model over the shipped
+// fixture, and this is what they share: the two method names, how a case gets a model
+// and an arrival, the bridge that records what left the window, and the scripted
+// two-account projection.
+// Written once so the four files cannot drift into disagreeing about what a registry
 // reply looks like, which is the drift a second copy of a fixture always ends in.
 
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  withDaemonCall,
+  type RecordedDaemonCall,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FrameStore, UNREPORTED_SHELL_STATE, type ShellConnection } from "../../store/index.js";
@@ -17,6 +22,42 @@ import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
 
 /** The registry read every case here measures, named once for both suites. */
 export const READINESS_CALL = "providerAccount.list";
+
+/**
+ * The mutating probe a re-check dispatches, named once for the four suites over this
+ * family: the model's own, the multi-account one, the no-sign-in one, and the
+ * shell-block one that counts how many of them left the window.
+ */
+export const PROBE_CALL = "providerAccount.probe";
+
+/**
+ * A model over a bridge that records what it was asked, answering from the scenario.
+ *
+ * The record is what every coalescing and disposal case asserts on, and the
+ * pass-through is why they can: each case still reads the scenario's own projection,
+ * so an assertion about the number of calls sits beside one about what they answered
+ * rather than replacing it.
+ */
+export function recordingModel(bridge: ConsoleBridge = fixture()): {
+  readonly model: ProviderReadinessModel;
+  readonly bridge: ConsoleBridge;
+  readonly calls: readonly RecordedDaemonCall[];
+} {
+  const held = withDaemonCall(bridge, async (_call, passThrough) => passThrough());
+  return { model: modelOver(held.bridge), bridge: held.bridge, calls: held.calls };
+}
+
+/**
+ * How many readiness reads actually left this window.
+ *
+ * Here rather than in a suite because three of them count the same method, and the
+ * two copies this replaced were one role with two homes — the drift this module
+ * exists to stop. In the blocked cases next door it is also the per-method negative
+ * control: the read leaves under the identical condition that stops the probe.
+ */
+export function readCount(calls: readonly RecordedDaemonCall[]): number {
+  return calls.filter((call) => call.method === READINESS_CALL).length;
+}
 
 /**
  * The two accounts one provider holds below, and the observation they share.
