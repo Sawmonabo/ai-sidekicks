@@ -22,7 +22,7 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import { SessionStore } from "../../store/index.js";
-import { scenarioManualClock } from "../scenario-clock.test-support.js";
+import { scenarioManualClock } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import {
   type GrowthPortAnswer,
   LISTED_ONE_ROW,

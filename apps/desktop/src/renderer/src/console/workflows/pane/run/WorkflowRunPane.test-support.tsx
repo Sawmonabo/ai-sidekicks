@@ -68,6 +68,14 @@ export const MISADDRESSED: ConsoleEntityRef = {
 export function paneContext(
   entity: AddressedEntity,
   bridge: ConsoleBridge,
+  // The exact store to mount over, for a case whose subject is what the SESSION says.
+  //
+  // Every other case here only needs the pane to have a store at all, and a fresh one
+  // per call is what those want. A case that puts a frame on the timeline has to hold
+  // the same object the pane is watching, and naming it is how that is said — the
+  // shape `repos/artifact-pane/artifact-pane-mount.test-support.ts` uses for the same
+  // split.
+  sessionStore: SessionStore = initialisedSessionStore(),
 ): PaneContextOf<"workflow-run"> {
   return {
     kind: "workflow-run",
@@ -79,14 +87,20 @@ export function paneContext(
     // window reaches this pane at all. A stub answers `sessionId` and nothing else,
     // so that subscription would throw at mount in every suite here. Initialised for
     // the same reason the trigger set requires it: a base state is not a frame.
-    sessionStore: initialisedSessionStore(),
+    sessionStore,
     // No actor attributes this pane in a suite, which is the chrome's neutral arm.
     focusHue: undefined,
   } as unknown as PaneContextOf<"workflow-run">;
 }
 
-/** The pane's session, established, so a frame applied to it is a transition. */
-function initialisedSessionStore(): SessionStore {
+/**
+ * The pane's session, established, so a frame applied to it is a transition.
+ *
+ * Its cursor is the beat just before the workflows scenario's first, so a case that
+ * lets the frozen clock deliver that scenario's own beats into this store gets six
+ * transitions rather than a gap the store would degrade over.
+ */
+export function initialisedSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: WORKFLOWS_PARKED_RUN.sessionId });
   sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
   return sessionStore;

@@ -16,7 +16,7 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
-import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { RepoSection } from "./RepoSection.js";
 import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 import { CLONE_EXPIRY_COPY } from "./worktree-model.js";

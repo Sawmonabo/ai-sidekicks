@@ -21,7 +21,7 @@ import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
-import { advanceScenarioUntil } from "../../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { AttachRepositoryDialog } from "./AttachRepositoryDialog.js";
 import { rosterEntry } from "./attach-roster.test-support.js";
 

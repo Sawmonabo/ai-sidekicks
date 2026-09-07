@@ -22,7 +22,7 @@ import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
-import { advanceScenarioUntil } from "../../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { BindWorkspaceDialog } from "./BindWorkspaceDialog.js";
 
 /** The read this suite answers for. Every other method stays the fixture's. */
