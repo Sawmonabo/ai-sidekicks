@@ -134,6 +134,43 @@ describe("create channel draft — what a general channel sends", () => {
   });
 });
 
+describe("create channel draft — the per-agent cap a number can actually hold", () => {
+  /** The largest whole number JavaScript represents exactly, as a person would type it. */
+  const LARGEST_EXACT_CAP = String(Number.MAX_SAFE_INTEGER);
+
+  /** One past it: still every character a digit, and no longer the value it spells. */
+  const FIRST_INEXACT_CAP = "9007199254740993";
+
+  /** Long enough that no number holds it at all — `Number` answers `Infinity`. */
+  const CAP_NO_NUMBER_HOLDS = "1".repeat(400);
+
+  it("composes nothing for a cap past the range a number holds exactly", () => {
+    // A digit string is not the same fact as a number: past the safe-integer range
+    // `Number` answers the nearest value it can represent, so a form that accepted
+    // this would send a cap the person did not type and report it as their choice.
+    const draft = namedDraft();
+    draft.setTurnsPerAgent(FIRST_INEXACT_CAP);
+    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("whole number");
+  });
+
+  it("composes nothing for a digit string no number holds at all", () => {
+    // The other end of the same defect, and the one the wire cannot even carry:
+    // `Number` answers `Infinity`, which JSON has no form for.
+    const draft = namedDraft();
+    draft.setTurnsPerAgent(CAP_NO_NUMBER_HOLDS);
+    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("whole number");
+  });
+
+  it("negative control: the largest exactly-held cap still composes", () => {
+    // Without this the two cases above would pass over a draft that refused every cap
+    // of more than a few digits, which would be a rule about length rather than about
+    // what a number can carry.
+    const draft = namedDraft();
+    draft.setTurnsPerAgent(LARGEST_EXACT_CAP);
+    expect(requestOf(draft).config?.turnsPerAgent).toBe(Number.MAX_SAFE_INTEGER);
+  });
+});
+
 describe("create channel draft — what a direct channel sends", () => {
   function directDraft(otherParticipantId: string): CreateChannelDraft {
     const draft = namedDraft("with Dana");

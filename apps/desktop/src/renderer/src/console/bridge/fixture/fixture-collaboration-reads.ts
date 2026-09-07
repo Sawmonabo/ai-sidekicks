@@ -33,21 +33,29 @@
 //     distinctly from every other, and a fixture that made it the default would put
 //     the claim on screen in every scenario that never mentioned the terminal.
 //
-// So all seven are declared script-only next door, and the sweep in
+// So all eight are declared script-only next door, and the sweep in
 // `fixture-growth-port.test.ts` holds each to the `reply-unscripted` refusal rather
 // than to the `wire-unregistered` one a build with no stand-in would take.
 //
-// AND THREE OF THE FOUR WRITES DO A SECOND THING, which is why they are the one group
-// here that is not a bare call to the scripted-write seam. A served mute, unmute or
-// archive puts its own `channel.*` transition on the session stream, because against a
-// daemon the receipt and the event are two halves of one move and a fixture carrying
+// AND EVERY ONE OF THEM THAT CARRIES A SESSION IS SCOPED TO THE ONE BEING PLAYED
+// before its script is consulted at all. That is five of the eight; `namesPlayedSession`
+// below states the guard and why it is one guard rather than five.
+//
+// AND ALL FOUR WRITES DO A SECOND THING, which is why they are the one group here that
+// is not a bare call to the scripted-write seam. A served create, mute, unmute or
+// archive puts its own `channel.*` frame on the session stream, because against a
+// daemon the receipt and the event are two halves of one act and a fixture carrying
 // only the first leaves the directory's re-read path reachable from nothing but an
 // authored beat. `fixture-channel-lifecycle.ts` owns that half and states it in full.
 
-import { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
+import { CHANNEL_CREATE_CALL, FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
-import { answerScriptedWrite } from "./fixture-scripted-write.js";
-import { growthUnscriptedReply, type GrowthPort } from "../growth-port/index.js";
+import {
+  growthUnscriptedReply,
+  type GrowthOutcome,
+  type GrowthPort,
+} from "../growth-port/index.js";
+import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
@@ -103,50 +111,107 @@ export const MEMBERSHIP_ROSTER_READ_CALL = "growth:membershipRosterRead";
  */
 export const TERMINAL_CONTROL_HOLDER_READ_CALL = "growth:terminalControlHolderRead";
 
+/**
+ * Whether a request names the session this scenario is playing.
+ *
+ * ONE GUARD FOR THE FIVE ANSWERS THAT CARRY A SESSION, and the reason it is one rather
+ * than five is that the mistake it prevents is one mistake. `answerFromScriptedReply`
+ * validates nothing about the request — a scripted reply that is flat is served to
+ * whoever asks — so every handler here answered for ANY session id, and an experiment
+ * addressed to one session could read another's channels, people, devices and lease,
+ * or create a channel in it. Worse than the fabrication itself: a subject-scoping
+ * regression on any surface above would look identical to the fixture working, because
+ * the wrong session still got a full answer.
+ *
+ * The three lifecycle MOVES take no guard and that is the registered shape rather than
+ * an omission: `GrowthChannelLifecycleRequest` is `{channelId}` and names no session,
+ * so there is nothing here to check them against.
+ *
+ * `callerParticipantRead` next door already reads its request this way, and the
+ * REFUSAL is the one difference between the two. That read's wire is unregistered on
+ * this build, so it takes the unregistered refusal the live bridge takes; these eight
+ * are SERVED, so a wrong-session request takes the scenario's own `reply-unscripted` —
+ * this room scripts no answer about that session, and naming an unregistered wire
+ * would send a reader to a document owing something the fixture already stands in for.
+ */
+function namesPlayedSession(
+  engine: ScenarioEngine,
+  request: { readonly sessionId: string },
+): boolean {
+  return request.sessionId === engine.scenario.sessionId;
+}
+
+/**
+ * One session-scoped READ: scoped, then answered from the script, then refused by name.
+ *
+ * The four reads differ only in which call they consult and which operation they
+ * answer for, so they compose here rather than four times over — and the guard, the
+ * scripted seam and the unscripted refusal stay in one order that no handler can get
+ * half right.
+ */
+async function answerSessionScopedRead<TOperationId extends FixtureServedCollaborationOperationId>(
+  engine: ScenarioEngine,
+  call: string,
+  operationId: TOperationId,
+  request: { readonly sessionId: string },
+): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
+  if (!namesPlayedSession(engine, request)) {
+    return growthUnscriptedReply(operationId, call);
+  }
+  return await answerFromScriptedReply(engine, call, operationId, request, () =>
+    growthUnscriptedReply(operationId, call),
+  );
+}
+
 /** The channel and membership answers for one running scenario. */
 export function fixtureCollaborationReads(
   engine: ScenarioEngine,
 ): Pick<GrowthPort, FixtureServedCollaborationOperationId> {
+  // One instance for the four acts it answers, because they share one identifier line
+  // and one rule about when a frame is published. Its reasoning is that module's.
+  const channelLifecycle = new FixtureChannelLifecycle(engine);
   return {
     // The three facts `channel.list` has never carried, per channel the caller may
     // see. The REQUEST travels with the call as it does for every entity-scoped read
     // here: this one is session-scoped, and a scenario answering it still reads which
     // session was asked about rather than answering every session with one roster.
     channelRosterRead: async (request) =>
-      answerFromScriptedReply(engine, "channel.rosterRead", "channelRosterRead", request, () =>
-        growthUnscriptedReply("channelRosterRead", "channel.rosterRead"),
-      ),
+      await answerSessionScopedRead(engine, "channel.rosterRead", "channelRosterRead", request),
+    // The CREATE is scoped here and answered there. The scoping is this module's
+    // because it is the same guard the four reads take; the act — the receipt, and the
+    // `channel.created` frame that tells the session about it — belongs beside the
+    // three moves, which is also what keeps the guard out of a module this one
+    // imports.
     channelCreate: async (request) =>
-      await answerScriptedWrite(engine, "channel.create", "channelCreate", request),
+      namesPlayedSession(engine, request)
+        ? await channelLifecycle.createChannel(request)
+        : growthUnscriptedReply("channelCreate", CHANNEL_CREATE_CALL),
     // The three lifecycle MOVES answer the same way the create above does and then put
     // the transition on the session's own stream, which is the half that makes the
     // directory's re-read reachable at all under the fixture. Their reasoning is
     // `fixture-channel-lifecycle.ts`'s, and it holds one identifier line across the
     // three, so they arrive here as an object rather than as three closures.
-    ...new FixtureChannelLifecycle(engine).operations(),
+    ...channelLifecycle.operations(),
     membershipRosterRead: async (request) =>
-      answerFromScriptedReply(
+      await answerSessionScopedRead(
         engine,
         MEMBERSHIP_ROSTER_READ_CALL,
         "membershipRosterRead",
         request,
-        () => growthUnscriptedReply("membershipRosterRead", MEMBERSHIP_ROSTER_READ_CALL),
       ),
     participantPresenceDetailRead: async (request) =>
-      answerFromScriptedReply(
+      await answerSessionScopedRead(
         engine,
         "participant.presenceDetail",
         "participantPresenceDetailRead",
         request,
-        () => growthUnscriptedReply("participantPresenceDetailRead", "participant.presenceDetail"),
       ),
     terminalControlHolderRead: async (request) =>
-      answerFromScriptedReply(
+      await answerSessionScopedRead(
         engine,
         TERMINAL_CONTROL_HOLDER_READ_CALL,
         "terminalControlHolderRead",
         request,
-        () => growthUnscriptedReply("terminalControlHolderRead", TERMINAL_CONTROL_HOLDER_READ_CALL),
       ),
   };
 }
