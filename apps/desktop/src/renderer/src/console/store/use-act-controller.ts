@@ -10,9 +10,14 @@
 // with a real read on the wire and real triggers armed, and no effect ever commits to
 // end it. The resource seam closes one inside the render that drops it.
 //
-// AND THE DISPOSAL IS DECLARED ONCE. Three surfaces each carried their own
-// `SubjectScopedDisposal` constant naming the same two methods on three classes that
-// spelled them identically, which is three places one rule could drift.
+// AND THE DISPOSAL IS DECLARED ONCE, for every subject-scoped controller in the
+// console and not only for the ones this hook binds. Four surfaces each carried their
+// own `SubjectScopedDisposal` constant naming the same two methods on classes that
+// spelled them identically, which is four places one rule could drift — so the
+// constant is typed on {@link DisposableController}, the whole of what disposing one
+// requires, and the fourth surface (the repos family's root-disposal controller,
+// which publishes into a host rather than off a snapshot and so binds through
+// `useSubjectScopedResource` directly) takes the same one.
 
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -24,17 +29,30 @@ import { useSubjectScopedResource, type SubjectScopedDisposal } from "./subject-
  * The lifecycle an act controller offers a surface, and the whole of what this hook
  * needs from one.
  *
- * NAMED AS A CONTRACT RATHER THAN AS THE CLASS, so a family that composes an
- * {@link ActController} inside a controller of its own — forwarding these four
- * members — binds through this same hook instead of writing the binding again. The
- * repos family's three controllers are exactly that shape.
+ * NAMED AS A CONTRACT RATHER THAN AS THE CLASS, so a controller that reaches an
+ * `ActController` through `act-controller-base.ts` — or holds one directly, forwarding
+ * these four members — binds through this same hook instead of writing the binding
+ * again. The repos family's three controllers extend that base and are exactly this
+ * shape without naming it.
  */
-export interface ActControllerSurface<TReading = unknown> {
+export interface ActControllerSurface<TReading = unknown> extends DisposableController {
   /** What the surface renders. Read through `useSyncExternalStore`, never reached into. */
   readonly snapshot: TReading;
+  subscribe(sink: (reading: TReading) => void): Unsubscribe;
+}
+
+/**
+ * How any subject-scoped controller ends, and the whole of what {@link CONTROLLER_DISPOSAL}
+ * needs from one.
+ *
+ * NARROWER THAN {@link ActControllerSurface} ON PURPOSE. A controller that publishes
+ * into a host rather than off a snapshot of its own has no reading to subscribe to and
+ * still has exactly this lifetime, so typing the disposal on the pair it actually
+ * calls is what lets one constant serve both shapes.
+ */
+export interface DisposableController {
   /** Whether this controller has already ended. How the resource seam recognises one. */
   readonly isDisposed: boolean;
-  subscribe(sink: (reading: TReading) => void): Unsubscribe;
   dispose(): void;
 }
 
@@ -57,12 +75,7 @@ export function useActController<TController extends ActControllerSurface>(
   key: SubjectKey,
   open: () => TController,
 ): ActControllerBinding<TController> {
-  const { value: controller } = useSubjectScopedResource(
-    subject,
-    key,
-    open,
-    ACT_CONTROLLER_DISPOSAL,
-  );
+  const { value: controller } = useSubjectScopedResource(subject, key, open, CONTROLLER_DISPOSAL);
   const subscribe = useCallback(
     (onReadingChange: () => void) => controller.subscribe(onReadingChange),
     [controller],
@@ -73,7 +86,7 @@ export function useActController<TController extends ActControllerSurface>(
 }
 
 /** How one controller ends, and how one already ended is recognised. Declared once. */
-const ACT_CONTROLLER_DISPOSAL: SubjectScopedDisposal<ActControllerSurface> = {
+export const CONTROLLER_DISPOSAL: SubjectScopedDisposal<DisposableController> = {
   dispose: (controller) => {
     controller.dispose();
   },

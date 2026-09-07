@@ -16,9 +16,19 @@
  * enters at `repos/index.ts` exactly as `mounts.css` does.
  *
  * IMPORTED FROM `repos/index.ts` AFTER `mounts.css` AND BEFORE THE THREE SUB-SHEETS,
- * which is the order these rules were in when they were one file. Nothing about the
- * cascade turns on the split: a per-surface rule that overrides one of these — the
- * excluded mode's `cursor`, say — still comes after it.
+ * so a per-surface rule that overrides one of these — the excluded mode's `cursor`,
+ * say — still comes after it. That is NOT, in one place, the order these rules held
+ * when they were one file: exactly one pair inverted. Inside `mounts.css`,
+ * `.meridian-repo-attach__minted, .meridian-reattach__subject` preceded
+ * `.meridian-repo-attach__attached, .meridian-bind__settlement,
+ * .meridian-reattach__attached`; the first pair left for `attach/attach.css` and the
+ * second stayed here, so the split reverses them. It is inert rather than tolerated:
+ * the two selector lists are disjoint and no element carries a class from both, so the
+ * blocks are never in one element's cascade and the `display` / `gap` / `margin` /
+ * `font-size` declarations they share never compete. Restoring the old order would
+ * mean loading this sheet after `attach.css`, which would put every shared shape after
+ * the per-surface overrides that exist to beat it — a real inversion traded for an
+ * inert one.
  *
  * NO LITERAL VALUES, on the family sheet's rule: every length is on the space scale,
  * every size on the type scale, and every colour is read out of a custom property.

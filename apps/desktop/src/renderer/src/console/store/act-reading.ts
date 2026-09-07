@@ -5,12 +5,6 @@
 // states its prerequisite question stands in, and the pair published together — while
 // the class beside it owns when each is written. A surface renders these types and
 // never constructs the machine, so the two travel separately.
-//
-// THE SETTLED ARM IS DELIBERATELY THE CALLER'S. What a person reads off a finished act
-// is "attached", "bound", "prepared" — the verb of the thing they did, carrying the
-// members that act's own reply carries. One shared `settled` arm would have made every
-// surface say the same word about a different act and read its reply back out of an
-// opaque payload.
 
 import type { ConsoleRefusal } from "../core/index.js";
 
@@ -39,6 +33,9 @@ export type ActPrerequisiteReading<TValue> =
   | { readonly status: "read"; readonly value: TValue }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
+/** The three statuses this module owns. A settlement arm's discriminant is none of them. */
+export type ActArmStatus = "idle" | "sending" | "refused";
+
 /**
  * Where the act itself stands: three arms this class owns, and the caller's own.
  *
@@ -55,12 +52,32 @@ export type ActSettlementReading<TSettlement extends ActSettlementArm> =
   | TSettlement;
 
 /**
- * What every settled arm has in common, and the whole of what this module requires
- * of one: a `status` discriminant that is not one of the three arms above it.
+ * What every settled arm has in common: a `status` discriminant of its own.
+ *
+ * THE CONSTRAINT IS DELIBERATELY WIDE AND THE NEGATION IS {@link ActOwnArm}'S.
+ * `Exclude<string, ActArmStatus>` is `string` — subtraction over a primitive removes
+ * nothing — so an interface here cannot say "any string but those three", and one
+ * written as though it could would be a comment claiming a check nobody performs.
+ * What this requires is the discriminant; what refuses a collision is the type the
+ * settle callback is annotated with, where a bad arm actually enters.
  */
 export interface ActSettlementArm {
   readonly status: string;
 }
+
+/**
+ * A settlement arm whose discriminant is genuinely its own, or `never`.
+ *
+ * WRITTEN AS A COLLISION TEST RATHER THAN AS A SUBTRACTION, which is the only form
+ * TypeScript can evaluate: `Extract` of the arm's status against the three owned ones
+ * is empty exactly when there is no collision, and an arm that reuses `idle`,
+ * `sending`, or `refused` resolves to `never` instead. Annotating the settle callback
+ * with this makes such an arm a compile error at the one place it could be published —
+ * a surface would otherwise silently overwrite one of the three states the reading is
+ * read in, and a settled act would render as still sending.
+ */
+export type ActOwnArm<TSettlement extends ActSettlementArm> =
+  Extract<TSettlement["status"], ActArmStatus> extends never ? TSettlement : never;
 
 /** Both halves, published together so a surface renders one consistent frame. */
 export interface ActReading<TValue, TSettlement extends ActSettlementArm> {

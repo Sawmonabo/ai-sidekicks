@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock, REFRESH_DEBOUNCE_MS, refuse, type ConsoleRefusal } from "../core/index.js";
 import { ActController } from "./act-controller.js";
-import type { ActOutcome } from "./act-reading.js";
+import type { ActOutcome, ActOwnArm } from "./act-reading.js";
 import { SessionStore } from "./session-store.js";
 
 /** The subsystem these refusals name as their author. */
@@ -318,5 +318,50 @@ describe("ActController — the act half", () => {
     await act;
     controller.clearAct();
     expect(seen).toStrictEqual(["sending", "done", "idle"]);
+  });
+});
+
+describe("ActController — a settlement arm's discriminant is its own", () => {
+  /**
+   * THE PIN IS A COMPILE-TIME ONE, and it is here because the rule it holds cannot be
+   * written as a type constraint: `Exclude<string, "sending">` is `string`, so the
+   * `ActSettlementArm` interface can require a `status` and cannot require which
+   * strings it is not. `ActOwnArm` states the negation as a collision test instead and
+   * `act`'s settle callback is annotated with it, so this case is what proves the
+   * annotation does work rather than reading as though it did — measured: deleting the
+   * directive yields TS2322 `Type '{ status: "sending"; }' is not assignable to type
+   * 'never'`, never an unused-directive error.
+   *
+   * The runtime half says why the rule exists at all. A colliding arm is published
+   * verbatim, so a SETTLED act is indistinguishable on the reading from one still on
+   * the wire — which is a surface reporting work in flight that has already finished.
+   */
+  it("refuses a settle callback whose arm reuses one of the three owned statuses", async () => {
+    const colliding = new ActController<string, { readonly status: "sending" }>({
+      label: "colliding settlement reading",
+      clock: new ManualClock(),
+      sessionStore: new SessionStore({ sessionId: "session-under-test" }),
+      triggeringEventKinds: TRIGGERING_KINDS,
+      refusalOrigin: TEST_ORIGIN,
+      readPrerequisite: async () => ({ status: "served", value: "unused" }),
+    });
+    await colliding.act(
+      async () => ({ status: "served", value: "settled" }),
+      // @ts-expect-error the settle callback is typed `ActOwnArm<{ status: "sending" }>`,
+      // which resolves to `never`, so no value of that shape is assignable.
+      () => ({ status: "sending" as const }),
+    );
+    expect(colliding.snapshot.act.status).toBe("sending");
+    colliding.dispose();
+  });
+
+  it("negative control: an arm with its own discriminant is admitted unchanged", async () => {
+    const { controller } = open();
+    const admitted: ActOwnArm<TestSettlement> = { status: "done", value: "kept" };
+    await controller.act(
+      async () => ({ status: "served", value: admitted.value }),
+      (value) => ({ status: "done" as const, value }),
+    );
+    expect(controller.snapshot.act).toStrictEqual(admitted);
   });
 });

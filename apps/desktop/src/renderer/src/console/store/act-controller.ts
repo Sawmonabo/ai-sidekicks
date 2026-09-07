@@ -55,6 +55,7 @@ import {
 import {
   ACT_NOT_STARTED,
   type ActOutcome,
+  type ActOwnArm,
   type ActReading,
   type ActSettlementArm,
   type ActSettlementReading,
@@ -242,10 +243,17 @@ export class ActController<
    * THE SETTLEMENT IS PUBLISHED ON BOTH ARMS AND SWALLOWED ON NEITHER. `Spec-023
    * §Rules every console surface obeys` admits no silent no-op: an act that worked
    * says what it produced, and one that was refused renders the daemon's own code.
+   *
+   * AND THE SETTLE CALLBACK IS ANNOTATED {@link ActOwnArm} RATHER THAN `TSettlement`,
+   * which is where this module's "a discriminant of its own" requirement is actually
+   * checked. An arm reusing `idle`, `sending`, or `refused` resolves to `never` there
+   * and the callback stops compiling; without it a surface could publish an arm that
+   * overwrote one of the three states its own reading is read in, and a settled act
+   * would render as still sending.
    */
   public async act<TReplyValue>(
     send: () => Promise<ActOutcome<TReplyValue>>,
-    settle: (value: TReplyValue) => TSettlement,
+    settle: (value: TReplyValue) => ActOwnArm<TSettlement>,
   ): Promise<void> {
     const round = this.#rounds.claim(this, ACT_KEY);
     if (round === undefined || this.#disposed) {

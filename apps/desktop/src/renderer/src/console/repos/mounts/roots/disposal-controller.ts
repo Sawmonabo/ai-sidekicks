@@ -37,7 +37,7 @@ import type { EphemeralCloneId, WorktreeId } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../../store/index.js";
+import { CONTROLLER_DISPOSAL, useSubjectScopedResource } from "../../../store/index.js";
 import { disposeEphemeralClone, retireWorktree } from "../../repo-reads.js";
 import type { DisposalSubject } from "./root-act-model.js";
 
@@ -158,7 +158,7 @@ export function useRootDisposal(bridge: ConsoleBridge, subject: DisposalSubject)
     bridge,
     `${subject.kind} ${subject.rootId}`,
     () => new RootDisposalController({ bridge, subject, host }),
-    DISPOSAL_CONTROLLER_DISPOSAL,
+    CONTROLLER_DISPOSAL,
   );
   // A NEW CONTROLLER MEANS A NEW SUBJECT, and the settlement on screen belongs to the
   // old one. Cleared here rather than left standing, so a second row's confirmation
@@ -177,11 +177,3 @@ export function useRootDisposal(bridge: ConsoleBridge, subject: DisposalSubject)
   }, []);
   return { reading, send, clear };
 }
-
-/** How one controller ends, and how one already ended is recognised. */
-const DISPOSAL_CONTROLLER_DISPOSAL: SubjectScopedDisposal<RootDisposalController> = {
-  dispose: (controller) => {
-    controller.dispose();
-  },
-  isClosed: (controller) => controller.isDisposed,
-};

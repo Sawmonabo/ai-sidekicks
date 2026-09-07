@@ -36,14 +36,13 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import type { ConsoleClock, Unsubscribe } from "../../../core/index.js";
+import type { ConsoleClock } from "../../../core/index.js";
 import {
-  ActController,
+  ActSurfaceController,
+  type ActOutcome,
   type ActPrerequisiteReading,
   type ActReading,
   type ActSettlementReading,
-  type ReadTriggerTarget,
-  type RefreshReason,
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -89,54 +88,27 @@ export interface PrepareControllerOptions {
 }
 
 /** Checks reuse and sends prepares for one workspace. */
-export class ExecutionRootPrepareController implements ReadTriggerTarget {
-  /**
-   * The frames that owe the reuse check a fresh answer.
-   *
-   * THE FAMILY'S CENSUS AND NOT A LIST OF ITS OWN, on `repo-mounts-reader.ts`'s rule:
-   * a worktree appearing, being retired, or changing state is exactly what makes a
-   * reuse verdict wrong, and two readers of one answer must not disagree about when
-   * that answer goes stale.
-   */
-  public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
-    REPO_LIFECYCLE_EVENT_KINDS,
-  );
+export class ExecutionRootPrepareController extends ActSurfaceController<
+  ReuseVerdict,
+  PrepareSettlement
+> {
   readonly #bridge: ConsoleBridge;
   readonly #subject: PrepareSubject;
-  readonly #acts: ActController<ReuseVerdict, PrepareSettlement>;
 
   public constructor(options: PrepareControllerOptions) {
-    this.#bridge = options.bridge;
-    this.#subject = options.subject;
-    this.#acts = new ActController({
+    super({
       label: "execution root prepare reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      triggeringEventKinds: this.triggeringEventKinds,
+      // THE FAMILY'S CENSUS AND NOT A LIST OF ITS OWN, on `repo-mounts-reader.ts`'s
+      // rule: a worktree appearing, being retired, or changing state is exactly what
+      // makes a reuse verdict wrong, and two readers of one answer must not disagree
+      // about when that answer goes stale.
+      triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
       refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
-      readPrerequisite: async (branchName: string) => {
-        const reply = await checkWorktreeReuse(
-          this.#bridge,
-          this.#subject.repoMountId as RepoMountId,
-          branchName,
-        );
-        return reply.status === "refused"
-          ? reply
-          : { status: "served", value: reuseVerdictFor(reply.value) };
-      },
     });
-  }
-
-  public get snapshot(): PrepareReading {
-    return this.#acts.snapshot;
-  }
-
-  public get isDisposed(): boolean {
-    return this.#acts.isDisposed;
-  }
-
-  public subscribe(sink: (reading: PrepareReading) => void): Unsubscribe {
-    return this.#acts.subscribe(sink);
+    this.#bridge = options.bridge;
+    this.#subject = options.subject;
   }
 
   /**
@@ -148,23 +120,7 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    * with the first `checkReuse`.
    */
   public start(): void {
-    this.#acts.start();
-  }
-
-  /**
-   * Re-ask the reuse question, on one of the four reasons the policy admits.
-   *
-   * ASKS NOTHING WITH NO BRANCH NAMED, which is the whole of what makes this reading
-   * unusual: a window focus over a form nobody has typed into has no question to
-   * re-ask, and requesting anyway would put `repo.worktreeReuseCheck` on the wire with
-   * an empty branch on every focus for the life of the card.
-   */
-  public requestRead(reason: RefreshReason): void {
-    this.#acts.requestRead(reason);
-  }
-
-  public dispose(): void {
-    this.#acts.dispose();
+    this.startTriggers();
   }
 
   /**
@@ -177,10 +133,10 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    */
   public checkReuse(branchName: string): void {
     if (branchName.trim().length === 0) {
-      this.#acts.withdraw();
+      this.withdrawPrerequisite();
       return;
     }
-    this.#acts.ask(branchName, "participant-request");
+    this.askPrerequisite(branchName, "participant-request");
   }
 
   /**
@@ -193,7 +149,7 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    */
   public async prepare(branchName: string, acknowledgeDirtyCandidate: boolean): Promise<void> {
     const reuseWorktreeId = this.#reusableCandidate();
-    await this.#acts.act(
+    await this.sendAct(
       async () =>
         await prepareExecutionRoot(this.#bridge, {
           workspaceId: this.#subject.workspaceId as WorkspaceId,
@@ -220,7 +176,7 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
    * asked it to choose.
    */
   public async prepareClone(branchName: string): Promise<void> {
-    await this.#acts.act(
+    await this.sendAct(
       async () =>
         await prepareEphemeralClone(this.#bridge, {
           workspaceId: this.#subject.workspaceId as WorkspaceId,
@@ -234,16 +190,21 @@ export class ExecutionRootPrepareController implements ReadTriggerTarget {
     );
   }
 
-  /** Put the act half back to idle, so a second prepare is not read against the first. */
-  public clearAct(): void {
-    this.#acts.clearAct();
+  /** The reuse check, asked for whatever branch name the form currently holds. */
+  protected override async readPrerequisite(branchName: string): Promise<ActOutcome<ReuseVerdict>> {
+    const reply = await checkWorktreeReuse(
+      this.#bridge,
+      this.#subject.repoMountId as RepoMountId,
+      branchName,
+    );
+    return reply.status === "refused"
+      ? reply
+      : { status: "served", value: reuseVerdictFor(reply.value) };
   }
 
   /** The worktree the newest verdict names, where the verdict names one at all. */
   #reusableCandidate(): string | undefined {
-    const { prerequisite } = this.#acts.snapshot;
-    return prerequisite.status === "read" && prerequisite.value.kind !== "none"
-      ? prerequisite.value.worktreeId
-      : undefined;
+    const verdict = this.prerequisiteValue;
+    return verdict !== undefined && verdict.kind !== "none" ? verdict.worktreeId : undefined;
   }
 }

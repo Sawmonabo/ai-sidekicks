@@ -18,9 +18,10 @@
 // answers with its root on the same reply. Both are settlements a person reads, and a
 // dialog that closed on the press would report the refusal as a success.
 //
-// EVERYTHING ELSE IS `store/act-controller.ts`'S, on the attach controller's note: the
-// scheduler, the triggers, the arms, the single-flight guard, and the disposed latch
-// were written three times in this directory and are now written once.
+// EVERYTHING ELSE IS `store/act-controller-base.ts`'S, on the attach controller's note:
+// the scheduler, the triggers, the arms, the single-flight guard, the disposed latch,
+// and the six members a surface reads them by were written three times in this
+// directory and are now written once.
 
 import { useCallback, useMemo } from "react";
 
@@ -32,15 +33,14 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
-import type { ConsoleClock, Unsubscribe } from "../../../core/index.js";
+import type { ConsoleClock } from "../../../core/index.js";
 import {
-  ActController,
+  ActSurfaceController,
   useActController,
+  type ActOutcome,
   type ActPrerequisiteReading,
   type ActReading,
   type ActSettlementReading,
-  type ReadTriggerTarget,
-  type RefreshReason,
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -89,39 +89,24 @@ export interface BindControllerOptions {
 const CAPABILITIES_QUESTION = "capabilities";
 
 /** Reads what a mount admits and sends the bind for it. */
-export class BindWorkspaceController implements ReadTriggerTarget {
-  /** The frames that change what a mount admits. This family's own census. */
-  public readonly triggeringEventKinds: ReadonlySet<string> = new Set<string>(
-    REPO_LIFECYCLE_EVENT_KINDS,
-  );
+export class BindWorkspaceController extends ActSurfaceController<
+  WorkspaceExecutionModeCapabilitiesReadResponse,
+  BindSettlement
+> {
   readonly #bridge: ConsoleBridge;
   readonly #repoMountId: string;
-  readonly #acts: ActController<WorkspaceExecutionModeCapabilitiesReadResponse, BindSettlement>;
 
   public constructor(options: BindControllerOptions) {
-    this.#bridge = options.bridge;
-    this.#repoMountId = options.repoMountId;
-    this.#acts = new ActController({
+    super({
       label: "workspace bind reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      triggeringEventKinds: this.triggeringEventKinds,
+      // The frames that change what a mount admits. This family's own census.
+      triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
       refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
-      readPrerequisite: async () =>
-        await readMountExecutionModeCapabilities(this.#bridge, this.#repoMountId as RepoMountId),
     });
-  }
-
-  public get snapshot(): BindReading {
-    return this.#acts.snapshot;
-  }
-
-  public get isDisposed(): boolean {
-    return this.#acts.isDisposed;
-  }
-
-  public subscribe(sink: (reading: BindReading) => void): Unsubscribe {
-    return this.#acts.subscribe(sink);
+    this.#bridge = options.bridge;
+    this.#repoMountId = options.repoMountId;
   }
 
   /**
@@ -131,23 +116,12 @@ export class BindWorkspaceController implements ReadTriggerTarget {
    * popup shut, and re-reading on every open would put a call on the wire per glance.
    */
   public requestCapabilities(): void {
-    this.#acts.ask(CAPABILITIES_QUESTION, "subscribe");
-  }
-
-  /**
-   * Ask again, on one of the four reasons the policy admits.
-   *
-   * ASKS NOTHING BEFORE THE DIALOG HAS BEEN OPENED, on the attach roster's rule: the
-   * pre-bind question is asked because a person is binding, so a reconnect arriving
-   * while nobody has opened the dialog changes nothing on screen.
-   */
-  public requestRead(reason: RefreshReason): void {
-    this.#acts.requestRead(reason);
+    this.askPrerequisite(CAPABILITIES_QUESTION, "subscribe");
   }
 
   /** Ask again after a refused read. The participant-driven one of the four. */
   public retryCapabilities(): void {
-    this.#acts.retryRead();
+    this.retryPrerequisite();
   }
 
   /**
@@ -157,7 +131,7 @@ export class BindWorkspaceController implements ReadTriggerTarget {
    * one bind is on the wire binds a second workspace for one intent.
    */
   public async bind(executionMode: ExecutionMode, directory: string | undefined): Promise<void> {
-    await this.#acts.act(
+    await this.sendAct(
       async () =>
         await bindWorkspace(this.#bridge, {
           repoMountId: this.#repoMountId as RepoMountId,
@@ -170,13 +144,11 @@ export class BindWorkspaceController implements ReadTriggerTarget {
     );
   }
 
-  /** Put the act half back to idle. The read half is deliberately untouched. */
-  public clearAct(): void {
-    this.#acts.clearAct();
-  }
-
-  public dispose(): void {
-    this.#acts.dispose();
+  /** The pre-bind capabilities call, asked for the mount this controller is scoped to. */
+  protected override async readPrerequisite(): Promise<
+    ActOutcome<WorkspaceExecutionModeCapabilitiesReadResponse>
+  > {
+    return await readMountExecutionModeCapabilities(this.#bridge, this.#repoMountId as RepoMountId);
   }
 }
 

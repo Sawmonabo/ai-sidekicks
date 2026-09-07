@@ -7,9 +7,12 @@
 // THE CONSOLE OFFERS WHAT THE MOUNT ADMITS AND WITHHOLDS NOTHING SILENTLY. The read
 // carries `availableModes` and a sparse `restrictions` map, and `Spec-009 §Fallback
 // Behavior` requires the capability gap stated rather than substituted — so an excluded
-// mode is rendered, disabled, with the mount's own reason beside it, and never dropped
-// from the list. A form that showed one row on a plain directory would leave a person
-// wondering where the other three went.
+// mode is rendered, disabled, and never dropped from the list, carrying the mount's own
+// reason beside it WHEN THE REPLY SENT ONE. The map is sparse, so a mode can be
+// excluded with no reason on file, and `BindModePicker` then draws the row and no
+// sentence rather than composing one the daemon did not send — which is what
+// `ModeRowView` does with the same rows. A form that showed one row on a plain
+// directory would leave a person wondering where the other three went.
 //
 // ONE `directory` FIELD AND NO SELECTOR BESIDE IT. The wire carries both forms the trust
 // envelope admits — a subtree relative to the mount's canonical root, and an absolute

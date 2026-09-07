@@ -18,32 +18,26 @@
 // repo one, which is what `ReadTriggerTarget` means by making the set a property of the
 // QUESTION rather than of the surface.
 //
-// EVERYTHING ELSE IS `store/act-controller.ts`'S. The scheduler, the trigger wiring,
-// the four read arms, the four act arms, the single-flight guard, and the disposed
-// latch were written here, in `bind/bind-controller.ts`, and in
-// `roots/prepare-controller.ts` three times over; what is left in this module is what
-// is genuinely attach's — which two calls it makes, and how each reply reads.
-//
-// THE FOUR LIFECYCLE MEMBERS ARE FORWARDED RATHER THAN INHERITED. `SessionRefreshTriggers`
-// and `test/console/architecture/read-triggers.test.ts` both read `triggeringEventKinds`
-// and `requestRead` off the READING, so a controller that hid them behind a field would
-// be unwireable by the one refresh policy and invisible to the gate that holds it.
+// EVERYTHING ELSE IS `store/act-controller-base.ts`'S. The scheduler, the trigger
+// wiring, the four read arms, the four act arms, the single-flight guard, the disposed
+// latch, and the six members a surface reads them by were written here, in
+// `bind/bind-controller.ts`, and in `roots/prepare-controller.ts` three times over;
+// what is left in this module is what is genuinely attach's — which two calls it
+// makes, and how each reply reads.
 
 import { useCallback, useMemo } from "react";
 
 import type { NodeId, RepoAttachResponse } from "@ai-sidekicks/contracts";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
-import type { ConsoleClock, Unsubscribe } from "../../../core/index.js";
+import type { ConsoleClock } from "../../../core/index.js";
 import {
-  ActController,
+  ActSurfaceController,
   useActController,
   type ActOutcome,
   type ActPrerequisiteReading,
   type ActReading,
   type ActSettlementReading,
-  type ReadTriggerTarget,
-  type RefreshReason,
   type SessionStore,
 } from "../../../store/index.js";
 import {
@@ -98,40 +92,29 @@ const ROSTER_QUESTION = "roster";
  * dialog that is closed and reopened: the answer has not changed because a popup shut,
  * and re-reading on every open would put a call on the wire for each glance.
  */
-export class AttachController implements ReadTriggerTarget {
-  /** The frames that change a session's node roster. See the header for why not repo ones. */
-  public readonly triggeringEventKinds: ReadonlySet<string> = RUNTIME_NODE_ROSTER_EVENT_KINDS;
+export class AttachController extends ActSurfaceController<
+  readonly AttachNodeOption[],
+  AttachSettlement
+> {
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string;
-  readonly #acts: ActController<readonly AttachNodeOption[], AttachSettlement>;
 
   public constructor(options: AttachControllerOptions) {
-    this.#bridge = options.bridge;
-    this.#sessionId = options.sessionStore.sessionId;
-    this.#acts = new ActController({
+    super({
       label: "repository attach reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      triggeringEventKinds: this.triggeringEventKinds,
+      // The frames that change a session's node roster. See the header for why not
+      // repo ones.
+      triggeringEventKinds: RUNTIME_NODE_ROSTER_EVENT_KINDS,
       refusalOrigin: REPO_READS_REFUSAL_ORIGIN,
-      readPrerequisite: async () => await this.#readRoster(),
       readRejection: {
         code: "call-rejected",
         detail: "The runtime-node roster read did not complete.",
       },
     });
-  }
-
-  public get snapshot(): AttachReading {
-    return this.#acts.snapshot;
-  }
-
-  public get isDisposed(): boolean {
-    return this.#acts.isDisposed;
-  }
-
-  public subscribe(sink: (reading: AttachReading) => void): Unsubscribe {
-    return this.#acts.subscribe(sink);
+    this.#bridge = options.bridge;
+    this.#sessionId = options.sessionStore.sessionId;
   }
 
   /**
@@ -143,24 +126,12 @@ export class AttachController implements ReadTriggerTarget {
    * which is why it is a control and not a timer.
    */
   public requestRoster(): void {
-    this.#acts.ask(ROSTER_QUESTION, "subscribe");
-  }
-
-  /**
-   * Ask again, on one of the four reasons the policy admits.
-   *
-   * IT ASKS NOTHING BEFORE THE DIALOG HAS BEEN OPENED, which is the one thing that
-   * separates this reading from the section's: the roster is read because a person is
-   * attaching, so a reconnect arriving while nobody has opened the dialog changes
-   * nothing that is on screen and puts no call on the wire.
-   */
-  public requestRead(reason: RefreshReason): void {
-    this.#acts.requestRead(reason);
+    this.askPrerequisite(ROSTER_QUESTION, "subscribe");
   }
 
   /** Ask again after a refused roster read. The participant-driven one of the four. */
   public retryRoster(): void {
-    this.#acts.retryRead();
+    this.retryPrerequisite();
   }
 
   /**
@@ -172,30 +143,15 @@ export class AttachController implements ReadTriggerTarget {
    * which reads, on screen, as the attach having failed.
    */
   public async attach(localPath: string, nodeId: string): Promise<void> {
-    await this.#acts.act(
+    await this.sendAct(
       async () =>
         await attachRepository(this.#bridge, this.#sessionId, localPath, nodeId as NodeId),
       (response: RepoAttachResponse) => ({ status: "attached" as const, response }),
     );
   }
 
-  /**
-   * Put the act half back to idle.
-   *
-   * ITS OWN CALL RATHER THAN A SIDE EFFECT OF CLOSING: a participant who reopens the
-   * dialog to attach a second repository must not meet the first one's success
-   * sentence. The roster half is deliberately untouched.
-   */
-  public clearAct(): void {
-    this.#acts.clearAct();
-  }
-
-  public dispose(): void {
-    this.#acts.dispose();
-  }
-
   /** The roster call, and the mapping from wire entries to the rows a picker draws. */
-  async #readRoster(): Promise<ActOutcome<readonly AttachNodeOption[]>> {
+  protected override async readPrerequisite(): Promise<ActOutcome<readonly AttachNodeOption[]>> {
     const outcome = await this.#bridge.runtimeNodeRosterRead({
       sessionId: forwardedSessionId(this.#sessionId),
     });
