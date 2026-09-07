@@ -23,7 +23,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { type CleanupOutcome, type ClosableApplication } from "../bounded-cleanup.js";
+import { type CleanupOutcome, type ClosableApplication } from "../cleanup-contract.js";
 import {
   CleanupFailedError,
   cleanupFailure,
