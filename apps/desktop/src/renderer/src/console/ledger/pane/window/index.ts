@@ -11,15 +11,17 @@
 //
 // WHAT LEAVES. The two windows and their hooks, the chapter key the fold groups by,
 // the retention a second derivation holds its own instance of, the absences component,
-// and the read-state component that says whether this window has been read at all and
-// whether it is behind. `deriveLedgerWindow` stops here: it is the pure derivation under
-// `useLedgerProjection`, and every reader of it outside this directory is a suite or a
-// suite's scaffolding, which reaches it deeply.
+// the read-state component that says whether this window has been read at all and
+// whether it is behind, and the one reading of "has the first read landed" that both
+// that component and the viewport's empty arm turn on. `deriveLedgerWindow` stops
+// here: it is the pure derivation under `useLedgerProjection`, and every reader of it
+// outside this directory is a suite or a suite's scaffolding, which reaches it deeply.
 
 import "./window.css";
 
 export { LedgerWindowAbsences } from "./LedgerWindowAbsences.js";
 export { LedgerWindowReadState } from "./LedgerWindowReadState.js";
+export { useLedgerFirstReadSettled } from "./ledger-first-read.js";
 export {
   useRailGeometry,
   useVisibleLedgerWindow,

@@ -216,6 +216,17 @@ export class LedgerWindow {
   }
 
   /**
+   * Drop every parked lease, answering how many went. `row-lease-table.ts` owns why.
+   *
+   * Delegated rather than reached through, so the idle trim asks the window — the
+   * one object that knows which rows are still held — instead of holding a second
+   * reference to a table this class owns.
+   */
+  public releaseParkedLeases(): number {
+    return this.#leaseTable.releaseParkedLeases();
+  }
+
+  /**
    * Drop the oldest top-level rows, or say why it could not.
    *
    * The refusals `#deferralFor` answers are ordered by what they cost: `under-cap`

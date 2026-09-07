@@ -67,32 +67,24 @@
 
 import { Menu, type MenuItemConstructorOptions } from "electron";
 
+import { AUXILIARY_MENU_CHORDS, electronAcceleratorFor } from "../shared/auxiliary-menu-chords.js";
 import {
   AUXILIARY_ROUTE_LABELS,
   BARE_LAUNCHABLE_AUXILIARY_ROUTES,
-  type AuxiliaryRouteName,
 } from "../shared/auxiliary-routes.js";
 import { createAuxiliaryWindow } from "./auxiliary-window.js";
 
 const IS_MACOS = process.platform === "darwin";
 
-/**
- * The keyboard shortcut each auxiliary route's menu entry carries.
- *
- * A menu concern, so it lives in the menu. An accelerator is meaningless to the
- * renderer bundle and to the window factory; shipping it through the shared
- * module would put a menu-bar string into a browser bundle that has no menu bar.
- *
- * A TOTAL `Record` over the closed route set — over the ROUTE set and not over
- * the bare-launchable subset, so adding a route is a compile error here until
- * its shortcut is decided even while its entry is not yet offered. That is the
- * same forcing function the shared label record and the window factory's
- * geometry record apply at the other two sites a new route needs a decision.
- */
-const AUXILIARY_MENU_ACCELERATORS: Record<AuxiliaryRouteName, string> = {
-  timeline: "CmdOrCtrl+Shift+T",
-  "agent-console": "CmdOrCtrl+Shift+A",
-};
+// The accelerator table used to live here, on the reasoning that "an accelerator is
+// meaningless to the renderer bundle". It is not: Electron consumes a menu
+// accelerator BEFORE the renderer's key-binding table sees the keystroke, so a chord
+// the menu owns is one no renderer binding can run — and while the table was
+// main-private the renderer's own audit had no way to say so, which is how
+// `CmdOrCtrl+Shift+T` came to sit on top of the ledger's live `$mod+Shift+t`. It is
+// now declared once in `../shared/auxiliary-menu-chords.ts`, in the console's chord
+// grammar, and rendered into Electron's spelling here — the one caller that needs
+// that spelling.
 
 /**
  * A top-level submenu an owning plan contributes.
@@ -182,7 +174,7 @@ export function registerMenuSection(section: MenuSection): void {
 function buildAuxiliaryMenuItems(): MenuItemConstructorOptions[] {
   const items: MenuItemConstructorOptions[] = BARE_LAUNCHABLE_AUXILIARY_ROUTES.map((route) => ({
     label: AUXILIARY_ROUTE_LABELS[route],
-    accelerator: AUXILIARY_MENU_ACCELERATORS[route],
+    accelerator: electronAcceleratorFor(AUXILIARY_MENU_CHORDS[route]),
     click: () => {
       createAuxiliaryWindow({ route });
     },

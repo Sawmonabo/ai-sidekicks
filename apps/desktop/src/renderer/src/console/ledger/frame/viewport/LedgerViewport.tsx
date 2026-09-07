@@ -78,6 +78,17 @@ export interface LedgerViewportProps {
    * the member, which is not the same as off and renders the ordinary sentence.
    */
   readonly peerInvocationEnabled?: boolean | undefined;
+  /**
+   * Whether this session's first read has settled.
+   *
+   * REQUIRED, for the reason `scope` above is: the empty window below is a CLAIM
+   * about a session, and a caller that had not answered this made it while the read
+   * was still in flight — "Nothing has happened in this session yet." rendered
+   * directly above the pane's twelve loading shells, two sentences about one moment
+   * with one of them false. An optional prop defaulting to settled would have
+   * reintroduced exactly that on the next caller to forget it.
+   */
+  readonly firstReadSettled: boolean;
   /** A turn is mid-flight — the same value the caller reconciled the binding with. */
   readonly hasActiveTurn?: boolean;
   readonly errorEntries?: readonly LedgerErrorEntry[];
@@ -133,7 +144,15 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
             );
           })}
         </div>
-        {snapshot.rows.length === 0 ? (
+        {/*
+         * NO ROWS AND THE READ HAS LANDED — which are two facts, and the empty
+         * sentence needs both. With no rows alone it also fires while the first read
+         * is in flight, where the pane is already drawing loading shells and the
+         * honest answer is not yet known. Nothing renders here in that window: the
+         * shells ARE the answer, and a second element saying anything at all would be
+         * the surface talking over its own loading state.
+         */}
+        {snapshot.rows.length === 0 && props.firstReadSettled ? (
           <EmptyLedgerWindow
             scope={props.scope}
             peerInvocationEnabled={props.peerInvocationEnabled}

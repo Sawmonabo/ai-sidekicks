@@ -26,6 +26,7 @@ import { VisibleTextMonotonicityRecorder } from "../visible-text-monotonicity.js
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import {
   LedgerRowRevealProvider,
+  useLedgerFrameCoordinator,
   useLedgerReveal,
   useLedgerRowReveal,
 } from "../../../src/renderer/src/console/ledger/frame/index.js";
@@ -64,7 +65,13 @@ interface StreamingProbeProps {
  * writes to it.
  */
 function StreamingProbe(props: StreamingProbeProps): React.JSX.Element {
-  const reveal = useLedgerReveal({ clock: props.clock });
+  // The coordinator is what orders every drain, and the feed mints one per mount from
+  // its clock. This probe does the same rather than handing the hook a clock: the hook
+  // stopped taking one when the frame coordinator landed, and a probe composing the
+  // engine differently from its only production caller would be exercising a shape
+  // nothing ships.
+  const frameCoordinator = useLedgerFrameCoordinator(props.clock);
+  const reveal = useLedgerReveal({ frameCoordinator });
   props.handle.ingest = (laneId: string, text: string) => {
     reveal.ingest({ laneId, mode: "direct", text });
   };

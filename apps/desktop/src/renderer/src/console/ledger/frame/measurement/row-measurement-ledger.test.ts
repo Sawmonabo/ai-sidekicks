@@ -174,4 +174,36 @@ describe("the measurement ledger — the element ceiling", () => {
     expect(totalHeightPx).toBeGreaterThan(LEDGER_MAX_ELEMENT_HEIGHT_PX);
     expect(ledger.rowsPastElementCeiling(rowKeys, totalHeightPx)).toBe(0);
   });
+  it("forgets every prior but the rows named, answering how many went", () => {
+    // What the idle trim asks for. The retained set is the window's rows, so a prior
+    // this drops belongs to a row nothing on screen can be showing.
+    const ledger = new RowMeasurementLedger();
+    for (const rowKey of ["row-a", "row-b", "row-c"]) {
+      ledger.acceptedHeight(rowKey, 40);
+    }
+    expect(ledger.forgetAllExcept(["row-b"])).toBe(2);
+    expect(ledger.measuredRowCount).toBe(1);
+    expect(ledger.heightOf("row-b")).toBe(40);
+  });
+
+  it("keeps a repeat's prior by the row it was minted for", () => {
+    // The projection mints `<rowKey>~repeat-<n>` for a duplicate key, and the trim is
+    // handed ROW keys. Without recovering the row from the projected key, a retained
+    // row's repeat would be dropped every trim and re-measured every time it came
+    // back — the negative control is the count, which would read 2 rather than 1.
+    const ledger = new RowMeasurementLedger();
+    const projection = ledger.projectKeys(["row-a", "row-a", "row-b"]);
+    for (const virtualKey of projection.virtualKeys) {
+      ledger.acceptedHeight(virtualKey, 40);
+    }
+    expect(ledger.forgetAllExcept(["row-a"])).toBe(1);
+    expect(ledger.measuredRowCount).toBe(2);
+  });
+
+  it("forgets everything when nothing is retained", () => {
+    const ledger = new RowMeasurementLedger();
+    ledger.acceptedHeight("row-a", 40);
+    expect(ledger.forgetAllExcept([])).toBe(1);
+    expect(ledger.measuredRowCount).toBe(0);
+  });
 });

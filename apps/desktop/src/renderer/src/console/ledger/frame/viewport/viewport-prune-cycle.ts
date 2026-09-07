@@ -27,8 +27,10 @@
 // `reconcile` and `retryDeferredPrune` and through nothing else, so driving it
 // apart from the controller would be driving a stand-in for the caller.
 
+import { LedgerIdleMemoryTrim, type LedgerIdleTrimPass } from "./idle-trim.js";
 import { type ReadingAnchor, type RowMeasurementLedger } from "../measurement/index.js";
 import { type LedgerScrollController } from "../scroll/index.js";
+import { type ConsoleClock } from "../../../core/index.js";
 import { type LedgerViewportConditions } from "./viewport-snapshot.js";
 import { type LedgerWindow, type PruneDeferralReason, type PruneOutcome } from "./window-cap.js";
 
@@ -37,6 +39,9 @@ export interface LedgerPruneCycleOptions {
   readonly measurements: RowMeasurementLedger;
   readonly anchor: ReadingAnchor;
   readonly scroll: LedgerScrollController;
+  readonly clock: ConsoleClock;
+  /** Overridden by tests only; `frame-bounds.ts` owns the shipped dwell. */
+  readonly idleTrimDwellMs?: number;
 }
 
 /** What one pass took, and the floor it was told to stop at. */
@@ -68,6 +73,15 @@ export class LedgerPruneCycle {
   readonly #measurements: RowMeasurementLedger;
   readonly #anchor: ReadingAnchor;
   readonly #scroll: LedgerScrollController;
+  /**
+   * The time bound on what a pass leaves behind.
+   *
+   * OWNED HERE BECAUSE `run` IS THE ACTIVITY SIGNAL. The trim measures a quiet
+   * ledger against the clock, and this method is called once per reconcile — the
+   * frame's own definition of the ledger having moved. Holding it in the controller
+   * would have meant a second reader of that same fact.
+   */
+  readonly #idleTrim: LedgerIdleMemoryTrim;
 
   #lastOutcome: PruneOutcome | undefined;
   /**
@@ -95,6 +109,17 @@ export class LedgerPruneCycle {
     this.#measurements = options.measurements;
     this.#anchor = options.anchor;
     this.#scroll = options.scroll;
+    this.#idleTrim = new LedgerIdleMemoryTrim({
+      clock: options.clock,
+      window: options.window,
+      measurements: options.measurements,
+      ...(options.idleTrimDwellMs === undefined ? {} : { dwellMs: options.idleTrimDwellMs }),
+    });
+  }
+
+  /** What the last idle trim returned, or `undefined` before one has taken anything. */
+  public get lastIdleTrimPass(): LedgerIdleTrimPass | undefined {
+    return this.#idleTrim.lastPass;
   }
 
   /** What the last pass produced, or `undefined` before the first one. */
@@ -121,6 +146,10 @@ export class LedgerPruneCycle {
    * the pruned rows were.
    */
   public run(conditions: LedgerViewportConditions): LedgerPruneCycleResult {
+    // Before anything else: the ledger has moved. If it had been still for a dwell,
+    // this is where the trim runs — the end of the quiet period, which is the moment
+    // the tables it walks are known to be stale.
+    this.#idleTrim.noteActivity();
     this.#lastConditions = conditions;
     const readingFloorRowKey = this.readingFloorRowKey();
     const heldRowKeys = this.#anchor.heldRowKeys();
@@ -204,7 +233,8 @@ export class LedgerPruneCycle {
    *
    * Called from the controller's teardown: a disposed frame that kept it would hold
    * a whole window's identity list alive for as long as anything still referenced
-   * the corpse.
+   * the corpse. The idle trim beside it needs nothing here — it arms no work, so
+   * there is none to cancel.
    */
   public forgetConditions(): void {
     this.#lastConditions = undefined;

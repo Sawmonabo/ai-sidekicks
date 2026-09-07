@@ -32,6 +32,7 @@
 import path from "node:path";
 
 import { app, type BrowserWindow } from "electron";
+import { watchAuxiliaryWindowsForComposerChord } from "./composer-focus.js";
 import { installApplicationMenu } from "./menu.js";
 import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
@@ -168,10 +169,10 @@ const gotTheLock = app.requestSingleInstanceLock();
 // releases shifting `self_ref_` semantics (asymmetric risk: one
 // identifier vs. silent regression on a future Electron release).
 //
-// The `no-unused-vars` disable is intentional — eslint observes that
-// nothing reads the variable, but its role is being-assigned for
-// defensive pattern consistency, not being-read.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// It is also READ, by exactly one caller: the composer chord an auxiliary window
+// answers needs the window the composer is in, and takes this as a getter rather
+// than a captured handle so a closed-and-reopened main window is the one it goes to
+// (see `./composer-focus.ts`).
 let mainWindow: BrowserWindow | null = null;
 
 if (!gotTheLock) {
@@ -249,6 +250,14 @@ if (!gotTheLock) {
       browserWindow.on("closed", () => {
         mainWindow = null;
       });
+
+      // AFTER the main window exists, and that ordering is the exclusion:
+      // `browser-window-created` is an event rather than a registry, so the window
+      // that HAS the composer is never handed to this watcher and the chord stays
+      // free for the binding that moves the caret. Every window opened from here on
+      // — the auxiliary routes, which have no composer of their own — answers the
+      // chord by bringing this one forward.
+      watchAuxiliaryWindowsForComposerChord(app, () => mainWindow);
 
       // The GC probe owns its own listener registration and its own deferral
       // (see `./probes/gc-probe.ts#startGcProbe`), so nothing scheduled here
