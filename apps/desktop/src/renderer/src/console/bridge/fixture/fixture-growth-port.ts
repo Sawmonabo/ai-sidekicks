@@ -21,8 +21,9 @@ import {
   readRememberedRuleList,
   type ParsedRows,
 } from "../approvals/index.js";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
+
 import type { WireErrorEnvelope } from "../../core/index.js";
-import { RESUME_CURSOR_UNRESOLVABLE_CODE } from "../../store/index.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
@@ -400,7 +401,7 @@ async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
  */
 function unresolvableResumeCursorRefusal(): WireErrorEnvelope {
   return {
-    code: RESUME_CURSOR_UNRESOLVABLE_CODE,
+    code: EVENT_CURSOR_UNRESOLVABLE_CODE,
     message: "the submitted cursor could not be resolved to a position in this log",
   };
 }

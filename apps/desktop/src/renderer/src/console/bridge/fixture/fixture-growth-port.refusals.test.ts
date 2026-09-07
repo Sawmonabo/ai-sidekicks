@@ -33,8 +33,7 @@ import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { CONSOLE_SCENARIOS } from "../scenarios/index.js";
 import { LEDGER_SCENARIO } from "../scenarios/ledger/ledger.js";
-import { RESUME_CURSOR_UNRESOLVABLE_CODE } from "../../store/index.js";
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import { createTier1Bridge, EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 /**
  * Names a scenario must NOT state a viewer under — the spellings that are not the
@@ -223,7 +222,7 @@ describe("the fixture's session read — a submitted position the daemon cannot 
         sessionId: LEDGER_SCENARIO.sessionId,
         fromCursor: "a-position-this-daemon-cannot-resolve",
       }),
-    ).rejects.toMatchObject({ code: RESUME_CURSOR_UNRESOLVABLE_CODE });
+    ).rejects.toMatchObject({ code: EVENT_CURSOR_UNRESOLVABLE_CODE });
 
     // The recovery arm, and it is what makes the refusal a lost PLACE rather than an
     // outage: the entry re-reads the same session with no position, and that read

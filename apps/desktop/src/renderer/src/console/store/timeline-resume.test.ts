@@ -9,11 +9,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
+
 import {
   isUnresolvableCursorRejection,
   refuseUnresolvableResume,
   resolveTimelineResume,
-  RESUME_CURSOR_UNRESOLVABLE_CODE,
   TIMELINE_RESUME_ORIGIN,
   TIMELINE_RESUME_REFUSAL_CODES,
 } from "./timeline-resume.js";
@@ -121,12 +122,12 @@ describe("the refused arm — the one refusal left", () => {
 describe("isUnresolvableCursorRejection — reading the daemon's answer", () => {
   it("recognises the registered wire code on a plain envelope and on an Error", () => {
     class WireError extends Error {
-      public readonly code = RESUME_CURSOR_UNRESOLVABLE_CODE;
+      public readonly code = EVENT_CURSOR_UNRESOLVABLE_CODE;
     }
 
     expect(
       isUnresolvableCursorRejection({
-        code: RESUME_CURSOR_UNRESOLVABLE_CODE,
+        code: EVENT_CURSOR_UNRESOLVABLE_CODE,
         message: "cursor could not be decoded",
       }),
     ).toBe(true);
@@ -143,7 +144,7 @@ describe("isUnresolvableCursorRejection — reading the daemon's answer", () => 
       "event.cursor_unresolvable",
       new Error("event.cursor_unresolvable"),
       { code: "session.not_found", message: "no such session" },
-      { code: RESUME_CURSOR_UNRESOLVABLE_CODE },
+      { code: EVENT_CURSOR_UNRESOLVABLE_CODE },
     ]) {
       expect(isUnresolvableCursorRejection(rejection)).toBe(false);
     }

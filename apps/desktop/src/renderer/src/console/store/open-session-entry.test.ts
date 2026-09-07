@@ -18,10 +18,11 @@
 
 import { describe, expect, it } from "vitest";
 
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
+
 import { ManualClock } from "../core/index.js";
 import { eventOfKind } from "./session-event.test-support.js";
 import { OpenSessionEntry } from "./open-session-entry.js";
-import { RESUME_CURSOR_UNRESOLVABLE_CODE } from "./timeline-resume.js";
 import type { SessionSnapshot } from "./session-store.js";
 
 /** A reader that establishes nothing, so no read can clear what a test set up. */
@@ -149,7 +150,7 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   /** The rejection a daemon raises for a position it cannot resolve. */
   const CURSOR_REFUSAL = {
     rejectWith: {
-      code: RESUME_CURSOR_UNRESOLVABLE_CODE,
+      code: EVENT_CURSOR_UNRESOLVABLE_CODE,
       message: "the submitted cursor could not be decoded",
     },
   };

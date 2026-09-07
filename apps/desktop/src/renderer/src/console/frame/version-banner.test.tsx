@@ -12,7 +12,7 @@
 // reading a field back — an arm with no facts on it has no version pair to have kept.
 // The last describe closes that from the other end, in the composed window.
 
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
@@ -26,6 +26,7 @@ import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { liveRegionText } from "../primitives/live-region.test-support.js";
 import { parseRoute } from "../routing/index.js";
 import { FrameStore } from "../store/index.js";
+import { ConsoleRoot } from "./ConsoleRoot.js";
 import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
 import {
   VERSION_BANNER_ID,
@@ -302,6 +303,40 @@ describe("the composed window — the banner is refusal-scoped and announced onc
     const supplements = mounted.container.querySelectorAll(".meridian-version-banner");
     expect(supplements).toHaveLength(1);
     expect(supplements[0]?.textContent).toContain("Protocol");
+  });
+
+  it("drops the banner in the render that first sees a new port, and draws nothing stale", async () => {
+    // THE CLEAR, END TO END, THROUGH THE PATH THAT ACTUALLY REACHES IT. The raise
+    // cases below drive `useVersionBannerRaise` from a `reading` PROP a probe hands
+    // it, which proves the effect's own arms and nothing about how a live window ever
+    // arrives at a non-refused reading. It arrives by RE-ADDRESS: the read is subject-
+    // scoped to the growth port, so swapping the bridge under a mounted window re-mints
+    // that state rather than replaying the old answer — and a clear that only worked
+    // for a re-rendered prop would leave a permanent strip across a window whose runtime
+    // the strip no longer describes, which is the exact failure the banner list's
+    // outliving this render makes possible.
+    const mounted = await mountConsole({ scenarioId: LEDGER_SCENARIO_ID });
+    expect(mounted.container.querySelectorAll(".meridian-refusal--banner")).toHaveLength(1);
+    expect(mounted.container.querySelector(".meridian-refusal__dismiss")).toBeNull();
+
+    // Synchronously, and asserted BEFORE the new port has answered anything: the
+    // re-address puts the reading back on its unsettled arm, which is not a refusal,
+    // so the strip comes down with the port it described rather than lingering until
+    // some later read happens to disagree with it.
+    act(() => {
+      mounted.rerender(<ConsoleRoot scenarioId={FLAGSHIP_SCENARIO_ID} />);
+    });
+    expect(mounted.container.querySelector(".meridian-refusal--banner")).toBeNull();
+    expect(mounted.container.querySelector(".meridian-version-banner")).toBeNull();
+
+    // And it stays down once the new port's read lands, with neither the old pair nor
+    // a dismiss control anywhere in the tree — the banner was never dismissible, so a
+    // control appearing here would mean some other surface had drawn it.
+    await settleReactWork();
+    expect(mounted.container.querySelector(".meridian-refusal--banner")).toBeNull();
+    expect(mounted.container.textContent).not.toContain("version.floor_exceeded");
+    expect(mounted.container.textContent).not.toContain("Protocol");
+    expect(mounted.container.querySelector(".meridian-refusal__dismiss")).toBeNull();
   });
 
   it("negative control: a window whose handshake AGREED mounts no element and says nothing", async () => {

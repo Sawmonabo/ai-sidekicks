@@ -71,31 +71,12 @@
 // and the one cursor refusal the corpus does register — the submitted-cursor refusal
 // below — is the only arm that declines a cycle.
 
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
+
 import { readWireErrorEnvelopeWithCode, refuse, type NarrowedRefusal } from "../core/index.js";
 
 /** The origin every refusal this module raises names. */
 export const TIMELINE_RESUME_ORIGIN = "timeline-resume";
-
-/**
- * The wire code a daemon answers with when a SUBMITTED cursor cannot be resolved.
- *
- * Registered at 400 in `docs/architecture/contracts/error-contracts.md`, and the
- * distinction that makes it usable here is in its own registration: it refuses a
- * request that carried a cursor. So it can only ever be the answer to a read this
- * console submitted a position on, which is why the entry tests the cursor it sent
- * before it believes the code — a console that classified on the code alone would
- * take a refusal raised for some other caller's request as its own lost position.
- *
- * SPELLED HERE BECAUSE THERE IS NOWHERE ELSE TO SPELL IT. `@ai-sidekicks/contracts`
- * exports no constant, enum member, or schema literal for this code — the registration
- * is a row in `docs/architecture/contracts/error-contracts.md` and nothing more — so
- * this declaration is the console's single home for it rather than a second copy of an
- * importable one. That distinction decides what happens the day the contract publishes
- * one: this constant is replaced by the import, and it is not joined by it. Until then
- * the daemon's spelling and the console's have to be the same string or the arm is
- * unreachable, and two homes for one wire string is how they stop being.
- */
-export const RESUME_CURSOR_UNRESOLVABLE_CODE = "event.cursor_unresolvable";
 
 /**
  * Why a resume cycle was refused. Closed, and closed at ONE member.
@@ -197,7 +178,14 @@ export function refuseUnresolvableResume(): TimelineResumeDecision {
  * read and another on the second cannot make this arm disagree with itself.
  */
 export function isUnresolvableCursorRejection(rejection: unknown): boolean {
-  return readWireErrorEnvelopeWithCode(rejection, RESUME_CURSOR_UNRESOLVABLE_CODE) !== undefined;
+  // The code comes from `@ai-sidekicks/contracts`, which is the daemon's own home for
+  // it, so the raiser and this classifier cannot spell it differently. What makes it
+  // usable here is its registration rather than its name: it refuses a request that
+  // CARRIED a cursor, so it can only ever answer a read this console submitted a
+  // position on — and the entry still tests the cursor it sent before it believes the
+  // code, because a console classifying on the code alone would take a refusal raised
+  // for some other caller's request as its own lost position.
+  return readWireErrorEnvelopeWithCode(rejection, EVENT_CURSOR_UNRESOLVABLE_CODE) !== undefined;
 }
 
 /**
