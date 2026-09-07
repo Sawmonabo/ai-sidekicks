@@ -38,6 +38,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { consoleCommands, registerConsoleCommands } from "../palette/index.js";
+import { OverlayDialogPopup } from "../primitives/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
   useModalSurfaceLifetime,
@@ -113,42 +114,47 @@ export function SignInOverlay(props: SignInOverlayProps): React.JSX.Element {
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen} modal="trap-focus">
-      <Dialog.Portal>
-        <Dialog.Backdrop className="meridian-sign-in__backdrop" />
-        <Dialog.Popup className="meridian-sign-in__popup">
-          <SignInCard
-            state={state}
-            isBusy={flow.isBusy}
-            onSignIn={() => {
-              void flow.signIn();
-            }}
-            onRegisterAnother={() => {
-              void flow.register();
-            }}
-            onOpenBrowser={() => {
-              if (state.kind !== "handing-off") {
-                return;
-              }
-              // The hand-off and the wait, in that order and in one act. The browser
-              // is opened through `native.openExternal`, which the process model
-              // makes the only sanctioned way out — a renderer-opened window would
-              // put a control-plane origin inside this renderer's own frame tree.
-              // Its rejection is deliberately not rendered separately: the wait
-              // below settles into whatever the ceremony reports, and a person who
-              // saw no browser open has the address and the code on screen already.
-              void bridge.sidekicks.native.openExternal(state.handoff.verificationUri).catch(() => {
-                // Swallowed on purpose, and only here: nothing about this window's
-                // state depends on whether the OS had a browser to hand, and the
-                // ceremony's own settlement is what the card renders next.
-              });
-              void flow.awaitDeviceGrant();
-            }}
-            onDismissRefusal={() => {
-              flow.dismissRefusal();
-            }}
-          />
-        </Dialog.Popup>
-      </Dialog.Portal>
+      {/* The popup shell is the primitive's, which is also what puts this card in the
+          window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to whatever is registered there, and a card that
+          mounted its own portal would be a dialog the view paints over — backdrop
+          included, which is the half that covers the whole window. */}
+      <OverlayDialogPopup
+        backdropClassName="meridian-sign-in__backdrop"
+        className="meridian-sign-in__popup"
+      >
+        <SignInCard
+          state={state}
+          isBusy={flow.isBusy}
+          onSignIn={() => {
+            void flow.signIn();
+          }}
+          onRegisterAnother={() => {
+            void flow.register();
+          }}
+          onOpenBrowser={() => {
+            if (state.kind !== "handing-off") {
+              return;
+            }
+            // The hand-off and the wait, in that order and in one act. The browser is
+            // opened through `native.openExternal`, which the process model makes the
+            // only sanctioned way out — a renderer-opened window would put a
+            // control-plane origin inside this renderer's own frame tree. Its
+            // rejection is deliberately not rendered separately: the wait below
+            // settles into whatever the ceremony reports, and a person who saw no
+            // browser open has the address and the code on screen already.
+            void bridge.sidekicks.native.openExternal(state.handoff.verificationUri).catch(() => {
+              // Swallowed on purpose, and only here: nothing about this window's
+              // state depends on whether the OS had a browser to hand, and the
+              // ceremony's own settlement is what the card renders next.
+            });
+            void flow.awaitDeviceGrant();
+          }}
+          onDismissRefusal={() => {
+            flow.dismissRefusal();
+          }}
+        />
+      </OverlayDialogPopup>
     </Dialog.Root>
   );
 }

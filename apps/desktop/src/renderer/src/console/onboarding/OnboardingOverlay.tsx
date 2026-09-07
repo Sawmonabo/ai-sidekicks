@@ -64,6 +64,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { consoleCommands, registerConsoleCommands } from "../palette/index.js";
+import { OverlayDialogPopup } from "../primitives/index.js";
 import { settingsRoute } from "../routing/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
@@ -273,52 +274,57 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
         setActivation(undefined);
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Backdrop className="meridian-onboarding__backdrop" />
-        <Dialog.Popup className="meridian-onboarding__popup">
-          <Dialog.Title className="meridian-onboarding__heading">Set up this node</Dialog.Title>
-          {activation === undefined ? null : (
-            <OnboardingWalkthrough
-              key={activationSequence}
-              flow={models.flow}
-              readiness={models.readiness}
-              openAtStep={activation.openAtStep}
-              accountScope={activation.accountScope}
-              onOpenAccountRegistry={(providerName) => {
-                // The registry's own page owns registration and defaults; this step
-                // is a view. Closing first, because leaving the walkthrough open over
-                // a rail move would put two surfaces on screen for one act — and
-                // landing on the SECTION, because the control names it.
-                //
-                // The PROVIDER rides the address rather than any state this file keeps:
-                // a row's action names one and the step's own button names none, and
-                // the page reads it off the route it was opened on. Composed through
-                // the routing family's constructor, which is the one place the
-                // omit-versus-set-to-`undefined` rule that keeps the address
-                // round-tripping is decided.
-                setActivation(undefined);
-                frameStore.navigate(settingsRoute(ACCOUNT_REGISTRY_SECTION, providerName));
-              }}
-              // The way out the provider step's **Not now** puts this away into, and
-              // `undefined` where this dialog refuses to close at all. One condition,
-              // read once: the lock the dismissal path already answers to.
-              onDismiss={
-                isLocked
-                  ? undefined
-                  : () => {
-                      setActivation(undefined);
-                    }
-              }
-            />
-          )}
-          <Dialog.Close
-            className="meridian-onboarding__act meridian-onboarding__act--secondary"
-            disabled={isLocked}
-          >
-            {lockReason === undefined ? "Close" : RELAY_LOCK_LABELS[lockReason]}
-          </Dialog.Close>
-        </Dialog.Popup>
-      </Dialog.Portal>
+      {/* The popup shell is the primitive's, which is also what puts this
+          walkthrough in the window's airspace (`Spec-023 §Console Design (Meridian)`
+          12.3): a native browser-pane view yields to whatever is registered there,
+          and a dialog that mounted its own portal would be one the view paints over —
+          backdrop included, which is the half that covers the whole window. */}
+      <OverlayDialogPopup
+        backdropClassName="meridian-onboarding__backdrop"
+        className="meridian-onboarding__popup"
+      >
+        <Dialog.Title className="meridian-onboarding__heading">Set up this node</Dialog.Title>
+        {activation === undefined ? null : (
+          <OnboardingWalkthrough
+            key={activationSequence}
+            flow={models.flow}
+            readiness={models.readiness}
+            openAtStep={activation.openAtStep}
+            accountScope={activation.accountScope}
+            onOpenAccountRegistry={(providerName) => {
+              // The registry's own page owns registration and defaults; this step
+              // is a view. Closing first, because leaving the walkthrough open over
+              // a rail move would put two surfaces on screen for one act — and
+              // landing on the SECTION, because the control names it.
+              //
+              // The PROVIDER rides the address rather than any state this file keeps:
+              // a row's action names one and the step's own button names none, and
+              // the page reads it off the route it was opened on. Composed through
+              // the routing family's constructor, which is the one place the
+              // omit-versus-set-to-`undefined` rule that keeps the address
+              // round-tripping is decided.
+              setActivation(undefined);
+              frameStore.navigate(settingsRoute(ACCOUNT_REGISTRY_SECTION, providerName));
+            }}
+            // The way out the provider step's **Not now** puts this away into, and
+            // `undefined` where this dialog refuses to close at all. One condition,
+            // read once: the lock the dismissal path already answers to.
+            onDismiss={
+              isLocked
+                ? undefined
+                : () => {
+                    setActivation(undefined);
+                  }
+            }
+          />
+        )}
+        <Dialog.Close
+          className="meridian-onboarding__act meridian-onboarding__act--secondary"
+          disabled={isLocked}
+        >
+          {lockReason === undefined ? "Close" : RELAY_LOCK_LABELS[lockReason]}
+        </Dialog.Close>
+      </OverlayDialogPopup>
     </Dialog.Root>
   );
 }

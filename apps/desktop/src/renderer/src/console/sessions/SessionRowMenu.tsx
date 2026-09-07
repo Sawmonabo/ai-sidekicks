@@ -1,5 +1,6 @@
 import { Menu } from "@base-ui/react/menu";
 
+import { OverlayMenuPopup } from "../primitives/index.js";
 import { SESSION_PIN_TIERS, type SessionPinTier } from "./rows/session-rows.js";
 
 /**
@@ -54,34 +55,38 @@ export function SessionRowMenu(props: {
       >
         {tier === "front" ? "Pinned" : "Place"}
       </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner className="meridian-session-row__menu-positioner" sideOffset={4}>
-          <Menu.Popup className="meridian-session-row__menu">
-            {/* Where the row is, stated rather than implied by which move is on
-                offer. A menu that listed only the move left "which tier am I in"
-                answerable solely by reading the label backwards. */}
-            <Menu.Item
-              className="meridian-session-row__menu-state"
-              disabled
-              // Rendered as an item so it sits inside the popup's own roles rather
-              // than beside them, and disabled because it is a fact and not an act.
-            >
-              {TIER_RESTING_LABELS[tier]}
-            </Menu.Item>
-            {SESSION_PIN_TIERS.filter((candidate) => candidate !== tier).map((candidate) => (
-              <Menu.Item
-                key={candidate}
-                className="meridian-session-row__menu-item"
-                onClick={() => {
-                  props.onSetTier(sessionId, candidate);
-                }}
-              >
-                {TIER_MOVE_LABELS[candidate]}
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
+      {/* The anchored part of the menu is the primitive's, which is what puts it in
+          the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a row
+          that mounted its own portal would be a menu a native browser-pane view
+          paints over and takes the presses of. */}
+      <OverlayMenuPopup
+        positionerClassName="meridian-session-row__menu-positioner"
+        sideOffset={4}
+        className="meridian-session-row__menu"
+      >
+        {/* Where the row is, stated rather than implied by which move is on offer. A
+            menu that listed only the move left "which tier am I in" answerable solely
+            by reading the label backwards. */}
+        <Menu.Item
+          className="meridian-session-row__menu-state"
+          disabled
+          // Rendered as an item so it sits inside the popup's own roles rather than
+          // beside them, and disabled because it is a fact and not an act.
+        >
+          {TIER_RESTING_LABELS[tier]}
+        </Menu.Item>
+        {SESSION_PIN_TIERS.filter((candidate) => candidate !== tier).map((candidate) => (
+          <Menu.Item
+            key={candidate}
+            className="meridian-session-row__menu-item"
+            onClick={() => {
+              props.onSetTier(sessionId, candidate);
+            }}
+          >
+            {TIER_MOVE_LABELS[candidate]}
+          </Menu.Item>
+        ))}
+      </OverlayMenuPopup>
     </Menu.Root>
   );
 }
