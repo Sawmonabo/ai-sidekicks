@@ -20,7 +20,11 @@
 // re-derived on a timer would be the interval polling this page may not do, wearing a
 // presentation rule's clothes.
 
-import { parseInstant, STUCK_RUN_ESCALATION_MS, STUCK_RUN_NOTICE_MS } from "../../../core/index.js";
+import {
+  parseInstant,
+  STUCK_RUN_ESCALATION_MS,
+  STUCK_RUN_NOTICE_MS,
+} from "../../../../core/index.js";
 
 /**
  * The three volumes, in the order they escalate.

@@ -40,6 +40,14 @@
 // `electron.vite.config.ts` closes that with a path-scoped `moduleSideEffects`
 // declaration, and this half is what stops the corpus coming back unnoticed.
 //
+// THE THIRD SUBJECT: AN OWNER-SLOT SHELL'S STYLESHEET (2026-09-06). The same lesson a
+// third time, one layer out. Folding a slot's `__SIDEKICKS_CONSOLE_FIXTURES__` ternary
+// removes the shell's JavaScript and says nothing about its RULES, which entered through
+// the settings chunk root — not gated — as a bare side-effect import. Measured: a release
+// renderer carried both shell sheets while carrying neither shell. The remedy is the
+// package's own stylesheet rule rather than a build flag, and the sweep below is what
+// keeps the sheet from drifting back onto an ungated root.
+//
 // THE MARKERS ARE READ FROM THE CORPUS, never written here, so a scenario a later
 // family adds is swept the day it lands and no roster in this file goes stale. They are
 // read from the corpus's SOURCE rather than imported from it, because this project's lib
@@ -65,7 +73,9 @@ import { readBuiltTextOrFailLoudly, type BuiltFile } from "./built-renderer-tree
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
+  consoleStylesheets,
   readConsoleSourceModule,
+  type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
@@ -134,6 +144,60 @@ function scenarioCorpusMarkers(): readonly string[] {
 const SCENARIO_CORPUS_MARKERS: readonly string[] = scenarioCorpusMarkers();
 
 /**
+ * Which stylesheets belong to a `define`-gated owner-slot shell.
+ *
+ * THE THIRD SUBJECT (2026-09-06), and it is the room again rather than the door. A
+ * settings section whose body another plan authors carries a fixture SHELL behind
+ * `__SIDEKICKS_CONSOLE_FIXTURES__`, and folding that ternary takes the shell's
+ * JavaScript out of a release renderer. It did not take the shell's RULES: those
+ * entered through `settings/settings-surface-body.ts` — the settings chunk root, which
+ * is not gated — as a bare side-effect import, and a release renderer therefore shipped
+ * the stylesheet for a subtree it does not contain. The remedy is structural rather
+ * than a build flag, and it is `apps/desktop/AGENTS.md`'s own rule: each shell now
+ * carries a sub-module door, the sheet enters through it, and the door is declared
+ * side-effect-free in `electron.vite.config.ts` so it leaves with the shell it serves.
+ * This is what stops it coming back.
+ *
+ * DERIVED FROM THE TREE RATHER THAN NAMED, on the corpus sweep's reasoning next door: a
+ * roster of two written here would be two the day a third owner slot lands, and nothing
+ * would report it. The predicate is the arrangement itself — a stylesheet under a
+ * `shell/` directory inside `settings/pages/` — and the shared walk answers it, so no
+ * second opinion about what console source is appears in this file.
+ */
+function ownerSlotShellStylesheets(): readonly ConsoleSourceModule[] {
+  return consoleStylesheets({ roots: [CONSOLE_DIRECTORY] }).filter((stylesheet) => {
+    const path = stylesheet.relativePath.split("\\").join("/");
+    return path.startsWith("settings/pages/") && path.includes("/shell/");
+  });
+}
+
+/**
+ * Every class root those stylesheets style, as the marker to sweep for.
+ *
+ * The BLOCK root and never a whole selector: each shell sheet's own header states that
+ * nothing outside its `meridian-<block>__` prefix appears in it, so the prefix is both
+ * the sheet's subject and the string no other console stylesheet writes. Read from the
+ * line-anchored selectors, which is where a rule opens — a root mentioned only inside a
+ * descendant selector belongs to the sheet that declares it, and sweeping for that one
+ * would fail on a clean build.
+ */
+function ownerSlotShellClassRoots(): readonly string[] {
+  const roots = new Set<string>();
+  for (const stylesheet of ownerSlotShellStylesheets()) {
+    const text = readConsoleSourceModule(stylesheet);
+    for (const match of text.matchAll(/^\.(meridian-[a-z0-9-]+)__/gmu)) {
+      const [, classRoot] = match;
+      if (classRoot !== undefined) {
+        roots.add(`${classRoot}__`);
+      }
+    }
+  }
+  return [...roots].sort();
+}
+
+const OWNER_SLOT_SHELL_CLASS_ROOTS: readonly string[] = ownerSlotShellClassRoots();
+
+/**
  * Which built files carry a marker.
  *
  * A named function rather than a filter written twice, because the planted negative
@@ -187,6 +251,30 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
         "`treeshake.moduleSideEffects` declaration in `electron.vite.config.ts` no " +
         "longer covers the module this string came from. The `define` guard alone " +
         "does not remove a static import edge; both halves are needed.",
+    ).toStrictEqual([]);
+  });
+
+  it("positive control: the shell sweep has stylesheets and class roots to look for", () => {
+    // Two derivations, and either one going empty makes every case below vacuous
+    // without failing one. The sheets are asserted separately from the roots because
+    // the two fail for different reasons — a moved directory empties the first, a
+    // renamed block prefix empties the second — and a single count would report the
+    // wrong one.
+    expect(ownerSlotShellStylesheets().length).toBeGreaterThan(0);
+    expect(OWNER_SLOT_SHELL_CLASS_ROOTS.length).toBeGreaterThan(0);
+  });
+
+  it.each(OWNER_SLOT_SHELL_CLASS_ROOTS)("does not ship the shell class root %s", (classRoot) => {
+    const carriers = carriersOf(classRoot, builtFiles);
+    expect(
+      carriers,
+      `"${classRoot}" reached the built tree, so a release renderer carries the rules ` +
+        "for an owner-slot fixture shell it does not contain. Either `out/renderer` " +
+        "currently holds a fixtures build — `pnpm build:fixtures` and `pnpm build` write " +
+        "the same directory — or the sheet has left its shell's sub-module door and is " +
+        "being imported from a module the `__SIDEKICKS_CONSOLE_FIXTURES__` fold does not " +
+        "remove. Both halves are needed: the door owns the sheet, and " +
+        "`electron.vite.config.ts` declares the door's directory side-effect-free.",
     ).toStrictEqual([]);
   });
 

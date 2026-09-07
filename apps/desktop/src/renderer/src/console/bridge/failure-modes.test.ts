@@ -24,7 +24,8 @@ import { SCENARIO_TICK_MS } from "../core/index.js";
 import { consoleTripwires } from "../core/tripwires.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
-import { createRefusingGrowthPort, growthUnavailable } from "./growth-port/growth-port.js";
+import { createRefusingGrowthPort } from "./growth-port/growth-port.js";
+import { growthUnavailable } from "./growth-port/growth-refusals.js";
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-port/growth-slate.js";
 import {

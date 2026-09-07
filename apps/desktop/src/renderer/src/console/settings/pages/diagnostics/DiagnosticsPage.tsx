@@ -30,6 +30,27 @@
 // words. The only thing that ever disables a control here is this window's own
 // in-flight write, which is a fact about this press rather than about authority.
 //
+// THE DIRECTORY IS GROUPED BY OPERATION, NOT FLAT
+//
+// Five operations, and each one's presentation is several modules: a badge and its two
+// threshold rules, a prompt and its request and its outcome line, a banner and its
+// loading arm, a read-out and its note. Flat, that was a page directory a reader had to
+// scan to find which of two dozen files belonged to the stall reading. So four
+// sub-directories name the operation groups — `health/`, `stall/`, `recovery/`,
+// `redaction/` — and what stays at the root is what spans them: this page, the read-out
+// that composes all four, the region wrapper and the arm-absence, the reading that
+// drives the five calls, the shared vocabulary tables, the sheet, and the harness.
+//
+// NONE OF THE FOUR CARRIES A DOOR, which is this family's shape rather than an
+// omission: every sub-directory under `settings/` is reached by its own specifier and
+// `settings/index.ts` is the family's only barrel. `apps/desktop/AGENTS.md` states the
+// condition — a sub-module directory is given a door when a SIBLING takes from it, and
+// here every reader is the page's own root, one level up.
+//
+// The failure-detail card stays at the root deliberately: it is the one operation whose
+// presentation is a single module, and a fifth directory holding one file would be a
+// grouping that names nothing.
+//
 // THIS FILE IS THE FRAME AND HOLDS NO READING
 //
 // The reads, their refresh, and their disposal belong to `DiagnosticsReadOut`, which
@@ -42,7 +63,7 @@ import type { ReactNode } from "react";
 
 import { Chip } from "../../../primitives/index.js";
 import { DiagnosticsReadOut } from "./DiagnosticsReadOut.js";
-import { NO_DIAGNOSTICS_RUN_SUBJECTS } from "./run-subjects.js";
+import { NO_DIAGNOSTICS_RUN_SUBJECTS } from "./stall/run-subjects.js";
 import { SessionScopedDiagnostics } from "./SessionScopedDiagnostics.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 

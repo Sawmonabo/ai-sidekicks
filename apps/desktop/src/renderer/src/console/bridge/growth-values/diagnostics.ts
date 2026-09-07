@@ -13,6 +13,17 @@
 // diagnostics page a state the daemon cannot send, and the page's own tables are
 // total over these sets — which is what makes a sixth arm a compile error at the
 // page rather than a blank region on screen.
+//
+// AND FOUR MEMBERS TAKE THEIR VOCABULARY FROM `@ai-sidekicks/contracts` RATHER THAN
+// FROM HERE. `failureCategory` is a `RunFailureCategory` and the three run states are
+// `RunState`s — the registered shapes say so, and the barrel's own rule is that a
+// vocabulary the package already ships is named and never re-declared. They were
+// `string` here, which is not a narrower reading of the wire but a wider one: it made
+// a category the daemon cannot send look renderable, and it lost the compile error
+// that a widened wire enum owes every reader of it. `BillingMode` next door is the
+// same case and settled the same way.
+
+import type { RunFailureCategory, RunState } from "@ai-sidekicks/contracts";
 
 /** The three status categories, shared by the overall verdict and each component. */
 export const GROWTH_HEALTH_STATES = ["healthy", "degraded", "blocked"] as const;
@@ -50,7 +61,7 @@ export interface GrowthHealthStatus {
 /** What actually failed on one run, told apart by class rather than by message. */
 export interface GrowthFailureDetail {
   readonly runId: string;
-  readonly failureCategory: string;
+  readonly failureCategory: RunFailureCategory;
   readonly recoveryCondition?: string;
   readonly recoverySpanClassification?: string;
   readonly humanSummary: string;
@@ -87,7 +98,7 @@ export type GrowthRecoveryAction = (typeof GROWTH_RECOVERY_ACTIONS)[number];
 /** One run's stall reading, as the daemon last computed it. */
 export interface GrowthStuckRunInspection {
   readonly runId: string;
-  readonly currentState: string;
+  readonly currentState: RunState;
   readonly lastProgressAt: string;
   readonly lastEventTime: string;
   readonly blockingReason?: string;
@@ -104,8 +115,8 @@ export interface GrowthStuckRunInspection {
  */
 export interface GrowthRecoveryReceipt {
   readonly runId: string;
-  readonly previousState: string;
-  readonly newState: string;
+  readonly previousState: RunState;
+  readonly newState: RunState;
   readonly actionTaken: string;
 }
 

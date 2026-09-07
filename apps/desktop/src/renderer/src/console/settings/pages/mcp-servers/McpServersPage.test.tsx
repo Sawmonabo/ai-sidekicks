@@ -109,7 +109,11 @@ describe("the servers page — the seat it mounts", () => {
 
   it("answers all three of the questions a seat exists to answer", () => {
     const { contract } = MCP_SERVERS_PAGE_SLOT;
-    expect(contract.owningTask.length).toBeGreaterThan(0);
+    // The owner is named by SUBJECT, on the `workflows/owner-slots.ts` precedent: these
+    // are runtime strings in a shipped module and this repository keeps governance
+    // identifiers in comments, so a length check would pass over the very phrasing this
+    // asserts. Read as a positive claim rather than only as the absence below it.
+    expect(contract.owningTask).toContain("MCP server configuration and governance plan");
     expect(contract.mountObligation.length).toBeGreaterThan(0);
     // The one that names its own retirement, and it names the directory rather than a
     // date: the body's arrival is what deletes the stand-in.

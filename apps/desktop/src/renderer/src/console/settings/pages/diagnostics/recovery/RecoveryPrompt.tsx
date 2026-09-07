@@ -25,10 +25,10 @@
 
 import { useState, type ReactNode } from "react";
 
-import { WireFigure } from "../../../primitives/index.js";
-import { GROWTH_RECOVERY_ACTIONS, type ConsoleBridge } from "../../../bridge/index.js";
-import { SettingsConfirmation } from "../../shared/SettingsConfirmation.js";
-import { RECOVERY_ACTION_COPY } from "./health-vocabulary.js";
+import { ConfirmationDialog, WireFigure } from "../../../../primitives/index.js";
+import { GROWTH_RECOVERY_ACTIONS, type ConsoleBridge } from "../../../../bridge/index.js";
+import { settingsActionClassFor } from "../../../shared/settings-action-class.js";
+import { RECOVERY_ACTION_COPY } from "../health-vocabulary.js";
 import { RecoveryOutcomeLine } from "./RecoveryOutcomeLine.js";
 import {
   IDLE_RECOVERY_OUTCOME,
@@ -64,10 +64,11 @@ export function RecoveryPrompt(props: {
         {GROWTH_RECOVERY_ACTIONS.map((action) => {
           const copy = RECOVERY_ACTION_COPY[action];
           return (
-            <SettingsConfirmation
+            <ConfirmationDialog
               key={action}
               triggerLabel={copy.label}
               triggerAriaLabel={`${copy.label} this run`}
+              triggerClassName={settingsActionClassFor(copy.tone)}
               tone={copy.tone}
               isDisabled={isPending}
               title={copy.confirmTitle}

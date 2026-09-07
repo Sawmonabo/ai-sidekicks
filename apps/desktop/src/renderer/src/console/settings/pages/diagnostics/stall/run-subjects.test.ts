@@ -6,9 +6,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { runEntity } from "../../settings-page-mount.test-support.js";
+import { runEntity } from "../../../settings-page-mount.test-support.js";
 import { NO_DIAGNOSTICS_RUN_SUBJECTS, resolveDiagnosticsRunSubjects } from "./run-subjects.js";
-import type { ConsoleEntity } from "../../../store/index.js";
+import type { ConsoleEntity } from "../../../../store/index.js";
 
 function partitionOf(runs: readonly ConsoleEntity[]): Record<string, ConsoleEntity> {
   return Object.fromEntries(runs.map((run) => [run.id, run]));

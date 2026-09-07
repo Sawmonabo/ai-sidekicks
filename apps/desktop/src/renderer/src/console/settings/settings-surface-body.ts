@@ -7,13 +7,21 @@
 // the registrar's `body` loader, so what it imports is what a person pays for when they
 // open settings and never before.
 //
-// WHICH IS WHY THE THIRTEEN PAGES AND EVERY STYLESHEET ARE IMPORTED HERE. The pages are
-// the family's weight — thirteen forms, their tables, and the combobox stack two of them
-// mount — and none of it is reachable except through this surface. `apps/desktop`'s
-// stylesheet rule names this exact case: a directory carrying a lazily-loaded chunk has
-// an owner of its own, and importing its sheets from the family door would put the rules
-// for thirteen settings pages on the initial document of every session that never opens
-// one.
+// WHICH IS WHY THE THIRTEEN PAGES AND THE SHEETS THIS CHUNK OWNS ARE IMPORTED HERE. The
+// pages are the family's weight — thirteen forms, their tables, and the combobox stack
+// two of them mount — and none of it is reachable except through this surface.
+// `apps/desktop`'s stylesheet rule names this exact case: a directory carrying a
+// lazily-loaded chunk has an owner of its own, and importing its sheets from the family
+// door would put the rules for thirteen settings pages on the initial document of every
+// session that never opens one.
+//
+// AND THE SAME RULE IS WHY TWO SHEETS ARE ABSENT FROM THE LIST BELOW. It reads from both
+// sides: a directory that carries a door of its own has an owner of its own, and this
+// chunk root may not reach into one. The two owner-slot fixture shells — the MCP servers
+// and provider-account subtrees — each carry a sub-module door, so each door pulls in its
+// own sheet. That is not bookkeeping: those shells are `__SIDEKICKS_CONSOLE_FIXTURES__`
+// bodies and this chunk root is not gated, so a sheet imported from here shipped in a
+// release renderer for a subtree that release renderer does not contain.
 //
 // The registry is composed PER MOUNT rather than at module scope, which keeps the
 // property the registrar had while it composed the pages itself: no second window
@@ -23,15 +31,12 @@ import "./settings.css";
 import "./shared/settings-page.css";
 import "./shared/preference-toggle-row.css";
 import "./shared/account-plane-handoff/account-plane-handoff.css";
-import "./shared/settings-confirmation.css";
 import "./pages/appearance/appearance.css";
 import "./pages/cost/cost-receipt.css";
 import "./pages/diagnostics/diagnostics.css";
 import "./pages/keyboard/keyboard.css";
-import "./pages/mcp-servers/shell/mcp-servers-shell.css";
 import "./pages/mounts/mounts.css";
 import "./pages/notifications/notifications.css";
-import "./pages/provider-accounts/shell/provider-accounts-shell.css";
 import "./pages/runtime-nodes/runtime-nodes.css";
 
 import { createElement, useState } from "react";

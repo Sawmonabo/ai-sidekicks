@@ -25,9 +25,9 @@
 
 import type { RunState } from "@ai-sidekicks/contracts";
 
-import { isLiveRunState, readRunState } from "../../../bridge/index.js";
-import type { ConsoleEntity } from "../../../store/index.js";
-import { byNewestTouchedEntity } from "../../shared/run-recency.js";
+import { isLiveRunState, readRunState } from "../../../../bridge/index.js";
+import type { ConsoleEntity } from "../../../../store/index.js";
+import { byNewestTouchedEntity } from "../../../shared/run-recency.js";
 
 /** The run state a failure detail can be read for. The wire's own word, once. */
 const FAILED_RUN_STATE = "failed";

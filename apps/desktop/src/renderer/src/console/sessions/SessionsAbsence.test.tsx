@@ -17,7 +17,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { SettledReadRefusal } from "../bridge/index.js";
-import { growthUnavailable } from "../bridge/growth-port/growth-port.js";
+import { growthUnavailable } from "../bridge/growth-port/growth-refusals.js";
 import { settleGrowthRead } from "../bridge/readings/read-settlement.js";
 import type { SessionDirectoryState } from "../seats/index.js";
 import { SessionsAbsence } from "./SessionsAbsence.js";

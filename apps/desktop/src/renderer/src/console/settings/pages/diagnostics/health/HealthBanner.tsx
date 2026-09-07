@@ -21,9 +21,9 @@
 
 import type { ReactNode } from "react";
 
-import { Chip, DerivedFigure, Nothing, formatDateTime } from "../../../primitives/index.js";
-import type { GrowthHealthComponent, GrowthHealthState } from "../../../bridge/index.js";
-import { HEALTH_STATE_TONES, HEALTH_STATE_WORDS } from "./health-vocabulary.js";
+import { Chip, DerivedFigure, Nothing, formatDateTime } from "../../../../primitives/index.js";
+import type { GrowthHealthComponent, GrowthHealthState } from "../../../../bridge/index.js";
+import { HEALTH_STATE_TONES, HEALTH_STATE_WORDS } from "../health-vocabulary.js";
 
 export function HealthBanner(props: {
   readonly overall: GrowthHealthState;

@@ -1,7 +1,7 @@
 import { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../../../../core/index.js";
-import { DerivedFigure, formatDuration } from "../../../../primitives/index.js";
+import { ConfirmationDialog, DerivedFigure, formatDuration } from "../../../../primitives/index.js";
 import type { SessionStore } from "../../../../store/index.js";
-import { SettingsConfirmation } from "../../../shared/SettingsConfirmation.js";
+import { settingsActionClassFor } from "../../../shared/settings-action-class.js";
 import { InterruptedRunsNote } from "./InterruptedRunsNote.js";
 
 /**
@@ -33,9 +33,10 @@ export function RestartConfirmation(props: {
 }): React.JSX.Element {
   const { sessionStore } = props;
   return (
-    <SettingsConfirmation
+    <ConfirmationDialog
       triggerLabel="Restart to apply"
       triggerAriaLabel="Restart to apply the downloaded update"
+      triggerClassName={settingsActionClassFor("primary")}
       tone="primary"
       isDisabled={false}
       title="Restart to install the update?"

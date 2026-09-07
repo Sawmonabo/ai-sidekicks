@@ -157,7 +157,7 @@ describe("the run-scoped regions", () => {
     const container = await renderSettledPage(bridge, storeWithBothSubjects());
     const region = regionText(container, "Failure detail");
 
-    expect(region).toContain("provider_error");
+    expect(region).toContain("provider failure");
     expect(region).toContain("provider_unavailable");
     expect(region).toContain("The provider closed the connection");
   });

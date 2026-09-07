@@ -244,7 +244,10 @@ export { heldIdAsWireId } from "./daemon/wire-ids.js";
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
+export {
+  growthUnavailable,
+  growthUnavailableFromRejection,
+} from "./growth-port/growth-refusals.js";
 // `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
 // what the port's own refusal arms are written in, and nothing outside
 // `growth-port/growth-outcome.ts` names it at all, so a door line for it would

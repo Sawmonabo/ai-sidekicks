@@ -95,14 +95,40 @@ const ELECTRON_EXTERNAL: readonly (string | RegExp)[] = ["electron", /^electron\
 /**
  * The directories that make up the console's fixture corpus.
  *
- * Three, and they are the three `Spec-023 §Console Design (Meridian)` §The fixture
+ * The first three are the three `Spec-023 §Console Design (Meridian)` §The fixture
  * bridge names: the scenario INSTANCES, the fixture bridge that serves them, and the
  * scenario vocabulary and engine a scenario is written in and played by.
+ *
+ * THE LAST TWO ARE OWNER-SLOT FIXTURE SHELLS, and they are here for the half of the
+ * problem the `define` cannot reach. A slot's shell is referenced through a
+ * `__SIDEKICKS_CONSOLE_FIXTURES__` ternary, so a release build folds the binding to
+ * `undefined` and the shell's JAVASCRIPT leaves the bundle — measured, no built asset
+ * mentions either shell. Its STYLESHEET used to enter separately, as a bare
+ * side-effect import on the settings chunk root that no ternary guards, and a release
+ * renderer therefore carried ~296 lines of rules for two subtrees it does not contain.
+ *
+ * IT TAKES BOTH HALVES, and each was measured alone before both were kept. Moving the
+ * sheet onto a sub-module door inside the shell — which is what
+ * `apps/desktop/AGENTS.md`'s stylesheet rule asks for once a directory carries a door
+ * of its own — is not enough by itself: the door then holds the side-effect import,
+ * and a module with a side effect is retained even when nothing takes its exports.
+ * This declaration alone is not enough either, and for a reason worth writing down:
+ * Vite's own CSS transform returns `moduleSideEffects: "no-treeshake"` for a plain
+ * stylesheet in a build, which overrides what this hook says about the same module.
+ * What the declaration decides is the fate of the DOOR — a `.ts` module holding a
+ * re-export and an import — and dropping the door is what removes the edge that would
+ * have pulled the sheet in.
+ *
+ * The declaration is admissible here for the corpus's own reason: these directories
+ * hold components and pure readings and run nothing at import time, so declaring them
+ * side-effect-free drops what nothing references and keeps what does.
  */
 const FIXTURE_CORPUS_DIRECTORIES: readonly string[] = [
   "/src/renderer/src/console/bridge/scenarios/",
   "/src/renderer/src/console/bridge/fixture/",
   "/src/renderer/src/console/bridge/scenario-runtime/",
+  "/src/renderer/src/console/settings/pages/mcp-servers/shell/",
+  "/src/renderer/src/console/settings/pages/provider-accounts/shell/",
 ];
 
 /**

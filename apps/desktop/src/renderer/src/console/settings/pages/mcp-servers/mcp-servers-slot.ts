@@ -28,7 +28,7 @@
 
 import { createElement } from "react";
 
-import { McpShell } from "./shell/McpShell.js";
+import { McpShell } from "./shell/index.js";
 import type { OwnerSlotProps } from "../../../seats/index.js";
 import type { OwnerSlotPage, SettingsPageBody } from "../../settings-page-registry.js";
 
@@ -59,12 +59,17 @@ const FIXTURE_MCP_SHELL: SettingsPageBody | undefined = __SIDEKICKS_CONSOLE_FIXT
  */
 export const MCP_SERVERS_PAGE_SLOT: OwnerSlotProps<SettingsPageBody> = {
   contract: {
-    // Plan-028 owns the MCP governance surface; its page body mounts here.
-    owningTask: "Plan-028 (mounted through the settings page frame)",
+    // The owning plan is named by its SUBJECT rather than by its number, on the
+    // `workflows/owner-slots.ts` precedent: every member here is a runtime string in a
+    // shipped module, and this repository keeps governance identifiers in comments —
+    // which is where the number belongs and where it is. Plan-028 owns the MCP
+    // governance surface; its page body mounts here.
+    owningTask:
+      "the MCP server configuration and governance plan's own page body, mounted through the settings page frame",
     mountObligation:
       "the page frame, the section heading, and a SettingsPageContext carrying the console bridge; the body owns the inventory read, the live status subscription, every mutation and its idempotency key, the redacted read-back, and every refusal",
     deleteShellIn:
-      "the Plan-028 page-body task that fills this slot, which deletes settings/pages/mcp-servers/shell/ whole",
+      "the page-body task that fills this slot, which deletes settings/pages/mcp-servers/shell/ whole",
   },
   body: FIXTURE_MCP_SHELL,
 };

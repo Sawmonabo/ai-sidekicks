@@ -28,7 +28,7 @@
 
 import { createElement } from "react";
 
-import { AccountsShell } from "./shell/AccountsShell.js";
+import { AccountsShell } from "./shell/index.js";
 import type { OwnerSlotProps } from "../../../seats/index.js";
 import type { OwnerSlotPage, SettingsPageBody } from "../../settings-page-registry.js";
 
@@ -61,14 +61,19 @@ const FIXTURE_ACCOUNTS_SHELL: SettingsPageBody | undefined = __SIDEKICKS_CONSOLE
  */
 export const PROVIDER_ACCOUNTS_PAGE_SLOT: OwnerSlotProps<SettingsPageBody> = {
   contract: {
-    // Plan-029 owns the provider-account registry and its page body; the session
-    // cost half of the design's combined page is `CostReceiptPage.tsx`, over
-    // Plan-016's committed-spend read.
-    owningTask: "Plan-029, with the session figure read through Plan-016",
+    // The owning plan is named by its SUBJECT rather than by its number, on the
+    // `workflows/owner-slots.ts` precedent: every member here is a runtime string in a
+    // shipped module, and this repository keeps governance identifiers in comments —
+    // which is where the numbers belong and where they are. Plan-029 owns the
+    // provider-account registry and its page body; the session cost half of the
+    // design's combined page is `CostReceiptPage.tsx`, over Plan-016's committed-spend
+    // read.
+    owningTask:
+      "the provider-accounts and credential-homes plan's own page body, with the session figure read through the orchestration plan's committed-spend read",
     mountObligation:
       "the page frame, the section heading, and a SettingsPageContext carrying the console bridge and the rail navigator; the body owns the registry read, the readiness projection, every account control, the write-only token input, and every refusal",
     deleteShellIn:
-      "the Plan-029 page-body task that fills this slot, which deletes settings/pages/provider-accounts/shell/ whole",
+      "the page-body task that fills this slot, which deletes settings/pages/provider-accounts/shell/ whole",
   },
   body: FIXTURE_ACCOUNTS_SHELL,
 };

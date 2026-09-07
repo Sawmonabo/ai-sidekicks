@@ -58,13 +58,13 @@ import {
 } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";
 
 /** The popup every settings confirmation draws itself into. It is portalled. */
-const CONFIRMATION_SELECTOR = ".meridian-settings-confirm";
+const CONFIRMATION_SELECTOR = ".meridian-confirm";
 
 /** The confirming act inside it, as opposed to the cancel beside it. */
-const CONFIRM_SELECTOR = ".meridian-settings-confirm__confirm";
+const CONFIRM_SELECTOR = ".meridian-confirm__confirm";
 
 /** The description Base UI renders as a paragraph. */
-const CONFIRMATION_BODY_SELECTOR = ".meridian-settings-confirm__body";
+const CONFIRMATION_BODY_SELECTOR = ".meridian-confirm__body";
 
 /** A secret no fixture, scenario, or component copy could produce by accident. */
 const TYPED_TOKEN = "zzq-never-echoed-token-8213";
@@ -108,9 +108,10 @@ describe("browser — the diagnostics recovery confirmation holds the focus ring
     const dialog = openConfirmation();
 
     // The ring is inside the popup — the modal took it — and it is NOT on the button
-    // that performs the act. `SettingsConfirmation` states this as the property two
-    // pages must not drift on: the cancel is the dialog's default, so a person who
-    // answers by reflex declines rather than interrupts a run.
+    // that performs the act. `primitives/ConfirmationDialog.tsx` states this as the
+    // property every surface that confirms must not drift on: the cancel is the
+    // dialog's default, so a person who answers by reflex declines rather than
+    // interrupts a run.
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).not.toBe(dialog.querySelector(CONFIRM_SELECTOR));
   });

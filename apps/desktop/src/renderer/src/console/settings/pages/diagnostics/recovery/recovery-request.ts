@@ -18,8 +18,8 @@ import {
   type ConsoleBridge,
   type GrowthRecoveryAction,
   type GrowthRecoveryReceipt,
-} from "../../../bridge/index.js";
-import type { ConsoleRefusal } from "../../../core/index.js";
+} from "../../../../bridge/index.js";
+import type { ConsoleRefusal } from "../../../../core/index.js";
 
 /** What the prompt has to show. Total; every arm renders something. */
 export type RecoveryOutcome =

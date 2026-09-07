@@ -2,9 +2,10 @@
  *
  * A page-local sheet on the `pages/cost/cost-receipt.css` precedent — these rules
  * serve one shell and a family-wide sheet is the file every page lane edits at once.
- * It enters through `settings/settings-surface-body.ts`, the settings chunk root,
- * with every other page sheet: this directory carries no door of its own, so the
- * chunk that owns it is the one that owns the page.
+ * It enters through this directory's own door and not through the settings chunk
+ * root: a directory that carries a door owns its sheets, and this one has to,
+ * because the shell it styles is a `__SIDEKICKS_CONSOLE_FIXTURES__` body and the
+ * chunk root is not gated.
  *
  * IT GOES WITH THE SHELL. The whole subtree is deleted by the owner's mounting PR,
  * this file included, which is why nothing outside `meridian-accounts__` appears

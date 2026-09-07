@@ -20,9 +20,9 @@ import {
   FAILED_RUN_ID,
   SESSION_ID,
   STALLED_RUN_ID,
-} from "./diagnostics-page.test-support.js";
-import { runEntity, sessionStoreHolding } from "../../settings-page-mount.test-support.js";
-import type { SessionStore } from "../../../store/index.js";
+} from "../diagnostics-page.test-support.js";
+import { runEntity, sessionStoreHolding } from "../../../settings-page-mount.test-support.js";
+import type { SessionStore } from "../../../../store/index.js";
 
 function storeWithStalledRun(): SessionStore {
   return sessionStoreHolding(SESSION_ID, [

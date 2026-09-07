@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { STUCK_RUN_ESCALATION_MS, STUCK_RUN_NOTICE_MS } from "../../../core/index.js";
-import { instantMilliseconds } from "../../../core/frozen-instant.test-support.js";
+import { STUCK_RUN_ESCALATION_MS, STUCK_RUN_NOTICE_MS } from "../../../../core/index.js";
+import { instantMilliseconds } from "../../../../core/frozen-instant.test-support.js";
 import { quietMillisecondsSince, stallTierFor } from "./stall-tier.js";
 
 const READ_AT = instantMilliseconds("2026-01-01T08:00:00.000Z");

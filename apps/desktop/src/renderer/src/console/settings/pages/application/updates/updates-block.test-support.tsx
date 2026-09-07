@@ -179,7 +179,7 @@ export async function openRestartConfirmation(block: HTMLElement): Promise<void>
 
 /** The confirmation's own popup, or `null` while it is closed. It is portalled. */
 export function restartDialog(): HTMLElement | null {
-  return document.body.querySelector<HTMLElement>(".meridian-settings-confirm");
+  return document.body.querySelector<HTMLElement>(".meridian-confirm");
 }
 
 /**

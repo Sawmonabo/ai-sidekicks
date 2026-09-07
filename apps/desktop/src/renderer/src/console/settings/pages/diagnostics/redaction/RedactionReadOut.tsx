@@ -28,9 +28,9 @@ import {
   Nothing,
   WireFigure,
   formatCount,
-} from "../../../primitives/index.js";
-import type { GrowthRedactionPolicy } from "../../../bridge/index.js";
-import { REDACTION_BUCKET_DESCRIPTIONS } from "./health-vocabulary.js";
+} from "../../../../primitives/index.js";
+import type { GrowthRedactionPolicy } from "../../../../bridge/index.js";
+import { REDACTION_BUCKET_DESCRIPTIONS } from "../health-vocabulary.js";
 
 export function RedactionReadOut(props: { readonly policy: GrowthRedactionPolicy }): ReactNode {
   const { policy } = props;

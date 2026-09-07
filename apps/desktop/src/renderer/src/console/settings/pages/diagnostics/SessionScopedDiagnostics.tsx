@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 import { useSessionPartition, type SessionStore } from "../../../store/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { DiagnosticsReadOut } from "./DiagnosticsReadOut.js";
-import { resolveDiagnosticsRunSubjects } from "./run-subjects.js";
+import { resolveDiagnosticsRunSubjects } from "./stall/run-subjects.js";
 
 export function SessionScopedDiagnostics(props: {
   readonly bridge: ConsoleBridge;
