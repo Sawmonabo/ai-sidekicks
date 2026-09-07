@@ -23,7 +23,15 @@ export type GrowthLiveStatus = "fixture-only" | "live";
 /** A callable the eventual namespace will expose. */
 export type GrowthOperationKind = "method" | "subscription";
 
-/** The non-callable prerequisites a row also needs. */
+/**
+ * The non-callable prerequisites a row also needs.
+ *
+ * `bridge-member` is the one that is not a wire shape: a reading the SHELL composes
+ * and hands the renderer over `SidekicksBridge`, which no port method can stand
+ * behind because the console resolves it off the bridge it already holds rather than
+ * calling for it. Filing one as a `type-member` would say it is a field on a reply
+ * some daemon sends, which is the opposite of where its composition lives.
+ */
 export type GrowthPrerequisiteKind =
   | "pane-kind"
   | "settings-key"
@@ -31,6 +39,7 @@ export type GrowthPrerequisiteKind =
   | "event-type"
   | "error-namespace"
   | "tool-registration"
+  | "bridge-member"
   | "governing-document";
 
 export interface GrowthOperationEntry {
@@ -203,4 +212,5 @@ export type GrowthPrerequisiteId =
   | "approvalRememberedRuleMember"
   | "approvalAmendmentArm"
   | "agentProviderSwitchFailedEvent"
+  | "nodeSelfDeclarationCarrier"
   | "providerSessionImportSpec";

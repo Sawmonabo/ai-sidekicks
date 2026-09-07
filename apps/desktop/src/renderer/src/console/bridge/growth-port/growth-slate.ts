@@ -57,7 +57,8 @@ export type GrowthSlateRowId =
   | "os-notification-permission"
   | "health-diagnostics-reads"
   | "provider-account-signin-and-token"
-  | "mcp-governance-plane";
+  | "mcp-governance-plane"
+  | "node-self-declaration";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -418,6 +419,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-028 §The operator surface and §Unified Inventory; api-payload-contracts.md §Plan-028 — MCP Governance Contract Surfaces (the eleven method strings and every shape above, registered there and in no code package)",
     consumingSurface: "MCP servers settings page",
+    wireRegistered: false,
+  },
+  "node-self-declaration": {
+    id: "node-self-declaration",
+    wire: "a read delivering this node's own attach declaration — its identity, contract version, self-reported health, and capability set — to the renderer. Registered nowhere: the trust stance puts the declaration's composition in the main process and no bridge namespace carries it, so the attach control mounts against the fixture only",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (the shell namespace a node self-declaration would join, on the shell-config carrier's precedent); Spec-023 §Trust Stance (which puts the composition in main)",
+    consumingSurface: "settings runtime-nodes page (the attach control)",
     wireRegistered: false,
   },
 };

@@ -62,16 +62,23 @@ const GOVERNANCE_ID = /\b(?:Spec|Plan|ADR|BL|CP|I|T)-\d/;
 /**
  * The floor this gate holds itself to.
  *
- * Ten contracts are declared today, re-derived by counting both annotations: six named
- * `OwnerSlotContract` outright — the five workflow bodies and the input-ask card — and
- * four reached through an `OwnerSlotProps` literal's `contract` member: the two settings
- * owner-slot pages and the two sidekick-definition editors. Asserting the count is at
- * least that many is what keeps a broken resolver from reporting a clean sweep over
- * nothing — the same false green every source-text gate in this directory guards
- * against, and the reason the number is a floor rather than a pin: an eleventh seat is
- * ordinary growth.
+ * Fifteen contracts are declared today, re-derived by counting what the resolver
+ * actually returns rather than by counting the subtree a reader has in mind. Ten are
+ * under `console/`: six named `OwnerSlotContract` outright — the five workflow bodies
+ * and the input-ask card — and four reached through an `OwnerSlotProps` literal's
+ * `contract` member, the two settings owner-slot pages and the two sidekick-definition
+ * editors. The other five are the composer accessory seats under
+ * `src/renderer/src/shell/`, which `consoleSourceModules()` sweeps for the reason that
+ * directory is a `console-unit` resident at all: it composes console seats, so a plan
+ * id reaching a runtime string there reaches one on the same surfaces.
+ *
+ * Asserting the count is at least that many is what keeps a broken resolver from
+ * reporting a clean sweep over nothing — the same false green every source-text gate in
+ * this directory guards against, and the reason the number is a floor rather than a
+ * pin: a sixteenth seat is ordinary growth. A lane that REMOVES one re-derives this
+ * number by counting, which is the half a floor is meant to catch.
  */
-const MINIMUM_DECLARED_CONTRACTS = 10;
+const MINIMUM_DECLARED_CONTRACTS = 15;
 
 /** One contract literal, resolved to the strings it actually declares. */
 interface DeclaredContract {

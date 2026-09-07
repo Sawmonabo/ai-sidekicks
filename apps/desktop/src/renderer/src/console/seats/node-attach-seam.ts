@@ -22,6 +22,13 @@
 // been supplied and invents none where one has not. Under the fixture the scenario
 // supplies it, which is fixture data reaching a surface through the fixture; under the
 // live bridge nothing supplies one yet, and the mount says so rather than guessing.
+//
+// THAT ABSENCE IS A REGISTERED GAP AND NOT AN OVERSIGHT. `node-self-declaration` on
+// the growth slate is the missing wire, filed as a `bridge-member` prerequisite rather
+// than a growth operation because a port method here would be one nothing calls: the
+// draft is resolved synchronously from the bridge this window already holds, at the
+// moment the mount renders. The row is what makes the live arm's absence readable as a
+// wire the shell owes rather than as a control somebody forgot to finish.
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
