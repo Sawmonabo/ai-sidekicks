@@ -37,9 +37,11 @@ import {
   DRIFTED_WORKSPACE_ID,
   EPHEMERAL_CLONE_ID,
   RECLAIMED_CLONE_ID,
+  GIT_MOUNT_BASE_BRANCH,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_BOUND_ROOT,
   GIT_WORKSPACE_ID,
+  IMPLEMENTER_BRANCH,
   IMPLEMENTER_BRANCH_CONTEXT_ID,
   IMPLEMENTER_RUN_ID,
   IMPLEMENTER_WORKTREE_ID,
@@ -67,15 +69,15 @@ const BRANCH_CONTEXTS_BY_WORKTREE_ID: Readonly<Record<string, unknown>> = {
   [IMPLEMENTER_WORKTREE_ID]: {
     branchContextId: IMPLEMENTER_BRANCH_CONTEXT_ID,
     workspaceId: GIT_WORKSPACE_ID,
-    baseBranch: "develop",
-    headBranch: "feat/rate-limit-wiring",
-    upstreamRef: "origin/feat/rate-limit-wiring",
+    baseBranch: GIT_MOUNT_BASE_BRANCH,
+    headBranch: IMPLEMENTER_BRANCH,
+    upstreamRef: `origin/${IMPLEMENTER_BRANCH}`,
     worktreeId: IMPLEMENTER_WORKTREE_ID,
   },
   [REVIEWER_WORKTREE_ID]: {
     branchContextId: REVIEWER_BRANCH_CONTEXT_ID,
     workspaceId: GIT_WORKSPACE_ID,
-    baseBranch: "develop",
+    baseBranch: GIT_MOUNT_BASE_BRANCH,
     headBranch: "review/rate-limit-wiring",
     // No `upstreamRef`: the reviewer's branch has not been pushed, which is the state
     // that makes the member's absence reachable rather than a value nothing exercises.
@@ -121,10 +123,11 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
       {
         worktreeId: IMPLEMENTER_WORKTREE_ID,
         repoMountId: GIT_MOUNT_ID,
-        // The same string the branch context below carries as its head branch: the
-        // gate drawn under this root and the root itself are one piece of work, and
-        // two spellings of one branch is how a fixture stops representing a session.
-        branchName: "feat/rate-limit-wiring",
+        // The same CONSTANT the branch context above carries as its head branch and
+        // the diff plane compares to: the gate drawn under this root, the root itself,
+        // and the change set taken over it are one piece of work, and two spellings of
+        // one branch is how a fixture stops representing a session.
+        branchName: IMPLEMENTER_BRANCH,
         fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/rate-limit-wiring",
         state: "dirty",
         createdBySessionId: SESSION_ID,

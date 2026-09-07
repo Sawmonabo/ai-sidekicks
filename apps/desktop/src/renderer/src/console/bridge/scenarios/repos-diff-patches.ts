@@ -15,10 +15,13 @@
 // carries: an ordinary textual change, a rename, a mode change, and a binary file.
 //
 // AND THEY SAY SOMETHING TRUE ABOUT THE SCENARIO. The run-attributed patch is the work
-// the implementer's run did on the branch the worktree row names, and the
-// workspace-fallback patch is an uncommitted change sitting in the git workspace with
-// no run to attribute it to — which is exactly the condition
-// `Spec-011 §Implementation Notes` makes the fallback attribution mean.
+// the implementer's run did on the branch the worktree row names, taken between that
+// root's branch context's own base and head; the workspace-fallback patch is a change
+// sitting in the git workspace's own checkout, ahead of the shared branch, with no run
+// to attribute it to — which is the condition `Spec-011 §Required Behavior` makes the
+// fallback attribution mean: precise run attribution is unavailable, so the artifact is
+// workspace-level and labelled as such. `repos-diff-replies.ts` scripts the ref pair
+// each of these two is the comparison of, and answers no other pair.
 
 /**
  * The change set the implementer's run produced, as `gitflow.diffArtifactCreate`
@@ -65,8 +68,8 @@ rename to packages/runtime-daemon/src/rate-limit/lease-timing.ts
 `;
 
 /**
- * The uncommitted change sitting in the git workspace, as the same call answers for
- * the `workspace_fallback` arm.
+ * The change sitting in the git workspace's own checkout ahead of the shared branch,
+ * as the same call answers for the `workspace_fallback` arm.
  *
  * Three files: a textual change, a mode change with no hunks, and a binary file the
  * patch declares and carries no text for. The last two are the reason `DiffFile` has

@@ -75,6 +75,23 @@ export const IMPLEMENTER_RUN_ID: string = "9f2c4a10-0000-4000-8000-000000000030"
 export const IMPLEMENTER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000040";
 export const REVIEWER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000041";
 export const PREPARED_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000042";
+
+/**
+ * The two branch names three replies state, and the diff plane compares between.
+ *
+ * HERE BECAUSE THREE MODULES NAME THEM, which is this file's own rule: the branch
+ * context carries the base and the head, the worktree row carries the same head as its
+ * `branchName` — a comment there already says the two must be one string — and the diff
+ * plane scripts the run-attributed change set as the comparison BETWEEN them. Written
+ * as literals in three places they drift in exactly the direction nothing catches: a
+ * fixture whose diff is taken over a base its own branch context denies.
+ *
+ * Only these two are hoisted. The reviewer's branch and the two clones' are named by
+ * one reply each, and a constant with one reader is a level of indirection rather than
+ * a defence against drift.
+ */
+export const GIT_MOUNT_BASE_BRANCH: string = "develop";
+export const IMPLEMENTER_BRANCH: string = "feat/rate-limit-wiring";
 export const DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000050";
 export const PINNED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000051";
 export const REPLICATING_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000052";

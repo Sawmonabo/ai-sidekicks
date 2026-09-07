@@ -12,7 +12,8 @@
 // is run-attributed, and a fixture whose two arms returned one patch could not show that
 // the console tells them apart: the run arm answers the work the implementer's run did —
 // the diff the scenario's own `diff.created` beat already names — and the workspace arm
-// answers an uncommitted change sitting in the git workspace that no run produced.
+// answers a change sitting in the git workspace's own checkout, ahead of the shared
+// branch, that no run produced.
 //
 // EVERY OTHER SUBJECT REFUSES, WITH THE CODE THE DAEMON WOULD USE. A run or workspace
 // this scenario does not model is `run.not_found` / `workspace.not_found`, and a payload
@@ -21,6 +22,28 @@
 // IS an artifact once minted, so the artifact codes are the ones its payload read
 // refuses in. A scenario that served every request would leave both the refusal card and
 // the create form's refused arm undrawn.
+//
+// AND SO DOES EVERY OTHER COMPARISON. The subject is half of what a create names: the
+// registered request carries a `baseRef` and a `headRef` beside it, and a fixture that
+// checked only the subject answered the row's prewritten patch for ANY pair — so
+// `foo`..`bar` came back as a convincing change set labelled as that comparison, over a
+// repository whose two arms are two working trees of one checkout and could not have
+// answered one pair with two different patches anyway. Each row below therefore scripts
+// the pair it IS, read off the scenario's own branch facts, and a pair no row scripts is
+// refused.
+//
+// THE CODE THAT REFUSAL TAKES IS BORROWED, AND SAYING SO IS THE POINT.
+// `docs/architecture/contracts/error-contracts.md` registers no `gitflow.*` namespace at
+// all — the growth slate's `gitflow-actions` row names that namespace among the wires no
+// document owes yet — so there is no registered code for a comparison whose refs the
+// daemon cannot resolve, and inventing one would script this fixture against a string
+// the live transport can never send. `workspace.branch_mismatch` is the nearest
+// registered refusal and the only one in the whole registry whose subject is a
+// caller-named git ref the checkout cannot honour; what is stretched is its PRODUCER
+// (the registry describes bind-time verification) and not its meaning. It reads right on
+// both arms because both resolve their repository through a workspace — the
+// run-attributed arm through `run_execution_contexts.workspace_id` — so one code serves
+// the pair rather than two approximations serving one arm each.
 //
 // AND THE PAYLOAD READ ANSWERS BOTH OF ITS OWN ARMS. `includePayload` is the wire's own
 // discriminator between the manifest read and the byte fetch, so an unset one answers
@@ -37,7 +60,9 @@ import {
   AGENT_IMPLEMENTER,
   DIFF_ARTIFACT_ID,
   DIFF_MANIFEST_ID,
+  GIT_MOUNT_BASE_BRANCH,
   GIT_WORKSPACE_ID,
+  IMPLEMENTER_BRANCH,
   IMPLEMENTER_RUN_ID,
   SESSION_ID,
   WORKSPACE_DIFF_ARTIFACT_ID,
@@ -75,12 +100,49 @@ function requestedValue(request: unknown, member: string): unknown {
   return (request as Readonly<Record<string, unknown>>)[member];
 }
 
+/** The two states one scripted change set is taken between. */
+export interface ScenarioComparedStates {
+  readonly baseRef: string;
+  readonly headRef: string;
+}
+
+/**
+ * The comparison the run-attributed change set IS.
+ *
+ * READ OFF THE IMPLEMENTER'S BRANCH CONTEXT rather than written beside the patch: that
+ * context names `develop` as the base its head branch was cut from, and the work the
+ * run did is exactly what sits between them. The two constants are the branch context's
+ * own, so a fixture that moved either would move this comparison with it.
+ */
+export const RUN_ATTRIBUTED_COMPARED_STATES: ScenarioComparedStates = {
+  baseRef: GIT_MOUNT_BASE_BRANCH,
+  headRef: IMPLEMENTER_BRANCH,
+};
+
+/**
+ * The comparison the workspace-fallback change set IS.
+ *
+ * THE CHECKOUT'S OWN BRANCH AGAINST ITS UPSTREAM, which is the two-ref form of the fact
+ * the fallback arm exists for: work sitting in the git workspace that no run produced
+ * and that is not on the shared branch yet. The wire's request carries two refs and
+ * nothing else, so a working tree is not nameable on it — `origin/develop`..`develop` is
+ * what a person comparing this workspace actually types, and it is a DIFFERENT pair from
+ * the run arm's, which is the property the two arms turn on: both roots are working
+ * trees of one repository, so one pair could not honestly answer with two patches.
+ */
+export const WORKSPACE_FALLBACK_COMPARED_STATES: ScenarioComparedStates = {
+  baseRef: `origin/${GIT_MOUNT_BASE_BRANCH}`,
+  headRef: GIT_MOUNT_BASE_BRANCH,
+};
+
 /** One diff this scenario can mint, as the two ids the create answers with. */
 interface ScenarioDiff {
   readonly diffArtifactId: string;
   readonly artifactManifestId: string;
   /** The patch the manifest's payload carries, as `git diff` would emit it. */
   readonly patch: string;
+  /** The one comparison this row answers for. Any other pair is refused. */
+  readonly comparedStates: ScenarioComparedStates;
   /** Absent on the workspace arm, which is what makes it the fallback attribution. */
   readonly runId?: string;
 }
@@ -98,14 +160,25 @@ const SCENARIO_DIFFS: readonly ScenarioDiff[] = [
     diffArtifactId: DIFF_ARTIFACT_ID,
     artifactManifestId: DIFF_MANIFEST_ID,
     patch: RUN_ATTRIBUTED_DIFF_PATCH,
+    comparedStates: RUN_ATTRIBUTED_COMPARED_STATES,
     runId: IMPLEMENTER_RUN_ID,
   },
   {
     diffArtifactId: WORKSPACE_DIFF_ARTIFACT_ID,
     artifactManifestId: WORKSPACE_DIFF_MANIFEST_ID,
     patch: WORKSPACE_FALLBACK_DIFF_PATCH,
+    comparedStates: WORKSPACE_FALLBACK_COMPARED_STATES,
   },
 ];
+
+/**
+ * The code an unscripted comparison is refused under, named once.
+ *
+ * BORROWED AND NOT INVENTED — the module header says from where and why the stretch is
+ * in the producer rather than in the meaning. Named here so the fixture and the cases
+ * that pin it read one string.
+ */
+export const UNSCRIPTED_COMPARISON_REFUSAL_CODE = "workspace.branch_mismatch";
 
 /**
  * What the mint answers, per attribution arm.
@@ -121,7 +194,7 @@ function diffArtifactCreateResultFor(request: unknown): unknown {
     if (requestedValue(request, "runId") !== IMPLEMENTER_RUN_ID) {
       refuseAs("run.not_found", "No run by that id is recorded in this session.");
     }
-    return mintedDiff(DIFF_MANIFEST_ID);
+    return mintedDiff(DIFF_MANIFEST_ID, request);
   }
   if (attributionMode === "workspace_fallback") {
     if (requestedValue(request, "workspaceId") !== GIT_WORKSPACE_ID) {
@@ -130,7 +203,7 @@ function diffArtifactCreateResultFor(request: unknown): unknown {
       // the workspace it was handed names nothing it can answer about.
       refuseAs("workspace.not_found", "No git-backed workspace by that id is bound here.");
     }
-    return mintedDiff(WORKSPACE_DIFF_MANIFEST_ID);
+    return mintedDiff(WORKSPACE_DIFF_MANIFEST_ID, request);
   }
   // A request carrying neither arm is a shape the registered union does not admit. It
   // is refused rather than defaulted, because defaulting would answer a diff for an
@@ -138,11 +211,34 @@ function diffArtifactCreateResultFor(request: unknown): unknown {
   return refuseAs("workspace.not_found", "The create named no attribution mode.");
 }
 
-/** The three registered response members, from the table's own row. */
-function mintedDiff(artifactManifestId: string): unknown {
+/**
+ * The three registered response members, from the table's own row.
+ *
+ * THE SUBJECT IS CHECKED BY THE CALLER AND THE COMPARISON IS CHECKED HERE, in that
+ * order, because they are refused with different codes and the subject's is the more
+ * specific fact: a request naming a run this session does not hold has not got as far
+ * as being a comparison. Once the row is in hand, the pair it scripts is the only pair
+ * it can answer for — the alternative is a fixture handing back one prewritten patch
+ * under whatever two refs a caller typed.
+ */
+function mintedDiff(artifactManifestId: string, request: unknown): unknown {
   const diff = SCENARIO_DIFFS.find((row) => row.artifactManifestId === artifactManifestId);
   if (diff === undefined) {
     refuseAs("workspace.not_found", "No diff is scripted for that subject.");
+  }
+  const { baseRef, headRef } = diff.comparedStates;
+  if (
+    requestedValue(request, "baseRef") !== baseRef ||
+    requestedValue(request, "headRef") !== headRef
+  ) {
+    // The refs the caller named are NOT echoed back. They are participant input, and a
+    // refusal that quoted them would put unbounded text on screen through a sentence
+    // the console renders verbatim; what the daemon's own message can honestly carry is
+    // the comparison this subject does resolve.
+    refuseAs(
+      UNSCRIPTED_COMPARISON_REFUSAL_CODE,
+      `This checkout resolves no such comparison. It is on ${headRef}, taken against ${baseRef}.`,
+    );
   }
   return {
     diffArtifactId: diff.diffArtifactId,
