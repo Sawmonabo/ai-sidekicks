@@ -8,6 +8,7 @@ import {
   formatDateTime,
 } from "../../../../primitives/index.js";
 import type { GrowthMcpServerLegStatus } from "../../../../bridge/index.js";
+import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import { toneForServerStatus } from "./server-status-tone.js";
 
 /**
@@ -18,6 +19,12 @@ import { toneForServerStatus } from "./server-status-tone.js";
  * a session that authorized and one that has not, a process that died under one
  * session and not another. A surface that showed one scalar would report a partial
  * outage as either fine or broken, and both readings would be wrong.
+ *
+ * AND EACH LEG IS KEYED BY THE PAIR THE DAEMON IDENTIFIES IT BY. `bindingId` names one
+ * live binding inside one session, so two sessions holding this configuration open can
+ * report it under the same string; keying on that alone gave both rows one React
+ * identity, and React then reuses the wrong row when a leg is added, removed, or
+ * reordered. `live-leg-key.ts` owns the encoding, and the outcome list shares it.
  *
  * THE AGGREGATE ABOVE THIS LIST IS THE DAEMON'S AND IS NEVER RECOMPUTED HERE. The
  * severity rule that folds these legs into the row's own status lives at the daemon;
@@ -42,7 +49,7 @@ export function ServerLegs(props: {
   return (
     <ul className="meridian-mcp__legs">
       {legs.map((leg) => (
-        <li key={leg.bindingId} className="meridian-mcp__leg">
+        <li key={mcpLiveLegKeyOf(leg)} className="meridian-mcp__leg">
           <Chip label={leg.status} mono tone={toneForServerStatus(leg.status)} />
           <span className="meridian-settings-page__aside">in session</span>
           <WireFigure value={leg.sessionId} />

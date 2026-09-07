@@ -1,4 +1,4 @@
-/* The MCP shell's own styles: one card per binding, and the four lists inside it.
+/* The MCP shell's own styles: one card per binding, and the five lists inside it.
  *
  * A page-local sheet on the `pages/cost/cost-receipt.css` precedent — these rules serve
  * one shell and a family-wide sheet is the file every page lane edits at once. It enters
@@ -59,12 +59,14 @@
 }
 
 /* Every enumeration on this card is bounded and scrolls inside its own box. A binding
-   with many legs, many overrides, or many declared names would otherwise push the
-   controls below it off the page, and the controls are what the page is for. */
+   with many legs, many overrides, many declared names, or a long argument vector would
+   otherwise push the controls below it off the page, and the controls are what the page
+   is for. */
 .meridian-mcp__legs,
 .meridian-mcp__overrides,
 .meridian-mcp__live-results,
-.meridian-mcp__name-list {
+.meridian-mcp__name-list,
+.meridian-mcp__argument-list {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -75,7 +77,8 @@
   list-style: none;
 }
 
-.meridian-mcp__name-list {
+.meridian-mcp__name-list,
+.meridian-mcp__argument-list {
   flex-direction: row;
   flex-wrap: wrap;
   gap: var(--meridian-space-2);

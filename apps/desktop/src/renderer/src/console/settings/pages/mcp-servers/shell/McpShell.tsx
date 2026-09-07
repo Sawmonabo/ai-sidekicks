@@ -18,6 +18,20 @@
 // keyed by the row's own scope-qualified identity and replaced in place, so a page
 // left open through many presses holds one outcome per binding rather than a growing
 // list of them.
+//
+// AND IT BELONGS TO THE BRIDGE IT WAS PRODUCED THROUGH. The provider replaces the
+// bridge under a live mount — a reconnect, a second window's own instance, the
+// fixture's scenario switch — and it does so IN PLACE, with no remount. A ledger held
+// in ordinary component state survived that, so a settled outcome, or a call still out
+// through the retired transport, rendered beside the replacement's inventory for the
+// same binding and reported that the new transport had applied or refused a mutation
+// it had never been asked to perform. The map therefore rides the console's one
+// subject-scoped holder with the bridge as its subject: it re-seeds DURING the render
+// that first sees a new bridge, so no committed frame carries the previous one's
+// outcomes, and a publisher captured under the retired bridge writes nothing rather
+// than overwriting what the replacement said. The refresh beside the settlement needs
+// no second guard — a superseded read has already been disposed, and a disposed read
+// refreshes nothing.
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -25,6 +39,7 @@ import { mcpBindingKeyOf, useConsoleClock, type ConsoleBridge } from "../../../.
 import type { GrowthMcpBindingRef } from "../../../../bridge/index.js";
 import { Nothing } from "../../../../primitives/index.js";
 import { usePushDrivenRead } from "../../../../seats/index.js";
+import { useSubjectScopedState } from "../../../../store/index.js";
 import { createMcpInventoryRead } from "./mcp-inventory-reading.js";
 import {
   IDLE_MCP_MUTATION,
@@ -47,9 +62,11 @@ export function McpShell(props: {
   // advances this read's coalescing window exactly when it advances everything else's.
   const clock = useConsoleClock();
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
-  const [outcomes, setOutcomes] = useState<ReadonlyMap<string, McpMutationOutcome>>(
-    () => new Map(),
-  );
+  // No key within the bridge: the ledger is about the whole node's inventory, and the
+  // binding is the key INSIDE the map rather than the subject the map is held under.
+  const { value: outcomes, publish: publishOutcomes } = useSubjectScopedState<
+    ReadonlyMap<string, McpMutationOutcome>
+  >(bridge, undefined, () => new Map());
   const inventoryRead = useMemo(
     () => createMcpInventoryRead({ bridge, clock }),
     [bridge, clock, openingOrdinal],
@@ -81,8 +98,12 @@ export function McpShell(props: {
     [bridge, inventoryRead],
   );
 
+  // The update FORM rather than a value composed here, for the two reasons the holder
+  // states: two presses settling in one tick would each write the map they read at
+  // render and the second would erase the first, and an update refused because the
+  // bridge has moved is never run at all.
   const recordOutcome = (key: string, outcome: McpMutationOutcome): void => {
-    setOutcomes((held) => new Map(held).set(key, outcome));
+    publishOutcomes((held) => new Map(held).set(key, outcome));
   };
   // A settled mutation answers with the row as it now stands, and this shell asks the
   // daemon again rather than splicing that row into the list it is holding. The reply

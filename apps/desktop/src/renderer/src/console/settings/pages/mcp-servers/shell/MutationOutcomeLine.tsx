@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { Chip, InlineRefusal, Nothing, WireFigure } from "../../../../primitives/index.js";
 import type { GrowthMcpLiveApplicationResult } from "../../../../bridge/index.js";
+import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mcp-mutation.js";
 
 /**
@@ -68,6 +69,11 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
  * A camelCase helper rather than a second component, on the `primitives/Nothing.tsx`
  * precedent: a `.tsx` module declares one component, and this list body has no
  * identity outside its one caller.
+ *
+ * KEYED BY THE SAME PAIR THE LEG LIST USES, through the same encoder. A live result
+ * names the session and the binding for the same reason a leg status does — one
+ * mutation can reach several sessions holding one binding open — so the two lists that
+ * render a leg key it one way rather than two.
  */
 function renderLiveResults(results: readonly GrowthMcpLiveApplicationResult[]): ReactNode {
   if (results.length === 0) {
@@ -80,7 +86,7 @@ function renderLiveResults(results: readonly GrowthMcpLiveApplicationResult[]): 
   return (
     <ul className="meridian-mcp__live-results">
       {results.map((liveResult) => (
-        <li key={liveResult.bindingId} className="meridian-mcp__live-result">
+        <li key={mcpLiveLegKeyOf(liveResult)} className="meridian-mcp__live-result">
           <Chip
             label={liveResult.outcome}
             tone={liveResult.outcome === "applied" ? "neutral" : "failure"}

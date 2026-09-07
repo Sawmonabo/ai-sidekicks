@@ -10,17 +10,21 @@
 // scenario, because a node governing no servers is not a story — it is the answer the
 // unscripted fixture already gives, and asserting it here keeps the two agreeing.
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   SidekicksBridgeProvider,
   createFixtureBridge,
   growthUnavailable,
+  useConsoleBridge,
   type ConsoleBridge,
+  type GrowthMcpMutationResult,
+  type GrowthOutcome,
 } from "../../../../bridge/index.js";
 import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
 import { SETTINGS_SCENARIO } from "../../../../bridge/scenarios/settings.js";
+import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
 import { McpShell } from "./McpShell.js";
 
@@ -32,19 +36,60 @@ function fixtureBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: SETTINGS_SCENARIO });
 }
 
-function renderShell(bridge: ConsoleBridge, mintKey?: () => string): HTMLElement {
-  const { container } = render(
+/**
+ * The shell as its seat mounts it: the bridge comes from the provider's resolution.
+ *
+ * A probe rather than the raw element, because the resolution is what MOVES. The
+ * provider replaces it from an effect, one commit after the prop changes, so a tree
+ * handing the shell a bridge straight from the outside would put the shell on one
+ * transport and its clock on another for that commit — a shape the real seat, which
+ * reads `context.bridge`, cannot produce.
+ */
+function MountedMcpShell(props: { readonly mintKey?: () => string }): React.JSX.Element {
+  const bridge = useConsoleBridge();
+  return props.mintKey === undefined ? (
+    <McpShell bridge={bridge} />
+  ) : (
+    <McpShell bridge={bridge} mintKey={props.mintKey} />
+  );
+}
+
+/**
+ * The tree, as an element rather than a render.
+ *
+ * Split out so a case can re-render the SAME mount at a different bridge, which is
+ * what `SidekicksBridgeProvider` does on a reconnect or a scenario switch and is the
+ * one thing a fresh `render` cannot express.
+ */
+function shellTree(bridge: ConsoleBridge, mintKey?: () => string): React.JSX.Element {
+  return (
     <SidekicksBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        {mintKey === undefined ? (
-          <McpShell bridge={bridge} />
-        ) : (
-          <McpShell bridge={bridge} mintKey={mintKey} />
-        )}
+        {mintKey === undefined ? <MountedMcpShell /> : <MountedMcpShell mintKey={mintKey} />}
       </LiveAnnouncerProvider>
-    </SidekicksBridgeProvider>,
+    </SidekicksBridgeProvider>
   );
+}
+
+function renderShell(bridge: ConsoleBridge, mintKey?: () => string): HTMLElement {
+  const { container } = render(shellTree(bridge, mintKey));
   return container;
+}
+
+/**
+ * The first row's enablement control, which is the press every mutation case makes.
+ *
+ * Throws rather than asserting, so a case that never reached a settled inventory fails
+ * at the line that pressed instead of at an assertion three settles later.
+ */
+function firstEnableButton(container: HTMLElement): HTMLButtonElement {
+  const [button] = [...container.querySelectorAll("button")].filter((candidate) =>
+    /this binding$/u.test(candidate.textContent ?? ""),
+  );
+  if (button === undefined) {
+    throw new Error("the settled inventory rendered no enablement control to press");
+  }
+  return button;
 }
 
 async function renderSettledShell(
@@ -120,12 +165,7 @@ describe("McpShell", () => {
   it("renders a partial application: one leg applied, one failed", async () => {
     const bridge = fixtureBridge();
     const container = await renderSettledShell(bridge);
-    const enableButtons = [...container.querySelectorAll("button")].filter((button) =>
-      /this binding$/u.test(button.textContent ?? ""),
-    );
-    const firstEnableButton = enableButtons[0];
-    expect(firstEnableButton).toBeDefined();
-    fireEvent.click(firstEnableButton as HTMLButtonElement);
+    fireEvent.click(firstEnableButton(container));
     await settleScriptedRead(bridge);
     expect(container.textContent).toContain("live_reconcile");
     expect(container.textContent).toContain("mcp.config_write_conflict");
@@ -145,10 +185,7 @@ describe("McpShell", () => {
       },
     };
     const container = await renderSettledShell(recordingBridge, () => "one-press");
-    const enableButtons = [...container.querySelectorAll("button")].filter((button) =>
-      /this binding$/u.test(button.textContent ?? ""),
-    );
-    fireEvent.click(enableButtons[0] as HTMLButtonElement);
+    fireEvent.click(firstEnableButton(container));
     await settleScriptedRead(recordingBridge);
     expect(sent).toHaveLength(1);
     expect((sent[0] as { clientIdempotencyKey: string }).clientIdempotencyKey).toBe("one-press");
@@ -180,5 +217,81 @@ describe("McpShell", () => {
     };
     await renderSettledShell(refusingBridge);
     expect(screen.getByRole("button", { name: /try again/iu })).toBeDefined();
+  });
+});
+
+/**
+ * A bridge whose enablement mutation answers only when the case says so.
+ *
+ * The whole subject is what happens BETWEEN the press and the settlement, so the
+ * scenario's own 80 ms reply is too coarse: the case has to replace the bridge while
+ * the first one's call is still out, and then release it.
+ */
+function bridgeHoldingItsMutation(): {
+  readonly bridge: ConsoleBridge;
+  readonly settleHeldMutation: () => void;
+} {
+  const base = fixtureBridge();
+  const waiting: ((outcome: GrowthOutcome<GrowthMcpMutationResult>) => void)[] = [];
+  return {
+    bridge: {
+      ...base,
+      growth: {
+        ...base.growth,
+        mcpSetEnabled: async () =>
+          await new Promise<GrowthOutcome<GrowthMcpMutationResult>>((resolve) => {
+            waiting.push(resolve);
+          }),
+      },
+    },
+    settleHeldMutation: () => {
+      for (const resolve of waiting.splice(0)) {
+        resolve(growthUnavailable("mcpSetEnabled"));
+      }
+    },
+  };
+}
+
+// The refusal the held mutation answers with, as the operator reads it. Asserted by
+// its own sentence rather than by a code, because that is what is on screen.
+const HELD_MUTATION_REFUSAL_TEXT = "not registered on this build yet";
+
+describe("McpShell — a bridge replaced under a mounted shell", () => {
+  it("shows no outcome from a bridge the mount no longer holds", async () => {
+    const superseded = bridgeHoldingItsMutation();
+    const { container, rerender } = render(shellTree(superseded.bridge));
+    await settleScriptedRead(superseded.bridge);
+    fireEvent.click(firstEnableButton(container));
+    expect(container.textContent).toContain("Asking the daemon to apply this.");
+
+    const replacementBridge = fixtureBridge();
+    rerender(shellTree(replacementBridge));
+    await settleScriptedRead(replacementBridge);
+    // The replacement answered its own inventory, and the superseded bridge's press
+    // is not still reported as in flight against it.
+    expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(3);
+    expect(container.textContent).not.toContain("Asking the daemon to apply this.");
+
+    await act(async () => {
+      superseded.settleHeldMutation();
+      await crossMacrotaskBoundary();
+    });
+    expect(container.textContent).not.toContain(HELD_MUTATION_REFUSAL_TEXT);
+  });
+
+  // The negative control for the case above: the same held call, the same release, and
+  // no replacement — so a clean reading there is about WHOSE settlement it was rather
+  // than about this shell never rendering one.
+  it("negative control: the same settlement renders while its own bridge still holds", async () => {
+    const held = bridgeHoldingItsMutation();
+    const container = renderShell(held.bridge);
+    await settleScriptedRead(held.bridge);
+    fireEvent.click(firstEnableButton(container));
+
+    await act(async () => {
+      held.settleHeldMutation();
+      await crossMacrotaskBoundary();
+    });
+    expect(container.textContent).toContain(HELD_MUTATION_REFUSAL_TEXT);
   });
 });
