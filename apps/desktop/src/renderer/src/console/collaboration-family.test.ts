@@ -44,7 +44,11 @@ describe("collaboration family — composition", () => {
     // the board handed in comes back filled.
     const { surfaces, sections } = ownedBoards();
     registerCollaborationFamily(surfaces, sections, standInComposition);
-    expect(sections.registeredSectionIds()).toStrictEqual(["channels", "members"]);
+    // Three, not two: the `agents` section is this family's as well, and its body
+    // lives in the agents subtree rather than in `collaboration/` because a body
+    // belongs to the family whose vocabulary it renders. The ids come back in the
+    // seat's own declared order rather than in registration order.
+    expect(sections.registeredSectionIds()).toStrictEqual(["channels", "agents", "members"]);
   });
 
   it("claims each one under an owner of its own", () => {

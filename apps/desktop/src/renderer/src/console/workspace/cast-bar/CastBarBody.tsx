@@ -67,7 +67,7 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
       <ul className="meridian-cast-bar__members">
         {model.members.map((member) => (
           <li key={member.participantId}>
-            <CastChip member={member} onFollow={props.onFollow} />
+            <CastChip member={member} sessionStore={props.sessionStore} onFollow={props.onFollow} />
           </li>
         ))}
       </ul>

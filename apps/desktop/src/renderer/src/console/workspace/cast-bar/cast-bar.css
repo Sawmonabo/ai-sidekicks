@@ -216,3 +216,50 @@
   border-radius: var(--meridian-radius-sm);
   background: var(--meridian-surface-raised);
 }
+
+/* --- The participant card, behind a chip's hover and focus. ---------------- */
+
+.meridian-cast-chip__card {
+  max-width: 20rem;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-border);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-participant-card__name {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-participant-card__id {
+  margin: 0 0 var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+}
+
+/* Two columns, so the four facts read as a table rather than as a paragraph: the
+   label column is fixed and the value column takes the rest, which is what keeps a
+   long run identifier from pushing its own label off the card. */
+.meridian-participant-card__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+  margin: 0;
+}
+
+.meridian-participant-card__facts dt {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-participant-card__facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-participant-card__run {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}

@@ -8,21 +8,34 @@
 // where the act is — the approval card, the sidebar row, the rail tick — and what
 // this chip carries instead is a WORD.
 
-import { Glyph, WireFigure } from "../../primitives/index.js";
-import { GLYPH_SIZE_DENSE, tokenReference } from "../../tokens/index.js";
-import {
-  CAST_ATTENTION_CLAUSE,
-  castChipAccessibleName,
-  type CastMember,
-} from "./cast-bar-model.js";
+import { Tooltip } from "@base-ui/react/tooltip";
 
-/** Carries one participant's hue into the chip's ring, without a style attribute per rule. */
-interface CastChipStyle extends React.CSSProperties {
-  readonly "--meridian-cast-hue": string;
-}
+import { type SessionStore } from "../../store/index.js";
+import { tokenReference } from "../../tokens/index.js";
+import { ParticipantCard } from "./ParticipantCard.js";
+import { type CastMember } from "./cast-bar-model.js";
+import { CastChipButton, type CastChipStyle } from "./CastChipButton.js";
+
+/**
+ * How far the card sits off the chip.
+ *
+ * A positioning offset rather than a density cap: it is the tooltip library's own
+ * geometry argument and nothing else in the console spends it, so it stays beside the
+ * one call that passes it rather than in the cap home, which holds the budgets a
+ * surface is held to.
+ */
+const CARD_OFFSET_PX = 6;
 
 export interface CastChipProps {
   readonly member: CastMember;
+  /**
+   * The store the participant card reads its four facts out of.
+   *
+   * Handed down rather than reached for, on the same terms every other reading in this
+   * console is: a bar rendered in an auxiliary window reads THAT window's store. The
+   * card is mounted only while it is open, so a closed chip costs no subscription.
+   */
+  readonly sessionStore: SessionStore;
   readonly onFollow: (participantId: string) => void;
 }
 
@@ -50,45 +63,36 @@ export interface CastChipProps {
  * a superset of what the chip draws.
  *
  * The visible name is the one the WIRE gave this participant — a membership beat's
- * identity handle, an agent's attached name — and the id when the log named none.
- * The id stays reachable as the name's tooltip: two participants admitted in the
- * same millisecond share a UUID prefix long enough that the chip's own ellipsis
- * truncates both to the same string, so the id alone identifies nobody.
+ * identity handle, an agent's attached name — and the id when the log named none. The
+ * id is reachable in the CARD rather than in a `title`: two participants admitted in
+ * the same millisecond share a UUID prefix long enough that the chip's own ellipsis
+ * truncates both to the same string, so the id alone identifies nobody, and an
+ * identifier on its own was never one of the four facts the design asks a hover for.
  */
 export function CastChip(props: CastChipProps): React.JSX.Element {
   const { member } = props;
   const style: CastChipStyle = { "--meridian-cast-hue": tokenReference(member.hue.tokenName) };
 
   return (
-    <button
-      type="button"
-      className="meridian-cast-chip"
-      style={style}
-      data-ring={member.hue.ringTreatment}
-      data-shares-step={member.hue.sharesStepWithEarlierParticipant}
-      data-attention={member.needsAttention}
-      aria-label={castChipAccessibleName(member)}
-      onClick={() => {
-        props.onFollow(member.participantId);
-      }}
-    >
-      {/* Presence is not a wire the console has. The glyph is drawn in the
-          not-checked treatment rather than as a state, because "we have not asked"
-          and "they are online" are different facts. */}
-      <Glyph name="dot" size={GLYPH_SIZE_DENSE} title="Presence has not been read" />
-      <span
-        className="meridian-cast-chip__name"
-        title={member.label === undefined ? undefined : member.participantId}
-      >
-        <WireFigure value={member.label ?? member.participantId} />
-      </span>
-      {member.needsAttention ? (
-        <span className="meridian-cast-chip__verb">{CAST_ATTENTION_CLAUSE}</span>
-      ) : member.verb === undefined ? null : (
-        <span className="meridian-cast-chip__verb" data-stale={member.isVerbStale}>
-          {member.verb}
-        </span>
-      )}
-    </button>
+    <Tooltip.Root>
+      <Tooltip.Trigger
+        render={<CastChipButton member={member} style={style} onFollow={props.onFollow} />}
+      />
+      <Tooltip.Portal>
+        {/* The card is a POPUP the tooltip mounts only while it is open, so the reading
+            behind it starts when somebody hovers or tabs to the chip and stops when they
+            leave. A card mounted with the chip would hold one store subscription per
+            participant for the life of the bar. */}
+        <Tooltip.Positioner sideOffset={CARD_OFFSET_PX}>
+          <Tooltip.Popup className="meridian-cast-chip__card">
+            <ParticipantCard
+              sessionStore={props.sessionStore}
+              participantId={member.participantId}
+              label={member.label}
+            />
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
   );
 }
