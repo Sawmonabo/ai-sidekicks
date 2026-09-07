@@ -92,15 +92,27 @@ export abstract class ActSurfaceController<TValue, TSettlement extends ActSettle
       // DISPATCHED TO THE SUBCLASS AND NOT CAPTURED FROM IT. The machine stores this
       // closure and calls it no earlier than the first scheduled read, so a subclass
       // field the override reads is initialised long before it runs.
-      readPrerequisite: async (question: string) => await this.readPrerequisite(question),
+      readPrerequisite: async (question: string, signal: AbortSignal) =>
+        await this.readPrerequisite(question, signal),
     });
   }
 
   /**
    * Ask the question this act depends on. The string is whatever {@link askPrerequisite}
    * was given — a constant for a roster, the branch name for a reuse check.
+   *
+   * THE SIGNAL IS PART OF THE OVERRIDE'S CONTRACT AND NOT AN OPTION IT MAY DECLINE.
+   * It belongs to the round the machine's scheduler opened for this read, so an
+   * override that hands it to its call door lets a controller that is disposed — or
+   * whose read has been superseded by a newer fire — drop the reply before it is
+   * parsed and before any projection is built from it. An override whose port takes
+   * no signal stops WAITING on it instead, through `settleUnlessAbandoned`; what no
+   * override may do is take one and use it for neither.
    */
-  protected abstract readPrerequisite(question: string): Promise<ActOutcome<TValue>>;
+  protected abstract readPrerequisite(
+    question: string,
+    signal: AbortSignal,
+  ): Promise<ActOutcome<TValue>>;
 
   public get snapshot(): ActReading<TValue, TSettlement> {
     return this.#acts.snapshot;

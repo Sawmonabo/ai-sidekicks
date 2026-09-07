@@ -190,12 +190,23 @@ export class ExecutionRootPrepareController extends ActSurfaceController<
     );
   }
 
-  /** The reuse check, asked for whatever branch name the form currently holds. */
-  protected override async readPrerequisite(branchName: string): Promise<ActOutcome<ReuseVerdict>> {
+  /**
+   * The reuse check, asked for whatever branch name the form currently holds.
+   *
+   * The round's signal goes straight to the call door, which matters most on exactly
+   * this read: a participant typing a branch name supersedes their own check every
+   * few keystrokes, and each superseded one now stops at the door instead of being
+   * parsed into a verdict for a branch that has already been edited away from.
+   */
+  protected override async readPrerequisite(
+    branchName: string,
+    signal: AbortSignal,
+  ): Promise<ActOutcome<ReuseVerdict>> {
     const reply = await checkWorktreeReuse(
       this.#bridge,
       this.#subject.repoMountId as RepoMountId,
       branchName,
+      signal,
     );
     return reply.status === "refused"
       ? reply

@@ -35,9 +35,19 @@
 // is where this console keeps "may I dispatch" and "may this settlement install", and
 // a fourth hand-rolled epoch counter beside it would be the drift this class exists to
 // end. The act half takes a key with `claim`, so a second press while one call is on
-// the wire is REFUSED rather than queued or superseded; the read half takes one with
-// `supersedeAndClaim`, because the newest question is the one the participant is
-// waiting on.
+// the wire is REFUSED rather than queued or superseded.
+//
+// THE READ HALF RIDES THE SCHEDULER'S ROUND, WHICH IS WHY IT HOLDS NO LATCH KEY OF ITS
+// OWN. `scheduling.ts` opens a round per fire and hands it to the performer, and a round
+// IS a latch claim and an `AbortSignal` as one value — so a key beside it would be two
+// registers answering one question, and the one this class used to take could order a
+// settlement it had no way to stop. Every prerequisite read here is one of those fires
+// and nothing else starts one, which is what `bridge/quotas/provider-account-quota.ts`
+// cannot say: that reading seeds from three triggers, so it owns a line of its own.
+//
+// THE QUESTION CHECK IS NOT A SECOND SUPERSESSION RULE. The round says whether a NEWER
+// READ replaced this one; `#question` says whether the answer is for a question anybody
+// still asks, which has no round to measure against — a withdrawal fires no read.
 //
 // WHAT THIS IS NOT. It is not a store — nothing here is projected from the timeline —
 // and it is not a reading in its own right: it holds no `ConsoleBridge` and knows no
@@ -61,6 +71,7 @@ import {
   type ActSettlementReading,
 } from "./act-reading.js";
 import { GenerationLatch } from "./generation-latch.js";
+import type { ReadRound } from "./read-cancellation.js";
 import type { ReadTriggerTarget } from "./read-triggers.js";
 import { SessionRefreshTriggers } from "./refresh-triggers.js";
 import { RefreshScheduler, type RefreshReason } from "./scheduling.js";
@@ -84,17 +95,22 @@ export interface ActControllerOptions<TValue> {
   readonly triggeringEventKinds: ReadonlySet<string>;
   /** The subsystem a rejection raised on the read path names as its author. */
   readonly refusalOrigin: string;
-  /** Ask the prerequisite question. The string is whatever `ask` was given. */
-  readonly readPrerequisite: (question: string) => Promise<ActOutcome<TValue>>;
+  /**
+   * Ask the prerequisite question. The string is whatever `ask` was given.
+   *
+   * THE SIGNAL IS REQUIRED AND NOT OPTIONAL, which is what makes "a prerequisite read
+   * is made inside a round" structural rather than a convention: there is no way to
+   * write this closure without naming the thing that stops it. A `callDaemon` read
+   * hands it to the door and one reaching a port that takes none stops waiting through
+   * `settleUnlessAbandoned`, but ignoring it is a visible omission at one call site.
+   */
+  readonly readPrerequisite: (question: string, signal: AbortSignal) => Promise<ActOutcome<TValue>>;
   /** What a rejection with no readable code of its own says instead. */
   readonly readRejection?: RejectionFallback;
 }
 
 /** The single-flight key the act half holds. One act at a time, per controller. */
 const ACT_KEY = "act";
-
-/** The single-flight key the prerequisite read holds. Superseded, never refused. */
-const PREREQUISITE_KEY = "prerequisite";
 
 /**
  * One act and the question it is issued against, published as one reading.
@@ -114,7 +130,10 @@ export class ActController<
   readonly #triggers: SessionRefreshTriggers;
   readonly #changes: Emitter<ActReading<TValue, TSettlement>>;
   readonly #rounds = new GenerationLatch();
-  readonly #readPrerequisite: (question: string) => Promise<ActOutcome<TValue>>;
+  readonly #readPrerequisite: (
+    question: string,
+    signal: AbortSignal,
+  ) => Promise<ActOutcome<TValue>>;
   readonly #refusalOrigin: string;
   readonly #readRejection: RejectionFallback | undefined;
   #reading: ActReading<TValue, TSettlement> = ACT_NOT_STARTED;
@@ -131,8 +150,9 @@ export class ActController<
     this.#readRejection = options.readRejection;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
-      perform: async () => {
-        await this.#performRead();
+      // Taken, not asked for: every prerequisite read is one of these fires.
+      perform: async (_reasons, round) => {
+        await this.#performRead(round);
       },
       // A read that threw past its own handling reaches nobody from inside a scheduler
       // callback, so it lands in the prerequisite half as a refusal the surface
@@ -185,7 +205,8 @@ export class ActController<
    * A DIFFERENT QUESTION RESETS THE HALF AND ABANDONS THE ANSWER IN FLIGHT. The
    * verdict on screen must never be the one for a branch the participant has already
    * edited away from, and a reply still on the wire for the old question installs
-   * nothing rather than being cancelled — nothing behind the bridge is cancellable.
+   * nothing — its own read sees `#question` has moved, and the fire this request
+   * schedules supersedes its round.
    */
   public ask(question: string, reason: RefreshReason): void {
     if (this.#disposed || this.#question === question) {
@@ -193,7 +214,6 @@ export class ActController<
     }
     this.start();
     this.#question = question;
-    this.#rounds.supersede(this, PREREQUISITE_KEY);
     this.#publish({ ...this.#reading, prerequisite: { status: "reading" } });
     this.#scheduler.request(reason);
   }
@@ -202,14 +222,15 @@ export class ActController<
    * Withdraw the question, and put the half back to unasked.
    *
    * For the participant who cleared the field: leaving the last answer on screen would
-   * attach it to a question nobody is asking. The act half is deliberately untouched.
+   * attach it to a question nobody is asking. The act half is deliberately untouched,
+   * and so is the read line — a withdrawal fires no read, so no newer round supersedes
+   * the answer in flight and what keeps it off screen is that its question is unnamed.
    */
   public withdraw(): void {
     if (this.#disposed || this.#question === undefined) {
       return;
     }
     this.#question = undefined;
-    this.#rounds.supersede(this, PREREQUISITE_KEY);
     this.#publish({ ...this.#reading, prerequisite: { status: "not-read" } });
   }
 
@@ -302,7 +323,12 @@ export class ActController<
     this.#publishAct({ status: "idle" });
   }
 
-  /** Terminal. A reply still on the wire publishes into nothing after this. */
+  /**
+   * Terminal. A reply still on the wire publishes into nothing after this.
+   *
+   * AND IS NOT PARSED EITHER, which is the scheduler's disposal doing it: it abandons
+   * the read line, so the door drops the call and the round it holds settles nothing.
+   */
   public dispose(): void {
     this.#disposed = true;
     this.#scheduler.dispose();
@@ -316,15 +342,17 @@ export class ActController<
    * READS THE QUESTION AT PERFORM TIME rather than taking one at request time, because
    * the scheduler coalesces: two edits inside one debounce window are one call, and it
    * has to be the call for what is named NOW.
+   *
+   * THE ROUND IS THE SCHEDULER'S AND IS NOT RELEASED HERE — `ReadRound`'s own narrowing:
+   * the scope took the key, so a performer cannot free the one its successor relies on.
    */
-  async #performRead(): Promise<void> {
+  async #performRead(round: ReadRound): Promise<void> {
     const question = this.#question;
     if (question === undefined) {
       return;
     }
-    const round = this.#rounds.supersedeAndClaim(this, PREREQUISITE_KEY);
     try {
-      const reply = await this.#readPrerequisite(question);
+      const reply = await this.#readPrerequisite(question, round.signal);
       if (this.#question !== question) {
         return;
       }
@@ -338,11 +366,11 @@ export class ActController<
         });
       });
     } catch (rejection) {
+      // SETTLED THROUGH THE ROUND LIKE THE ANSWER ARM, so an abandoned read that also
+      // rejected reports nothing: a departure is not a call that failed.
       round.settle(() => {
         this.#publishReadRejection(rejection);
       });
-    } finally {
-      round.release();
     }
   }
 

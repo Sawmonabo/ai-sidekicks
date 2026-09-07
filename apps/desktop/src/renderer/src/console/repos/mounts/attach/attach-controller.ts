@@ -29,10 +29,15 @@ import { useCallback, useMemo } from "react";
 
 import type { NodeId, RepoAttachResponse } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
+import {
+  abandonedReadRefusal,
+  consoleClockFor,
+  type ConsoleBridge,
+} from "../../../bridge/index.js";
 import type { ConsoleClock } from "../../../core/index.js";
 import {
   ActSurfaceController,
+  settleUnlessAbandoned,
   useActController,
   type ActOutcome,
   type ActPrerequisiteReading,
@@ -152,14 +157,37 @@ export class AttachController extends ActSurfaceController<
     );
   }
 
-  /** The roster call, and the mapping from wire entries to the rows a picker draws. */
-  protected override async readPrerequisite(): Promise<ActOutcome<readonly AttachNodeOption[]>> {
-    const outcome = await this.#bridge.runtimeNodeRosterRead({
-      sessionId: forwardedSessionId(this.#sessionId),
-    });
+  /**
+   * The roster call, and the mapping from wire entries to the rows a picker draws.
+   *
+   * THE ONE PREREQUISITE READ IN THIS FAMILY WHOSE PORT TAKES NO SIGNAL, so it stops
+   * WAITING rather than stopping the call. `runtimeNodeRosterRead` is a bridge
+   * namespace and not a `callDaemon` wrapper — the door that reads a signal is one
+   * layer further in than this port reaches — so the round is honoured here with
+   * `settleUnlessAbandoned`, which drops the pending promise the instant nobody is
+   * waiting instead of holding this frame open for a reply no surface will render.
+   * The mapping below is the work that abandonment actually saves.
+   */
+  protected override async readPrerequisite(
+    _question: string,
+    signal: AbortSignal,
+  ): Promise<ActOutcome<readonly AttachNodeOption[]>> {
+    const settlement = await settleUnlessAbandoned(
+      this.#bridge.runtimeNodeRosterRead({ sessionId: forwardedSessionId(this.#sessionId) }),
+      signal,
+    );
+    if (settlement.status === "abandoned") {
+      // The door's own sentence for this settlement, borrowed rather than reworded:
+      // one abandonment has one code wherever it is raised. It reaches a caller that
+      // is by definition no longer rendering — the round it was read under can settle
+      // nothing — and it is a refusal because `ActOutcome` has two arms and growing a
+      // third would make every act surface in the console learn about it.
+      return { status: "refused", refusal: abandonedReadRefusal("runtimenode.roster") };
+    }
     // THE ROSTER PORT ANSWERS WITH THE REFUSAL ITSELF where the call wrappers in
     // `repo-reads.ts` answer with one wrapped in an outcome, so this is the one call
     // in the family that has to say which arm it is holding.
+    const outcome = settlement.value;
     return outcome.status === "refused"
       ? { status: "refused", refusal: outcome }
       : { status: "served", value: attachNodeOptions(outcome.value.nodes) };
