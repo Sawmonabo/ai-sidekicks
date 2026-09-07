@@ -34,6 +34,15 @@
 // moment one existed: the headers are disclosures, a person can open any of them,
 // and this act now folds exactly the ones they opened. A typed refusal for a thing
 // that exists is worse than no refusal at all.
+//
+// AND ONE OF THE NINE IS NOW ALSO A ROW'S OFFER, WHICH IS WHY ITS BODY LEFT THE SET.
+// "Replay from here" reaches a reader two ways — the chord, which resolves the row at
+// the top of the box, and the per-row menu, which names the row that was pointed at —
+// and both engage the engine, both have to reveal the dock first, and both have to say
+// the same thing when the engine cannot place the row. `buildReplayFromRowAct` is that
+// one body; the chord composes it with its own anchor resolution and the menu hands it
+// a row id. Two copies would be two places this console decides what a failed scrub
+// says, which is exactly what `LedgerFeed.tsx` refuses for the dock's own control.
 
 import { useMemo } from "react";
 
@@ -77,6 +86,30 @@ export const LEDGER_NO_REPLAY_ANCHOR_REFUSAL: ConsoleRefusal = refuse(
   "ledger.no_replay_anchor",
   "There is no row in view to replay from. Scroll to the entry you want to re-watch and try again.",
 );
+
+/**
+ * Scrub the engine to one named row, dock revealed and refusal included.
+ *
+ * THE ONE BODY BEHIND BOTH WAYS INTO "replay from here". The chord resolves its row
+ * from the viewport's range and the row menu is handed the row a person pointed at,
+ * and after that the act is identical: reveal, scrub, and say so out loud when the
+ * engine could not place it.
+ *
+ * Revealed BEFORE the scrub, like the seam jump: the scrub engages replay and starts
+ * withholding rows, and doing that behind a hidden dock leaves a reader holding a
+ * control they cannot see to undo.
+ *
+ * A failed placement is REFUSED rather than scrubbed to a neighbour, which would move
+ * a reader to a row they did not name and report it as the one they did.
+ */
+export function buildReplayFromRowAct(replay: LedgerReplayState): (rowId: string) => void {
+  return (rowId: string): void => {
+    replay.reveal();
+    if (!replay.replayFromRow(rowId)) {
+      raiseConsoleActRefusal(LEDGER_NO_REPLAY_ANCHOR_REFUSAL);
+    }
+  };
+}
 
 /** The state one window's acts are built over. */
 export interface LedgerFeedActInputs {
@@ -157,16 +190,10 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
         raiseConsoleActRefusal(LEDGER_NO_REPLAY_ANCHOR_REFUSAL);
         return;
       }
-      // Revealed BEFORE the scrub, like the seam jump: the scrub engages replay and
-      // starts withholding rows, and doing that behind a hidden dock leaves a reader
-      // holding a control they cannot see to undo.
-      inputs.replay.reveal();
-      if (!inputs.replay.replayFromRow(anchorRowId)) {
-        // The engine could not place the row, so nothing moved. Said out loud rather
-        // than scrubbed to a neighbour, which would move a reader to a row they did
-        // not name and report it as the one they did.
-        raiseConsoleActRefusal(LEDGER_NO_REPLAY_ANCHOR_REFUSAL);
-      }
+      // The row menu's act, composed rather than restated: what this adds is
+      // resolving the anchor, and the reveal, the scrub and the refusal are the
+      // shared body's.
+      buildReplayFromRowAct(inputs.replay)(anchorRowId);
     },
   };
 }

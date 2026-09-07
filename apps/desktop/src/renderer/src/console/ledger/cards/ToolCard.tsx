@@ -20,13 +20,28 @@
 // in mono beside it. The same refusal decides how the BODY is drawn: the wire declares
 // no shape for a tool result, so it is drawn as prose rather than as terminal output
 // guessed at from the tool that produced it.
+//
+// AND WHAT IT NOW HOLDS INSTEAD OF THAT REFUSAL'S CONSEQUENCE. The refusal used to end
+// there, which left the design's six tool treatments — command output, file edits, read
+// folds, MCP calls with a server badge and a typed argument summary, web-search result
+// lists, image results — with no owner, no shape, and nowhere for the wire member to
+// land. `tool-families/` is that home: the vocabulary as data, one fail-closed reading
+// off this row's own payload, and a slot the treatments fill. The refusal is unchanged
+// — this card still derives nothing from the tool's name — and what changed is that
+// the sub-family a row DECLARES now has somewhere to be drawn.
 
 import { TOOL_SUMMARY_MAX_CHARACTERS, readWireString } from "../../core/index.js";
 import { Chip, Glyph, LedgerRow, formatDuration, type ChipTone } from "../../primitives/index.js";
 import { LedgerRowGroup } from "../frame/index.js";
+import { type OwnerSlotProps } from "../../seats/index.js";
 import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
 import { MachineBody } from "./bodies/index.js";
+import {
+  ToolSubFamilyBadge,
+  declaredToolSubFamily,
+  type ToolSubFamilyRenderer,
+} from "./tool-families/index.js";
 import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 export interface ToolCardProps extends LedgerCardProps {
@@ -39,6 +54,15 @@ export interface ToolCardProps extends LedgerCardProps {
    * list exists.
    */
   readonly onDensityToggle?: (() => void) | undefined;
+  /**
+   * The sub-family treatment's slot.
+   *
+   * Required and carrying `undefined` rather than optional, on `OwnerSlotProps`' own
+   * reasoning and `MessageCard`'s precedent: an optional member reads identically
+   * whether the caller decided the slot is unfilled or forgot to pass it, and only
+   * one of those is a deliberate answer.
+   */
+  readonly subFamily: OwnerSlotProps<ToolSubFamilyRenderer>;
 }
 
 /** How each result state reads, and in which of the console's two hues. */
@@ -88,6 +112,10 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
           ) : (
             <span className="meridian-tool-card__name">{toolName}</span>
           )}
+          {/* BEFORE THE SUMMARY, because the treatment qualifies WHICH tool ran and
+              the summary says what it did. Draws nothing at all for a row declaring
+              no sub-family, which is every row this build can receive. */}
+          <ToolSubFamilyBadge slot={props.subFamily} reading={declaredToolSubFamily(payload)} />
           <span className="meridian-tool-card__summary">{clampSummary(props.row.summary)}</span>
           {durationMs === undefined ? null : (
             <span className="meridian-tool-card__elapsed">{formatDuration(durationMs)}</span>

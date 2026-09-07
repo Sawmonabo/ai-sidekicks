@@ -355,9 +355,16 @@
   overflow-wrap: anywhere;
 }
 
-/* The one offer. Secondary by weight, per the density rule that puts a row's
-   secondary controls one click away rather than in the reader's path. */
-.meridian-reasoning-surface__expand {
+/* A body's own offer. Secondary by weight, per the density rule that puts a row's
+   secondary controls one click away rather than in the reader's path.
+
+   TWO SELECTORS, ONE BLOCK, because it is one shape and not two: the reasoning
+   surface's "show reasoning" and the truncation notice's "show all" are the same
+   control — an inline offer inside a machine-authored body — and a second copy of
+   these eight declarations would be the duplication the package standard forbids,
+   drifting the first time somebody adjusts one of them. */
+.meridian-reasoning-surface__expand,
+.meridian-truncation-notice__show-all {
   align-self: flex-start;
   background: none;
   border: 1px solid var(--meridian-border-subtle);

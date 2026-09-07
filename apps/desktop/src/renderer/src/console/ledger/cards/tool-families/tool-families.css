@@ -1,0 +1,18 @@
+/* `ledger/cards/tool-families/`'s styles — the sub-family badge on a tool row's header.
+ *
+ * ONE SHEET PER DIRECTORY, imported by this directory's own door, which is the rule
+ * `ledger/ledger.css` states for the family.
+ *
+ * ONE RULE, because the parts are the console's own primitives and each dresses
+ * itself: the chip is `primitives/chip.css`' and every wire-sourced part is
+ * `primitives/figure.css`' mono treatment. What is left is the row of them, and a
+ * second declaration of either part's colour or size here would be this family
+ * restating a decision the primitives already made.
+ */
+
+.meridian-tool-sub-family {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}

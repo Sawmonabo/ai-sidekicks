@@ -111,7 +111,8 @@ import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
 import { usePeerInvocationProjection, type SessionStore } from "../../../store/index.js";
 import { type TimelineRowRenderer } from "../../../seats/index.js";
 import { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
-import { useLedgerStructureActs } from "./ledger-feed-acts.js";
+import { buildReplayFromRowAct, useLedgerStructureActs } from "./ledger-feed-acts.js";
+import { useLedgerRowOffers } from "./row-offers/index.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
 import { useFoldedSupersededBands, useSupersededBandDisclosure } from "./ledger-superseded-fold.js";
 import { useChildRunDisclosure } from "../../structure/child-runs/index.js";
@@ -253,6 +254,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     revealedViewportRows,
     viewport.snapshot.rows,
   );
+  const jumpToRow = viewport.jumpToRow;
   // THE FIELD, THE CLASSIFICATION, AND THE ACT — one seam, wired next door.
   // Every window between the loaded log and the screen goes in, because the answer
   // is not whether a row is on screen but which narrowing is the reason it is not.
@@ -269,7 +271,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     toggleChapter: chapterDisclosure.toggle,
     setFilter: ledgerFilter.setFilter,
     endReplay: replay.end,
-    jumpToRow: viewport.jumpToRow,
+    jumpToRow,
     focusLedgerSurface: viewport.focusSurface,
   });
   const find = findAndJump.find;
@@ -299,6 +301,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // could see.
   const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
+  // THE ROW'S OWN OFFERS, bound once for the mount — `row-offers/` owns why.
+  const rowOffers = useLedgerRowOffers({
+    rowLease,
+    setRowLease,
+    jumpToRow,
+    replayFromRow: buildReplayFromRowAct(replay),
+  });
   const renderRow = useLedgerRowRenderer({
     ledgerWindow,
     openedTerminalRunIds,
@@ -308,13 +317,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     renderTimelineRow,
     childRunDisclosure,
     supersededBandDisclosure,
+    rowOffers,
   });
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
-  // "Here", for a console that cannot draw a per-row control: the row at the top of
-  // the box, off the same range the rail's thumb is sized from.
+  // "Here" FOR THE CHORD, which fires with no row in hand: the row at the top of the
+  // box, off the same range the rail's thumb is sized from. The menu needs no anchor.
   const replayAnchorRowId = useReplayAnchorRowId(viewport.visibleRange, viewport.snapshot.rows);
-  const jumpToRow = viewport.jumpToRow;
   const concealReplayDockOnFocusLeaving = useReplayDockConcealOnFocusLeaving(replay.conceal);
 
   // The palette's chords and the cast bar's chips both act on whichever ledger is

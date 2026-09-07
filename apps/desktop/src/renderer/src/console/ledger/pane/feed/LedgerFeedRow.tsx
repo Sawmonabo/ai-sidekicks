@@ -29,12 +29,21 @@
 //     that this memo would compare a fresh object every event and never hold.
 //   • `participantHue` — the store's own assignment object, read and never minted.
 //   • `isSuperseded` and `density` — a boolean and a two-value union.
+//   • `chapterRunId` — a string or `undefined`, resolved by the lookup below rather
+//     than by the card. The WINDOW is what answers whether this row's run has a
+//     chapter here, and handing the window down instead would put a fresh object on
+//     every admitted event into the comparison and stop the memo holding at all.
+//   • `rowOffers` — the feed's binding, minted once and reading its live surfaces
+//     through a ref, which is what lets a press act on the committed window without
+//     the binding moving when that window does.
 //
 // AND THE RENDERER IS THE SEAT'S, handed down from the pane and stable for the life of
 // the registration. A caller that rebuilt it per render would move this memo on every
 // render, which is the defect `LedgerFeed.renders.test.tsx` drives one level up.
 
 import { memo, useCallback } from "react";
+
+import type { FilePathRef } from "@ai-sidekicks/contracts";
 
 import {
   type LedgerRowLease,
@@ -53,6 +62,8 @@ import {
   type ChildRunDisclosure,
 } from "../../structure/child-runs/index.js";
 import { type LedgerSupersededBandDisclosure } from "./ledger-superseded-fold.js";
+import { chapterRunIdInWindow } from "../find/index.js";
+import { LedgerRowMenu, type LedgerRowOffersBinding } from "./row-offers/index.js";
 import { Nothing } from "../../../primitives/index.js";
 import {
   timelineRowFooterRenderer,
@@ -78,6 +89,8 @@ export interface LedgerRowRendererOptions {
   readonly childRunDisclosure: ChildRunDisclosure;
   /** This mount's superseded-band folds. STABLE, for the same reason. */
   readonly supersededBandDisclosure: LedgerSupersededBandDisclosure;
+  /** This mount's per-row offers. STABLE, for the same reason. */
+  readonly rowOffers: LedgerRowOffersBinding;
 }
 
 /**
@@ -98,6 +111,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
   // before first paint, and identity-stable for the life of that registration —
   // which is what the memo below compares.
   const renderTimelineRowFooter = timelineRowFooterRenderer();
+  const rowOffers = options.rowOffers;
   return useCallback(
     (row: LedgerViewportRow) => {
       // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
@@ -211,6 +225,14 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
           }
           renderTimelineRow={renderTimelineRow}
           renderTimelineRowFooter={renderTimelineRowFooter}
+          // RESOLVED HERE AND NOT IN THE MENU, because the question is about the
+          // WINDOW and not about the row: a row names its run, and whether this
+          // window draws that run's header is what decides whether a jump can land.
+          // `chapterRunIdInWindow` is the find walk's own reading of exactly that,
+          // taken rather than restated so a jump from the menu and a jump from the
+          // find field open the same chapter.
+          chapterRunId={chapterRunIdInWindow(projected, ledgerWindow)}
+          rowOffers={rowOffers}
         />
       );
     },
@@ -221,6 +243,7 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
       openedTerminalRunIds,
       renderTimelineRow,
       rowLease,
+      rowOffers,
       supersededBandDisclosure,
       renderTimelineRowFooter,
       toggleChapter,
@@ -233,7 +256,33 @@ export interface LedgerFeedRowProps extends TimelineRowSlotProps {
   readonly renderTimelineRow: TimelineRowRenderer;
   /** The footer seat's renderer, or `undefined` while nobody has filled it. */
   readonly renderTimelineRowFooter: TimelineRowFooterRenderer | undefined;
+  /** The run whose chapter this window holds for this row, or `undefined`. */
+  readonly chapterRunId: string | undefined;
+  /** This window's offer binding. STABLE, or this memo moves with it. */
+  readonly rowOffers: LedgerRowOffersBinding;
 }
+
+/**
+ * The body a row carries into its offers, which on this build is none.
+ *
+ * The seat a row is rendered through carries the row and the list's three decisions
+ * about it, and no body: a machine-authored body reaches a reader through the
+ * hydrated read, which the growth slate carries as the unregistered
+ * `hydrated-event-read` row, so `MachineBody` renders its named absence on every
+ * machine row here. A constant with the reason on it, rather than a literal at the
+ * mount below, so the fact has one home and one line to edit the day the read lands.
+ */
+const NO_ROW_BODY: string | undefined = undefined;
+
+/**
+ * The path token a row carries into its offers, which on this build is none.
+ *
+ * `FilePathRef` is branded so that only the main process can mint one, so this
+ * absence is structural rather than a convention: it ends the day the timeline read
+ * serves a validated path reference, which is the growth slate's
+ * `timeline-path-reference` row, and nothing else here changes.
+ */
+const NO_ROW_PATH_REFERENCE: FilePathRef | undefined = undefined;
 
 /**
  * Draw one row through the seat.
@@ -244,6 +293,15 @@ export interface LedgerFeedRowProps extends TimelineRowSlotProps {
  * inside that article rather than a wrapper around it, which is why it does not
  * break that rule — and it is drawn under the body because that is where the design
  * puts a row-level control.
+ *
+ * THE MENU IS A SIBLING OF THE FOOTER AND NOT INSIDE IT, and the two are different
+ * offers about different things. The footer is one seat another plan fills with the
+ * affordance that corrects what a participant SENT, and it is offered on participant
+ * message rows alone; the menu is this family's own, offered on every row, and it
+ * carries the offers the row vocabulary states — open, close, copy the id, copy the
+ * body, replay from here, jump to the run chapter, reveal the file. Folding either
+ * into the other would give one plan's seat a say over every row, or put this
+ * family's control inside a body it does not own.
  *
  * An ARROW WITH A DECLARED RETURN TYPE rather than a named function expression, so
  * this module resolves as the one component it declares: the source walk
@@ -264,6 +322,14 @@ const LedgerFeedRow = memo(
         row={props.row}
         isSuperseded={props.isSuperseded}
         renderFooter={props.renderTimelineRowFooter}
+      />
+      <LedgerRowMenu
+        row={props.row}
+        density={props.density}
+        chapterRunId={props.chapterRunId}
+        bodyText={NO_ROW_BODY}
+        pathReference={NO_ROW_PATH_REFERENCE}
+        offers={props.rowOffers}
       />
     </>
   ),
