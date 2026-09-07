@@ -165,6 +165,19 @@ export class AttachmentCarrier {
   }
 
   /**
+   * Put one attachment at a new declared position.
+   *
+   * THE LEDGER IS THE RECORD AND THE SURFACE IS NOT. `Spec-014 §Required Behavior`
+   * makes ordering caller-declared and preserved end to end, so a drag that reordered
+   * a rendered list while the ledger kept its own order would show one order and send
+   * another. This goes to the same single writer every other act does, and the
+   * publish it produces is what re-renders the list.
+   */
+  public reorder(localId: string, toPosition: number): void {
+    this.#client.reorder(localId, toPosition);
+  }
+
+  /**
    * Drop the subscription first, then give the daemon back every spool still open.
    *
    * The wake-up is cancelled here rather than left to fire against a disposed carrier:
@@ -249,6 +262,8 @@ export interface AttachmentCarrierBinding {
   readonly attachFiles: (files: readonly File[]) => void;
   readonly retry: (localId: string) => void;
   readonly abandon: (localId: string) => void;
+  /** Put one attachment at a new declared position; the ledger's order is the record. */
+  readonly reorder: (localId: string, toPosition: number) => void;
 }
 
 /**
@@ -315,5 +330,11 @@ export function useAttachmentCarrier(
     },
     [carrier],
   );
-  return { snapshot, attachFiles, retry, abandon };
+  const reorder = useCallback(
+    (localId: string, toPosition: number) => {
+      carrier.reorder(localId, toPosition);
+    },
+    [carrier],
+  );
+  return { snapshot, attachFiles, retry, abandon, reorder };
 }

@@ -9,6 +9,8 @@
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ATTACHMENTS_PER_CARRIER_CAP_DEFAULT, ManualClock } from "../../core/index.js";
+import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
 import { AttachmentCarrierSection } from "./AttachmentCarrierSection.js";
 import { sectionContext } from "../pane-contexts.test-support.js";
@@ -33,12 +35,28 @@ function pickedFile(): File {
 
 /** The section, open, over a port the case scripts. */
 function renderSection(port: ScriptedGrowthPort): HTMLElement {
+  return renderSectionAt(port, true);
+}
+
+/**
+ * The section in either shape, under the console's own announcer.
+ *
+ * The provider is not scaffolding for its own sake: the carrier's list announces a
+ * reorder through the one announcer per window, and `useAnnounce` throws outside it —
+ * which is the seam working, since a surface that minted its own region would be the
+ * second speaker in the window.
+ */
+function renderSectionAt(port: ScriptedGrowthPort, isOpen: boolean): HTMLElement {
   const context = sectionContext({
-    isOpen: true,
+    isOpen,
     bridge: port.asBridge(),
     sessionStore: new SessionStore({ sessionId: "session-1" }),
   });
-  const { container } = render(<AttachmentCarrierSection context={context} />);
+  const { container } = render(
+    <LiveAnnouncerProvider clock={new ManualClock()}>
+      <AttachmentCarrierSection context={context} />
+    </LiveAnnouncerProvider>,
+  );
   return container;
 }
 
@@ -118,12 +136,7 @@ describe("AttachmentCarrierSection — a refusal renders where the progress woul
 describe("AttachmentCarrierSection — the collapsed line", () => {
   it("reports what the carrier holds rather than the section's name", async () => {
     const port = new ScriptedGrowthPort();
-    const context = sectionContext({
-      isOpen: false,
-      bridge: port.asBridge(),
-      sessionStore: new SessionStore({ sessionId: "session-1" }),
-    });
-    const { container } = render(<AttachmentCarrierSection context={context} />);
+    const container = renderSectionAt(port, false);
     // Collapsed, so there is no picker to reach — which is the whole difference
     // between the two shapes, and the reason the summary is asserted separately.
     expect(within(container).queryByLabelText(ATTACH_CONTROL)).toBeNull();
@@ -137,5 +150,59 @@ describe("AttachmentCarrierSection — the collapsed line", () => {
     const summary = container.querySelector(".meridian-attachment-section__summary");
     expect(summary?.querySelector("div, p, section")).toBeNull();
     expect(summary?.querySelector(".meridian-nothing")?.tagName).toBe("SPAN");
+  });
+});
+
+describe("AttachmentCarrierSection — the picker says what it accepts", () => {
+  it("carries the allow-list and all four bounds beside the control itself", () => {
+    // The gap this closes: the hint and the bounds were complete on the artifact
+    // pane's disclosure and absent from the affordance, so the picker a person
+    // actually chooses a file with said nothing about what it would take.
+    const container = renderSection(new ScriptedGrowthPort());
+    const bounds = container.querySelector(".meridian-ingest-bounds")?.textContent ?? "";
+    expect(bounds).toContain("text/markdown");
+    expect(bounds).toContain("Per attachment");
+    expect(bounds).toContain("Per carrier");
+    expect(bounds).toContain("Per chunk");
+    expect(bounds).toContain("Per upload");
+    // Which of the two lists this is. An operator override replaces the default
+    // wholesale, so a hint that could not say would be a hint about a deployment the
+    // console cannot see.
+    expect(container.querySelector(".meridian-ingest-bounds__source")?.textContent).toContain(
+      "shipped default",
+    );
+  });
+
+  it("never filters the host dialog on the hint it is showing", () => {
+    // The list is a convenience and never the gate: an `accept` attribute would hide
+    // files an operator-widened deployment would have taken.
+    const container = renderSection(new ScriptedGrowthPort());
+    const picker = within(container).getByLabelText(ATTACH_CONTROL);
+    expect(picker.getAttribute("accept")).toBeNull();
+  });
+
+  it("counts what the carrier holds against what it may hold", async () => {
+    const port = new ScriptedGrowthPort();
+    const container = renderSection(port);
+    pick(container, pickedFile());
+    await waitFor(
+      () => {
+        expect(container.textContent).toContain(NORMALIZED_NAME);
+      },
+      { timeout: INGEST_TIMEOUT_MS },
+    );
+    expect(container.querySelector(".meridian-attachment-section__fill")?.textContent).toBe(
+      `1 of ${String(ATTACHMENTS_PER_CARRIER_CAP_DEFAULT)} attached`,
+    );
+  });
+
+  it("negative control: an empty carrier reports no count at all", () => {
+    // Without this the case above would pass over a line that printed "0 of 10" —
+    // a denominator against a carrier nobody has put anything in, where the honest
+    // reading is that nothing has been attached.
+    const container = renderSection(new ScriptedGrowthPort());
+    const fill = container.querySelector(".meridian-attachment-section__fill")?.textContent ?? "";
+    expect(fill).not.toContain("of");
+    expect(fill).toContain("No file has been attached in this session.");
   });
 });

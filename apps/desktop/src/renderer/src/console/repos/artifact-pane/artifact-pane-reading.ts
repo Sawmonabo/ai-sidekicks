@@ -11,30 +11,17 @@
 // proposal gate is a second caller of that reading, and a reduction two sub-modules
 // share has no home inside either one.
 
-import { ATTACHMENT_BYTE_CAP_DEFAULT, type ConsoleRefusal } from "../../core/index.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
+import { type ConsoleRefusal } from "../../core/index.js";
+import {
+  SHIPPED_DEFAULT_ALLOWLIST,
+  type AttachmentAllowlistReading,
+} from "../attachments/attachment-bounds.js";
 import type {
   ArtifactDeleteReceipt,
   ArtifactManifestRow,
   ArtifactsPanelState,
 } from "../artifacts/artifact-model.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
-
-/**
- * The effective allow-list and byte cap, with where they came from.
- *
- * `source` is rendered rather than inferred. An operator override REPLACES the default
- * wholesale — `Spec-014 §Bounds (normative defaults; operator-tunable)` — so a hint that
- * could not say which of the two it is showing would be a hint a participant cannot
- * trust against a deployment they cannot see.
- */
-export interface ArtifactAllowlistReading {
-  readonly source: "effective" | "shipped-default";
-  readonly mediaTypes: readonly string[];
-  readonly maximumByteLength: number;
-  /** Why the effective read did not answer, on the `shipped-default` arm. */
-  readonly refusal: ConsoleRefusal | undefined;
-}
 
 /**
  * The instant a reading nobody has published yet carries.
@@ -65,7 +52,7 @@ export interface ArtifactPaneReading {
    * put a reading on screen carrying an instant from an earlier one.
    */
   readonly readAtMilliseconds: number;
-  readonly allowlist: ArtifactAllowlistReading;
+  readonly allowlist: AttachmentAllowlistReading;
   /**
    * What the last delete REPORTED, which is not the same as that it happened.
    *
@@ -124,14 +111,6 @@ const NO_ROW_REFUSALS: ReadonlyMap<string, ConsoleRefusal> = new Map();
 
 /** One shared empty set, so a reading nobody has acted on keeps a stable identity. */
 const NO_MANIFEST_READS_IN_FLIGHT: ReadonlySet<string> = new Set();
-
-/** The bounds the console ships with, when the deployment's own could not be read. */
-export const SHIPPED_DEFAULT_ALLOWLIST: ArtifactAllowlistReading = {
-  source: "shipped-default",
-  mediaTypes: ATTACHMENT_ALLOWLIST_DEFAULT,
-  maximumByteLength: ATTACHMENT_BYTE_CAP_DEFAULT,
-  refusal: undefined,
-};
 
 /** Before anyone asked. `not-checked` is a different claim from an empty list. */
 export const NOTHING_READ_YET: ArtifactPaneReading = {
@@ -265,7 +244,7 @@ export function withoutRowRefusal(
 export function settledReadReading(
   previous: ArtifactPaneReading,
   artifacts: ArtifactPaneReading["artifacts"],
-  allowlist: ArtifactAllowlistReading,
+  allowlist: AttachmentAllowlistReading,
 ): Omit<ArtifactPaneReading, "readAtMilliseconds"> {
   return {
     artifacts,

@@ -58,6 +58,7 @@ import {
   INGEST_DISPOSITION_COPY,
   type UnresolvedAttachmentCause,
 } from "./attachment-policy.js";
+import { attachmentRefusalCopyFor } from "./attachment-refusal-copy.js";
 import {
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   ingestCeilingRemainingMs,
@@ -190,6 +191,13 @@ function renderIngesting(
       {entry.refusal === undefined ? null : (
         <div className="meridian-attachment__refusal">
           <InlineRefusal code={entry.refusal.code} detail={entry.refusal.detail} />
+          {/* WHAT THE CODE MEANS, WHERE THE DAEMON'S SENTENCE DELIBERATELY LEAVES IT
+              OUT — which of `artifact.too_large`'s three enforcement points answered,
+              what survived a whole-carrier refusal, where the bytes went. Rule 9 gives
+              the console the slot beside the refusal and never inside it, so the
+              daemon's own text renders unparaphrased above this. A code the table does
+              not name renders exactly as it did before it existed. */}
+          {renderRefusalMeaning(entry.refusal.code)}
           {entry.disposition === undefined ? null : (
             <p className="meridian-attachment__note">
               {INGEST_DISPOSITION_COPY[entry.disposition]}
@@ -227,6 +235,26 @@ function renderIngesting(
           {INGEST_ABANDON_COPY}
         </p>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * This surface's reading of a named refusal, or nothing at all.
+ *
+ * A render helper rather than a component, on `ArtifactsPanel.tsx`'s rule: it holds no
+ * state and takes no hooks, so mounting it as an element type would buy a
+ * reconciliation boundary nothing needs.
+ */
+function renderRefusalMeaning(code: string): React.JSX.Element | null {
+  const copy = attachmentRefusalCopyFor(code);
+  if (copy === undefined) {
+    return null;
+  }
+  return (
+    <>
+      <p className="meridian-attachment__note">{copy.meaning}</p>
+      <p className="meridian-attachment__note">{copy.nextMove}</p>
     </>
   );
 }
