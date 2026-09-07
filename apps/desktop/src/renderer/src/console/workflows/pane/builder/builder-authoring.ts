@@ -20,15 +20,22 @@
 // producer keeps its own code union and widens into the shared refusal shape at its
 // boundary — `core/refusal.ts` says why it cannot be one union for the console.
 //
-// WIRE STATUS — READ THIS BEFORE WIRING A CALLER. `packages/contracts` registers no
-// `workflow.*` method, and the five acts below all submit a definition body, which
-// is `workflow.definitionCreate` — deliberately NOT on `console/bridge/growth-port.ts`,
-// which carries the read and control operations and no create. So nothing in this
-// console can submit a definition at all today, and adding one is a growth-row
-// append rather than a redesign. `unregisteredAuthoringAct` is what a pane with no
-// wire renders instead of a button that would do nothing.
+// WIRE STATUS — READ THIS BEFORE WIRING A CALLER. `packages/contracts` still registers
+// no `workflow.*` method, but the create the five acts below all submit IS on
+// `console/bridge/growth-port/growth-port.ts` now, under the
+// `workflow-definition-authoring` slate row — so a build whose bridge cannot serve it
+// gets the port's own refusal, naming the wire and who owes it, rather than a sentence
+// this file composed about a bridge it had not asked.
+//
+// WHICH IS WHY THE REFUSAL BELOW IS NO LONGER ABOUT THE WIRE. What stops SAVING here is
+// upstream of any call: saving submits an EDITED body, and the canvas that edits one is
+// Plan-017's reserved slot — there is nothing to send. `reservedCanvasAct` says that,
+// and a pane that said "the operation is not on the bridge" would now be asserting
+// something false about a port that carries it. The two acts whose subject is the
+// definition already on screen — importing and promoting — do reach the port, from
+// `definitions/detail/definition-authoring-dispatch.ts`, which is where an act with
+// something to submit belongs.
 
-import { WIRE_UNREGISTERED_REFUSAL_CODE } from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import type { WorkflowStripState } from "../../strip-state.js";
@@ -65,6 +72,14 @@ export const WORKFLOW_BUILDER_PRIMARY_ACT: WorkflowAuthoringAct = "save";
 export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
 
 /**
+ * The code an act with nothing to submit refuses under.
+ *
+ * Declared here rather than imported, because the condition is this surface's own: the
+ * canvas that would compose an edited body is a reserved slot in this very directory.
+ */
+export const AUTHORING_CANVAS_RESERVED_CODE = "authoring-canvas-reserved" as const;
+
+/**
  * The refusals this surface raises on its own, and no others.
  *
  * Two members, and they refuse at two different moments. Every shape the canvas
@@ -73,10 +88,12 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  * — neither of those is here. What is left for this pane is the pair of cases with
  * no daemon in the loop at all:
  *
- *   • `wire-unregistered` — there is a subject and no wire. The question is
- *     well-formed and nothing can be asked, because the operation is not on the
- *     bridge. The bridge owns that code and publishes it, so this set names it from
- *     there for the reason it names the address code from `pane-addressing.ts`.
+ *   • `authoring-canvas-reserved` — there is a subject, there is a wire, and there is
+ *     nothing to send. Saving submits an edited definition body and the canvas that
+ *     edits one is not built, so the refusal is about this build's own surface rather
+ *     than about the bridge. It deliberately REPLACED `wire-unregistered` here when the
+ *     create landed on the growth port: a pane naming a code the port itself owns would
+ *     be a second author for a fact the port already reports, and would now be wrong.
  *   • `pane-address-invalid` — there is no well-formed question. The pane was
  *     handed an entity of a kind it does not author, so it refuses BEFORE composing
  *     a read rather than passing a run id off as a definition id and asking about
@@ -85,9 +102,9 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  *     there rather than spelling a second literal.
  */
 export const WORKFLOW_BUILDER_REFUSAL_CODES: readonly [
-  typeof WIRE_UNREGISTERED_REFUSAL_CODE,
+  typeof AUTHORING_CANVAS_RESERVED_CODE,
   typeof PANE_ADDRESS_INVALID_CODE,
-] = [WIRE_UNREGISTERED_REFUSAL_CODE, PANE_ADDRESS_INVALID_CODE] as const;
+] = [AUTHORING_CANVAS_RESERVED_CODE, PANE_ADDRESS_INVALID_CODE] as const;
 
 /** One locally-raised refusal code. Derived from the tuple, never restated. */
 export type WorkflowBuilderRefusalCode = (typeof WORKFLOW_BUILDER_REFUSAL_CODES)[number];
@@ -102,23 +119,25 @@ const ACT_PROSE: Readonly<Record<WorkflowAuthoringAct, string>> = {
 };
 
 /**
- * The state an authoring act is in on a build whose bridge does not carry it.
+ * The state an authoring act is in while the canvas that composes its body is reserved.
  *
  * "Not checked" and never "denied": nobody put the question to a daemon, so a
  * console that rendered this as a denial would be asserting an adjudication that
  * never happened. The detail names the act in prose rather than naming a method
  * string, because no such method is registered and printing one would be this
- * surface inventing the wire it is reporting the absence of.
+ * surface inventing the wire it is reporting the absence of — the create it would
+ * ride is on the growth port, and a surface that could reach it would render THAT
+ * refusal rather than composing one here.
  */
-export function unregisteredAuthoringAct(act: WorkflowAuthoringAct): ConsoleRefusal {
+export function reservedCanvasAct(act: WorkflowAuthoringAct): ConsoleRefusal {
   // Bound through the closed vocabulary before it reaches `refuse`, whose `code`
   // parameter is a deliberately-wide `string` — `core/refusal.ts` cannot close it
   // without importing every producer and inverting the DAG.
-  const code: WorkflowBuilderRefusalCode = WIRE_UNREGISTERED_REFUSAL_CODE;
+  const code: WorkflowBuilderRefusalCode = AUTHORING_CANVAS_RESERVED_CODE;
   return refuse(
     WORKFLOW_BUILDER_ORIGIN,
     code,
-    `${ACT_PROSE[act]} is not reachable from this build — the operation is not on the bridge yet.`,
+    `${ACT_PROSE[act]} is not reachable from this build — the canvas that composes a definition body is reserved and unbuilt.`,
   );
 }
 
@@ -160,16 +179,16 @@ export function misaddressedBuilderPane(addressedKind: ConsoleEntityRef["kind"])
  * different next moves, which is why they are different arms.
  *
  * WHY THIS IS AN ABSENCE AND NOT AN AUTHORING CANVAS. Every act that writes a
- * definition submits a definition body, and no such operation is on the bridge; the
- * pane can therefore be opened with no subject and can do nothing with one. The
- * surface that would have opened it withholds the control, and this arm is what a
- * pane addressed that way anyway says about itself, rather than a list from which
- * nothing can advance.
+ * definition submits a definition body, and the canvas that composes one is reserved;
+ * the pane can therefore be opened with no subject and can start nothing with one. An
+ * ADDRESSED pane is a different case since the reads landed — it opens on the
+ * definition it names — which is why this arm still withholds a control the surface
+ * that would have opened it never offers.
  */
 export function unaddressedBuilderPane(): WorkflowStripState {
   return {
     kind: "empty",
     title: "This pane was opened without a definition to author.",
-    detail: `${ACT_PROSE[WORKFLOW_BUILDER_PRIMARY_ACT]} is not reachable from this build, so nothing here can start one. Open a definition from the workflows destination to edit an existing one.`,
+    detail: `${ACT_PROSE[WORKFLOW_BUILDER_PRIMARY_ACT]} is not reachable from this build, so nothing here can start one. Open a definition from the workflows destination to read an existing one.`,
   };
 }

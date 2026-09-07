@@ -11,9 +11,10 @@
 //
 // This module is the scenario declaration: the roster, the beats, and the reply
 // script. The records those replies are built out of are the `workflow-fixture-*.ts`
-// modules beside it, and the three replies that are COMPUTED rather than tabled —
-// the run-to-definition join, the request-keyed run read, and the phase-output read —
-// are `workflow-fixture-replies.ts`, which carries the rules those reads obey.
+// modules beside it, and the five replies that are COMPUTED rather than tabled — the
+// run-to-definition join, the request-keyed run read, the phase-output read, the
+// definition read a browser row opens, and the version body it shows — are
+// `workflow-fixture-replies.ts`, which carries the rules those reads obey.
 //
 // WHERE THE RUNS ARE, AND WHY THEY ARE NOT BEATS
 //
@@ -67,10 +68,12 @@ import {
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import { WORKFLOWS_PARTICIPANT_YOU, WORKFLOWS_SESSION_ID } from "./workflow-fixture-ids.js";
 import {
+  definitionReadFor,
   phaseOutputsFor,
   runListEntries,
   runSnapshotFor,
   versionChainFor,
+  versionReadFor,
 } from "./workflow-fixture-replies.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
@@ -309,6 +312,24 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
       // it is pinned to the one run whose work these outputs are.
       call: "workflow.phaseOutputRead",
       resultFor: phaseOutputsFor,
+    },
+    {
+      // Answered per requested definition, out of the same summary table the browser's
+      // enumeration is served from — so every row a person can press opens on the
+      // definition that row named, and a definition this fixture states nothing about
+      // refuses rather than being answered with somebody else's phases.
+      call: "workflow.definitionRead",
+      resultFor: definitionReadFor,
+    },
+    {
+      // Answered per `(definition, version)`, which is the key the registry addresses
+      // a version by. This fixture holds one body per definition — its latest — so a
+      // read naming an older version refuses: the chain read beside it says which
+      // versions exist without claiming to hold their bytes, and answering an older
+      // number with the latest body would state that an older version's bytes are the
+      // current ones.
+      call: "workflow.versionRead",
+      resultFor: versionReadFor,
     },
   ],
 };

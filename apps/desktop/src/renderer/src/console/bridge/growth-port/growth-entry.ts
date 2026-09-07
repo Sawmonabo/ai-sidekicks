@@ -165,6 +165,13 @@ export type GrowthOperationId =
   // registry addresses a version by `(definitionId, versionNumber)`, so an id in hand
   // resolves to nothing and the read that would resolve it folds to no wire method.
   | "workflowVersionChainRead"
+  // The definition plane's own three registry rows — the two reads that open a
+  // definition and one of its versions, and the single write all five authoring acts
+  // ride. Registered method strings like the nine above, and on a slate row of their
+  // own because they are the boundary that row's count is drawn at.
+  | "workflowDefinitionRead"
+  | "workflowVersionRead"
+  | "workflowDefinitionCreate"
   // gitflow
   | "gitflowBranchContextRead"
   | "gitflowPrPrepare"
@@ -230,4 +237,5 @@ export type GrowthPrerequisiteId =
   | "approvalAmendmentArm"
   | "agentProviderSwitchFailedEvent"
   | "providerSessionImportSpec"
-  | "mountHealthIdentityProjection";
+  | "mountHealthIdentityProjection"
+  | "workflowParentContentHashMember";
