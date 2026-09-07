@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { compareInstants, parseInstant } from "../../core/index.js";
+import { compareInstants, parseInstant } from "../../../core/index.js";
 import { REPOS_SCENARIO_STARTED_AT_ISO } from "./repos-beats.js";
 import {
   DRIFTED_MOUNT_ID,

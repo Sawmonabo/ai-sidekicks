@@ -16,7 +16,7 @@ import { render } from "@testing-library/react";
 import { type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { FrameStore } from "./frame-store.js";
+import { FrameStore } from "../frame-store.js";
 import { useModalSurfaceLifetime } from "./modal-surface-lifetime.js";
 
 interface ModalSurfaceProbeProps {

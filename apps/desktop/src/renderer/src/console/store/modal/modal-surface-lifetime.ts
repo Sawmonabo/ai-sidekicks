@@ -38,7 +38,7 @@
 
 import { useEffect, useId } from "react";
 
-import type { FrameStore } from "./frame-store.js";
+import type { FrameStore } from "../frame-store.js";
 
 /**
  * Publish a window-scoped dialog's open state for the shell's `inert` guard.

@@ -136,8 +136,9 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // covers the row.
   "approval-remembered-rule": "approvals lane — the approvals pane",
   "approval-amendment-arm": "approvals lane — the approvals pane",
-  // shell lane — the window controls the workspace deck and auxiliary windows take.
-  "window-control-namespace": "shell lane — the workspace deck and auxiliary windows",
+  // `window-control-namespace` came off this list when the frame lane landed the
+  // controls: the `window*` operations are reached from the frame's own chrome now, so
+  // the derived check covers the row.
 };
 
 describe("growth slate — every row's consuming surface resolves to a module", () => {

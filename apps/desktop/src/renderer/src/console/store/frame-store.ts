@@ -20,7 +20,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ConsoleRefusal } from "../core/index.js";
 import type { SessionDegradedCause } from "./degradation.js";
-import { ModalSurfaceClaims } from "./modal-surface-claims.js";
+import { ModalSurfaceClaims } from "./modal/modal-surface-claims.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
 import {
   UNREPORTED_SHELL_STATE,
@@ -264,7 +264,7 @@ export class FrameStore {
    * Where a family-owned modal surface takes and gives up its claim on the window.
    *
    * Handed out rather than wrapped in a pair of methods on this class, so a claim is
-   * something a surface HOLDS: `modal-surface-claims.ts` states why the register can
+   * something a surface HOLDS: `modal/modal-surface-claims.ts` states why the register can
    * add and remove only the caller's own id and offers no clear-all.
    */
   public get modalSurfaceClaims(): ModalSurfaceClaims {

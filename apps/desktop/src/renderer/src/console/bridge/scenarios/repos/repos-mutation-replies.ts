@@ -28,8 +28,8 @@
 // which answers a GROWTH operation the corpus registers no shape for at all — and it is
 // keyed under the `growth:` prefix precisely so that nothing reads it as a wire method.
 
-import type { WireErrorEnvelope } from "../../core/index.js";
-import type { ConsoleScenario } from "../scenario-runtime/index.js";
+import type { WireErrorEnvelope } from "../../../core/index.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 import { scenarioInstant } from "./repos-beats.js";
 import {

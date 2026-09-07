@@ -12,13 +12,14 @@
 // the family owns what the thing is. Nothing here writes a hover rule, so the reveal
 // stays one decision rather than a question the cascade answers.
 //
-// IT IS NOT REGISTERED WITH AN OVERLAY REGISTRY, AND THAT IS A STRUCTURAL FACT RATHER
-// THAN AN OMISSION. The console's occlusion registry lives in a sibling VIEW family,
-// and the layering gate forbids one view family importing another — the registry's
-// own header says it is hoisted into a lower family by the task that adds the first
-// overlay PRIMITIVE, and no primitive publishes one yet. Until that hoist lands, a
-// menu in a view family registers nothing, which is what the membership menu next
-// door does too.
+// THE ANCHORED PART OF THE MENU IS THE PRIMITIVE'S. The hoist this file used to wait
+// on has landed: `primitives/overlay/OverlayMenuPopup.tsx` owns the portal, the
+// positioner, and the popup, and registers the popup in the window's airspace
+// (`Spec-023 §Console Design (Meridian)` 12.3). A row that mounted its own portal
+// would be a menu a native browser-pane view paints over and takes the presses of —
+// and it would be invisible to the registry, because the consumer never touches the
+// registration at all. `Menu.Root`, `Menu.Trigger`, and the items stay here: which
+// offers a row has is this family's vocabulary.
 //
 // BASE UI OWNS THE BEHAVIOUR. The trigger's `aria-haspopup` and `aria-expanded`, the
 // popup's roles, arrow-key navigation, typeahead, Escape, outside press, and
@@ -29,7 +30,7 @@ import { Menu } from "@base-ui/react/menu";
 
 import type { FilePathRef, TimelineRow } from "@ai-sidekicks/contracts";
 
-import { Glyph } from "../../../../primitives/index.js";
+import { Glyph, OverlayMenuPopup } from "../../../../primitives/index.js";
 import { type TimelineRowDensity } from "../../../../seats/index.js";
 import { GLYPH_SIZE_CHROME } from "../../../../tokens/index.js";
 import { type LedgerRowOffersBinding } from "./ledger-row-offers-binding.js";
@@ -89,21 +90,21 @@ export function LedgerRowMenu(props: LedgerRowMenuProps): React.JSX.Element {
       >
         <Glyph name="more" size={GLYPH_SIZE_CHROME} />
       </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner className="meridian-ledger-row-menu__positioner" sideOffset={4}>
-          <Menu.Popup className="meridian-ledger-row-menu">
-            {offers.map((offer) => (
-              <Menu.Item
-                key={offer.kind}
-                className="meridian-ledger-row-menu__item"
-                onClick={offer.perform}
-              >
-                {offer.label}
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
+      <OverlayMenuPopup
+        positionerClassName="meridian-ledger-row-menu__positioner"
+        sideOffset={4}
+        className="meridian-ledger-row-menu"
+      >
+        {offers.map((offer) => (
+          <Menu.Item
+            key={offer.kind}
+            className="meridian-ledger-row-menu__item"
+            onClick={offer.perform}
+          >
+            {offer.label}
+          </Menu.Item>
+        ))}
+      </OverlayMenuPopup>
     </Menu.Root>
   );
 }

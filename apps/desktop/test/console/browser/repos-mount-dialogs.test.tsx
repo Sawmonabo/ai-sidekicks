@@ -31,7 +31,7 @@ import { REPOS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenari
 import {
   GIT_MOUNT_ID,
   PLAIN_MOUNT_ID,
-} from "../../../src/renderer/src/console/bridge/scenarios/repos-fixture-data.js";
+} from "../../../src/renderer/src/console/bridge/scenarios/repos/repos-fixture-data.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
 import { BindWorkspaceDialog } from "../../../src/renderer/src/console/repos/mounts/bind/BindWorkspaceDialog.js";

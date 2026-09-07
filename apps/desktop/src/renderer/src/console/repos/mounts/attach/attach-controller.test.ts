@@ -1,7 +1,7 @@
 // The attach act against the fixture: two wires, one surface, and no silent no-op.
 //
 // DRIVEN THROUGH THE REAL CONTROLLER AND THE REAL FIXTURE BRIDGE. The scripted arms in
-// `bridge/scenarios/repos-mutation-replies.ts` are what a person meets on the fixture,
+// `bridge/scenarios/repos/repos-mutation-replies.ts` are what a person meets on the fixture,
 // so a case that stubbed the port would be asserting against a bridge no window builds.
 
 import { act, renderHook } from "@testing-library/react";
@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
-import { NODE_ID } from "../../../bridge/scenarios/repos-fixture-data.js";
+import { NODE_ID } from "../../../bridge/scenarios/repos/repos-fixture-data.js";
 
 /** The root the scenario's healthy git mount already holds. Attaching it re-attaches. */
 const ALREADY_ATTACHED_ROOT = "/Users/dev/code/ai-sidekicks";

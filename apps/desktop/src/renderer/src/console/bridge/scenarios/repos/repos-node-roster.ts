@@ -25,7 +25,7 @@ import type {
   RuntimeNodeRosterEntry,
 } from "@ai-sidekicks/contracts";
 
-import type { ScenarioRuntimeNodeRosterFrame } from "../scenario-runtime/index.js";
+import type { ScenarioRuntimeNodeRosterFrame } from "../../scenario-runtime/index.js";
 
 import { secondsBeforeStart } from "./repos-beats.js";
 import { NODE_ID, PARTICIPANT_YOU } from "./repos-fixture-data.js";

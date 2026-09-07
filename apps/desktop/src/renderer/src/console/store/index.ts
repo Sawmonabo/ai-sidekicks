@@ -79,7 +79,7 @@ export { bannerClassRefusalAmong, useRefusalBannerEscalation } from "./refusal-e
 // the cell it writes lives in this family's own store. Written twice before it was
 // hoisted, and the second copy was missing: a walkthrough that trapped focus and left
 // the whole route surface reachable behind it.
-export { useModalSurfaceLifetime } from "./modal-surface-lifetime.js";
+export { useModalSurfaceLifetime } from "./modal/modal-surface-lifetime.js";
 
 // The shell's own condition, and the two derivations every reader of it shares.
 //

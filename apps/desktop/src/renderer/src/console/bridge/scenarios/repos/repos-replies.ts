@@ -26,7 +26,7 @@ import {
   type WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleScenario } from "../scenario-runtime/index.js";
+import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
 import { scenarioInstant, secondsBeforeStart } from "./repos-beats.js";
 import { capabilitiesFor, mountReadFor } from "./repos-mount-reads.js";

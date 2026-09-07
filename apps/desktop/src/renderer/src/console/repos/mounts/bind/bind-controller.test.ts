@@ -3,14 +3,17 @@
 //
 // DRIVEN THROUGH THE REAL CONTROLLER AND THE REAL FIXTURE BRIDGE, on
 // `attach/attach-controller.test.ts`'s reason: the scripted arms in
-// `bridge/scenarios/repos-mutation-replies.ts` are what a person meets on the fixture,
+// `bridge/scenarios/repos/repos-mutation-replies.ts` are what a person meets on the fixture,
 // so a case that stubbed the port would assert against a bridge no window builds.
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
-import { GIT_MOUNT_ID, PLAIN_MOUNT_ID } from "../../../bridge/scenarios/repos-fixture-data.js";
+import {
+  GIT_MOUNT_ID,
+  PLAIN_MOUNT_ID,
+} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../core/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { BindWorkspaceController } from "./bind-controller.js";

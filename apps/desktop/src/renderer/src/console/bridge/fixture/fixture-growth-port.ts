@@ -57,7 +57,7 @@ import {
 // The routing key itself, from the scenario module that mints it — the workflow
 // enumeration's rule one file over: restated as a literal here, a rename would move
 // the constant and the reply and leave this handler answering a key nothing sends.
-import { REPOS_EXECUTION_CONTEXT_CALL } from "../scenarios/repos-mutation-replies.js";
+import { REPOS_EXECUTION_CONTEXT_CALL } from "../scenarios/repos/repos-mutation-replies.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**

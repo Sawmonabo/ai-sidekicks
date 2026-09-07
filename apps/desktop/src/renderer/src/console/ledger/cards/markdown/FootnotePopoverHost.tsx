@@ -11,6 +11,14 @@
 // is the one place it is rendered, out of the nodes the registry recorded rather than out
 // of a second parse.
 //
+// THE ANCHORED PART OF THE POPOVER IS THE PRIMITIVE'S. `Popover.Root` and the render
+// prop stay here because which definition is open is this host's state, but the
+// portal, the positioner, and the popup are `primitives/overlay/OverlayPopoverPopup.tsx`'s
+// — that is what puts the popup in the window's airspace (`Spec-023 §Console Design
+// (Meridian)` 12.3), and a card that mounted its own portal would be a note a native
+// browser-pane view paints over. The popup's id still travels from here: the marker
+// names it through `aria-controls`, so one id is minted once and spent in two places.
+//
 // AND A DEFINITION NOTHING REFERS TO IS NAMED. Stripping it from the body and saying
 // nothing would delete an author's words with no record: a reader would have no way to
 // know the message carried a note at all. It is only asked once the body is COMPLETE —
@@ -19,6 +27,8 @@
 
 import { useId, useMemo, useState } from "react";
 import { Popover } from "@base-ui/react/popover";
+
+import { OverlayPopoverPopup } from "../../../primitives/index.js";
 
 import { DefinitionBody } from "./DefinitionBody.js";
 import type { FootnoteRegistry } from "./footnote-registry.js";
@@ -75,20 +85,20 @@ export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.
       <UncitedDefinitions identifiers={props.uncitedIdentifiers} />
       <Popover.Root handle={handle}>
         {({ payload: identifier }: { readonly payload: string | undefined }) => (
-          <Popover.Portal>
-            <Popover.Positioner sideOffset={FOOTNOTE_POPUP_SIDE_OFFSET}>
-              <Popover.Popup id={popupId} className="meridian-footnote-popover">
-                <DefinitionBody
-                  bodyNodes={
-                    identifier === undefined
-                      ? undefined
-                      : props.footnotes.resolve(props.sourceId, identifier)?.bodyNodes
-                  }
-                  context={definitionContext}
-                />
-              </Popover.Popup>
-            </Popover.Positioner>
-          </Popover.Portal>
+          <OverlayPopoverPopup
+            sideOffset={FOOTNOTE_POPUP_SIDE_OFFSET}
+            popupId={popupId}
+            className="meridian-footnote-popover"
+          >
+            <DefinitionBody
+              bodyNodes={
+                identifier === undefined
+                  ? undefined
+                  : props.footnotes.resolve(props.sourceId, identifier)?.bodyNodes
+              }
+              context={definitionContext}
+            />
+          </OverlayPopoverPopup>
         )}
       </Popover.Root>
     </FootnoteHostProvider>

@@ -10,11 +10,19 @@
 // arrangement `ledger/cards/markdown/FootnotePopoverHost.tsx` makes for the same reason,
 // and the arrangement the library's own handle API exists to serve.
 //
+// THE ANCHORED PART OF THE CARD IS THE PRIMITIVE'S. `Tooltip.Root` and the handle stay
+// here — one popup driven by many triggers is the arrangement this file exists for —
+// while the portal, the positioner, and the popup are
+// `primitives/overlay/OverlayTooltipPopup.tsx`'s, which is what registers the card in
+// the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3). A bar that
+// mounted its own portal would be a card a native browser-pane view paints over.
+//
 // THE PAYLOAD IS THE MEMBER, not its id: the card names the participant, and a host that
 // took an id would have to find the member again out of a model the bar already derived.
 
 import { Tooltip } from "@base-ui/react/tooltip";
 
+import { OverlayTooltipPopup } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { ParticipantCard } from "./ParticipantCard.js";
 import { type CastMember } from "./cast-bar-model.js";
@@ -53,22 +61,18 @@ export function ParticipantCardHost(props: ParticipantCardHostProps): React.JSX.
   return (
     <Tooltip.Root handle={props.handle}>
       {({ payload: member }: { readonly payload: CastMember | undefined }) => (
-        <Tooltip.Portal>
-          <Tooltip.Positioner sideOffset={CARD_OFFSET_PX}>
-            <Tooltip.Popup className="meridian-cast-chip__card">
-              {/* No payload means no chip is holding it open, which is every render but
-                  the open one. Rendering nothing is the honest answer; a card composed
-                  from a remembered member would name somebody nobody pointed at. */}
-              {member === undefined ? null : (
-                <ParticipantCard
-                  sessionStore={props.sessionStore}
-                  participantId={member.participantId}
-                  label={member.label}
-                />
-              )}
-            </Tooltip.Popup>
-          </Tooltip.Positioner>
-        </Tooltip.Portal>
+        <OverlayTooltipPopup sideOffset={CARD_OFFSET_PX} className="meridian-cast-chip__card">
+          {/* No payload means no chip is holding it open, which is every render but
+              the open one. Rendering nothing is the honest answer; a card composed
+              from a remembered member would name somebody nobody pointed at. */}
+          {member === undefined ? null : (
+            <ParticipantCard
+              sessionStore={props.sessionStore}
+              participantId={member.participantId}
+              label={member.label}
+            />
+          )}
+        </OverlayTooltipPopup>
       )}
     </Tooltip.Root>
   );

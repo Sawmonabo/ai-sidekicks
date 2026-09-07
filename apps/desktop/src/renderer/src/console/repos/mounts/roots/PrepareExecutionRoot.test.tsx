@@ -18,7 +18,10 @@ import { WORKTREE_GIT_REF_MAX_LEN, type ExecutionMode } from "@ai-sidekicks/cont
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
-import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../../bridge/scenarios/repos-fixture-data.js";
+import {
+  GIT_MOUNT_ID,
+  GIT_WORKSPACE_ID,
+} from "../../../bridge/scenarios/repos/repos-fixture-data.js";
 import { SessionStore } from "../../../store/index.js";
 import { advanceScenarioUntil } from "../../scenario-clock.test-support.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
