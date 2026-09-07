@@ -10,7 +10,15 @@
 //
 // The negative control is the third ledger case: a binding no mutation named keeps the
 // scripted row. Without it a ledger that replaced every row with the last mutation's
-// would pass both positive cases.
+// would pass both positive cases. The port's own is the refused press: a mutation the
+// daemon would not perform records nothing, and every row stays as the script declares
+// it.
+//
+// WHICH ROW A MUTATION ANSWERED FOR IS ASSERTED RATHER THAN ASSUMED. The scenario
+// computes each governance answer from the binding the request named, so a case sends a
+// press and reads the answer's own identity back; an answer carrying some other row
+// would substitute that row on the next read while the page rendered this outcome under
+// the control that was pressed.
 
 import { describe, expect, it } from "vitest";
 
@@ -22,12 +30,10 @@ import {
   mcpBindingKeyOf,
   type GrowthMcpBindingRef,
   type GrowthMcpInventoryEntry,
+  type GrowthMcpMutationResult,
 } from "../growth-values/index.js";
-import {
-  SETTINGS_MCP_INVENTORY,
-  SETTINGS_MCP_SET_ENABLED,
-  SETTINGS_MCP_SET_TRUST,
-} from "../scenarios/settings-mcp-plane.js";
+import { SETTINGS_MCP_INVENTORY } from "../scenarios/settings-mcp-plane.js";
+import { settingsMcpMutationResult } from "../scenarios/settings-mcp-plane.test-support.js";
 import { SETTINGS_SCENARIO } from "../scenarios/settings.js";
 
 /** The scripted latency on the inventory read, so a case advances past its own. */
@@ -73,20 +79,30 @@ function rowNamedIn(
 }
 
 /**
- * The served value of one outcome, or a failure naming the outcome that was not served.
+ * The answer the scenario's own script gives one disable of the filesystem binding.
  *
- * A narrowing helper rather than a bare cast: an operation that refused answers a
- * `status` this suite has nothing to say about, and reading `.value` off it would be
- * the fixture's own absence rendered as a result.
+ * Read from the script rather than composed here, because the ledger's whole subject is
+ * what it does with a row a MUTATION answered with — and read per case rather than once
+ * for the file, so a case that records it and a case that does not cannot share an
+ * object whose identity another case then asserts on.
  */
+function scriptedFilesystemDisable(): GrowthMcpMutationResult {
+  return settingsMcpMutationResult("mcp.setEnabled", {
+    ...FILESYSTEM_BINDING,
+    enabled: false,
+    clientIdempotencyKey: "probe-disable",
+  });
+}
+
 describe("FixtureMcpInventoryLedger", () => {
   it("serves the row a mutation answered with, in the scripted row's place", () => {
     const ledger = new FixtureMcpInventoryLedger();
-    ledger.recordMutation(SETTINGS_MCP_SET_ENABLED);
+    const disable = scriptedFilesystemDisable();
+    ledger.recordMutation(disable);
 
     const reading = ledger.inventoryOver({ servers: SETTINGS_MCP_INVENTORY });
 
-    expect(rowNamedIn(reading, "filesystem")).toBe(SETTINGS_MCP_SET_ENABLED.server);
+    expect(rowNamedIn(reading, "filesystem")).toBe(disable.server);
     // Order is the script's, so the substitution replaced a row rather than appending
     // one — a reader watching one control cannot have another binding slide under it.
     expect(reading.servers.map((entry) => entry.serverName)).toStrictEqual(
@@ -96,13 +112,14 @@ describe("FixtureMcpInventoryLedger", () => {
 
   it("keys the substitution on the whole binding and not on the server name", () => {
     const ledger = new FixtureMcpInventoryLedger();
+    const disable = scriptedFilesystemDisable();
     // The same server name under a scope the scripted inventory does not carry. A
     // ledger keyed on the name alone would put this row on the `user`-scoped
     // `filesystem` binding, which is a different binding entirely.
     ledger.recordMutation({
-      ...SETTINGS_MCP_SET_ENABLED,
+      ...disable,
       server: {
-        ...SETTINGS_MCP_SET_ENABLED.server,
+        ...disable.server,
         scope: "project",
         scopeRef: "/Users/example/work/elsewhere",
       },
@@ -116,7 +133,7 @@ describe("FixtureMcpInventoryLedger", () => {
   // Negative control: the substitution bites only where a mutation named the binding.
   it("leaves a binding no mutation named exactly as the script declares it", () => {
     const ledger = new FixtureMcpInventoryLedger();
-    ledger.recordMutation(SETTINGS_MCP_SET_ENABLED);
+    ledger.recordMutation(scriptedFilesystemDisable());
 
     const reading = ledger.inventoryOver({ servers: SETTINGS_MCP_INVENTORY });
 
@@ -153,7 +170,11 @@ describe("the fixture growth port — the inventory read after a governance muta
     });
     await crossMacrotaskBoundary();
     fixture.engine.advance(MCP_MUTATION_LATENCY_MS);
-    expect(servedValueOf(await disable).server).toBe(SETTINGS_MCP_SET_ENABLED.server);
+    const servedDisable = servedValueOf(await disable);
+    // The mutation answered ABOUT the binding it was addressed to, which is the fact
+    // the substitution below rests on: a reply carrying another row would move that
+    // other row's grid entry under the control this press belonged to.
+    expect(mcpBindingKeyOf(servedDisable.server)).toBe(mcpBindingKeyOf(FILESYSTEM_BINDING));
 
     const afterMutation = fixture.bridge.growth.mcpList({});
     await crossMacrotaskBoundary();
@@ -161,7 +182,7 @@ describe("the fixture growth port — the inventory read after a governance muta
     const settledReading = servedValueOf(await afterMutation);
     // The defect this closes: the page rendered the mutation's own applied outcome
     // beside a grid that had put the control back on.
-    expect(rowNamedIn(settledReading, "filesystem")).toBe(SETTINGS_MCP_SET_ENABLED.server);
+    expect(rowNamedIn(settledReading, "filesystem")).toBe(servedDisable.server);
     expect(rowNamedIn(settledReading, "filesystem")?.enabled).toBe(false);
   });
 
@@ -175,15 +196,44 @@ describe("the fixture growth port — the inventory read after a governance muta
     });
     await crossMacrotaskBoundary();
     fixture.engine.advance(MCP_MUTATION_LATENCY_MS);
-    expect(servedValueOf(await grant).server).toBe(SETTINGS_MCP_SET_TRUST.server);
+    const servedGrant = servedValueOf(await grant);
+    expect(mcpBindingKeyOf(servedGrant.server)).toBe(mcpBindingKeyOf(ISSUE_TRACKER_BINDING));
 
     const afterMutation = fixture.bridge.growth.mcpList({});
     await crossMacrotaskBoundary();
     fixture.engine.advance(MCP_LIST_LATENCY_MS);
     const settledReading = servedValueOf(await afterMutation);
-    expect(rowNamedIn(settledReading, "issue-tracker")).toBe(SETTINGS_MCP_SET_TRUST.server);
+    expect(rowNamedIn(settledReading, "issue-tracker")).toBe(servedGrant.server);
     // The rows this grant did not name are still the script's, on the same reading.
     expect(rowNamedIn(settledReading, "filesystem")).toBe(scriptedRowNamed("filesystem"));
+  });
+
+  it("moves no row when the daemon refuses the mutation a press sent", async () => {
+    // The other half of the press-answers-its-own-binding rule, seen from the ledger.
+    // Enablement is a provider-config write and this binding's scope cannot carry one,
+    // so the scenario refuses — and a refusal records nothing, where a reply carrying
+    // some other row would have substituted that row on the next read.
+    const fixture = createFixture(SETTINGS_SCENARIO);
+
+    const refused = expect(
+      fixture.bridge.growth.mcpSetEnabled({
+        ...ISSUE_TRACKER_BINDING,
+        enabled: false,
+        clientIdempotencyKey: "probe-unwritable",
+      }),
+    ).rejects.toStrictEqual({
+      code: "mcp.config_scope_unsupported",
+      message: expect.any(String),
+    });
+    await crossMacrotaskBoundary();
+    fixture.engine.advance(MCP_MUTATION_LATENCY_MS);
+    await refused;
+
+    const afterRefusal = fixture.bridge.growth.mcpList({});
+    await crossMacrotaskBoundary();
+    fixture.engine.advance(MCP_LIST_LATENCY_MS);
+    const settledReading = servedValueOf(await afterRefusal);
+    expect(settledReading.servers).toStrictEqual(SETTINGS_MCP_INVENTORY);
   });
 
   it("holds one port's mutations off another port's inventory", async () => {
@@ -200,7 +250,7 @@ describe("the fixture growth port — the inventory read after a governance muta
     });
     await crossMacrotaskBoundary();
     disabling.engine.advance(MCP_MUTATION_LATENCY_MS);
-    expect(servedValueOf(await disable).server).toBe(SETTINGS_MCP_SET_ENABLED.server);
+    expect(servedValueOf(await disable).server.enabled).toBe(false);
 
     const otherReading = untouched.bridge.growth.mcpList({});
     await crossMacrotaskBoundary();
