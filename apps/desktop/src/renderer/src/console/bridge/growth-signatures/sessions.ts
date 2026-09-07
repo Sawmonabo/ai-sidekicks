@@ -9,6 +9,8 @@
 // the invite list, the health stream, the provider-session import a new session can
 // be seeded from, and whether this machine will display an OS notification at all.
 
+import type { ProviderAccountId } from "@ai-sidekicks/contracts";
+
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type {
   GrowthHealthReading,
@@ -40,7 +42,28 @@ export interface SessionGrowthSignatures {
   onboardingStepAdvance: { request: { readonly stepId: string }; value: void };
   onboardingStepSkip: { request: { readonly stepId: string }; value: void };
   onboardingComplete: { request: Record<string, never>; value: void };
-  onboardingProviderSignInHandoff: { request: { readonly providerName: string }; value: void };
+  onboardingProviderSignInHandoff: {
+    request: {
+      readonly providerName: string;
+      /**
+       * The account whose credential home this hand-off authenticates INTO.
+       *
+       * Present on exactly the arm that has one — the readiness `sign_in` remedy,
+       * which the contract requires to name an account — and absent where resolution
+       * reached none, whose remedy is a registry verb rather than a sign-in. A
+       * provider holding more than one registered account holds more than one
+       * credential home, so a request carrying only the provider name leaves the
+       * surface behind it to elect one, and the election it can afford is the
+       * default: a different account from the one whose remedy was on screen.
+       *
+       * Carried and never re-derived. The daemon composed the remedy this names, and
+       * a client picking an account for itself is the arbitrary cross-account
+       * election the readiness derivation exists to refuse.
+       */
+      readonly providerAccountId?: ProviderAccountId;
+    };
+    value: void;
+  };
   // The two bridge methods, whose values are what a MAIN-PROCESS dialog answered.
   // `credentialHandle` is an opaque reference and never a secret: `Spec-026
   // §Pitfalls To Avoid` records that rendering the admin-token field in the renderer
