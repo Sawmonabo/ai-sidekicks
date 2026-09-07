@@ -18,9 +18,11 @@ import {
   withDaemonCall,
   type BridgeUnderTest,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import type { GrowthOutcome } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
+import { DEFAULT_JOIN_MODE } from "./invite-draft.js";
 import { SentInvites } from "./SentInvites.js";
 import { INVITE_1, SESSION_ID, VIEWING_PARTICIPANT, invite } from "./sent-invites.test-support.js";
 
@@ -124,6 +126,39 @@ function choose(container: HTMLElement, value: string): void {
   fireEvent.click(control);
 }
 
+/**
+ * The host read held open, with the means to answer it later.
+ *
+ * The window these cases have to observe is the one between the press and the
+ * composed link, and a read that answers immediately closes it before a case can
+ * look. `settleable` in the coordinator's own suite is this shape for the daemon
+ * arm; this is the growth arm's, and it is local because one surface reads this
+ * operation.
+ */
+function heldHostRead(): {
+  readonly read: () => Promise<GrowthOutcome<{ readonly host: string }>>;
+  readonly answer: () => void;
+} {
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    read: async () => {
+      await held;
+      return { status: "served", value: { host: CONTROL_PLANE_HOST } };
+    },
+    answer: () => {
+      release();
+    },
+  };
+}
+
+/** How many invitations actually reached the daemon. */
+function mintsReaching(calls: readonly { readonly method: string }[]): number {
+  return calls.filter((recorded) => recorded.method === "invite.create").length;
+}
+
 describe("creating an invitation — what the request is composed from", () => {
   it("names the participant the identity read answered with, and never a guess", async () => {
     const { bridge, calls } = bridgeFor(scenarioMinting());
@@ -184,15 +219,31 @@ describe("creating an invitation — what the request is composed from", () => {
     expect(sendControl(container)?.disabled).toBe(true);
   });
 
-  it("starts on the least it can grant, and sends the mode a person chose", async () => {
+  it("starts on the join mode the corpus fixes as the default", async () => {
     const { bridge, calls } = bridgeFor(scenarioMinting());
     const { container } = render(
       <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
     );
     await settle();
-    // Unchosen, the form is on `viewer`: a person who sends without reading the
-    // options has invited somebody to watch, which is the fail-closed default.
+    // Untouched, the form sends `Spec-002 §Default Behavior`'s own value. Read off
+    // the model module rather than spelled again here: a case restating the literal
+    // would keep passing over a form that had drifted from the corpus and would then
+    // be pinning the drift.
     await pressSend(container);
+    expect(calls.at(-1)?.params).toMatchObject({ joinMode: DEFAULT_JOIN_MODE });
+  });
+
+  it("negative control: choosing another mode moves what is sent", async () => {
+    // Without this the case above would pass over a form that ignored the choices and
+    // sent the default whatever was picked.
+    const { bridge, calls } = bridgeFor(scenarioMinting());
+    const { container } = render(
+      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+    );
+    await settle();
+    choose(container, "viewer");
+    await pressSend(container);
+
     expect(calls.at(-1)?.params).toMatchObject({ joinMode: "viewer" });
   });
 
@@ -281,6 +332,68 @@ describe("creating an invitation — the one-time reveal", () => {
 
     expect(container.textContent ?? "").not.toContain(MINTED_TOKEN);
     expect(sendControl(container)).not.toBeNull();
+  });
+});
+
+describe("creating an invitation — the mint and its link are one act", () => {
+  it("holds the send control closed until the link is composed", async () => {
+    // The token is returned exactly once and no later read can recover it, so the
+    // press that mints it must stay closed until the composition that reveals it has
+    // happened. Settling the mint on its own re-opened the control while the first
+    // plaintext token was still waiting on the host read: a second press minted a
+    // second invitation and the two continuations overwrote one another in the single
+    // reveal slot, losing whichever lost the race.
+    const host = heldHostRead();
+    const { bridge, calls } = bridgeFor(scenarioMinting(), { controlPlaneHostRead: host.read });
+    const { container } = render(
+      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+    );
+    await settle();
+
+    await pressSend(container);
+    expect(sendControl(container)?.disabled).toBe(true);
+    await pressSend(container);
+
+    host.answer();
+    await settle();
+
+    expect(mintsReaching(calls)).toBe(1);
+    expect(container.textContent ?? "").toContain(
+      `https://${CONTROL_PLANE_HOST}/invite/${MINTED_TOKEN}`,
+    );
+  });
+
+  it("mints nothing while the host read is still out", async () => {
+    // The ORDER is the guarantee rather than a nicety. Asked after the mint, a host
+    // read that never answers leaves a real invitation minted whose one-time token
+    // nothing on this window can still show — the ledger carries no token and the
+    // create reply is the only place one ever appears. Asked first, there is no
+    // token in existence until the act that reveals it can run to its end.
+    const { bridge, calls } = bridgeFor(scenarioMinting(), {
+      controlPlaneHostRead: async () => await new Promise(() => undefined),
+    });
+    const { container } = render(
+      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+    );
+    await settle();
+    await pressSend(container);
+
+    expect(mintsReaching(calls)).toBe(0);
+    expect(sendControl(container)?.disabled).toBe(true);
+  });
+
+  it("negative control: a host read that answers lets exactly one mint through", async () => {
+    // Without this the two cases above would pass over a form that never minted at
+    // all, which is a closed control rather than a single-flight one.
+    const { bridge, calls } = bridgeFor(scenarioMinting());
+    const { container } = render(
+      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+    );
+    await settle();
+    await pressSend(container);
+
+    expect(mintsReaching(calls)).toBe(1);
+    expect(container.textContent ?? "").toContain(MINTED_TOKEN);
   });
 });
 

@@ -57,6 +57,23 @@ export const JOIN_MODE_NOTES: Readonly<Record<JoinMode, JoinModeNotes>> = {
  */
 export const JOIN_MODES: readonly JoinMode[] = Object.keys(JOIN_MODE_NOTES) as readonly JoinMode[];
 
+/**
+ * The one the form starts on: `Spec-002 §Default Behavior`'s `collaborator`.
+ *
+ * DECLARED HERE AND NOWHERE ELSE, beside the set it is a member of. The contracts
+ * package ships `JoinMode` and stops there — it declares no default — so this module
+ * is the console's single home for one, and the annotation is what ties it to the
+ * wire: a value the enum stops carrying fails here rather than being sent.
+ *
+ * NOT THE LEAST THIS FORM COULD GRANT. Reading `viewer` as the safe default reads the
+ * corpus backwards: an invitation is issued deliberately, to somebody the sender
+ * meant to work with, and a form that quietly downgraded every one of them would make
+ * the common case a membership change somebody has to make afterwards. What the form
+ * owes instead is that the choice is visible and each option says what it grants,
+ * which is what {@link JOIN_MODE_NOTES} is for.
+ */
+export const DEFAULT_JOIN_MODE: JoinMode = "collaborator";
+
 /** One expiry a person can pick, and how far ahead it puts the instant. */
 export interface InviteExpiryChoice {
   /** Stable across renders; what the radio group's value is. */

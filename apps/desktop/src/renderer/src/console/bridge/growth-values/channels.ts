@@ -39,13 +39,19 @@ export const GROWTH_CHANNEL_KINDS = ["general", "direct"] as const;
 export type GrowthChannelKind = (typeof GROWTH_CHANNEL_KINDS)[number];
 
 /**
- * How agents take turns in a channel, as `Spec-016` closes the set.
+ * How agents take turns in a channel, as `Spec-016 §Turn Policies` closes the set.
  *
  * Create-time-fixed like every other member of the configuration: V1 registers no
  * channel-configuration mutation at all, so a channel whose rhythm turns out wrong
  * is replaced rather than reconfigured.
+ *
+ * NOT `moderated`. The `moderation` member below — the pre-turn gate and the
+ * post-turn review — is an independent axis that applies under any policy, and
+ * carrying it here as a fourth value cost the form both directions at once: it
+ * offered a value the daemon can only refuse, and it left `request-based`, the
+ * policy under which agents speak only when explicitly addressed, unreachable.
  */
-export const GROWTH_CHANNEL_TURN_POLICIES = ["free-form", "round-robin", "moderated"] as const;
+export const GROWTH_CHANNEL_TURN_POLICIES = ["free-form", "round-robin", "request-based"] as const;
 
 /** One turn policy. Derived from the tuple, never restated. */
 export type GrowthChannelTurnPolicy = (typeof GROWTH_CHANNEL_TURN_POLICIES)[number];
