@@ -12,6 +12,13 @@
 // control that produced it, and rule 8 keeps "we asked and were told no" apart from
 // "this build has no ceremony" — the first is an error and the second is _not
 // checked_.
+//
+// A REFUSED ENROLMENT IS RENDERED INSIDE THE SIGNED-IN BODY and never in place of
+// it, which is rule 9 taken literally: the control that produced it is _Add another
+// passkey_, that control belongs to a session nothing revoked, and the refusal goes
+// beside it in the inline shape with the session's own line still above. The way in
+// is the other case — a refusal there has no session behind it, so it stands in for
+// the body rather than sitting under one.
 
 import { InlineRefusal, Nothing } from "../primitives/index.js";
 import { DeviceGrantCard } from "./DeviceGrantCard.js";
@@ -20,6 +27,7 @@ import {
   LOCAL_SESSION_NOTE,
   PROBE_RESULT_NOTES,
   REFUSAL_REASON_NOTES,
+  describeEnrolmentRefusal,
 } from "./sign-in-copy.js";
 import type { SignInState } from "./sign-in-flow.js";
 
@@ -104,6 +112,20 @@ function renderBody(props: SignInCardProps): React.ReactNode {
           >
             Add another passkey
           </button>
+          {state.enrolmentRefusal === undefined ? null : (
+            <InlineRefusal
+              {...describeEnrolmentRefusal(state.enrolmentRefusal)}
+              action={
+                <button
+                  type="button"
+                  className="meridian-sign-in__act meridian-sign-in__act--secondary"
+                  onClick={props.onDismissRefusal}
+                >
+                  Dismiss
+                </button>
+              }
+            />
+          )}
         </>
       );
     case "refused":
