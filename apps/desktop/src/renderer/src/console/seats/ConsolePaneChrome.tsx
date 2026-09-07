@@ -331,6 +331,11 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
     sessionId: props.sessionId,
     channelId: props.channelId,
     runId: props.runId,
+    // Forwarded from the host's own acts rather than minted here: the region's route
+    // has to land in the deck that drew this pane, and a chrome that reached for a
+    // process-wide opener would open it in whichever deck was composed last. A host
+    // that opens no panes forwards nothing, and the region draws no route.
+    openPane: hostControls?.openPane,
   });
   const focusRingStyle: PaneFocusRingStyle | undefined =
     props.focusHue === undefined ? undefined : { "--meridian-pane-hue": props.focusHue };

@@ -337,10 +337,11 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "workflow-run-enumeration": {
     id: "workflow-run-enumeration",
-    wire: "a read of the workflow runs a session holds. Registered nowhere, and not one of the thirteen rows the row above draws on: every registered run operation addresses ONE run by an id the caller must already hold, so a surface that lists runs has no wire to ask and no id to ask it with",
+    wire: "a read of the workflow runs a session holds, each entry carrying back the channel a chat-borne start named (`channelId`) — provenance `workflowRunStart` takes as an input and no registered read returns, so a channel-scoped surface has no way to ask which of a session's runs belongs to it. Registered nowhere, and not one of the thirteen rows the row above draws on: every registered run operation addresses ONE run by an id the caller must already hold, so a surface that lists runs has no wire to ask and no id to ask it with",
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the run operations, none of which enumerates); Plan-017 (the shared-contracts and client-SDK registration an enumeration would join)",
-    consumingSurface: "workflows destination (the runs it holds)",
+    consumingSurface:
+      "workflows destination (the runs it holds), channel timeline pane (the pinned progress card)",
     wireRegistered: false,
   },
   "caller-participant-identity": {

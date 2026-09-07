@@ -68,6 +68,9 @@ export class PendingInviteFeeds {
    * A build with no wire for the namespace is deliberately absent: that is the "not
    * checked" refusal every unbuilt growth row answers with, and a surface drawing it
    * would carry a permanent banner about a channel nobody opened.
+   *
+   * It describes the channel's state NOW and not its history, so it is retired the
+   * moment both feeds are up again — see `#retireRefusalWhenBothFeedsAreUp`.
    */
   public get refusal(): ConsoleRefusal | undefined {
     return this.#refusal;
@@ -105,9 +108,38 @@ export class PendingInviteFeeds {
       if (this.#pendingFeed === undefined) {
         await this.#openPendingFeed();
       }
+      this.#retireRefusalWhenBothFeedsAreUp();
     } finally {
       this.#isOpening = false;
     }
+  }
+
+  /**
+   * Forget a recorded failure once both feeds are up again.
+   *
+   * WITHOUT THIS THE BANNER IS PERMANENT. `#refusal` is written and never cleared, so
+   * one throw on one feed leaves the reading above drawing "this channel is down" for
+   * the life of the adapter — including after the repair triggers
+   * `store/read-triggers.ts` names have re-opened the very feed that failed. The
+   * refusal is a claim about a channel, and a channel that is back makes the claim
+   * false; a surface that keeps it is telling a person about an outage that has ended.
+   *
+   * BOTH FEEDS, AND NOT THE ONE THAT WAS REPAIRED. The refusal has no per-feed
+   * identity — one field, written by whichever open or drain failed — so clearing it
+   * while the other feed is still down would report a channel up on the strength of
+   * its sibling. Both open is the only state that makes the claim false, and a pass
+   * that opened one and failed the other leaves the field exactly where it was,
+   * because the failing half wrote it again on its way through.
+   */
+  #retireRefusalWhenBothFeedsAreUp(): void {
+    if (this.#refusal === undefined || this.#isClosed) {
+      return;
+    }
+    if (this.#outcomeFeed === undefined || this.#pendingFeed === undefined) {
+      return;
+    }
+    this.#refusal = undefined;
+    this.#sinks.onRefusalChanged();
   }
 
   async #openOutcomeFeed(): Promise<void> {

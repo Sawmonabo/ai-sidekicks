@@ -32,7 +32,7 @@
 import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { type SessionStore } from "../store/index.js";
-import { type ConsolePaneOpener } from "./pane-registry.js";
+import { type ConsolePaneOpener } from "./pane-address.js";
 
 // Consumed by T-023p-1C-3
 /**

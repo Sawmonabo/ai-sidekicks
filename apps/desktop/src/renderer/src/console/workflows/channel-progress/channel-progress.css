@@ -32,3 +32,14 @@
   color: var(--meridian-text-muted);
   margin: 0;
 }
+
+/*
+ * The route out of the card, aligned to the text rather than stretched.
+ *
+ * The card is a column flex, so a button with no alignment of its own takes the whole
+ * width of the pinned region — a full-bleed control above a conversation, which reads
+ * as the region's subject rather than as the one act it offers.
+ */
+.meridian-channel-progress__route {
+  align-self: flex-start;
+}

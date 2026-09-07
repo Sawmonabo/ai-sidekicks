@@ -16,11 +16,20 @@ import { type ChannelWorkflowProgress } from "./channel-progress.js";
 
 export interface PinnedRunCardProps {
   readonly progress: ChannelWorkflowProgress;
+  /**
+   * Open the run's own pane, where the card was given a way to.
+   *
+   * Absent draws no button rather than a disabled one — `seats/pane-controls.ts`'
+   * absent-not-disabled rule, which this card is downstream of: the eligibility was
+   * decided by the module that composed this callback, and nothing here re-derives it.
+   */
+  readonly onOpenRun?: (() => void) | undefined;
 }
 
 /** The channel's pinned run: what it is, how far it has got, and what it waits on. */
 export function PinnedRunCard(props: PinnedRunCardProps): React.JSX.Element {
   const { row, completedPhaseCount, totalPhaseCount } = props.progress;
+  const { onOpenRun } = props;
   return (
     <article className="meridian-channel-progress">
       <div className="meridian-channel-progress__head">
@@ -55,6 +64,21 @@ export function PinnedRunCard(props: PinnedRunCardProps): React.JSX.Element {
       {row.parkedPhases.map((parked) => (
         <ParkBadge key={parked.phaseId} parked={parked} />
       ))}
+      {/*
+        The family's own action class rather than a fourth button style: the run list,
+        the definitions browser, and the pane host's back control all wear it, and a
+        route out of this card is the same act they perform. Named for the destination
+        and not for the gesture — a person reads where it goes, not that it is a link.
+      */}
+      {onOpenRun === undefined ? null : (
+        <button
+          type="button"
+          className="meridian-workflow__action meridian-channel-progress__route"
+          onClick={onOpenRun}
+        >
+          Open the run
+        </button>
+      )}
     </article>
   );
 }

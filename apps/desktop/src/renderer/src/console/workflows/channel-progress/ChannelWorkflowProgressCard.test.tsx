@@ -9,7 +9,7 @@
 // really does hold runs for a different channel.
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider } from "../../bridge/BridgeProvider.js";
 import { WORKFLOWS_SCENARIO_ID } from "../../bridge/scenarios/workflows.js";
@@ -17,13 +17,19 @@ import {
   WORKFLOWS_CHANNEL_ID,
   WORKFLOWS_SESSION_ID,
 } from "../../bridge/scenarios/workflow-fixture-ids.js";
+import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
+import type { ConsolePaneOpener } from "../../seats/index.js";
 import { ChannelWorkflowProgressCard } from "./ChannelWorkflowProgressCard.js";
 
 /** The card under the fixture bridge, scoped as a pane of that kind would scope it. */
-function renderCard(channelId: string | undefined): HTMLElement {
+function renderCard(channelId: string | undefined, openPane?: ConsolePaneOpener): HTMLElement {
   return render(
     <SidekicksBridgeProvider scenarioId={WORKFLOWS_SCENARIO_ID}>
-      <ChannelWorkflowProgressCard sessionId={WORKFLOWS_SESSION_ID} channelId={channelId} />
+      <ChannelWorkflowProgressCard
+        sessionId={WORKFLOWS_SESSION_ID}
+        channelId={channelId}
+        openPane={openPane}
+      />
     </SidekicksBridgeProvider>,
   ).container;
 }
@@ -46,6 +52,33 @@ describe("ChannelWorkflowProgressCard — the channel that started a workflow", 
     // The fixture's parked run is parked `waiting-human` on a phase whose own `state`
     // is `running` — which is exactly the case a surface reading `state` gets wrong.
     expect(await screen.findByText("Waiting on a person")).toBeTruthy();
+  });
+});
+
+describe("ChannelWorkflowProgressCard — the route to the run", () => {
+  it("opens the run's own pane, at the address the runs list opens it with", async () => {
+    const openPane = vi.fn();
+    renderCard(WORKFLOWS_CHANNEL_ID, openPane);
+
+    (await screen.findByRole("button", { name: "Open the run" })).click();
+
+    // The whole address, not just the kind: a route that opened a bare
+    // `workflow-run` pane would land on the pane picker rather than on the run this
+    // card is about, and the entity is what carries the difference.
+    expect(openPane).toHaveBeenCalledWith({
+      kind: "workflow-run",
+      entity: { kind: "workflow-run", id: WORKFLOWS_PARKED_RUN.workflowRunId },
+    });
+  });
+
+  it("negative control: draws no route where the host supplied no opener", async () => {
+    renderCard(WORKFLOWS_CHANNEL_ID);
+
+    // Awaited on the card's own subject so the read has settled before the absence is
+    // claimed — without it this passes on the frame before any answer arrived, which
+    // is green over a card that never draws the control at all.
+    expect(await screen.findByText("Ship pipeline")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open the run" })).toBeNull();
   });
 });
 

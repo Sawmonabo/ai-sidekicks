@@ -13,17 +13,22 @@
 // standing for every other suite in the project.
 
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ConsolePaneChrome } from "./ConsolePaneChrome.js";
+import { PaneControlsContext, type PaneControls } from "./pane-controls.js";
 import { PinnedPaneRegionRegistry } from "./pinned-pane-regions.js";
 
 /** A chrome with a body, over whichever board the case composed. */
 function renderChrome(
   pinnedRegions: PinnedPaneRegionRegistry,
-  scope: { readonly channelId?: string | undefined } = {},
+  scope: {
+    readonly channelId?: string | undefined;
+    /** The deck's acts, where the case is about one reaching the region. */
+    readonly hostControls?: PaneControls;
+  } = {},
 ): HTMLElement {
-  const { container } = render(
+  const chrome = (
     <ConsolePaneChrome
       kind="timeline"
       sessionId="session-1"
@@ -32,7 +37,16 @@ function renderChrome(
       pinnedRegions={pinnedRegions}
     >
       <p>the timeline body</p>
-    </ConsolePaneChrome>,
+    </ConsolePaneChrome>
+  );
+  const { container } = render(
+    scope.hostControls === undefined ? (
+      chrome
+    ) : (
+      <PaneControlsContext.Provider value={scope.hostControls}>
+        {chrome}
+      </PaneControlsContext.Provider>
+    ),
   );
   return container;
 }
@@ -89,6 +103,37 @@ describe("ConsolePaneChrome — the pinned region's place in the frame", () => {
       "meridian-pane__pinned",
       "meridian-pane__body",
     ]);
+  });
+
+  it("hands the region the host's opener, so a route lands in this pane's deck", () => {
+    const openPane = vi.fn();
+    const board = new PinnedPaneRegionRegistry();
+    board.register("timeline", {
+      owner: "planted",
+      render: (context) => (
+        <button type="button" onClick={() => context.openPane?.({ kind: "runs" })}>
+          route
+        </button>
+      ),
+    });
+
+    const container = renderChrome(board, { hostControls: { openPane } });
+    container.querySelector("button")?.click();
+
+    expect(openPane).toHaveBeenCalledWith({ kind: "runs" });
+  });
+
+  it("negative control: hands the region nothing where the host offers no opener", () => {
+    // Without this the case above would pass over a chrome that minted an opener of
+    // its own — which would open a route in whichever deck was composed last, and in
+    // an auxiliary window would open one in a deck that is not on screen.
+    const board = new PinnedPaneRegionRegistry();
+    board.register("timeline", {
+      owner: "planted",
+      render: (context) => <p>{context.openPane === undefined ? "no opener" : "an opener"}</p>,
+    });
+
+    expect(renderChrome(board).textContent).toContain("no opener");
   });
 
   it("hands the region the pane's own channel, so a claim is not global to the kind", () => {

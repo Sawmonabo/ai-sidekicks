@@ -124,6 +124,9 @@ export {
   paneEntityScopeFor,
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  type ConsolePaneLink,
+  type ConsolePaneOpener,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
 } from "./pane-address.js";
 
@@ -135,9 +138,6 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   type ConsolePaneDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
-  type ConsolePaneLink,
-  type ConsolePaneOpener,
   type ConsolePaneRegistration,
 } from "./pane-registry.js";
 

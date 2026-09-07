@@ -30,12 +30,23 @@
 // head directly above its body — not an empty box with the region's padding in it.
 // The chrome asks this module for a NODE rather than for a descriptor, so the
 // distinction is settled once here instead of at every frame.
+//
+// WHAT THE TIMELINE'S HOST OWES THIS SEAT, stated here because the first region is
+// registered for the `timeline` kind and its host is another plan's. Two things reach
+// the region and neither is this module's to supply: `channelId` on the chrome, which
+// is what scopes a channel-keyed body and whose absence a session-scoped pane is
+// correctly reporting; and `openPane` in the `PaneControls` the deck provides around
+// the pane, which is what a region's route into another pane is taken through. Until
+// the ledger family's timeline pane host supplies both, the first region renders on a
+// channel-scoped pane and offers no route — a body that says where its subject lives
+// rather than one with a control that could not act.
 
 import { KeyedRegistry } from "../core/index.js";
+import { type ConsolePaneOpener } from "./pane-address.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 
 /**
- * The pane scope a region body is handed, and nothing else.
+ * The pane scope a region body is handed, and the one host act it may take.
  *
  * The chrome's own address members, forwarded verbatim: which kind of pane this is
  * and which session, channel, and run it is addressed at. A body that needs a bridge
@@ -44,15 +55,34 @@ import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
  * publishes, and a region rendered in an auxiliary window would then be reading the
  * wrong window's bridge.
  *
- * Every member but `kind` is `| undefined` rather than optional, because the chrome
- * holds them in exactly that shape: an address that names no channel is a pane
+ * Every address member but `kind` is `| undefined` rather than optional, because the
+ * chrome holds them in exactly that shape: an address that names no channel is a pane
  * scoped to a session, and a region keyed on a channel answers by rendering nothing.
+ * `openPane` is genuinely OPTIONAL and is the one member that is not an address — it
+ * is the host's, read off `pane-controls.ts` and forwarded, so a host with no deck
+ * hands over no opener at all rather than one that does nothing.
  */
 export interface PinnedPaneRegionContext {
   readonly kind: PaneKind;
   readonly sessionId: string | undefined;
   readonly channelId: string | undefined;
   readonly runId: string | undefined;
+  /**
+   * How a region body opens a pane, where the pane's host offers the act at all.
+   *
+   * Handed down rather than imported, on the shape `sidebar-sections.ts` already
+   * takes for its own sections: a region rendered in an auxiliary window opens panes
+   * in THAT window's deck, and a region that reached for a process-wide opener would
+   * put its route into whichever deck happened to be composed last.
+   *
+   * OPTIONAL, and the absence is a real state rather than a gap to fill in. A pane
+   * mounted outside a deck — the auxiliary window `Spec-023 §The surface set` names,
+   * a full-width surface with no deck at all — has no pane to open and no host to ask,
+   * so a body offers its route only where one arrived. That is the absent-not-disabled
+   * rule `pane-controls.ts` states for the head's own controls, applied to the region
+   * below it.
+   */
+  readonly openPane?: ConsolePaneOpener | undefined;
 }
 
 /** What a family registers to fill one pane kind's pinned region. */

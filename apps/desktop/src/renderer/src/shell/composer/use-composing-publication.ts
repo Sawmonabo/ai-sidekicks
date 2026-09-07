@@ -4,9 +4,19 @@
 // `shell/MessageComposer.tsx` — this plan's shell subtree and never a feature view's
 // tree — and this is that leg's renderer half: the host calls one hook, and the hook
 // owns the publisher's lifetime and drives it. The publication itself is
-// `console/bridge/presence/composing-publisher.ts`, which states the two rules that
-// matter — never Awareness directly (I-023-8), and never for a membership-restricted
-// channel (CP-023-4) — and holds the bounds. Nothing about either lives here.
+// `console/bridge/presence/composing-publisher.ts`, which states the three rules that
+// matter — never Awareness directly (I-023-8), never for a membership-restricted
+// channel (CP-023-4), and SILENT ON A REFUSAL — and holds the bounds. Nothing about
+// any of the three lives here.
+//
+// The third is why this hook renders nothing and reports nothing. `activity.typing` is
+// an ephemeral Awareness field: `Spec-002 §State And Data Implications` mints no
+// durable event for it and `§Default Behavior` gives it no receipt, so there is no
+// answer a refusal could contradict and nothing on screen it could correct. The
+// publisher therefore retires itself on the first refused or thrown publication and
+// says nothing — see that module's own `A REFUSAL IS TERMINAL FOR THE PUBLISHER'S
+// LIFETIME` header note and its `#dispatch` — which is also why a person composing
+// mid-sentence is never told about a wire that has not been built yet.
 //
 // THE LINE IS OBSERVED, NEVER COPIED. The draft store already holds the composer's
 // unsent body under this address's key, and `use-composer-draft-text.ts` is the one

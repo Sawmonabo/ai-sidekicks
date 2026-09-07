@@ -12,6 +12,13 @@
 // that stayed above a channel forever would be the one piece of chrome a person cannot
 // dismiss reporting a thing that already ended.
 //
+// THERE IS A PICK BECAUSE THERE CAN BE MORE THAN ONE. `Spec-017 §Chat-start surface
+// (SA-38)` registers `channelId` as PROVENANCE — the channel a start was issued from,
+// never an input to the adjudication and never a uniqueness key — so a room that
+// started a second run while its first was still going holds two, and the fold answers
+// with the head of the order rather than with "the" run. Anything above this that reads
+// the answer as a uniqueness claim is reading a guarantee no wire makes.
+//
 // THE COUNT IS PHASES COMPLETED OF PHASES KNOWN, and it is deliberately not a
 // percentage. The engine's phase list is what the run read carries; a percentage would
 // be a figure with a denominator a person cannot see, and a run whose phase list grows
@@ -36,7 +43,7 @@ export interface ChannelWorkflowProgress {
 }
 
 /**
- * The run a channel pins, or nothing.
+ * The run this channel most needs looked at, or nothing.
  *
  * `undefined` covers three different facts on purpose — no run named this channel, the
  * caller holds no channel to name, and every run this channel holds has settled — and

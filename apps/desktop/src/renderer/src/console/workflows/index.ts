@@ -171,6 +171,10 @@ export function registerWorkflowSurfaces(
       createElement(ChannelWorkflowProgressCard, {
         sessionId: context.sessionId,
         channelId: context.channelId,
+        // Forwarded, never sourced: the opener is the deck's, the chrome read it off
+        // the host's controls, and a registration that reached for one of its own
+        // would open this card's route in a deck nobody was looking at.
+        openPane: context.openPane,
       }),
   });
 }
