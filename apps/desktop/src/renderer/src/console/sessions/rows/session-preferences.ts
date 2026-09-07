@@ -23,6 +23,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { UiStateStore } from "../../persistence/index.js";
 import {
+  DurableViewBindingHolder,
   noDurableViewSubscription,
   useDurableViewBinding,
 } from "../durable-view/durable-view-binding.js";
@@ -183,25 +184,50 @@ export interface SessionPreferenceBinding {
   readonly isAutoPinOnFirstSendEnabled: boolean;
   readonly lastRefusal: ConsoleRefusal | undefined;
   readonly setAutoPinOnFirstSend: (isEnabled: boolean) => void;
-  /**
-   * The switch as it stands NOW, rather than as this render read it.
-   *
-   * A SECOND SHAPE OF ONE FACT, and the difference between them is a lifetime. The
-   * field above is what a component renders: it comes off the subscribed snapshot, so
-   * React re-renders when it moves, and reading it is how the switch draws itself.
-   * This is what a party that is not rendering calls — the auto-pin record the
-   * composer consults on a first send is stamped when a session is STARTED and read
-   * when a message is sent, and between those two moments a person may have changed
-   * their mind. Holding the render's boolean for that gap would be a copy of a
-   * durable record, which is the one thing the persistence chokepoint forbids; this
-   * resolves the live store through the same acquiring holder the write below uses.
-   */
-  readonly readAutoPinOnFirstSend: () => boolean;
 }
 
 /** How a preference store is minted. Module-level, because the holder reads it once. */
 function mintSessionPreferenceStore(store: UiStateStore): SessionPreferenceStore {
   return new SessionPreferenceStore(store);
+}
+
+/**
+ * This window's switches, held for as long as the window is open.
+ *
+ * One holder per window on `session-pins.ts`' own reasoning, which is the same fact
+ * about the same database: a second visit to this destination used to mint a second
+ * preference store over the one `UiStateStore`, so the switch a person flipped on
+ * their second visit and the switch the auto-pin authority read were two different
+ * objects with the same name.
+ */
+const consoleSessionPreferences = new DurableViewBindingHolder(mintSessionPreferenceStore);
+
+/**
+ * The switch as it stands NOW, for a party that is not rendering.
+ *
+ * A SECOND SHAPE OF ONE FACT, and the difference between them is a lifetime. What a
+ * component renders comes off the subscribed snapshot, so React re-renders when the
+ * switch moves and reading it is how the switch draws itself. This is what the
+ * auto-pin authority calls: the record the composer consults on a first send is
+ * stamped when a session is STARTED and read when a message is sent, and between
+ * those two moments a person may have changed their mind, gone back to this
+ * destination, and changed it again. Holding the render's boolean for that gap would
+ * be a copy of a durable record, which is the one thing the persistence chokepoint
+ * forbids.
+ *
+ * IT RESOLVES THE HELD BINDING AND NAMES NO STORE, for the reason
+ * {@link DurableViewBindingHolder.heldBinding} gives: a store captured when the
+ * authority was composed may be one this window has closed since, and acquiring
+ * against it would supersede the live binding rather than read it.
+ *
+ * A window holding no preference binding answers the documented default, which is
+ * what a window with no durable record holds anyway.
+ */
+export function readWindowAutoPinOnFirstSend(): boolean {
+  return (
+    consoleSessionPreferences.heldBinding?.isAutoPinOnFirstSendEnabled ??
+    AUTO_PIN_ON_FIRST_SEND_DEFAULT
+  );
 }
 
 /**
@@ -216,17 +242,6 @@ const NO_BINDING_SNAPSHOT: SessionPreferenceSnapshot = {
   lastRefusal: undefined,
 };
 
-/**
- * The switch read, bound to whatever store the acquirer is holding when it is asked.
- *
- * Module-level and taking the acquirer, exactly as the write below does: the two are
- * the same seam in two directions, and a reader written inside the hook would close
- * over the render that built it rather than over the store the window is on.
- */
-function readAutoPinThrough(acquire: () => SessionPreferenceStore): () => boolean {
-  return () => acquire().isAutoPinOnFirstSendEnabled;
-}
-
 /** The switch act, bound to whatever store the acquirer is holding when it is pressed. */
 function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: boolean) => void {
   return (isEnabled) => {
@@ -240,9 +255,11 @@ function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: b
 /**
  * Bind the switches into a component.
  *
- * Through the same holder the pin binding uses, and for the same reason its own
- * header gives: a store built by a `useState` initializer stays attached to the
- * database the window closed when the bridge or scenario changed.
+ * Through this window's own preference holder, in the shape the pin binding takes and
+ * for the reason its header gives: a store built by a `useState` initializer stays
+ * attached to the database the window closed when the bridge or scenario changed, and
+ * a HOLDER built by one leaves a second visit to this destination writing through a
+ * rival store over the live database.
  *
  * BOTH RENDERED FACTS COME OFF THE SUBSCRIBED SNAPSHOT, and the refusal is the reason
  * it has to. Read beside the subscription instead — off the binding, during the
@@ -251,7 +268,7 @@ function setAutoPinThrough(acquire: () => SessionPreferenceStore): (isEnabled: b
  * unchanged, and suppressed the render that would have put the refusal on screen.
  */
 export function useSessionPreferences(store: UiStateStore): SessionPreferenceBinding {
-  const { binding, acquire } = useDurableViewBinding(store, mintSessionPreferenceStore);
+  const { binding, acquire } = useDurableViewBinding(consoleSessionPreferences, store);
   const subscribe = useCallback(
     (onStoreChange: () => void) => binding?.subscribe(onStoreChange) ?? noDurableViewSubscription,
     [binding],
@@ -259,11 +276,9 @@ export function useSessionPreferences(store: UiStateStore): SessionPreferenceBin
   const readSnapshot = useCallback(() => binding?.snapshot ?? NO_BINDING_SNAPSHOT, [binding]);
   const snapshot = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
   const setAutoPinOnFirstSend = useCallback(setAutoPinThrough(acquire), [acquire]);
-  const readAutoPinOnFirstSend = useCallback(readAutoPinThrough(acquire), [acquire]);
   return {
     isAutoPinOnFirstSendEnabled: snapshot.isAutoPinOnFirstSendEnabled,
     lastRefusal: snapshot.lastRefusal,
     setAutoPinOnFirstSend,
-    readAutoPinOnFirstSend,
   };
 }

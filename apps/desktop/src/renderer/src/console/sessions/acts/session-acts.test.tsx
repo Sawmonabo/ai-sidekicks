@@ -12,6 +12,12 @@
 // it buys is that the intermediate running states are on screen to be asserted at all
 // — before the pacing landed, all three readings arrived on one turn and React
 // batched them into the terminal frame.
+//
+// THE IMPORT CASES DRIVE THE WHOLE ACTS BAR rather than the panel alone, because the
+// import no longer lives in the panel: `SessionActs` holds it and the panel renders
+// it, so a case that mounted the panel with a model of its own would be asserting
+// against a composition this console does not produce. Reaching it through the create
+// menu is what a person does and is the same two presses either way.
 
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -21,7 +27,8 @@ import {
   PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
 } from "../../bridge/scenarios/bring-your-history.js";
 import { JoinSessionForm } from "./JoinSessionForm.js";
-import { ProviderImportPanel } from "./ProviderImportPanel.js";
+import { SessionActs } from "./SessionActs.js";
+import { openImportDisclosure, QUIET_PREFERENCES } from "./session-acts.test-support.js";
 import {
   createFixture,
   fixtureBridgeWithGrowth,
@@ -182,10 +189,24 @@ describe("joining a session", () => {
   });
 });
 
+/** Mount the acts bar and disclose the import, the way somebody reaches it. */
+function renderImport(actsBridge: ConsoleBridge): HTMLElement {
+  const { container } = render(
+    <SessionActs
+      bridge={actsBridge}
+      preferences={QUIET_PREFERENCES}
+      onStart={() => undefined}
+      onJoined={() => undefined}
+    />,
+  );
+  openImportDisclosure(container);
+  return container;
+}
+
 describe("importing a provider session", () => {
   it("runs the subscription to its terminal frame and renders the producer's words", async () => {
     const fixture = createFixture(BRING_YOUR_HISTORY_SCENARIO);
-    const { container } = render(<ProviderImportPanel growth={fixture.bridge.growth} />);
+    const container = renderImport(fixture.bridge);
 
     fill(container, "Provider", "claude");
     fill(container, "What to read", "~/.claude/threads/one.jsonl");
@@ -212,7 +233,7 @@ describe("importing a provider session", () => {
   });
 
   it("refuses a provider this node holds no reader for, and subscribes to nothing", async () => {
-    const { container } = render(<ProviderImportPanel growth={bridge().growth} />);
+    const container = renderImport(bridge());
 
     fill(container, "Provider", "a-provider-nobody-reads");
     fill(container, "What to read", "~/somewhere");
@@ -228,10 +249,11 @@ describe("importing a provider session", () => {
 
   it("keeps the control refused while the progress stream is still reading", async () => {
     const stream = heldProgressStream();
-    const growth = fixtureBridgeWithGrowth(BRING_YOUR_HISTORY_SCENARIO, {
-      providerSessionImportSubscribe: growthServing(stream.handle),
-    }).growth;
-    const { container } = render(<ProviderImportPanel growth={growth} />);
+    const container = renderImport(
+      fixtureBridgeWithGrowth(BRING_YOUR_HISTORY_SCENARIO, {
+        providerSessionImportSubscribe: growthServing(stream.handle),
+      }),
+    );
 
     fill(container, "Provider", "claude");
     fill(container, "What to read", "~/.claude/threads/one.jsonl");

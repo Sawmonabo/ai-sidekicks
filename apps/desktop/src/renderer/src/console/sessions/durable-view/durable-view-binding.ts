@@ -23,6 +23,22 @@
 // binding was minted for hands that binding back; a different one disposes the
 // binding before it and mints a successor.
 //
+// AND THE HOLDER'S OWN LIFETIME IS THE WINDOW'S, WHICH IS THE SECOND HALF OF THE
+// SAME DEFECT. The holder was minted by a `useState` initializer, so it belonged to
+// the COMPONENT that called this hook: leaving the sessions destination and coming
+// back minted a second holder, which minted a second `SessionPinStore` over the one
+// `UiStateStore` this window is on — two writers of one durable record, each holding
+// its own in-memory copy of it. Nothing on screen showed it, because the mounted
+// surface always read the newest of the two; what read the older one was the auto-pin
+// authority stamped when a session was started, which then answered a first send with
+// a switch nobody was changing any more and spread a pin map the durable record had
+// moved past. So the holder is declared at MODULE scope by the module that owns the
+// binding — `consoleShellPreferences` in `settings/shared/shell-preferences/` is the
+// same shape for the same reason — and module scope is window scope here, since an
+// auxiliary window is its own renderer process and no channel joins two windows'
+// module graphs. One holder per binding kind per window, so a remount finds the
+// binding it left rather than a rival for it.
+//
 // READING AND ACQUIRING ARE TWO METHODS, and the split is what keeps this safe under
 // React: {@link DurableViewBindingHolder.bindingIfCurrent} is what a render body
 // calls and mutates nothing, {@link DurableViewBindingHolder.acquire} is what an
@@ -79,6 +95,27 @@ export class DurableViewBindingHolder<TBinding extends DurableViewBinding> {
   }
 
   /**
+   * The binding this holder is holding NOW, whichever store it was minted for, or
+   * `undefined` while it holds none.
+   *
+   * WHAT A PARTY THAT IS NOT RENDERING READS, and the difference from
+   * {@link bindingIfCurrent} is that it names no store. A caller that held one would
+   * be holding the store it saw when it was composed — and the auto-pin authority,
+   * which is the caller this exists for, is composed when a session is STARTED and
+   * consulted when a message is sent, with a navigation and a whole visit to another
+   * destination in between. Handed that stale identity, {@link acquire} would dispose
+   * the binding this window is actually on and mint a successor over a store the
+   * window has closed, which is the very defect above with the arrow reversed.
+   *
+   * Pure, and never a mint: a party outside the render tree asks what this window is
+   * holding and takes the answer, including the honest `undefined` that means this
+   * window has no durable binding of this kind at all.
+   */
+  public get heldBinding(): TBinding | undefined {
+    return this.#binding;
+  }
+
+  /**
    * The binding for this store, minting one on first ask and on a store change.
    *
    * MUTATES, so it is reached from an effect or from an event handler and never from
@@ -131,16 +168,17 @@ export interface DurableViewBindingAccess<TBinding extends DurableViewBinding> {
  * State replaced from an effect lags its own inputs by one committed frame, and the
  * opening arm is what that frame renders.
  *
- * `mint` is read ONCE, by the holder's own initializer, so a caller passes a
- * module-level function rather than a closure over its props: a mint rebuilt each
- * render would be ignored, and a reader expecting otherwise would be reading a
- * binding built from the first render's values.
+ * THE HOLDER IS THE CALLER'S AND IS THE WINDOW'S, which is why it is a parameter
+ * rather than something this hook mints. A holder minted here would be one per
+ * mounted component, and two mounts of one destination would then be two writers of
+ * one durable record — see the header. The caller declares exactly one at module
+ * scope beside the mint it is built from, and every mount of every surface that reads
+ * that record is handed the same one.
  */
 export function useDurableViewBinding<TBinding extends DurableViewBinding>(
+  holder: DurableViewBindingHolder<TBinding>,
   store: UiStateStore,
-  mint: (store: UiStateStore) => TBinding,
 ): DurableViewBindingAccess<TBinding> {
-  const [holder] = useState(() => new DurableViewBindingHolder(mint));
   const [acquiredBinding, setAcquiredBinding] = useState<TBinding | undefined>(() =>
     // Seeded from the pure lookup so a remount over the same store opens on the
     // binding it already holds rather than on one frame of the opening arm.
