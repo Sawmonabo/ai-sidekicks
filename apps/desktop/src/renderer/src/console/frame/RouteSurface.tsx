@@ -39,8 +39,14 @@
 import { Fragment } from "react";
 
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
-import { formatRoute, isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
+import {
+  formatRoute,
+  isAuxiliaryRoute,
+  needsContextPicker,
+  type ConsoleRoute,
+} from "../routing/index.js";
 import { ContextPicker } from "./ContextPicker.js";
+import { warmRouteSurface } from "./rail-navigation.js";
 import {
   consoleSurfaceRegistry,
   surfaceSlotFor,
@@ -85,7 +91,24 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
           // agent-console route produced a session with no agent, a shape the
           // shared grammar refuses by throwing, from inside the route-to-hash
           // effect where no surface boundary catches it.
-          context.frameStore.navigate({ kind: "auxiliary", ...target });
+          const chosen: ConsoleRoute = { kind: "auxiliary", ...target };
+          // WARMED, AND UNLIKE THE RAIL'S PRESS THIS ONE WAITS. Both use the same
+          // helper, and the difference is what is on screen while it runs. A rail
+          // press has a painted surface under it, so the fetch rides beside the
+          // commit and the reserved frame is the honest thing to show for the frames
+          // it is still in flight. This window has NOTHING under it: the picker is
+          // the whole surface, and committing first replaced a working control with
+          // a reserved region — after an explicit act, on the one path where the
+          // console knew the destination before the person let go of the mouse. So
+          // the picker stays up until the body has landed and the route commits onto
+          // a settled module.
+          //
+          // `warmRouteSurface` never rejects, so a chunk that will not load still
+          // navigates and surfaces at the mount, inside the console's own error
+          // boundary — the window is not left sitting on a picker with no way out.
+          void warmRouteSurface(consoleSurfaceRegistry, chosen).then(() => {
+            context.frameStore.navigate(chosen);
+          });
         }}
       />
     );

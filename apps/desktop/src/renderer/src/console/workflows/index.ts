@@ -23,18 +23,44 @@
 // the frame's reserved-slot absence, which was a true sentence about a browser this
 // family had in fact already built.
 //
-// THE FAMILY'S SHARED SHEET IS IMPORTED HERE AND NOWHERE ELSE, so the bundler sees
-// one edge into it and a surface can never render a chrome that arrived without its
-// rules. It is not the family's only stylesheet edge: each pane's sub-module door
-// owns its own sheet and the graph chunk's door owns two, which is what keeps a
-// surface's rules off the initial document for every session that never opens it.
+// THE FAMILY'S SHARED SHEET IS NOT IMPORTED HERE ANY MORE. All three of this family's
+// bodies arrive behind a loader now, and the one element this module builds — the pinned
+// region below — draws no class `workflows.css` declares, so nothing statically reachable
+// from this module can render against it. A door sheet no reader on the door's own graph
+// can use is charged to every session and painted for none of them. Each of the three
+// chunk roots imports it instead, which is the rule `apps/desktop/AGENTS.md` states from
+// the other side: the stylesheets a lazily-loaded directory owns enter through that
+// chunk's root.
 //
-// WHY THIS BARREL BUILDS ELEMENTS RATHER THAN BEING A `.tsx`. It owns a TABLE —
-// kind, owner, body, and the tear-off answer — not a view, which is the same reason
-// `seats/absorbed-surfaces.ts` builds its mounts with `createElement`. Written as a
-// component file it would be a `.tsx` holding no component at all.
+// THREE SHEETS STAY, AND ONE REASON DOES NOT COVER ALL THREE.
+//
+// `runs/run-list.css` stays because its position in the cascade is not this family's to
+// decide. It declares `.meridian-run-row__failure` and so does `runs/pane/runs.css` — two
+// families, one class name, different declarations — so which of the two the browser sees
+// LAST decides how a failed run's line reads in both. Deferring this one would make that
+// answer depend on whether a workflows chunk had happened to load, which is a bundle
+// boundary deciding how another family's surface looks. It stays on the initial document
+// until that collision is settled the way the run-controls one was, by giving the class
+// one owner and regenerating the references that show it.
+//
+// `parks/park-badge.css` and `channel-progress/channel-progress.css` stay because the
+// pinned region below is drawn on the first paint. That registration is a `render` and
+// not a loader — the seat itself says why — so `ChannelWorkflowProgressCard`,
+// `PinnedRunCard` and `ParkBadge` all sit on this door's own static graph, and a sheet
+// declaring the classes they draw would arrive with whichever workflows chunk happened to
+// load first, leaving the card undressed above the flagship pane until then. Both sheets
+// reached the document through `workflows.css` until this module took the region; they
+// enter here now, one edge each, and no chunk root re-imports what the door carries.
+//
+// WHY THIS BARREL BUILDS AN ELEMENT RATHER THAN BEING A `.tsx`. It owns a TABLE — kind,
+// owner, and the specifier each body arrives behind — plus the one `createElement` the
+// pinned region's seat takes, which is the same reason `seats/absorbed-surfaces.ts`
+// builds its mounts with `createElement`. Written as a component file it would be a
+// `.tsx` holding no component at all.
 
-import "./workflows.css";
+import "./runs/run-list.css";
+import "./parks/park-badge.css";
+import "./channel-progress/channel-progress.css";
 
 import { createElement } from "react";
 
@@ -51,7 +77,6 @@ import {
   type PinnedPaneRegionRegistry,
 } from "../seats/index.js";
 import { ChannelWorkflowProgressCard } from "./channel-progress/ChannelWorkflowProgressCard.js";
-import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**
  * The family's owner string, as the pane registry's duplicate policy reads it.
@@ -80,22 +105,35 @@ const WORKFLOWS_OWNER = "workflows";
  * arm is unreachable through the deck and is rendered rather than thrown anyway,
  * because `core/refusal.ts`' rule is that a boundary refuses by name and leaves the
  * surface standing. Six families answering that once each is six sentences for one
- * case, which is what `paneBodyForKind` exists to prevent.
+ * case, which is what `paneBodyForKind` exists to prevent — applied by each body module
+ * this table names rather than here, since a loader-form registration carries a
+ * specifier and not a render.
  */
 const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
-    // BOTH KINDS ARE LOADER-BACKED. Neither is on the flagship first paint — the run
-    // pane opens from the sidebar or the workflows browser, the builder from the rail's
-    // own destination — so both travel as their own chunks and the launch pays for
-    // neither. The phase graph stays a nested lazy chunk inside the run pane's, so
-    // opening a run does not fetch the graph either.
+    // A LOADER, like the builder below it: a run pane opens from the destination's run
+    // list or from a run address, so nothing paints it before a person asks.
+    //
+    // IT WAS A `render` FOR ONE ROUND, and the reason it no longer is belongs here rather
+    // than in the body: `pane/run/run-controls.css` and `runs/pane/runs.css` both declared
+    // `.meridian-run-controls` with different layout declarations and disjoint children,
+    // so which sheet the browser saw LAST decided how this pane laid its operator controls
+    // out — and deferring this body moved this family's sheet to the end of that cascade.
+    // Keeping the body eager hid the coupling instead of removing it. The class has one
+    // owner now: this family's block is `meridian-workflow-run-controls` and the runs
+    // family keeps the name it was already declaring, so no bundle boundary decides how
+    // either surface looks. `test/console/architecture/stylesheet-selector-owners.test.ts`
+    // holds the census that keeps a second collision from landing unnoticed.
     body: () => import("./pane/workflow-run-pane-body.js"),
   },
   {
     kind: "workflow-builder",
     owner: WORKFLOWS_OWNER,
+    // The builder carries its own sheet, which no other family declares against, so
+    // its body travels as its own chunk: the rail's destination opens it and nothing
+    // paints it before a person asks.
     body: () => import("./pane/workflow-builder-pane-body.js"),
   },
 ];
@@ -140,20 +178,12 @@ export function registerWorkflowSurfaces(
   registry.register({
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
-    // The host rather than the destination or the browser, and each step of that is
-    // the seat's own reasoning. `#/workflows` is a BARE route, so `context.sessionStore`
-    // is `undefined` on it by construction while the definition enumeration's request
-    // carries a required session id — handed the browser, this seat could only mount a
-    // surface whose read was permanently unasked, so the destination resolves the
-    // session first. And the destination opens panes rather than owning them: the two
-    // pane kinds this family claims are what its lists lead to, and the slot needs a
-    // place to put one, which `WorkflowsPaneHost.tsx` is.
-    //
-    // The whole context, because a pane body is composed from it: a bridge, both
-    // stores, the window store, and the pane's own address. Handing the host three
-    // inputs would mean handing it six the day it composes that context, which is
-    // today.
-    render: (context) => createElement(WorkflowsPaneHost, { context }),
+    // A LOADER, and the seat's reasoning about WHICH component to mount moved with it
+    // to `workflows-surface-body.ts`. `#/workflows` is a rail destination — nothing
+    // paints it until a person asks — so registering it with a `render` put the host,
+    // the scope picker, the definitions browser and the run list on every session's
+    // initial graph and left `preload("workflows")` with nothing to fetch.
+    body: () => import("./workflows-surface-body.js"),
   });
   // `timeline` and no other kind. The card is about a CHANNEL's workflow, and the
   // channel-scoped timeline is the pane a channel's conversation happens in; a region
@@ -165,6 +195,15 @@ export function registerWorkflowSurfaces(
   // registration that could only say "this kind" would have had to be re-asked on every
   // render anyway. The card renders nothing on a session-scoped pane, which is the same
   // nothing it renders for a channel that started no workflow.
+  //
+  // A `render` AND NOT A LOADER, which is this family's only one and is the arithmetic
+  // rather than a preference. `timeline` is the flagship first paint, so a loader here
+  // would start a fetch on every channel timeline that mounts — and the card's answer
+  // for a session-scoped pane, and for a channel that started no workflow, is no element
+  // at all. That is a chunk fetched on the launch path to draw nothing for most of the
+  // sessions that pay for it, which is the opposite trade from the three bodies above.
+  // What it costs is stated where it is paid: the two sheets this card and its badge
+  // draw against enter at the door, and the header says so.
   pinnedRegions.register("timeline", {
     owner: WORKFLOWS_OWNER,
     render: (context) =>

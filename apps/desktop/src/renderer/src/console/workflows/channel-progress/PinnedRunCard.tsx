@@ -65,17 +65,17 @@ export function PinnedRunCard(props: PinnedRunCardProps): React.JSX.Element {
         <ParkBadge key={parked.phaseId} parked={parked} />
       ))}
       {/*
-        The family's own action class rather than a fourth button style: the run list,
-        the definitions browser, and the pane host's back control all wear it, and a
-        route out of this card is the same act they perform. Named for the destination
-        and not for the gesture — a person reads where it goes, not that it is a link.
+        Its own class and not the family's `meridian-workflow__action`, which the run
+        list, the definitions browser and the pane host's back control all wear. That
+        class is declared in `workflows.css`, which rides this family's three chunks —
+        and this card is the one thing the family draws on the FIRST paint, so wearing it
+        left a bare user-agent button above the timeline until some workflows body
+        happened to load. `channel-progress.css` restates the treatment and says why.
+        Named for the destination and not for the gesture — a person reads where it goes,
+        not that it is a link.
       */}
       {onOpenRun === undefined ? null : (
-        <button
-          type="button"
-          className="meridian-workflow__action meridian-channel-progress__route"
-          onClick={onOpenRun}
-        >
+        <button type="button" className="meridian-channel-progress__route" onClick={onOpenRun}>
           Open the run
         </button>
       )}

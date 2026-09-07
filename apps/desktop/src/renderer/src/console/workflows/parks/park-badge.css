@@ -1,8 +1,11 @@
 /*
  * The park badge, and the stack the surfaces that show more than one arrange them in.
  *
- * Owned by `ParkBadge.tsx`, and reached through `workflows.css`, which is the entry
- * point for the sheets this directory owns. The stack rule travels with the badge
+ * Owned by `ParkBadge.tsx`, and reached from `workflows/index.ts` — the family DOOR. It
+ * entered through `workflows.css` while every reader of it sat behind one of this
+ * family's three loaders; the door's pinned region draws a badge per parked phase on the
+ * console's flagship pane, which is the first paint, so the rules have to arrive with it
+ * rather than with whichever chunk loads first. The stack rule travels with the badge
  * rather than with the run pane that places it, because a stack of badges is only ever
  * a stack of these.
  */

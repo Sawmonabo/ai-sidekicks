@@ -1,24 +1,28 @@
 /*
- * The workflows family's shared chrome, and the entry point for the sheets this
- * directory owns.
+ * The workflows family's shared chrome.
  *
- * `workflows/index.ts` imports THIS file and no other sheet, so the family door is one
- * edge into the rules every workflows surface stands in and a surface can never render
- * a chrome that arrived without them. The sheets below are pulled in from here rather
- * than from their own modules for that reason: each is owned and edited by the surface
- * it names, and none of them is a second import edge into what the door already brings.
+ * EVERY CHUNK ROOT THIS FAMILY HAS IMPORTS THIS FILE, and the family door imports it no
+ * longer. All three of the family's bodies — the destination surface and both pane kinds
+ * — now arrive behind a loader, and the one element the door builds draws no class below,
+ * so nothing statically reachable from `workflows/index.ts` can render against a single
+ * rule here and leaving the edge there charged every session for a document none of them
+ * would ever paint. Each root names the rules its body needs, on
+ * `agents/agent-console`'s precedent: two first paints of one family's chrome are two
+ * independent paints, and one of them relying on another having run is the coupling that
+ * has no name.
  *
- * PULLED IN FROM HERE MEANS FROM A DIRECTORY THIS ONE OWNS, and that is the whole of
- * the rule. `definitions/`, `runs/` and `parks/` carry no barrel: they are this
- * family's own sub-directories, reached from inside it and by nothing else, so a sheet
- * of theirs entering on the family door is the family importing its own rules. A sheet
- * belonging to a directory that has an OWNER of its own — another family, a sub-module
- * door, a lazily-loaded chunk — is the shape that is forbidden, because it puts that
- * surface's rules on the initial document for every session that never opens it and
- * makes one directory the reason another is styled at all. Every directory below this
- * one that carries a door is exactly that case, and their sheets are exactly what is
- * not here — a count of them is deliberately not written, because it moved the moment
- * a sub-module door was added and nothing reported that it had.
+ * THIS DOCUMENT PULLS IN NOTHING, AND THAT IS RECENT. It was the entry point for the
+ * sheets this directory owns, and two of them were still entering here — the park badge's
+ * and the channel progress card's — until the door took a pinned region on the console's
+ * flagship pane. Both are drawn on the first paint now, this document is not, and a sheet
+ * whose reader paints before its rules arrive is undressed for as long as the chunk takes
+ * — so both moved up to `workflows/index.ts`, which is where the run list's sheet already
+ * was. What may ever be pulled in here is unchanged: a sheet of a directory THIS one
+ * owns, reached from inside the family and by nothing else. A sheet belonging to a
+ * directory with an owner of its own — another family, a sub-module door, a lazily-loaded
+ * chunk — is the shape that is forbidden, because it puts that surface's rules on
+ * whichever document reaches this one and makes one directory the reason another is
+ * styled at all.
  *
  * WHAT IS BELOW IS WHAT THIS DIRECTORY OWNS. The two pane sheets used to be — an
  * `@import` reaching `../panes/workflow-run/` and another reaching
@@ -29,12 +33,11 @@
  * pane recorded. Both bodies live in this family now and each carries its own barrel,
  * so each pane sheet enters on the barrel of the surface that owns it.
  *
- * THE SHEETS OF THIS FAMILY'S DOORED DIRECTORIES ARE DELIBERATELY NOT BELOW, and
- * naming them here is what keeps the list a claim rather than a coincidence. Two are
- * the pane sheets above. A third is `destination/workflows-destination.css`, which
- * entered here until that directory grew a door of its own and now enters on it, as
- * the rule above has always required. The last is
- * `pane/run/phase-graph/phase-graph.css`, which
+ * THE SHEETS OF THIS FAMILY'S DOORED DIRECTORIES ARE DELIBERATELY NOT HERE, and naming
+ * them is what keeps that a claim rather than a coincidence. Two are the pane sheets
+ * above. A third is `destination/workflows-destination.css`, which entered here until
+ * that directory grew a door of its own and now enters on it, as the rule above has
+ * always required. The last is `pane/run/phase-graph/phase-graph.css`, which
  * rides the lazy graph chunk: it is imported beside the graph library's own `base.css`
  * from that chunk's own door, `pane/run/phase-graph/index.ts`, which is
  * reached through `import()` and nothing else, and it has to load AFTER that sheet to
@@ -48,7 +51,9 @@
  * the reserved-slot box, and the one action treatment the destination's controls and
  * the run controls both wear — plus the destination's own block and header, which are
  * the rail surface's alone. A rule that belongs to exactly one surface belongs in that
- * surface's file.
+ * surface's file. The pinned card's route wears no rule below it: it is drawn on the
+ * first paint and this document is not there, so `channel-progress.css` declares its
+ * own treatment and says why.
  *
  * WHAT LEFT, AND WHERE IT WENT. The two pane kinds used to stand in this family's own
  * frame: `.meridian-workflow` drew their box, `__header` their heading row, and
@@ -59,22 +64,16 @@
  * the first stacked a heading over a summary that no longer share a box, and the
  * second boxed an action that now sits in the pane chrome's own control strip.
  *
- * `Spec-023 §Console Design (Meridian)` governs every rule this entry point pulls in:
+ * `Spec-023 §Console Design (Meridian)` governs every rule below:
  *   • rule 7  — density: one primary action in the header, nothing beside it; the
  *               version chain, the hashes and the schema marker are one click away
  *               and so appear in no rule below.
  *   • rule 8  — the absence blocks are the primitives' and are not restyled here;
- *               these files give them the box they stand in.
+ *               this file gives them the box they stand in.
  *   • rule 5  — nothing animates. A chrome that moves while a read settles is a
  *               chrome that draws attention to its own arrival rather than to what
  *               arrived.
  */
-
-/* The per-surface sheets, in the order a person meets the surfaces. */
-@import "./definitions/definitions-browser.css";
-@import "./runs/run-list.css";
-@import "./parks/park-badge.css";
-@import "./channel-progress/channel-progress.css";
 
 /* --------------------------------------------- the destination's own frame */
 

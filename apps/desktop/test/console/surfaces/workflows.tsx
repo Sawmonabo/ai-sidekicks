@@ -70,7 +70,6 @@ import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/sce
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-definitions.js";
 import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-ids.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
-import { ConsoleSurfaceRegistry } from "../../../src/renderer/src/console/seats/surface-registry.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
 import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface-context.js";
@@ -88,10 +87,12 @@ import {
 } from "../../../src/renderer/src/console/workflows/index.js";
 import {
   ConsolePaneRegistry,
+  PinnedPaneRegionRegistry,
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
+import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -107,34 +108,17 @@ function familyPaneRegistry(): ConsolePaneRegistry {
 }
 
 /**
- * The pane body the deck holds for a kind, as a component, or a throw.
+ * The workflows pane body the deck holds for a kind, loaded.
  *
- * A throw rather than an optional return, so a family that stopped registering its
- * kind fails here — where the message names the kind — instead of rendering nothing
- * and letting a tier compare an empty box against a baseline.
- *
- * The descriptor's `render` is handed back for React to MOUNT rather than called
- * here: both bodies hold hooks, and a plain call outside a render would run them
- * against no dispatcher.
- *
- * ASYNCHRONOUS BECAUSE THE BODY MAY BE A CHUNK. A registration off the flagship first
- * paint declares its body as a loader, so `descriptorFor` hands back a component that
- * renders the pending fallback until the module lands. `preload` is that same loader,
- * awaited before the descriptor is read, which makes the mount below deterministic: the
- * tier renders the body rather than racing it and then reading a frame with nothing in
- * it. Awaiting is also cheaper than a wider settle — a statically registered kind has
- * nothing to load and settles immediately.
+ * The resolution — build a family-scoped registry, preload, read the descriptor, throw
+ * by name — lives once in `test/console/surfaces/pane-body-resolution.ts`; what stays here is
+ * this family's registrar and the `{ context }` prop shape its mounts below render with.
  */
 async function paneBodyComponent(
   kind: PaneKind,
 ): Promise<FunctionComponent<{ context: ConsolePaneContext }>> {
-  const registry = familyPaneRegistry();
-  await registry.preload(kind);
-  const descriptor = registry.descriptorFor(kind);
-  if (descriptor === undefined) {
-    throw new Error(`no console pane is registered for the \`${kind}\` kind`);
-  }
-  return ({ context }) => descriptor.render(context);
+  const render = await resolvedPaneBody(kind, registerWorkflowPanes);
+  return ({ context }) => render(context);
 }
 
 /**
@@ -202,14 +186,18 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
  * message names the slot — instead of rendering nothing and letting a tier compare an
  * empty box against a baseline.
  */
-function surfaceBodyComponent(): FunctionComponent<{ context: ConsoleSurfaceContext }> {
-  const registry = new ConsoleSurfaceRegistry();
-  registerWorkflowSurfaces(registry);
-  const descriptor = registry.descriptorFor("workflows");
-  if (descriptor === undefined) {
-    throw new Error("no console surface is registered for the `workflows` slot");
-  }
-  return ({ context }) => descriptor.render(context);
+async function surfaceBodyComponent(): Promise<
+  FunctionComponent<{ context: ConsoleSurfaceContext }>
+> {
+  // A pinned-region board built here and thrown away. The family's surface seat also
+  // claims the `timeline` pane's region, and this helper mounts the DESTINATION — so the
+  // board is what the second parameter needs and not what this tier reads. The
+  // process-wide one is deliberately not passed: it is owner-scoped state, and a helper
+  // writing into it would make one tier's mount depend on whether another had run.
+  const render = await resolvedSurfaceBody("workflows", (registry) => {
+    registerWorkflowSurfaces(registry, new PinnedPaneRegionRegistry());
+  });
+  return ({ context }) => render(context);
 }
 
 /**
@@ -266,7 +254,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  */
 export async function mountWorkflowsDestination(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const WorkflowsDestinationBody = surfaceBodyComponent();
+  const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
     <LiveAnnouncerProvider>
       <WorkflowsDestinationBody context={surfaceContext(bridge)} />
