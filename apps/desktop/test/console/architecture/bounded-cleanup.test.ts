@@ -44,7 +44,9 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { processHasTerminated } from "../../helpers/process-tree/liveness.js";
-import { BoundedCleanup, ELECTRON_PROCESS_TERMINATOR } from "../bounded-cleanup.js";
+import { HOST_QUERY_TIMEOUT_MS } from "../../helpers/process-tree/readers.js";
+import { BoundedCleanup } from "../bounded-cleanup.js";
+import { ELECTRON_PROCESS_TERMINATOR } from "../cleanup-contract.js";
 import { withCleanupOutcome } from "../cleanup-disposition.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
@@ -311,12 +313,22 @@ describe("bounded cleanup — a close that never settles", () => {
   });
 });
 
-/** The module whose verdicts the reading below decides, read as source once. */
-const BOUNDED_CLEANUP_PATH = join(
-  resolve(dirname(fileURLToPath(import.meta.url)), "..", ".."),
-  "console",
-  "bounded-cleanup.ts",
-);
+/** The two modules whose verdicts the reading below decides, read as source once. */
+const CONSOLE_ROOT = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", ".."), "console");
+
+/**
+ * BOTH halves, because the claim is about the class AND its binding.
+ *
+ * `ELECTRON_PROCESS_TERMINATOR` lives in `cleanup-contract.ts` and the race that
+ * consumes it in `bounded-cleanup.ts`, and either could reach a bare existence
+ * probe: the binding by resolving `isRunning` to the wrong reading, the class by
+ * asking one of its own beside the seam. Scanning one file would leave the other
+ * unclaimed, which is exactly the drift a split invites.
+ */
+const VERDICT_MODULE_PATHS: readonly string[] = [
+  join(CONSOLE_ROOT, "cleanup-contract.ts"),
+  join(CONSOLE_ROOT, "bounded-cleanup.ts"),
+];
 
 /** Every identifier the module CALLS, out of the parse rather than a pattern. */
 function calleeNamesIn(sourcePath: string): ReadonlySet<string> {
@@ -342,19 +354,21 @@ describe("bounded cleanup — which liveness reading a verdict rests on", () => 
   it("binds the real terminator to the reading that counts a zombie as gone", () => {
     const reaped = spawnSync(process.execPath, ["-e", ""]);
     expect(reaped.pid).toBeGreaterThan(0);
-    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid)).toBe(true);
-    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(reaped.pid)).toBe(false);
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, HOST_QUERY_TIMEOUT_MS)).toBe(true);
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(reaped.pid, HOST_QUERY_TIMEOUT_MS)).toBe(false);
     // The two pids above agree under either reading, which is exactly why they
     // cannot settle the class on their own — the one pid that separates them is
     // an unreaped zombie, and whether one lingers is the reaping behaviour of an
     // init this process does not own. So the binding is asserted as well.
-    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid)).toBe(
-      !processHasTerminated(process.pid),
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, HOST_QUERY_TIMEOUT_MS)).toBe(
+      !processHasTerminated(process.pid, HOST_QUERY_TIMEOUT_MS),
     );
   });
 
   it("reaches no bare existence probe anywhere in the module", () => {
-    const calleeNames = calleeNamesIn(BOUNDED_CLEANUP_PATH);
+    const calleeNames = new Set<string>(
+      VERDICT_MODULE_PATHS.flatMap((modulePath) => [...calleeNamesIn(modulePath)]),
+    );
     // Non-vacuity first: a reader that found no calls at all would pass the
     // claim below over an empty set.
     expect(

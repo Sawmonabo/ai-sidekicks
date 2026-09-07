@@ -27,7 +27,8 @@
 import { describe, expect, it } from "vitest";
 
 import { HOST_QUERY_TIMEOUT_MS } from "../../helpers/process-tree/readers.js";
-import { BoundedCleanup, type ProcessTerminator } from "../bounded-cleanup.js";
+import { BoundedCleanup } from "../bounded-cleanup.js";
+import { type ProcessTerminator } from "../cleanup-contract.js";
 import {
   applicationThatNeverCloses,
   profileSpy,

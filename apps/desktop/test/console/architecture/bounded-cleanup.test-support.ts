@@ -20,7 +20,7 @@
 // suites beside it, which is what `test-support-has-no-shipping-reader` in
 // `.dependency-cruiser.mjs` enforces.
 
-import { type ClosableApplication, type ProcessTerminator } from "../bounded-cleanup.js";
+import { type ClosableApplication, type ProcessTerminator } from "../cleanup-contract.js";
 import { type LaunchProfile } from "../launch-profile.js";
 
 /** A close bound short enough that exhausting it costs the suite nothing. */

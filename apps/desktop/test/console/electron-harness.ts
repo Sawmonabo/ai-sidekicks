@@ -49,12 +49,12 @@ import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import { disposeWhenTestFinishes, type SettleTimeRegistrar } from "../helpers/electron-child.js";
+import { BoundedCleanup } from "./bounded-cleanup.js";
 import {
-  BoundedCleanup,
   type CleanupOutcome,
   type ClosableApplication,
   ELECTRON_PROCESS_TERMINATOR,
-} from "./bounded-cleanup.js";
+} from "./cleanup-contract.js";
 import {
   cleanupFailure,
   closeAfterBody,

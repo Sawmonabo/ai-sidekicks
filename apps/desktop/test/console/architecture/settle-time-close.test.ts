@@ -31,7 +31,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type CleanupOutcome } from "../bounded-cleanup.js";
+import { type CleanupOutcome } from "../cleanup-contract.js";
 import { CleanupFailedError } from "../cleanup-disposition.js";
 import { registerSettleTimeClose } from "../electron-harness.js";
 import {
