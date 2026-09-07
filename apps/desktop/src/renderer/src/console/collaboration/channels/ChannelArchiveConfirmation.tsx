@@ -1,5 +1,7 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
+import { OverlayAlertDialogPopup } from "../../primitives/index.js";
+
 /**
  * Archiving, and what it costs, stated before it happens.
  *
@@ -28,30 +30,34 @@ export function ChannelArchiveConfirmation(props: {
       >
         {props.isArchiving ? "Archiving…" : "Archive"}
       </AlertDialog.Trigger>
-      <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="meridian-channels__dialog-backdrop" />
-        <AlertDialog.Popup className="meridian-channels__dialog">
-          <AlertDialog.Title className="meridian-channels__dialog-title">
-            Archive this channel?
-          </AlertDialog.Title>
-          <AlertDialog.Description className="meridian-channels__dialog-body">
-            Archiving is terminal. The channel moves below the live ones and stops taking runs, and
-            nothing here brings it back — a channel whose rhythm turned out wrong is replaced, not
-            reconfigured.
-          </AlertDialog.Description>
-          <div className="meridian-channels__dialog-acts">
-            <AlertDialog.Close className="meridian-channels__dialog-cancel">
-              Keep it
-            </AlertDialog.Close>
-            <AlertDialog.Close
-              className="meridian-channels__dialog-confirm"
-              onClick={props.onConfirm}
-            >
-              Archive
-            </AlertDialog.Close>
-          </div>
-        </AlertDialog.Popup>
-      </AlertDialog.Portal>
+      {/* The popup shell is the primitive's, which is what puts this confirmation in
+          the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to what is registered there, and a confirmation it
+          painted over is the one thing 12.3 forbids outright. */}
+      <OverlayAlertDialogPopup
+        backdropClassName="meridian-channels__dialog-backdrop"
+        className="meridian-channels__dialog"
+      >
+        <AlertDialog.Title className="meridian-channels__dialog-title">
+          Archive this channel?
+        </AlertDialog.Title>
+        <AlertDialog.Description className="meridian-channels__dialog-body">
+          Archiving is terminal. The channel moves below the live ones and stops taking runs, and
+          nothing here brings it back — a channel whose rhythm turned out wrong is replaced, not
+          reconfigured.
+        </AlertDialog.Description>
+        <div className="meridian-channels__dialog-acts">
+          <AlertDialog.Close className="meridian-channels__dialog-cancel">
+            Keep it
+          </AlertDialog.Close>
+          <AlertDialog.Close
+            className="meridian-channels__dialog-confirm"
+            onClick={props.onConfirm}
+          >
+            Archive
+          </AlertDialog.Close>
+        </div>
+      </OverlayAlertDialogPopup>
     </AlertDialog.Root>
   );
 }
