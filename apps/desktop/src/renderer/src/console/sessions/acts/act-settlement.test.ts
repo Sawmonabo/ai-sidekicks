@@ -90,21 +90,64 @@ describe("one act's settlement", () => {
     });
 
     const running = act.run("first");
-    await act.run("second");
+    const refusal = await act.run("second");
 
     expect(attemptCount).toBe(1);
-    const settlement = act.settlement();
-    expect(settlement.status).toBe("refused");
-    if (settlement.status === "refused") {
-      expect(settlement.refusal.code).toBe("act-in-flight");
-      // The console's own rule, so the console's own subsystem — a refusal wearing a
-      // daemon namespace would attribute this to a wire nothing was sent on.
-      expect(settlement.refusal.origin).toBe("session-act");
-      expect(settlement.refusal.detail).toContain("The join");
-    }
+    expect(refusal?.code).toBe("act-in-flight");
+    // The console's own rule, so the console's own subsystem — a refusal wearing a
+    // daemon namespace would attribute this to a wire nothing was sent on.
+    expect(refusal?.origin).toBe("session-act");
+    expect(refusal?.detail).toContain("The join");
 
     held.release("answered");
     await running;
+  });
+
+  it("leaves the first request in flight while it refuses the second", async () => {
+    // The defect: publishing the duplicate refusal as the SETTLEMENT replaced
+    // `running` with `refused` while the first call was still out. Every form
+    // reading this act then saw a settled state, re-enabled its control, and
+    // admitted a press whose call raced the first to overwrite the settlement.
+    const held = heldAttempt();
+    const act = new SessionAct<string, string>({
+      attempt: held.attempt,
+      describeWhat: "The join",
+    });
+    let notifications = 0;
+    act.subscribe(() => {
+      notifications += 1;
+    });
+
+    const running = act.run("first");
+    expect(act.settlement()).toStrictEqual({ status: "running" });
+    await act.run("second");
+
+    // Unmoved, and not merely unmoved by value: the refusal published NOTHING, so
+    // no subscriber was woken with a state the act was not in.
+    expect(act.settlement()).toStrictEqual({ status: "running" });
+    expect(notifications).toBe(1);
+
+    // And the first request still settles normally, which is the half a form
+    // re-enabled by the old behaviour could no longer be told about.
+    held.release("answered");
+    await running;
+    expect(act.settlement()).toStrictEqual({ status: "settled", answer: "answered" });
+  });
+
+  it("would notice a duplicate press that was let through — the control", async () => {
+    // The same two presses with nothing in flight: the second one IS put, settles,
+    // and answers no refusal — so the reading above is a single-flight reading
+    // rather than a class that refuses every second call for any reason.
+    const act = new SessionAct<string, string>({
+      attempt: async (request) => await Promise.resolve({ status: "served", value: request }),
+      describeWhat: "The join",
+    });
+
+    await act.run("first");
+    const refusal = await act.run("second");
+
+    expect(refusal).toBeUndefined();
+    expect(act.settlement()).toStrictEqual({ status: "settled", answer: "second" });
   });
 
   it("would notice a coordinator that let the second press through", async () => {

@@ -76,6 +76,7 @@ export { FrameStore } from "./frame-store.js";
 // store the value lives in, which makes it the lowest family that can own the words.
 export {
   MUTATING_DAEMON_METHODS,
+  SHELL_DETAIL_DESTINATION,
   UNREPORTED_SHELL_NOTICE,
   UNREPORTED_SHELL_STATE,
   describeShellConnection,

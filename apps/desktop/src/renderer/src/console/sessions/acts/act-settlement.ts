@@ -102,21 +102,36 @@ export class SessionAct<TRequest, TAnswer> {
    * press that vanishes is indistinguishable from one the daemon ignored. It does
    * not queue — an act held and put later is a second act nobody re-confirmed.
    *
+   * THE DUPLICATE REFUSAL IS ANSWERED TO THE CALLER AND IS NEVER PUBLISHED. The
+   * settlement belongs to the request that is still in flight, and publishing the
+   * second press's refusal over it would replace `running` with `refused` while the
+   * first call is still out: every form reading this act would see a settled state,
+   * re-enable its control, and admit a third press whose call races the first to
+   * overwrite the settlement both of them write. So the in-flight state stands
+   * untouched — no publish, no notification, no transition — and the refusal travels
+   * back on the return, which is the one channel that reaches the presser without
+   * making a claim about the act. The four-arm union stays exactly four arms: the
+   * only shape that could carry this refusal AND the running fact at once is a fifth
+   * state, and nothing renders one.
+   *
+   * The caller that ignores the return loses nothing a person can see: the control
+   * that could have been pressed twice is already disabled by the `running` arm this
+   * refusal exists to preserve, so the return is what a programmatic second press —
+   * a restored draft, a keyboard repeat, a test — is told.
+   *
    * There is no `catch` because there is nothing to catch: an attempt answers a
    * served value or a refusal, never a throw, so both arms below are one settlement
    * read two ways rather than one path and one accident.
+   *
+   * @returns the duplicate-press refusal, or `undefined` where the act was put.
    */
-  public async run(request: TRequest): Promise<void> {
+  public async run(request: TRequest): Promise<ConsoleRefusal | undefined> {
     if (this.#settlement.status === "running") {
-      this.#publish({
-        status: "refused",
-        refusal: refuse(
-          SESSION_ACT_REFUSAL_ORIGIN,
-          ACT_IN_FLIGHT_CODE,
-          `${this.#describeWhat} was not put: the last one is still running, and only one runs at a time. Wait for it to settle, then press again.`,
-        ),
-      });
-      return;
+      return refuse(
+        SESSION_ACT_REFUSAL_ORIGIN,
+        ACT_IN_FLIGHT_CODE,
+        `${this.#describeWhat} was not put: the last one is still running, and only one runs at a time. Wait for it to settle, then press again.`,
+      );
     }
     this.#publish({ status: "running" });
     const outcome = await this.#attempt(request);
@@ -125,6 +140,7 @@ export class SessionAct<TRequest, TAnswer> {
         ? { status: "settled", answer: outcome.value }
         : { status: "refused", refusal: outcome.refusal },
     );
+    return undefined;
   }
 
   /** Return to the unattempted state — the form's own reset, never a settlement. */

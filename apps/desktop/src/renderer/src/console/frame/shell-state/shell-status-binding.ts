@@ -120,6 +120,15 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
  * its own call resolved would be synthesizing the one state this plane may never
  * synthesize.
  *
+ * WHICH IS ALSO WHY THE SHELL'S MUTATION BLOCK NEVER REACHES IT. Every daemon-bound
+ * write is closed while the supervisor is reconnecting, incompatible, offline, or
+ * stopped — `store/shell-state.ts` owns that rule and the sessions destination applies
+ * it to the acts it offers — and the daemon's OWN lifecycle controls, this retry and
+ * the stop and restart on its settings page, are the exception by construction rather
+ * than by exemption: they are not on `MUTATING_DAEMON_METHODS` because they are not
+ * daemon methods at all. A rule that blocked them would leave a stopped runtime with
+ * no way back, which is the one state a person most needs a control for.
+ *
  * A refusal is raised on the frame's own banner stack, because a control that is
  * pressed and answers with silence is indistinguishable from one that is broken.
  */

@@ -5,10 +5,14 @@
 // nothing renders nothing, a window told something renders exactly that, and the two
 // notices are independent rather than one line about "security".
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FrameStore, type ShellReport } from "../../store/index.js";
+import { FrameStore, SHELL_DETAIL_DESTINATION, type ShellReport } from "../../store/index.js";
+// A view family, reached only from a test: `frame/` may not import one, and the
+// layering gate excludes test files from its graph before any rule runs. This is the
+// one place the chip's destination and the rail's closed section set meet.
+import { SETTINGS_SECTION_IDS } from "../../settings/settings-sections.js";
 import { ShellChrome } from "./ShellChrome.js";
 
 function storeReporting(report: Partial<ShellReport>): FrameStore {
@@ -39,6 +43,77 @@ describe("ShellChrome — a window told nothing", () => {
       <ShellChrome frameStore={storeReporting({ connection: { kind: "connected" } })} />,
     );
     expect(container.querySelector(".meridian-shell-state")).not.toBeNull();
+  });
+});
+
+describe("ShellChrome — the supervisor chip", () => {
+  it("opens the local runtime page on a press", () => {
+    // The defect: the chip was inert content while the design and the copy around it
+    // promised the supervisor detail "one click away", so the advertised recovery path
+    // could only be reached by guessing through Settings.
+    const store = storeReporting({
+      connection: { kind: "offline", attemptLimit: 5, lastError: undefined },
+    });
+    const { getByRole } = render(<ShellChrome frameStore={store} />);
+
+    act(() => {
+      getByRole("button", { name: /open the local runtime page/iu }).click();
+    });
+
+    // The route the shell vocabulary declares, which is also the id the settings rail
+    // lists — asserted as the route value rather than as a hash, because a hand-built
+    // address is exactly what the navigation may not be.
+    expect(store.getState().route).toStrictEqual(SHELL_DETAIL_DESTINATION.route);
+  });
+
+  it("lands on a section the settings rail actually lists", () => {
+    // The coupling the DAG cannot express as an import: `frame/` may not reach a view
+    // family, so the destination is declared in `store/shell-state.ts` and the rail's
+    // closed enumeration lives in `settings/`. A rename on either side fails here
+    // rather than shipping a chip that opens a page nothing answers for.
+    expect([...SETTINGS_SECTION_IDS]).toContain(SHELL_DETAIL_DESTINATION.section);
+    expect(SHELL_DETAIL_DESTINATION.route).toStrictEqual({
+      kind: "settings",
+      page: SHELL_DETAIL_DESTINATION.section,
+    });
+  });
+
+  it("keeps the state itself as the label, so the name says both things", () => {
+    const { getByRole } = render(
+      <ShellChrome frameStore={storeReporting({ connection: { kind: "connected" } })} />,
+    );
+    // The visible label is contained in the accessible name rather than replaced by
+    // it: a person who reads "Local runtime connected" and a person who hears the
+    // control are told the same thing plus where it goes.
+    const control = getByRole("button", { name: /open the local runtime page/iu });
+    expect(control.textContent).toContain("Local runtime connected");
+  });
+
+  it("leaves the absence inert — the control", () => {
+    // A window told nothing renders `Nothing`, and a button around "nobody has said"
+    // would offer a detail page for a supervisor this build has no channel to ask
+    // about. The strip still renders here, because the keystore notice earned it.
+    //
+    // Both arms are queried off their OWN container rather than through the render
+    // result's role query, which is scoped to the document and would answer with
+    // whichever of the two mounts came first.
+    const unreported = render(
+      <ShellChrome
+        frameStore={storeReporting({
+          connection: { kind: "unreported" },
+          keystore: "unavailable",
+        })}
+      />,
+    );
+    expect(unreported.container.querySelector(".meridian-shell-state__detail")).toBeNull();
+    expect(unreported.container.querySelector(".meridian-nothing")).not.toBeNull();
+
+    // And the reported window beside it does offer one, so the assertion above is
+    // about the arm rather than about the query.
+    const reported = render(
+      <ShellChrome frameStore={storeReporting({ connection: { kind: "connected" } })} />,
+    );
+    expect(reported.container.querySelector(".meridian-shell-state__detail")).not.toBeNull();
   });
 });
 
