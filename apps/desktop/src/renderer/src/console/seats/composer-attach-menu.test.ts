@@ -19,7 +19,10 @@ function entry(id: string, owner: string): ComposerAttachMenuEntry {
     label: "Attach something",
     glyph: "plus",
     detail: "What picking it does.",
-    attach: async () => ({ status: "attached" }),
+    attach: async () => ({
+      status: "attached",
+      attachment: { artifactId: "artifact-1", mediaType: "image/png", byteLength: 1 },
+    }),
   };
 }
 
