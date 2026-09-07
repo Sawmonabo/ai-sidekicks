@@ -41,13 +41,13 @@
 // intent to invite somebody is what makes the answer worth having. It is asked as
 // part of the mint rather than after it, and `invite-mint.ts` is where that act lives
 // and where the ordering argument is written down — the short of it being that the
-// coordinator's latch has to cover the whole act, and that a token held across one
-// more await is a credential that can be stranded. A host that refuses leaves the
-// invitation minted and real: the reveal shows the token's own identifier and says
-// the link could not be composed, which is the truth rather than a link with a
-// guessed host in it — and it offers the one act that still fixes it, a retry of the
-// host read composing from the token the reveal is holding. `use-minted-invite.ts`
-// owns that holding, and says why the token outlives the press that produced it.
+// coordinator's latch has to cover the whole act, and that reading the host FIRST is
+// what lets a host that refuses end the act before a token exists. So a refused host
+// mints nothing at all: no row reaches the ledger, the read's own refusal renders on
+// the send control below like any other, and pressing again is the whole retry. Past
+// that abort the link is complete by the time the reveal has anything to show, which
+// is why nothing here holds a token — `use-minted-invite.ts` holds the invitation and
+// says why it is scoped to the session it was minted in.
 //
 // THE LEDGER IS RE-READ RATHER THAN WRITTEN INTO. `InviteCreateResponse` carries no
 // `state` and no `joinMode`, so folding a row in would mean the renderer composing
@@ -161,13 +161,7 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
   // And what the mint produced, which is the same rule over a longer-lived value —
   // its own module, because a token that outlives the press has a lifetime worth
   // stating rather than a `useState` a reader has to reconstruct.
-  const {
-    minted,
-    isComposingLink,
-    hold: holdMinted,
-    release,
-    composeLink,
-  } = useMintedInvite(bridge, sessionId);
+  const { minted, hold: holdMinted, release } = useMintedInvite(bridge, sessionId);
 
   const coordinator = useMemo(
     () =>
@@ -240,9 +234,7 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
     return (
       <InviteLinkReveal
         minted={minted}
-        isComposingLink={isComposingLink}
         onCopy={(link) => bridge.sidekicks.native.copyToClipboard(link)}
-        onComposeLink={composeLink}
         onDone={release}
       />
     );

@@ -39,9 +39,21 @@
 // like a link nobody had followed, and the retry the `unavailable` arm carries the
 // handle for was reachable from no control on any screen. All three open the SAME
 // card, because they are one question about one deep link.
+//
+// SO WHAT IS OPEN IS A PROMPT AND NOT A DIALOG. Held as a flag, the open state
+// outlived the prompt it was opened for: the lifecycle's queue moves on its own — a
+// served retry releases its head and a fresh frame takes its place — and with anything
+// waiting behind, the card swapped straight to the next arrival, which is a prompt
+// nobody had pressed **Look at it** for. Holding the HEAD the gesture was made for
+// makes that impossible to express rather than something to remember: the card is open
+// exactly while the head is still the one a person asked to see, so the queue advancing
+// closes it, a head that has not moved — a refused retry, an outcome arriving against
+// the invitation on screen — keeps it open with its own words, and every new prompt
+// costs the same one gesture the first one did.
 
 import { useCallback, useState } from "react";
 
+import type { GrowthPendingInvite, GrowthPendingInvitePreviewFailure } from "../../bridge/index.js";
 import { InlineRefusal } from "../../primitives/index.js";
 import type { WindowOverlaySeatProps } from "../../seats/index.js";
 import { InviteConfirmation } from "./InviteConfirmation.js";
@@ -51,12 +63,26 @@ import { usePendingInvites } from "./use-pending-invites.js";
 
 export type InviteLifecycleOverlayProps = WindowOverlaySeatProps;
 
+/**
+ * The head, whichever of the three states it arrived in.
+ *
+ * The reading splits one head across two mutually exclusive members, so this is that
+ * split read back — and it is compared by IDENTITY rather than by a composed key
+ * because the refused arm carries no handle at all (`pending-invite-arrivals.ts` says
+ * why it cannot be given one), and two refusals with the same code would collide under
+ * any key derived from their fields. The arrival object is the queue's own: admitted
+ * once, carried unchanged, and dropped when the head is released, so identity answers
+ * "is this still the prompt that was opened" exactly and for all three arms.
+ */
+type PendingInvitePrompt = GrowthPendingInvite | GrowthPendingInvitePreviewFailure;
+
 export function InviteLifecycleOverlay(
   props: InviteLifecycleOverlayProps,
 ): React.JSX.Element | null {
   const { bridge, openSession } = props;
   const { snapshot, adapter } = usePendingInvites(bridge);
-  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
+  // The head a person actually asked to see, and not a flag saying one of them was.
+  const [promptLookedAt, setPromptLookedAt] = useState<PendingInvitePrompt | undefined>(undefined);
   useJoinedOutcomeNavigation(snapshot, openSession);
 
   // ONE HANDLER FOR EVERY WAY THE CARD CAN BE PUT AWAY. Whether the press releases
@@ -69,11 +95,11 @@ export function InviteLifecycleOverlay(
     // The adapter refuses it while an act on the same reference is unsettled, which
     // is why the control that dispatches it closes for that lifetime.
     adapter.dismiss();
-    setIsConfirmationOpen(false);
+    setPromptLookedAt(undefined);
   }, [adapter]);
   const acknowledge = useCallback(() => {
     adapter.acknowledge();
-    setIsConfirmationOpen(false);
+    setPromptLookedAt(undefined);
   }, [adapter]);
   const confirm = useCallback(() => {
     adapter.confirm();
@@ -81,14 +107,18 @@ export function InviteLifecycleOverlay(
   // NOT A CLOSE PATH, unlike the two above it, and that is a property of what a retry
   // ANSWERS. Its answer is a fresh preview state on the pending feed rather than
   // anything this card can render, so the lifecycle releases the head it was
-  // dispatched on when the call is served and the card closes on its own. Closing it
-  // here would take a refused retry off the screen along with the refusal's own words.
+  // dispatched on when the call is served — and the card closes because the prompt it
+  // was opened for is gone, not because this handler said so. Clearing the held prompt
+  // here would take a REFUSED retry off the screen along with the refusal's own words,
+  // on the one arm where the head has not moved at all.
   const retry = useCallback(() => {
     adapter.retry();
   }, [adapter]);
 
   // Whichever of the three states the head is in, there is something to look at.
-  const hasPrompt = snapshot.invite !== undefined || snapshot.previewFailure !== undefined;
+  const prompt: PendingInvitePrompt | undefined = snapshot.invite ?? snapshot.previewFailure;
+  const hasPrompt = prompt !== undefined;
+  const isConfirmationOpen = hasPrompt && prompt === promptLookedAt;
   return (
     <>
       {hasPrompt || snapshot.feedRefusal !== undefined ? (
@@ -100,7 +130,7 @@ export function InviteLifecycleOverlay(
                 type="button"
                 className="meridian-invite-notice__open"
                 onClick={() => {
-                  setIsConfirmationOpen(true);
+                  setPromptLookedAt(prompt);
                 }}
               >
                 Look at it
@@ -113,7 +143,7 @@ export function InviteLifecycleOverlay(
         </div>
       ) : null}
       <InviteConfirmation
-        open={isConfirmationOpen && hasPrompt}
+        open={isConfirmationOpen}
         snapshot={snapshot}
         onConfirm={confirm}
         onRetry={retry}

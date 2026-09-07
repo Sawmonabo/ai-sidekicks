@@ -195,22 +195,29 @@ describe("creating an invitation — the one-time reveal", () => {
     expect(copy).toHaveBeenCalledWith(link);
   });
 
-  it("keeps the invitation on screen when the host read refuses, and says why", async () => {
-    // The mint SUCCEEDED; what failed is the composition of the link. Hiding the
-    // invitation would lose an identifier a person can still revoke by.
-    const { bridge } = bridgeFor(scenarioMinting(), {
+  it("mints nothing when the host read refuses, and says why on the send control", async () => {
+    // The link is `https://<host>/invite/<token>` and the token comes back exactly
+    // once, so an invitation minted under a host this console could not read is a row
+    // in the ledger nobody can ever send. The read happens BEFORE the mint, so the
+    // refusal is known while nothing has been spent: the act refuses whole, the
+    // ledger is not told anything was created, and the control re-opens to try again.
+    const onMinted = vi.fn();
+    const { bridge, calls } = bridgeFor(scenarioMinting(), {
       controlPlaneHostRead: growthRefusing("controlPlaneHostRead"),
     });
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={onMinted} />,
     );
     await settle();
     await pressSend(container);
 
+    expect(mintsReaching(calls)).toBe(0);
+    expect(onMinted).not.toHaveBeenCalled();
     const text = container.textContent ?? "";
-    expect(text).toContain(MINTED_INVITE_ID);
     expect(text).toContain("wire-unregistered");
+    expect(text).not.toContain(MINTED_INVITE_ID);
     expect(text).not.toContain(MINTED_TOKEN);
+    expect(sendControl(container)?.disabled).toBe(false);
   });
 
   it("puts the invitation away only on a press, and cannot show the link again", async () => {
