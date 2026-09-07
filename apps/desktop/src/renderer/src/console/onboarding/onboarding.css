@@ -1,0 +1,283 @@
+/* The walkthrough's own styles: a rail, a pane, and a footer that can finish.
+ *
+ * Enters through this family's door, which is the directory that owns it. The
+ * walkthrough is a dialog rather than a surface, so it carries its own backdrop and
+ * popup here instead of borrowing the workspace's card chrome.
+ *
+ * NOTHING IS COLOURED FOR ATTENTION. A provider that is not ready is a state, not an
+ * alarm: the two-hue rule keeps the ground neutral and lets the words carry it.
+ */
+
+.meridian-onboarding__backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklch, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-onboarding__popup {
+  position: fixed;
+  inset-block-start: 8vh;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  inline-size: min(56rem, calc(100vw - var(--meridian-space-8)));
+  max-block-size: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-onboarding__heading {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 500;
+}
+
+.meridian-onboarding {
+  display: grid;
+  grid-template-columns: minmax(0, 16rem) minmax(0, 1fr);
+  grid-template-areas:
+    "rail pane"
+    "footer footer";
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-onboarding__rail {
+  grid-area: rail;
+  min-width: 0;
+}
+
+.meridian-onboarding__rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-onboarding__rail-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 0 var(--meridian-space-2);
+  inline-size: 100%;
+  padding: var(--meridian-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-onboarding__rail-entry--open {
+  border-color: var(--meridian-edge-strong);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-onboarding__rail-entry:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-onboarding__rail-entry:disabled {
+  cursor: default;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__rail-label {
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-onboarding__rail-state {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__rail-summary {
+  grid-column: 1 / -1;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* Why a held step cannot be opened. Its own line, because it is the one thing on a
+   disabled entry a reader has to be able to find. */
+.meridian-onboarding__rail-blocked {
+  grid-column: 1 / -1;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__pane {
+  grid-area: pane;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-onboarding__footer {
+  grid-area: footer;
+  padding-block-start: var(--meridian-space-3);
+  border-block-start: 1px solid var(--meridian-edge);
+  min-width: 0;
+}
+
+.meridian-onboarding__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+.meridian-onboarding__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+.meridian-onboarding__note {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__note--quiet {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-onboarding__options,
+.meridian-onboarding__providers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-onboarding__option,
+.meridian-onboarding__provider {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+  min-width: 0;
+}
+
+.meridian-onboarding__option-label,
+.meridian-onboarding__provider-head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-onboarding__badge {
+  padding: 0 var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  font-size: var(--meridian-text-xs);
+  font-weight: 400;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-onboarding__ledger-title {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__list {
+  margin: 0;
+  padding-inline-start: var(--meridian-space-4);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-onboarding__detail {
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__figures {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: var(--meridian-space-2) 0 0;
+}
+
+.meridian-onboarding__figures dt {
+  font-size: var(--meridian-text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-onboarding__figures dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-onboarding__connection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-onboarding__act {
+  align-self: flex-start;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-accent);
+  color: var(--meridian-accent-ink);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-onboarding__act:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.meridian-onboarding__act:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-onboarding__act--secondary {
+  background: transparent;
+  border-color: var(--meridian-edge-strong);
+  color: var(--meridian-text);
+}

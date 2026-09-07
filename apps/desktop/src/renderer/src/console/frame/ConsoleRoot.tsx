@@ -18,6 +18,7 @@ import { consoleEntityProjectorRegistry } from "../store/index.js";
 import {
   consolePaneRegistry,
   consoleSurfaceRegistry,
+  frameBindingRegistry,
   inlineCardSeatRegistry,
   sidebarSectionRegistry,
   type ConsoleSurfaceContext,
@@ -40,7 +41,7 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 // registry refuses a second OWNER on one slot, so a hot reload replaces and a
 // collision raises.
 //
-// All five process-wide boards are named HERE rather than reached for inside the
+// All six process-wide boards are named HERE rather than reached for inside the
 // composition, which is what makes this the composition site: a test or an auxiliary
 // window calls the same function with boards of its own and touches none of these.
 //
@@ -56,12 +57,18 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 // render, which is strictly after. A store therefore opens with the fold the
 // composition claimed rather than with whatever had registered by the time the
 // first event arrived.
+// The frame-binding board is the sixth, and the one whose claims are mounted by the
+// frame rather than by a route. It is composed here with the rest for the projector
+// board's reason: a binding is registered before any window renders, so the frame
+// wraps its first subtree in every binding a family claimed rather than in whichever
+// ones had evaluated by then.
 registerConsoleFamilies(
   consoleSurfaceRegistry,
   consolePaneRegistry,
   consoleEntityProjectorRegistry,
   sidebarSectionRegistry,
   inlineCardSeatRegistry,
+  frameBindingRegistry,
 );
 
 export interface ConsoleRootProps {

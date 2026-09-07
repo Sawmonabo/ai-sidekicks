@@ -17,13 +17,13 @@
 //     attention projection. A row the projection did not mention shows nothing,
 //     which is not the same as showing "clear".
 //
-// THE TIER CONTROL IS ONE BUTTON, NOT A MENU. The design names a row context menu
-// carrying pin, move-to-other-tier, and unpin. With exactly two tiers and the back
-// tier as the default, those three acts have two outcomes: a row is in the front
-// tier or it is not, and "unpin" and "move to the back tier" are the same act. So
-// the row carries a single toggle labelled by what pressing it will do, revealed on
-// hover and on `:focus-within` so a keyboard reaches it, and no menu is drawn to
-// hold one live item and one no-op.
+// THE TIER CONTROL IS THE ROW CONTEXT MENU THE DESIGN NAMES, carrying pin,
+// move-to-other-tier, and unpin. With exactly two tiers and the back tier as the
+// default those three acts have two outcomes — "unpin" and "move to the back tier"
+// are one move — so the menu offers the one move that would change something and
+// states where the row currently SITS beside it. That second line is why the single
+// toggle it replaced was not enough: its label was the only evidence of which tier a
+// row was in, and the evidence disappeared with the pointer.
 //
 // NO VIRTUALIZATION, AND THAT IS THE BOUND RATHER THAN A GAP. The front tier holds
 // what a person pinned and the back tier folds past

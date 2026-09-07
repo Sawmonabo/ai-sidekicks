@@ -18,6 +18,11 @@
 //   3. **A window holding nothing is not a node holding nothing.** The directory is
 //      a node read, so it answers on an address that names no session — which is
 //      exactly the state a person is in when they open the console.
+//   4. **A blocked shell blocks the acts, not only the words.** The window's
+//      read-only state was computed and rendered as explanatory text while every
+//      control on this screen stayed live, so a person told the runtime was gone
+//      could still press Start and have the probe create a session from its mount
+//      effect. Each case pairs the closed control with the healthy one.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -29,6 +34,11 @@ import {
   settle,
   storeHolding,
 } from "./session-surface.test-support.js";
+import {
+  UNREPORTED_SHELL_STATE,
+  shellMutationBlock,
+  type ShellConnection,
+} from "../store/index.js";
 
 describe("which kind of nothing an empty list is", () => {
   it("says nobody asked when the directory read is refused", async () => {
@@ -279,5 +289,79 @@ describe("starting a session is an act", () => {
       container.querySelector<HTMLButtonElement>(".meridian-sessions__start")?.click();
     });
     expect(container.textContent ?? "").toContain("running on the fixture");
+  });
+});
+
+describe("while the shell cannot be written to", () => {
+  /** The block the store derives for one supervisor state, so no sentence is retyped. */
+  function blockDetailFor(connection: ShellConnection): string {
+    const block = shellMutationBlock({ ...UNREPORTED_SHELL_STATE, connection });
+    if (block === undefined) {
+      throw new Error(`the store derives no block for ${connection.kind}`);
+    }
+    return block.detail;
+  }
+
+  it("puts no session start, and names the shell's own cause", async () => {
+    // The defect: the block reached the palette as explanatory text while this
+    // destination's controls stayed live, so a window that had been told the runtime
+    // was gone still dispatched `session.create` from the probe's mount effect.
+    const { container } = renderSurface(
+      contextWith({
+        shellConnection: { kind: "offline", attemptLimit: 5, lastError: undefined },
+      }),
+    );
+    await settle();
+
+    const start = container.querySelector<HTMLButtonElement>(".meridian-sessions__start");
+    expect(start?.disabled).toBe(true);
+    act(() => {
+      start?.click();
+    });
+    expect(container.querySelector(".meridian-sessions__started")).toBeNull();
+    // The store's own sentence, read back from the store rather than retyped here:
+    // a control naming a cause this file invented would be the second copy of the
+    // rule the fix exists to avoid.
+    expect(container.textContent ?? "").toContain(
+      blockDetailFor({ kind: "offline", attemptLimit: 5, lastError: undefined }),
+    );
+  });
+
+  it("closes the join form on the same cause", async () => {
+    const { container } = renderSurface(
+      contextWith({ shellConnection: { kind: "version-incompatible" } }),
+    );
+    await settle();
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".meridian-session-acts__secondary")?.click();
+    });
+
+    const join = container.querySelector<HTMLButtonElement>(".meridian-session-join__submit");
+    expect(join?.disabled).toBe(true);
+    expect(container.textContent ?? "").toContain(blockDetailFor({ kind: "version-incompatible" }));
+  });
+
+  it("blocks a deliberate shutdown too, and says so as a shutdown", async () => {
+    // `stopped` is not a failure and does not read as one, but nothing can be sent to
+    // a runtime somebody turned off — so the act is closed and the sentence is its own.
+    const { container } = renderSurface(contextWith({ shellConnection: { kind: "stopped" } }));
+    await settle();
+    expect(container.querySelector<HTMLButtonElement>(".meridian-sessions__start")?.disabled).toBe(
+      true,
+    );
+    expect(container.textContent ?? "").toContain(blockDetailFor({ kind: "stopped" }));
+  });
+
+  it("starts a session while the shell is connected — the control", async () => {
+    // Without this the case above passes for a surface that disabled the control for
+    // every shell state, including the healthy one.
+    const { container } = renderSurface(contextWith({ shellConnection: { kind: "connected" } }));
+    await settle();
+    const start = container.querySelector<HTMLButtonElement>(".meridian-sessions__start");
+    expect(start?.disabled).toBe(false);
+    act(() => {
+      start?.click();
+    });
+    expect(container.querySelector(".meridian-sessions__started")).not.toBeNull();
   });
 });

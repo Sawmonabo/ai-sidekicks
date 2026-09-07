@@ -1,0 +1,160 @@
+/* The three ways in, and the switch that governs what a start press leaves behind.
+   Its own sheet rather than more of `sessions.css`, because the acts bar is a
+   directory of its own and a sheet grows with what it styles; it enters through the
+   family door beside that one, which is what owns `acts/` — the directory carries no
+   door of its own. */
+
+.meridian-session-acts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  align-self: stretch;
+}
+
+.meridian-session-acts__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* The two secondary ways in. Quieter than the start control by border and weight
+   rather than by size, so they stay the same target a pointer and a keyboard reach. */
+.meridian-session-acts__secondary,
+.meridian-session-acts__menu-trigger {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-session-acts__secondary:focus-visible,
+.meridian-session-acts__menu-trigger:focus-visible,
+.meridian-session-join__submit:focus-visible,
+.meridian-session-import__submit:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Portalled by Base UI, so styled by class and never by descent. */
+.meridian-session-acts__menu-positioner {
+  z-index: 1;
+}
+
+.meridian-session-acts__menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 14rem;
+  padding: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-session-acts__menu-item {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.meridian-session-acts__menu-item[data-highlighted] {
+  background: var(--meridian-surface);
+}
+
+/* Why an act is not on offer. Attention rather than failure: a window that has lost
+   the stream is a condition to know about, not a thing that broke. */
+.meridian-session-acts__blocked,
+.meridian-session-join__blocked,
+.meridian-session-import__blocked {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-session-join,
+.meridian-session-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-session-join__field,
+.meridian-session-import__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-session-join__label,
+.meridian-session-import__label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-session-join__input,
+.meridian-session-import__input {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-session-join__submit,
+.meridian-session-import__submit {
+  align-self: flex-start;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-session-join__submit:disabled,
+.meridian-session-import__submit:disabled,
+.meridian-sessions__start:disabled {
+  color: var(--meridian-text-muted);
+  cursor: not-allowed;
+}
+
+.meridian-session-import__lede,
+.meridian-session-import__progress {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-auto-pin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-auto-pin__switch {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-auto-pin__consequence {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}

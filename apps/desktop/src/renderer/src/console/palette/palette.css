@@ -284,3 +284,31 @@
   display: flex;
   gap: var(--meridian-space-3);
 }
+
+/*
+ * The read-only line, above the input.
+ *
+ * Its own row rather than an item in the list, because it is a fact about every
+ * mutating command at once and repeating it per row would be the same sentence
+ * printed a dozen times. The refusal primitive inside carries its own colour; this
+ * block owns only where it sits.
+ */
+.console-palette__degraded {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+/*
+ * The refused press, below the rows.
+ *
+ * A separate block from the read-only line above rather than the same class reused:
+ * the two can stand at once, they answer different questions — what half the list
+ * will do, and what the last press did — and one class carrying both meanings would
+ * put two identical rows on screen with nothing distinguishing them. The rule it
+ * differs by is where the edge sits, because this one closes the rows rather than
+ * opening the input.
+ */
+.console-palette__refusal {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-top: 1px solid var(--meridian-edge);
+}

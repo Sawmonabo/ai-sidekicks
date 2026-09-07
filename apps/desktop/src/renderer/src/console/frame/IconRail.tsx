@@ -13,8 +13,10 @@
 //     unreachable destination is one its caller left out — and an auxiliary window
 //     has no rail at all rather than a rail of dead icons.
 //   • **The two-hue rule.** The rail carries no colour except the accent on the
-//     current destination and, when something needs a person, one amber dot. It is
-//     the console's most-seen surface, so it is the one that most has to stay quiet.
+//     current destination and, when something needs a person, one amber count. It
+//     is the console's most-seen surface, so it is the one that most has to stay
+//     quiet — which is also why the count is absent rather than zero when nothing
+//     is waiting, and absent rather than stale when nothing is reading.
 
 import type { GlyphName } from "../primitives/index.js";
 import { Glyph } from "../primitives/index.js";
@@ -28,8 +30,17 @@ export interface RailEntryTemplate {
 
 export interface RailEntry extends RailEntryTemplate {
   readonly destination: RailDestination;
-  /** True when this destination has something waiting for a person (amber). */
-  readonly needsAttention?: boolean;
+  /**
+   * How many things behind this destination are waiting for a person.
+   *
+   * A COUNT AND NOT A FLAG, which `Spec-023 §The surface set` asks for and which
+   * the rail can honour without becoming a second source of truth: the number is
+   * published by whoever performed the read, and this component renders it.
+   * Absent means either nothing is waiting or nothing is currently reading — two
+   * conditions the rail deliberately does not distinguish, because it has the same
+   * thing to say about both: nothing.
+   */
+  readonly attentionCount?: number;
 }
 
 export interface IconRailProps {
@@ -54,19 +65,25 @@ export function IconRail(props: IconRailProps): React.JSX.Element {
                     : "meridian-rail__button"
                 }
                 aria-current={isCurrent ? "page" : undefined}
-                aria-label={entry.label}
+                aria-label={
+                  entry.attentionCount === undefined
+                    ? entry.label
+                    : `${entry.label}, ${String(entry.attentionCount)} waiting`
+                }
                 title={entry.label}
                 onClick={() => {
                   props.onSelect(entry.destination);
                 }}
               >
                 <Glyph name={entry.glyph} />
-                {entry.needsAttention === true ? (
-                  // A dot rather than a count: the rail says "someone is waiting",
-                  // and the surface says how many. Two places showing the same
-                  // number is two places that can disagree.
-                  <span className="meridian-rail__attention" aria-hidden="true" />
-                ) : null}
+                {entry.attentionCount === undefined ? null : (
+                  // `aria-hidden`, because the number is already in the button's
+                  // accessible name above: read out twice a reader hears the label,
+                  // then the label again with a bare number after it.
+                  <span className="meridian-rail__attention" aria-hidden="true">
+                    {entry.attentionCount}
+                  </span>
+                )}
               </button>
             </li>
           );

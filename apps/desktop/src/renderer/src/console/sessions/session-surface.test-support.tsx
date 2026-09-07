@@ -1,11 +1,11 @@
-// The harness both of this destination's test files drive it through.
+// The harness this destination's test files drive it through.
 //
-// Hoisted on second use, per `apps/desktop/AGENTS.md`. The two files ask different
-// questions — one about the LIST and the act of starting a session, the other about
-// the two session-scoped reads in the aside — but they mount the same destination
-// against the same faked context, and a second copy of `settle` in particular would
-// let them disagree about how many passes the read chain needs without either one
-// failing.
+// Hoisted on second use, per `apps/desktop/AGENTS.md`. The files ask different
+// questions — one about the LIST and the act of starting a session, another about the
+// two session-scoped reads in the aside, and the binding's own about how long the
+// rail's count lives — but they mount the same destination against the same faked
+// context, and a second copy of `settle` in particular would let them disagree about
+// how many passes the read chain needs without any one of them failing.
 
 import { act, render } from "@testing-library/react";
 
@@ -17,18 +17,26 @@ import {
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
 import { politeText } from "../primitives/live-region.test-support.js";
 import { SidekicksBridgeProvider } from "../bridge/index.js";
+import { SessionAttentionBinding } from "./SessionAttentionBinding.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 import { openStore } from "./sessions.test-support.js";
-import { SessionStore } from "../store/index.js";
+import {
+  SessionStore,
+  UNREPORTED_SHELL_STATE,
+  type ShellConnection,
+  type ShellState,
+} from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 
 /**
  * Let the destination's asynchronous arrivals land.
  *
- * Three reads settle behind this surface — the attention projection, the invites
+ * Three reads settle behind this destination — the attention projection, the invites
  * fan-out, and the node's session directory — and each settles an effect that can
  * schedule the next, so the count is the depth of that chain rather than a number
- * picked to make a test pass.
+ * picked to make a test pass. Two of the three are performed by the binding ABOVE the
+ * surface now rather than by the surface, which changes where they are mounted and
+ * not how long the chain is.
  *
  * The attention read is the one that also costs TIME. It goes through the console's
  * one refresh scheduler, so its first read lands a debounce interval after the
@@ -139,8 +147,39 @@ export function contextWith(options: {
   readonly invitesBySessionId?: Readonly<Record<string, readonly unknown[]>>;
   /** The session each `invitesList` call named, appended in call order. */
   readonly invitesListCalls?: string[];
+  /**
+   * What the shell's notification-permission read answers. Refused unless named,
+   * which is what the live bridge does and therefore the default a case inherits.
+   */
+  readonly notificationPermission?: "granted" | "denied" | "not-determined";
+  /** One entry per `native.showNotification` call the surface made, in order. */
+  readonly emittedNotifications?: unknown[];
+  /** Whether the window has focus. Focused unless a case says otherwise. */
+  readonly isWindowFocused?: boolean;
+  /** The session the route names, for the emitter's audience rule. */
+  readonly activeSessionId?: string;
+  /** Every route the surface navigated to, appended in order. */
+  readonly navigations?: unknown[];
+  /**
+   * Where this window stands with its local runtime. Unreported unless a case says
+   * otherwise, which is what a shipped window holds and therefore the default every
+   * case that is not about the shell inherits: nothing is blocked on the strength of
+   * a supervisor nobody asked.
+   */
+  readonly shellConnection?: ShellConnection;
 }): ConsoleSurfaceContext {
   const directorySessionIds = options.directorySessionIds;
+  // Whole, rather than the connection alone: the surface reads it through the store's
+  // own `shellMutationBlock`, which is total over the state, so a partial value here
+  // would be a shape the real store never produces.
+  const shellState: ShellState = {
+    ...UNREPORTED_SHELL_STATE,
+    connection: options.shellConnection ?? UNREPORTED_SHELL_STATE.connection,
+  };
+  const frameStoreState = {
+    isWindowFocused: options.isWindowFocused ?? true,
+    shellState,
+  };
   return {
     route: { kind: "sessions" },
     bridge: {
@@ -163,6 +202,12 @@ export function contextWith(options: {
               : { status: "served", value: { items } },
           );
         },
+        shellNotificationPermissionRead: () =>
+          Promise.resolve(
+            options.notificationPermission === undefined
+              ? refusedRead("shellNotificationPermissionRead", "notification-permission-read")
+              : { status: "served", value: { state: options.notificationPermission } },
+          ),
         sessionList: () =>
           Promise.resolve(
             directorySessionIds === undefined
@@ -176,8 +221,36 @@ export function contextWith(options: {
                 },
           ),
       },
+      // The one member of the shipped bridge this destination calls. Recorded rather
+      // than stubbed silently, so a case can assert that a banner was raised — and,
+      // more often, that one was not.
+      sidekicks: {
+        native: {
+          showNotification: (notificationOptions: unknown) => {
+            options.emittedNotifications?.push(notificationOptions);
+          },
+        },
+      },
     },
-    frameStore: { navigate: () => undefined },
+    frameStore: {
+      navigate: (route: unknown) => {
+        options.navigations?.push(route);
+      },
+      // Read imperatively by the emitter, exactly as the real store is: what decides
+      // a banner is where the window was when the item arrived.
+      getState: () => frameStoreState,
+      // The read-only face `useShellState` subscribes through. A constant snapshot
+      // with a no-op subscription, because a case names the shell state it wants and
+      // nothing here moves it — and the identity is held rather than minted per read,
+      // which is what `useSyncExternalStore` compares.
+      readable: {
+        getState: () => frameStoreState,
+        getInitialState: () => frameStoreState,
+        subscribe: () => () => undefined,
+      },
+      activeSessionId: options.activeSessionId,
+      publishRailAttentionCount: () => undefined,
+    },
     sessionStore: options.sessionStore,
     sessionStoreRegistry: {
       openSessionIds: [
@@ -223,7 +296,22 @@ export function renderSurface(context: ConsoleSurfaceContext): {
   const mounted = render(
     <SidekicksBridgeProvider bridge={context.bridge}>
       <LiveAnnouncerProvider announcer={announcer}>
-        <SessionsSurface context={context} />
+        {/*
+          The window's attention binding, mounted the way the frame mounts it. It is
+          part of the shape under test rather than scaffolding: the destination reads
+          the projection and the node's directory THROUGH it now, so a harness that
+          omitted it would be driving a surface no composition produces — and the one
+          it would produce is the one this seat exists to retire.
+        */}
+        <SessionAttentionBinding
+          context={{
+            bridge: context.bridge,
+            frameStore: context.frameStore,
+            sessionStoreRegistry: context.sessionStoreRegistry,
+          }}
+        >
+          <SessionsSurface context={context} />
+        </SessionAttentionBinding>
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>,
   ).container;

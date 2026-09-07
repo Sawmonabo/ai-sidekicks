@@ -32,6 +32,8 @@ import type {
   PresenceReadResponse,
   ProviderAccountListRequest,
   ProviderAccountListResponse,
+  ProviderAccountProbeRequest,
+  ProviderAccountProbeResponse,
   QueueItemCancelRequest,
   QueueItemCancelResponse,
   QueueItemCreateRequest,
@@ -45,6 +47,8 @@ import type {
   RunResumeRequest,
   SessionCreateRequest,
   SessionCreateResponse,
+  SessionJoinRequest,
+  SessionJoinResponse,
   WorkspaceExecutionModeCapabilitiesReadRequest,
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceListRequest,
@@ -149,6 +153,10 @@ export interface ConsoleDaemonMethodContract {
     readonly request: SessionCreateRequest;
     readonly response: SessionCreateResponse;
   };
+  readonly "session.join": {
+    readonly request: SessionJoinRequest;
+    readonly response: SessionJoinResponse;
+  };
   readonly "channel.list": {
     readonly request: ChannelListRequest;
     readonly response: ChannelListResponse;
@@ -178,5 +186,21 @@ export interface ConsoleDaemonMethodContract {
   readonly "providerAccount.list": {
     readonly request: ProviderAccountListRequest;
     readonly response: ProviderAccountListResponse;
+  };
+  /**
+   * Live. The onboarding provider-readiness step's re-check control calls it: the
+   * readiness `providerAccount.list` serves is read from a STORED observation, so a
+   * person who has just signed a provider in out-of-band needs a way to ask again,
+   * and re-reading the registry would only re-serve the same stored reading.
+   *
+   * It is a MUTATING verb by the account plane's own reckoning — it writes back the
+   * health state and its timestamp, and crosses `credentialGeneration` where the
+   * probe changes an account's authenticated-ness — so the step offers it as a
+   * deliberate act and never on a cadence. This console reads nothing from its reply
+   * except that it settled; the readiness that follows is the registry read's.
+   */
+  readonly "providerAccount.probe": {
+    readonly request: ProviderAccountProbeRequest;
+    readonly response: ProviderAccountProbeResponse;
   };
 }

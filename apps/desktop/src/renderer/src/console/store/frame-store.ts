@@ -19,7 +19,14 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ConsoleRefusal } from "../core/index.js";
+import type { SessionDegradedCause } from "./degradation.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
+import {
+  UNREPORTED_SHELL_STATE,
+  shellReportsAreEqual,
+  type ShellReport,
+  type ShellState,
+} from "./shell-state.js";
 import {
   DEFAULT_ROUTE,
   parseRoute,
@@ -72,9 +79,65 @@ export interface FrameStoreState {
   readonly lastOpenedSessionId: string | undefined;
   readonly schemePreference: SchemePreference;
   readonly isPaletteOpen: boolean;
+  /**
+   * True while a modal surface the frame cannot NAME owns the window.
+   *
+   * WHY THE FRAME CANNOT ASK. `Spec-023 §Console Libraries` adopts the dialog family
+   * under `modal="trap-focus"`, which traps focus and leaves inerting the app root to
+   * the shell — so the shell has to know that a dialog is up. It knows that for the
+   * palette, whose open state it owns. It cannot know it for a card a VIEW family
+   * renders: `console-view-family-isolation` forbids the frame from importing one, so
+   * there is no seam for the frame to read and the family has to publish. This is
+   * that seam, and it is on the WINDOW store because that is what the fact is about —
+   * a window with a card up, not a session with one.
+   *
+   * THE PALETTE IS DELIBERATELY NOT RECORDED HERE. Its open state already has an
+   * owner one layer up, and a copy of it in this cell would be a second record free
+   * to disagree with the first. The frame folds the two at the one place that reads
+   * both.
+   *
+   * ONE CELL RATHER THAN A REGISTRY OF OPEN SURFACES, because the console has exactly
+   * one such surface today. A SECOND publisher makes this a keyed set rather than a
+   * boolean: two cards up and whichever closed first would clear the cell under the
+   * one still open, and the background would come back reachable underneath it.
+   */
+  readonly isModalSurfaceOpen: boolean;
   readonly banners: readonly FrameBanner[];
   /** True while the window has focus; the refresh scheduler's `window-focus` reason. */
   readonly isWindowFocused: boolean;
+  /**
+   * What the shell has reported about itself, folded with this window's own
+   * recovery state.
+   *
+   * WINDOW STATE AND NOT SESSION STATE, which is why it is here rather than on a
+   * session store: the daemon supervisor, the handshake, the transport, and the
+   * keystore are facts about this PROCESS, and an auxiliary window — which shares no
+   * store with the main one (I-023-12) — has its own bridge and therefore its own
+   * report.
+   *
+   * `store/shell-state.ts` owns the vocabulary and the two derivations every reader
+   * shares; this store owns the one copy. It is here rather than in the frame family
+   * because its readers span the DAG in both directions — the palette below the
+   * frame, the settings pages and the sessions list above it — and a value declared
+   * in `frame/` is one none of them may import.
+   */
+  readonly shellState: ShellState;
+  /**
+   * How many sessions the attention projection reports as needing a person, or
+   * `undefined` where nothing is reading the projection.
+   *
+   * `undefined` IS NOT ZERO, and the distinction is the whole reason this is not a
+   * number. `Spec-023 §The surface set` puts an attention count on the sessions
+   * destination "taken from the daemon's attention projection, never counted in the
+   * renderer", and the design's degraded rule says the count is suppressed while the
+   * projection is unreachable — "the rail says nothing rather than showing a stale
+   * number". A zero would say the daemon answered and nothing needs you.
+   *
+   * The count is PUBLISHED by whoever holds the projection read rather than read
+   * here, because the console performs that read exactly once per window and a second
+   * one would be a second answer to "what needs me".
+   */
+  readonly railAttentionCount: number | undefined;
 }
 
 export interface FrameStoreOptions {
@@ -96,8 +159,11 @@ export class FrameStore {
       lastOpenedSessionId: routeSessionId(initialRoute),
       schemePreference: options.initialSchemePreference ?? SYSTEM_SCHEME_PREFERENCE,
       isPaletteOpen: false,
+      isModalSurfaceOpen: false,
       banners: [],
       isWindowFocused: true,
+      shellState: UNREPORTED_SHELL_STATE,
+      railAttentionCount: undefined,
     }));
   }
 
@@ -143,6 +209,79 @@ export class FrameStore {
 
   public setPaletteOpen(isPaletteOpen: boolean): void {
     this.#store.setState({ isPaletteOpen });
+  }
+
+  /**
+   * Publish whether a family-owned modal surface has the window.
+   *
+   * The one writer of {@link FrameStoreState.isModalSurfaceOpen}, and the surface
+   * that opens the card is the caller: it writes `true` while the card is up and
+   * `false` both when the card closes and when it unmounts, so a card React discards
+   * mid-ceremony cannot leave the window inert with nothing on screen to close.
+   *
+   * Compared before it is written, on {@link setWindowFocused}'s reasoning: the
+   * publisher writes from an effect that re-runs whenever its own inputs move, and an
+   * unguarded write on an unchanged value would re-render the rail, the surface, and
+   * every banner for a fact that did not move.
+   */
+  public setModalSurfaceOpen(isModalSurfaceOpen: boolean): void {
+    if (this.#store.getState().isModalSurfaceOpen === isModalSurfaceOpen) {
+      return;
+    }
+    this.#store.setState({ isModalSurfaceOpen });
+  }
+
+  /**
+   * Record what the shell says about itself.
+   *
+   * Compared before it is written, because the subscription behind it answers with a
+   * fresh object per frame: an unguarded write on every heartbeat would re-render the
+   * chip, the banner stack, and every control that reads the block for a value that
+   * did not move. The comparison is written over the connection union in
+   * `shell-state.ts`, so a new arm fails to compile there rather than comparing
+   * false forever.
+   *
+   * The window's own recovery fold is NOT overwritten here: the report is the shell's
+   * half of the value and {@link publishSessionRecovery} is the window's, so neither
+   * owner has to carry the other's fields to write its own.
+   */
+  public publishShellReport(report: ShellReport): void {
+    const { shellState } = this.#store.getState();
+    if (shellReportsAreEqual(shellState, report)) {
+      return;
+    }
+    this.#store.setState({
+      shellState: { ...report, sessionRecovery: shellState.sessionRecovery },
+    });
+  }
+
+  /**
+   * Record the worst degraded cause standing across this window's open sessions.
+   *
+   * The store-layer ladder finally reaching a person: `worstDegradedCause` decides
+   * which of several standing causes survives, the session stores decide when one is
+   * standing, and this is where the answer becomes something the frame can render.
+   */
+  public publishSessionRecovery(sessionRecovery: SessionDegradedCause | undefined): void {
+    const { shellState } = this.#store.getState();
+    if (shellState.sessionRecovery === sessionRecovery) {
+      return;
+    }
+    this.#store.setState({ shellState: { ...shellState, sessionRecovery } });
+  }
+
+  /**
+   * Record how many sessions the attention projection reports as needing a person.
+   *
+   * `undefined` clears it, which is what a surface publishes when it stops reading
+   * the projection or when the read refused — the rail then says nothing rather than
+   * holding the last number it was given.
+   */
+  public publishRailAttentionCount(railAttentionCount: number | undefined): void {
+    if (this.#store.getState().railAttentionCount === railAttentionCount) {
+      return;
+    }
+    this.#store.setState({ railAttentionCount });
   }
 
   public setWindowFocused(isWindowFocused: boolean): void {

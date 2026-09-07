@@ -75,11 +75,14 @@ export type GrowthOperationId =
   | "daemonStatusRead"
   | "daemonStop"
   | "daemonRestart"
+  | "daemonStart"
   | "onboardingStateRead"
   | "onboardingStepAdvance"
   | "onboardingStepSkip"
   | "onboardingComplete"
   | "onboardingProviderSignInHandoff"
+  | "onboardingPresentChoice"
+  | "onboardingTelemetryPrompt"
   | "shellConfigRead"
   | "shellConfigWrite"
   | "invitesList"
@@ -156,7 +159,14 @@ export type GrowthOperationId =
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
-  | "orchestrationBudgetRead";
+  | "orchestrationBudgetRead"
+  // the shell's notification-permission reading, which decides whether the
+  // notification centre is the only surface these items reach a person on
+  | "shellNotificationPermissionRead"
+  // the shell's own condition, which is a main-process fact and not a daemon call:
+  // the supervisor's step and attempt count, the handshake ack, and the two notices
+  // an install can be quietly weaker for.
+  | "shellStatusSubscribe";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

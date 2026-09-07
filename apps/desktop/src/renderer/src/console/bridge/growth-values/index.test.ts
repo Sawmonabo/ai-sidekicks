@@ -49,9 +49,11 @@ const barrelSource = Object.values(barrelSources)[0] ?? "";
  * preserve, and its whole job is to disagree with the barrel if a name is lost. A
  * name is added here only in the diff that adds the export, which is what keeps
  * "nothing silently added under cover of a refactor" a real claim rather than a
- * comment. `GrowthBranchContextReadRequest` is the one such addition: the registered
- * branch-context read is keyed by one of two arms, and the union naming them earned a
- * name once the signature table and the gate's read plan both read it.
+ * comment. Two such additions so far: `GrowthBranchContextReadRequest`, because the
+ * registered branch-context read is keyed by one of two arms and the union naming
+ * them earned a name once the signature table and the gate's read plan both read it,
+ * and `GrowthNotificationPermission`, the shell reading that decides whether the
+ * notification centre is the only surface an attention item reaches a person on.
  */
 const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -86,6 +88,7 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthImportProgress",
   "GrowthInviteSummary",
   "GrowthNavigationState",
+  "GrowthNotificationPermission",
   "GrowthPaneError",
   "GrowthPrPreparationState",
   "GrowthSessionSummary",

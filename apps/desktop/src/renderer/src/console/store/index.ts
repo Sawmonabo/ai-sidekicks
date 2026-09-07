@@ -67,6 +67,42 @@ export type { SessionSnapshot } from "./session-store.js";
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
+// The shell's own condition, and the two derivations every reader of it shares.
+//
+// Through this door rather than the frame's, because the readers span the DAG in
+// both directions: the palette sits BELOW `frame/` and every view family sits above
+// it, and `frame/index.ts` is a door no view family may import at all — so a
+// vocabulary published there would be one neither could reach. This family owns the
+// store the value lives in, which makes it the lowest family that can own the words.
+export {
+  MUTATING_DAEMON_METHODS,
+  SHELL_DETAIL_DESTINATION,
+  UNREPORTED_SHELL_NOTICE,
+  UNREPORTED_SHELL_STATE,
+  describeShellConnection,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
+  isMutatingDaemonMethod,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
+  shellBlockForMethod,
+  shellMutationBlock,
+  shellReportsAreEqual,
+} from "./shell-state.js";
+export type {
+  MutatingDaemonMethod,
+  ShellConnection,
+  ShellKeystoreState,
+  ShellMutationBlock,
+  ShellNegotiation,
+  ShellReport,
+  ShellState,
+  ShellTransport,
+} from "./shell-state.js";
+export { useRailAttentionCount, useShellState } from "./hooks.js";
+// Every open session's projection as one signal, and the one fold the frame takes
+// over it. Published because the two callers sit on opposite sides of the console
+// DAG — a view family and `frame/` — so the mechanism can only be shared from here.
+export { subscribeToOpenSessions, useWorstOpenSessionRecovery } from "./open-session-signal.js";
+
 // `SessionSnapshotRead` now leaves the family, because the producer it was held
 // back for exists: the composition root builds a reader over the growth port's
 // session read, and says so at the call site with a type rather than by convention.
@@ -227,3 +263,11 @@ export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hook
 // annotation widens the consumer's exhaustiveness silently and narrowing it to a
 // wrapper collapses that exhaustiveness outright.
 export type { SessionDegradedCause } from "./session-store.js";
+// The ladder itself, through the module that owns it. Published because the fold is
+// now performed over a SET of stores rather than inside one: the all-sessions
+// destination reports one degradation for the whole window, and picking the worst
+// standing cause is exactly the rule this function holds. A caller reducing the set
+// itself would be the "simpler" second assignment that module's own header warns
+// about — the one that silently downgrades a store that could not follow the stream
+// at all into one that merely failed a read.
+export { worstDegradedCause } from "./degradation.js";

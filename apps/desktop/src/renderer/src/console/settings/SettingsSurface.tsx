@@ -9,7 +9,7 @@
 // THREE RULES THIS FILE IS THE ENFORCEMENT OF
 //
 //   • **No entry is hidden because its wire is unavailable.** The rail is the
-//     closed section tuple, always all thirteen. A section whose page has not landed
+//     closed section tuple, always all fourteen. A section whose page has not landed
 //     renders its own reservation in the PANE; a section whose page landed and
 //     whose wire refused renders that refusal in the pane. Neither ever costs a
 //     rail entry, because a rail that shrinks when a daemon is unreachable is a
@@ -27,7 +27,7 @@
 // already said the page is missing.
 
 import { useMemo, useState } from "react";
-import { useFrameStore, useOpenSessionStore } from "../store/index.js";
+import { useFrameStore, useOpenSessionStore, useShellState } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
   matchSettingsEntries,
@@ -101,11 +101,16 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   // push signal fewer and never as a failure.
   const retainedSessionStore = useOpenSessionStore(context.sessionStoreRegistry, retainedSessionId);
 
+  // The window's shell condition, read from the store the frame keeps live. One
+  // subscription per window, and this is a reader of it rather than a second one.
+  const shellState = useShellState(context.frameStore);
+
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,
     openSection,
     retainedSessionId,
     retainedSessionStore,
+    shellState,
   };
 
   // Warmed at idle, before any of that: the board's lifetime begins when this destination

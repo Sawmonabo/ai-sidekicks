@@ -106,3 +106,47 @@ describe("IconRail — absent, never disabled", () => {
     expect(labels).toContain(RAIL_ENTRY_TEMPLATES.sessions.label);
   });
 });
+
+// The attention count.
+//
+// `Spec-023 §The surface set` asks for a COUNT on the sessions destination, and the
+// rail used to render a dot for a boolean nothing produced. What is asserted here is
+// the three things that make a count honest: the number is on screen, it is in the
+// button's accessible NAME so a reader is told it without seeing the badge, and an
+// absent count renders nothing at all rather than a zero.
+
+describe("IconRail — the attention count", () => {
+  const entriesWith = (attentionCount: number | undefined): readonly RailEntry[] =>
+    RAIL_DESTINATIONS.map((destination) => ({
+      destination,
+      ...RAIL_ENTRY_TEMPLATES[destination],
+      ...(destination === "sessions" && attentionCount !== undefined ? { attentionCount } : {}),
+    }));
+
+  it("renders the number and puts it in the accessible name", () => {
+    const { getByRole, container } = render(
+      <IconRail entries={entriesWith(3)} current="sessions" onSelect={() => undefined} />,
+    );
+    expect(getByRole("button", { name: "Sessions, 3 waiting" })).toBeTruthy();
+    expect(container.querySelector(".meridian-rail__attention")?.textContent).toBe("3");
+  });
+
+  it("renders nothing where no count was published — the control", () => {
+    // The control the positive case is worth nothing without: a rail that always
+    // rendered a badge would pass the case above and be wrong in the state every
+    // healthy console is in.
+    const { getByRole, container } = render(
+      <IconRail entries={entriesWith(undefined)} current="sessions" onSelect={() => undefined} />,
+    );
+    expect(getByRole("button", { name: "Sessions" })).toBeTruthy();
+    expect(container.querySelector(".meridian-rail__attention")).toBeNull();
+  });
+
+  it("puts the count on the sessions destination only", () => {
+    const { getByRole } = render(
+      <IconRail entries={entriesWith(2)} current="sessions" onSelect={() => undefined} />,
+    );
+    expect(getByRole("button", { name: "Workflows" })).toBeTruthy();
+    expect(getByRole("button", { name: "Settings" })).toBeTruthy();
+  });
+});

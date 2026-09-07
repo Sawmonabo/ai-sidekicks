@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { ChordHint, type ChordPlatform } from "../primitives/index.js";
 import type { CommandSearchResult } from "./command-ranking.js";
 import type { KeyBindingTable } from "./keybindings.js";
+import type { PaletteRowPressOutcome } from "./palette-latch.js";
 import type { WhenClauseContext } from "./when-clause.js";
 
 /** Results for one category, in the order the best result in it appeared. */
@@ -84,7 +85,14 @@ export interface PaletteResultListProps {
    * forwards a value that may genuinely be undefined.
    */
   readonly bindings: KeyBindingTable | undefined;
-  readonly onRunResult: (result: CommandSearchResult) => void;
+  /**
+   * Run the row's command, and say whether it ran.
+   *
+   * The answer is load-bearing rather than informational: selecting an item is what
+   * closes the combobox, and a command that refused must leave the palette exactly as
+   * it was — so a row that did not run is never selected. See the call site below.
+   */
+  readonly onRunResult: (result: CommandSearchResult) => PaletteRowPressOutcome;
 }
 
 /** The listbox: one group per category, one row per ranked result. */
@@ -116,8 +124,18 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                   key={result.command.id}
                   value={result.command.id}
                   className="console-palette__item"
-                  onClick={() => {
-                    onRunResult(result);
+                  onClick={(event) => {
+                    // A REFUSED ROW IS NEVER SELECTED, and `preventBaseUIHandler` is
+                    // the library's own way to say so: merged handlers run ours first,
+                    // and this one skips Base UI's selection for this event. Selection
+                    // is what asks the combobox to close, so without it a refusal would
+                    // flash and the palette would dismiss itself — reporting a command
+                    // that never ran exactly as it reports one that did. This also
+                    // fires for Enter on the highlighted row, which is the same act by
+                    // the other input.
+                    if (onRunResult(result) === "refused") {
+                      event.preventBaseUIHandler();
+                    }
                   }}
                 >
                   <span className="console-palette__item-title">

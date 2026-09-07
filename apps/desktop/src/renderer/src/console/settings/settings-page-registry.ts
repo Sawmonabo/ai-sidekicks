@@ -8,7 +8,7 @@
 //
 // WHY A REGISTRY RATHER THAN A SWITCH
 //
-// The thirteen sections are built by four lanes at once and three of them are bodies
+// The fourteen sections are built by four lanes at once and three of them are bodies
 // this repository does not author at all. A `switch` over section ids would be one
 // file every lane edits — the conflict the console's seat boards exist to avoid,
 // one level down. A page claims its section through {@link registerSettingsPage}
@@ -28,7 +28,7 @@ import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { scoreSubsequence } from "../palette/index.js";
 import { Nothing } from "../primitives/index.js";
-import type { SessionStore } from "../store/index.js";
+import type { SessionStore, ShellState } from "../store/index.js";
 import { LoadedLazyBody, type LazyBodyLoader, type OwnerSlotProps } from "../seats/index.js";
 import { PendingSettingsPageBody } from "./PendingSettingsPageBody.js";
 import {
@@ -81,6 +81,15 @@ export interface SettingsPageContext {
    * and a page reads that as one refresh signal fewer rather than as a failure.
    */
   readonly retainedSessionStore: SessionStore | undefined;
+  /**
+   * What this window has been told about the shell it is running against.
+   *
+   * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
+   * subscription for it and every consumer — the frame's chip, the palette's
+   * read-only line, and the local-runtime page — renders the same value, so the three
+   * surfaces cannot report different supervisor states in one window.
+   */
+  readonly shellState: ShellState;
 }
 
 /** What a page renders. A function rather than a component type, as the seats are. */

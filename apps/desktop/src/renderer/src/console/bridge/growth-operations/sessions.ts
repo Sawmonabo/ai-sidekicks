@@ -20,7 +20,7 @@ type SessionOperationId = Extract<
   | `session${string}`
   | `daemon${string}`
   | `onboarding${string}`
-  | `shellConfig${string}`
+  | `shell${string}`
   | `providerSessionImport${string}`
   | "invitesList"
   | "healthSubscribe"
@@ -72,6 +72,17 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "restart the daemon",
       "DaemonRestart",
     ),
+    // The one act on this row that is NOT a call: a stopped daemon has no IPC
+    // server to receive a start, so the shell spawns the process. It sits here
+    // because the seam a surface reaches it through is the same one, and a second
+    // seam for one operation would be the split this port exists to avoid.
+    daemonStart: op(
+      "daemonStart",
+      "daemon-control-methods",
+      "method",
+      "start a stopped daemon, which is a shell spawn rather than a call",
+      "DaemonStart",
+    ),
     onboardingStateRead: op(
       "onboardingStateRead",
       "onboarding-methods",
@@ -101,6 +112,24 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "onboarding-methods",
       "method",
       "hand the participant off to a provider's own sign-in flow",
+    ),
+    // The two bridge methods `Spec-026 §Desktop Surface` names, on their own slate
+    // row rather than folded into the five daemon methods above: those are a daemon
+    // registration and these are a preload-bridge surface, and a row that bundled
+    // them would name two owners for one wire. Neither carries an expected wire
+    // method, because neither IS one — a bridge method crosses the preload boundary
+    // and never the JSON-RPC wire.
+    onboardingPresentChoice: op(
+      "onboardingPresentChoice",
+      "onboarding-desktop-surface",
+      "method",
+      "put the relay choice in front of the participant from the main process, so the self-host admin token is typed where the renderer cannot read it and only an opaque handle comes back",
+    ),
+    onboardingTelemetryPrompt: op(
+      "onboardingTelemetryPrompt",
+      "onboarding-desktop-surface",
+      "method",
+      "put the telemetry question in front of the participant as its own step, after the relay choice resolves and never bundled into it",
     ),
     shellConfigRead: op(
       "shellConfigRead",
@@ -160,5 +189,17 @@ export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, Grow
       "provider-session-import",
       "subscription",
       "progress for a running provider-session import",
+    ),
+    shellNotificationPermissionRead: op(
+      "shellNotificationPermissionRead",
+      "notification-permission-read",
+      "method",
+      "whether this machine will display an OS notification, so the notification centre can say when it is the only surface",
+    ),
+    shellStatusSubscribe: op(
+      "shellStatusSubscribe",
+      "shell-status-signals",
+      "subscription",
+      "the shell's own condition as one feed — the supervisor's step and attempt count, the handshake ack, the transport it reached the daemon over, and whether this host has a usable keystore",
     ),
   };

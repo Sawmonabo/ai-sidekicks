@@ -1,0 +1,87 @@
+/*
+ * The honest-chrome plane's own geometry.
+ *
+ * Imported by this module's barrel rather than by each component, so the sheet lands
+ * once per bundle and cascades after `frame.css` — which is the order the family's
+ * own rule fixes and the reason the strip can sit inside the frame column without
+ * either sheet knowing the other's selectors.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 (one
+ * accent hue and no other colour — every value here is a token) and rule 5 (motion
+ * settles; nothing here animates, because a banner that slides in during an outage
+ * is motion spent on the worst possible moment).
+ */
+
+.meridian-shell-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3) 0;
+}
+
+/* The chip's row. Right-aligned, so the corner of the window is where it lives. */
+.meridian-shell-state__status {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/*
+ * The button around the supervisor chip. It carries NO treatment of its own — the
+ * chip inside it already owns the border, the ground, and the tone rule 3 assigns —
+ * so this is a reset, a cursor, and a focus ring: a button that added a second
+ * boundary would draw two chips' worth of edge around one fact.
+ *
+ * IT REACHES INTO THE CHIP FOR NOTHING, hover included. A frame selector ending in
+ * `.meridian-chip` would DECLARE a primitives class from this family, which is the
+ * cross-family collision `test/console/architecture/stylesheet-selector-owners.test.ts`
+ * pins — and it would make the chip's own appearance depend on which sheet the bundler
+ * emitted last. The cursor is the affordance; the primitive keeps its looks.
+ *
+ * The focus ring is stated here rather than borrowed from `shared.css`, whose one
+ * treatment is keyed on the primitives' own selectors: the ring belongs on the element
+ * that actually takes focus, which is this button and not the span inside it.
+ */
+.meridian-shell-state__detail {
+  display: inline-flex;
+  align-items: center;
+  max-inline-size: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-shell-state__detail:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-shell-state__banners,
+.meridian-shell-state__notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * The one control on this plane. It owns its own geometry for the reason the
+ * primitives' accent-fill sheet records: the console has settled no button
+ * primitive, so a consumer carries its own padding and type and borrows nothing.
+ */
+.meridian-shell-state__action {
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-shell-state__action:hover {
+  border-color: var(--meridian-accent);
+}

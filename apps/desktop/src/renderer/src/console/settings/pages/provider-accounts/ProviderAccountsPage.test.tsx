@@ -17,12 +17,14 @@ import { describe, expect, it } from "vitest";
 import { ProviderAccountsPage, registerProviderAccountsPage } from "./ProviderAccountsPage.js";
 import { PROVIDER_ACCOUNTS_PAGE, PROVIDER_ACCOUNTS_PAGE_SLOT } from "./provider-accounts-slot.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
+import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";
 
 const CONTEXT = {
   bridge: undefined as never,
   openSection: () => undefined,
   retainedSessionId: undefined,
   retainedSessionStore: undefined,
+  shellState: UNREPORTED_SHELL_STATE,
 } satisfies SettingsPageContext;
 
 function renderedText(): string {

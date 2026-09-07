@@ -29,6 +29,7 @@ import { SETTINGS_SECTION_IDS } from "./settings/settings-sections.js";
 import { createFixtureBridge } from "./bridge/index.js";
 import { ManualClock } from "./core/index.js";
 import { LiveAnnouncerProvider } from "./primitives/index.js";
+import { UNREPORTED_SHELL_STATE } from "./store/index.js";
 // The pending marker's reader by its own leaf specifier, on `RouteSurface.test.tsx`'s
 // reason: the seats door publishes the ATTRIBUTE, which a producer needs, and not this
 // reader, whose consumers outside that directory are tests.
@@ -58,6 +59,7 @@ const CONTEXT: SettingsPageContext = {
   openSection: () => undefined,
   retainedSessionId: undefined,
   retainedSessionStore: undefined,
+  shellState: UNREPORTED_SHELL_STATE,
 };
 
 /** The page speaks its settlement, so it is mounted inside the console's announcer. */

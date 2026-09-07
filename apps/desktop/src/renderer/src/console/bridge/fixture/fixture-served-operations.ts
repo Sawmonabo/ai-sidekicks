@@ -181,6 +181,20 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE SHELL'S NOTIFICATION-PERMISSION READ IS SERVED FROM THE SCRIPT
+//
+// `native.showNotification` returns `void`, so the emission path reports nothing: a
+// machine that will not display a notification is indistinguishable, from inside the
+// renderer, from one that just did. The notification centre has an arm for exactly
+// that state — it is the only surface these items reach a person on, and it says so —
+// and no bridge member carries the fact, so the read is the growth port's.
+//
+// It is served here so a scenario can put the centre in that arm, and it REFUSES for
+// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
+// rather than the invite ledger's: a permission has no empty form. "Nobody asked"
+// is a true statement about a script that has not said, and answering `granted`
+// would be the fixture promising a notification nothing in the console can deliver.
+
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -223,6 +237,21 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "shellNotificationPermissionRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  "shellStatusSubscribe",
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
+  "onboardingStateRead",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingProviderSignInHandoff",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -265,6 +294,46 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // shell — whether this machine will display an OS notification, from a scenario
+  // that says so and refused from one that does not.
+  "shellNotificationPermissionRead",
+  // provider-session import — the opening call and the progress subscription it
+  // mints a subject for, both answered from a scenario that scripts the import and
+  // refused by one that does not.
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  // the shell's own condition — the first FEED this fixture serves, answered from the
+  // frames a scenario declares against the frozen clock and refused by one that
+  // declares none. It is script-only for the reason the write operations below are:
+  // there is no such thing as "the shell reported and said nothing", and a served
+  // stream that never yielded would read on screen exactly like a shell that has not
+  // reported — one of which is a scripting gap and the other the console's ordinary
+  // state.
+  "shellStatusSubscribe",
+  // the three daemon controls and the status read, answered from the same channel the
+  // feed is answered from — so a stop moves what the feed says rather than resolving
+  // into a shell nothing reports. All four refuse under a scenario that scripts no
+  // shell condition, for the same reason the feed does.
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
+  // onboarding — the whole seven-operation surface, and the split between them is
+  // this module's own rule rather than a preference. The state read has an honest
+  // answer for a scenario that scripts nothing: a node nobody has onboarded has no
+  // completed steps and is not complete, which is a real state the walkthrough draws
+  // and the state a fresh install is genuinely in. The other six are WRITES or
+  // main-process dialogs — there is no such thing as "the step that was recorded and
+  // recorded nothing", and a synthesized relay choice would tell the walkthrough a
+  // person answered a question nobody was asked — so each of them refuses by name
+  // under a scenario that does not script it.
+  "onboardingStateRead",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingProviderSignInHandoff",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -291,6 +360,11 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  * separates them is whether an empty answer would be a lie.
  */
 export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGrowthOperationId[] = [
+  "shellStatusSubscribe",
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
   "agentAttach",
   "agentConfigUpdate",
   "agentDetach",
@@ -298,4 +372,13 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "shellNotificationPermissionRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingProviderSignInHandoff",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ];

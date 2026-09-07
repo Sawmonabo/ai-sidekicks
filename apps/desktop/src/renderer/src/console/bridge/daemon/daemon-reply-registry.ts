@@ -66,6 +66,8 @@ import {
   PresenceReadResponseSchema,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
+  ProviderAccountProbeRequestSchema,
+  ProviderAccountProbeResponseSchema,
   QueueItemCancelRequestSchema,
   QueueItemCancelResponseSchema,
   QueueItemCreateRequestSchema,
@@ -79,6 +81,8 @@ import {
   RunResumeRequestSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
+  SessionJoinRequestSchema,
+  SessionJoinResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadRequestSchema,
   WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceListRequestSchema,
@@ -190,6 +194,7 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
     WorktreeStatusReadResponseSchema,
   ),
   "session.create": bindDaemonMethod(SessionCreateRequestSchema, SessionCreateResponseSchema),
+  "session.join": bindDaemonMethod(SessionJoinRequestSchema, SessionJoinResponseSchema),
   "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema),
   "membership.update": bindDaemonMethod(MembershipUpdateSchema, MembershipUpdateResponseSchema),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
@@ -197,6 +202,10 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
     ProviderAccountListResponseSchema,
+  ),
+  "providerAccount.probe": bindDaemonMethod(
+    ProviderAccountProbeRequestSchema,
+    ProviderAccountProbeResponseSchema,
   ),
 });
 
