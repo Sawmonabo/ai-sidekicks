@@ -13,7 +13,8 @@
 // `fixture-attention-derivation.ts` folds beats into an attention projection,
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, and `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
+// them, `fixture-auxiliary-windows.ts` models the shell's own window plane, and
+// `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
 
 import {
@@ -24,6 +25,7 @@ import {
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 import type { WireErrorEnvelope } from "../../core/index.js";
+import { FixtureAuxiliaryWindowPlane } from "./fixture-auxiliary-windows.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
@@ -54,6 +56,10 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  * function` in a surface.
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
+  // The shell's window plane, one per port and therefore one per bridge. A handle is
+  // meaningful only to the shell that minted it, so a plane shared across bridges
+  // would hand a scenario switch a window the new shell has never heard of.
+  const auxiliaryWindows = new FixtureAuxiliaryWindowPlane();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow — spread from the module that implements them, so the served ids next
     // door and the handlers here are held to each other by the `Pick` above.
@@ -313,6 +319,14 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "sidekickPeerInvocationSet",
         request,
       ),
+    // window — the shell's plane rather than the daemon's, so the answers come from
+    // the model beside this file rather than from the scenario. Synchronous inside,
+    // and `async` only because the port's every method is: a window handle is minted
+    // in this process, so there is nothing to await.
+    windowDetachPane: async (request) => auxiliaryWindows.detachPane(request),
+    windowFocusAuxiliary: async (request) => auxiliaryWindows.focusAuxiliary(request),
+    windowCloseAuxiliary: async (request) => auxiliaryWindows.closeAuxiliary(request),
+    windowSubscribePaneErrors: async () => auxiliaryWindows.subscribePaneErrors(),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

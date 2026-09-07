@@ -193,6 +193,23 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE FOUR WINDOW OPERATIONS ARE SERVED WITHOUT A SCENARIO SCRIPTING ANYTHING
+//
+// They are the one plane here addressed to the SHELL rather than to the daemon — the
+// window bridge `Spec-023 §Windows` describes — and the rule above cannot be applied
+// to them as written, because a scenario carries no windows and never will. For a
+// shell-addressed operation the fixture IS the shell, so the answers come from a real
+// model of one that `fixture-auxiliary-windows.ts` holds per bridge, and every one of
+// them is a fact about that model: a detach mints a handle, a focus or a close is
+// served for a handle the model opened and refuses for any other, and the crashed-
+// window signal is opened, real, and quiet.
+//
+// AND THEY ARE NOT ON THE SCRIPT-ONLY LIST BELOW, which is the same judgement from the
+// other side. A script-only write has no honest empty state; these have an honest
+// answer under every scenario, because what they answer about is the shell's own
+// window set rather than anything a script states. What the model will not do is
+// manufacture a crash — that reasoning is in its own header.
+//
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -239,6 +256,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "windowDetachPane",
+  "windowFocusAuxiliary",
+  "windowCloseAuxiliary",
+  "windowSubscribePaneErrors",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -295,6 +316,12 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // window — the shell's own plane rather than the daemon's, which is why these four
+  // are served without a scenario scripting anything: see the header.
+  "windowDetachPane",
+  "windowFocusAuxiliary",
+  "windowCloseAuxiliary",
+  "windowSubscribePaneErrors",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
