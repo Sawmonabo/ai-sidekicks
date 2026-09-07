@@ -1,82 +1,161 @@
-// The definition file form: the bytes an export writes, and the reading of the bytes
+// The definition file itself: the bytes an export writes, and the reading of the bytes
 // an import was handed.
 //
 // ONE MODULE FOR BOTH SIDES, which is `apps/desktop/AGENTS.md`'s rule for a producer
-// and a consumer of one encoding: the member names, the marker, and the phase-record
-// shape are stated once, so a file this console wrote is a file this console reads.
-// Split in two they would agree until one of them grew a member.
+// and a consumer of one encoding: the marker, the top-level parts, and the target a
+// caller supplies are stated once, so a file this console wrote is a file this console
+// reads. `workflow-definition-file-body.ts` beside this one owns what goes INSIDE the
+// hashed part, on the same terms and for the same reason.
 //
-// AND IT IS IN `bridge/` BECAUSE THE IMPORT SIDE IS A VALIDATOR. What arrives is text
-// a person pasted, and what has to come out is a typed request body — so this reads an
+// AND IT IS IN `bridge/` BECAUSE THE IMPORT SIDE IS A VALIDATOR. What arrives is text a
+// person pasted, and what has to come out is a typed request body — so this reads an
 // untyped value against closed sets and refuses what does not fit, which is precisely
 // what a view family may not hold. A pane consumes the ANSWER, here a parsed body or a
 // reason, and never the reading that produced one. `approvals/approval-records.ts` is
 // the same call made for the same reason one directory over.
 //
-// WHAT THE FILE IS, AND WHAT IT DELIBERATELY IS NOT
+// WHAT THE FILE IS. YAML, and one dialect of it. `Spec-017 §Definition file form —
+// export and import (C-17)` gives a definition exactly one canonical file form and
+// requires the round trip to close in both directions — builder to file to CLI, and CLI
+// to file back to the builder — so a file the SDK writes as ordinary block mappings has
+// to import here, and a file written here has to parse in a conforming CLI. JSON is
+// valid YAML, so a JSON-shaped document still reads; the reverse was not true while
+// this parsed JSON, which is what made the console incompatible with one of the form's
+// primary producers.
 //
-// It is JSON with a fixed key order and two-space indentation — a file a person opens,
-// diffs, and puts in a repository. It is NOT the RFC 8785 canonicalization the content
-// hash is computed over, and the difference matters: this console computes no hash and
-// must not look as though it did. The daemon canonicalizes what it is sent and answers
-// with the hash it computed; a renderer that emitted canonical bytes would be inviting
-// the reader to compare a string it produced against a hash it did not.
+// AND THE DOCUMENT HAS EXACTLY TWO TOP-LEVEL PARTS, plus the marker that says which
+// schema they are in: the hashed definition body, and an optional `layout` section that
+// is outside the hash and is IGNORED here — an importer that does not want canvas
+// geometry loses nothing executable. There is no third section. Provenance a read
+// carries — the version id, the content hash, where a file came from — is a fact about
+// the SERVER's copy, and writing it into the portable dialect would make every file
+// this console exported unreadable to a conforming parser, which treats an unknown
+// top-level key as a refusal. A surface that wants to show where a version came from
+// reads it from the version read it already holds.
 //
-// THE MARKER IS CHECKED FOR PRESENCE AND NEVER FOR VALUE. No corpus document registers
-// a schema-version string, so a parser that compared one against a constant would be
-// enforcing a wire fact traceable to nothing — and would reject the daemon's own files
-// the first time it revised the marker. What the check is for is telling a workflow
-// definition from the other JSON a person might paste, which presence answers.
+// THE MARKER IS A STRING THAT YAML WOULD OTHERWISE MAKE A NUMBER. `1.0` unquoted
+// resolves to the number 1 under the core schema — the minor is gone, and `1.10` and
+// `1.1` become the same value — so an export writes it double-quoted and an import
+// reads it off the scalar NODE rather than off the resolved value, which is what lets a
+// hand-written or CLI-written file that left it unquoted still read as `1.0`.
+//
+// AND THE MARKER IS CHECKED FOR SHAPE, NEVER AGAINST A CONSTANT. The daemon stores the
+// schema version as an `N.N` string under a CHECK of that shape, so that shape is what
+// a file can carry; a parser comparing against a literal would instead reject the
+// daemon's own files the first time it revised the marker. What the check is for is
+// telling a workflow definition from the other text a person might paste, and telling a
+// marker apart from a version string nothing could have stored.
 //
 // AND THE MARKER IS NOT SENT. `WorkflowDefinitionCreateBody` carries no schema member:
 // it is a property of the FILE, so it is read to recognise one and then dropped, and a
 // parser that smuggled it into the request would be widening a registered shape.
+//
+// WHY THE CODEC ARRIVES THROUGH `import()`. This module is on the console's initial
+// import graph — the bridge door publishes it and the renderer root reaches that door —
+// while the only surface that exports or imports a definition is a lazily loaded pane
+// body. A static `import "yaml"` would therefore charge the parser to every launch,
+// including every launch that never opens a definition, against the initial-bundle
+// budget `Spec-023 §Console Design (Meridian)` sets; the package declares no
+// side-effect-free flag, so a bundler cannot drop it on its own. Reached only through
+// `import()`, it is emitted as its own chunk and fetched the first time somebody
+// presses export or import. No memo is kept beside it: the module map is already the
+// memo, there is no render state to observe, and a third copy of the loader class
+// `terminal/emulator/emulator-loader.ts` and the phase graph's own already carry would
+// be a class written for a caller that has no use for it.
+
+import type { Scalar } from "yaml";
 
 import {
-  WORKFLOW_FAILURE_BEHAVIORS,
-  WORKFLOW_GATE_TYPES,
-  WORKFLOW_PARALLEL_JOIN_POLICIES,
-  WORKFLOW_PHASE_TYPES,
+  DEFINITION_BODY_KEYS,
+  definitionBodyFileRecord,
+  readDefinitionBody,
+} from "./workflow-definition-file-body.js";
+import {
+  firstUnadmittedKey,
   type WorkflowDefinitionCreateBody,
-  type WorkflowPhaseDefinition,
   type WorkflowVersionBody,
 } from "./workflow-definition-body.js";
 import type { WorkflowDefinitionScope } from "./workflow-projection.js";
 import { isWireRecord } from "../../core/index.js";
 
-/** The member an exported file carries its marker under, read and written once. */
-const SCHEMA_MEMBER = "schemaVersion";
+/** The top-level member a definition file carries its schema marker under. */
+const SCHEMA_MARKER_KEY = "ai-sidekicks-schema";
+
+/**
+ * The shape a stored schema version has, and the whole of what is checked.
+ *
+ * `N.N`, which is the store's own `GLOB '[0-9]*.[0-9]*'` CHECK read as a pattern: a
+ * marker outside it is a string the daemon could not have stored and this console could
+ * not have been sent, whatever it says.
+ */
+const SCHEMA_MARKER_STORAGE_SHAPE = /^[0-9]+\.[0-9]+$/;
+
+/** The second top-level part: canvas geometry, outside the hash, and ignored here. */
+const LAYOUT_KEY = "layout";
+
+/**
+ * Every top-level key a definition file may carry, added up rather than restated.
+ *
+ * The marker, the hashed body's own members, and the optional layout section — so the
+ * body's membership stays declared in one place and this set moves when it does.
+ */
+const FILE_TOP_LEVEL_KEYS: readonly string[] = [
+  SCHEMA_MARKER_KEY,
+  ...DEFINITION_BODY_KEYS,
+  LAYOUT_KEY,
+];
+
+/**
+ * How the document is read, and every option is a decision.
+ *
+ * `1.2` and the `core` schema are the dialect the form is written in — 1.1's octal and
+ * sexagesimal resolutions and its timestamp type would make a value's meaning depend on
+ * which YAML a producer used. `uniqueKeys` turns a repeated key into a document error
+ * rather than a silent last-one-wins, which on a phase record would change what runs.
+ * `prettyErrors` is what puts a line and a column in the sentence a person reads.
+ */
+const YAML_READER_OPTIONS = {
+  version: "1.2",
+  schema: "core",
+  uniqueKeys: true,
+  prettyErrors: true,
+} as const;
+
+/**
+ * How the document is written: a fixed key order, two-space indentation, no folding.
+ *
+ * `lineWidth: 0` disables the writer's line folding. A folded long instruction is legal
+ * YAML that reads back identically, and it also moves every following line whenever an
+ * unrelated word changes — which is the diff of a file people are meant to keep in a
+ * repository.
+ */
+const YAML_WRITER_OPTIONS = { indent: 2, lineWidth: 0 } as const;
 
 /**
  * Serialize one served version body into the file form.
  *
  * The VERSION body and not the definition read, because a file is one version's bytes:
- * the definition read carries the identity and the phase sequence and no content hash
- * or marker, so a file written from it would be a definition file with no way to say
- * which schema it is in or which version it came from.
+ * the definition read carries the identity and the phase sequence and no schema marker,
+ * so a file written from it could not say which schema it is in.
  *
- * `contentHash` and `workflowVersionId` ride along as provenance. They are not sent
- * back on an import — the create request carries neither, and a hash is the daemon's
- * answer rather than a caller's claim — but a file that could not say which version it
- * was exported from is a file nobody can trace.
+ * ASYNCHRONOUS BECAUSE THE WRITER ARRIVES IN A CHUNK — see the header. The only way
+ * this rejects is a chunk that did not load, which is a fact about the install rather
+ * than about the definition, so it travels as a rejection to the surface's own
+ * rejection seam rather than as a sentence about a file that is perfectly fine.
  */
-export function serializeWorkflowDefinitionFile(body: WorkflowVersionBody): string {
-  return `${JSON.stringify(
-    {
-      [SCHEMA_MEMBER]: body.schemaVersion,
-      name: body.name,
-      entry: body.entry,
-      phaseDefinitions: body.phaseDefinitions,
-      exportedFrom: {
-        definitionId: body.definitionId,
-        versionNumber: body.versionNumber,
-        workflowVersionId: body.workflowVersionId,
-        contentHash: body.contentHash,
-      },
-    },
-    undefined,
-    2,
-  )}\n`;
+export async function serializeWorkflowDefinitionFile(body: WorkflowVersionBody): Promise<string> {
+  const { Document, Scalar: ScalarNode } = await import("yaml");
+  const fileDocument = new Document({}, { version: "1.2", schema: "core" });
+  // Double-quoted deliberately and not left to the writer's own judgement: the value is
+  // a string, and the quoting is what keeps it one on the way back in.
+  const marker = new ScalarNode(body.schemaVersion);
+  marker.type = ScalarNode.QUOTE_DOUBLE;
+  fileDocument.set(SCHEMA_MARKER_KEY, marker);
+  const bodyRecord = definitionBodyFileRecord(body);
+  for (const key of DEFINITION_BODY_KEYS) {
+    fileDocument.set(key, bodyRecord[key]);
+  }
+  return fileDocument.toString(YAML_WRITER_OPTIONS);
 }
 
 /** What a parse answers with: the request body, or the reason there is none. */
@@ -102,151 +181,129 @@ export interface WorkflowDefinitionImportTarget {
  *
  * EVERY REFUSAL IS A SENTENCE AND NEVER A THROW. The caller renders this beside the
  * paste box, so what a person needs is which member is wrong; an exception would reach
- * a boundary that can only say that something failed.
+ * a boundary that can only say that something failed. The one thing that still rejects
+ * is the chunk fetch above it, which is not a fact about the text at all.
  */
-export function parseWorkflowDefinitionFile(
+export async function parseWorkflowDefinitionFile(
   text: string,
   target: WorkflowDefinitionImportTarget,
-): WorkflowDefinitionFileReading {
-  const parsed = parseJson(text);
-  if (parsed === undefined) {
-    return invalid("This is not JSON, so there is no definition in it to read.");
+): Promise<WorkflowDefinitionFileReading> {
+  const { isScalar, parseAllDocuments } = await import("yaml");
+  const [fileDocument, ...furtherDocuments] = parseAllDocuments(text, YAML_READER_OPTIONS);
+  if (fileDocument === undefined) {
+    return invalid("This text carries no document, so there is no definition in it to read.");
   }
-  if (!isWireRecord(parsed)) {
-    return invalid("A definition file is a JSON object; this is not one.");
-  }
-  if (typeof parsed[SCHEMA_MEMBER] !== "string" || parsed[SCHEMA_MEMBER] === "") {
+  if (furtherDocuments.length > 0) {
     return invalid(
-      "This file carries no `schemaVersion`, so it is not a workflow definition file.",
+      "This text carries more than one YAML document, and a definition file is exactly one.",
     );
   }
-  const name = parsed["name"];
-  if (typeof name !== "string" || name === "") {
-    return invalid("A definition file carries a non-empty `name`; this one does not.");
+  const [documentError] = fileDocument.errors;
+  if (documentError !== undefined) {
+    return invalid(`This is not YAML that can be read: ${firstLineOf(documentError.message)}`);
   }
-  const phases = readPhaseDefinitions(parsed["phaseDefinitions"]);
-  if (typeof phases === "string") {
-    return invalid(phases);
+  const contents = readDocumentContents(fileDocument);
+  if (typeof contents === "string") {
+    return invalid(contents);
+  }
+  const markerNode = fileDocument.get(SCHEMA_MARKER_KEY, true);
+  const marker = isScalar(markerNode) ? schemaMarkerOf(markerNode) : undefined;
+  if (marker === undefined) {
+    return invalid(
+      `This file carries no \`${SCHEMA_MARKER_KEY}\`, so it is not a workflow definition file.`,
+    );
+  }
+  if (!SCHEMA_MARKER_STORAGE_SHAPE.test(marker)) {
+    return invalid(
+      `This file's \`${SCHEMA_MARKER_KEY}\` is \`${marker}\`, and a schema version is written as two numbers with a dot between them.`,
+    );
+  }
+  const unadmitted = firstUnadmittedKey(contents, FILE_TOP_LEVEL_KEYS);
+  if (unadmitted !== undefined) {
+    return invalid(
+      `This file carries a top-level \`${unadmitted}\`, which a definition file does not — a conforming reader refuses one rather than ignoring it.`,
+    );
+  }
+  if (LAYOUT_KEY in contents && !isWireRecord(contents[LAYOUT_KEY])) {
+    return invalid(`This file's \`${LAYOUT_KEY}\` is not a section of canvas geometry.`);
+  }
+  const definitionBody = readDefinitionBody(contents);
+  if (typeof definitionBody === "string") {
+    return invalid(definitionBody);
   }
   return {
     status: "parsed",
     body: {
       sessionId: target.sessionId,
-      name,
+      name: definitionBody.name,
       scope: target.scope,
       // Spread on the arm that has one: `scopeRef` is optional under
-      // `exactOptionalPropertyTypes`, and a `shared` target refers to nothing
-      // narrower rather than to an empty path.
+      // `exactOptionalPropertyTypes`, and a `shared` target refers to nothing narrower
+      // rather than to an empty path.
       ...(target.scopeRef === undefined ? {} : { scopeRef: target.scopeRef }),
-      // The entry record is carried only where the file states one the shape admits.
-      // `startMode` has exactly one member, so an absent or unrecognised entry is a
-      // file that says nothing about how the definition starts — and the create
-      // request's own member is optional for exactly that case.
-      ...(readEntry(parsed["entry"]) ? { entry: { startMode: "manual" as const } } : {}),
-      phaseDefinitions: phases,
+      // Carried only where the file states one. An absent entry is not a refusal: the
+      // daemon materializes the one V1 start mode, and inventing it here would be this
+      // console answering a question the file deliberately left open.
+      ...(definitionBody.entry === undefined ? {} : { entry: definitionBody.entry }),
+      phaseDefinitions: definitionBody.phaseDefinitions,
     },
   };
 }
 
-/** `undefined` for text that is not JSON at all, which is a different fact from a shape. */
-function parseJson(text: string): unknown {
+/**
+ * The document's own value as a record with keys, or the sentence refusing it.
+ *
+ * THE CONVERSION IS GUARDED because it is the one step of the read that can throw:
+ * resolving aliases is where a document with an anchor referenced from an anchor
+ * expands, and the library's alias cap raises rather than returning a value. A caller
+ * pasting that gets a sentence like every other refusal here.
+ *
+ * The parameter is STRUCTURAL — the one method this read needs — so the guard is
+ * stated here rather than trusted to a caller, and the helper says exactly what it asks
+ * of the document it is handed.
+ */
+function readDocumentContents(parsedDocument: {
+  toJS: () => unknown;
+}): Readonly<Record<string, unknown>> | string {
   try {
-    return JSON.parse(text) as unknown;
+    const contents = parsedDocument.toJS();
+    return isWireRecord(contents)
+      ? contents
+      : "A definition file is a document of named sections; this one is not.";
   } catch {
-    return undefined;
+    // The value is not read, so nothing is stringified out of it: what a person needs
+    // is that the document could not be resolved, and the reason it could not be is
+    // that resolving it was refused.
+    return "This document could not be resolved — it refers to itself more times than a file is read for.";
   }
-}
-
-/** Whether the file states the one entry mode the shape admits. */
-function readEntry(value: unknown): boolean {
-  return isWireRecord(value) && value["startMode"] === "manual";
 }
 
 /**
- * The phase sequence, or the sentence saying which phase is wrong.
+ * The marker a scalar node states, as the file wrote it.
  *
- * A STRING FOR THE FAILURE ARM rather than a second result type: this is private to
- * the parse above, which widens whichever it gets into the one reading a caller reads.
- * Every closed member is checked against the tuple that DECLARES it — never against a
- * literal spelled here — so a vocabulary the wire shapes widen is admitted by this
- * parser in the same edit.
+ * THE RESOLVED VALUE FIRST, AND THE SOURCE TEXT WHERE THERE IS NO STRING TO TAKE. A
+ * quoted `"1.0"` resolves to the string `1.0`, which is exactly the marker and is
+ * already unescaped; an unquoted `1.0` resolves to the NUMBER 1 under the core schema,
+ * and only the source text still says which minor was written. Taking the source first
+ * would read an escaped spelling back as its escape.
  */
-function readPhaseDefinitions(value: unknown): readonly WorkflowPhaseDefinition[] | string {
-  if (!Array.isArray(value) || value.length === 0) {
-    return "A definition file carries at least one phase in `phaseDefinitions`.";
+function schemaMarkerOf(node: Scalar): string | undefined {
+  if (typeof node.value === "string") {
+    return node.value.length > 0 ? node.value : undefined;
   }
-  const phases: WorkflowPhaseDefinition[] = [];
-  for (const [index, candidate] of value.entries()) {
-    const phase = readPhaseDefinition(candidate);
-    if (phase === undefined) {
-      return `Phase ${String(index + 1)} is missing an id, a name, or one of its type, gate and failure members.`;
-    }
-    phases.push(phase);
-  }
-  return phases;
-}
-
-/** One phase record, or `undefined` for one this console will not submit. */
-function readPhaseDefinition(value: unknown): WorkflowPhaseDefinition | undefined {
-  if (!isWireRecord(value)) {
-    return undefined;
-  }
-  const phaseId = value["phaseId"];
-  const name = value["name"];
-  const type = readMemberOf(value["type"], WORKFLOW_PHASE_TYPES);
-  const gateType = readMemberOf(value["gateType"], WORKFLOW_GATE_TYPES);
-  const failureBehavior = readMemberOf(value["failureBehavior"], WORKFLOW_FAILURE_BEHAVIORS);
-  if (typeof phaseId !== "string" || phaseId === "" || typeof name !== "string" || name === "") {
-    return undefined;
-  }
-  if (type === undefined || gateType === undefined || failureBehavior === undefined) {
-    return undefined;
-  }
-  const goBackTo = value["goBackTo"];
-  const parallelJoinPolicy = readMemberOf(
-    value["parallelJoinPolicy"],
-    WORKFLOW_PARALLEL_JOIN_POLICIES,
-  );
-  return {
-    phaseId,
-    name,
-    type,
-    gateType,
-    failureBehavior,
-    // THE OPTIONAL MEMBERS ARE CARRIED AND NEVER INVENTED. A file stating no
-    // dependency states a phase with no dependency, and a default written here would
-    // be this console authoring a sequence nobody typed.
-    ...(typeof goBackTo === "string" && goBackTo !== "" ? { goBackTo } : {}),
-    ...(parallelJoinPolicy === undefined ? {} : { parallelJoinPolicy }),
-    ...(readDependsOn(value["dependsOn"]) ?? {}),
-  };
-}
-
-/** The dependency list, where the file carries one written entirely in ids. */
-function readDependsOn(value: unknown): { readonly dependsOn: readonly string[] } | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const dependsOn = value.filter(
-    (entry): entry is string => typeof entry === "string" && entry !== "",
-  );
-  return dependsOn.length === value.length ? { dependsOn } : undefined;
+  return typeof node.source === "string" && node.source.length > 0 ? node.source : undefined;
 }
 
 /**
- * One member of a closed vocabulary, read off an untyped value.
+ * The first line of a parser error, which is the sentence in it.
  *
- * Generic over the tuple so each caller narrows to its own union rather than to
- * `string`: the four vocabularies are four different closed sets, and one reader
- * answering `string` would push the narrowing back to every call site.
+ * The library's pretty errors carry the sentence, then a blank line, then an excerpt of
+ * the source with a caret under the offending column. The excerpt is the text the
+ * person just pasted, so what travels is the sentence and the position it names.
  */
-function readMemberOf<TMember extends string>(
-  value: unknown,
-  vocabulary: readonly TMember[],
-): TMember | undefined {
-  return typeof value === "string" && (vocabulary as readonly string[]).includes(value)
-    ? (value as TMember)
-    : undefined;
+function firstLineOf(message: string): string {
+  const [sentence] = message.split("\n");
+  return sentence ?? message;
 }
 
 /** One invalid reading, so the arm is composed in one place. */

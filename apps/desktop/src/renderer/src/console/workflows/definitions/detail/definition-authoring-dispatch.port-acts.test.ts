@@ -13,7 +13,7 @@
 // `definition-authoring-dispatch.test.ts` beside this, with the scaffolding both suites
 // press through in the `.test-support.ts` beside them.
 
-import { cleanup } from "@testing-library/react";
+import { cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { serializeWorkflowDefinitionFile } from "../../../bridge/index.js";
@@ -119,6 +119,11 @@ describe("importing — what settles before any call is put", () => {
       mounted.current().importDefinition("{}");
     });
 
+    // Waited on rather than slept on: the reader arrives in its own chunk, so the
+    // verdict on this text lands when that fetch settles.
+    await waitFor(() => {
+      expect(mounted.current().outcomes.import.kind).toBe("refused");
+    });
     expectLocalRefusal(mounted.current().outcomes.import, "file-unreadable");
   });
 });
@@ -162,10 +167,16 @@ describe("single flight — one outstanding create per act and definition", () =
     await mounted.press(() => {
       mounted.current().promoteDefinition();
     });
+    // Composed BEFORE the press rather than inside it: the writer arrives in its own
+    // chunk, so the serializer answers a promise and a press handed one would import
+    // the promise's own text rather than the file.
+    const exported = await serializeWorkflowDefinitionFile(scriptedBody());
     await mounted.press(() => {
-      mounted.current().importDefinition(serializeWorkflowDefinitionFile(scriptedBody()));
+      mounted.current().importDefinition(exported);
     });
 
-    expect(mounted.current().outcomes.import.kind).toBe("dispatching");
+    await waitFor(() => {
+      expect(mounted.current().outcomes.import.kind).toBe("dispatching");
+    });
   });
 });

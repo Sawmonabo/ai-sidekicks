@@ -41,10 +41,11 @@ export type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-def
 
 // The definition BODY shapes, published to this family and no further. What a sibling
 // takes is exactly this: the fixture's body table composes both read replies, and the
-// growth signature table names all three. The four closed vocabularies stay OFF this
-// door — the one module that reads them is `workflow-definition-file-form.ts` next
-// door, which takes them from the module that declares them, and an inner-door line no
-// sibling reaches is the dead export the structure gate reports.
+// growth signature table names all three. The closed vocabularies and the two reads
+// that narrow an untyped value against them stay OFF this door — what reads them is the
+// file form next door, whose three modules take them from the module that declares
+// them, and an inner-door line no sibling reaches is the dead export the structure gate
+// reports.
 export type {
   McpServerBindingRef,
   WorkflowDefinitionCreateBody,

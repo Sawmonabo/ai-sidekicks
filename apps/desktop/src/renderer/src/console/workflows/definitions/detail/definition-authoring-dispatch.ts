@@ -40,6 +40,7 @@ import { normalizeWireRejection } from "../../../core/index.js";
 import {
   useGenerationLatch,
   useSubjectScopedState,
+  type GenerationClaim,
   type GenerationLatch,
   type SubjectScopedPublish,
 } from "../../../store/index.js";
@@ -117,7 +118,7 @@ export function useWorkflowDefinitionAuthoring(
     outcomes: value.outcomes,
     exportedFile: value.exportedFile,
     exportDefinition: () => {
-      exportDefinitionFile(runtime);
+      void exportDefinitionFile(runtime);
     },
     importDefinition: (text) => {
       void importDefinitionFile(runtime, text);
@@ -143,76 +144,168 @@ export function useWorkflowDefinitionAuthoring(
  * it in a read-only box, so a host that hung or refused leaves the bytes selectable
  * rather than leaving the person with nothing.
  *
+ * THE SERIALIZATION IS AWAITED because the file form's writer arrives in its own chunk
+ * — the parser is charged to the launches that use it and to no others — and the only
+ * way it fails is a chunk that did not load. That is a fact about the install rather
+ * than about the definition, so it lands on the same rejection seam the clipboard's own
+ * refusal does rather than inventing a second refusal for this surface.
+ *
  * THE LATCH IS `supersedeAndClaim` AND NOT `claim`, which is the one place this act
  * differs from the two that submit. A second press means the same bytes again — there
- * is no durable record to duplicate, so there is nothing to refuse — but two writes
- * settle in whatever order the host returns them, and an older answer must not
- * overwrite a newer one: a first press rejecting after a second press succeeded would
- * otherwise report a copy that did happen as one that did not.
+ * is no durable record to duplicate, so there is nothing to refuse — but two rounds
+ * settle in whatever order the chunk fetch and the host return them, and an older
+ * answer must not overwrite a newer one: a first press rejecting after a second press
+ * succeeded would otherwise report a copy that did happen as one that did not. THE KEY
+ * IS TAKEN BEFORE THE FETCH IS AWAITED, so that ordering covers the codec's answer too
+ * — a chunk that failed for a press already superseded may not erase what the newer
+ * press put on screen.
  */
-function exportDefinitionFile(runtime: AuthoringRuntime): void {
+async function exportDefinitionFile(runtime: AuthoringRuntime): Promise<void> {
   const { body } = runtime;
   if (body === undefined) {
     publishOutcome(runtime, "export", { kind: "refused", refusal: bodyUnavailable("Exporting") });
     return;
   }
-  const file = serializeWorkflowDefinitionFile(body);
+  // Read off the body once and carried, rather than composed at each of the three
+  // publishes: the sentence a person reads while the host is asked and the one they
+  // read afterwards name the same version because they are the same string.
   const versionLabel = `Version ${String(body.versionNumber)} of ${body.name}`;
   const claim = runtime.latch.supersedeAndClaim(
     runtime.growth,
     actKey("export", runtime.workflowDefinitionId),
   );
-  // The bytes go in beside the outcome and not inside it, so the two arms below replace
-  // where the act STANDS and leave what it produced on screen.
-  runtime.publish((previous) => ({
-    exportedFile: file,
-    outcomes: {
-      ...previous.outcomes,
-      export: {
-        kind: "dispatching",
-        detail: `${versionLabel} is below. Waiting for the host to take the copy.`,
-      },
-    },
-  }));
-  void runtime.bridge.sidekicks.native
-    .copyToClipboard(file)
-    .then(
-      () => {
-        claim.settle(() => {
-          publishOutcome(runtime, "export", {
-            kind: "settled",
-            detail: `${versionLabel} is on the clipboard, and below.`,
-          });
-        });
-      },
-      // WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT — rule 9, and the seam
-      // `enumerated-path-action.ts` established for exactly this call. The fallback is
-      // reached only where the rejection carried nothing machine-readable, and it says
-      // what did not happen and what is still on screen rather than repeating the bytes.
-      //
-      // The rejection handler is `then`'s SECOND ARGUMENT rather than a `catch` link,
-      // so a publish that threw on the fulfilled arm cannot arrive here and be reported
-      // as the host having refused a write it had already taken.
-      (rejection: unknown) => {
-        claim.settle(() => {
-          publishOutcome(runtime, "export", {
-            kind: "refused",
-            refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
-              code: "call-rejected",
-              detail:
-                "native.copyToClipboard was rejected, so the file was not copied. It is shown below and can be selected by hand.",
-            }),
-          });
-        });
-      },
-    )
+  try {
+    const file = await serializeFile(runtime, claim, body);
+    if (file === undefined) {
+      return;
+    }
+    publishExportedBytes(runtime, claim, file, versionLabel);
+    await handToClipboard(runtime, claim, file, versionLabel);
     // The key goes back whichever arm ran, a `publish` that threw included. Nothing is
-    // refused by holding it — `supersedeAndClaim` never refuses — but `generation-latch.ts`
-    // bounds its register within a live subject BY release, and a key never given back is
-    // an entry kept for the life of the bridge.
-    .finally(() => {
-      claim.release();
+    // refused by holding it — `supersedeAndClaim` never refuses — but
+    // `generation-latch.ts` bounds its register within a live subject BY release, and a
+    // key never given back is an entry kept for the life of the bridge.
+  } finally {
+    claim.release();
+  }
+}
+
+/**
+ * The file the body serializes to, or `undefined` once the refusal has been published.
+ *
+ * Its own function so the act above reads as the steps it is — serialize, publish, copy
+ * — rather than opening with a `try` whose block is most of the body.
+ *
+ * THE REFUSAL IS SETTLED UNDER THE ROUND'S OWN CLAIM. A chunk fetch that failed for a
+ * press somebody has already superseded says nothing about the press they are waiting
+ * on, and installing it would replace a newer round's bytes with an older round's
+ * excuse.
+ */
+async function serializeFile(
+  runtime: AuthoringRuntime,
+  claim: GenerationClaim,
+  body: WorkflowVersionBody,
+): Promise<string | undefined> {
+  try {
+    return await serializeWorkflowDefinitionFile(body);
+  } catch (writerRejection: unknown) {
+    claim.settle(() => {
+      publishCodecAbsence(runtime, "export", writerRejection);
     });
+    return undefined;
+  }
+}
+
+/**
+ * Put the bytes on screen and stand the act at `dispatching` while the host is asked.
+ *
+ * THE BYTES GO IN BESIDE THE OUTCOME AND NOT INSIDE IT, so the two arms below replace
+ * where the act STANDS and leave what it produced on screen. And the write is the
+ * round's, for `serializeFile`'s reason: a superseded press that published here would
+ * put `dispatching` over a newer press's own settlement or refusal.
+ */
+function publishExportedBytes(
+  runtime: AuthoringRuntime,
+  claim: GenerationClaim,
+  file: string,
+  versionLabel: string,
+): void {
+  claim.settle(() => {
+    runtime.publish((previous) => ({
+      exportedFile: file,
+      outcomes: {
+        ...previous.outcomes,
+        export: {
+          kind: "dispatching",
+          detail: `${versionLabel} is below. Waiting for the host to take the copy.`,
+        },
+      },
+    }));
+  });
+}
+
+/**
+ * Ask the host to take the copy, and settle on whichever answer it gives.
+ *
+ * WHAT THE HOST SAID, NEVER A PARAPHRASE OF IT — rule 9, and the seam
+ * `enumerated-path-action.ts` established for exactly this call. The fallback is
+ * reached only where the rejection carried nothing machine-readable, and it says what
+ * did not happen and what is still on screen rather than repeating the bytes.
+ *
+ * The rejection handler is `then`'s SECOND ARGUMENT rather than a `catch` link, so a
+ * publish that threw on the fulfilled arm cannot arrive here and be reported as the
+ * host having refused a write it had already taken.
+ */
+function handToClipboard(
+  runtime: AuthoringRuntime,
+  claim: GenerationClaim,
+  file: string,
+  versionLabel: string,
+): Promise<void> {
+  return runtime.bridge.sidekicks.native.copyToClipboard(file).then(
+    () => {
+      claim.settle(() => {
+        publishOutcome(runtime, "export", {
+          kind: "settled",
+          detail: `${versionLabel} is on the clipboard, and below.`,
+        });
+      });
+    },
+    (rejection: unknown) => {
+      claim.settle(() => {
+        publishOutcome(runtime, "export", {
+          kind: "refused",
+          refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
+            code: "call-rejected",
+            detail:
+              "native.copyToClipboard was rejected, so the file was not copied. It is shown below and can be selected by hand.",
+          }),
+        });
+      });
+    },
+  );
+}
+
+/**
+ * Publish the refusal for a file-form codec that did not arrive.
+ *
+ * ONE SENTENCE FOR BOTH ACTS, because it is one fact: the reader and the writer are the
+ * same module and it is fetched on first use, so an export and an import fail together
+ * or not at all. Two spellings of it would drift the first time either was reworded.
+ */
+function publishCodecAbsence(
+  runtime: AuthoringRuntime,
+  act: WorkflowDetailAct,
+  rejection: unknown,
+): void {
+  publishOutcome(runtime, act, {
+    kind: "refused",
+    refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
+      code: "call-rejected",
+      detail:
+        "The part of this app that reads and writes definition files did not load, so nothing happened. Pressing again asks for it once more.",
+    }),
+  });
 }
 
 /**
@@ -236,21 +329,46 @@ async function importDefinitionFile(runtime: AuthoringRuntime, text: string): Pr
     });
     return;
   }
-  const reading = parseWorkflowDefinitionFile(text, {
-    sessionId,
-    scope: "session",
-    scopeRef: sessionId,
+  const definition = await readDefinitionFile(runtime, sessionId, text);
+  if (definition === undefined) {
+    return;
+  }
+  await submitDefinition(runtime, "import", definition, (versionNumber) => {
+    return `${definition.name} was created in this session at version ${versionNumber}.`;
   });
-  if (reading.status === "invalid") {
+}
+
+/**
+ * The body the pasted text describes, or `undefined` once the refusal is published.
+ *
+ * The reader's own refusal travels as the sentence it composed — which member is wrong
+ * is the whole of what a person needs beside a paste box — and the codec's absence
+ * takes the seam beside it, because a chunk that did not arrive says nothing about the
+ * text. Only the reading is guarded: a daemon refusal on the submit below belongs to
+ * the call that raised it.
+ */
+async function readDefinitionFile(
+  runtime: AuthoringRuntime,
+  sessionId: string,
+  text: string,
+): Promise<WorkflowDefinitionCreateBody | undefined> {
+  try {
+    const reading = await parseWorkflowDefinitionFile(text, {
+      sessionId,
+      scope: "session",
+      scopeRef: sessionId,
+    });
+    if (reading.status === "parsed") {
+      return reading.body;
+    }
     publishOutcome(runtime, "import", {
       kind: "refused",
       refusal: detailRefusal("file-unreadable", reading.reason),
     });
-    return;
+  } catch (readerRejection: unknown) {
+    publishCodecAbsence(runtime, "import", readerRejection);
   }
-  await submitDefinition(runtime, "import", reading.body, (versionNumber) => {
-    return `${reading.body.name} was created in this session at version ${versionNumber}.`;
-  });
+  return undefined;
 }
 
 /**

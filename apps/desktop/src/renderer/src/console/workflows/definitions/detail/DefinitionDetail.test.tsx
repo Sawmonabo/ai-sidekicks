@@ -10,7 +10,7 @@
 // the press, so every control is pressable and what a case checks is what came back:
 // the export's bytes, the create's refusal, the parse's reason.
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
@@ -103,13 +103,18 @@ describe("the definition detail — the three acts and what each answers", () =>
     await settle();
 
     fireEvent.click(control(container, "Export"));
-    await settle();
+    // WAITED FOR RATHER THAN SLEPT ON. The file form's writer arrives in its own chunk
+    // — the parser is charged to the launches that use it and to no others — so the
+    // bytes land when the fetch settles and not a fixed number of turns after a press.
+    const file = await waitFor(() => {
+      const written = container.querySelector(".meridian-definition-detail__file");
+      expect(written).not.toBeNull();
+      return written;
+    });
 
-    const file = container.querySelector(".meridian-definition-detail__file");
-    expect(file).not.toBeNull();
     // The bytes are a definition file rather than a rendering of one: the marker the
     // body carries is in them, and so is a phase the definition sequences.
-    expect(file?.textContent ?? "").toContain("schemaVersion");
+    expect(file?.textContent ?? "").toContain("ai-sidekicks-schema");
     expect(file?.textContent ?? "").toContain("Draft the release note");
   });
 
@@ -154,9 +159,11 @@ describe("the definition detail — the three acts and what each answers", () =>
     await settle();
 
     fireEvent.click(control(container, "Export"));
-    await settle();
-    const exported = container.querySelector(".meridian-definition-detail__file");
-    expect(exported).not.toBeNull();
+    const exported = await waitFor(() => {
+      const written = container.querySelector(".meridian-definition-detail__file");
+      expect(written).not.toBeNull();
+      return written;
+    });
 
     fireEvent.click(control(container, "Import"));
     const box = container.querySelector(".meridian-definition-detail__import-box");
