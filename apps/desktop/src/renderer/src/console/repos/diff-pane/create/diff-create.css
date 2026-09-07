@@ -1,0 +1,118 @@
+/*
+ * Asking for a change set: the attribution line, the two fields, and the control.
+ *
+ * ITS OWN SHEET AND NOT `mounts/mount-acts.css`, whose shared control shape covers
+ * "every button THIS DIRECTORY adds" and is owned by `mounts/`. Reaching into it from
+ * here would make one directory the reason another is styled — and it lands on the
+ * initial document, while this one arrives on the diff pane's own lazily-loaded chunk
+ * with the form it dresses.
+ *
+ * IMPORTED FROM `create/index.ts`: this directory carries a door, so it owns its sheet.
+ */
+
+.meridian-diff-create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 42rem;
+}
+
+.meridian-diff-create__lead {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The attribution reads as one line of wire values: the arm the request will carry and
+ * the key it will be resolved by, side by side and never wrapped into a sentence.
+ */
+.meridian-diff-create__attribution {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-diff-create__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-diff-create__legend {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * A ref is a wire value a person is composing, so the field is set in the mono face the
+ * surface renders wire strings in — the field and the figure it becomes read as the
+ * same kind of thing.
+ */
+.meridian-diff-create__input {
+  font: inherit;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+.meridian-diff-create__confirm,
+.meridian-diff-create__retry {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.meridian-diff-create__confirm:hover:enabled,
+.meridian-diff-create__retry:hover:enabled {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-diff-create__confirm:disabled {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+.meridian-diff-create__held {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* Focus is visible on every control this surface ships, in one rule rather than three. */
+.meridian-diff-create :focus-visible,
+.meridian-diff-create-surface :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * The settled arm is a column: the way back on top, and the change set taking the rest
+ * of the height. `min-height: 0` on both so the renderer inside can scroll rather than
+ * pushing the pane's body past its own box.
+ */
+.meridian-diff-create-surface {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-height: 0;
+}
+
+.meridian-diff-create-surface__again {
+  display: flex;
+  justify-content: flex-end;
+}

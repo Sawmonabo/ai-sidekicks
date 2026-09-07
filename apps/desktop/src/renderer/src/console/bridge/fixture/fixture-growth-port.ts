@@ -41,6 +41,10 @@ import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
 // The routing key itself, from the scenario module that mints it — the workflow
 // enumeration's rule one file over: restated as a literal here, a rename would move
 // the constant and the reply and leave this handler answering a key nothing sends.
+import {
+  REPOS_ARTIFACT_READ_CALL,
+  REPOS_DIFF_ARTIFACT_CREATE_CALL,
+} from "../scenarios/repos-diff-replies.js";
 import { REPOS_EXECUTION_CONTEXT_CALL } from "../scenarios/repos-mutation-replies.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
@@ -105,6 +109,25 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "gitflowBranchContextRead",
         request,
         () => growthUnscriptedReply("gitflowBranchContextRead", "gitflow.branchContextRead"),
+      ),
+    // The diff-artifact mint and the payload read its ids are only useful through.
+    //
+    // BOTH ARE SCRIPT-ONLY AND BOTH REFUSE THE SAME WAY, on the branch-context read's
+    // rule above. A mint that answered from nothing would tell a surface the daemon
+    // computed a change set no author declared, and a payload read that answered from
+    // nothing would have to invent bytes for a named artifact — the two inventions
+    // `fixture-served-operations.ts` separates a served empty answer from.
+    gitflowDiffArtifactCreate: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        REPOS_DIFF_ARTIFACT_CREATE_CALL,
+        "gitflowDiffArtifactCreate",
+        request,
+        () => growthUnscriptedReply("gitflowDiffArtifactCreate", REPOS_DIFF_ARTIFACT_CREATE_CALL),
+      ),
+    artifactRead: async (request) =>
+      answerFromScriptedReply(engine, REPOS_ARTIFACT_READ_CALL, "artifactRead", request, () =>
+        growthUnscriptedReply("artifactRead", REPOS_ARTIFACT_READ_CALL),
       ),
     // identity
     callerParticipantRead: async (request) => {

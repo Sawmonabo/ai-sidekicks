@@ -146,12 +146,17 @@ const RETIRED_SINCE_SPLIT: readonly string[] = [
  * The page shapes are the browser strip and picker's one reading — a list of pages and
  * the context name that heads it, both named by the signature table next door on the
  * page subscription's reply — and the chord frame is the keyboard handback's, the
- * keystroke a page host claimed and handed back.
+ * keystroke a page host claimed and handed back. The two diff-artifact shapes are the
+ * mint's own request union and what it answers with: the diff pane composes the first
+ * from the subject its address resolved to, and reads the manifest id off the second to
+ * fetch the patch through the artifact plane.
  */
 const ADDED_SINCE_SPLIT: readonly string[] = [
   "GrowthAcceleratorChord",
   "GrowthBrowserPage",
   "GrowthBrowserPageList",
+  "GrowthDiffArtifactCreated",
+  "GrowthDiffArtifactCreateRequest",
 ];
 
 /** What the barrel is expected to publish today: the split's surface, less the retired, plus the added. */

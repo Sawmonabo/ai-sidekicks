@@ -7,6 +7,8 @@
 import type {
   GrowthBranchContext,
   GrowthBranchContextReadRequest,
+  GrowthDiffArtifactCreated,
+  GrowthDiffArtifactCreateRequest,
   GrowthPrPreparationState,
 } from "../growth-values/index.js";
 
@@ -67,6 +69,18 @@ export interface GitflowGrowthSignatures {
   gitflowBranchContextRead: {
     request: GrowthBranchContextReadRequest;
     value: GrowthBranchContext;
+  };
+  // THE MINT, AND WHY ITS VALUE CARRIES NO BYTES. `DiffArtifactCreateResponse`
+  // registers three members — the diff-artifact id, the manifest the computed diff was
+  // written under, and the instant — so this operation establishes that a change set
+  // EXISTS and hands back the key to read it. The patch itself comes back through
+  // `artifactRead`, which is the artifact plane's own call and is why
+  // `Spec-023 §Console Design (Meridian)`'s diff surface renders the artifact refusal
+  // codes: a diff IS an artifact once it is minted, and there is no second payload path
+  // for one.
+  gitflowDiffArtifactCreate: {
+    request: GrowthDiffArtifactCreateRequest;
+    value: GrowthDiffArtifactCreated;
   };
   gitflowPrPrepare: {
     request: {

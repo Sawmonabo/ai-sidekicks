@@ -7,14 +7,16 @@
 // execution roots, and until this file existed only one of them was covered: the clone
 // list had no production mount at all.
 
-import { render, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario-runtime/scenario.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import type { ConsolePaneOpener } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
 import { RepoSection } from "./RepoSection.js";
@@ -59,12 +61,13 @@ interface SectionUnderTest {
  * announces its own settlement and `useAnnounce` throws outside the provider. Frozen
  * time, so nothing here races the announcer's own hold deadline.
  */
-function renderSection(scenario: ConsoleScenario): SectionUnderTest {
+function renderSection(scenario: ConsoleScenario, openPane?: ConsolePaneOpener): SectionUnderTest {
   const bridge = createFixtureBridge({ scenario });
   const context = sectionContext({
     isOpen: true,
     bridge,
     sessionStore: new SessionStore({ sessionId: scenario.sessionId }),
+    ...(openPane === undefined ? {} : { openPane }),
   });
   const { container } = render(
     <LiveAnnouncerProvider clock={new ManualClock()}>
@@ -382,5 +385,30 @@ describe("RepoSection — the one mutating entry point", () => {
       expect(within(section.container).getByText("Attach a repository")).toBeDefined();
     });
     expect(section.container.textContent).not.toContain("command-line and SDK");
+  });
+});
+
+describe("RepoSection — a card's way into the deck", () => {
+  it("opens a diff pane at the row's own address, in the deck it was handed", async () => {
+    // THE OPENER IS THE SEAT'S AND NOT A MODULE THIS FAMILY IMPORTS, which is what the
+    // section is proving here: a sidebar rendered in an auxiliary window opens its panes
+    // in THAT window's deck, so every card's press has to arrive back through this
+    // callback rather than through anything the family reached for itself.
+    const openPane = vi.fn();
+    const section = renderSection(REPOS_SCENARIO, openPane);
+    await section.advanceUntil(() => {
+      expect(
+        within(section.container).getByLabelText(
+          `Open the changes of workspace ${GIT_WORKSPACE_ID}`,
+        ),
+      ).toBeDefined();
+    });
+    fireEvent.click(
+      within(section.container).getByLabelText(`Open the changes of workspace ${GIT_WORKSPACE_ID}`),
+    );
+    expect(openPane).toHaveBeenCalledWith({
+      kind: "diff",
+      entity: { kind: "workspace", id: GIT_WORKSPACE_ID },
+    });
   });
 });

@@ -79,6 +79,23 @@ export const DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000050";
 export const PINNED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000051";
 export const REPLICATING_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000052";
 export const EXPIRED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000053";
+// The MANIFEST each diff artifact hangs off, and the second diff a workspace-level
+// create mints.
+//
+// TWO IDS PER DIFF, BECAUSE THE CREATE MINTS TWO ROWS. `DiffArtifactCreateResponse`
+// answers with a `diffArtifactId` AND the `artifactManifestId` its computed payload was
+// written under, and the bytes are reached by the manifest — so a fixture carrying one
+// id for both could not answer the payload read at all without teaching a surface that
+// a diff artifact and its manifest are the same row.
+//
+// AND TWO DIFFS, BECAUSE THE CREATE HAS TWO ARMS. The run-attributed arm is the diff the
+// implementer's run produced — the one the `diff.created` beat above already names — and
+// the workspace-fallback arm is a diff taken over the git workspace with no run to
+// attribute it to. A scenario answering both arms with one change set could not show
+// that the console tells the two attributions apart.
+export const DIFF_MANIFEST_ID: string = "9f2c4a10-0000-4000-8000-000000000054";
+export const WORKSPACE_DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000055";
+export const WORKSPACE_DIFF_MANIFEST_ID: string = "9f2c4a10-0000-4000-8000-000000000056";
 
 /**
  * Where the git workspace's runs execute, and the checkout that encloses it.
