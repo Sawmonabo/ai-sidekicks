@@ -23,7 +23,8 @@ import type { ConsoleBridge } from "../console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
 import type { GrowthServed, GrowthUnavailable } from "../growth-port/growth-outcome.js";
-import { growthUnavailable, type GrowthPort } from "../growth-port/growth-port.js";
+import type { GrowthPort } from "../growth-port/growth-port.js";
+import { growthUnavailable } from "../growth-port/growth-refusals.js";
 import type { ConsoleScenario, ScenarioBeat, ScenarioEngine } from "../scenario-runtime/index.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 

@@ -4,12 +4,14 @@
 // from `health.failureDetailRead` that distinguishes the failure classes rather than
 // reporting one generic error."
 //
-// SO THE CLASS IS THE HEADLINE AND IS RENDERED VERBATIM. `failureCategory` is an open
-// wire vocabulary — the corpus does not close it, and a console table mapping it to
-// friendly words would silently fold every category it had not heard of into whichever
-// arm its lookup ended on, which is the generic error the design forbids by name. It
-// goes on screen in mono, as the node spelled it, beside the node's own summary
-// sentence.
+// SO THE CLASS IS THE HEADLINE AND IS RENDERED VERBATIM. `failureCategory` is a closed
+// four-member wire vocabulary (`RunFailureCategory`), and it is rendered as the node
+// spelled it anyway — not for want of a table, but because the members ARE the prose:
+// "provider failure", "transport failure", "local persistence failure", "projection
+// failure". A lookup here would map four English phrases onto four English phrases and
+// take on a total-record obligation for the privilege, while putting a second spelling
+// of the wire's own words on screen. It goes in mono beside the node's own summary
+// sentence, which is the distinction the design asks for.
 //
 // THE TECHNICAL DETAIL IS A DISCLOSURE, NOT A DUMP. The density rule puts failure
 // detail "one disclosure away", so the structured payload sits behind a `<details>`

@@ -414,7 +414,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "mcp-governance-plane": {
     id: "mcp-governance-plane",
-    wire: "the MCP governance namespace — the unified server inventory read and the enablement and trust mutations, with the binding identity, the redacted configuration read-back, the per-leg live status, the tool overrides, and the per-leg application outcomes they carry. Eight further operations are registered on the same namespace and are the owning plan's to call",
+    wire: "the MCP governance namespace — the unified server inventory read and the enablement and trust mutations, with the binding identity, the redacted configuration read-back, the per-leg live status, the tool overrides, and the per-leg application outcomes they carry. Eight further operations are registered on the same namespace (upsert, remove, the two override verbs, OAuth login, reconnect, the per-binding get, and the live-status subscription) and are the owning plan's to call from the body it mounts",
     owningDocument:
       "Spec-028 §The operator surface and §Unified Inventory; api-payload-contracts.md §Plan-028 — MCP Governance Contract Surfaces (the eleven method strings and every shape above, registered there and in no code package)",
     consumingSurface: "MCP servers settings page",

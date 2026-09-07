@@ -52,7 +52,7 @@ import { settleGrowthRead } from "../../../bridge/index.js";
 import type { ConsoleClock, ConsoleRefusal, Unsubscribe } from "../../../core/index.js";
 import { PushDrivenRead } from "../../../seats/index.js";
 import { subscribeToSessionEventKinds, type SessionStore } from "../../../store/index.js";
-import type { DiagnosticsRunSubjects } from "./run-subjects.js";
+import type { DiagnosticsRunSubjects } from "./stall/run-subjects.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */
 export const DIAGNOSTICS_READ_ORIGIN = "diagnostics";

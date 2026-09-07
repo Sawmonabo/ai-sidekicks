@@ -223,7 +223,7 @@ export const SETTINGS_DIAGNOSTICS_REPLIES: readonly ScenarioReply[] = [
     afterMs: 40,
     result: {
       runId: FAILED_RUN_ID,
-      failureCategory: "provider_error",
+      failureCategory: "provider failure",
       recoveryCondition: "provider_unavailable",
       humanSummary: "The provider closed the connection while the turn was in flight.",
       technicalDetails: { attempts: 2, lastStatus: 503 },

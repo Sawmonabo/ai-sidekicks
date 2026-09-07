@@ -18,7 +18,7 @@
 
 import type { ReactNode } from "react";
 
-import { InlineRefusal, WireFigure } from "../../../primitives/index.js";
+import { InlineRefusal, WireFigure } from "../../../../primitives/index.js";
 import type { RecoveryOutcome } from "./recovery-request.js";
 
 export function RecoveryOutcomeLine(props: { readonly outcome: RecoveryOutcome }): ReactNode {

@@ -215,11 +215,27 @@ describe("the accounts page — the seat it mounts", () => {
 
   it("answers all three of the questions a seat exists to answer", () => {
     const { contract } = PROVIDER_ACCOUNTS_PAGE_SLOT;
-    expect(contract.owningTask.length).toBeGreaterThan(0);
+    // The owner is named by SUBJECT, on the `workflows/owner-slots.ts` precedent: these
+    // are runtime strings in a shipped module and this repository keeps governance
+    // identifiers in comments, so a length check would pass over the very phrasing this
+    // asserts. Both owners the string names are read, because the page's figure comes
+    // from one plan's committed-spend read and its registry from another's.
+    expect(contract.owningTask).toContain("provider-accounts and credential-homes plan");
+    expect(contract.owningTask).toContain("orchestration plan's committed-spend read");
     expect(contract.mountObligation.length).toBeGreaterThan(0);
     // The one that names its own retirement, and it names the directory rather than a
     // date: the body's arrival is what deletes the stand-in.
     expect(contract.deleteShellIn).toContain("provider-accounts/shell/");
+  });
+
+  it("carries no governance identifier in any of the three runtime strings", () => {
+    // The rule the phrasing above exists for, asserted over the contract itself rather
+    // than over what a page renders: the render case above covers the screen, and a
+    // string that never reaches one is still a shipped runtime string.
+    const { contract } = PROVIDER_ACCOUNTS_PAGE_SLOT;
+    for (const member of [contract.owningTask, contract.mountObligation, contract.deleteShellIn]) {
+      expect(member).not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP|I|T)-\d/u);
+    }
   });
 
   it("carries the stand-in body under the fixture define and nothing without it", () => {

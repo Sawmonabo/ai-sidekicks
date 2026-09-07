@@ -45,4 +45,4 @@ export {
 export {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   type ConsoleSessionDiagnostics,
-} from "../../src/renderer/src/console/frame/session-event-binder.js";
+} from "../../src/renderer/src/console/frame/session-diagnostics-handle.js";

@@ -12,7 +12,7 @@ import { render } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { fixtureSessionSnapshot } from "../../bridge/fixture/fixture-session-snapshot.js";
-import { growthUnavailable } from "../../bridge/growth-port/growth-port.js";
+import { growthUnavailable } from "../../bridge/growth-port/growth-refusals.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../core/index.js";

@@ -19,6 +19,33 @@
 // design forbids, and a renderer that inferred it from a call that happened to succeed
 // would be synthesising a connection state the supervisor owns.
 //
+// WHAT THE LIVE HALF IS NOT TOLD, STATED RATHER THAN LEFT TO BE DISCOVERED
+//
+// It is told about ONE moment: whether `daemon.subscribe` returned or threw when the
+// binder called it. A subscription that opened and then DIED — the daemon exiting, the
+// IPC channel closing, the stream ending without another payload — reaches this signal
+// through nothing, so a window whose wire goes away after every session is bound stays
+// at `reachable` and the returning edge never fires for it. The readings that name
+// `reconnect` in their refresh policy are correct about the signal they subscribe to
+// and wrong about the transport, on that one path.
+//
+// THAT IS A MISSING SIGNAL AND NOT A MISSING OBSERVER, which is why nothing here
+// compensates for it. `SidekicksBridge.daemon.subscribe` is `(event, handler) =>
+// Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
+// handle only cancels, and no member anywhere on that bridge — `daemon`,
+// `controlPlane`, `native`, `webAuthn`, `update`, `app` — reports connection state.
+// There is nothing the binder could listen to. The alternatives are the two this file
+// already refuses: a heartbeat probe is the interval polling the design forbids, and
+// treating a failed unrelated call as a loss is a connection state this renderer would
+// be inventing rather than observing.
+//
+// THE RE-ARM IS NAMED. The day the preload contract grows a stream-termination arm —
+// a handler that is told the stream ended, or a bridge-level connection observable —
+// the binder reports `unreachable` from it and this paragraph goes. Until then the
+// live half covers the loss it can see, the fixture covers both edges by script, and
+// the gap is written down here rather than implied by a header that reads as though
+// every loss were observed.
+//
 // WHAT AN EDGE IS, AND WHY A FIRST CONNECTION IS NOT ONE
 //
 // The signal holds three states, and only one transition emits. `unknown` is where a

@@ -126,8 +126,6 @@
 .meridian-members__revoke,
 .meridian-invites__row-action,
 .meridian-invite-confirmation__dismiss,
-.meridian-members__dialog-cancel,
-.meridian-members__dialog-confirm,
 .meridian-members__refusal-dismiss,
 .meridian-invites__refusal-dismiss {
   font: inherit;
@@ -159,8 +157,7 @@
 .meridian-members :focus-visible,
 .meridian-invites :focus-visible,
 .meridian-invite-confirmation :focus-visible,
-.meridian-members__menu :focus-visible,
-.meridian-members__dialog :focus-visible {
+.meridian-members__menu :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

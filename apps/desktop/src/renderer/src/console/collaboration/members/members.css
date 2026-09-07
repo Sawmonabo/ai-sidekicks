@@ -175,8 +175,7 @@
   gap: var(--meridian-space-2);
 }
 
-.meridian-members__revoke,
-.meridian-members__dialog-confirm {
+.meridian-members__revoke {
   color: var(--meridian-red-text);
   border-color: var(--meridian-red-mark);
 }
@@ -205,44 +204,4 @@
 
 .meridian-members__menu-item[data-highlighted] {
   background: var(--meridian-surface-sunken);
-}
-
-.meridian-members__dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
-}
-
-.meridian-members__dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  max-width: 48ch;
-  padding: var(--meridian-space-5);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-members__dialog-title {
-  margin: 0;
-  font-size: var(--meridian-text-md);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-members__dialog-body {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-members__dialog-acts {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--meridian-space-2);
 }

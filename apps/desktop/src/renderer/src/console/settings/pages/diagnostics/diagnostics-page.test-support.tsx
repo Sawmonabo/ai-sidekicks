@@ -12,6 +12,8 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, vi, type Mock } from "vitest";
 
+import type { RunState } from "@ai-sidekicks/contracts";
+
 import {
   SidekicksBridgeProvider,
   createFixtureBridge,
@@ -105,7 +107,7 @@ export function movingInspection(): GrowthStuckRunInspection {
 export function failureDetail(): GrowthFailureDetail {
   return {
     runId: FAILED_RUN_ID,
-    failureCategory: "provider_error",
+    failureCategory: "provider failure",
     recoveryCondition: "provider_unavailable",
     humanSummary: "The provider closed the connection while the turn was in flight.",
     technicalDetails: { attempts: 2, lastStatus: 503 },
@@ -127,7 +129,7 @@ export function overriddenPolicy(): GrowthRedactionPolicy {
   };
 }
 
-export function recoveryReceipt(newState: string): GrowthRecoveryReceipt {
+export function recoveryReceipt(newState: RunState): GrowthRecoveryReceipt {
   return {
     runId: STALLED_RUN_ID,
     previousState: "running",
@@ -272,7 +274,7 @@ export async function answerRecoveryConfirmation(
   answer: "confirm" | "Not now",
 ): Promise<void> {
   await openRecoveryConfirmation(container, action);
-  const dialog = document.body.querySelector<HTMLElement>(".meridian-settings-confirm");
+  const dialog = document.body.querySelector<HTMLElement>(".meridian-confirm");
   const answerLabel = answer === "confirm" ? action : answer;
   const settleButton = [...(dialog?.querySelectorAll("button") ?? [])].find(
     (button) => button.textContent === answerLabel,

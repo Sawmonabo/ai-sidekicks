@@ -26,16 +26,16 @@ import { Nothing } from "../../../primitives/index.js";
 import { usePushDrivenRead } from "../../../seats/index.js";
 import type { SessionStore } from "../../../store/index.js";
 import { ArmAbsence } from "./ArmAbsence.js";
-import { BundleLocationNote } from "./BundleLocationNote.js";
+import { BundleLocationNote } from "./redaction/BundleLocationNote.js";
 import { createDiagnosticsRead, isProjectionRebuildBlocked } from "./diagnostics-reading.js";
 import { DiagnosticsRegion } from "./DiagnosticsRegion.js";
 import { FailureDetailCard } from "./FailureDetailCard.js";
-import { HealthBanner } from "./HealthBanner.js";
-import { HealthBannerSkeleton } from "./HealthBannerSkeleton.js";
-import { RecoveryPrompt } from "./RecoveryPrompt.js";
-import { RedactionReadOut } from "./RedactionReadOut.js";
-import type { DiagnosticsRunSubjects } from "./run-subjects.js";
-import { StuckRunBadge } from "./StuckRunBadge.js";
+import { HealthBanner } from "./health/HealthBanner.js";
+import { HealthBannerSkeleton } from "./health/HealthBannerSkeleton.js";
+import { RecoveryPrompt } from "./recovery/RecoveryPrompt.js";
+import { RedactionReadOut } from "./redaction/RedactionReadOut.js";
+import type { DiagnosticsRunSubjects } from "./stall/run-subjects.js";
+import { StuckRunBadge } from "./stall/StuckRunBadge.js";
 
 export function DiagnosticsReadOut(props: {
   readonly bridge: ConsoleBridge;

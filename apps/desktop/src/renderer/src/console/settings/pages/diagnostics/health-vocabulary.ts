@@ -14,13 +14,12 @@
 // because a vocabulary the corpus leaves open is one this console must not pretend to
 // know the whole of.
 
-import type { ChipTone } from "../../../primitives/index.js";
+import type { ChipTone, ConfirmationTone } from "../../../primitives/index.js";
 import type {
   GrowthHealthState,
   GrowthRecoveryAction,
   GrowthRedactionBucket,
 } from "../../../bridge/index.js";
-import type { SettingsConfirmationTone } from "../../shared/SettingsConfirmation.js";
 
 /** The chip tone each health state wears. `blocked` is the console's failure tone. */
 export const HEALTH_STATE_TONES: Readonly<Record<GrowthHealthState, ChipTone>> = {
@@ -59,7 +58,7 @@ export interface RecoveryActionCopy {
   /** What the action does, in the confirmation body. */
   readonly consequence: string;
   /** The tone the trigger and the confirming button wear. */
-  readonly tone: SettingsConfirmationTone;
+  readonly tone: ConfirmationTone;
 }
 
 /**

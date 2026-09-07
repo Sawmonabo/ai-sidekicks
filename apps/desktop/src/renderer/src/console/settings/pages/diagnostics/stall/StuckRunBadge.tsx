@@ -21,8 +21,8 @@
 
 import type { ReactNode } from "react";
 
-import { Chip, DerivedFigure, WireFigure, formatDuration } from "../../../primitives/index.js";
-import type { GrowthStuckRunInspection } from "../../../bridge/index.js";
+import { Chip, DerivedFigure, WireFigure, formatDuration } from "../../../../primitives/index.js";
+import type { GrowthStuckRunInspection } from "../../../../bridge/index.js";
 import { quietMillisecondsSince, stallTierFor, type StallTier } from "./stall-tier.js";
 
 /** The chip tone each tier wears. `quiet` stays neutral: the daemon has only just said so. */
