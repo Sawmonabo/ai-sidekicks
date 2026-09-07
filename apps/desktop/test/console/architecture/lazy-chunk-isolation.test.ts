@@ -47,8 +47,11 @@
 // `COMPOSITION_ROOT_FILES` beside it is the enumeration that rule is written against, so
 // these roots are that same closed set rather than a second reading of it.
 
+import { posix, win32 } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
+import { toPosixSeparators } from "../console-source-modules.js";
 import { CONSOLE_STYLESHEET_TREE, resolveStylesheet } from "./stylesheet-edge-graph.js";
 import { dynamicImportSpecifiers } from "./stylesheet-specifiers.js";
 import { StylesheetReachIndex } from "./stylesheet-static-reach.js";
@@ -81,6 +84,21 @@ function eagerlyReachedModules(index: StylesheetReachIndex): ReadonlySet<string>
 }
 
 /**
+ * The directory a resolved tree path sits in, as a prefix a tree path starts with.
+ *
+ * DERIVED IN `path.posix` AND NOT IN THE HOST'S SEPARATOR. Tree paths carry `/` on every
+ * host — `stylesheet-edge-graph.ts` mints them that way and its header says why — so the
+ * derivation that splits one has to be the POSIX one whatever machine it runs on. Written
+ * as a search for the last `/`, this answered the EMPTY STRING for a Windows-spelled path,
+ * and the empty string is a prefix every module in the console starts with: the claim
+ * below would have quantified over the whole tree rather than over one directory and
+ * reported every eagerly reached module as a chunk-boundary offence.
+ */
+function chunkDirectoryOf(resolvedModulePath: string): string {
+  return `${posix.dirname(resolvedModulePath)}${posix.sep}`;
+}
+
+/**
  * The directory the sidekicks page's chunk root lives in, read from its own loader.
  *
  * Throws rather than answering `undefined` when the registration carries no loader: that
@@ -102,7 +120,7 @@ function sidekicksChunkDirectory(): string {
   if (resolved === undefined) {
     throw new Error(`the loader specifier ${specifier} resolves to nothing in the console tree`);
   }
-  return resolved.slice(0, resolved.lastIndexOf("/") + 1);
+  return chunkDirectoryOf(resolved);
 }
 
 describe("the sidekicks settings page", () => {
@@ -131,6 +149,17 @@ describe("the sidekicks settings page", () => {
     const eager = eagerlyReachedModules(index);
     expect(eager.has("agents/index.ts")).toBe(true);
     expect(eager.has("agents/definitions/SidekickDefinitionsPage.tsx")).toBe(false);
+  });
+
+  it("negative control: the directory is derived in POSIX and not in the host's separator", () => {
+    // The one arm no host running this tier can reach, driven rather than reasoned about.
+    // `path.win32` mints the spelling a Windows walk hands the tree on any machine, so what
+    // is exercised here is the tree boundary's own normalisation: without it `posix.dirname`
+    // reads a backslash-separated path as having no directory at all, answers ".", and the
+    // prefix filter above admits every module in the console.
+    const windowsSpelling = win32.join("agents", "definitions", "SidekickDefinitionsPage.tsx");
+    expect(windowsSpelling).not.toContain(posix.sep);
+    expect(chunkDirectoryOf(toPosixSeparators(windowsSpelling))).toBe("agents/definitions/");
   });
 
   it("resolves its chunk root to a directory inside the agents family", () => {
