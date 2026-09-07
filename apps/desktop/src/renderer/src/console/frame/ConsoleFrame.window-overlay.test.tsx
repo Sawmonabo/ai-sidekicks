@@ -41,7 +41,7 @@ afterEach(() => {
 /** Open a window at one address on the scenario that scripts arrivals, and settle it. */
 async function windowAt(hash: string): Promise<RenderResult> {
   window.location.hash = hash;
-  const mounted = await mountConsole(undefined, SCENARIO_WITH_ARRIVALS);
+  const mounted = await mountConsole(undefined, undefined, SCENARIO_WITH_ARRIVALS);
   await act(async () => {
     await crossMacrotaskBoundary();
   });

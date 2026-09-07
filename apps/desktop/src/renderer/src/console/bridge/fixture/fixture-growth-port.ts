@@ -14,8 +14,10 @@
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
 // them, `fixture-collaboration-reads.ts` holds the channel and membership answers,
-// `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome, and
-// `fixture-scripted-write.ts` decides what a write with no scripted answer may say.
+// `fixture-onboarding-answers.ts` holds the onboarding plane and the ledger its own
+// mutations move, `fixture-shell-answers.ts` holds the shell plane and the one channel
+// its feed and its three controls share, and `fixture-scripted-answer.ts` maps a
+// scripted settlement onto an outcome — reads and writes both.
 //
 
 import {
@@ -27,9 +29,11 @@ import { readActivityFromScenario } from "./fixture-activity.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../scenarios/browser.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { FixturePendingInvites } from "./fixture-pending-invites.js";
-import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
-import { answerScriptedWrite } from "./fixture-scripted-write.js";
+import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
+import { answerFromScriptedReply, answerScriptedWrite } from "./fixture-scripted-answer.js";
 import { fixtureCollaborationReads } from "./fixture-collaboration-reads.js";
+import { fixtureOnboardingAnswers } from "./fixture-onboarding-answers.js";
+import { fixtureShellAnswers } from "./fixture-shell-answers.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
@@ -42,6 +46,11 @@ import {
 } from "../growth-port/index.js";
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
 import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
+import {
+  PROVIDER_SESSION_IMPORT_BEGIN_CALL,
+  PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
+  PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+} from "../scenarios/bring-your-history.js";
 // The routing key itself, from the scenario module that mints it — the workflow
 // enumeration's rule one file over: restated as a literal here, a rename would move
 // the constant and the reply and leave this handler answering a key nothing sends.
@@ -63,12 +72,18 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   // one open outcome feed — the reasoning is that module's own.
   const pendingInvites = new FixturePendingInvites(engine);
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
-    // workflow — spread from the module that implements them, so the served ids next
-    // door and the handlers here are held to each other by the `Pick` above.
+    // workflow, collaboration, onboarding and shell — spread from the modules that
+    // implement them, so the served ids next door and the handlers there are held to
+    // each other by the `Pick` above. The onboarding and shell planes own the per-caller
+    // state, which is why each is a module and not a block here: the onboarding ledger
+    // and the shell channel are both minted per port inside those calls, so a step
+    // recorded — or a control pressed — in this window reaches no other.
     ...fixtureWorkflowReads(engine),
-    // channels and memberships — spread from their own module for the same reason,
-    // and every one of them script-only: the reasoning for each refusal lives there.
+    // Every channel and membership answer is script-only: the reasoning for each
+    // refusal lives in that module.
     ...fixtureCollaborationReads(engine),
+    ...fixtureOnboardingAnswers(engine),
+    ...fixtureShellAnswers(engine),
     sessionRead: async (request) => ({
       status: "served",
       value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
@@ -107,9 +122,9 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // smuggled through an absent value and re-read by the caller.
       //
       // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
-      // `answerScriptedWrite` below states in full: this fixture serves the
-      // operation, so `wire-unregistered` would be false about the build and would
-      // send a reader to a document owing a wire that already has a stand-in.
+      // `answerScriptedWrite` states in full in `fixture-scripted-answer.ts`: this
+      // fixture serves the operation, so `wire-unregistered` would be false about the
+      // build and would send a reader to a document owing a wire that has a stand-in.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
@@ -284,6 +299,47 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "sidekick.peerInvocationSet",
         "sidekickPeerInvocationSet",
         request,
+      ),
+    // The provider-session import, both halves from the script. The opening call is a
+    // WRITE — there is no "the import that began and produced nothing" — and the
+    // subscription is addressed by the import that call minted, so neither has an
+    // honest empty answer and both refuse under a scenario that scripts no import.
+    providerSessionImportBegin: async (request) =>
+      await answerFromScriptedReply(
+        engine,
+        PROVIDER_SESSION_IMPORT_BEGIN_CALL,
+        "providerSessionImportBegin",
+        request,
+        () =>
+          growthUnscriptedReply("providerSessionImportBegin", PROVIDER_SESSION_IMPORT_BEGIN_CALL),
+      ),
+    //
+    // THE PROGRESS FEED IS PACED HERE, where the stream is opened, and it has to be:
+    // a scenario reaches no clock, so a script that drained its own frames handed the
+    // whole import to one turn — React batched the renders and the fixture painted
+    // only the terminal `complete` frame, leaving the running states and a
+    // mid-import cancellation reachable from nowhere. The values stay the script's;
+    // what this adds is the schedule, taken from the ticks the script declares beside
+    // them and spent on the frozen clock rather than on a timer.
+    providerSessionImportSubscribe: async (request) =>
+      mapGrowthServed(
+        await answerFromScriptedReply(
+          engine,
+          PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+          "providerSessionImportSubscribe",
+          request,
+          () =>
+            growthUnscriptedReply(
+              "providerSessionImportSubscribe",
+              PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+            ),
+        ),
+        (scripted) =>
+          paceGrowthStreamOnScenarioClock(
+            engine,
+            scripted,
+            PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
+          ),
       ),
     // repos — the workspace's own execution context.
     //

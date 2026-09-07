@@ -12,7 +12,12 @@
 //     is and never implies it covers anyone else's direction.
 //   • **Revoke is two-step, and only the confirming click mutates.** Cancelling
 //     returns to idle with zero mutations, which is a property of this component
-//     rather than a promise about it: the mutation call sits on one handler.
+//     rather than a promise about it: the mutation call sits on one handler. The
+//     palette reaches the same act by ENTERING that confirmation — `revoke-commands.ts`
+//     contributes a row per revocable rule, arming the control rather than replacing
+//     it, so there is no second path to a mutation this surface made deliberately
+//     hard. Which rules offer it is that module's `offersRevoke`, read here too, so
+//     the row and the button are offered on one reading rather than two that agree.
 //   • **No per-row "remembered today" chip.** The auto-approval resolves inside the
 //     daemon-internal permission gate before any request exists, so no `approval.*`
 //     event carries the match and no per-row carrier exists. The list shows the
@@ -49,6 +54,7 @@ import {
   rememberedScopeKindPhrase,
 } from "../../../bridge/index.js";
 import { RevokeControl } from "./RevokeControl.js";
+import { offersRevoke, useRevokeCommands } from "./revoke-commands.js";
 
 export interface RememberedGrantsProps {
   readonly rules: readonly RememberedRule[];
@@ -60,6 +66,14 @@ export interface RememberedGrantsProps {
 
 export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Element {
   const [confirmingRuleId, setConfirmingRuleId] = useState<string | undefined>(undefined);
+  // Ahead of the two absence arms below, because a hook may not run behind a branch.
+  // With no readable rule there is nothing revocable and the contribution is empty,
+  // which is the same answer the arms give on screen.
+  useRevokeCommands({
+    rules: props.rules,
+    revokingRuleIds: props.revokingRuleIds,
+    onAskToRevoke: setConfirmingRuleId,
+  });
 
   if (props.rules.length === 0) {
     return props.unreadableCount > 0 ? (
@@ -144,7 +158,11 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
               ) : (
                 <RevokeControl
                   isConfirming={confirmingRuleId === rule.ruleId}
-                  isRevoking={props.revokingRuleIds.has(rule.ruleId)}
+                  // The palette's own reading, read from the same function: inside
+                  // this arm the rule is live, so "not offered" is exactly "a
+                  // revocation is already settling" — which is what the control says
+                  // instead of offering a second press.
+                  isRevoking={!offersRevoke(rule, props.revokingRuleIds)}
                   onAsk={() => {
                     setConfirmingRuleId(rule.ruleId);
                   }}

@@ -90,15 +90,52 @@ describe("absorbed surfaces — the families a console surface mounts", () => {
     // invitation in ONE process, and this is the half of each claim a module can
     // carry: a third mount here is what the frame's slot table used to call, so a
     // mount published again is a retired surface re-entering the console through the
-    // door it left by.
+    // door it left by. The guard's own predicate stands beside the two mounts because
+    // a caller reads it to decide whether there is an act to single-flight at all.
     expect(Object.keys(absorbedSurfaceMounts).toSorted()).toStrictEqual([
+      "absorbedSurfaceAsks",
       "renderAbsorbedNodeRoster",
       "renderAbsorbedSessionProbe",
     ]);
   });
 
-  it("mounts the session probe with no props to give it", () => {
-    expect(renderedElement(renderAbsorbedSessionProbe("live")).type).toBe(SessionBootstrap);
+  it("mounts the session probe, and gives it no callback where the caller has none", () => {
+    const element = renderedElement(renderAbsorbedSessionProbe("live"));
+    expect(element.type).toBe(SessionBootstrap);
+    // The absent arm is the claim: the probe's behaviour with no caller is exactly
+    // what it shipped with, so absorbing it costs the two callers that want nothing
+    // from a settled create nothing at all.
+    expect(element.props["onCreated"]).toBeUndefined();
+  });
+
+  it("hands the probe the callback a settled create is reported to", () => {
+    // The one thing this mount adds to the component it absorbs. The probe is the
+    // only `session.create` caller in this renderer, so a console surface that
+    // mounted it could count presses and could not name the session one produced —
+    // which is why the start path opened no store and navigated nowhere.
+    const settlements: string[] = [];
+    const endings: string[] = [];
+    const element = renderedElement(
+      renderAbsorbedSessionProbe("live", {
+        onCreated: (created) => {
+          settlements.push(created.sessionId);
+        },
+        onSettled: () => {
+          endings.push("settled");
+        },
+      }),
+    );
+
+    expect(element.type).toBe(SessionBootstrap);
+    (element.props["onCreated"] as (created: { sessionId: string }) => void)({
+      sessionId: "session-7",
+    });
+    // The second callback is a different fact and travels separately: a create that
+    // refused names no session and still ends the act, which is what a caller holding
+    // a single-flight slot is waiting to hear.
+    (element.props["onSettled"] as () => void)();
+    expect(settlements).toStrictEqual(["session-7"]);
+    expect(endings).toStrictEqual(["settled"]);
   });
 
   it("hands the node roster the session its caller resolved", () => {

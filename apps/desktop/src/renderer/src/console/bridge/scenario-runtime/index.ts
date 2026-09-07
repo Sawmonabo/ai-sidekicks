@@ -29,6 +29,7 @@ export type {
   ScenarioPendingInviteFrame,
   ScenarioReply,
   ScenarioRuntimeNodeRosterFrame,
+  ScenarioShellStatusFrame,
 } from "./scenario.js";
 
 export { ScenarioEngine } from "./scenario-engine.js";

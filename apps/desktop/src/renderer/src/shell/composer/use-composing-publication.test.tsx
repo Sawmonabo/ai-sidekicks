@@ -25,7 +25,7 @@ import {
 } from "../../console/bridge/fixture/fixture-bridge.test-support.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../console/core/index.js";
 import { DraftStore } from "../../console/persistence/index.js";
-import { SessionStore, type ConsoleEntity } from "../../console/store/index.js";
+import { FrameStore, SessionStore, type ConsoleEntity } from "../../console/store/index.js";
 import type { GrowthPort } from "../../console/bridge/index.js";
 import type { ComposerSeatProps, ConsolePaneAddress } from "../../console/seats/index.js";
 import { composerDraftKey } from "./router/draft-key.js";
@@ -166,11 +166,16 @@ function mountProbe(options: {
   // session: a fresh one per pass would re-seed the partitions the address resolves
   // against and hand the hook a new subject to hold its publisher under.
   const sessionStore = seededSessionStore();
+  // One window store across every render, for the session store's own reason: the
+  // seat's whole-workspace refusal escalates into the frame, and a fresh store per
+  // pass would hand the hook a window that had never been told anything.
+  const frameStore = new FrameStore();
   const probeAt = (focusedPane: ConsolePaneAddress): React.JSX.Element => (
     <ComposingProbe
       sessionStore={sessionStore}
       bridge={bridge}
       draftStore={draftStore}
+      frameStore={frameStore}
       route={{ kind: "workspace", sessionId: SESSION_ID }}
       focusedPane={focusedPane}
     />

@@ -1,0 +1,88 @@
+/* The execution posture, at both of its densities.
+
+   One sheet per primitive, imported once from this family's barrel — the rule
+   `apps/desktop/AGENTS.md` sets. It arrived here with its component from the
+   approvals pane's section sheet, where it could only reach a surface that pane
+   had mounted.
+
+   Every value here is a Meridian token: no colour literal, no font stack, and no
+   spacing number. */
+
+.meridian-posture {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* Configured intent is visibly not a stamped boundary: a dashed edge says the
+   difference before any copy does. */
+.meridian-posture--intent {
+  border-style: dashed;
+}
+
+.meridian-posture__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-posture__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+}
+
+.meridian-posture__fact dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-posture__fact dd {
+  margin: 0;
+}
+
+.meridian-posture__roots,
+.meridian-posture__domains {
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+  list-style: none;
+}
+
+.meridian-posture__caveat {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+/* The row density: a disclosure rather than a block, so a list of runs stays a
+   list. The summary carries the line and the writable-root count; the marker is
+   dropped because the summary already reads as a control. */
+.meridian-posture--row {
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+}
+
+.meridian-posture__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  cursor: pointer;
+}
+
+.meridian-posture__summary::-webkit-details-marker {
+  display: none;
+}
+
+.meridian-posture__summary::marker {
+  content: "";
+}

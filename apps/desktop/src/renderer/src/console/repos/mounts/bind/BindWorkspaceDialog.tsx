@@ -107,7 +107,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
   }, [bind, verdict]);
 
   return (
-    <Dialog.Root onOpenChange={openChanged}>
+    <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
       <Dialog.Trigger className="meridian-bind__trigger">Bind a workspace</Dialog.Trigger>
       {/* The popup shell is the primitive's, which is also what puts this dialog in the
           window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native

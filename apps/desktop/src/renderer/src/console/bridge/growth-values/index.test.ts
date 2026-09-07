@@ -57,7 +57,9 @@ const barrelSource = Object.values(barrelSources)[0] ?? "";
  * are named here, and the retry's attempt handle is a brand the signature table reads
  * to keep it out of the two acts that spend a reference. The three arm types
  * themselves are deliberately absent — no production module names an arm on its own,
- * so a door line for one would be a dead export.
+ * so a door line for one would be a dead export. `GrowthNotificationPermission` is
+ * the third: the shell reading that decides whether the notification centre is the
+ * only surface an attention item reaches a person on.
  */
 const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -100,6 +102,7 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthImportProgress",
   "GrowthInviteSummary",
   "GrowthNavigationState",
+  "GrowthNotificationPermission",
   "GrowthPaneError",
   "GrowthPrPreparationState",
   "GrowthSessionSummary",

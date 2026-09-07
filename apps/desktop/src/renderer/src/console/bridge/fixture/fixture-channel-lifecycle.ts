@@ -52,7 +52,7 @@
 
 import type { ChannelState, SessionEventType } from "@ai-sidekicks/contracts";
 
-import { answerScriptedWrite } from "./fixture-scripted-write.js";
+import { answerScriptedWrite } from "./fixture-scripted-answer.js";
 import { isWireRecord, readWireString } from "../../core/index.js";
 import type {
   GrowthChannelCreateReceipt,

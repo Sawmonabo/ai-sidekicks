@@ -134,15 +134,14 @@ describe("the fixture growth port — what it serves, and what it still refuses"
   });
 
   it("answers, or names the scenario's own gap, for every operation it serves", async () => {
-    // The other side of the same claim. Over the flagship some served operations
-    // answer and some do not — the approvals reads and mutations, the branch-context
-    // read, and every script-only operation refuse, because that scenario scripts none
-    // of them — and what makes each of those a served arm rather than an absent one is
-    // that it refuses with the fixture's `reply-unscripted` and never with
-    // `wire-unregistered`, which would send a reader to a document that owes a wire
-    // this bridge already stands in for. Which operations fall on which side is
-    // deliberately not counted here: the served set grows, and a tally in a comment
-    // goes stale in the one direction nothing reports.
+    // The other side of the same claim, and stated as a CLASS rather than as a count:
+    // over the flagship some served operations answer and the rest — the approvals
+    // ones, the branch-context read, and every script-only entry — refuse, because
+    // that scenario scripts none of them. A tally of which is which would go stale the
+    // next time a lane serves an operation, and nothing would report it. What is
+    // asserted is the property that does not move: a served arm refuses with the
+    // fixture's `reply-unscripted` and never with `wire-unregistered`, which would
+    // send a reader to a document that owes a wire this bridge already stands in for.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 
     for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {

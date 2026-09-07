@@ -53,6 +53,7 @@ import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsolePaneRegistry,
   ConsoleSurfaceRegistry,
+  FrameBindingRegistry,
   InlineCardSeatRegistry,
   PinnedPaneRegionRegistry,
   SidebarSectionRegistry,
@@ -60,10 +61,11 @@ import type {
 import { registerWorkflowSurfaces } from "./workflows/index.js";
 
 /**
- * Register every shipped view family against the six boards a composition owns.
+ * Register every shipped view family against the seven boards a composition owns.
  *
- * ALL SIX ARE PARAMETERS, and each one after the first is this signature's history. The surface registry was passed in from the start so a test could compose
- * into a registry it owns and an auxiliary window could compose a subset; the pane
+ * ALL SEVEN ARE PARAMETERS, and each one after the first is this signature's history.
+ * The surface registry was passed in from the start so a test could compose into a
+ * registry it owns and an auxiliary window could compose a subset; the pane
  * board beside it reached for the module-scope singleton, so a caller composing its
  * own family set still registered panes into the production one. That is inert only
  * while every pane seat is still reserved — the moment the first family registers a
@@ -90,8 +92,18 @@ import { registerWorkflowSurfaces } from "./workflows/index.js";
  * they have not happened yet. Taking them as parameters now is what gives the first
  * family that fills a section or a card something to be handed instead.
  *
- * The pinned-region board is the sixth, and it is the first board a family fills for a
- * pane it does not own. A pane's chrome draws a block between its head and its body,
+ * The frame-binding board is the sixth, and it is the first that is not a place to
+ * hand over a BODY. The four above it are all mounted when something is looking at
+ * them and unmounted when the route moves on, which is right for a body and wrong for
+ * a read the frame renders: the rail's attention count comes from a view family's
+ * read, and while that read was mounted by a destination the count vanished whenever
+ * a person navigated away — a suppressed badge on a perfectly reachable machine,
+ * which is the one thing the design's degraded rule exists to distinguish. A binding
+ * is mounted once, around the frame's own subtree, for as long as the window holds a
+ * bridge, and `seats/frame-bindings.ts` says the rest.
+ *
+ * The pinned-region board is the seventh, and it is the first board a family fills for
+ * a pane it does not own. A pane's chrome draws a block between its head and its body,
  * and the first thing pinned there is channel-scoped workflow progress on a
  * channel-scoped `timeline` pane — one family's fold above another family's pane,
  * which a sibling import cannot express and a prop on the chrome would have made every
@@ -101,7 +113,7 @@ import { registerWorkflowSurfaces } from "./workflows/index.js";
  *
  * Required rather than defaulted to the singletons, because a default is the same
  * hard-coding one parameter along: a caller that forgets it still writes into
- * production. Naming all six at the one composition site is what makes a composition
+ * production. Naming all seven at the one composition site is what makes a composition
  * legible as a whole.
  */
 export function registerConsoleFamilies(
@@ -110,6 +122,7 @@ export function registerConsoleFamilies(
   projectors: ConsoleEntityProjectorRegistry,
   sidebarSections: SidebarSectionRegistry,
   inlineCardSeats: InlineCardSeatRegistry,
+  frameBindings: FrameBindingRegistry,
   pinnedRegions: PinnedPaneRegionRegistry,
 ): void {
   // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Three of them are
@@ -150,10 +163,10 @@ export function registerConsoleFamilies(
   // The seat line itself stays in its reserved shape, which is the shape it would
   // take either way — a seat is a seat filled or not, and the board counts it. Said
   // HERE rather than beside that line, because the census below admits seats only.
-  // Each seat below receives the boards it writes into, out of the six this
+  // Each seat below receives the boards it writes into, out of the seven this
   // composition was handed. A family claims a surface slot, a pane kind, the event
-  // kinds whose fold it owns, a sidebar section, an inline-card body, and the region
-  // one pane kind pins above its body — through
+  // kinds whose fold it owns, a sidebar section, an inline-card body, a frame-lifetime
+  // binding, and the region one pane kind pins above its body — through
   // its own `register<Family>` entry point, never by editing a shared spine and
   // never through a board's module-scope registrar, which writes into production
   // whatever the caller composed into.
@@ -171,7 +184,7 @@ export function registerConsoleFamilies(
   // reads the block as a census and refuses anything that is not a seat.
   // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
-  registerCollaborationFamily(surfaces, sidebarSections, projectors); // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections, projectors, frameBindings); // T-023p-1C-4 collaboration
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
   registerWorkflowSurfaces(surfaces, pinnedRegions); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

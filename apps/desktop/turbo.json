@@ -105,6 +105,11 @@
         "src/main/**",
         "src/shared/**",
         "build/**",
+        // Named file by file rather than as `scripts/**`, on the `test:smoke`
+        // precedent: the budget harnesses under `scripts/budget/` are not this
+        // project's inputs and a tree glob would pull them in.
+        "scripts/test-changed.ts",
+        "scripts/test-changed.test.ts",
         "test/helpers/**",
         "vitest.config.*",
         "tsconfig*.json",
@@ -237,6 +242,7 @@
         "src/main/**",
         "test/console/e2e/**",
         "test/console/electron-harness.ts",
+        "test/console/palette-interaction.ts",
         "vitest.config.*",
         "out/**"
       ],
@@ -254,6 +260,7 @@
         "src/main/**",
         "test/console/endurance/**",
         "test/console/electron-harness.ts",
+        "test/console/palette-interaction.ts",
         "vitest.config.*",
         "out/**"
       ],

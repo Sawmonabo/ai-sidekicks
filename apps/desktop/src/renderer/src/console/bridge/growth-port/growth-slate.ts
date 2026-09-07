@@ -421,6 +421,31 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "invite confirmation (the deep-link surface)",
     wireRegistered: false,
   },
+  "notification-permission-read": {
+    id: "notification-permission-read",
+    wire: "the shell's own reading of whether this machine will display an OS notification for this application. `native.showNotification` is on the preload contract and returns void, so the renderer cannot observe a denial through it, and no bridge member reports the permission",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects)",
+    consumingSurface: "notification centre (the OS-notifications-denied arm)",
+    wireRegistered: false,
+  },
+  "shell-status-signals": {
+    id: "shell-status-signals",
+    wire: "the shell's own status as one feed — the daemon supervisor's step and its attempt count out of five, the daemon.hello negotiation ack (compatible, protocolVersion, reason, daemonSupportedProtocols), the loopback-fallback signal, and the keystore-unavailable signal. Every one of them is a main-process fact and none of them is a daemon call: the renderer is not a direct daemon client, the ack belongs to the connection the main process holds, and a second handshake from here would be refused as one already completed",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (no namespace carries any of it); Spec-023 §Daemon Supervision Lifecycle (the six steps and the five-attempt ladder), §Fallback Behavior (the loopback fallback and the offline read-only mode), §Native Keystore (the memory-only degradation); Spec-007 (the DaemonHelloAck shape, which packages/contracts publishes and no bridge namespace serves)",
+    consumingSurface:
+      "frame shell-state chrome — the daemon chip, the version banner, the reconnect and read-only banners, and the loopback/keystore notice strip",
+    wireRegistered: false,
+  },
+  "onboarding-desktop-surface": {
+    id: "onboarding-desktop-surface",
+    wire: "`onboarding.presentChoice` and `onboarding.telemetryPrompt`, the two preload-bridge methods `Spec-026 §Desktop Surface` names — the main-process hosts for the relay choice's secret entry and the telemetry answer",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (which admits `onboarding` by name); Spec-026 §Desktop Surface",
+    consumingSurface: "first-run onboarding (group A)",
+    wireRegistered: false,
+  },
 };
 
 /**

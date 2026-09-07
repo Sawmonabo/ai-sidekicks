@@ -29,7 +29,7 @@ import { render, screen } from "@testing-library/react";
 import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
-import { SessionBootstrap } from "../SessionBootstrap.js";
+import { SessionBootstrap, type SessionBootstrapProps } from "../SessionBootstrap.js";
 
 // Type-augmentation echo: the renderer-wide `sidekicks-bridge.d.ts` declares
 // `window.sidekicks` in a `declare global` block. This test file is
@@ -148,5 +148,80 @@ describe("SessionBootstrap", () => {
     expect(errorBanner).toBeDefined();
     expect(errorBanner.textContent).toContain("NotImplementedAtTier1Error");
     expect(errorBanner.textContent).toContain("session.create");
+  });
+
+  // The additive `onCreated` seam. This component is the only `session.create` caller
+  // in the renderer, so until it handed its settlement out the session a start press
+  // produced had a name nothing else could learn — and the console surface that
+  // absorbs this component could open no store and navigate nowhere.
+  describe("onCreated", () => {
+    /** Render with a props object the case owns, so the absent arm is a real render. */
+    function renderProbe(props: SessionBootstrapProps): void {
+      render(<SessionBootstrap {...props} />);
+    }
+
+    it("reports the session once, when session.create settles with one", async () => {
+      const knownSessionId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      const daemonCall = vi.fn().mockResolvedValue({
+        sessionId: knownSessionId,
+        state: "active",
+        memberships: [],
+        channels: [],
+      });
+      installMockBridge(daemonCall);
+      const created: string[] = [];
+
+      renderProbe({
+        onCreated: (settlement) => {
+          created.push(settlement.sessionId);
+        },
+      });
+
+      // The rendered id is the settlement this component accepted, so awaiting it is
+      // what makes the callback assertion below a claim about the same moment.
+      await screen.findByText(`session id: ${knownSessionId}`);
+      expect(created).toStrictEqual([knownSessionId]);
+    });
+
+    it("reports nothing when the create rejects", async () => {
+      // A create that refused produced no session, and a callback carrying an empty
+      // id would be a name for something that does not exist. The console surface
+      // above reads this arm as "navigate nowhere".
+      const daemonCall = vi
+        .fn()
+        .mockRejectedValue(new NotImplementedAtTier1Error("session.create"));
+      installMockBridge(daemonCall);
+      const created: string[] = [];
+
+      renderProbe({
+        onCreated: (settlement) => {
+          created.push(settlement.sessionId);
+        },
+      });
+
+      await screen.findByRole("alert");
+      expect(created).toStrictEqual([]);
+    });
+
+    it("renders exactly as it always did when no caller supplies one", async () => {
+      // The negative control for the seam being ADDITIVE. The four cases above this
+      // block already render without the prop; this one renders WITH the props object
+      // present and the member absent, which is the shape the absorbed mount produces
+      // for a caller that wants nothing from a settled create.
+      const knownSessionId = "ffffffff-1111-2222-3333-444444444444";
+      const daemonCall = vi.fn().mockResolvedValue({
+        sessionId: knownSessionId,
+        state: "active",
+        memberships: [],
+        channels: [],
+      });
+      installMockBridge(daemonCall);
+
+      renderProbe({ onCreated: undefined });
+
+      expect(await screen.findByText(`session id: ${knownSessionId}`)).toBeDefined();
+      expect(daemonCall).toHaveBeenCalledTimes(1);
+      expect(daemonCall).toHaveBeenCalledWith("session.create", {});
+    });
   });
 });

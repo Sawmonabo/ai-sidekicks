@@ -19,7 +19,11 @@
 import { useCallback, useMemo } from "react";
 import type { MembershipRole } from "@ai-sidekicks/contracts";
 
-import { type ConsoleBridge, membershipRoleOf } from "../../../bridge/index.js";
+import {
+  membershipRoleOf,
+  type ConsoleBridge,
+  type SessionGoalProjection,
+} from "../../../bridge/index.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
 import {
   useCallerMembershipRole,
@@ -84,6 +88,29 @@ export function useGoalMutationAuthorization(
   // narrowing read — the store names no wire member, so the reader is injected.
   const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
   return useMemo(() => authorizationFor(callerRole), [callerRole]);
+}
+
+/**
+ * Whether the clear control is offered: one predicate, the card and the palette row.
+ *
+ * The card's clear button and the palette's clear row are the same act, and each
+ * used to spell the rule out for itself — `goal.status === "set" && canMutate &&
+ * !isMutating` in the row builder, `disabled={isMutating || goal.status !== "set"}`
+ * inside an editor that opens only on `canMutate === true`. Same answer today and
+ * two expressions of it, which is the shape that drifts silently: whichever half is
+ * edited next leaves the other offering an act the surface beside it has withdrawn.
+ *
+ * `canMutate` is taken as the resolved boolean rather than the three-armed reading,
+ * because the fail-closed collapse belongs at the one place that resolves it: an
+ * unread role and a refused one are different sentences on screen and the same
+ * answer here.
+ */
+export function canClearSessionGoal(
+  goal: SessionGoalProjection,
+  canMutate: boolean,
+  isMutating: boolean,
+): boolean {
+  return goal.status === "set" && canMutate && !isMutating;
 }
 
 /**

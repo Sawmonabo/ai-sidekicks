@@ -92,6 +92,7 @@ export {
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
   readChannelId,
+  readProviderAccountId,
   readQueueItemId,
   readRunId,
   readRunState,
@@ -162,6 +163,7 @@ export type { DriverCapabilityReadout } from "./driver-capabilities/driver-capab
 // and the questions asked of its answer are two subjects, and a door line pointing at
 // whichever file used to hold both would say otherwise.
 export {
+  readingAcrossRuns,
   readingForDriver,
   readingForRun,
   withRunDriverBindings,
@@ -275,6 +277,11 @@ export type { GrowthPort } from "./growth-port/growth-port.js";
 // leaves through `growth-port/growth-entry.js`, the module that declares it.
 export type { GrowthOperationId } from "./growth-port/growth-entry.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+// What a provider-session import reports as it runs. Published because the import
+// panel drains the progress subscription and renders the producer's own turn count
+// and state verbatim; a shape read only inside the fixture would leave the surface
+// narrowing an `unknown` it has no schema for.
+export type { GrowthImportProgress } from "./growth-values/sessions.js";
 // The attention projection's own vocabulary. Published because the notification
 // plane NARROWS against it: it used to declare a second copy of these six triggers
 // and two severities, which is two closed sets that agree until one of them is
@@ -542,3 +549,34 @@ export type {
 // leaves through this door because its one production reader is the composer, which
 // sits outside the console entirely and reaches every console family through a door.
 export { ComposingPublisher } from "./presence/composing-publisher.js";
+
+// The WebAuthn ceremony seam. Through the door because the sign-in family is the
+// reader and this family is where the seam has to live: the fixture WRITES an
+// outcome and the sign-in family READS one, so the union sits below both — the
+// "two sides of one seam share a module" rule, applied across a bridge. The
+// encoder is deliberately absent: a renderer that could compose an `authenticated`
+// arm could assert an identity nothing established, so the writer is published to
+// the fixture through that directory's own door and to nobody else.
+//
+// THE THREE VALUE TUPLES ARE DELIBERATELY NOT HERE. They are the reader's own
+// vocabulary, narrowed against inside the declaring module and driven by its suite
+// from there; the sign-in family reads the TYPES, whose totality is what makes its
+// copy tables complete. Publishing the tuples would put three names on this door
+// whose only reader is a test.
+export {
+  readCeremonyOutcome,
+  type DeviceGrantHandoff,
+  type ParticipantIdentityClaims,
+  type WebAuthnCeremonyOutcome,
+  type WebAuthnCustody,
+  type WebAuthnProbeResult,
+  type WebAuthnRefusalReason,
+} from "./web-authn/ceremony-outcome.js";
+
+// The session goal: the fold that says what it is, and the two operations that change
+// it. Through this door because two VIEW families read it — the approvals pane's card
+// and the workspace sidebar's one-line reading — and those two may not import one
+// another; the module's own header says why this is the lowest family that owns its
+// inputs.
+export type { SessionGoalProjection } from "./session-goal.js";
+export { clearSessionGoal, foldSessionGoal, updateSessionGoal } from "./session-goal.js";

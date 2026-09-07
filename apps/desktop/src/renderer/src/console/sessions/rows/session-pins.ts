@@ -22,6 +22,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { UiStateStore } from "../../persistence/index.js";
 import {
+  DurableViewBindingHolder,
   noDurableViewSubscription,
   useDurableViewBinding,
 } from "../durable-view/durable-view-binding.js";
@@ -139,6 +140,48 @@ function mintSessionPinStore(store: UiStateStore): SessionPinStore {
 }
 
 /**
+ * This window's pin map, held for as long as the window is open.
+ *
+ * ONE HOLDER PER WINDOW AND NOT ONE PER MOUNT, on the precedent
+ * `settings/shared/shell-preferences/shell-preferences-holder.ts` states in its own
+ * words: module scope IS window scope here, since an auxiliary window is its own
+ * renderer process and no channel joins two windows' module graphs. Minted inside the
+ * hook instead, a second visit to the sessions destination built a second store over
+ * the one database — two writers of one record, each spreading its own in-memory copy
+ * of it over the other's writes.
+ *
+ * A `const` holding an encapsulated object rather than a module-level `let` or `Map`,
+ * which `apps/desktop/AGENTS.md` §State and views rejects: the supersession rule is an
+ * invariant over two fields moving together and is only checkable with one owner.
+ */
+const consoleSessionPins = new DurableViewBindingHolder(mintSessionPinStore);
+
+/** The tier a pinned session sits on, named where the durable write is composed. */
+const PINNED_SESSION_TIER: SessionPinTier = "front";
+
+/**
+ * Put one session on the front tier through the binding this window is holding NOW.
+ *
+ * FOR A CALLER THAT IS NOT RENDERING — the auto-pin authority a settled start stamps,
+ * which is consulted on a first send that usually happens after this destination has
+ * unmounted and after a person may have rearranged the list by hand. It resolves the
+ * held binding rather than acquiring against a store it captured, because the store a
+ * caller saw when it was composed may be one this window has since closed, and
+ * acquiring against that identity would supersede the live binding with a successor
+ * over a dead database.
+ *
+ * A window holding no pin binding writes nothing, which is the honest answer rather
+ * than a swallow: no binding means this window has no durable store to put a pin in.
+ * It is unreachable from the one caller there is — a session can only have been
+ * started from the destination that acquires this binding on mount.
+ */
+export function pinSessionToFrontTier(sessionId: string): void {
+  // Not awaited, and the rejection cannot escape, for `setTierThrough`'s reason: the
+  // store declares its failure as a recorded refusal rather than as a rejection.
+  void consoleSessionPins.heldBinding?.setTier(sessionId, PINNED_SESSION_TIER);
+}
+
+/**
  * The pin act, bound to whatever store the acquirer is holding when it is pressed.
  *
  * Module-level and taking the acquirer rather than written inline in the hook, so the
@@ -160,19 +203,20 @@ function setTierThrough(
 /**
  * Bind the pin map into a component.
  *
- * KEYED ON THE STORE'S IDENTITY, through the one holder both durable bindings on
- * this destination share. It was built by a `useState` initializer instead — which
- * runs once per mounted component and is never recomputed — so when
- * `frame/ui-state-lifecycle.ts` replaced this window's store after a bridge or
- * scenario change, the pins stayed attached to the closed one: the previous
- * scenario's map stayed on screen, every later write went to a database nothing
- * reads, and the replacement was never hydrated.
+ * KEYED ON THE STORE'S IDENTITY, through this window's one pin holder. It was built
+ * by a `useState` initializer instead — which runs once per mounted component and is
+ * never recomputed — so when `frame/ui-state-lifecycle.ts` replaced this window's
+ * store after a bridge or scenario change, the pins stayed attached to the closed
+ * one: the previous scenario's map stayed on screen, every later write went to a
+ * database nothing reads, and the replacement was never hydrated. The HOLDER's own
+ * lifetime was the mount's for the same reason and cost the mirror image of it — a
+ * second visit to this destination minted a rival store over the live database.
  *
  * The hydrate rides the holder's own effect, so a render pass React discards still
  * performs no durable read.
  */
 export function useSessionPins(store: UiStateStore): SessionPinBinding {
-  const { binding, acquire } = useDurableViewBinding(store, mintSessionPinStore);
+  const { binding, acquire } = useDurableViewBinding(consoleSessionPins, store);
   const subscribe = useCallback(
     (onStoreChange: () => void) => binding?.subscribe(onStoreChange) ?? noDurableViewSubscription,
     [binding],

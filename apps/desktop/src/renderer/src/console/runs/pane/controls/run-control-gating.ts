@@ -53,9 +53,10 @@
 // only whether a person is shown a button for a capability the driver does not
 // have at all.
 
-import { type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import { type DriverCapabilityFlag, type RunState } from "@ai-sidekicks/contracts";
 
 import { readingForRun, type DriverCapabilityReadout } from "../../../bridge/index.js";
+import { isLiveRunState } from "../run-status.js";
 import { type RunControl } from "./run-control-dispatch.js";
 
 /**
@@ -95,3 +96,58 @@ export function isControlOffered(
   }
   return readingForRun(readout, runId, gate) === "declared";
 }
+
+/**
+ * What a row OFFERS for one run, split the way the row draws it.
+ *
+ * Two lists rather than one, because the row's two halves are two different
+ * density rules: `primary` is always visible on the run, `overflow` is the
+ * one-click-away set. A caller that only wants "every control this run offers"
+ * concatenates them, which is what the palette contribution does.
+ */
+export interface OfferedRunControls {
+  /** Always visible on the row: the pause/resume verb the state admits, and stop. */
+  readonly primary: readonly RunControl[];
+  /** One click away, and capability-gated: steer, cancel, rewind. */
+  readonly overflow: readonly RunControl[];
+}
+
+/**
+ * The controls a run's row offers, as the row itself decides it.
+ *
+ * ONE READING, TWO READERS, and that is the reason this exists rather than the
+ * row keeping the rule to itself. `RunControls.tsx` draws these and the palette
+ * contributes exactly the same set, so "every action is palette-reachable under
+ * the same when-grammar as the run controls" is a property of one function rather
+ * than a claim two files have to keep agreeing about. A second copy is how the
+ * palette ends up offering Rewind on a driver that declared none.
+ *
+ * `pause` and `resume` are mutually exclusive on the state and never both: the
+ * row draws pause as `StepIn`, which sends `run.pause` and then takes the floor,
+ * so a bare pause beside it would be two buttons for one call.
+ */
+export function offeredRunControls(
+  run: { readonly runId: string; readonly state: RunState },
+  readout: DriverCapabilityReadout | undefined,
+): OfferedRunControls {
+  const live = isLiveRunState(run.state);
+  const primary: RunControl[] = [];
+  if (live) {
+    primary.push(run.state === "paused" ? "resume" : "pause");
+    primary.push("interrupt");
+  }
+  return {
+    primary,
+    // Not gated on liveness, matching the row: a completed run can still be
+    // rewound, and cancel is refused by the daemon rather than hidden here.
+    overflow: OVERFLOW_CONTROLS.filter((control) => isControlOffered(control, readout, run.runId)),
+  };
+}
+
+/**
+ * The one-click-away half, in the design's own order.
+ *
+ * `pause`, `resume`, and `interrupt` are the always-visible half and are not on
+ * this list; `pause` reaches the row through `StepIn`, which sends it.
+ */
+const OVERFLOW_CONTROLS: readonly RunControl[] = ["steer", "cancel", "rollback"];

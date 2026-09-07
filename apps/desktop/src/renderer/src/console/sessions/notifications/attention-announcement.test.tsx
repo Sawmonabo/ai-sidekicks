@@ -50,6 +50,7 @@ function answered(options: {
       sessionId,
       refusal: growthUnavailable("attentionProjectionRead"),
     })),
+    addressedSessionIds: options.refusedSessionIds ?? [],
   };
 }
 

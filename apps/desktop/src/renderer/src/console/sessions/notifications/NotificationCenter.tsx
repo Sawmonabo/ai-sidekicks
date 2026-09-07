@@ -38,6 +38,7 @@
 
 import type { AttentionItem } from "../../bridge/index.js";
 import { type AttentionReading } from "./attention-plane.js";
+import { type OsNotificationDelivery } from "./os-notification-delivery.js";
 import { ProjectionBody } from "./ProjectionBody.js";
 
 export interface NotificationCenterProps {
@@ -57,6 +58,14 @@ export interface NotificationCenterProps {
    * performs one can offer a way back into it.
    */
   readonly onReopen?: () => void;
+  /**
+   * Whether an OS notification would reach a person on this machine.
+   *
+   * Optional for {@link NotificationCenterProps.onOpen}'s reason — the centre is
+   * mounted in harnesses that perform no read — and an absent one is treated exactly
+   * as an unread one: the centre says nothing about a fact nobody established.
+   */
+  readonly delivery?: OsNotificationDelivery;
 }
 
 export function NotificationCenter(props: NotificationCenterProps): React.JSX.Element {
@@ -67,6 +76,12 @@ export function NotificationCenter(props: NotificationCenterProps): React.JSX.El
         <p className="meridian-attention__mute">
           Muting is a single global setting, and it never hides work that is blocking.
         </p>
+        {props.delivery?.status === "withheld" ? (
+          <p className="meridian-attention__only-surface">
+            This machine will not show notifications for this application, so nothing below leaves
+            this window. This panel is the only place these items reach you.
+          </p>
+        ) : null}
       </header>
       <ProjectionBody reading={props.reading} onOpen={props.onOpen} onReopen={props.onReopen} />
     </section>

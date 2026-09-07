@@ -82,6 +82,8 @@ import {
   PresenceReadResponseSchema,
   ProviderAccountListRequestSchema,
   ProviderAccountListResponseSchema,
+  ProviderAccountProbeRequestSchema,
+  ProviderAccountProbeResponseSchema,
   QueueItemCancelRequestSchema,
   QueueItemCancelResponseSchema,
   QueueItemCreateRequestSchema,
@@ -97,6 +99,8 @@ import {
   RunResumeRequestSchema,
   SessionCreateRequestSchema,
   SessionCreateResponseSchema,
+  SessionJoinRequestSchema,
+  SessionJoinResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadRequestSchema,
   WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceBindRequestSchema,
@@ -238,6 +242,7 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
     WorktreeStatusReadResponseSchema,
   ),
   "session.create": bindDaemonMethod(SessionCreateRequestSchema, SessionCreateResponseSchema),
+  "session.join": bindDaemonMethod(SessionJoinRequestSchema, SessionJoinResponseSchema),
   "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema),
   "membership.update": bindDaemonMethod(MembershipUpdateSchema, MembershipUpdateResponseSchema),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
@@ -246,6 +251,10 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
     ProviderAccountListResponseSchema,
+  ),
+  "providerAccount.probe": bindDaemonMethod(
+    ProviderAccountProbeRequestSchema,
+    ProviderAccountProbeResponseSchema,
   ),
 });
 
@@ -275,14 +284,16 @@ export const CONSOLE_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.fre
  * call starts, changes, or stops a run, or the queue of turns that becomes one. Pause
  * and resume move a run between states; the four intervention arms reach a running
  * one; the interrupt and the compaction are run-addressed on the driver plane and
- * both change the run they name. `false` is everything else, and two of them are
+ * both change the run they name. `false` is everything else, and several of them are
  * worth stating because they are mutations all the same: `repo.executionModeSelect`
- * records a WORKSPACE's execution mode and names no run, and `session.create`,
- * `membership.update`, `invite.create` and `invite.revoke` change the session's own
- * roster; the repo attach, bind, prepare, retire, and dispose acts change mounts,
- * workspaces, and execution roots the same way. A mutation is not automatically a run
- * change, and reading it as one would put every family that also reads under a claim
- * written about run controls.
+ * records a WORKSPACE's execution mode and names no run; `session.create`,
+ * `session.join`, `membership.update`, `invite.create` and `invite.revoke` change the
+ * session's own roster; the repo attach, bind, prepare, retire, and dispose acts
+ * change mounts, workspaces, and execution roots the same way; and
+ * `providerAccount.probe` re-checks an account's readiness, which no run reads until
+ * its next admission. A mutation is not automatically a run change, and reading it as
+ * one would put every family that also reads under a claim written about run
+ * controls.
  *
  * THIS IS NOT THE DOOR'S READ-VERSUS-MUTATION RULE, and it must not become one.
  * `DaemonCallOptions` in `daemon-reply.ts` keeps that distinction at the call site on
@@ -316,12 +327,14 @@ const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } =
   "repo.ephemeralCloneDispose": false,
   "repo.worktreeRetire": false,
   "session.create": false,
+  "session.join": false,
   "channel.list": false,
   "membership.update": false,
   "presence.read": false,
   "invite.create": false,
   "invite.revoke": false,
   "providerAccount.list": false,
+  "providerAccount.probe": false,
 });
 
 /**
