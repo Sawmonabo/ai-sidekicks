@@ -72,6 +72,7 @@ import {
   requireCapturedElement,
   screenshotUpdateMode,
   skipOffBaselineHost,
+  UNCOMMITTED_REFERENCE_NAME,
   warnOnceOffBaselineHost,
 } from "./baseline-host.js";
 import { captureSettled } from "./settled-capture.js";
@@ -82,15 +83,6 @@ import {
 } from "../../../src/renderer/src/console/frame/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-
-/**
- * A reference name nothing commits, reserved for the missing-reference probe.
- *
- * Deliberately not a plausible component name: the probe's whole premise is that
- * no image exists under it, and a name a family might later use for a real
- * baseline would turn the probe into a test that silently stopped probing.
- */
-const UNCOMMITTED_REFERENCE_NAME = "no-reference-is-committed-under-this-name";
 
 /** What the console's outermost mounted element is, and what this file captures. */
 const FRAME_SELECTOR = ".meridian-frame";

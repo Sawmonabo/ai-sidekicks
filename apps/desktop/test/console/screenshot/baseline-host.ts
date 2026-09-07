@@ -136,6 +136,20 @@ export class BaselineComparisonGuard {
 export const screenshotUpdateMode: string = server.config.snapshotOptions.updateSnapshot;
 
 /**
+ * A reference name nothing commits, reserved for the tier's probes.
+ *
+ * Deliberately not a plausible component name: a probe of this kind rests on no image
+ * existing under it, and a name a family might later use for a real baseline would turn
+ * one into a test that silently stopped probing. Beside `screenshotUpdateMode` because
+ * the two are one gesture — a probe that captures under this name is only meaningful
+ * while the run is refusing to mint references, and both probes read both.
+ *
+ * References are keyed by test FILE, so two probes in two files share the name without
+ * sharing a path, and each fails on its own missing image.
+ */
+export const UNCOMMITTED_REFERENCE_NAME = "no-reference-is-committed-under-this-name";
+
+/**
  * This file's guard, built from what the host declared about itself.
  *
  * Off `server.config.env` rather than `process.env`, which does not exist in the page:

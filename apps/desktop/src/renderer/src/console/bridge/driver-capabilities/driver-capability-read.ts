@@ -76,6 +76,7 @@ import {
   RefreshScheduler,
   useSessionReadTriggers,
   useWindowReadTriggers,
+  type ReadRound,
   type ReadTriggerTarget,
   type RefreshReason,
   type SessionStore,
@@ -158,8 +159,8 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
       // otherwise, resolved once per bridge — §The fixture bridge makes the frozen
       // clock the only clock the renderer reads in fixture mode.
       clock: consoleClockFor(bridge),
-      perform: async () => {
-        await this.#read();
+      perform: async (_reasons, round) => {
+        await this.#read(round);
       },
       // A read that fails is already recorded as the readout's own refusal, so
       // re-throwing here would surface the same fact a second time as an unhandled
@@ -192,15 +193,32 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
     };
   }
 
-  async #read(): Promise<void> {
+  /**
+   * Take the node's declarations, on the round the scheduler opened for this read.
+   *
+   * BOTH HALVES OF THE ROUND ARE USED AND THEY ANSWER DIFFERENT QUESTIONS. The signal
+   * goes to the call door, where it stops an abandoned read before its reply is
+   * parsed; `settle` guards what reaches the readout, so a round this line has already
+   * replaced installs nothing and wakes no watcher. Publishing an abandoned read's
+   * refusal would be the worse failure of the two — every surface holding this reading
+   * would render "nothing is waiting for it" as though the node had refused.
+   */
+  async #read(round: ReadRound): Promise<void> {
     // One branch, because the door has already collapsed the three ways a read can
     // fail into one: a request the registry would not admit, a rejection carrying the
     // daemon's own code, and a reply the registered shape does not accept all arrive
     // as a refusal with its code intact. A refused read declares NOTHING — the flags
     // stay absent, which is the fail-closed direction — and carries why.
-    const reply = await callDaemon(this.#bridge, "driver.listCapabilities", {});
+    const reply = await callDaemon(
+      this.#bridge,
+      "driver.listCapabilities",
+      {},
+      { signal: round.signal },
+    );
     if (reply.status === "refused") {
-      this.#settle(refusedReadout(reply.refusal));
+      round.settle(() => {
+        this.#settle(refusedReadout(reply.refusal));
+      });
       return;
     }
     const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
@@ -209,10 +227,12 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
     }
     // A reply naming no driver settles with no entries and no refusal: nothing
     // failed, and this node declares nothing.
-    this.#settle({
-      flagsByDriverName,
-      driverNameByRunId: NO_RUN_BINDINGS,
-      readRefusal: undefined,
+    round.settle(() => {
+      this.#settle({
+        flagsByDriverName,
+        driverNameByRunId: NO_RUN_BINDINGS,
+        readRefusal: undefined,
+      });
     });
   }
 
