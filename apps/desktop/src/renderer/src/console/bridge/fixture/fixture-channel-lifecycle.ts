@@ -53,7 +53,7 @@
 // which reported one member for every channel anybody creates and zero for a scenario
 // that declares no viewer, neither of which is a fact about a channel.
 
-import { answerScriptedWrite } from "./fixture-scripted-answer.js";
+import { answerScriptOnly } from "./fixture-scripted-answer.js";
 import { fixtureSessionMembershipCount } from "./fixture-session-snapshot.js";
 import type {
   GrowthChannelCreateReceipt,
@@ -144,7 +144,7 @@ export class FixtureChannelLifecycle {
   public async createChannel(
     request: GrowthOperationSignatures["channelCreate"]["request"],
   ): Promise<GrowthOutcome<GrowthChannelCreateReceipt>> {
-    const outcome = await answerScriptedWrite(
+    const outcome = await answerScriptOnly(
       this.#engine,
       CHANNEL_CREATE_CALL,
       "channelCreate",
@@ -197,7 +197,7 @@ export class FixtureChannelLifecycle {
     request: unknown,
   ): Promise<GrowthOutcome<GrowthChannelLifecycleReceipt>> {
     const move = CHANNEL_LIFECYCLE_MOVES[moveId];
-    const outcome = await answerScriptedWrite(this.#engine, move.call, moveId, request);
+    const outcome = await answerScriptOnly(this.#engine, move.call, moveId, request);
     if (outcome.status === "served") {
       // The payload carries the session and the channel the envelope is about and
       // invents nothing else, because the census registers no payload variant for

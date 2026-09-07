@@ -346,6 +346,12 @@ function rosterRow(
  * contract's own named example of a valid row: the two axes have different owners,
  * nothing on the wire reconciles them, and a client that collapsed them into one
  * scalar would have to pick which of two true readings to report.
+ *
+ * `controlHolder` moves with the story rather than sitting still. Nobody holds the
+ * shared shell while the session is empty; the laptop's owner takes it once all
+ * three machines are up; and at 640 the read advertises no holder again — which is
+ * exactly the reading a client cannot decompose, since a released lease and one
+ * suppressed behind a departed producer both arrive as `null`.
  */
 export function collaborationRuntimeNodeRoster(
   script: CollaborationRuntimeNodeScript,
@@ -358,9 +364,10 @@ export function collaborationRuntimeNodeRoster(
     return [];
   }
   return [
-    { atMs: 0, nodes: [] },
+    { atMs: 0, nodes: [], controlHolder: null },
     {
       atMs: 580,
+      controlHolder: laptop.participantId,
       nodes: [
         rosterRow(laptop, { state: "online", healthState: "online", lastHeartbeatAtMs: 570 }),
         rosterRow(desktop, { state: "online", healthState: "online", lastHeartbeatAtMs: 575 }),
@@ -375,6 +382,7 @@ export function collaborationRuntimeNodeRoster(
     },
     {
       atMs: 640,
+      controlHolder: null,
       nodes: [
         rosterRow(laptop, { state: "online", healthState: "online", lastHeartbeatAtMs: 630 }),
         rosterRow(desktop, { state: "online", healthState: "online", lastHeartbeatAtMs: 635 }),

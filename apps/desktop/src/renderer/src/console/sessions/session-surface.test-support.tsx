@@ -9,7 +9,7 @@
 
 import { act, render } from "@testing-library/react";
 
-import { ManualClock } from "../core/index.js";
+import { ManualClock, NO_TRANSPORT_RECONNECT } from "../core/index.js";
 import {
   PAST_REFRESH_DEBOUNCE_MS,
   settle as settleReactWork,
@@ -265,6 +265,10 @@ export function contextWith(options: {
       // destination's projection by naming what each session's read answers, never by
       // playing a beat, so a bridge that signalled here would re-read on nothing.
       attentionSubscribe: () => () => undefined,
+      // The transport's reconnect signal, silent for the same reason and taken rather
+      // than left off: this stub is cast, so a window trigger reading a member that is
+      // not here fails at the mount instead of at the compiler.
+      transportReconnect: NO_TRANSPORT_RECONNECT,
     },
     frameStore: {
       navigate: (route: unknown) => {

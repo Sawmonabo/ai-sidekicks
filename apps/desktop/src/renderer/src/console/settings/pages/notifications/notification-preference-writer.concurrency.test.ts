@@ -1,11 +1,18 @@
-// Two records toggled at once, and the whole-set re-read that must not go backwards.
+// Two records toggled at once, and the two loops that have to finish independently.
 //
 // `notification-preference-writer.test.ts` next door holds one record's serialisation
 // — one write at a time, the queued flip composed against what the daemon stored.
-// This file holds the other job, which only two records can show: each record's loop
-// re-reads the WHOLE set, so two loops overlap and their replies can land in the
-// order they were not taken in. That is a different failure with a different harness,
-// which is why it is a different file.
+// This file holds the other job, which only two records can show: writes are
+// serialised per RECORD, so toggling two runs two loops at once, each taking its own
+// whole-set re-read, and each has to unlock its own record whatever the other one did.
+// That is a different failure with a different harness, which is why it is a different
+// file.
+//
+// WHICH OF THOSE TWO RE-READS THE SECTION SHOWS IS NOT ASSERTED HERE. Two reads of one
+// set supersede each other in `attention-preference-read.ts`, whoever asked for them —
+// a writer's loop, a window focus, a reconnect — so the ordering rule is measured
+// against that reading in its own file, and asserting it over a writer would be a
+// second statement of one rule.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,12 +26,10 @@ import {
   drain,
   UPDATED_AT,
   writerFor,
+  type AttentionPreferenceStore,
   type UpdateOutcome,
 } from "./notification-preference-writer.test-support.js";
-import type {
-  AttentionPreferencePort,
-  TogglePreferenceRow,
-} from "./notification-preference-writer.js";
+import type { TogglePreferenceRow } from "./notification-preference-writer.js";
 
 /** Two records, so two of the writer's per-record loops can run at once. */
 const TWO_RECORDS: readonly AttentionPreference[] = [
@@ -42,7 +47,7 @@ const TWO_RECORDS: readonly AttentionPreference[] = [
  * genuinely older rather than merely later.
  */
 function storeHoldingBothCalls(initial: readonly AttentionPreference[]): {
-  readonly port: AttentionPreferencePort;
+  readonly port: AttentionPreferenceStore;
   readonly acceptWrite: (recordKey: string) => void;
   readonly serveRead: (readIndex: number) => void;
   readonly readsTaken: () => number;
@@ -104,12 +109,8 @@ function switchIn(
   return { record, member };
 }
 
-describe("the preference writer — the whole-set re-read is ordered across records", () => {
-  it("keeps the newer snapshot when an older re-read answers behind it", async () => {
-    // The defect: writes are serialised per RECORD, so toggling two records runs two
-    // loops at once. Each re-reads the whole set, and the older read answering last
-    // replaced the page with a snapshot taken before the second record's update — so
-    // that accepted toggle looked reverted for the rest of the visit.
+describe("the preference writer — two records' loops run and finish independently", () => {
+  it("hands each loop's own re-read on, and each is composed for its own record", async () => {
     const store = storeHoldingBothCalls(TWO_RECORDS);
     const published: AttentionPreferenceReadOutcome[] = [];
     const writer = writerFor(store.port, (outcome) => published.push(outcome));
@@ -126,44 +127,20 @@ describe("the preference writer — the whole-set re-read is ordered across reco
     await drain();
     expect(store.readsTaken()).toBe(2);
 
-    // The newer read answers first, then the older one.
+    // The newer read answers first, then the older one. Both reach the reading, which
+    // is what decides between them; neither loop swallows the other's reply.
     store.serveRead(1);
     await drain();
     store.serveRead(0);
     await drain();
 
-    expect(published).toHaveLength(1);
-    const [onlyPublication] = published;
-    expect(onlyPublication?.status).toBe("served");
-    expect(
-      onlyPublication?.status === "served" ? onlyPublication.value.preferences : undefined,
-    ).toStrictEqual([
-      { key: "attention", value: { mentions: false, runs: false } },
-      { key: "delivery", value: { desktop: false } },
-    ]);
+    expect(published).toHaveLength(2);
   });
 
-  it("negative control: a lone toggle still publishes its re-read", async () => {
-    // Without this, the case above would pass over a writer that had stopped
-    // publishing at all — which would freeze the page on its opening read.
-    const store = storeHoldingBothCalls(TWO_RECORDS);
-    const published: AttentionPreferenceReadOutcome[] = [];
-    const writer = writerFor(store.port, (outcome) => published.push(outcome));
-    const attention = switchIn(TWO_RECORDS, "attention");
-
-    writer.toggle(attention.record, attention.member);
-    store.acceptWrite("attention");
-    await drain();
-    store.serveRead(0);
-    await drain();
-
-    expect(published).toHaveLength(1);
-    expect(writer.snapshot().busyRecordKeys.has("attention")).toBe(false);
-  });
-
-  it("unlocks the record whose publication was discarded", async () => {
-    // A discarded publication is not a discarded loop: the record still has to stop
-    // being busy, or every switch inside it stays dead for the window's life.
+  it("unlocks both records once both loops have settled", async () => {
+    // A record that stays busy is every switch inside it dead for the window's life,
+    // and the loop that unlocks it is the one whose re-read answered LAST — so a
+    // writer that unlocked only on the newest reply would leave one record locked.
     const store = storeHoldingBothCalls(TWO_RECORDS);
     const writer = writerFor(store.port);
     const attention = switchIn(TWO_RECORDS, "attention");
@@ -182,5 +159,23 @@ describe("the preference writer — the whole-set re-read is ordered across reco
     await drain();
 
     expect(writer.snapshot().busyRecordKeys.size).toBe(0);
+  });
+
+  it("negative control: a lone toggle still re-reads and unlocks", async () => {
+    // Without this, both cases above would pass over a writer that had stopped
+    // re-reading at all — which would freeze the section on its opening read.
+    const store = storeHoldingBothCalls(TWO_RECORDS);
+    const published: AttentionPreferenceReadOutcome[] = [];
+    const writer = writerFor(store.port, (outcome) => published.push(outcome));
+    const attention = switchIn(TWO_RECORDS, "attention");
+
+    writer.toggle(attention.record, attention.member);
+    store.acceptWrite("attention");
+    await drain();
+    store.serveRead(0);
+    await drain();
+
+    expect(published).toHaveLength(1);
+    expect(writer.snapshot().busyRecordKeys.has("attention")).toBe(false);
   });
 });

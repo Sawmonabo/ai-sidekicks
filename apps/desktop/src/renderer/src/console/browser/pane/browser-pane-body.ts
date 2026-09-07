@@ -20,35 +20,43 @@
 // `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
 // outside itself. The family door imports this module by name instead.
 
-// THE FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the one place this family enters the
-// graph at all. The door registers exactly one kind and registers it as a loader, so
-// every module and every rule this family owns is reachable only across that `import()`
-// — which makes this module the sheets' owner in the sense the placement rule means:
-// the barrel of the thing that owns them. Imported one by one rather than through an
-// `@import` chain, so every edge into this family's CSS is visible at one site and
-// "imported here and nowhere else" stays checkable.
+// FIVE OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the place those five surfaces
+// enter the graph at all. The door registers exactly one kind and registers it as a
+// loader, so nothing on the initial graph can render the pane, its chrome, its file
+// control, its cards, or its bounds table — which makes this module the way in to the
+// code those rules dress, and the placement rule then puts the rules on the same edge.
+// Imported one by one rather than through an `@import` chain, so every edge into this
+// family's CSS is visible at one site and "imported here and nowhere else" stays
+// checkable.
 //
-// TWO OF THE SEVEN DRESS SURFACES NO REGISTRATION REACHES YET — `settings/` and
-// `cards/` — so they are here on the family's behalf rather than this pane's. That is
-// the honest placement while the family has one entrance: leaving them at the door
-// would put rules for unmounted surfaces on the initial document, and a lane that wires
-// those surfaces either reaches them from this chunk or brings a chunk root of its own,
-// which `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` checks.
+// THE OTHER TWO ARE AT THE FAMILY DOOR, and the split is read off the graph rather than
+// off the directory. `settings/settings.css` and `controls.css` dress
+// `BrowserSettingsSection`, which the settings route reaches STATICALLY through
+// `browser/index.ts` — so deferring them behind this loader left Settings → Browser
+// painting its rows, its partition table and its buttons with no rules at all until
+// somebody opened a browser pane, after which it silently started working. That failure
+// is what `undressedEagerReaderOffences` reports, and
+// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` now fails on it in
+// both directions: a sheet deferred past a reader the initial graph carries, and a sheet
+// held at a door no static reader can use.
 //
-// AND TWO ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN. `pane.css`
-// had grown to 458 lines over three directories, so it is split by WHICH COMPONENT
-// DRAWS EACH ROOT: `chrome/chrome.css` for the tab strip, the load hairline, the page
-// picker, and the overflow disclosure; `file/file.css` for the local file control and
-// its admitted roots. `handback/` gets no sheet — the one class it draws is a modifier
-// of a root two directories draw, which belongs to neither.
+// `pane.css` STAYS, and its `.meridian-browser-chrome .meridian-browser-action` rule is
+// why the reading is a subtraction rather than a per-sheet question: that restatement
+// names a class the settings page also names, and it is not the sheet that owed those
+// rules — `controls.css` was, and it has moved.
+//
+// AND TWO OF THE FIVE ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN.
+// `pane.css` had grown to 458 lines over three directories, so it is split by WHICH
+// COMPONENT DRAWS EACH ROOT: `chrome/chrome.css` for the tab strip, the load hairline,
+// the page picker, and the overflow disclosure; `file/file.css` for the local file
+// control and its admitted roots. `handback/` gets no sheet — the one class it draws is
+// a modifier of a root two directories draw, which belongs to neither.
 //
 // THOSE TWO ENTER HERE AND NOT LOWER, which is the ownership rule rather than a
 // shortcut: neither `chrome/` nor `file/` carries an `index.ts`, so each sheet enters
-// at the door of the directory that owns it — and now that this family's sheets enter
-// at the chunk root rather than at the family door, that door is this module. The
-// order below is the order the door had them in, so the split changes no cascade.
-import "../settings/settings.css";
-import "../controls.css";
+// at the door of the directory that owns it — and the directory that owns those two is
+// the chunk this module roots. The order below is the order the door had them in, so
+// the split changes no cascade.
 import "../cards/cards.css";
 import "./pane.css";
 import "./chrome/chrome.css";

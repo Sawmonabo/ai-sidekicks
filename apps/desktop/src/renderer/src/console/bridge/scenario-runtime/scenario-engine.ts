@@ -32,10 +32,17 @@
 // it is one line rather than two.
 //
 // The engine holds ONE more thing than the script: the replies a scripted latency
-// has parked, in `held-reply-queue.ts` beside it. That module states why they live
-// on this side of the bridge at all — a bridge that spent a scripted delay itself
-// would be a second clock, and the one property this module exists for is that there
-// is only one.
+// has parked. A `ScenarioReply` carrying `afterMs` is a request that has not been
+// answered yet, and on a frozen clock the only thing that can answer it is the
+// caller moving that clock. Holding them on this side rather than in the bridge is
+// what keeps the frozen clock the single source of scenario time — a bridge that
+// spent the delay itself would be a second clock, and the one property this module
+// exists for is that there is only one.
+//
+// THE QUEUE ITSELF IS `held-reply-queue.ts`, one directory entry away, and the split
+// is where the two jobs meet rather than through the middle of either. This file owns
+// scenario TIME; that one owns SCHEDULING against it, reads no clock of its own, and
+// is reached from here at exactly two moments — every advance, and teardown.
 //
 // AND AN ADVANCE IS PUBLISHED EVEN WHEN NO BEAT IS DUE, which is the second thing a
 // subscriber may ask for. Beats reach `subscribe`; every other frame a scenario
@@ -114,6 +121,14 @@ export class ScenarioEngine {
   // Every advance the engine performs, carrying the tick the frozen clock now stands
   // at. Separate from the beat emitter because it fires on an advance that delivers
   // no beat, which is exactly the case a frame scheduled between two beats needs.
+  //
+  // A SECOND emitter beside the beats one, and not a widening of it. A beat sink is
+  // handed the events that fell due, so a subscriber interested in the CLOCK rather
+  // than in the log would have to be delivered an empty array on every advance that
+  // carried none — which is a delivery of nothing wearing a delivery's clothes, and
+  // it would reach every beat subscriber in the console. What rides this one is the
+  // elapsed scenario time after the advance, which is what a scripted schedule of
+  // non-event facts (a transport outage) is written against.
   readonly #advances = new Emitter<number>("scenario advance");
   readonly #heldReplies = new HeldReplyQueue(SCENARIO_PENDING_REPLY_CAP);
   // Where a delivered frame's position comes from, and the record a late subscriber is
@@ -263,6 +278,21 @@ export class ScenarioEngine {
     return this.#log.delivered();
   }
 
+  /**
+   * Subscribe to the frozen clock's own movement. Returns an idempotent unsubscribe.
+   *
+   * Delivered AFTER the advance's beats, with the elapsed scenario time the advance
+   * landed on, and delivered on every advance including the ones no beat fell due
+   * on — which is the whole reason it exists: a scripted fact that is not an event
+   * has no beat to ride, and a schedule that only woke when the log moved would fire
+   * late or never depending on where the author happened to put a beat.
+   *
+   * A disposed engine delivers nothing, on `advance`'s own rule.
+   */
+  public subscribeToAdvance(sink: EmitterSink<number>): Unsubscribe {
+    return this.#advances.subscribe(sink);
+  }
+
   /** Advance one tick. A no-op after teardown, reported rather than silent. */
   public tick(): void {
     this.advance(this.#tickMs);
@@ -323,8 +353,9 @@ export class ScenarioEngine {
     // against this tick should see a scenario whose beats for the same tick have
     // already landed — the session log first, then what the other namespaces made
     // due. Unconditional, because an advance that crossed no beat still moved the
-    // clock, and a frame whose tick sits in a quiet stretch of the script is due
-    // exactly then.
+    // clock, and the early return this replaced is exactly what would have made a
+    // scripted outage between two beats unobservable: a frame whose tick sits in a
+    // quiet stretch of the script is due exactly then.
     this.#advances.emit(this.#elapsedMs);
   }
 

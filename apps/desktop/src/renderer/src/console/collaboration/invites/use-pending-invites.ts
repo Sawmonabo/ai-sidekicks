@@ -67,7 +67,7 @@ export function usePendingInvites(bridge: ConsoleBridge): PendingInviteBinding {
     () => new PendingInviteAdapter(bridge),
     PENDING_INVITE_DISPOSAL,
   );
-  useWindowReadTriggers(adapter);
+  useWindowReadTriggers(adapter, bridge.transportReconnect);
   // Held identities, so a render does not tear the subscription down and rebuild it:
   // `useSyncExternalStore` resubscribes whenever `subscribe` changes, and an inline
   // arrow is a fresh function on every pass.

@@ -13,11 +13,19 @@
 // `fixture-attention-derivation.ts` folds beats into an attention projection,
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, `fixture-collaboration-reads.ts` holds the channel and membership answers,
-// `fixture-onboarding-answers.ts` holds the onboarding plane and the ledger its own
-// mutations move, `fixture-shell-answers.ts` holds the shell plane and the one channel
-// its feed and its three controls share, and `fixture-scripted-answer.ts` maps a
-// scripted settlement onto an outcome — reads and writes both.
+// them, `fixture-collaboration-reads.ts` the channel and membership answers,
+// `fixture-diagnostics-reads.ts` the five the settings page's diagnostics regions
+// are built on, `fixture-provider-account-writes.ts` the three verbs of the sign-in
+// handoff, `fixture-mcp-governance.ts` the inventory read and the two mutations that
+// move a row in it, `fixture-onboarding-answers.ts` the onboarding plane and the ledger
+// its own mutations move, `fixture-shell-answers.ts` the shell plane and the one channel
+// its feed and its three controls share, and `fixture-scripted-answer.ts` maps a scripted
+// settlement onto an outcome — reads and writes both, including the script-only
+// disposition those planes and this port all take.
+//
+// A PLANE LEAVES WITH ITS SERVED IDS. Each of those modules declares the operation ids
+// it implements and this port spreads both the ids and the handlers, so a plane's set
+// and its answers cannot disagree — `fixture-workflow-reads.ts` states the rule in full.
 //
 
 import {
@@ -29,11 +37,14 @@ import { readActivityFromScenario } from "./fixture-activity.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../scenarios/browser.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { FixturePendingInvites } from "./fixture-pending-invites.js";
+import { fixtureDiagnosticsReads } from "./fixture-diagnostics-reads.js";
 import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
-import { answerFromScriptedReply, answerScriptedWrite } from "./fixture-scripted-answer.js";
+import { fixtureMcpGovernance } from "./fixture-mcp-governance.js";
 import { fixtureCollaborationReads } from "./fixture-collaboration-reads.js";
 import type { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import { fixtureOnboardingAnswers } from "./fixture-onboarding-answers.js";
+import { fixtureProviderAccountWrites } from "./fixture-provider-account-writes.js";
+import { answerFromScriptedReply, answerScriptOnly } from "./fixture-scripted-answer.js";
 import { fixtureShellAnswers } from "./fixture-shell-answers.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
@@ -129,9 +140,9 @@ export function createFixtureGrowthPort(
       // smuggled through an absent value and re-read by the caller.
       //
       // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
-      // `answerScriptedWrite` states in full in `fixture-scripted-answer.ts`: this
-      // fixture serves the operation, so `wire-unregistered` would be false about the
-      // build and would send a reader to a document owing a wire that has a stand-in.
+      // `answerScriptOnly` in `fixture-scripted-answer.ts` states in full: this fixture
+      // serves the operation, so `wire-unregistered` would be false about the build and
+      // would send a reader to a document owing a wire that already has a stand-in.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
@@ -237,11 +248,11 @@ export function createFixtureGrowthPort(
     // something no scenario ever said it did — and an attach in particular is what
     // mints an identity every later read is keyed by.
     agentAttach: async (request) =>
-      await answerScriptedWrite(engine, "agent.attach", "agentAttach", request),
+      await answerScriptOnly(engine, "agent.attach", "agentAttach", request),
     agentConfigUpdate: async (request) =>
-      await answerScriptedWrite(engine, "agent.configUpdate", "agentConfigUpdate", request),
+      await answerScriptOnly(engine, "agent.configUpdate", "agentConfigUpdate", request),
     agentDetach: async (request) =>
-      await answerScriptedWrite(engine, "agent.detach", "agentDetach", request),
+      await answerScriptOnly(engine, "agent.detach", "agentDetach", request),
     // browser — the provenance the produced-object shelf joins the log against.
     //
     // Routed through the scripted-reply seam and answered with the EMPTY SET when a
@@ -265,14 +276,9 @@ export function createFixtureGrowthPort(
     // exactly as a live rejection does, which is what makes the refusal renderings
     // reachable at all.
     terminalAcquireWriteLease: async (request) =>
-      await answerScriptedWrite(
-        engine,
-        "session.takeControl",
-        "terminalAcquireWriteLease",
-        request,
-      ),
+      await answerScriptOnly(engine, "session.takeControl", "terminalAcquireWriteLease", request),
     terminalReleaseWriteLease: async (request) =>
-      await answerScriptedWrite(
+      await answerScriptOnly(
         engine,
         "session.releaseControl",
         "terminalReleaseWriteLease",
@@ -301,7 +307,7 @@ export function createFixtureGrowthPort(
         () => ({ status: "served", value: [] }),
       ),
     sidekickPeerInvocationSet: async (request) =>
-      await answerScriptedWrite(
+      await answerScriptOnly(
         engine,
         "sidekick.peerInvocationSet",
         "sidekickPeerInvocationSet",
@@ -364,6 +370,19 @@ export function createFixtureGrowthPort(
         request,
         () => growthUnscriptedReply("workspaceExecutionContextRead", REPOS_EXECUTION_CONTEXT_CALL),
       ),
+    // diagnostics — the five reads the settings page is built from, spread from the
+    // module that implements them so the served ids next door and the handlers stay one
+    // set. Two answer under any scenario and three refuse without a script; that
+    // module's header carries the whole of why.
+    ...fixtureDiagnosticsReads(engine),
+    // provider accounts — the three verbs of the brokered sign-in handoff, all three
+    // script-only. The registry READ they act on is not here at all: it is
+    // `providerAccount.list` over the bound call door.
+    ...fixtureProviderAccountWrites(engine),
+    // MCP governance — the inventory read and the two mutations, ONE plane rather than
+    // three reply rows, because the module that implements them holds the per-port
+    // ledger that makes a mutation's row what the next read serves.
+    ...fixtureMcpGovernance(engine),
     // presence — the session's live activity, resolved by the frame that has fallen
     // due on the frozen clock. Not routed through the scripted-reply seam, for the
     // runtime-node roster's reason: this answer is a function of the CLOCK, and the

@@ -76,6 +76,10 @@ export const FIRST_SNAPSHOT: RuntimeNodeRosterResponse = {
       lastHeartbeatAt: null,
     }),
   ],
+  // Held, so the render cases below see an advertised holder. The member is
+  // required on the wire and nullable in value, and both readings appear across
+  // these three snapshots rather than only one of them.
+  controlHolder: OWNING_PARTICIPANT_ID,
 };
 
 // What a presence-triggered re-read returns: a node joined, and the original node
@@ -86,10 +90,14 @@ export const SECOND_SNAPSHOT: RuntimeNodeRosterResponse = {
     buildRosterEntry({ nodeId: AT_FLOOR_NODE_ID, state: "offline", healthState: "offline" }),
     buildRosterEntry({ nodeId: JOINED_LATER_NODE_ID }),
   ],
+  // The re-read advertises no holder. A released lease and a holder suppressed
+  // behind an offline producer arrive identically, which is the point.
+  controlHolder: null,
 };
 
 export const SECOND_SESSION_SNAPSHOT: RuntimeNodeRosterResponse = {
   nodes: [buildRosterEntry({ nodeId: SECOND_SESSION_NODE_ID })],
+  controlHolder: null,
 };
 
 /** What one case's roster read answers. Concrete, so its return type is checked. */

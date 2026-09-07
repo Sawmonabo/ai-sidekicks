@@ -287,9 +287,21 @@
 // that opens nothing, and that is worse than the sentence saying the host has not
 // been read. A scenario declaring one is not that — it is a fixture stating a fact
 // about the node it stands for, like every other fact in it.
+//
+// AND SIX PLANES STATE THEIR OWN MEMBERSHIP, in the modules that implement them:
+// `fixture-collaboration-reads.ts`, `fixture-diagnostics-reads.ts`,
+// `fixture-provider-account-writes.ts`, `fixture-mcp-governance.ts`,
+// `fixture-onboarding-answers.ts` and `fixture-shell-answers.ts`, on the rule
+// `fixture-workflow-reads.ts` set. A plane that owns its handlers owns the reasoning
+// that admits them, so the ids and the argument for them stay one unit — reasoning left
+// here would go stale the first time a plane changed what it answers, and nothing would
+// report it.
 
 import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "./fixture-collaboration-reads.js";
+import { FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS } from "./fixture-diagnostics-reads.js";
+import { FIXTURE_SERVED_MCP_OPERATION_IDS } from "./fixture-mcp-governance.js";
 import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "./fixture-onboarding-answers.js";
+import { FIXTURE_SERVED_PROVIDER_ACCOUNT_OPERATION_IDS } from "./fixture-provider-account-writes.js";
 import { FIXTURE_SERVED_SHELL_OPERATION_IDS } from "./fixture-shell-answers.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
@@ -304,11 +316,8 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.
  * Written as an annotated tuple rather than `as const`, on the
  * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
  * carrying a spread, so each plane that owns its own module reaches the annotation as
- * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`,
- * `...typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS`,
- * `...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS` and
- * `...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS`. Each is named in one place and
- * spread in the other, and the compiler holds the two to each other.
+ * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS` and its siblings. Each is named in
+ * one place and spread in the other, and the compiler holds the two to each other.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "sessionRead",
@@ -345,6 +354,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "providerSessionImportSubscribe",
   ...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_PROVIDER_ACCOUNT_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_MCP_OPERATION_IDS,
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -448,6 +460,17 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // person answered a question nobody was asked — so each of them refuses by name
   // under a scenario that does not script it.
   ...FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
+  // diagnostics — the five reads the settings page is built from, taken from the module
+  // that implements them so the ids and the handlers cannot disagree. Two answer under
+  // any scenario and three are script-only; that module states which and why.
+  ...FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS,
+  // provider accounts — the three verbs the bound registry read and its live tail do
+  // not cover, from the same kind of module. All three are script-only.
+  ...FIXTURE_SERVED_PROVIDER_ACCOUNT_OPERATION_IDS,
+  // MCP governance — the inventory read answers the empty inventory under any scenario
+  // and the two mutations refuse without a script, and the three are one plane rather
+  // than three reply rows because the module holds the ledger that joins them.
+  ...FIXTURE_SERVED_MCP_OPERATION_IDS,
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -510,4 +533,12 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "onboardingComplete",
   "onboardingPresentChoice",
   "onboardingTelemetryPrompt",
+  "healthFailureDetailRead",
+  "healthStuckRunInspect",
+  "healthRecoveryActionRequest",
+  "providerAccountLogin",
+  "providerAccountLoginCancel",
+  "providerAccountRegister",
+  "mcpSetEnabled",
+  "mcpSetTrust",
 ];

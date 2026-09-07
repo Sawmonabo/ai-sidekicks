@@ -30,11 +30,19 @@
 // is represented there exactly as the frame represents it, by the attribute's
 // absence. Reading it is reading the frame's answer rather than re-deriving one.
 //
-// WHAT THIS PAGE DOES NOT OFFER. No theme editor, no accent picker, no density
-// control — the design closes this release at the mode choice in terms ("and
-// nothing else in this release"), and every colour a person could otherwise pick
-// would have to clear the contrast gate the token registry applies at generation
-// time, which is the work that buys less than the surfaces this release owes.
+// WHAT THIS PAGE DOES NOT OFFER. No theme editor and no accent picker — the design
+// closes this release at the mode choice in terms ("and nothing else in this
+// release"), and every colour a person could otherwise pick would have to clear the
+// contrast gate the token registry applies at generation time, which is the work
+// that buys less than the surfaces this release owes.
+//
+// AND ONE THING IT REPORTS RATHER THAN OFFERS. The scheme block says the choice is
+// "remembered for the next start", and whether that is true is the STORE's answer
+// rather than this page's: on the in-memory adapter the choice applies to this
+// window and is gone at the next launch. `Plan-023 §Target Areas` puts that report
+// here in terms — the console "runs on an in-memory adapter and reports that state
+// in its own settings page" — and until `store-state/` nothing read it, so a person
+// learned it by restarting and finding the choice gone.
 
 import { useCallback, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
@@ -51,7 +59,8 @@ import {
   isSchemePreference,
   type SchemePreference,
 } from "../../../tokens/index.js";
-import type { SettingsPageRegistry } from "../../settings-page-registry.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
+import { StoreStateBlock } from "./store-state/StoreStateBlock.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-appearance";
@@ -140,7 +149,7 @@ function readAppliedScheme(): SchemePreference | undefined {
   return isSchemePreference(applied) ? applied : undefined;
 }
 
-export function AppearancePage(): ReactNode {
+export function AppearancePage(props: { readonly context: SettingsPageContext }): ReactNode {
   const appliedScheme = useSyncExternalStore(
     subscribeToAppliedScheme,
     readAppliedScheme,
@@ -215,6 +224,8 @@ export function AppearancePage(): ReactNode {
         )}
       </section>
 
+      <StoreStateBlock uiStateStore={props.context.uiStateStore} />
+
       <section className="meridian-settings-page__block" aria-label="Themes">
         <h3 className="meridian-settings-page__block-title">Themes</h3>
         <div className="meridian-settings-page__prose">
@@ -238,6 +249,6 @@ export function registerAppearancePage(registry: SettingsPageRegistry): void {
     owner: OWNER,
     label: "Appearance",
     keywords: ["theme", "dark", "light", "colour", "color", "scheme", "contrast", "display"],
-    render: () => <AppearancePage />,
+    render: (context) => <AppearancePage context={context} />,
   });
 }

@@ -881,6 +881,82 @@ export const PENDING_INVITE_QUEUE_MAX = 8;
  * which is worse than losing the oldest of sixteen unread prompts.
  */
 export const PENDING_INVITE_RETAINED_REFUSAL_MAX = 8;
+
+// ── The shell's own shutdown budget ──────────────────────────────────────────
+//
+// It is not here. `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS` is declared in
+// `src/shared/shutdown-budget.ts`, because main races the quit drain against the same
+// figure the console's restart confirmation quotes, and `src/shared/` is the only home
+// both processes can reach. This file's rule — caps live here — governs the console's
+// own bounds, and the shell's budget stopped being one the day main became its other
+// reader. The door re-publishes it, so a console reader still takes it from `core/`.
+
+/**
+ * Run ids named in the restart confirmation before the rest is a count.
+ *
+ * A SIBLING OF `AWAITING_RUN_IDS_NAMED_CAP` AND NOT THAT CAP. Both bound the same
+ * job — ids enumerated in a sentence before the rest becomes a figure — and they are
+ * two constants because they bound two different surfaces: that one is a line under
+ * a pane that already holds up to two hundred rows, and this one is a paragraph
+ * inside a dialog that must be readable in one glance before a person presses a
+ * button they cannot take back. Sharing one number would tie the width of a
+ * consequence sentence to the width of a pane's footnote, and the day either moves
+ * the other would move with it for no reason anybody could state.
+ *
+ * Three rather than six for exactly that reason: past a few ids the enumeration
+ * stops being a lookup and becomes hex the reader skips, and what a person is
+ * deciding here is answered by the COUNT — which names every moving run, seated or
+ * not, so nothing disappears from the reading.
+ */
+export const INTERRUPTED_RUN_IDS_NAMED_CAP = 3;
+
+/**
+ * How long a run must have been making no progress before the console says so.
+ *
+ * The daemon decides whether a run is stuck — `health.stuckRunInspect` answers
+ * `stuck-suspected` or `healthy`, and this console composes neither. What this bound
+ * governs is the SENTENCE beside that answer: below it the quiet interval is not worth
+ * a figure on screen, because a run between two tool calls is ordinarily quiet for a
+ * few seconds and a surface that reported every one of them would report nothing.
+ *
+ * Sixty seconds because that is the threshold the design names for the badge
+ * appearing at all, and stating it once here is what keeps the console's reading of
+ * "quiet" from being one number in a component and another in its test.
+ */
+export const STUCK_RUN_NOTICE_MS = 60_000;
+
+/**
+ * How long that quiet has to last before the same badge escalates its presentation.
+ *
+ * Five minutes, and it changes the badge's TONE and its sentence — never its verdict,
+ * which stays the daemon's. A run quiet for six minutes and one quiet for seventy
+ * seconds are both `stuck-suspected` to the daemon and are not the same thing to a
+ * person deciding whether to interrupt, and this is the whole of the difference the
+ * console is allowed to draw between them.
+ *
+ * A SIBLING OF THE NOTICE BOUND AND NOT A MULTIPLE OF IT. The two are read from the
+ * same design sentence as two independent thresholds, and deriving one from the other
+ * would make the ratio the thing a later change has to preserve rather than the two
+ * durations a reader can check against the design.
+ */
+export const STUCK_RUN_ESCALATION_MS = 300_000;
+
+/**
+ * The full-scale value a utilization bar is drawn against, and the clamp on its fill.
+ *
+ * A quota reading can exceed its own limit — a provider that admitted a request over
+ * an allowance still reports what was spent — and an unclamped `<progress>` fill past
+ * its `max` renders as a full bar in one engine and an overflowing one in another. So
+ * the BAR is clamped and the FIGURE beside it is not: the bar answers "how full", which
+ * saturates, and the percentage answers "how much", which does not. Clamping both
+ * would hide an overage; clamping neither would draw one wrong.
+ *
+ * One rather than a hundred because the fraction is what `Intl` takes for a percent,
+ * so the same number serves the bar's scale and the figure's input and there is no
+ * second unit anywhere on the row to get backwards.
+ */
+export const UTILIZATION_BAR_FULL_SCALE = 1;
+
 // ── The load hairline's progress range ───────────────────────────────────────
 //
 // `LOAD_PROGRESS_MAX` is the bound of the two and is what brought them here; the

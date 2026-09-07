@@ -195,7 +195,7 @@ export function useBrowserChromeActs(options: BrowserChromeActsOptions): Browser
           );
           return;
         }
-        dispatch(async () => await bridge.growth.browserClearSiteData({ sessionId }));
+        dispatch(async () => await bridge.growth.browserSiteDataClear({ sessionId }));
       },
       openLocalFile: (path) => {
         dispatch(async () => await bridge.growth.browserOpenFile({ paneId, path }));

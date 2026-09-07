@@ -4,10 +4,29 @@
 // `RunColumns.tsx` and its two siblings, and the money figure their amount column uses is
 // `MoneyFigure.tsx`. Every value here is a prop, so a case can drive all three
 // splits — and the failed-verification arm — with no bridge at all.
+//
+// CLOSED BY DEFAULT, AND EACH ONE INDEPENDENTLY. The receipt opens on one line — the
+// figure — because that is what the page is for: a person arrives wanting the number
+// and stays only when they want to know where it came from. Three tables unrolled
+// under it made the answer the page leads with a scroll away, and made the three
+// splits look like three separate reports rather than three readings of one figure.
+//
+// A NATIVE DISCLOSURE, AND NOTHING REMEMBERED. `<details>` is keyboard-reachable and
+// announced as expandable without this file re-deriving any of it, and the open state
+// is the element's own — so there is nothing to restore after a re-render and nothing
+// to persist. `console/persistence/` admits a closed set of value classes and a
+// reader's momentary interest in one table is not among them; widening that set is a
+// spec amendment rather than a table's decision.
+//
+// THE SUMMARY LINE SAYS WHAT IS INSIDE. A disclosure whose label is only "Per run" is
+// a control a person has to open to find out whether it is worth opening. The count
+// comes from the rows this component was handed, which is a count of what is there
+// rather than a figure about money — the page's rule forbids the second and says
+// nothing about the first.
 
 import type { ReactNode } from "react";
 
-import { Nothing } from "../../../primitives/index.js";
+import { Nothing, formatCount } from "../../../primitives/index.js";
 import type { PartitionColumn } from "./partition-column.js";
 
 /**
@@ -31,6 +50,9 @@ export function PartitionSection<TRow>(props: {
   readonly emptyTitle: string;
   readonly emptyDetail: string;
 }): ReactNode {
+  const summary = !props.accountsForFigure
+    ? "withheld"
+    : `${formatCount(props.rows.length)} ${props.rows.length === 1 ? "row" : "rows"}`;
   let body: ReactNode;
   if (!props.accountsForFigure) {
     body = (
@@ -86,8 +108,13 @@ export function PartitionSection<TRow>(props: {
   }
   return (
     <section className="meridian-settings-page__block" aria-label={props.label}>
-      <h3 className="meridian-settings-page__block-title">{props.label}</h3>
-      {body}
+      <details className="meridian-cost-receipt__split">
+        <summary className="meridian-cost-receipt__split-summary">
+          <span className="meridian-settings-page__block-title">{props.label}</span>
+          <span className="meridian-cost-receipt__split-count">{summary}</span>
+        </summary>
+        {body}
+      </details>
     </section>
   );
 }

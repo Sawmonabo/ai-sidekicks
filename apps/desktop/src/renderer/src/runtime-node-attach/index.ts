@@ -26,6 +26,10 @@
 export { AttachFlow, type AttachFlowProps } from "./AttachFlow.js";
 /** @public Plan-003 T5.2; the request draft, declared beside the request it composes. */
 export { type RuntimeNodeAttachDraft } from "./attach-request.js";
+/** @public The attach seam every mount may supply; declared beside the call it names. */
+export { type RuntimeNodeAttachReads } from "./attach-request.js";
+/** @public Composes that seam over a host's own bridge, so the procedure name has one home. */
+export { attachReadsOverControlPlane, type ControlPlaneAttachCall } from "./attach-request.js";
 /** @public Plan-003 T5.2; mounted by a later Plan-023 console surface. */
 export { CapabilityDeclaration, type CapabilityDeclarationProps } from "./CapabilityDeclaration.js";
 /** @public Plan-003 T5.3; mounted by a later Plan-023 console surface. */

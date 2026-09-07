@@ -260,7 +260,7 @@ export function useLiveWorkflowRunDirectory(
   // The mount read is the substrate's own `subscribe` moment rather than a `start()`
   // beside it, so a mounted card asks exactly once and the window coming back is the
   // second reason it ever asks.
-  useWindowReadTriggers(directory);
+  useWindowReadTriggers(directory, bridge.transportReconnect);
   return liveDirectoryState(usePushDrivenRead(directory.read), sessionId);
 }
 

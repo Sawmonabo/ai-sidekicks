@@ -74,59 +74,72 @@ export const RUNTIME_NODE_ROSTER_PROCEDURE = "runtimenode.roster";
 export const RUNTIME_NODE_ROSTER_REFUSAL_ORIGIN = "runtime-node-roster";
 
 /**
- * Which axis a registered `runtime_node.*` name announces.
+ * Which member of the roster REPLY a registered `runtime_node.*` name moves.
  *
- * Read off the payload contract rather than chosen here. Five of the seven names
- * carry the FULL lifecycle base — `{sessionId?, nodeId, previousState?, newState,
- * actor?}` — so each one announces a `NodeState` transition, which is exactly what
- * moves a roster row. The two capability names carry the REDUCED base, which has no
- * `previousState` / `newState` at all: a capability declaration is not a node-state
- * transition, and the registered shape says so by leaving both members off.
+ * Read off the payload contract rather than chosen here, and stated in the reply's
+ * terms because the reply is what a subscription exists to keep current. Five of the
+ * seven names carry the FULL lifecycle base — `{sessionId?, nodeId, previousState?,
+ * newState, actor?}` — so each one announces a `NodeState` transition, which moves an
+ * entry's `state` and, through the sweep behind it, `healthState`. The two capability
+ * names carry the REDUCED base, which has no `previousState` / `newState` at all: a
+ * capability declaration is not a node-state transition, and the registered shape says
+ * so by leaving both members off. It still moves `capabilities`, which the same reply
+ * carries on the same entry.
  */
-type RuntimeNodeEventAxis = "state-transition" | "capability";
+type RuntimeNodeRosterMember = "node-state" | "declared-capabilities";
 
 /**
  * Every registered `runtime_node.*` name, keyed rather than listed.
  *
  * `satisfies Record<RuntimeNodeEventName, …>` makes the table total in BOTH
  * directions against the contract: a newly registered eighth name is a missing-key
- * error here until it is classified, and a name this table invents is an excess-key
- * error. The import stays TYPE-ONLY — the renderer's initial-bundle budget is
- * enforced, and a value import of the census would pull the taxonomy module and its
- * schemas into the console — so the runtime cross-check against the exported name
- * set lives in the co-located test, which is not bundled.
+ * error here until it names the roster member it moves, and a name this table invents
+ * is an excess-key error. The import stays TYPE-ONLY — the renderer's initial-bundle
+ * budget is enforced, and a value import of the census would pull the taxonomy module
+ * and its schemas into the console — so the runtime cross-check against the exported
+ * name set lives in the co-located test, which is not bundled.
  */
-const RUNTIME_NODE_EVENT_AXIS_BY_NAME = {
-  "runtime_node.registered": "state-transition",
-  "runtime_node.online": "state-transition",
-  "runtime_node.degraded": "state-transition",
-  "runtime_node.offline": "state-transition",
-  "runtime_node.revoked": "state-transition",
-  "runtime_node.capability_declared": "capability",
-  "runtime_node.capability_updated": "capability",
-} as const satisfies Record<RuntimeNodeEventName, RuntimeNodeEventAxis>;
+const ROSTER_MEMBER_BY_RUNTIME_NODE_EVENT = {
+  "runtime_node.registered": "node-state",
+  "runtime_node.online": "node-state",
+  "runtime_node.degraded": "node-state",
+  "runtime_node.offline": "node-state",
+  "runtime_node.revoked": "node-state",
+  "runtime_node.capability_declared": "declared-capabilities",
+  "runtime_node.capability_updated": "declared-capabilities",
+} as const satisfies Record<RuntimeNodeEventName, RuntimeNodeRosterMember>;
 
 /**
- * The registered event names a presence subscription carries.
+ * The registered event names a presence subscription carries: EVERY one of them.
  *
- * All five state-transition names, including the two with no V1 producer. Two
- * reasons, and the second is the concrete one: `runtime_node.degraded` and
- * `runtime_node.revoked` are census members whose durable producers are V1.1-gated,
- * so subscribing to them costs one no-op subscription today and needs no console
- * change the day a producer lands — and the settings scenario already scripts a
- * `runtime_node.degraded` beat, which a subscription that skipped the name would
- * silently drop, leaving the roster stale exactly where the surface exists to show a
- * change.
+ * THE TABLE ABOVE IS THE ARGUMENT, not a decoration. A subscription exists so that
+ * what a surface renders out of the roster reply stops being stale, so the rule is
+ * "every registered name that moves a member of that reply" — and by the table, all
+ * seven do. Carrying only the state-transition half was a partition drawn on the
+ * PAYLOAD's shape rather than on the reply's, and it left `capabilities` — which the
+ * settings page renders one block from, beside the rows — updated by nothing: a node
+ * re-declaring a capability changed the answer and raised no re-read, so the
+ * declarations block stood on a stale reading until an unrelated transition, a window
+ * focus, or a reconnect happened along. The two capability names have a V1 producer
+ * and the settings scenario already scripts a `runtime_node.capability_declared` beat.
+ *
+ * The two with no V1 producer stay in for the reason they were always in:
+ * `runtime_node.degraded` and `runtime_node.revoked` are census members whose durable
+ * producers are V1.1-gated, so subscribing to them costs one no-op subscription today
+ * and needs no console change the day a producer lands — and the settings scenario
+ * already scripts a `runtime_node.degraded` beat, which a subscription that skipped
+ * the name would silently drop.
  *
  * Derived from the table rather than written again, so the two cannot disagree.
  * `Object.keys` of the keyed record, narrowed the way `bridge-shape.ts` narrows its
  * namespace table: the keys of a record annotated `Record<RuntimeNodeEventName, …>`
- * ARE that union, and the filter then reads the table by key rather than
- * destructuring a widened entry pair, so the classification stays type-checked.
+ * ARE that union. An eighth registered name that moved NO roster member would be the
+ * one case this derivation could not express — and it would have to name a third
+ * member value to compile at all, which is where that decision belongs.
  */
-export const RUNTIME_NODE_PRESENCE_EVENT_NAMES: readonly RuntimeNodeEventName[] = (
-  Object.keys(RUNTIME_NODE_EVENT_AXIS_BY_NAME) as RuntimeNodeEventName[]
-).filter((eventName) => RUNTIME_NODE_EVENT_AXIS_BY_NAME[eventName] === "state-transition");
+export const RUNTIME_NODE_PRESENCE_EVENT_NAMES: readonly RuntimeNodeEventName[] = Object.keys(
+  ROSTER_MEMBER_BY_RUNTIME_NODE_EVENT,
+) as RuntimeNodeEventName[];
 
 /**
  * The codes the LIVE arms fall back to, and only fall back to.

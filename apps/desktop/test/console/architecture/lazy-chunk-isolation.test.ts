@@ -41,11 +41,23 @@
 // the eager graph. So moving the page moves the claim with it, and deleting the loader
 // fails the derivation rather than quietly asserting nothing.
 //
-// ROOTED AT THE COMPOSITION SITES, which is the one entry list this tree can be trusted to
-// hold. `console-root-is-composition-only` in `.dependency-cruiser.mjs` fails any other
-// module directly under `console/` that imports into the console, and
-// `COMPOSITION_ROOT_FILES` beside it is the enumeration that rule is written against, so
-// these roots are that same closed set rather than a second reading of it.
+// ROOTED AT THE COMPOSITION SITES, READ OFF THE TREE RATHER THAN LISTED HERE.
+// `console-root-is-composition-only` in `.dependency-cruiser.mjs` fails any module directly
+// under `console/` that imports into the console and is not enumerated in
+// `COMPOSITION_ROOT_FILES`, so every root that can contribute to the eager graph is a
+// module directly under `console/` — and the walk this tier already performs knows which
+// those are. A hand-written copy of that enumeration was what this held first, and it went
+// stale the moment a family landed a root registrar of its own: the copy still named three,
+// the console held four, and the understated closure would have reported an empty finding
+// as a clean tree. Reading the tree cannot go stale, and it is strictly the safer side of
+// the difference — a root the enumeration has not admitted yet is one this walk follows
+// anyway, while one it admits and this walk skipped is a hole.
+//
+// AND THE DERIVATION ITSELF NOW LIVES IN `stylesheet-static-reach.ts`, hoisted on its
+// second reader rather than copied to it: `stylesheet-chunk-root-ownership.test.ts` asks
+// the converse question — is anything ON the eager graph rendering against a sheet only a
+// chunk carries — and two copies of one walk are how the two claims would come to disagree
+// about which roots count while both stayed green.
 
 import { posix, win32 } from "node:path";
 
@@ -54,34 +66,10 @@ import { describe, expect, it } from "vitest";
 import { toPosixSeparators } from "../console-source-modules.js";
 import { CONSOLE_STYLESHEET_TREE, resolveStylesheet } from "./stylesheet-edge-graph.js";
 import { dynamicImportSpecifiers } from "./stylesheet-specifiers.js";
-import { StylesheetReachIndex } from "./stylesheet-static-reach.js";
-
-/**
- * The console's composition sites, as `COMPOSITION_ROOT_FILES` enumerates them.
- *
- * Tree-relative, because that is how the tree is keyed. They are the only modules directly
- * under `console/` permitted to import into it, so the eager graph is their static closure
- * and a fourth entry cannot appear without `console-root-is-composition-only` failing.
- */
-const COMPOSITION_ROOTS: readonly string[] = [
-  "families.ts",
-  "collaboration-family.ts",
-  "sidekicks-settings-page.ts",
-];
+import { StylesheetReachIndex, eagerlyReachedModules } from "./stylesheet-static-reach.js";
 
 /** The module that registers the sidekicks settings page, and holds its loader. */
 const SIDEKICKS_PAGE_REGISTRATION = "sidekicks-settings-page.ts";
-
-/** Every console module the composition sites reach without crossing an `import()`. */
-function eagerlyReachedModules(index: StylesheetReachIndex): ReadonlySet<string> {
-  const reached = new Set<string>();
-  for (const root of COMPOSITION_ROOTS) {
-    for (const modulePath of index.reachableFrom(root)) {
-      reached.add(modulePath);
-    }
-  }
-  return reached;
-}
 
 /**
  * The directory a resolved tree path sits in, as a prefix a tree path starts with.
@@ -127,7 +115,7 @@ describe("the sidekicks settings page", () => {
   it("has no module of its own reachable without crossing its loader", () => {
     const directory = sidekicksChunkDirectory();
     const index = new StylesheetReachIndex(CONSOLE_STYLESHEET_TREE);
-    const eagerlyReached = [...eagerlyReachedModules(index)]
+    const eagerlyReached = [...eagerlyReachedModules(CONSOLE_STYLESHEET_TREE, index)]
       .filter((modulePath) => modulePath.startsWith(directory))
       .sort();
     expect(
@@ -146,7 +134,7 @@ describe("the sidekicks settings page", () => {
     // agent console's surface — so the walk demonstrably reaches into that family, and the
     // page's absence is a fact about the page rather than about the walk.
     const index = new StylesheetReachIndex(CONSOLE_STYLESHEET_TREE);
-    const eager = eagerlyReachedModules(index);
+    const eager = eagerlyReachedModules(CONSOLE_STYLESHEET_TREE, index);
     expect(eager.has("agents/index.ts")).toBe(true);
     expect(eager.has("agents/definitions/SidekickDefinitionsPage.tsx")).toBe(false);
   });

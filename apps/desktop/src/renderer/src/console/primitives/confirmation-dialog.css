@@ -1,0 +1,88 @@
+/* The console's confirming dialog.
+ *
+ * Its own sheet beside the other primitives' for the reason each of theirs is its own:
+ * one sheet per primitive, entering through this family's door and nowhere else.
+ *
+ * THE TRIGGER DELIBERATELY CARRIES NO RULES HERE. It is a control in the caller's own
+ * row and wears that row's class — a members row-action, a settings page action — so a
+ * confirming act and a plain one sit on the same row looking the same until they are
+ * pressed, which is the honest reading, because the difference between them is what
+ * happens next and not what they are. What this sheet owns starts at the backdrop.
+ *
+ * Sized in `ch` rather than pixels: the popup holds one sentence of consequence, and a
+ * measure is what keeps that sentence readable at any window width.
+ */
+
+.meridian-confirm__backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-confirm {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-confirm__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-confirm__body {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-confirm__acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-confirm__keep,
+.meridian-confirm__confirm {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+}
+
+.meridian-confirm__keep:hover,
+.meridian-confirm__confirm:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-confirm :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-confirm__confirm--primary {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent);
+}
+
+.meridian-confirm__confirm--destructive {
+  border-color: var(--meridian-red-mark);
+  color: var(--meridian-red-text);
+}

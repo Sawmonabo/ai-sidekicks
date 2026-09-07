@@ -18,6 +18,7 @@ import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../bridge/scenarios/workflow-
 import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-ids.js";
 import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
 import type { GrowthPort } from "../../bridge/index.js";
+import { NO_TRANSPORT_RECONNECT } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../../store/index.js";
 import type { ConsolePaneAddress } from "../../seats/index.js";
@@ -96,6 +97,7 @@ function renderDestination(
         {(scope, onScopeChange) => (
           <WorkflowsDestination
             growth={growth}
+            transportReconnect={NO_TRANSPORT_RECONNECT}
             frameStore={frameStore}
             sessionStoreRegistry={registry}
             scope={scope}

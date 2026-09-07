@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { GrowthPort } from "../bridge/index.js";
 import { createFixtureBridge } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
+import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
@@ -68,8 +69,10 @@ function contextFor(
     route,
     // A REAL growth port, defaulting to the refusing one so a case that says
     // nothing about the directory gets the live bridge's answer rather than a
-    // convenient one.
-    bridge: { growth },
+    // convenient one. The reconnect signal is the silent one: no case here drives an
+    // outage, and a probe that drives none takes it rather than leaving the member
+    // off a cast the compiler cannot check.
+    bridge: { growth, transportReconnect: NO_TRANSPORT_RECONNECT },
     frameStore,
     sessionStore: undefined,
     sessionStoreRegistry: registry,

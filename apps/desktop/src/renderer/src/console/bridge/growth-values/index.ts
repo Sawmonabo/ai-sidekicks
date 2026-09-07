@@ -117,6 +117,40 @@ export {
 // task it named. A door line with no reader is deleted rather than re-dated.
 export type { GrowthBudgetState, GrowthCostReceipt } from "./cost-receipts.js";
 
+// The diagnostics plane's reply shapes — exactly the six `growth-signatures/
+// diagnostics.ts` names, and no more. This door publishes what a SIBLING takes: the
+// vocabularies and the row shapes the diagnostics page renders have no reader inside
+// this family, so they leave through `bridge/index.ts` from the module that declares
+// them rather than through here, where they would be door lines no sibling reaches.
+export type {
+  GrowthFailureDetail,
+  GrowthHealthStatus,
+  GrowthRecoveryAction,
+  GrowthRecoveryReceipt,
+  GrowthRedactionPolicy,
+  GrowthStuckRunInspection,
+} from "./diagnostics.js";
+
+// The MCP governance plane's shapes. Through this door because a SIBLING takes them:
+// `growth-signatures/mcp.ts` composes the inventory entry, the binding identity, and
+// the mutation result into its request and value members, and `scenarios/
+// settings/mcp-plane.ts` composes all four into the answer it computes per requested
+// binding — the per-leg outcome among them, since a mutation's reply carries what
+// applying it did to each live session. The vocabularies and the row shapes only the
+// operator page renders leave through `bridge/index.ts` from the module that declares
+// them, where they are not door lines no sibling reaches.
+export type {
+  GrowthMcpBindingRef,
+  GrowthMcpInventoryEntry,
+  GrowthMcpLiveApplicationResult,
+  GrowthMcpMutationResult,
+} from "./mcp.js";
+// The binding identity, through this door because a SIBLING takes it: the fixture's
+// inventory ledger substitutes a mutated row by the same key the operator page keys an
+// outcome by, and a second encoder in either place would be one binding under two
+// identities.
+export { mcpBindingKeyOf } from "./mcp.js";
+
 // What the channel plane's and the membership plane's SIGNATURES take, and nothing
 // else. Every one of these is a shape `Spec-016` / `Spec-002` register and
 // `packages/contracts` does not carry, which is what puts them here rather than behind

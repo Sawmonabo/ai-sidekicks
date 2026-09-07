@@ -6,15 +6,16 @@
 // partition that closes the pane first". Nothing else about the browser is placed
 // here, and no policy row is placed anywhere else.
 //
-// WHERE THIS PAGE IS MOUNTED. The console's surface registry is keyed by SLOT, and
-// `settings` is one slot for the whole of chapter 13 — sixteen-odd pages, of which
-// this is one — so this page claims no slot of its own: claiming `settings` for the
-// browser alone would take the surface every other chapter-13 page needs. The
-// settings family's own page registry is what resolves that, `browser` is a member of
-// its closed section set, and the registration is made where every other chapter-13
-// page's is, in that family's registrar. This file is a page body and composes
-// nothing — the alternative, registering from here, would put one family's page into
-// another family's spine and make the order pages appear in depend on import order.
+// WHERE THIS PAGE IS MOUNTED. On the settings board, as the `browser` section. The
+// console's surface registry is keyed by SLOT and `settings` is one slot for the whole
+// of chapter 13, so the pages behind it are keyed by SECTION in a registry of their
+// own — and this page claims no slot for exactly that reason: claiming `settings` for
+// the browser alone would take the surface every other chapter-13 page needs. The one
+// line that registers it lives at the console ROOT, in `console/browser-settings-page.ts`,
+// because the registration names two view families and neither family may name the
+// other. Its reads are `browser-settings-source.ts` beside this file, bound by
+// `BrowserSettingsSection.tsx`, so nothing below changes: this page still fetches
+// nothing.
 //
 // THE PARTITION TABLE IS A PROJECTION, NOT A READ. Every figure on it arrives as a
 // prop: this page performs no fetch, holds no store, and runs no effect. That is

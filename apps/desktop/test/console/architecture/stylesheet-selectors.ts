@@ -38,10 +38,9 @@
  * class, and the rules nested inside it are reached by the same scan one level down.
  */
 export function selectorPreludes(cssText: string): readonly string[] {
-  const withoutComments = cssText.replaceAll(/\/\*[\s\S]*?\*\//gu, "");
   const preludes: string[] = [];
   let buffer = "";
-  for (const character of withoutComments) {
+  for (const character of withoutComments(cssText)) {
     if (character === "{" || character === "}" || character === ";") {
       const prelude = buffer.trim();
       if (character === "{" && prelude !== "" && !prelude.startsWith("@")) {
@@ -74,4 +73,75 @@ export function declaredClassNames(cssText: string): ReadonlySet<string> {
     }
   }
   return classNames;
+}
+
+/** One declaration inside a rule body: the property, and the value it was given. */
+export interface StylesheetDeclaration {
+  /** Lowercased, so a property is one string however it was typed. */
+  readonly property: string;
+  /** Trimmed, otherwise verbatim — functions, custom properties, and all. */
+  readonly value: string;
+}
+
+/**
+ * Every declaration a stylesheet makes, in source order.
+ *
+ * THE OTHER HALF OF THE SAME SCAN, and it is here rather than beside its one gate for
+ * this module's own stated reason: the comment strip and the brace walk are the part
+ * two readings of a stylesheet share, and a second copy of either drifts silently.
+ * {@link selectorPreludes} reads what precedes a `{`; this reads what follows one.
+ *
+ * DEPTH IS WHAT SEPARATES A DECLARATION FROM A PRELUDE. Text terminated by `;` or `}`
+ * at depth zero is not inside any rule — `@import url(x.css);` is the live shape — and
+ * an at-rule's own prelude never reaches a terminator at all, because the buffer resets
+ * at the `{` that opens it. So `@media (min-width: 40rem)` yields no `min-width`
+ * declaration even though it carries a colon.
+ *
+ * Over-reporting is impossible in the direction that matters and under-reporting is the
+ * only risk, so the reader refuses anything whose property is not a plain identifier: a
+ * caller uses this to REFUSE a declaration, and a malformed split would refuse text
+ * nobody wrote.
+ */
+export function ruleDeclarations(cssText: string): readonly StylesheetDeclaration[] {
+  const declarations: StylesheetDeclaration[] = [];
+  let buffer = "";
+  let depth = 0;
+  for (const character of withoutComments(cssText)) {
+    if (character === "{") {
+      depth += 1;
+      buffer = "";
+      continue;
+    }
+    if (character === "}" || character === ";") {
+      const declaration = depth === 0 ? undefined : readDeclaration(buffer);
+      if (declaration !== undefined) {
+        declarations.push(declaration);
+      }
+      if (character === "}") {
+        depth = Math.max(0, depth - 1);
+      }
+      buffer = "";
+      continue;
+    }
+    buffer += character;
+  }
+  return declarations;
+}
+
+/** A stylesheet with its comments removed, which is where both scans start. */
+function withoutComments(cssText: string): string {
+  return cssText.replaceAll(/\/\*[\s\S]*?\*\//gu, "");
+}
+
+/** One buffered `property: value`, or nothing where the text is not one. */
+function readDeclaration(buffer: string): StylesheetDeclaration | undefined {
+  const separator = buffer.indexOf(":");
+  if (separator === -1) {
+    return undefined;
+  }
+  const property = buffer.slice(0, separator).trim();
+  if (!/^-{0,2}[a-zA-Z][\w-]*$/u.test(property)) {
+    return undefined;
+  }
+  return { property: property.toLowerCase(), value: buffer.slice(separator + 1).trim() };
 }

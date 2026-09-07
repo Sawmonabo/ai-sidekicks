@@ -99,6 +99,7 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
         route={route.route}
         registry={context.sessionStoreRegistry}
         growth={context.bridge.growth}
+        transportReconnect={context.bridge.transportReconnect}
         onChoose={(target) => {
           // The picker hands over a COMPLETE target, so the spread cannot build a
           // route the hash writer will refuse. It used to hand over a session id

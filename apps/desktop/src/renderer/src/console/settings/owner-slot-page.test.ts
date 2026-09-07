@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import { renderOwnerSlotPage, type OwnerSlotPage } from "./owner-slot-page.js";
 import type { SettingsPageContext } from "./settings-page-registry.js";
+import { consoleTestUiStateStore } from "./settings-page-mount.test-support.js";
 import { UNREPORTED_SHELL_STATE } from "../store/index.js";
 
 describe("a settings page whose body another plan authors", () => {
@@ -25,6 +26,7 @@ describe("a settings page whose body another plan authors", () => {
     retainedSessionStore: undefined,
     shellState: UNREPORTED_SHELL_STATE,
     selection: undefined,
+    uiStateStore: consoleTestUiStateStore(),
   } satisfies SettingsPageContext;
 
   const RESERVED: OwnerSlotPage = {
