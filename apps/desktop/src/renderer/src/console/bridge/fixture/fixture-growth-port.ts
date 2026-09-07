@@ -14,8 +14,9 @@
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
 // them, `fixture-onboarding-answers.ts` holds the onboarding plane and the ledger its
-// own mutations move, and `fixture-scripted-answer.ts` maps a scripted settlement onto
-// an outcome — reads and writes both.
+// own mutations move, `fixture-shell-answers.ts` holds the shell plane and the one
+// channel its feed and its three controls share, and `fixture-scripted-answer.ts` maps
+// a scripted settlement onto an outcome — reads and writes both.
 //
 
 import {
@@ -27,12 +28,7 @@ import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
 import { answerFromScriptedReply, answerScriptedWrite } from "./fixture-scripted-answer.js";
 import { fixtureOnboardingAnswers } from "./fixture-onboarding-answers.js";
-import {
-  FixtureShellChannel,
-  SHELL_STATUS_SCRIPT,
-  startingReport,
-  stoppedReport,
-} from "./fixture-shell-status.js";
+import { fixtureShellAnswers } from "./fixture-shell-answers.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import {
@@ -49,14 +45,12 @@ import {
   PROVIDER_SESSION_IMPORT_BEGIN_CALL,
   PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
   PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
-  SHELL_NOTIFICATION_PERMISSION_CALL,
 } from "../scenarios/bring-your-history.js";
 // The routing key itself, from the scenario module that mints it — the workflow
 // enumeration's rule one file over: restated as a literal here, a rename would move
 // the constant and the reply and leave this handler answering a key nothing sends.
 import { REPOS_EXECUTION_CONTEXT_CALL } from "../scenarios/repos-mutation-replies.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
-import type { ShellReport } from "../../store/index.js";
 
 /**
  * Build the fixture's growth port for one running scenario.
@@ -68,17 +62,16 @@ import type { ShellReport } from "../../store/index.js";
  * function` in a surface.
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
-  // One channel per port, so the feed and the three controls answer about one
-  // shell and a control pressed in this window cannot move another window's.
-  const shellChannel = new FixtureShellChannel(engine);
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
-    // workflow and onboarding — spread from the modules that implement them, so the
-    // served ids next door and the handlers there are held to each other by the `Pick`
-    // above. The onboarding plane also owns the fixture's one piece of caller-moved
-    // state, which is why it is a module and not a block here: its ledger is minted per
-    // port inside that call, so a step recorded in this window reaches no other.
+    // workflow, onboarding and shell — spread from the modules that implement them, so
+    // the served ids next door and the handlers there are held to each other by the
+    // `Pick` above. The onboarding and shell planes also own the fixture's per-caller
+    // state, which is why each is a module and not a block here: the onboarding ledger
+    // and the shell channel are both minted per port inside those calls, so a step
+    // recorded — or a control pressed — in this window reaches no other.
     ...fixtureWorkflowReads(engine),
     ...fixtureOnboardingAnswers(engine),
+    ...fixtureShellAnswers(engine),
     sessionRead: async (request) => ({
       status: "served",
       value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
@@ -259,26 +252,6 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "sidekickPeerInvocationSet",
         request,
       ),
-    // The shell's notification permission, from the script and from nowhere else. It
-    // is a READ with no empty form, which puts it beside the subject-addressed
-    // workflow reads rather than beside the enumerations: `granted`, `denied` and
-    // `not-determined` are three answers and none of them is "nobody asked", so a
-    // scenario that scripts nothing has left the question unasked and the read says
-    // so. Answering `granted` by default would be worse than refusing — the centre
-    // would stop saying it is the only surface, on a fixture where no notification
-    // can be delivered at all.
-    shellNotificationPermissionRead: async (request) =>
-      await answerFromScriptedReply(
-        engine,
-        SHELL_NOTIFICATION_PERMISSION_CALL,
-        "shellNotificationPermissionRead",
-        request,
-        () =>
-          growthUnscriptedReply(
-            "shellNotificationPermissionRead",
-            SHELL_NOTIFICATION_PERMISSION_CALL,
-          ),
-      ),
     // The provider-session import, both halves from the script. The opening call is a
     // WRITE — there is no "the import that began and produced nothing" — and the
     // subscription is addressed by the import that call minted, so neither has an
@@ -320,39 +293,6 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
           ),
       ),
-    // The shell's own condition — the one FEED this port serves, opened from the
-    // frames a scenario declares and refused by a scenario that declares none.
-    //
-    // That refusal is the SCENARIO's gap and never the build's, which is why it takes
-    // the unscripted code rather than `wire-unregistered`: this port implements the
-    // feed, and `wire-unregistered` would send a reader to the document owing a wire
-    // the fixture already stands in for. What is missing is the scenario's own
-    // `shellStatus` declaration, so the sentence names that rather than a call.
-    shellStatusSubscribe: async () => {
-      const stream = shellChannel.open();
-      return stream === undefined
-        ? growthUnscriptedReply("shellStatusSubscribe", SHELL_STATUS_SCRIPT)
-        : { status: "served", value: stream };
-    },
-    // The three daemon controls answer about the same shell the feed does, through
-    // the one channel above, and refuse for the same reason and by the same name
-    // where the scenario declares no shell condition — a control that moved a shell
-    // nobody declared would be the fixture inventing the state the feed will not.
-    daemonStatusRead: async () => {
-      const current = shellChannel.current();
-      return current?.negotiation === undefined
-        ? growthUnscriptedReply("daemonStatusRead", SHELL_STATUS_SCRIPT)
-        : {
-            status: "served",
-            value: {
-              state: current.connection.kind,
-              version: current.negotiation.daemonProtocolVersion,
-            },
-          };
-    },
-    daemonStop: async () => publishShellControl(shellChannel, "daemonStop", stoppedReport),
-    daemonRestart: async () => publishShellControl(shellChannel, "daemonRestart", startingReport),
-    daemonStart: async () => publishShellControl(shellChannel, "daemonStart", startingReport),
     // repos — the workspace's own execution context.
     //
     // ITS UNSCRIPTED ARM IS THE WORKFLOW SUBJECT READS' AND NOT THE INVITE LEDGER'S,
@@ -400,23 +340,4 @@ async function answerApprovalRead<TRow>(
     ),
     narrow,
   );
-}
-
-/**
- * Move the fixture's shell with one control, or refuse where none is scripted.
- *
- * The three controls differ only in the report they produce, so the refusal rule —
- * and the fact that a control answers `void` rather than a state — is written once.
- */
-function publishShellControl(
-  channel: FixtureShellChannel,
-  operationId: "daemonStop" | "daemonRestart" | "daemonStart",
-  next: (current: ShellReport) => ShellReport,
-): GrowthOutcome<void> {
-  const current = channel.current();
-  if (current === undefined) {
-    return growthUnscriptedReply(operationId, SHELL_STATUS_SCRIPT);
-  }
-  channel.publish(next(current));
-  return { status: "served", value: undefined };
 }

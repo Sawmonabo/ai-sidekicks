@@ -218,6 +218,7 @@
 // true state of that wire.
 
 import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "./fixture-onboarding-answers.js";
+import { FIXTURE_SERVED_SHELL_OPERATION_IDS } from "./fixture-shell-answers.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
 /**
@@ -230,8 +231,9 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.
  *
  * Written as an annotated tuple rather than `as const`, on the
  * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
- * carrying a spread, so the two planes that own their own module reach the annotation
- * as `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS` and
+ * carrying a spread, so each plane that owns its own module reaches the annotation as
+ * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`,
+ * `...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS` and
  * `...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS`. Each is named in one place and
  * spread in the other, and the compiler holds the two to each other.
  */
@@ -255,14 +257,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
   "workspaceExecutionContextRead",
-  "shellNotificationPermissionRead",
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",
-  "shellStatusSubscribe",
-  "daemonStatusRead",
-  "daemonStop",
-  "daemonRestart",
-  "daemonStart",
+  ...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
@@ -309,30 +306,25 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // repos — the workspace's own execution context, answered from a scenario that
   // scripts one and refused for one that does not. See the header.
   "workspaceExecutionContextRead",
-  // shell — whether this machine will display an OS notification, from a scenario
-  // that says so and refused from one that does not.
-  "shellNotificationPermissionRead",
   // provider-session import — the opening call and the progress subscription it
   // mints a subject for, both answered from a scenario that scripts the import and
   // refused by one that does not.
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",
-  // the shell's own condition — the first FEED this fixture serves, answered from the
-  // frames a scenario declares against the frozen clock and refused by one that
-  // declares none. It is script-only for the reason the write operations below are:
-  // there is no such thing as "the shell reported and said nothing", and a served
-  // stream that never yielded would read on screen exactly like a shell that has not
-  // reported — one of which is a scripting gap and the other the console's ordinary
-  // state.
-  "shellStatusSubscribe",
-  // the three daemon controls and the status read, answered from the same channel the
-  // feed is answered from — so a stop moves what the feed says rather than resolving
-  // into a shell nothing reports. All four refuse under a scenario that scripts no
-  // shell condition, for the same reason the feed does.
-  "daemonStatusRead",
-  "daemonStop",
-  "daemonRestart",
-  "daemonStart",
+  // shell — the whole six-operation plane, taken from the module that implements it so
+  // the ids and the handlers cannot disagree. Whether this machine will display an OS
+  // notification comes from a scenario that says so and is refused by one that does
+  // not. The shell's own condition is the first FEED this fixture serves, answered
+  // from the frames a scenario declares against the frozen clock: it is script-only
+  // for the reason the write operations are, since there is no such thing as "the
+  // shell reported and said nothing", and a served stream that never yielded would
+  // read on screen exactly like a shell that has not reported — one of which is a
+  // scripting gap and the other the console's ordinary state. The three daemon
+  // controls and the status read answer from the same channel the feed is answered
+  // from, so a stop moves what the feed says rather than resolving into a shell
+  // nothing reports, and all four refuse under a scenario that scripts no shell
+  // condition for the same reason the feed does.
+  ...FIXTURE_SERVED_SHELL_OPERATION_IDS,
   // onboarding — the whole seven-operation surface, taken from the module that
   // implements it so the ids and the handlers cannot disagree. The split between them
   // is this module's own rule rather than a preference. The state read has an honest

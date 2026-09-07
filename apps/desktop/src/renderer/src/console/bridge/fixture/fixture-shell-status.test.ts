@@ -16,7 +16,7 @@
 // cases with it instead of leaving them green against numbers nobody kept.
 //
 // WHAT IS NOT HERE. The unscripted refusal and the three controls' wire shapes are
-// `fixture-growth-port`'s; this file owns the channel's ordering rule and nothing else.
+// `fixture-shell-answers`'s; this file owns the channel's ordering rule and nothing else.
 
 import { describe, expect, it } from "vitest";
 
