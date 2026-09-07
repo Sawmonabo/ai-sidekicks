@@ -17,6 +17,16 @@
 // is one of them, but the command palette is its own — the same three parts, a
 // different thing on screen — so the kind is a parameter defaulted to the common
 // answer rather than fixed here.
+//
+// AND SO IS THE NAME, WHICHEVER WAY THE CALLER GIVES IT. A surface that mounts a
+// `Dialog.Title` has already named its dialog — Base UI hands the popup that title's
+// id as `aria-labelledby` (`DialogPopup`'s own `'aria-labelledby': titleElementId`,
+// measured against the installed 1.7.0) — so `label` is for the surface that heads its
+// popup with an ordinary element instead. It is optional for that reason and not as a
+// relaxation: a `label` passed beside a title is a second spelling of one name that no
+// accessible-name computation ever reads, since `aria-labelledby` wins over
+// `aria-label`, and the two drift the first time one of them is reworded.
+// `OverlayAlertDialogPopup` takes no label at all on the same reasoning.
 
 import { Dialog } from "@base-ui/react/dialog";
 
@@ -30,8 +40,8 @@ export interface OverlayDialogPopupProps {
   readonly container?: HTMLElement | null | undefined;
   readonly backdropClassName: string;
   readonly className: string;
-  /** The popup's accessible name. A dialog without one is an unnamed region. */
-  readonly label: string;
+  /** The popup's accessible name, for a surface that mounts no `Dialog.Title` of its own. */
+  readonly label?: string | undefined;
   /** What takes focus when the dialog opens, where the caller owns a better answer. */
   readonly initialFocus?: React.RefObject<HTMLElement | null> | undefined;
   readonly children: React.ReactNode;
