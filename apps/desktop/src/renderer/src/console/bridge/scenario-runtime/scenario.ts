@@ -174,9 +174,18 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * and reaches the caller in exactly the shape the `refusal` arm reaches it in. The two
  * are different facts — an authoring gap and a scripted refusal — and a computed reply
  * that holds an entity table has both to report.
+ *
+ * AND IT IS HANDED THE INSTANT IT SETTLES AT, which is what lets a room answer a read
+ * about a lifetime. A ledger row that expires forty seconds in was a fixed `pending`
+ * for the life of the window: every re-read past the expiry answered the state the
+ * scenario had at tick zero, so the one thing that room was written to show — an
+ * invitation ageing out — was unreachable from it. The instant comes off the engine's
+ * own frozen clock, so it is the SAME timeline the beats are due on rather than a
+ * second one a reply could drift from, and a computation that ignores it settles
+ * exactly where it always did.
  */
 export interface ScenarioComputedReply extends ScenarioReplyBase {
-  readonly resultFor: (request: unknown) => unknown;
+  readonly resultFor: (request: unknown, settledAtMilliseconds: number) => unknown;
   readonly result?: never;
   readonly refusal?: never;
 }

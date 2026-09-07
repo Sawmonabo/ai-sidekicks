@@ -1,5 +1,5 @@
-// What a `daemon.subscribe` name delivers: the closed set of session-event STREAMS
-// and the event kinds each one carries.
+// What a `daemon.subscribe` name delivers: the closed set of registered STREAMS and
+// the event kinds each one carries.
 //
 // `daemon.subscribe(name, handler)` names either a registered STREAM or a single
 // event type, and the two answer differently — a stream delivers a projection of
@@ -29,6 +29,14 @@
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection, which is
 //     what each `queue_item.*` row announces, so its kinds are that root within
 //     the registered census.
+//   • `presence.subscribe` — the session's Awareness room, which is the one row here
+//     that is not a session-event stream and is registered anyway: it IS a
+//     `daemon.subscribe` name, and a table that held every OTHER name left this one
+//     falling through to the bare-event-type arm, where it matched the kind
+//     `presence.subscribe` that no census registers and therefore delivered nothing
+//     at all. Its kinds are the `presence.` root — the four transitions that move the
+//     room — and what it delivers is a payload-free CHANGE SIGNAL rather than any of
+//     them, because the read is the truth and the push is only a signal.
 //
 // HOW THE KINDS STAY BOUND TO THE WIRE. Every kind below is a member of a record
 // declared `satisfies Record<<derived kind union>, …>`, and each union is
@@ -79,6 +87,17 @@ export const RUN_STATE_EVENT_STREAM = "run.subscribeState";
 
 /** The registered subscription name for a session's queue-projection stream. */
 export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
+
+/**
+ * The registered subscription name for a session's Awareness room.
+ *
+ * Declared here for the reason the three above are: this module is the one place that
+ * says what a `daemon.subscribe` name delivers, and a second spelling of a subscribe
+ * name is the drift it exists to end. Two console surfaces answer this push with two
+ * different reads — who is present, and what they are doing — and neither opens its
+ * payload.
+ */
+export const PRESENCE_EVENT_STREAM = "presence.subscribe";
 
 /** The namespace prefix every run-lifecycle event kind carries. */
 const RUN_EVENT_KIND_PREFIX = "run.";
@@ -178,6 +197,24 @@ const RUN_QUEUE_STREAM_STATE_BY_KIND: Readonly<Record<RunQueueStreamKind, QueueI
   } satisfies Record<RunQueueStreamKind, QueueItemState>);
 
 /**
+ * The registered event kinds that move a session's Awareness room.
+ *
+ * The `presence.` root of the census, `Extract`ed rather than listed, so a presence
+ * transition the corpus registers later is carried without anyone editing this file.
+ * The value is `true` and carries no meaning of its own: the room's whole reading
+ * comes from `presence.read`, so what a kind announces here is only THAT the room
+ * moved.
+ */
+type PresenceStreamKind = Extract<SessionEventType, `presence.${string}`>;
+
+const PRESENCE_STREAM_KINDS: Readonly<Record<PresenceStreamKind, true>> = Object.freeze({
+  "presence.online": true,
+  "presence.idle": true,
+  "presence.reconnecting": true,
+  "presence.offline": true,
+} satisfies Record<PresenceStreamKind, true>);
+
+/**
  * A stream that carries a session's whole event log.
  *
  * It enumerates no kinds, and the absence is the honest shape rather than a gap:
@@ -206,8 +243,33 @@ export interface NarrowedSessionEventStream {
   readonly carriedKinds: readonly string[];
 }
 
-/** One registered session-event stream. */
-export type ConsoleSessionEventStream = WholeSessionEventStream | NarrowedSessionEventStream;
+/**
+ * A stream whose deliveries are CHANGE SIGNALS rather than frames.
+ *
+ * It carries kinds like a narrowed stream and delivers none of them: what reaches a
+ * subscriber is that the room moved, and the reading comes from the room's own read.
+ * A separate scope rather than a narrowed stream with a flag, because the two answer a
+ * subscriber differently at the delivery seam — `fixture-subscriptions.ts` routes on
+ * exactly this discriminant — and a flag on the narrowed row would have to be read by
+ * everything that handles one.
+ *
+ * Its kinds are not the whole of when it fires. A room moves when somebody's presence
+ * transitions, which is a kind here, and when what they are DOING changes, which the
+ * census carries no event for at all: composing rides beside presence rather than
+ * inside it. So the kinds are the log-borne half, and whatever serves this
+ * subscription owns the other.
+ */
+export interface AwarenessSignalStream {
+  readonly scope: "awareness-signal";
+  /** The log-borne half of when the room moves. Frozen, for `carriedKinds`' reason. */
+  readonly carriedKinds: readonly string[];
+}
+
+/** One registered subscription this console opens. */
+export type ConsoleSessionEventStream =
+  | WholeSessionEventStream
+  | NarrowedSessionEventStream
+  | AwarenessSignalStream;
 
 /**
  * One registered stream name — the three declarations above, read as a type.
@@ -220,7 +282,8 @@ export type ConsoleSessionEventStream = WholeSessionEventStream | NarrowedSessio
 export type ConsoleSessionEventStreamName =
   | typeof SESSION_EVENT_STREAM
   | typeof RUN_STATE_EVENT_STREAM
-  | typeof RUN_QUEUE_EVENT_STREAM;
+  | typeof RUN_QUEUE_EVENT_STREAM
+  | typeof PRESENCE_EVENT_STREAM;
 
 /**
  * Every session-event stream the console can subscribe to. Closed, frozen, and the
@@ -248,6 +311,10 @@ export const CONSOLE_SESSION_EVENT_STREAMS: Readonly<
   [RUN_QUEUE_EVENT_STREAM]: Object.freeze({
     scope: "selected-kinds",
     carriedKinds: Object.freeze(Object.keys(RUN_QUEUE_STREAM_STATE_BY_KIND)),
+  } satisfies ConsoleSessionEventStream),
+  [PRESENCE_EVENT_STREAM]: Object.freeze({
+    scope: "awareness-signal",
+    carriedKinds: Object.freeze(Object.keys(PRESENCE_STREAM_KINDS)),
   } satisfies ConsoleSessionEventStream),
 });
 
@@ -295,7 +362,7 @@ export function sessionEventStreamFor(
 }
 
 /**
- * Does a subscriber that named `subscriptionName` receive an event of this kind?
+ * Does a subscriber that named `subscriptionName` hear about an event of this kind?
  *
  * The two arms of `daemon.subscribe` in one predicate, because they are one
  * decision: a registered stream delivers what its row carries, and every other
@@ -304,6 +371,11 @@ export function sessionEventStreamFor(
  * receives nothing, which is what the daemon does with a subscription it cannot
  * serve and what keeps an unnoticed misspelling from quietly reading as an empty
  * session.
+ *
+ * HEARS ABOUT rather than RECEIVES, for the awareness row alone: its subscriber is
+ * handed a payload-free signal when one of its kinds lands, never the frame. What is
+ * delivered is the serving seam's answer; this one is about which kinds bear on the
+ * subscription at all.
  */
 export function subscriptionDeliversEventKind(
   subscriptionName: string,

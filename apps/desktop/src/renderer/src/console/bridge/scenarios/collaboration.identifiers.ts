@@ -8,10 +8,12 @@
 // is how a fixture comes to answer a read about a person no beat admitted.
 //
 // THE ROSTER IS A TWO-ARM UNION AND THAT IS LOAD-BEARING. `collaboration.beats.ts`
-// narrows it twice — to the rows carrying a membership id, and to the rows that are
-// not `online` — through `Extract` and `Exclude` over
-// {@link CollaborationParticipant}, and both narrowings resolve to
-// {@link CollaborationJoiner}. Declaring the arms is also what lets the table be
+// narrows it to the rows that are not `online` — through `Exclude` over
+// {@link CollaborationParticipant}, resolving to {@link CollaborationJoiner} — so the
+// three presence transitions are derived from the roster rather than written a second
+// time. It does NOT narrow the membership beats: every person in this room is admitted
+// by one, the opener included, which is what the two arms now differ about and what
+// they used to differ about wrongly. Declaring the arms is also what lets the table be
 // EXPORTED at all: `--isolatedDeclarations` cannot write the declaration for an
 // `as const` table whose members are references to other constants, which is what
 // this table was while it lived beside its one reader.
@@ -35,6 +37,12 @@ export const PARTICIPANT_YOU = "019b7904-8ce0-79a4-8110-cca0117a0330" as Partici
 export const PARTICIPANT_PRIYA = "019b7904-8ce0-79a4-8120-cca0117a0340" as ParticipantId;
 export const PARTICIPANT_TOMAS = "019b7904-8ce0-79a4-8130-cca0117a0350" as ParticipantId;
 const PARTICIPANT_NOAH = "019b7904-8ce0-79a4-8140-cca0117a0355" as ParticipantId;
+// The opener's own. Minted here beside the other three rather than in the growth
+// script that used to hold it: `session.create` answers with a membership for the
+// person who opened the session, so the opener's row is a row like any other and a
+// membership id living in the reply table alone was one person's identity declared
+// somewhere no beat could reach.
+const MEMBERSHIP_YOU = "019b7904-8ce0-7e3b-8140-cca0117a0378";
 const MEMBERSHIP_PRIYA = "019b7904-8ce0-7e3b-8110-cca0117a0360";
 const MEMBERSHIP_TOMAS = "019b7904-8ce0-7e3b-8120-cca0117a0370";
 const MEMBERSHIP_NOAH = "019b7904-8ce0-7e3b-8130-cca0117a0375";
@@ -64,23 +72,41 @@ export const MEMBERSHIP_FROM_RETRY = "019b7904-8ce0-7f22-8170-cca0117a0440";
 // frames below, which say why an unresolved run id is the case worth scripting.
 export const PEER_RUN_ID = "019b7904-8ce0-740e-8110-cca0117a03c0";
 
-/**
- * The session's OPENER, whom `session.created` admits.
- *
- * A shape of its own rather than a row with optional members, because what makes the
- * opener different is a set of ABSENCES that travel together: no membership beat
- * announced them, so there is no membership id, no join instant, and no event id for
- * either — and `online` is not incidental to that, it is this window's own person.
- */
-interface CollaborationOpener {
+/** What every person in this room has, whichever way they arrived. */
+interface CollaborationMember {
   readonly participantId: ParticipantId;
   readonly identityHandle: string;
+  /**
+   * The `membership.created` beat that admits them.
+   *
+   * Required on BOTH arms, which is the correction this shape carries. The opener used
+   * to declare an absent membership on the reading that `session.created` admits them
+   * and no second event does — and the real `session.create` path emits a canonical
+   * `membership.created` for the creator immediately after it, because a membership is
+   * what the creator is given. With the beat missing, the fold that reads
+   * `identityHandle` off it never saw the owner's, so every surface that resolves a
+   * participant label through the projection rendered this room's owner as a raw UUID
+   * and the production creator-admission path was exercised by nothing.
+   */
+  readonly membershipEventId: string;
   readonly role: MembershipRole;
-  readonly membershipId: undefined;
-  readonly joinedAtMs: undefined;
-  readonly joinedAtIso: undefined;
-  readonly presenceState: "online";
+  readonly membershipId: string;
+  readonly joinedAtMs: number;
+  readonly joinedAtIso: string;
   readonly lastSeenIso: string;
+}
+
+/**
+ * The session's OPENER, whom `session.created` admits and `membership.created` records.
+ *
+ * A shape of its own rather than a row with optional members, because one absence
+ * still distinguishes them: `online` is the state the session OPENS in, so no
+ * `presence.*` transition announces it and there is no event id for one. That is this
+ * window's own person, and it is why the presence beats are derived from the other arm.
+ */
+interface CollaborationOpener extends CollaborationMember {
+  readonly presenceEventId: undefined;
+  readonly presenceState: "online";
 }
 
 /**
@@ -88,21 +114,12 @@ interface CollaborationOpener {
  * `presence.*` beat moved.
  *
  * Every member is required, which is the whole reason the two shapes are separate:
- * `collaboration.beats.ts` filters the roster to exactly this arm — once for the
- * membership beats and once for the presence beats — and then reads the two event
- * ids and the join instant with no optionality left to check.
+ * `collaboration.beats.ts` filters the roster to exactly this arm for the presence
+ * beats and then reads the event id with no optionality left to check.
  */
-interface CollaborationJoiner {
-  readonly participantId: ParticipantId;
-  readonly identityHandle: string;
-  readonly membershipEventId: string;
+interface CollaborationJoiner extends CollaborationMember {
   readonly presenceEventId: string;
-  readonly role: MembershipRole;
-  readonly membershipId: string;
-  readonly joinedAtMs: number;
-  readonly joinedAtIso: string;
   readonly presenceState: "idle" | "reconnecting" | "offline";
-  readonly lastSeenIso: string;
 }
 
 /** One row of the roster, so the two beat subsets can name what they narrow to. */
@@ -114,9 +131,10 @@ export type CollaborationParticipant = CollaborationOpener | CollaborationJoiner
  * ONE TABLE rather than a membership literal per beat and a presence literal per
  * reply, on `flagship.ts`'s rule: the `membership.created` event and the
  * `presence.read` row are two views of one person, and two hand-written copies of
- * one person drift in exactly the direction nothing catches. `you` carries no
- * membership beat because the session's opener is admitted by `session.created`
- * itself, so the entry states that with an absent id rather than inventing one.
+ * one person drift in exactly the direction nothing catches. `you` carries a
+ * membership beat like everyone else — the session's opener is admitted by
+ * `session.created` and RECORDED by the `membership.created` the same path emits —
+ * and carries no presence beat, because `online` is the state the session opens in.
  *
  * The four presence states are covered exactly once each, which is what makes the
  * roster's render order and its dimmed offline row both reachable from one script.
@@ -125,10 +143,14 @@ export const COLLABORATION_PARTICIPANTS: readonly CollaborationParticipant[] = [
   {
     participantId: PARTICIPANT_YOU,
     identityHandle: "sawyer",
+    membershipEventId: "019b7904-8ce0-7ea1-8115-cca0117a0401",
+    presenceEventId: undefined,
     role: "owner",
-    membershipId: undefined,
-    joinedAtMs: undefined,
-    joinedAtIso: undefined,
+    membershipId: MEMBERSHIP_YOU,
+    // The session's own instant: the creator's admission is emitted immediately after
+    // `session.created` rather than at a tick of its own, so the two share a moment.
+    joinedAtMs: 0,
+    joinedAtIso: "2026-01-01T10:05:00.000Z",
     presenceState: "online",
     lastSeenIso: "2026-01-01T10:05:00.400Z",
   },
@@ -188,7 +210,9 @@ export const COLLABORATION_PARTICIPANTS: readonly CollaborationParticipant[] = [
  * and never badged, a live named row carries its audience, an archived row sinks below
  * the live ones into their own region, and the unnamed row is the `direct` channel the
  * list labels by the other human in its pair. A table without the last two leaves two
- * of the four dead.
+ * of the four dead — and the archived rendering is reached by PLAYING the archival
+ * rather than by declaring it, which is what makes both the live and the archived
+ * reading of one row reachable from one script.
  */
 interface CollaborationChannel {
   readonly channelId: string;
@@ -203,7 +227,28 @@ interface CollaborationChannel {
    * scripting a shape the beat cannot then produce.
    */
   readonly name: string | undefined;
+  /**
+   * The state the directory OPENS in — what `channel.list` answers at tick zero.
+   *
+   * Not the state the room ends in, which is the correction this member carries. This
+   * table used to state the handoff channel archived while the script did not archive
+   * it until 340ms, so a read before the beat exposed future state and the refresh the
+   * beat triggers produced no transition at all — the lifecycle behaviour the scenario
+   * exists to show was unreachable, in both directions, from the one table that
+   * decided it. What a read after the beat answers is the fixture's fold of the
+   * delivered `channel.*` frames over this opening row, so there is one statement of
+   * where the row starts and one of what moves it.
+   */
   readonly state: "active" | "archived";
+  /**
+   * The tick this channel's `channel.archived` beat is due at, or `undefined` for a
+   * channel this script never archives.
+   *
+   * `undefined` rather than optional, on the `name` member's rule: a row that means to
+   * say it is never archived has to write it, and the beat is DERIVED from this member
+   * so the tick has one home rather than two that can disagree.
+   */
+  readonly archivedAtMs: number | undefined;
   readonly participantCount: number;
 }
 
@@ -213,6 +258,7 @@ export const COLLABORATION_CHANNELS: readonly CollaborationChannel[] = [
     eventId: "019b7904-8ce0-7ea1-8150-cca0117a0405",
     name: MAIN_CHANNEL_NAME,
     state: "active",
+    archivedAtMs: undefined,
     participantCount: 4,
   },
   {
@@ -220,13 +266,18 @@ export const COLLABORATION_CHANNELS: readonly CollaborationChannel[] = [
     eventId: "019b7904-8ce0-7ea1-8160-cca0117a0406",
     name: "review",
     state: "active",
+    archivedAtMs: undefined,
     participantCount: 3,
   },
   {
     channelId: CHANNEL_HANDOFF,
     eventId: "019b7904-8ce0-7ea1-8170-cca0117a0407",
     name: "handoff",
-    state: "archived",
+    // Live when the room opens and archived by its own beat, which is the whole of
+    // what this row is for: the directory's archived region and its active-to-archived
+    // transition are two different renderings and both are reached from here.
+    state: "active",
+    archivedAtMs: 340,
     participantCount: 2,
   },
   {
@@ -236,6 +287,7 @@ export const COLLABORATION_CHANNELS: readonly CollaborationChannel[] = [
     // human in the pair and the row reaches that through the roster read.
     name: undefined,
     state: "active",
+    archivedAtMs: undefined,
     participantCount: 2,
   },
 ];
@@ -250,7 +302,7 @@ export const COLLABORATION_CHANNELS: readonly CollaborationChannel[] = [
 export const RUNTIME_NODE_SCRIPT: CollaborationRuntimeNodeScript = {
   sessionId: SESSION_ID,
   ownerParticipantIds: [PARTICIPANT_YOU, PARTICIPANT_PRIYA, PARTICIPANT_TOMAS],
-  // Twelve beats precede them: the session, three memberships, four channels, one
+  // Thirteen beats precede them: the session, four memberships, four channels, one
   // archival, and three presence transitions.
-  firstSequence: 13,
+  firstSequence: 14,
 };

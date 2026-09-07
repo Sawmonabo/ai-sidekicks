@@ -49,6 +49,10 @@ import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activit
 import { createActivityFeed, type ActivityFeed } from "./activity-feed.js";
 import { createChannelDirectory, type ChannelDirectory } from "./channels/channel-model.js";
 import { createPresenceRoster, type PresenceRoster } from "./members/presence-model.js";
+import {
+  createTerminalControlHolder,
+  type TerminalControlHolderRead,
+} from "./members/terminal-control-holder.js";
 
 /** Everything one session's collaboration surfaces read from. */
 export interface CollaborationSessionModels {
@@ -74,6 +78,15 @@ export interface CollaborationSessionModels {
   readonly activityFeed: ActivityFeed;
   readonly channelDirectory: ChannelDirectory;
   readonly presenceRoster: PresenceRoster;
+  /**
+   * Who holds the session's one shared-terminal write lease.
+   *
+   * Held here rather than by the members section for the reason every read in this set
+   * is: it is session-scoped and it is push-driven, so it owns a subscription and a
+   * scheduler, and both belong to whatever owns the session — never to a render body
+   * React may abandon or replay.
+   */
+  readonly terminalControlHolder: TerminalControlHolderRead;
   readonly labels: ChannelActivityLabels;
 }
 
@@ -142,6 +155,7 @@ export class CollaborationSessionModelHolder {
     const built = buildSessionModels(bridge, sessionStore);
     built.channelDirectory.start();
     built.presenceRoster.start();
+    built.terminalControlHolder.start();
     built.activityFeed.start();
     this.#current = built;
     this.#outstandingLeaseCount = 1;
@@ -158,6 +172,7 @@ export class CollaborationSessionModelHolder {
     }
     held.channelDirectory.dispose();
     held.presenceRoster.dispose();
+    held.terminalControlHolder.dispose();
     // The feed before the registry it writes into: a settlement landing between the
     // two would note an indicator on a registry that had already released its timers.
     held.activityFeed.dispose();
@@ -209,6 +224,7 @@ function buildSessionModels(
     activityFeed: createActivityFeed({ bridge, sessionStore, clock, registry: activity }),
     channelDirectory: createChannelDirectory({ bridge, sessionStore, clock }),
     presenceRoster: createPresenceRoster({ bridge, sessionStore, clock }),
+    terminalControlHolder: createTerminalControlHolder({ bridge, sessionStore, clock }),
     labels: sessionProjectionLabels(sessionStore),
   };
 }

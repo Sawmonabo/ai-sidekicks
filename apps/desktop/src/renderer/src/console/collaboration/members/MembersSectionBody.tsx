@@ -12,7 +12,7 @@ import {
 import { usePresenceDetail } from "./presence-detail.js";
 import { ageBoundariesOf, rosterRowsFrom } from "./presence-model.js";
 import { Roster } from "./Roster.js";
-import { terminalControlHolding, useTerminalControlHolder } from "./terminal-control-holder.js";
+import { terminalControlHolding } from "./terminal-control-holder.js";
 import { type CollaborationSessionModels } from "../session-models.js";
 
 /**
@@ -67,10 +67,12 @@ export function MembersSectionBody(props: {
     [roleByParticipantId],
   );
 
-  // The session's one write lease, read once. A mark on a row and a line under the
-  // list, never a control: claiming and releasing are the terminal pane's.
-  const holderReading = useTerminalControlHolder(bridge, sessionStore.sessionId);
-  const holding = useMemo(() => terminalControlHolding(holderReading), [holderReading]);
+  // The session's one write lease, kept current by the transition's own event. A mark
+  // on a row and a line under the list, never a control: claiming and releasing are
+  // the terminal pane's, and this section would name a stale holder for the rest of
+  // the visit if it read once and never listened.
+  const holderState = usePushDrivenRead(models.terminalControlHolder);
+  const holding = useMemo(() => terminalControlHolding(holderState), [holderState]);
 
   // The device fan-out is asked for ONE row at a time, and only once somebody opens
   // one. Reading it for every row would put an owner-only question about every person

@@ -8,13 +8,14 @@
 //
 // Every `kind` below is a registered wire event type (`packages/contracts/src/event.ts`
 // `SessionEventType`) CARRYING THE REGISTERED PAYLOAD, and `scenarios/wire-truth.ts`
-// holds this file to both. Two of the three subsets are DERIVED from the cast tables
-// rather than written out — the memberships from the roster and the channel-created
-// frames from the channel table — so the event and the read it is later answered by
-// are two views of one row and cannot drift apart.
+// holds this file to both. Every subset but the session's own opening frame is DERIVED
+// from the cast tables rather than written out — the memberships and the presence
+// transitions from the roster, the channel-created frames and the one archival from the
+// channel table — so the event and the read it is later answered by are two views of
+// one row and cannot drift apart. The archival was the last one written by hand, and it
+// said 340ms beside a table that already claimed the channel archived at zero.
 
 import {
-  CHANNEL_HANDOFF,
   COLLABORATION_CHANNELS,
   COLLABORATION_PARTICIPANTS,
   PARTICIPANT_YOU,
@@ -24,6 +25,42 @@ import {
 } from "./collaboration.identifiers.js";
 import { collaborationRuntimeNodeBeats } from "./collaboration-runtime-nodes.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
+
+/**
+ * The channels this script archives, with the tick each archival is due at.
+ *
+ * Pulled out rather than filtered inline so the archival beats can be numbered by
+ * HOW MANY there are: the four subsets below share one contiguous line of log
+ * positions, and a subset whose size is a filter's result cannot be counted by the
+ * subset after it while it is being written.
+ */
+const COLLABORATION_ARCHIVALS: readonly { channelId: string; atMs: number }[] =
+  COLLABORATION_CHANNELS.flatMap((channel) =>
+    channel.archivedAtMs === undefined
+      ? []
+      : [{ channelId: channel.channelId, atMs: channel.archivedAtMs }],
+  );
+
+/** The people this script moves through a `presence.*` transition. Never the opener. */
+const COLLABORATION_PRESENCE_MOVES: readonly Exclude<
+  CollaborationParticipant,
+  { presenceState: "online" }
+>[] = COLLABORATION_PARTICIPANTS.filter(
+  (participant): participant is Exclude<CollaborationParticipant, { presenceState: "online" }> =>
+    participant.presenceState !== "online",
+);
+
+// WHERE EACH SUBSET STARTS IN THE LOG. `wire-truth/beat-order.ts` requires the whole
+// script to be strictly contiguous from the session's first position, and these four
+// subsets are derived from tables whose sizes are the tables' own business — so each
+// opening position is COUNTED from the one in front of it rather than written down.
+// The offsets were literals until the roster gained the opener's membership, at which
+// point three of the four were silently one short and every beat after the new one
+// read to the store as a duplicate.
+const FIRST_MEMBERSHIP_SEQUENCE = 2;
+const FIRST_CHANNEL_SEQUENCE = FIRST_MEMBERSHIP_SEQUENCE + COLLABORATION_PARTICIPANTS.length;
+const FIRST_ARCHIVAL_SEQUENCE = FIRST_CHANNEL_SEQUENCE + COLLABORATION_CHANNELS.length;
+const FIRST_PRESENCE_SEQUENCE = FIRST_ARCHIVAL_SEQUENCE + COLLABORATION_ARCHIVALS.length;
 
 /** Every frame this room puts on the stream, in the order the clock releases them. */
 export const COLLABORATION_BEATS: ConsoleScenario["beats"] = [
@@ -39,17 +76,20 @@ export const COLLABORATION_BEATS: ConsoleScenario["beats"] = [
       payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
     },
   },
-  ...COLLABORATION_PARTICIPANTS.filter(
-    (participant): participant is Extract<CollaborationParticipant, { membershipId: string }> =>
-      participant.membershipId !== undefined,
-  ).map((participant, joinIndex) => ({
-    atMs: participant.joinedAtMs ?? 0,
+  // EVERY person in the room, the opener included and first: `session.create` emits
+  // the creator's `membership.created` immediately after `session.created`, so a room
+  // whose owner had no such beat was a room the membership fold could not name. The
+  // filter that used to sit here selected the rows carrying a membership id, which was
+  // the same claim written as a narrowing — and it silently stopped being a narrowing
+  // of anything the moment the opener gained one.
+  ...COLLABORATION_PARTICIPANTS.map((participant, joinIndex) => ({
+    atMs: participant.joinedAtMs,
     event: {
       id: participant.membershipEventId,
       sessionId: SESSION_ID,
-      sequence: 2 + joinIndex,
+      sequence: FIRST_MEMBERSHIP_SEQUENCE + joinIndex,
       kind: "membership.created",
-      occurredAt: participant.joinedAtIso ?? "2026-01-01T10:05:00.000Z",
+      occurredAt: participant.joinedAtIso,
       actorId: participant.participantId,
       payload: {
         membershipId: participant.membershipId,
@@ -64,7 +104,7 @@ export const COLLABORATION_BEATS: ConsoleScenario["beats"] = [
     event: {
       id: channel.eventId,
       sessionId: SESSION_ID,
-      sequence: 5 + channelIndex,
+      sequence: FIRST_CHANNEL_SEQUENCE + channelIndex,
       kind: "channel.created",
       occurredAt: `2026-01-01T10:05:00.${String(200 + channelIndex * 40)}Z`,
       actorId: PARTICIPANT_YOU,
@@ -79,31 +119,31 @@ export const COLLABORATION_BEATS: ConsoleScenario["beats"] = [
           : { channelId: channel.channelId, name: channel.name },
     },
   })),
-  {
-    atMs: 340,
+  // The archivals, derived from the channel table's own tick rather than written
+  // beside it. One row declares one today; the shape is a map so a second archived
+  // channel needs no edit here, and so the beat cannot claim a tick the row denies.
+  ...COLLABORATION_ARCHIVALS.map((archival, archivalIndex) => ({
+    atMs: archival.atMs,
     event: {
-      id: "019b7904-8ce0-7ea1-8180-cca0117a0408",
+      id: `019b7904-8ce0-7ea1-8180-cca0117a04${String(8 + archivalIndex).padStart(2, "0")}`,
       sessionId: SESSION_ID,
-      sequence: 9,
+      sequence: FIRST_ARCHIVAL_SEQUENCE + archivalIndex,
       kind: "channel.archived",
-      occurredAt: "2026-01-01T10:05:00.340Z",
+      occurredAt: `2026-01-01T10:05:00.${String(archival.atMs)}Z`,
       actorId: PARTICIPANT_YOU,
       // One of the four kinds `collaboration/channels/channel-model.ts` re-reads on, so
       // this beat is what proves the directory refreshes from a signal rather
       // than from a timer. The census registers no payload variant for it, so the
       // payload carries the channel the event is about and invents nothing else.
-      payload: { sessionId: SESSION_ID, channelId: CHANNEL_HANDOFF },
+      payload: { sessionId: SESSION_ID, channelId: archival.channelId },
     },
-  },
-  ...COLLABORATION_PARTICIPANTS.filter(
-    (participant): participant is Exclude<CollaborationParticipant, { presenceState: "online" }> =>
-      participant.presenceState !== "online",
-  ).map((participant, presenceIndex) => ({
+  })),
+  ...COLLABORATION_PRESENCE_MOVES.map((participant, presenceIndex) => ({
     atMs: 380 + presenceIndex * 20,
     event: {
       id: participant.presenceEventId,
       sessionId: SESSION_ID,
-      sequence: 10 + presenceIndex,
+      sequence: FIRST_PRESENCE_SEQUENCE + presenceIndex,
       kind: `presence.${participant.presenceState}` as const,
       occurredAt: participant.lastSeenIso,
       actorId: participant.participantId,
@@ -114,5 +154,10 @@ export const COLLABORATION_BEATS: ConsoleScenario["beats"] = [
       payload: { sessionId: SESSION_ID, participantId: participant.participantId },
     },
   })),
+  // The machines number their own frames from the position this script declares, and
+  // the two meet nowhere else — so what holds them together is the beat-order walk in
+  // `wire-truth/beat-order.ts`, which reads a mismatch as the log gap it would be and
+  // fails every shipped scenario over it. That is a stronger check than a constant
+  // compared here, because it is run over the whole script rather than over one seam.
   ...collaborationRuntimeNodeBeats(RUNTIME_NODE_SCRIPT),
 ];
