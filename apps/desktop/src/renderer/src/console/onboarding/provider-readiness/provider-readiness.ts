@@ -52,6 +52,12 @@
 //
 // SUPERSESSION IS THE FLOW'S RULE. A generation stamps every call and a settlement
 // arriving after this model was retired publishes nowhere.
+//
+// AND WHAT A SURFACE SUBSCRIBES TO IS ONE SNAPSHOT, on `onboarding-flow.ts`' rule next
+// door. The acts move without the projection — a hand-off publishes `handing-off` and
+// touches no reading — so a surface reading the projection alone compared a value
+// `Object.is` had no reason to call different: React suppressed the render, and a row
+// stayed pressable with its refusal off screen until a later read replaced the reading.
 
 import type {
   ProviderAccount,
@@ -95,12 +101,24 @@ export type ProviderActionReading =
 const IDLE: ProviderActionReading = { kind: "idle" };
 
 /**
- * The zero state, shared for `IDLE`'s reason and for one more.
+ * Everything one render of the step reads, as one value it can compare.
  *
- * Two positions hold it — where the model starts and where a re-addressing resets it
- * — and a rebuilt object at the second would notify every subscriber of a value equal
- * to the one it already had. One object makes the reset legible as the same state the
- * model opens in rather than as a second spelling of it.
+ * `useSyncExternalStore` compares what its snapshot getter answers with `Object.is`
+ * and renders nothing when the answer has not moved, so the acts ride a map REPLACED
+ * on every publish: one mutated behind a stable reference is a change nothing
+ * downstream can see.
+ */
+export interface ProviderReadinessSnapshot {
+  readonly reading: ProviderReadinessReading;
+  /** What this window has done about each provider. Absent means untouched. */
+  readonly actions: ReadonlyMap<string, ProviderActionReading>;
+}
+
+/**
+ * The zero reading, shared for `IDLE`'s reason: the model opens in it and a
+ * re-addressing returns to it, and one object makes that reset legible as the same
+ * state rather than as a second spelling of it. Its snapshot is minted per reset —
+ * the acts beside it are this window's and belong to the scope that produced them.
  */
 const ZERO_STATE_READING: ProviderReadinessReading = { kind: "reading" };
 
@@ -122,8 +140,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   readonly #bridge: ConsoleBridge;
   readonly #refresh: RefreshScheduler;
   readonly #changes = new Emitter<void>("provider readiness");
-  readonly #actionsByProvider = new Map<string, ProviderActionReading>();
-  #reading: ProviderReadinessReading = ZERO_STATE_READING;
+  #snapshot: ProviderReadinessSnapshot = zeroStateSnapshot();
   /**
    * The scope this model is addressed at. Read by every reason, written by one verb.
    *
@@ -151,7 +168,12 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   }
 
   public get reading(): ProviderReadinessReading {
-    return this.#reading;
+    return this.#snapshot.reading;
+  }
+
+  /** The projection and this window's acts as one value, for a subscribed surface. */
+  public get snapshot(): ProviderReadinessSnapshot {
+    return this.#snapshot;
   }
 
   /**
@@ -179,9 +201,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
     }
     this.#accountScope = accountScope;
     this.#retireInFlight();
-    this.#reading = ZERO_STATE_READING;
-    this.#actionsByProvider.clear();
-    this.#changes.emit();
+    this.#publish(zeroStateSnapshot());
   }
 
   /**
@@ -203,7 +223,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
 
   /** What this window has done about one provider. Never `undefined` — idle is real. */
   public actionFor(providerName: string): ProviderActionReading {
-    return this.#actionsByProvider.get(providerName) ?? IDLE;
+    return this.#snapshot.actions.get(providerName) ?? IDLE;
   }
 
   public subscribe(listener: () => void): Unsubscribe {
@@ -247,11 +267,13 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
     if (generation !== this.#generation) {
       return;
     }
-    this.#reading =
-      reply.status === "served"
-        ? { kind: "read", entries: reply.value.readiness, accounts: reply.value.accounts }
-        : { kind: "unreadable", refusal: reply.refusal };
-    this.#changes.emit();
+    this.#publish({
+      ...this.#snapshot,
+      reading:
+        reply.status === "served"
+          ? { kind: "read", entries: reply.value.readiness, accounts: reply.value.accounts }
+          : { kind: "unreadable", refusal: reply.refusal },
+    });
   }
 
   /**
@@ -324,7 +346,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    * to name, and naming one anyway would be this console electing one.
    */
   #signInAccountFor(providerName: string): ProviderAccountId | undefined {
-    const reading = this.#reading;
+    const { reading } = this.#snapshot;
     if (reading.kind !== "read") {
       return undefined;
     }
@@ -332,10 +354,35 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
     return remedy?.kind === "sign_in" ? remedy.accountId : undefined;
   }
 
-  #publishAction(providerName: string, reading: ProviderActionReading): void {
-    this.#actionsByProvider.set(providerName, reading);
+  /**
+   * Record what this window has done about one provider.
+   *
+   * The replaced map is what makes the act visible: a row moving idle → handing-off
+   * changes nothing about the projection. One entry per selected provider, so the
+   * copy is of two.
+   */
+  #publishAction(providerName: string, action: ProviderActionReading): void {
+    const actions = new Map(this.#snapshot.actions);
+    actions.set(providerName, action);
+    this.#publish({ ...this.#snapshot, actions });
+  }
+
+  #publish(snapshot: ProviderReadinessSnapshot): void {
+    this.#snapshot = snapshot;
     this.#changes.emit();
   }
+}
+
+/**
+ * Where this model starts, and where a re-addressing returns it to.
+ *
+ * A FACTORY AND NOT A SHARED VALUE, because the act map is a collection: `ReadonlyMap`
+ * restricts the TypeScript view and not the runtime object, so one held at module
+ * scope would be mutable from every model in the renderer. The reading beside it is a
+ * literal, which is why that one stays a constant.
+ */
+function zeroStateSnapshot(): ProviderReadinessSnapshot {
+  return { reading: ZERO_STATE_READING, actions: new Map() };
 }
 
 /** Which registered accounts belong to one provider, for the row's disclosure. */

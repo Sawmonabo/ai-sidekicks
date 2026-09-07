@@ -27,7 +27,11 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { readProviderAccountId } from "../bridge/index.js";
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import { ONBOARDING_STEPS, type OnboardingStepId } from "./steps/step-model.js";
+import {
+  MANDATORY_STEP_GROUP,
+  ONBOARDING_STEPS,
+  type OnboardingStepId,
+} from "./steps/step-model.js";
 
 /**
  * The account-plane refusals that should open the provider step.
@@ -116,7 +120,7 @@ export const onboardingActivation: OnboardingActivationSignal = new OnboardingAc
  * flow nobody asked for, with no way out of the dialog.
  */
 export function activationRequiresRelayChoice(activation: OnboardingActivation): boolean {
-  return ONBOARDING_STEPS[activation.openAtStep].group === "relay";
+  return ONBOARDING_STEPS[activation.openAtStep].group === MANDATORY_STEP_GROUP;
 }
 
 /**

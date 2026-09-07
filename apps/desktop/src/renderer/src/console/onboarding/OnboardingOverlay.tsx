@@ -27,6 +27,13 @@
 // until they had configured one — a mandatory setup flow assembled out of a rule
 // written for a different flow.
 //
+// AND IT HOLDS NO COMPLETED-STEP BASELINE OF ITS OWN. Where a resumed walkthrough
+// opens is read off the flow's snapshot, which carries a completed set on every arm.
+// This file and the walkthrough each used to keep a module-level `new Set()` for the
+// case where the read has not answered — and `ReadonlySet` is a compile-time view of
+// a runtime-mutable collection, so one stray `add` would have contaminated the
+// baseline of every later activation in the renderer.
+//
 // THE MODELS ARE PER BRIDGE AND SUPERSEDED, held through the console's one
 // subject-scoped holder. A replacement bridge retires both — their unsettled calls
 // would answer over a transport that no longer exists — and unmount retires them too,
@@ -49,7 +56,7 @@ import {
 import { OnboardingFlow } from "./onboarding-flow.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
-import { firstUnresolvedStep, type OnboardingStepId } from "./steps/step-model.js";
+import { firstUnresolvedStep } from "./steps/step-model.js";
 
 /** The command ids this family owns. Namespaced by family, per the command rules. */
 const OPEN_COMMAND_ID = "onboarding.open";
@@ -66,9 +73,6 @@ const PROVIDERS_ACTIVATION: OnboardingActivation = {
   openAtStep: "providers",
   accountScope: undefined,
 };
-
-/** The completed set a walkthrough resumes from before its first read answers. */
-const NO_STEPS_DONE: ReadonlySet<OnboardingStepId> = new Set<OnboardingStepId>();
 
 /**
  * The settings section the provider-account registry is registered under.
@@ -151,11 +155,11 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
         run: () => {
           // Where it opens is read at PRESS time, not at registration: a walkthrough
           // resumes at the first step nothing says is done, and what is done can have
-          // changed since this command was contributed.
-          const { reading } = models.flow.snapshot;
-          const completed = reading.kind === "read" ? reading.completed : NO_STEPS_DONE;
+          // changed since this command was contributed. The unanswered case is the
+          // flow's own — a snapshot always carries a completed set, so there is no
+          // zero value held here for a reading that has not landed.
           open({
-            openAtStep: firstUnresolvedStep(completed) ?? "relay",
+            openAtStep: firstUnresolvedStep(models.flow.snapshot.completedSteps) ?? "relay",
             accountScope: undefined,
           });
         },

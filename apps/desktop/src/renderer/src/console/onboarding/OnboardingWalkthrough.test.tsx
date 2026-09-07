@@ -19,6 +19,20 @@
 // The positive control sits beside them: the scenario records the relay step, so the
 // same control on the same step is offered there.
 //
+// AND THE FINISH ACTION IS REACHABLE WITHOUT BEING PRESSABLE. "Offered, never
+// demanded" is group B's rule; group A is demanded, and this footer is on every step,
+// so it was the one control that could dispatch `onboarding.complete` from a step
+// nobody had answered. The gate has two enforcement points and both are cases here —
+// the disabled control with its reason on screen, and the handler that is not wired —
+// because the first alone still dispatched in this tier, which is what the telemetry
+// pair next door already measured.
+//
+// AND A PER-PROVIDER ACT RE-RENDERS THE STEP. The readiness model publishes the
+// projection and this window's acts, and only the first used to be comparable — so a
+// hand-off emitted, React compared a reading that had not moved, and the row's buttons
+// stayed enabled with the refusal off screen. What the case asserts is what is ON
+// SCREEN after an act that touches no projection.
+//
 // AND BOTH READINGS TAKE THE WINDOW TRIGGER SET. Both models implement
 // `ReadTriggerTarget`, and implementing it is not the same as being wired to it: this
 // walkthrough once performed the two arrival reads itself, so the contract was
@@ -35,7 +49,10 @@ import { settleScheduledRead } from "../bridge/readings/scheduled-read.test-supp
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { OnboardingFlow } from "./onboarding-flow.js";
-import { bridgeWithNoRelayChosen } from "./onboarding-state.test-support.js";
+import {
+  bridgeWithGroupAAnswered,
+  bridgeWithNoRelayChosen,
+} from "./onboarding-state.test-support.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
 import { RELAY_METHOD_OPTIONS_IN_ORDER } from "./relay/relay-choice.js";
@@ -61,6 +78,38 @@ async function mountAt(
     await crossMacrotaskBoundary();
   });
   return rendered.container;
+}
+
+/** The footer's one act, whatever holds it. */
+function finishControl(container: HTMLElement): HTMLButtonElement {
+  const control = [...container.querySelectorAll("button")].find(
+    (one) => one.textContent === "Finish setting up",
+  );
+  if (control === undefined) {
+    throw new Error("the footer offers no finish action");
+  }
+  return control;
+}
+
+/** A bridge over the given one that counts what reached `onboarding.complete`. */
+function countingCompletions(base: ConsoleBridge): {
+  readonly bridge: ConsoleBridge;
+  completions: () => number;
+} {
+  let completions = 0;
+  return {
+    bridge: {
+      ...base,
+      growth: {
+        ...base.growth,
+        onboardingComplete: async (request) => {
+          completions += 1;
+          return base.growth.onboardingComplete(request);
+        },
+      },
+    },
+    completions: () => completions,
+  };
 }
 
 /** The one control that puts the telemetry question, whatever it currently reads. */
@@ -207,6 +256,86 @@ describe("the footer", () => {
       expect(container.textContent, step).toContain("These providers are not ready");
       expect(container.textContent, step).toContain("codex");
     }
+  });
+});
+
+describe("finishing before group A is answered", () => {
+  it("finishes once both group-A answers are recorded, with no provider ready", async () => {
+    // The positive control, and it is also the "offered, never demanded" claim: group
+    // B is untouched on this node and completion is still offered.
+    const counted = countingCompletions(bridgeWithGroupAAnswered());
+    const container = await mountAt("providers", counted.bridge);
+    const finish = finishControl(container);
+    expect(finish.disabled).toBe(false);
+    await act(async () => {
+      finish.click();
+      await crossMacrotaskBoundary();
+    });
+    expect(counted.completions()).toBe(1);
+  });
+
+  it("holds the action and says which answers are outstanding", async () => {
+    const container = await mountAt("providers", bridgeWithNoRelayChosen());
+    expect(finishControl(container).disabled).toBe(true);
+    // Scoped to the footer, because the rail names every step on every render and an
+    // assertion over the whole container would pass without the footer saying anything.
+    const footer = container.querySelector('section[aria-label="Finish setting up"]');
+    const said = footer?.textContent ?? "";
+    expect(said).toContain(ONBOARDING_STEPS.relay.label);
+    expect(said).toContain(ONBOARDING_STEPS.telemetry.label);
+  });
+
+  it("completes nothing when that control is pressed anyway", async () => {
+    // The claim the disabled attribute cannot make on its own: no handler is wired, so
+    // nothing reaches `onboarding.complete` however the press arrives — and a daemon
+    // that accepted one would record this node as set up over two questions never put.
+    const counted = countingCompletions(bridgeWithNoRelayChosen());
+    const container = await mountAt("providers", counted.bridge);
+    await act(async () => {
+      finishControl(container).click();
+      await crossMacrotaskBoundary();
+    });
+    expect(counted.completions()).toBe(0);
+  });
+
+  it("still holds it where only the relay half is answered", async () => {
+    // The shipped scenario's own node: the relay step recorded and telemetry not, which
+    // `Spec-026 §Telemetry Opt-In` refuses to proceed past without an explicit answer.
+    const container = await mountAt("providers");
+    expect(finishControl(container).disabled).toBe(true);
+    const footer = container.querySelector('section[aria-label="Finish setting up"]');
+    expect(footer?.textContent ?? "").toContain(ONBOARDING_STEPS.telemetry.label);
+  });
+});
+
+describe("a per-provider act", () => {
+  it("re-renders the step, though the projection behind it has not moved", async () => {
+    // A hand-off that never settles: the only publish is `handing-off`, so nothing has
+    // replaced the reading object. Under a subscription to the projection alone React
+    // compared an unmoved value and rendered nothing, leaving the row's controls
+    // enabled and any refusal off screen.
+    const base = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
+    const neverSettles = new Promise<never>(() => undefined);
+    const hanging: ConsoleBridge = {
+      ...base,
+      growth: { ...base.growth, onboardingProviderSignInHandoff: () => neverSettles },
+    };
+    const container = await mountAt("providers", hanging);
+    const signIn = [...container.querySelectorAll("button")].find(
+      (one) => one.textContent === "Sign in to this provider",
+    );
+    expect(signIn).toBeDefined();
+    expect(container.textContent ?? "").not.toContain("Handing off to the provider");
+
+    await act(async () => {
+      signIn?.click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(container.textContent ?? "").toContain("Handing off to the provider");
+    // And the control the act took away, which is the half a stale render leaves
+    // pressable: a second press would start a second hand-off.
+    expect(signIn?.disabled).toBe(true);
   });
 });
 

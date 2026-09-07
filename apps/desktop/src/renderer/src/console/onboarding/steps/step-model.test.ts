@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   completedStepsFrom,
+  completionBlockedReason,
   firstUnresolvedStep,
+  MANDATORY_STEP_GROUP,
   ONBOARDING_STEP_IDS,
   ONBOARDING_STEPS,
   ONBOARDING_STEPS_IN_ORDER,
@@ -66,5 +68,39 @@ describe("the steps as data", () => {
     // and telemetry by admitting no silent default.
     const skippable = ONBOARDING_STEPS_IN_ORDER.filter((step) => step.isSkippable);
     expect(skippable.map((step) => step.id)).toStrictEqual(["providers"]);
+  });
+});
+
+describe("what holds the completion action", () => {
+  it("names both group-A steps while neither is answered", () => {
+    const reason = completionBlockedReason(completedStepsFrom([]));
+    expect(reason).toBeDefined();
+    expect(reason).toContain(ONBOARDING_STEPS.relay.label);
+    expect(reason).toContain(ONBOARDING_STEPS.telemetry.label);
+  });
+
+  it("names only the one still outstanding once the other is answered", () => {
+    const reason = completionBlockedReason(completedStepsFrom(["relay"]));
+    expect(reason).toContain(ONBOARDING_STEPS.telemetry.label);
+    expect(reason).not.toContain(ONBOARDING_STEPS.relay.label);
+  });
+
+  it("holds nothing once both group-A answers are recorded", () => {
+    // With the provider step deliberately absent: group B is offered and never
+    // demanded, so onboarding completes over a node with no account registered.
+    expect(completionBlockedReason(completedStepsFrom(["relay", "telemetry"]))).toBeUndefined();
+  });
+
+  it("is asked of the group the dismissal lock is asked of, and of no second field", () => {
+    // The claim the sentence above rests on: what "mandatory" means here is a step's
+    // GROUP, and the steps outside that group hold nothing. A second rule keyed on
+    // skippability would agree today and drift the first time the two diverge.
+    const mandatory = ONBOARDING_STEPS_IN_ORDER.filter(
+      (step) => step.group === MANDATORY_STEP_GROUP,
+    );
+    expect(mandatory.map((step) => step.id)).toStrictEqual(["relay", "telemetry"]);
+    expect(completionBlockedReason(completedStepsFrom(["providers"]))).toBe(
+      completionBlockedReason(completedStepsFrom([])),
+    );
   });
 });

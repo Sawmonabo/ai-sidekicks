@@ -9,6 +9,13 @@
 // ready is a legitimate terminal, so the summary and its action sit in a footer that
 // is present on every step instead of behind a step a person has to reach.
 //
+// REACHABLE IS NOT THE SAME AS PRESSABLE, THOUGH. Group B is what "never demanded"
+// is about; group A is demanded, and a footer on every step was the one control that
+// could dispatch `onboarding.complete` from a step nobody had answered. So the act is
+// held until both group-A answers are recorded — composed by `completionBlockedReason`
+// from the same completed set the rail reads, and withdrawn rather than merely
+// disabled, on the telemetry step's precedent.
+//
 // TWO READS ON OPEN AND NO MORE. The flow's own state read says where this node is,
 // and the readiness read says which providers it can run. The second is issued here
 // rather than when the providers step is first opened, because the footer states
@@ -27,6 +34,12 @@
 // AND NOTHING RE-READS ON A TIMER. Every other read is the tail of an act somebody
 // performed: a step recorded, a choice made, a sign-in handed off, a re-check asked
 // for.
+//
+// AND THE READINESS SUBSCRIPTION TAKES THAT MODEL'S SNAPSHOT AND NOT ITS PROJECTION.
+// A per-provider act moves without the projection moving, so subscribing to the
+// reading alone handed `useSyncExternalStore` a value that had not re-identified and
+// React rendered nothing: the row's buttons stayed enabled and its refusal stayed off
+// screen until an unrelated read replaced the reading object.
 //
 // STEP ORDERING IS THE STEP MODEL'S AND IS ASKED FOR ONCE. `stepBlockedReason` is
 // what says a step may not be opened yet; the rail asks it per entry and this file
@@ -48,7 +61,12 @@ import type {
 } from "./provider-readiness/provider-readiness.js";
 import { RelayChoiceStep } from "./relay/RelayChoiceStep.js";
 import { StepRail } from "./steps/StepRail.js";
-import { ONBOARDING_STEPS, stepBlockedReason, type OnboardingStepId } from "./steps/step-model.js";
+import {
+  completionBlockedReason,
+  ONBOARDING_STEPS,
+  stepBlockedReason,
+  type OnboardingStepId,
+} from "./steps/step-model.js";
 import { TelemetryStep } from "./steps/TelemetryStep.js";
 
 export interface OnboardingWalkthroughProps {
@@ -73,8 +91,8 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
     (listener: () => void) => readiness.subscribe(listener),
     [readiness],
   );
-  const readReadiness = useCallback(() => readiness.reading, [readiness]);
-  const readinessReading = useSyncExternalStore(subscribeToReadiness, readReadiness);
+  const readReadiness = useCallback(() => readiness.snapshot, [readiness]);
+  const readinessSnapshot = useSyncExternalStore(subscribeToReadiness, readReadiness);
 
   const { accountScope } = props;
   // ADDRESSED BEFORE THE TRIGGERS OPEN, and the ordering is why this effect is
@@ -93,12 +111,11 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
   useWindowReadTriggers(flow);
   useWindowReadTriggers(readiness);
 
-  const { reading } = snapshot;
-  const completed = reading.kind === "read" ? reading.completed : NO_STEPS_DONE;
+  const { completedSteps, reading } = snapshot;
 
   return (
     <div className="meridian-onboarding">
-      <StepRail completed={completed} openStepId={chosenStepId} onOpenStep={setChosenStepId} />
+      <StepRail completed={completedSteps} openStepId={chosenStepId} onOpenStep={setChosenStepId} />
       <div className="meridian-onboarding__pane">
         <h3 className="meridian-onboarding__title">{ONBOARDING_STEPS[chosenStepId].label}</h3>
         {reading.kind === "unreadable" ? (
@@ -109,18 +126,21 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
         ) : null}
         {renderStep(chosenStepId, props, {
           snapshot,
-          readinessReading,
-          isRelayResolved: completed.has("relay"),
+          readinessReading: readinessSnapshot.reading,
+          isRelayResolved: completedSteps.has("relay"),
           // The open step's own hold, composed once here from the same completed set
           // the rail reads. The rail keeps a held step from being opened; this is
           // what an activation that opened AT one renders, and neither is the other's
           // fallback — both ask the step model.
-          blockedReason: stepBlockedReason(chosenStepId, completed),
+          blockedReason: stepBlockedReason(chosenStepId, completedSteps),
         })}
       </div>
       <footer className="meridian-onboarding__footer">
         <CompletionSummary
-          reading={readinessReading}
+          reading={readinessSnapshot.reading}
+          // Group A is demanded, so the act is withdrawn until both of its answers are
+          // recorded. Composed from the step model, which is where the split lives.
+          blockedReason={completionBlockedReason(completedSteps)}
           isFinishing={isFinishing}
           onFinish={() => {
             setIsFinishing(true);
@@ -142,15 +162,6 @@ interface StepRenderState {
   /** Why the OPEN step is held, or `undefined` when nothing holds it. */
   readonly blockedReason: string | undefined;
 }
-
-/**
- * The completed set a walkthrough shows before its first read answers.
- *
- * A module constant rather than a fresh `new Set()` per render: the rail compares
- * membership only, so one empty set serves every render and a new one each time would
- * re-render three rail entries for no change at all.
- */
-const NO_STEPS_DONE: ReadonlySet<OnboardingStepId> = new Set<OnboardingStepId>();
 
 /** One step, and never two. A total switch, so a fourth step is a compile error. */
 function renderStep(

@@ -8,6 +8,13 @@
 // read as success: what the row reports afterwards is the projection re-read, because
 // the probe defines success and the sign-in process's exit does not.
 //
+// AND A FIFTH, ABOUT WHAT A SUBSCRIBER CAN SEE. This model publishes two facts that
+// move independently, and the only one a surface could compare used to be the
+// projection — so a per-provider act emitted, `useSyncExternalStore` compared a
+// reading that had not re-identified, and React rendered nothing. The snapshot suite
+// asserts on IDENTITY for that reason: an act that changes state and leaves the
+// comparable value alone is a change nothing downstream can act on.
+//
 // AND A FOURTH, WHICH IS WHAT THE TRIGGER CONTRACT COSTS. Every case here reaches the
 // wire through `requestRead`, because that is the only entry this model has — the
 // suite that drove a public `read()` proved the daemon answered and proved nothing at
@@ -247,5 +254,51 @@ describe("what the completion summary is told", () => {
     expect(
       accountsForProvider(reading.accounts, "codex").map((one) => one.displayLabel),
     ).toStrictEqual(["Personal"]);
+  });
+});
+
+describe("what a subscribed surface compares", () => {
+  it("re-identifies the snapshot when a per-provider act moves and the projection does not", async () => {
+    // A hand-off that never settles, so the only thing that has happened is the
+    // `handing-off` publish — no re-read has replaced the reading object behind it.
+    const base = fixture();
+    const neverSettles = new Promise<never>(() => undefined);
+    const hanging: ConsoleBridge = {
+      ...base,
+      growth: { ...base.growth, onboardingProviderSignInHandoff: () => neverSettles },
+    };
+    const model = modelOver(hanging);
+    await arrive(model);
+    const beforeHandOff = model.snapshot;
+    expect(beforeHandOff.reading.kind).toBe("read");
+
+    void model.handOffSignIn("codex");
+    await crossMacrotaskBoundary();
+
+    expect(model.actionFor("codex")).toStrictEqual({ kind: "handing-off" });
+    // The projection is untouched — which is exactly why the reading alone could not
+    // carry this — and the snapshot has moved anyway.
+    expect(model.snapshot.reading).toBe(beforeHandOff.reading);
+    expect(model.snapshot).not.toBe(beforeHandOff);
+  });
+
+  it("re-identifies the snapshot when the projection moves", async () => {
+    const { model, bridge, calls } = recordingModel();
+    await arrive(model);
+    const afterArrival = model.snapshot;
+    expect(readCount(calls)).toBe(1);
+
+    model.requestRead("window-focus");
+    await settleScheduledRead(bridge);
+
+    expect(readCount(calls)).toBe(2);
+    expect(model.snapshot).not.toBe(afterArrival);
+  });
+
+  it("holds no act map any second model could reach", async () => {
+    // `ReadonlyMap` is the compile-time view. A zero state held at module scope would
+    // be one stray `set` away from reporting a hand-off on a window that never made
+    // one, so the two models are handed two objects.
+    expect(modelOver(fixture()).snapshot.actions).not.toBe(modelOver(fixture()).snapshot.actions);
   });
 });

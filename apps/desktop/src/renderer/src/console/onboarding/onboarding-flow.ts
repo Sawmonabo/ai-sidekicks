@@ -110,6 +110,23 @@ export type TelemetryReading =
  */
 export interface OnboardingSnapshot {
   readonly reading: OnboardingReading;
+  /**
+   * What the daemon says is done, as of this snapshot. Empty until one answers.
+   *
+   * A PROJECTION AND NOT A SECOND RECORD: on the answered arm this IS
+   * `reading.completed`, the same object rather than a copy, and on the other two it
+   * is the empty set THIS publish minted. Every surface stands on the same value, so
+   * "the read has not answered" and "the daemon says nothing is done" render alike
+   * without either of them writing that rule down.
+   *
+   * MINTED PER PUBLISH, which is the point. Two components each held a module-level
+   * `new Set()` for the unanswered case, and `ReadonlySet` is a compile-time view of
+   * a collection that is mutable at runtime — so one accidental `add` contaminated
+   * the baseline of every later activation in the renderer, for the life of the
+   * process. A value minted where the reading is published cannot outlive it, and no
+   * two activations are ever handed the same one.
+   */
+  readonly completedSteps: ReadonlySet<OnboardingStepId>;
   readonly relayChoice: RelayChoiceReading;
   readonly telemetry: TelemetryReading;
 }
@@ -127,6 +144,7 @@ export class OnboardingFlow implements ReadTriggerTarget {
   readonly #changes = new Emitter<void>("onboarding state");
   #snapshot: OnboardingSnapshot = {
     reading: { kind: "reading" },
+    completedSteps: completedStepsFrom([]),
     relayChoice: { kind: "unasked" },
     telemetry: { kind: "unasked" },
   };
@@ -276,7 +294,15 @@ export class OnboardingFlow implements ReadTriggerTarget {
   }
 
   #publishReading(reading: OnboardingReading): void {
-    this.#publish({ ...this.#snapshot, reading });
+    this.#publish({
+      ...this.#snapshot,
+      reading,
+      // The read arm's own set, and a freshly narrowed empty one otherwise — which is
+      // what the daemon would have answered for a node nobody has set up. Minted here
+      // rather than shared, so nothing a surface does to one publish's value can
+      // reach the next.
+      completedSteps: reading.kind === "read" ? reading.completed : completedStepsFrom([]),
+    });
   }
 
   #publishRelayChoice(relayChoice: RelayChoiceReading): void {

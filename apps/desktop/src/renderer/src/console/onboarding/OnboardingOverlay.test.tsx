@@ -14,6 +14,12 @@
 // unmade relay choice may not hold one of them shut. Both halves are cases below, and
 // they share one bridge — a state read reporting nothing done — so neither can pass
 // by being handed a world the other was not.
+//
+// AND THAT OPENING LEAVES WITHOUT FINISHING. The two rules meet on the provider-only
+// activation: the dialog closes because group B may not be locked, and it closes
+// WITHOUT completing because group A may not be finished around. A walkthrough that
+// closed by dispatching `onboarding.complete` would answer the same two questions the
+// lock refused to demand.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -131,6 +137,48 @@ describe("when it may be closed", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Close");
     expect(text).not.toContain("Choose a relay to continue");
+  });
+});
+
+describe("leaving a provider-only activation", () => {
+  it("closes without recording this node as set up", async () => {
+    // Group A is wholly unanswered on this node. The dialog must let a person out —
+    // the case above — and must not take their leaving as an answer: nothing reaches
+    // `onboarding.complete`, and the footer's own control says which answers are
+    // outstanding rather than offering to finish over them.
+    const base = bridgeWithNoRelayChosen();
+    let completions = 0;
+    const counted: ConsoleBridge = {
+      ...base,
+      growth: {
+        ...base.growth,
+        onboardingComplete: async (request) => {
+          completions += 1;
+          return base.growth.onboardingComplete(request);
+        },
+      },
+    };
+    await mount(counted);
+    await activateAt("providers");
+
+    const finish = [...document.querySelectorAll("button")].find(
+      (control) => control.textContent === "Finish setting up",
+    );
+    expect(finish).toBeDefined();
+    expect(finish?.disabled).toBe(true);
+
+    const close = [...document.querySelectorAll("button")].find(
+      (control) => control.textContent === "Close",
+    );
+    expect(close).toBeDefined();
+    await act(async () => {
+      finish?.click();
+      close?.click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(completions).toBe(0);
+    expect(document.body.textContent).not.toContain("Set up this node");
   });
 });
 

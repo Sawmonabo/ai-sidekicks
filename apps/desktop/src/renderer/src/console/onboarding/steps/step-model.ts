@@ -41,6 +41,18 @@ export type OnboardingStepId = (typeof ONBOARDING_STEP_IDS)[number];
 /** Which of `Spec-026`'s two step groups a step belongs to. */
 export type OnboardingStepGroup = "relay" | "providers";
 
+/**
+ * The group whose questions have to be answered, named once for every reader.
+ *
+ * `Spec-026` splits the walkthrough in two and treats the halves differently: group A
+ * settles where this node relays and takes a separate explicit telemetry answer, and
+ * group B is "offered and never demanded". Three rules key on that split — which
+ * activations may be locked shut, which steps hold the completion action, and which
+ * are simply offered — and a literal repeated at each of them would be the same claim
+ * written three times, free to disagree the day a step changes group.
+ */
+export const MANDATORY_STEP_GROUP: OnboardingStepGroup = "relay";
+
 export interface OnboardingStepDescriptor {
   readonly id: OnboardingStepId;
   readonly group: OnboardingStepGroup;
@@ -191,4 +203,49 @@ export function stepBlockedReason(
     return undefined;
   }
   return `Opens once “${ONBOARDING_STEPS[prerequisite].label}” is settled.`;
+}
+
+/**
+ * Why this node may not be recorded as set up yet, or `undefined` when it may.
+ *
+ * GROUP A IS THE WHOLE OF THE CONDITION, asked of the same field the dismissal lock
+ * asks: a step's group. `Spec-026 §Desktop Surface` puts the relay choice behind a
+ * modal that stays shut until it is made, `Spec-026 §Telemetry Opt-In` refuses to
+ * "proceed past telemetry opt-in without an explicit choice", and `Spec-026 §Provider
+ * Authentication (Group B)` has the provider step "offered and never demanded" with
+ * onboarding completing at zero registered accounts. So completion is held on group A
+ * and on nothing else — a footer that dispatched `onboarding.complete` before those
+ * two answers would ask the daemon to record a node as set up over questions nobody
+ * put, and the daemon accepting it is the case that cannot be taken back.
+ *
+ * KEYED ON THE GROUP RATHER THAN ON `isSkippable`, so the lock, the rail, and this
+ * read one field. Skippability answers whether a person may LEAVE a step; this
+ * answers whether the walkthrough may be finished, and today the two coincide only
+ * because the same split produced both.
+ *
+ * A SENTENCE NAMING THE OUTSTANDING STEPS, on `stepBlockedReason`'s rule: the footer
+ * renders it beside the control it has taken away, and "finishing is unavailable" is
+ * not something a person can act on. The steps are named by their own labels, so one
+ * renamed above is renamed here.
+ */
+export function completionBlockedReason(
+  completed: ReadonlySet<OnboardingStepId>,
+): string | undefined {
+  const outstanding = ONBOARDING_STEPS_IN_ORDER.filter(
+    (step) => step.group === MANDATORY_STEP_GROUP && !completed.has(step.id),
+  ).map((step) => `“${step.label}”`);
+  if (outstanding.length === 0) {
+    return undefined;
+  }
+  return `Answer ${joinInRailOrder(outstanding)} to finish setting up.`;
+}
+
+/** The outstanding step names as one phrase, in the order the rail lists them. */
+function joinInRailOrder(names: readonly string[]): string {
+  const last = names.at(-1);
+  if (last === undefined) {
+    return "";
+  }
+  const leading = names.slice(0, -1);
+  return leading.length === 0 ? last : `${leading.join(", ")} and ${last}`;
 }
