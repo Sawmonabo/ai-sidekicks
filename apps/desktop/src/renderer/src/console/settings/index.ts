@@ -1,120 +1,61 @@
 // The settings family's door.
 //
-// The surface, the section vocabulary, and the page registry the four page lanes
-// fill.
+// It carries ONE symbol, the surface registrar, because that is all that crosses this
+// family's boundary: `collaboration-family.ts` claims the slot and nothing else outside
+// this directory names a settings page, a section, or the page registry.
 //
-// EVERY STYLESHEET IN THIS FAMILY IS IMPORTED HERE AND NOWHERE ELSE, so a page can
-// never render into a pane whose sheet arrived by accident, and the bundler sees one
-// edge into each sheet rather than one per component. There is more than one because
-// the family sheet, the shared scaffolding, and the pages whose rules are their own
-// each carry theirs — read the import block below for which, rather than a count in
-// prose that goes stale the next time a page grows a sheet. That is a split of the
-// SHEETS and not of the rule — the rule is one import site, and it is this one. The
-// sibling families paid for learning it the other way round: `agents/index.ts` records
-// how one BEM block came to be written across two files when a page imported its own
-// sheet.
+// WHAT USED TO BE HERE AND IS NOT. The twelve page registrars, the page-registry
+// composition, and every stylesheet in this family moved to
+// `settings-surface-body.ts`, the root of the chunk the registrar's loader fetches.
+// The reason is the initial import graph: this door is reached before any route
+// resolves, so anything it imports is paid for by a session that never opens settings —
+// and the settings pages are the largest thing in this family by a wide margin. The
+// stylesheet rule in `apps/desktop/AGENTS.md` names the same case from the other side: a
+// directory carrying a lazily-loaded chunk has an owner of its own, and that chunk's
+// root is where its sheets enter.
 //
-// WHY THE PAGE SEAT BOARD LIVES IN THIS FILE
+// WHY THE PAGE SEAT BOARD IS NOT A CALL SITE HERE
 //
 // `console/families.ts` gives each VIEW FAMILY a seat and `console/panes/index.ts`
-// gives each pane family one. The settings pane has the same problem one level
-// further down: four lanes each build two or three pages at once, and a single
-// shared call site would make three of them conflict. Same answer, same shape —
-// one reserved line per page lane, replaced only by that lane, so four branches
-// produce four one-line diffs at four distinct positions.
+// gives each pane family one. The settings pane has the same problem one level further
+// down: four lanes each build two or three pages at once, and a single shared call site
+// would make three of them conflict. Same answer, same shape — one reserved line per
+// page lane, replaced only by that lane — and it lives in the chunk root beside the
+// pages it composes.
 //
 // A page lane reaches the section vocabulary and the descriptor shape by importing
-// `settings-page-registry.ts` DEEP, which is what an intra-family import is — this
-// door carries only what crosses the family boundary, which is the two registrars
-// below.
+// `settings-page-registry.ts` DEEP, which is what an intra-family import is.
 //
 // THE ONE PAGE REGISTERED FROM OUTSIDE THIS FAMILY takes `SettingsPageRegistrar`, a
 // one-method view of the registry declared beside it in `settings-page-registry.ts`.
-// It is deliberately not re-exported HERE, and the reason is the graph rather than a
-// preference: this door imports `../sidekicks-settings-page.js` to compose that page,
-// so a type line pointing the other way closes a module cycle and `no-circular` fails.
-// The family still declares what crosses its boundary — it is the narrow interface
-// and not the registry class — and the page holds `register` and nothing else: no
-// rail read, no `unregister`, and no section vocabulary. A lane edits that module for one reason only: the design placed a page in
-// settings and named no section id for it, which is why `sidekicks` is there and
+// It is deliberately not re-exported HERE: the chunk root imports
+// `../sidekicks-settings-page.js` to compose that page, so a type line pointing the
+// other way closes a module cycle and `no-circular` fails. The family still declares
+// what crosses its boundary — it is the narrow interface and not the registry class —
+// and the page holds `register` and nothing else: no rail read, no `unregister`, and no
+// section vocabulary. A lane edits that module for one reason only: the design placed a
+// page in settings and named no section id for it, which is why `sidekicks` is there and
 // why the other twelve are the design's own.
 
-import "./settings.css";
-import "./shared/settings-page.css";
-import "./shared/preference-toggle-row.css";
-import "./pages/appearance/appearance.css";
-import "./pages/cost/cost-receipt.css";
-import "./pages/keyboard/keyboard.css";
-import "./pages/mounts/mounts.css";
-import "./pages/notifications/notifications.css";
-
-import { createElement } from "react";
-
 import type { ConsoleSurfaceRegistry } from "../seats/index.js";
-import { registerAppearancePage } from "./pages/appearance/AppearancePage.js";
-import { registerApplicationPage } from "./pages/application/ApplicationPage.js";
-import { registerCostReceiptPage } from "./pages/cost/CostReceiptPage.js";
-import { registerDataErasurePage } from "./pages/data-erasure/DataErasurePage.js";
-import { registerDiagnosticsPage } from "./pages/diagnostics/DiagnosticsPage.js";
-import { registerKeyboardPage } from "./pages/keyboard/KeyboardPage.js";
-import { registerMcpServersPage } from "./pages/mcp-servers/McpServersPage.js";
-import { registerNotificationsPage } from "./pages/notifications/NotificationsPage.js";
-import { registerProviderAccountsPage } from "./pages/provider-accounts/ProviderAccountsPage.js";
-import { registerRuntimeNodesPage } from "./pages/runtime-nodes/RuntimeNodesPage.js";
-import { registerSidekicksPage } from "../sidekicks-settings-page.js";
-import { registerWorkspaceMountsPage } from "./pages/mounts/WorkspaceMountsPage.js";
-import { SettingsPageRegistry } from "./settings-page-registry.js";
-import { SettingsSurface } from "./SettingsSurface.js";
 
 /**
- * Register every shipped settings page against a registry.
+ * Claim the settings surface slot.
  *
- * Takes the registry rather than reaching for a module-scope singleton, for
- * `registerConsoleFamilies`' reason: the registrar below composes the pages its
- * surface renders and closes over them, so a second window composes its own set
- * without a second code path and neither window inherits the other's.
+ * A LOADER AND NOT A `render`. Settings is reached by pressing a rail destination, so
+ * nothing paints it before a person asks for it, and every page it composes — twelve
+ * forms, their tables, the combobox stack two of them mount, and eight stylesheets —
+ * rides the chunk `settings-surface-body.ts` roots rather than the initial import
+ * graph. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
  *
- * NOT EXPORTED. A door line exists for a production reader, and the only caller that
- * could want this page set is one composing a settings surface — which is
- * {@link registerSettingsSurface}. A test wanting what a window renders drives that
- * registrar and reads back the render it claimed, rather than composing a second copy
- * of this list that agrees with it until someone adds a page to one of them.
- */
-function registerSettingsPages(registry: SettingsPageRegistry): void {
-  // T-023p-1C-4 L4.6 nodes, notifications, application
-  registerRuntimeNodesPage(registry);
-  registerNotificationsPage(registry);
-  registerApplicationPage(registry);
-  // The sidekicks page: the console root's one-line seam, the agents family's body.
-  // It is registered from here and composed there, because naming two view families
-  // is a composition site's job and this door names only its own.
-  registerSidekicksPage(registry);
-  // T-023p-1C-4 L4.7 mounts, diagnostics, data, appearance, keyboard
-  registerWorkspaceMountsPage(registry);
-  registerDiagnosticsPage(registry);
-  registerDataErasurePage(registry);
-  registerAppearancePage(registry);
-  registerKeyboardPage(registry);
-  // T-023p-1C-4 L4.8 accounts, MCP servers, cost
-  registerProviderAccountsPage(registry);
-  registerMcpServersPage(registry);
-  registerCostReceiptPage(registry);
-}
-
-/**
- * Claim the settings surface slot, and compose the pages it renders.
- *
- * The page registry is built HERE and closed over, rather than reached for at
- * module scope: the pane's contents then depend on this composition rather than on
- * a side effect of it, which is what lets a test render the surface against pages
- * it chose and keeps a second window from inheriting this one's.
+ * The page registry moved behind that boundary with them and is composed there, per
+ * mount: composing it here would mean importing all twelve pages from this door, which
+ * is the whole of what the boundary exists to defer.
  */
 export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void {
-  const pages = new SettingsPageRegistry();
-  registerSettingsPages(pages);
   registry.register({
     slot: "settings",
     owner: "collaboration-settings",
-    render: (context) => createElement(SettingsSurface, { context, pages }),
+    body: () => import("./settings-surface-body.js"),
   });
 }

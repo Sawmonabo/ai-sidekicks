@@ -65,7 +65,10 @@ import {
 
 import { REPOS_GIT_WORKSPACE_ID } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
-import { DiffPane } from "../../../src/renderer/src/console/repos/diff-pane/index.js";
+// Deeply, and not through the sub-module door: the pane is loader-backed now, so the
+// component is not on that barrel — a line for it there would put the whole pane back on
+// the renderer's initial import graph, which is the edge the loader boundary removed.
+import { DiffPane } from "../../../src/renderer/src/console/repos/diff-pane/DiffPane.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";

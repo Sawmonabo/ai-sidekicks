@@ -45,43 +45,24 @@ import {
 } from "../../../src/renderer/src/console/store/index.js";
 import { registerTerminalPanes } from "../../../src/renderer/src/console/terminal/index.js";
 import {
-  ConsolePaneRegistry,
   type ConsolePaneContext,
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
+import { resolvedPaneBody } from "./pane-body-resolution.js";
 
 /**
- * A registry carrying exactly this family's two claims.
+ * The browser or terminal pane body the deck holds for a kind, loaded.
  *
- * Built per call rather than shared: the registry is owner-scoped state, and two
- * tiers holding one instance would make the second tier's mount depend on whether
- * the first had run.
+ * The resolution — build a family-scoped registry, preload, read the descriptor, throw
+ * by name — lives once in `test/console/surfaces/pane-body-resolution.ts`; what stays here is
+ * which registrars this file's mounts compose against, and the component TYPE each
+ * mount below hands React.
  */
-function familyPaneRegistry(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
-  registerBrowserPanes(registry);
-  registerTerminalPanes(registry);
-  return registry;
-}
-
-/**
- * The pane body the deck holds for a kind, as a component, or a throw.
- *
- * A throw rather than an optional return, so a family that stopped registering its
- * kind fails here — where the message names the kind — instead of rendering nothing
- * and letting a tier compare an empty box against a baseline.
- *
- * The descriptor's `render` is handed back for React to MOUNT rather than called
- * here. Both bodies are function components holding hooks, and a plain call outside
- * a render would run those hooks against no dispatcher — the deck mounts them, so a
- * tier that wants the deck's own body has to mount it the same way.
- */
-function paneBodyComponent(kind: PaneKind): FunctionComponent<ConsolePaneContext> {
-  const descriptor = familyPaneRegistry().descriptorFor(kind);
-  if (descriptor === undefined) {
-    throw new Error(`no console pane is registered for the \`${kind}\` kind`);
-  }
-  return descriptor.render;
+async function paneBodyComponent(kind: PaneKind): Promise<FunctionComponent<ConsolePaneContext>> {
+  return await resolvedPaneBody(kind, (registry) => {
+    registerBrowserPanes(registry);
+    registerTerminalPanes(registry);
+  });
 }
 
 /**
@@ -182,7 +163,7 @@ function paneTrailName(sessionId: string | undefined, paneWord: string): string 
 /** The browser pane, mounted with its navigation subscription settled. */
 export async function mountBrowserPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
-  const BrowserPaneBody = paneBodyComponent("browser");
+  const BrowserPaneBody = await paneBodyComponent("browser");
   const { container } = await renderSettled(
     <BrowserPaneBody
       kind="browser"
@@ -206,7 +187,7 @@ export async function mountBrowserPane(): Promise<MountedFamilySurface> {
  */
 export async function mountTerminalPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
-  const TerminalPaneBody = paneBodyComponent("terminal");
+  const TerminalPaneBody = await paneBodyComponent("terminal");
   const { container } = await renderSettled(
     <TerminalPaneBody
       kind="terminal"

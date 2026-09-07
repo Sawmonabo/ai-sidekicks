@@ -60,7 +60,7 @@ import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
  */
 export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   const { bridge, sessionStore } = scenarioCollaborators();
-  const ArtifactPaneBody = paneBodyComponent("artifact");
+  const ArtifactPaneBody = await paneBodyComponent("artifact");
   const { container } = await renderSettled(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       {ArtifactPaneBody({
@@ -136,7 +136,7 @@ async function mountArtifactPanePayload(
 ): Promise<MountedFamilySurface> {
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
   const bridge = scriptedArtifactPort(readAnswer);
-  const ArtifactPaneBody = paneBodyComponent("artifact");
+  const ArtifactPaneBody = await paneBodyComponent("artifact");
   const { container } = await renderSettled(
     <LiveAnnouncerProvider clock={new ManualClock()}>
       {ArtifactPaneBody({

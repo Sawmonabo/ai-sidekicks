@@ -26,25 +26,18 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, posix, sep } from "node:path";
 
-import ts from "typescript";
-
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
   consoleStylesheets,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
-
-/**
- * How a file's stylesheet specifiers are read out of it.
- *
- * A function per LANGUAGE rather than a pattern per shape, because the two questions
- * are asked of two grammars and neither is answerable by a line match. Both readers
- * take the file's name as well as its text: one needs it to choose a script kind, and
- * the other reports it.
- */
-export type StylesheetSpecifierReader = (fileName: string, source: string) => readonly string[];
+import {
+  moduleStylesheetImports,
+  dynamicImportSpecifiers,
+  stylesheetAtImports,
+  type StylesheetSpecifierReader,
+} from "./stylesheet-specifiers.js";
 
 /**
  * The tree a walk reads: which modules and stylesheets exist, and their text.
@@ -81,99 +74,56 @@ export interface StylesheetEdgeOffences {
 }
 
 /**
- * Every stylesheet a TypeScript module imports for its side effect.
+ * Whether a tree-relative module path is a BARREL: a directory's `index.ts`.
  *
- * READ FROM THE PARSE, because the question is about a declaration boundary and a
- * regular expression cannot see one. The pattern this replaced was a whole-LINE match,
- * so `import "./parks.css"; // ships with the parks module` was not an edge, and
- * neither was a specifier broken across two lines: the sheet then read as unreached
- * and the gate reported a tree with an orphaned stylesheet as clean. A side-effect
- * import is exactly `ts.isImportDeclaration(node) && node.importClause === undefined`,
- * and the specifier is the string literal the declaration already holds — no text
- * between the two for a pattern to run past.
- *
- * `.css` and nothing else, because this walk is about stylesheets and a module also
- * side-effect-imports polyfills and registries that are not sheets.
- */
-export const moduleStylesheetImports: StylesheetSpecifierReader = (fileName, source) => {
-  // A STYLESHEET HANDED HERE ANSWERS WITH ITS OWN AT-RULES, measured: TypeScript's
-  // error recovery reads `@import "./surface.css";` as a decorator followed by a
-  // side-effect import, so this reader is not blind to CSS by parsing alone. The walk
-  // never hands it one — `CONSOLE_STYLESHEET_TREE.modulePaths` holds `.ts` and `.tsx`
-  // — and this guard makes that a property of the reader rather than of its callers.
-  if (!fileName.endsWith(".ts") && !fileName.endsWith(".tsx")) {
-    return [];
-  }
-  const specifiers: string[] = [];
-  const parsed = parseSourceText(fileName, source);
-  forEachDescendant(parsed, (node) => {
-    if (
-      ts.isImportDeclaration(node) &&
-      node.importClause === undefined &&
-      ts.isStringLiteral(node.moduleSpecifier) &&
-      node.moduleSpecifier.text.endsWith(".css")
-    ) {
-      specifiers.push(node.moduleSpecifier.text);
-    }
-  });
-  return specifiers;
-};
-
-/** A comment in a stylesheet, so a commented-out `@import` is not read as one. */
-const CSS_COMMENT = /\/\*[\s\S]*?\*\//gu;
-
-/** The head of an `@import` at-rule: the keyword and whatever follows it, to its end. */
-const CSS_AT_IMPORT_PRELUDE = /@import\b(?<prelude>[^;{]*)/gu;
-
-/** The target of an `@import` prelude, quoted directly or wrapped in `url()`. */
-const CSS_IMPORT_TARGET =
-  /url\(\s*(?<quoted>"[^"]*"|'[^']*'|[^)\s]*)\s*\)|"(?<double>[^"]*)"|'(?<single>[^']*)'/u;
-
-/**
- * Every stylesheet an `@import` at-rule pulls into this sheet.
- *
- * ANCHORED ON THE AT-RULE, not on a line. The pattern this replaced matched a whole
- * line and required the closing `";` to end it, so an `@import` carrying a media
- * query, a cascade layer, or a trailing comment disappeared from the graph — and a
- * sheet reached only that way was reported as unreached while a sheet reached twice
- * was reported as reached once. The prelude runs from the keyword to the `;` or `{`
- * that ends it, and the target is the first string in it however it is written, which
- * is what the CSS grammar says an `@import` names.
- *
- * Comments are stripped first, so a commented-out `@import` is not an edge — the one
- * way this question can be asked wrongly that anchoring alone does not answer.
- */
-export const stylesheetAtImports: StylesheetSpecifierReader = (_fileName, source) => {
-  const withoutComments = source.replace(CSS_COMMENT, " ");
-  const specifiers: string[] = [];
-  for (const atRule of withoutComments.matchAll(CSS_AT_IMPORT_PRELUDE)) {
-    const target = CSS_IMPORT_TARGET.exec(atRule.groups?.["prelude"] ?? "");
-    if (target === null) {
-      continue;
-    }
-    const quoted = target.groups?.["quoted"];
-    const unwrapped =
-      quoted === undefined
-        ? (target.groups?.["double"] ?? target.groups?.["single"])
-        : quoted.replace(/^["']|["']$/gu, "");
-    if (unwrapped !== undefined && unwrapped !== "") {
-      specifiers.push(unwrapped);
-    }
-  }
-  return specifiers;
-};
-
-/**
- * Whether a tree-relative module path is a barrel — a family's door or a lazily
- * loaded chunk's, which the rule treats alike.
- *
- * The two are the same shape on purpose. What a stylesheet edge needs is a module that
- * is the single way into the code the sheet paints, and a door is that whether the
- * code behind it is a family or a chunk; a predicate that tried to tell them apart
- * would be reading intent out of a path.
+ * One of the two door shapes, and the only one a path alone can answer. The other is
+ * the chunk root below, which is a fact about the graph rather than about the name.
  */
 export function isOwningBarrel(modulePath: string): boolean {
   return modulePath.endsWith(`${sep}index.ts`);
+}
+
+/**
+ * Every module some other module reaches by a dynamic `import()`: a chunk root.
+ *
+ * A DOOR, ON THE SAME REASONING AS A BARREL. What a stylesheet edge needs is a module
+ * that is the single way into the code the sheet paints, and a chunk root is exactly
+ * that — the loader's `import()` is the only static reference to it, so a sheet it
+ * imports arrives on that chunk and on no other. `seats/lazy-body.ts` makes this the
+ * console's registration form for a body that is not on the flagship first paint, and
+ * such a body is the entry to its own directory in the same way a barrel is.
+ *
+ * DERIVED FROM THE TREE AND NEVER FROM A NAME. A predicate keyed on a `-body` suffix
+ * would admit a module nothing lazily imports, which is the reach the rule forbids; the
+ * question the rule asks is whether the importer is the way in, and only the graph
+ * answers that.
+ *
+ * The specifier is written as `./x-body.js` — the console's ESM specifier form — so it
+ * is resolved against both source extensions and kept only where the tree holds it.
+ */
+export function lazyChunkRoots(tree: StylesheetTree): ReadonlySet<string> {
+  const modules = new Set(tree.modulePaths);
+  const roots = new Set<string>();
+  for (const modulePath of tree.modulePaths) {
+    for (const specifier of dynamicImportSpecifiers(modulePath, tree.read(modulePath))) {
+      const resolved = resolveStylesheet(modulePath, specifier);
+      if (resolved === undefined) {
+        continue;
+      }
+      for (const candidate of moduleCandidatesFor(resolved)) {
+        if (modules.has(candidate)) {
+          roots.add(candidate);
+        }
+      }
+    }
+  }
+  return roots;
+}
+
+/** The source paths an ESM specifier could name, in the order a resolver tries them. */
+function moduleCandidatesFor(resolvedSpecifier: string): readonly string[] {
+  const withoutExtension = resolvedSpecifier.replace(/\.js$/u, "");
+  return [`${withoutExtension}.ts`, `${withoutExtension}.tsx`, resolvedSpecifier];
 }
 
 /**
@@ -182,9 +132,19 @@ export function isOwningBarrel(modulePath: string): boolean {
  * `apps/desktop/AGENTS.md` states the rule this answers — "a stylesheet enters through
  * the barrel of the directory that OWNS it", where "a directory owns its own
  * sub-directories that carry no `index.ts` of their own" and "a directory that carries
- * a door … has an owner of its own". So ownership is a walk upward to the first door,
- * and it is computed rather than configured: a sub-directory that grows a door becomes
+ * a door … has an owner of its own". So ownership is a walk upward to the first barrel,
+ * and it is computed rather than configured: a sub-directory that grows a barrel becomes
  * its own owner the moment the file exists, with no list here to keep in step.
+ *
+ * OWNERSHIP IS KEYED ON THE BARREL AND NOT ON EVERY DOOR, which is the one place the
+ * two door shapes part company. A chunk root is a door — it is the single way into the
+ * code behind it, which is what admits it as an IMPORTER below — but ownership has to
+ * be single-valued, and a directory can carry several chunk roots: `agents/
+ * agent-console/` carries one for the deck's pane and one for the auxiliary window's
+ * surface. Naming a directory its own owner because it holds a chunk root would then
+ * leave the family's barrel — the module that actually admits that directory into the
+ * tree — reaching a sheet it no longer owned, and would report the console's existing
+ * arrangement as an offence without any sheet having moved.
  *
  * `undefined` where no ancestor carries one, which the caller reports rather than
  * passes over: a sheet under no barrel at all is reached by nothing the rule admits.
@@ -261,7 +221,10 @@ function recordStylesheetEdges(
  */
 export function collectStylesheetEdges(tree: StylesheetTree): StylesheetEdgeGraph {
   const edges = new Map<string, StylesheetEdge[]>();
-  for (const owningBarrel of tree.modulePaths.filter(isOwningBarrel)) {
+  const chunkRoots = lazyChunkRoots(tree);
+  for (const owningBarrel of tree.modulePaths.filter(
+    (modulePath) => isOwningBarrel(modulePath) || chunkRoots.has(modulePath),
+  )) {
     const visited = new Set<string>();
     const pending: string[] = [];
     recordStylesheetEdges(
@@ -289,11 +252,19 @@ export function collectStylesheetEdges(tree: StylesheetTree): StylesheetEdgeGrap
  *
  * TWO SHAPES AND NOT ONE, because a family's own sheet legitimately pulls in the
  * sheets of the sub-directories that family owns. A module edge is admissible when the
- * importer IS the sheet's owning barrel; an `@import` edge is admissible when the
- * importing sheet answers to the SAME owner, which is what makes
+ * importer IS the sheet's owning barrel; every other edge is admissible when the
+ * importer answers to the SAME owner, which is what makes
  * `workflows/workflows.css → definitions/definitions-browser.css` right and
  * `workflows/workflows.css → destination/workflows-destination.css` wrong the moment
  * `destination/` grows a door.
+ *
+ * THE SECOND CLAUSE IS ALSO WHAT ADMITS A CHUNK ROOT, and it admits it without being
+ * widened: a lazily imported body sits inside its family's barrel subtree, so it
+ * answers to the same owner as the sheet beside it. What keeps that from being a hole
+ * is that the clause governs only WHICH sheet may be reached, while
+ * `stylesheet-edges.test.ts`'s own door claim governs WHICH modules may reach one at
+ * all — a non-door module in the subtree fails there, and the count below still holds
+ * every sheet to a single inbound edge.
  */
 function isOwnedEdge(tree: StylesheetTree, sheet: string, edge: StylesheetEdge): boolean {
   const owner = owningBarrelOf(tree, sheet);
@@ -301,6 +272,65 @@ function isOwnedEdge(tree: StylesheetTree, sheet: string, edge: StylesheetEdge):
     return false;
   }
   return edge.importer === owner || owningBarrelOf(tree, edge.importer) === owner;
+}
+
+/**
+ * Whether a sheet's several importers are alternative entries to its own directory.
+ *
+ * THE ONE ADMITTED FAN-IN, and it is narrow on purpose. The single-edge rule exists so
+ * that no sheet is pulled into a document by two different owners — one directory made
+ * the reason another is styled. Two lazy chunk roots under the SAME owning barrel are
+ * not two owners: they are two ways into one body, and the bundler emits the sheet once
+ * into an asset whichever root pulls. `agents/agent-console/` is the live case — the
+ * deck's pane and the auxiliary window's surface are independent first paints of
+ * `AgentConsoleBody`, so each has to name the rules that body needs; a sheet named by
+ * only one of them leaves the other window rendering undressed.
+ *
+ * EVERY importer must qualify, so a barrel joining two chunk roots still offends: what
+ * is admitted is a fan-in whose members are all deferred entries to one directory, not
+ * a sheet that happens to have a chunk root among its importers.
+ *
+ * AND AN ADMITTED SHEET'S OWN `@import`S INHERIT IT, which is the second clause and not
+ * a widening of the first. A family sheet three sibling roots pull carries the sheets
+ * that family owns at its head, and each of those is then reached once per root — same
+ * importer, three edges — for a reason that is a property of the roots rather than of
+ * the sheet. Without this clause the model would forbid a fanned-in family sheet from
+ * carrying any `@import` at all, which is an accident of how the walk counts rather than
+ * a rule anybody decided: what makes the fan-in safe is that the members are alternative
+ * entries to ONE body, and a sheet that body's chrome pulls in is on exactly the same
+ * asset. A BARREL among the importers still offends, at this level and at every level
+ * below it, because the recursion admits only importers that are themselves admitted.
+ */
+function isSiblingChunkRootFanIn(
+  tree: StylesheetTree,
+  sheet: string,
+  inbound: readonly StylesheetEdge[],
+  chunkRoots: ReadonlySet<string>,
+  edges: StylesheetEdgeGraph,
+  // The cycle guard, and the only reason this parameter exists: two sheets that
+  // `@import` each other would otherwise recur forever, and a malformed tree must fail
+  // the gate rather than hang it.
+  visiting: ReadonlySet<string> = new Set(),
+): boolean {
+  const owner = owningBarrelOf(tree, sheet);
+  if (owner === undefined || visiting.has(sheet)) {
+    return false;
+  }
+  const descended = new Set([...visiting, sheet]);
+  return inbound.every((edge) => {
+    if (owningBarrelOf(tree, edge.importer) !== owner) {
+      return false;
+    }
+    if (chunkRoots.has(edge.importer)) {
+      return true;
+    }
+    const importerInbound = edges.get(edge.importer);
+    return (
+      importerInbound !== undefined &&
+      importerInbound.length > 0 &&
+      isSiblingChunkRootFanIn(tree, edge.importer, importerInbound, chunkRoots, edges, descended)
+    );
+  });
 }
 
 /** The offending sheets, each reported with the edges that made it one. */
@@ -312,18 +342,20 @@ export function stylesheetEdgeOffences(
   const duplicatePaths: string[] = [];
   const duplicateBarrels: string[] = [];
   const misowned: string[] = [];
+  const chunkRoots = lazyChunkRoots(tree);
   for (const sheet of tree.stylesheetPaths) {
     const inbound = edges.get(sheet) ?? [];
     if (inbound.length === 0) {
       unreached.push(sheet);
       continue;
     }
-    if (inbound.length > 1) {
+    const siblingRoots = isSiblingChunkRootFanIn(tree, sheet, inbound, chunkRoots, edges);
+    if (inbound.length > 1 && !siblingRoots) {
       const paths = inbound.map((edge) => `${edge.importer} → "${edge.specifier}"`).join("; ");
       duplicatePaths.push(`${sheet}: ${inbound.length} inbound edges — ${paths}`);
     }
     const owningBarrels = [...new Set(inbound.map((edge) => edge.owningBarrel))].sort();
-    if (owningBarrels.length > 1) {
+    if (owningBarrels.length > 1 && !siblingRoots) {
       duplicateBarrels.push(`${sheet}: reached from ${owningBarrels.join(", ")}`);
     }
     // THE CLAIM THE OTHER THREE CANNOT MAKE. Reached, reached once, and reached from

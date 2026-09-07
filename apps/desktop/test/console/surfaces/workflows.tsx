@@ -70,10 +70,9 @@ import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/sce
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-definitions.js";
 import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-ids.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-} from "../../../src/renderer/src/console/seats/surface-registry.js";
+// The context comes off its own module: it was hoisted out of the board to break the
+// cycle a loader-backed surface's reserved frame would otherwise close.
+import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface-context.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
@@ -92,6 +91,7 @@ import {
   type ConsolePaneContext,
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
+import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -107,22 +107,17 @@ function familyPaneRegistry(): ConsolePaneRegistry {
 }
 
 /**
- * The pane body the deck holds for a kind, as a component, or a throw.
+ * The workflows pane body the deck holds for a kind, loaded.
  *
- * A throw rather than an optional return, so a family that stopped registering its
- * kind fails here — where the message names the kind — instead of rendering nothing
- * and letting a tier compare an empty box against a baseline.
- *
- * The descriptor's `render` is handed back for React to MOUNT rather than called
- * here: both bodies hold hooks, and a plain call outside a render would run them
- * against no dispatcher.
+ * The resolution — build a family-scoped registry, preload, read the descriptor, throw
+ * by name — lives once in `test/console/surfaces/pane-body-resolution.ts`; what stays here is
+ * this family's registrar and the `{ context }` prop shape its mounts below render with.
  */
-function paneBodyComponent(kind: PaneKind): FunctionComponent<{ context: ConsolePaneContext }> {
-  const descriptor = familyPaneRegistry().descriptorFor(kind);
-  if (descriptor === undefined) {
-    throw new Error(`no console pane is registered for the \`${kind}\` kind`);
-  }
-  return ({ context }) => descriptor.render(context);
+async function paneBodyComponent(
+  kind: PaneKind,
+): Promise<FunctionComponent<{ context: ConsolePaneContext }>> {
+  const render = await resolvedPaneBody(kind, registerWorkflowPanes);
+  return ({ context }) => render(context);
 }
 
 /**
@@ -190,14 +185,11 @@ function requirePaneNamed(container: HTMLElement, paneTitle: string): HTMLElemen
  * message names the slot — instead of rendering nothing and letting a tier compare an
  * empty box against a baseline.
  */
-function surfaceBodyComponent(): FunctionComponent<{ context: ConsoleSurfaceContext }> {
-  const registry = new ConsoleSurfaceRegistry();
-  registerWorkflowSurfaces(registry);
-  const descriptor = registry.descriptorFor("workflows");
-  if (descriptor === undefined) {
-    throw new Error("no console surface is registered for the `workflows` slot");
-  }
-  return ({ context }) => descriptor.render(context);
+async function surfaceBodyComponent(): Promise<
+  FunctionComponent<{ context: ConsoleSurfaceContext }>
+> {
+  const render = await resolvedSurfaceBody("workflows", registerWorkflowSurfaces);
+  return ({ context }) => render(context);
 }
 
 /**
@@ -254,7 +246,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  */
 export async function mountWorkflowsDestination(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const WorkflowsDestinationBody = surfaceBodyComponent();
+  const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
     <LiveAnnouncerProvider>
       <WorkflowsDestinationBody context={surfaceContext(bridge)} />
@@ -289,7 +281,7 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const WorkflowRunPaneBody = paneBodyComponent("workflow-run");
+  const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
     <WorkflowRunPaneBody
       context={paneContext(
@@ -346,7 +338,7 @@ function scenarioDefinitionId(): string {
  */
 export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const WorkflowBuilderPaneBody = paneBodyComponent("workflow-builder");
+  const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
     <WorkflowBuilderPaneBody
       context={paneContext(

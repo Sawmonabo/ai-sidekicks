@@ -30,12 +30,12 @@ import { useMemo, useState } from "react";
 import { useFrameStore, useOpenSessionStore } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
 import {
-  SETTINGS_SECTION_IDS,
   matchSettingsEntries,
   type SettingsPageContext,
   type SettingsPageRegistry,
-  type SettingsSectionId,
 } from "./settings-page-registry.js";
+import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "./settings-sections.js";
+import { useSettingsPageIdleWarm } from "./settings-page-warm.js";
 import { SettingsSearchField } from "./SettingsSearchField.js";
 import { SettingsSectionRail } from "./SettingsSectionRail.js";
 import { SettingsSearchResults } from "./SettingsSearchResults.js";
@@ -59,7 +59,7 @@ function requestedSection(page: string | undefined): SettingsSectionId | undefin
 }
 
 export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element {
-  const { context } = props;
+  const { context, pages } = props;
   const { route } = context;
   const requestedPage = route.kind === "settings" ? route.page : undefined;
   const selectedSection = requestedSection(requestedPage);
@@ -72,6 +72,21 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   const retainedSessionId = useFrameStore(context.frameStore, (state) => state.lastOpenedSessionId);
 
   const openSection = (section: SettingsSectionId): void => {
+    // WARMED BEFORE THE ROUTE COMMITS, which is `frame/rail-navigation.ts`'s rule one
+    // level down: this is the moment the intent is legible and the act has not happened.
+    // It sits in the SHARED callback rather than beside either control, because the rail's
+    // row, a search hit, and a page that navigates to a sibling section all reach a section
+    // through this one line — so none of them can be the path that forgot, and a person who
+    // clicks a deferred page cold does not watch its reservation after an explicit act.
+    //
+    // A `render:`-form or unregistered section settles immediately with nothing done, so
+    // the line asks no question about how the page it is opening was registered.
+    //
+    // Fire-and-forget with the rejection dropped, on the idle walk's own reasoning: a chunk
+    // that will not load is a damaged install, and the honest place to say so is the mount,
+    // inside the surface error boundary, where somebody is waiting for it. Awaiting here
+    // would stall a navigation the person has already made.
+    void pages.preload(section).catch(() => undefined);
     context.frameStore.navigate({ kind: "settings", page: section });
   };
 
@@ -93,10 +108,15 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
     retainedSessionStore,
   };
 
+  // Warmed at idle, before any of that: the board's lifetime begins when this destination
+  // opens and a section is a second act after it, so the interval a person spends reading
+  // the rail is the one a deferred page's chunk is charged to. A board holding only
+  // `render:` pages walks in one step and fetches nothing.
+  useSettingsPageIdleWarm(pages);
+
   // Memoised on the registry and the query: the registry is composed once by the
   // registrar and does not change while a window is open, so re-ranking on every
   // unrelated render would be work with no input change to justify it.
-  const { pages } = props;
   const matches = useMemo(
     () => matchSettingsEntries(pages.entries(), searchQuery),
     [pages, searchQuery],

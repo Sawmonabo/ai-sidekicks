@@ -1,7 +1,9 @@
 // The artifact pane's door.
 //
-// Same shape and same reason as `repos/diff-pane/index.ts`: one directory, one barrel, the
-// bodies reached only through it.
+// Same shape and same reason as `repos/diff-pane/index.ts`: one directory, one barrel,
+// and only the two ledger-card registrations on it. `ArtifactPane` is off the door for
+// the reason stated there — its one reader is this directory's own loader-backed body
+// module, and a door line would put the pane back on the initial import graph.
 //
 // THE SHEET ENTERS HERE, and that is the same rule this directory's sibling keeps.
 // `apps/desktop/AGENTS.md` keys it on the directory that OWNS a sheet rather than on
@@ -17,8 +19,6 @@
 // across view families the seats exist to prevent.
 
 import "./artifact.css";
-
-export { ArtifactPane } from "./ArtifactPane.js";
 
 export { registerInlineArtifactCardBody } from "./InlineArtifactCard.js";
 export { registerInlineAttachmentCardBody } from "./InlineAttachmentCard.js";

@@ -2,16 +2,21 @@
  * The workflows family's shared chrome, and the entry point for the sheets this
  * directory owns.
  *
- * `workflows/index.ts` imports THIS file and no other sheet, so the family door is one
- * edge into the rules every workflows surface stands in and a surface can never render
- * a chrome that arrived without them. The sheets below are pulled in from here rather
- * than from their own modules for that reason: each is owned and edited by the surface
- * it names, and none of them is a second import edge into what the door already brings.
+ * EVERY CHUNK ROOT THIS FAMILY HAS IMPORTS THIS FILE, and the family door imports it no
+ * longer. All three of the family's bodies — the destination surface and both pane kinds
+ * — now arrive behind a loader, so nothing statically reachable from `workflows/index.ts`
+ * can render against a single rule below and leaving the edge there charged every session
+ * for a document none of them would ever paint. Each root names the rules its body needs,
+ * on `agents/agent-console`'s precedent: two first paints of one family's chrome are two
+ * independent paints, and one of them relying on another having run is the coupling that
+ * has no name. The sheet below is pulled in from here rather than from its own module for
+ * the reason it always was: it is owned and edited by the surface it names, and it is not
+ * a second import edge into what this document already brings.
  *
  * PULLED IN FROM HERE MEANS FROM A DIRECTORY THIS ONE OWNS, and that is the whole of
  * the rule. `definitions/`, `runs/` and `parks/` carry no barrel: they are this
  * family's own sub-directories, reached from inside it and by nothing else, so a sheet
- * of theirs entering on the family door is the family importing its own rules. A sheet
+ * of theirs entering here is the family importing its own rules. A sheet
  * belonging to a directory that has an OWNER of its own — another family, a sub-module
  * door, a lazily-loaded chunk — is the shape that is forbidden, because it puts that
  * surface's rules on the initial document for every session that never opens it and
@@ -70,9 +75,21 @@
  *               arrived.
  */
 
-/* The per-surface sheets, in the order a person meets the surfaces. */
-@import "./definitions/definitions-browser.css";
-@import "./runs/run-list.css";
+/* The one per-surface sheet this document still carries.
+ *
+ * TWO LEFT AND ONE OF THEM MOVED OUT, in opposite directions and for opposite reasons.
+ * The definitions browser's sheet went first: its only reader is
+ * `definitions/DefinitionsBrowser.tsx`, which nothing reaches without crossing the
+ * destination's `import()`, so it enters at `workflows-surface-body.ts` instead. The run
+ * LIST's sheet went the other way — up to `workflows/index.ts`, the family door — because
+ * it declares `.meridian-run-row__failure` and so does `runs/pane/runs.css`: which of the
+ * two the browser sees last decides how a failed run's line reads in BOTH families, and
+ * this document does not sit on the initial graph any more. A sheet whose cascade
+ * position is not this family's decision alone cannot ride this family's chunks.
+ *
+ * The park badge stays: nothing outside this family declares against it, and both bodies
+ * that draw one — the run pane's park strip and the run list's rows — are chunk roots
+ * that pull this document in. */
 @import "./parks/park-badge.css";
 
 /* --------------------------------------------- the destination's own frame */

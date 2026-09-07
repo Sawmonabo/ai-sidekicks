@@ -29,64 +29,13 @@ import { type ConsoleBridge } from "../bridge/index.js";
 import { scoreSubsequence } from "../palette/index.js";
 import { Nothing } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
-import type { OwnerSlotProps } from "../seats/index.js";
-
-/**
- * Every settings section, in rail order.
- *
- * The twelve the design enumerates, in its order, plus `sidekicks`. The rail a
- * person reads is this tuple, and the union is derived from it for the reason
- * `seats/surface-registry.ts` gives about its own slots: a union written beside a
- * hand-repeated array is two closed sets that agree until one of them is widened.
- *
- * `sidekicks` is the one id that is this console's own rather than the design's.
- * The design puts the saved-sidekick page IN settings and reaches it from the
- * in-session attach picker, but its section enumeration names no id for it, so a
- * page that exists and a rail that cannot reach it was the alternative. An id
- * carries no wire and asserts nothing about the daemon, which is why it can be
- * decided here; a PAGE with no body still could not be, and this one has one.
- */
-export const SETTINGS_SECTION_IDS = [
-  "accounts",
-  "mcp-servers",
-  "sidekicks",
-  "cost",
-  "nodes",
-  "notifications",
-  "keyboard",
-  "appearance",
-  "mounts",
-  "diagnostics",
-  "data",
-  "application",
-  "browser",
-] as const;
-
-/** One settings section. Derived from the enumeration, never restated. */
-export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
-
-/**
- * The rail's label for each section, in one place.
- *
- * A TOTAL record, so a fourteenth section is a compile error here until its label
- * is decided — the label cannot silently default to the id, which is how a rail
- * grows an entry reading `mcp-servers`.
- */
-export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsSectionId, string>> = {
-  accounts: "Accounts",
-  "mcp-servers": "MCP servers",
-  sidekicks: "Sidekicks",
-  cost: "Cost",
-  nodes: "Nodes",
-  notifications: "Notifications",
-  keyboard: "Keyboard",
-  appearance: "Appearance",
-  mounts: "Mounts",
-  diagnostics: "Diagnostics",
-  data: "Data",
-  application: "Application",
-  browser: "Browser",
-};
+import { LoadedLazyBody, type LazyBodyLoader, type OwnerSlotProps } from "../seats/index.js";
+import { PendingSettingsPageBody } from "./PendingSettingsPageBody.js";
+import {
+  SETTINGS_SECTION_IDS,
+  SETTINGS_SECTION_LABELS,
+  type SettingsSectionId,
+} from "./settings-sections.js";
 
 /**
  * Everything a settings page is handed.
@@ -153,6 +102,46 @@ export interface SettingsPageDescriptor {
   readonly render: SettingsPageBody;
 }
 
+/** What every registration carries, whichever form it takes. */
+interface SettingsPageRegistrationBase {
+  readonly section: SettingsSectionId;
+  readonly owner: string;
+  readonly label: string;
+  readonly keywords: readonly string[];
+}
+
+/**
+ * What a page hands {@link SettingsPageRegistrar.register}, in one of exactly two forms.
+ *
+ * THE DECK'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
+ * product fact and normalised by the same `LoadedLazyBody`. `seats/pane-registry.ts`
+ * states the reasoning; what makes it apply here is that a settings page is not painted
+ * before a person acts — settings is a destination somebody navigates to, and a section
+ * inside it is a second act after that.
+ *
+ * IT IS NOT MERELY A SIZE QUESTION, and the case that forced this arm shows why. The
+ * sidekicks page's body is the AGENTS family's, and that family's door is imported
+ * EAGERLY by `collaboration-family.ts` for the agent console's surface registration. So
+ * while this registry took only a `render`, the registration site had to reach the page
+ * through that door, and the bundler — which assigns a module reachable both statically
+ * and dynamically to the static chunk — put the page and its stylesheet on the initial
+ * graph of every launch, including every launch that never opens settings. A loader here
+ * is what lets the registration name a chunk root instead of a component.
+ *
+ * A UNION AND NOT TWO OPTIONAL MEMBERS, for the pane board's reason: `render?` beside
+ * `body?` makes "both" and "neither" representable, and both would have to be answered at
+ * run time by a registry that cannot know which the page meant.
+ */
+export type SettingsPageRegistration =
+  | (SettingsPageRegistrationBase & {
+      readonly render: SettingsPageBody;
+      readonly body?: never;
+    })
+  | (SettingsPageRegistrationBase & {
+      readonly body: LazyBodyLoader<SettingsPageContext>;
+      readonly render?: never;
+    });
+
 /**
  * The one operation a registration site outside this family performs.
  *
@@ -164,7 +153,7 @@ export interface SettingsPageDescriptor {
  * performs is exactly the public surface a door exists to expose.
  */
 export interface SettingsPageRegistrar {
-  register(descriptor: SettingsPageDescriptor): void;
+  register(registration: SettingsPageRegistration): void;
 }
 
 export class SettingsPageRegistry implements SettingsPageRegistrar {
@@ -178,13 +167,106 @@ export class SettingsPageRegistry implements SettingsPageRegistrar {
     duplicateHint: "the settings pane renders one page per section, in rail order",
   });
 
-  /** Claim a section. A second claim by a different owner is an error, not a swap. */
-  public register(descriptor: SettingsPageDescriptor): void {
-    this.#descriptorsBySection.register(descriptor.section, descriptor);
+  /**
+   * The loader-backed pages, so {@link preload} has something to resolve.
+   *
+   * A second table rather than a member on the descriptor, for the two `seats/` boards'
+   * reason: the descriptor is what every mount site reads and none of them has business
+   * knowing whether the page it is about to render arrived as a chunk.
+   */
+  readonly #loadedBodiesBySection = new Map<
+    SettingsSectionId,
+    LoadedLazyBody<SettingsPageContext>
+  >();
+
+  /**
+   * Claim a section. A second claim by a different owner is an error, not a swap.
+   *
+   * A loader-form registration is normalised here exactly as the deck's and the frame's
+   * boards normalise theirs: one `LoadedLazyBody` per registration — one memoised promise
+   * and one stable lazy component — and a descriptor whose `render` mounts it. So
+   * `descriptorFor` answers the same shape for both forms, `entries` ranks both the same
+   * way, and neither `SettingsPane` nor the search index branches on how a body arrived.
+   *
+   * The two writes are ordered as the pane board's are, and for the measured reason that
+   * board records: the descriptor is registered FIRST so a refusal — a different owner
+   * claiming a taken section — throws before the loader table is touched, and cannot
+   * strip the loader off the registration that survives it.
+   */
+  public register(registration: SettingsPageRegistration): void {
+    const descriptorBase = {
+      section: registration.section,
+      owner: registration.owner,
+      label: registration.label,
+      keywords: registration.keywords,
+    };
+    if (registration.body === undefined) {
+      this.#descriptorsBySection.register(registration.section, {
+        ...descriptorBase,
+        render: registration.render,
+      });
+      this.#loadedBodiesBySection.delete(registration.section);
+      return;
+    }
+    // The fallback is the page region's own empty reservation, supplied here rather than
+    // by the generic machinery: what a settings page reserves while it loads is a
+    // settings-shaped question, and the pane above it has already drawn the heading.
+    const loadedBody = new LoadedLazyBody(registration.body, () =>
+      createElement(PendingSettingsPageBody, { section: registration.section }),
+    );
+    this.#descriptorsBySection.register(registration.section, {
+      ...descriptorBase,
+      render: loadedBody.render,
+    });
+    this.#loadedBodiesBySection.set(registration.section, loadedBody);
+  }
+
+  /**
+   * Start this section's body loading, without opening it.
+   *
+   * The two `seats/` boards' `preload`, with its reasoning unchanged: idempotent by
+   * construction, because the promise is memoised on the registration, and a
+   * component-form or unregistered section settles immediately with nothing to do — so a
+   * caller never has to ask first whether a section is loader-backed.
+   *
+   * TWO PRODUCTION CALLERS, which are the two the boards in `seats/` have. The shared
+   * section-opening callback calls it before it navigates, so the rail's row and a search
+   * hit warm the same page through one line — `frame/rail-navigation.ts` warms a
+   * destination at that same moment and for that same reason — and an idle walk covers
+   * the board before either of them reaches it.
+   *
+   * THE WALK IS HERE NOW, AND THE ARGUMENT AGAINST IT WAS WRONG. It ran: this registry is
+   * composed per mount, so by the time it exists the destination is already open and
+   * there is no earlier moment to use. The registration union above answers that in its
+   * own words — "settings is a destination somebody navigates to, and a section inside it
+   * is a second act after that" — so the board's lifetime begins at the FIRST act and the
+   * interval before the second one is exactly the idle a warm is charged to. A board
+   * holding only `render:` pages walks in one step and fetches nothing, which is what
+   * makes arming it unconditional honest. `settings-page-warm.ts` binds that walk to a
+   * MOUNT rather than to a window, because so is this board.
+   */
+  public async preload(section: SettingsSectionId): Promise<void> {
+    await this.#loadedBodiesBySection.get(section)?.load();
+  }
+
+  /**
+   * Which registered sections have a page still to load, in RAIL order.
+   *
+   * The two boards' `unloadedKeys`, with their ordering reason read one level down: what
+   * the walk warms first is observable in what a person never waits for, and registration
+   * order would make it depend on which page lane the chunk root evaluated first.
+   * Already-resolved sections drop out, so a second walk over a warm board does nothing
+   * rather than re-entering every memo.
+   */
+  public unloadedKeys(): readonly SettingsSectionId[] {
+    return SETTINGS_SECTION_IDS.filter(
+      (section) => this.#loadedBodiesBySection.get(section)?.isResolved === false,
+    );
   }
 
   public unregister(section: SettingsSectionId): void {
     this.#descriptorsBySection.unregister(section);
+    this.#loadedBodiesBySection.delete(section);
   }
 
   public descriptorFor(section: SettingsSectionId): SettingsPageDescriptor | undefined {

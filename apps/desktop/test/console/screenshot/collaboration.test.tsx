@@ -31,7 +31,7 @@
 // state: a lane that wrote its own references would have committed images no CI run
 // reproduces. `baseline-host.ts` holds that verdict for the whole tier.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
 import {
@@ -39,6 +39,7 @@ import {
   skipOffBaselineHost,
   warnOnceOffBaselineHost,
 } from "./baseline-host.js";
+import { captureSettled } from "./settled-capture.js";
 
 import "../../../src/renderer/src/console/collaboration/index.js";
 // The settings family's door, for its stylesheet: the nodes page below is mounted as
@@ -98,7 +99,8 @@ describe("screenshot — the destinations this family owns", () => {
         <ConsoleRoot scenarioId={COLLABORATION_SCENARIO_ID} />,
       );
 
-      await expect(requireCapturedElement(container, ".meridian-sessions")).toMatchScreenshot(
+      await captureSettled(
+        requireCapturedElement(container, ".meridian-sessions"),
         `collaboration-sessions-${scheme}`,
       );
     });
@@ -111,7 +113,8 @@ describe("screenshot — the destinations this family owns", () => {
         <ConsoleRoot scenarioId={COLLABORATION_SCENARIO_ID} />,
       );
 
-      await expect(requireCapturedElement(container, ".meridian-settings")).toMatchScreenshot(
+      await captureSettled(
+        requireCapturedElement(container, ".meridian-settings"),
         `collaboration-settings-${scheme}`,
       );
     });
@@ -131,7 +134,8 @@ describe("screenshot — the destinations this family owns", () => {
     (searchField as HTMLInputElement).focus();
     await pressKeys("scheme");
 
-    await expect(requireCapturedElement(container, ".meridian-settings")).toMatchScreenshot(
+    await captureSettled(
+      requireCapturedElement(container, ".meridian-settings"),
       "collaboration-settings-search-light",
     );
   });
@@ -160,7 +164,8 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    await expect(requireCapturedElement(container, ".meridian-channels")).toMatchScreenshot(
+    await captureSettled(
+      requireCapturedElement(container, ".meridian-channels"),
       "collaboration-channels-light",
     );
   });
@@ -195,7 +200,8 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    await expect(requireCapturedElement(container, ".meridian-roster")).toMatchScreenshot(
+    await captureSettled(
+      requireCapturedElement(container, ".meridian-roster"),
       "collaboration-roster-light",
     );
   });
@@ -214,7 +220,8 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    await expect(requireCapturedElement(container, ".meridian-invites")).toMatchScreenshot(
+    await captureSettled(
+      requireCapturedElement(container, ".meridian-invites"),
       "collaboration-invites-light",
     );
   });
@@ -244,7 +251,8 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
       />,
     );
 
-    await expect(requireCapturedElement(container, ".meridian-attention")).toMatchScreenshot(
+    await captureSettled(
+      requireCapturedElement(container, ".meridian-attention"),
       "collaboration-attention-partial-light",
     );
   });
@@ -271,7 +279,8 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     // compare clean against itself forever and prove nothing about the roster.
     requireCapturedElement(container, '[aria-label="node-roster-loaded"]');
 
-    await expect(requireCapturedElement(container, ".meridian-settings-page")).toMatchScreenshot(
+    await captureSettled(
+      requireCapturedElement(container, ".meridian-settings-page"),
       "collaboration-runtime-nodes-light",
     );
   });

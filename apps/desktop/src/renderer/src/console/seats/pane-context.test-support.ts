@@ -30,7 +30,7 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 import { type PaneKind } from "./pane-kinds.js";
-import { type ConsolePaneContext } from "./pane-registry.js";
+import { type ConsolePaneContext } from "./pane-context.js";
 import { FrameStore, type SessionStore } from "../store/index.js";
 
 /** One pane kind's address arm, as the caller writes it. */

@@ -60,13 +60,38 @@ export interface ConsoleScenarioManifest {
   readonly fixtureServedOperations: readonly GrowthOperationId[];
 }
 
-export const CONSOLE_SCENARIO_MANIFEST: ConsoleScenarioManifest = {
-  scenarios: CONSOLE_SCENARIOS,
-  growthOperations: Object.values(GROWTH_OPERATIONS),
-  prerequisites: Object.values(GROWTH_PREREQUISITES),
-  slateRows: GROWTH_SLATE_ROWS,
-  fixtureServedOperations: FIXTURE_SERVED_GROWTH_OPERATIONS,
-};
+/**
+ * The manifest, composed on demand.
+ *
+ * A FUNCTION AND NEVER A MODULE-LEVEL CONSTANT, and the reason is a measured
+ * bundler property rather than a style preference. This value was
+ * `export const CONSOLE_SCENARIO_MANIFEST = { … Object.values(GROWTH_OPERATIONS) … }`
+ * until 2026-09-06, and a top-level initializer that CALLS a function is not
+ * provably pure to the bundler, so Rollup retained the whole declaration in a
+ * release build even though every reader of it is a test. Retaining it retained
+ * `CONSOLE_SCENARIOS`, and that retained all nine scenario modules and the four
+ * `fixture/` modules they reach — the corpus `Spec-023 §Console Design (Meridian)`
+ * §The fixture bridge says a release bundle carries none of. Measured on the
+ * release artifact: `"Browsing agent"`, `artifact-capture-staging-header`, and
+ * `fixtureServedOperations` were all grep-positive in `index-*.js`.
+ *
+ * A function body is evaluated only when it is called, and an unreferenced function
+ * declaration is dropped whether or not its body is pure — so the same composition
+ * expressed this way leaves the release graph entirely. The two callers are the
+ * default parameters below, which are themselves evaluated per call.
+ *
+ * `test/console/budget/release-absence.test.ts` sweeps the built artifact for the
+ * corpus so this cannot silently come back.
+ */
+export function consoleScenarioManifest(): ConsoleScenarioManifest {
+  return {
+    scenarios: CONSOLE_SCENARIOS,
+    growthOperations: Object.values(GROWTH_OPERATIONS),
+    prerequisites: Object.values(GROWTH_PREREQUISITES),
+    slateRows: GROWTH_SLATE_ROWS,
+    fixtureServedOperations: FIXTURE_SERVED_GROWTH_OPERATIONS,
+  };
+}
 
 /** Every ledger entry that serves one slate row, in both categories. */
 export interface SlateRowCoverage {
@@ -81,7 +106,7 @@ export interface SlateRowCoverage {
  * built nothing that would consume it.
  */
 export function mapSlateRowCoverage(
-  manifest: ConsoleScenarioManifest = CONSOLE_SCENARIO_MANIFEST,
+  manifest: ConsoleScenarioManifest = consoleScenarioManifest(),
 ): readonly SlateRowCoverage[] {
   return manifest.slateRows.map((row) => ({
     row,
@@ -92,7 +117,7 @@ export function mapSlateRowCoverage(
 
 /** Row ids named by a ledger entry but absent from the slate. Must be empty. */
 export function findOrphanedLedgerRowIds(
-  manifest: ConsoleScenarioManifest = CONSOLE_SCENARIO_MANIFEST,
+  manifest: ConsoleScenarioManifest = consoleScenarioManifest(),
 ): readonly GrowthSlateRowId[] {
   const known = new Set(manifest.slateRows.map((row) => row.id));
   const named = new Set<GrowthSlateRowId>();

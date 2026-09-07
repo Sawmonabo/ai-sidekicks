@@ -74,12 +74,12 @@ import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import {
   collectStylesheetEdges,
   isOwningBarrel,
-  moduleStylesheetImports,
+  lazyChunkRoots,
   readConsoleFile,
-  stylesheetAtImports,
   stylesheetEdgeOffences,
   CONSOLE_STYLESHEET_TREE,
 } from "./stylesheet-edge-graph.js";
+import { moduleStylesheetImports, stylesheetAtImports } from "./stylesheet-specifiers.js";
 
 /**
  * The budget this file states rather than inherits.
@@ -154,7 +154,19 @@ const STYLESHEET_PATHS: readonly string[] = Object.keys(
 const FAMILY_DOOR = "index.ts";
 
 /**
- * Whether a console-relative path is a DOOR — the barrel a directory is entered by.
+ * The console's lazily imported chunk roots, resolved once for this file.
+ *
+ * Read off the shared tree rather than re-derived here, so the two claims below and the
+ * walk next door answer "is this a door" from one graph. The paths come back separated
+ * by the platform's separator and this file speaks in POSIX ones, which is the whole of
+ * the normalisation.
+ */
+const CONSOLE_CHUNK_ROOTS: ReadonlySet<string> = new Set(
+  [...lazyChunkRoots(CONSOLE_STYLESHEET_TREE)].map((modulePath) => modulePath.split(sep).join("/")),
+);
+
+/**
+ * Whether a console-relative path is a DOOR — a module a directory is entered by.
  *
  * Keyed on OWNERSHIP and never on depth. `apps/desktop/AGENTS.md` puts a sheet through
  * the barrel of the directory that owns it: a sub-directory carrying no `index.ts` is
@@ -163,9 +175,21 @@ const FAMILY_DOOR = "index.ts";
  * reaching down for either is the shape the rule forbids rather than the tidier form
  * of it — a depth predicate reads that exactly backwards, and this one was one before
  * a sub-module barrel with a sheet of its own arrived to say so.
+ *
+ * AND A LAZILY IMPORTED CHUNK ROOT IS A DOOR, on the reason the barrel is one: what the
+ * rule wants is the module that is the single way into the code the sheet paints, and a
+ * chunk root is exactly that — the loader's `import()` is the only static reference to
+ * it. `seats/lazy-body.ts` made that the registration form for a body off the flagship
+ * first paint, and the sheets those bodies paint with belong on their chunk rather than
+ * on the document the launch is measured by. The set is derived from the graph and never
+ * from a name: a module nothing lazily imports is not admitted by being called one.
  */
 function isDoorModule(consoleRelativePath: string): boolean {
-  return consoleRelativePath === FAMILY_DOOR || consoleRelativePath.endsWith(`/${FAMILY_DOOR}`);
+  return (
+    consoleRelativePath === FAMILY_DOOR ||
+    consoleRelativePath.endsWith(`/${FAMILY_DOOR}`) ||
+    CONSOLE_CHUNK_ROOTS.has(consoleRelativePath)
+  );
 }
 
 /** The extension that makes an import a stylesheet edge. */
@@ -289,11 +313,18 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
   it("negative control: the checker reads a submodule's import and a door's", () => {
     // The clean results above mean nothing unless the reader recognises the two
     // shapes it is looking for. Read out of the real tree rather than asserted about
-    // it: the browser family's door carries its five sheets, and the component beside
-    // it carries none.
-    const doorEdges = stylesheetImportsOf(`browser/${FAMILY_DOOR}`);
+    // it, and read at BOTH kinds of door now that a family's sheets may enter at a
+    // lazy chunk root instead: the repos family's door carries several sheets, the
+    // browser family's pane body carries the five that used to sit on the browser
+    // door, and the component beside that body carries none. The browser door itself
+    // is deliberately not the sample any more — it carries no sheet at all, so a
+    // reader that had stopped seeing imports would still pass there.
+    const doorEdges = stylesheetImportsOf(`repos/${FAMILY_DOOR}`);
     expect(doorEdges.length).toBeGreaterThan(1);
-    expect(doorEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
+    expect(doorEdges.every((sheet) => familyOf(sheet) === "repos")).toBe(true);
+    const chunkRootEdges = stylesheetImportsOf("browser/pane/browser-pane-body.ts");
+    expect(chunkRootEdges.length).toBeGreaterThan(1);
+    expect(chunkRootEdges.every((sheet) => familyOf(sheet) === "browser")).toBe(true);
     expect(stylesheetImportsOf("browser/bounds/BudgetMeter.tsx")).toStrictEqual([]);
   });
 
@@ -363,13 +394,16 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
         join("workflows", "index.ts"),
         readConsoleFile(join("workflows", "index.ts")),
       ),
-    ).toStrictEqual(["./workflows.css"]);
+      // The family door's one remaining sheet. Its own chrome moved to the three chunk
+      // roots when the last of its bodies went behind a loader; what stays is the run
+      // list's sheet, whose cascade position is shared with the runs family.
+    ).toStrictEqual(["./runs/run-list.css"]);
     expect(
       stylesheetAtImports(
         join("workflows", "workflows.css"),
         readConsoleFile(join("workflows", "workflows.css")),
-      ).length,
-    ).toBeGreaterThan(1);
+      ),
+    ).toStrictEqual(["./parks/park-badge.css"]);
     // And the door this family's destination now enters on, so the pattern is shown to
     // match a module edge one directory down as well as the family's own.
     expect(

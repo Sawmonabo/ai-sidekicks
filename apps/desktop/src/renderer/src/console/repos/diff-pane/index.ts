@@ -1,9 +1,16 @@
 // The diff pane's door.
 //
 // One directory, one barrel, whatever the module count behind it — the rule every
-// console family obeys. The pane's body is reached only through here: the repos
-// family composes it into a `ConsolePaneDescriptor` in its own barrel, so the
-// registration and the component never have to know about each other.
+// console family obeys. What crosses this sub-module's boundary is the ledger card's
+// registration and nothing else.
+//
+// `DiffPane` IS DELIBERATELY NOT ON IT. The pane is loader-backed, so its one reader is
+// `diff-pane-body.ts` — a module in this directory, which reaches the component by its
+// own deep specifier. A door line for it would be a dead export the barrel census
+// fails, and it would also be the edge that defeated the boundary: a module reachable
+// both statically, through this door, and dynamically, through the loader, is assigned
+// to the STATIC chunk, so the whole pane would have stayed on the initial import graph
+// while the lazy chunk shrank to a re-export of it.
 //
 // THE SHEET ENTERS HERE, because this directory owns it. `apps/desktop/AGENTS.md`
 // keys that rule on ownership rather than on depth: a directory carrying a door owns
@@ -14,8 +21,6 @@
 // whenever the family door is, and it still lands once.
 
 import "./diff.css";
-
-export { DiffPane } from "./DiffPane.js";
 
 // The ledger's `diff` inline-card body. Exported as the REGISTRATION rather than
 // the component, because the seat is filled by a call and a family barrel that

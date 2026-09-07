@@ -27,7 +27,7 @@
 //     (`BrowserPane.tsx`), its chrome control and address field, the act sequence the
 //     wire is driven through, the geometry binding, the reported-navigation read,
 //     the keyboard handback, the pane's addressing triple, and the descriptor the
-//     door below registers (`pane-descriptor.ts`).
+//     door below registers (`pane/browser-pane-body.ts`, loaded as its own chunk).
 //   • `geometry/` — the rect the main-process view host is positioned by, and every
 //     reading that makes it honest: the publisher, the motion and animation samplers,
 //     the ancestry watch, the occlusion registry, and the host resolution. It renders
@@ -43,30 +43,23 @@
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 
-// The family's stylesheets are imported HERE and nowhere else, which is the rule
-// `primitives/index.ts` and `frame/index.ts` already follow: one edge into each sheet
-// per bundle, and no surface can render a shape whose CSS never arrived.
+// THIS FAMILY'S STYLESHEETS ARE NOT IMPORTED HERE. They enter at
+// `pane/browser-pane-body.ts`, the one chunk root this family has, and that module's
+// header states the placement rule and the five sheets it carries. Importing them at
+// this door would put every rule the browser surfaces need on the initial document for
+// a session that never opens the pane — the exact cost the loader below was written to
+// avoid, paid in CSS instead of JS.
 //
-// FIVE SHEETS AND NOT ONE, because one file carried five surfaces — the settings
-// page, the shared controls, the produced-object cards, the pane shell, and the
-// bounds table — and a reader looking for the pane's chrome had to scroll past the
-// partition table to find it. They are imported one by one rather than through a
-// `@import` chain so every edge into this family's CSS is visible at the door, which
-// is what makes "imported here and nowhere else" checkable rather than promised.
-//
-// EACH ONE SITS BESIDE THE MODULES IT DRESSES — one sheet per sub-module directory,
-// named for that directory — rather than in a `styles/` pile of its own, which is
-// `primitives/`'s placement and now this package's stated rule. `controls.css` is at
-// the family root and that is the rule's other half: its two shapes belong to three
-// directories at once, so it belongs to none of them.
-import "./settings/settings.css";
-import "./controls.css";
-import "./cards/cards.css";
-import "./pane/pane.css";
-import "./bounds/bounds.css";
+// THE MOVE WAS ADMITTED BY MEASUREMENT AND NOT BY THE SHAPE OF THE FILE. A sheet may
+// only travel behind a chunk boundary when no other family declares any class it
+// declares: two families declaring one class at equal specificity are resolved by LOAD
+// ORDER, so deferring such a sheet silently restyles the other family's surface. That is
+// not hypothetical — `runs/index.ts` carries the measurement of it happening. None of
+// this family's five sheets declares a class any other family declares, and
+// `test/console/architecture/stylesheet-selector-owners.test.ts` is the census that
+// says so and fails if that stops being true.
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { BROWSER_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
 
 /**
  * Claim the browser family's pane kinds.
@@ -76,5 +69,14 @@ import { BROWSER_PANE_DESCRIPTOR } from "./pane/pane-descriptor.js";
  * auxiliary window composes a different subset without a second code path.
  */
 export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
-  registry.register(BROWSER_PANE_DESCRIPTOR);
+  registry.register({
+    kind: "browser",
+    owner: "browser",
+    // A LOADER AND NOT A `render`. Nothing this family draws is on the flagship first
+    // paint — the pane opens from the sidebar or the palette — so the whole subtree
+    // travels as its own chunk and the launch does not pay for it. The specifier is
+    // written here, at the registration, so the boundary is visible where the claim is
+    // made rather than hidden inside the body module.
+    body: () => import("./pane/browser-pane-body.js"),
+  });
 }

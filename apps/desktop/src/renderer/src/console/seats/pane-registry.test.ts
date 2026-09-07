@@ -37,10 +37,13 @@ describe("pane registry — one owner per kind", () => {
     registry.register(beforeEdit);
     registry.register(afterEdit);
     expect(registry.registeredPaneKinds()).toStrictEqual(["diff"]);
-    // Identity, not shape: the two descriptors are structurally identical, so a
-    // registry that kept the FIRST would satisfy every shape assertion while the
-    // deck went on rendering the pre-edit body.
-    expect(registry.descriptorFor("diff")).toBe(afterEdit);
+    // Identity of the BODY, not shape and not of the descriptor object: the registry
+    // normalises both registration forms into a descriptor of its own, so what says
+    // which body the deck mounts is the `render` it kept. The two registrations are
+    // structurally identical, so a registry that kept the FIRST would satisfy every
+    // shape assertion while the deck went on rendering the pre-edit body.
+    expect(registry.descriptorFor("diff")?.render).toBe(afterEdit.render);
+    expect(registry.descriptorFor("diff")?.render).not.toBe(beforeEdit.render);
   });
 
   it("refuses a second owner rather than swapping", () => {

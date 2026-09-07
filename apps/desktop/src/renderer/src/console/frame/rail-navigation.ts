@@ -21,6 +21,7 @@
 // can never be shown in an order nobody declared.
 
 import { RAIL_DESTINATIONS, type ConsoleRoute, type RailDestination } from "../routing/index.js";
+import { surfaceSlotFor, type ConsoleSurfaceRegistry } from "../seats/index.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./IconRail.js";
 
 /**
@@ -53,4 +54,63 @@ export function routeForDestination(destination: RailDestination): ConsoleRoute 
     case "settings":
       return { kind: "settings", page: undefined };
   }
+}
+
+/**
+ * Start loading the surface a destination would mount, without navigating to it.
+ *
+ * BEFORE THE ROUTE COMMITS, which is the whole of what this is for. Both of the
+ * console's ways into a destination call it at the moment the intent is legible and the
+ * act has not happened — the rail's press, just before it navigates, and the palette's
+ * highlighted row, while a person is still reading it. By the time the route resolves,
+ * the chunk is either in flight or already there, so the reserved frame the surface
+ * would otherwise show is one a person never sees.
+ *
+ * ONE FUNCTION AND NOT TWO CALL SITES' WORTH, because the destination-to-slot step is
+ * the thing that could go wrong twice: `surfaceSlotFor` is the map, and a second
+ * open-coded reading of it would drift the first time a destination changed slots.
+ *
+ * A destination whose surface is component-form, or not registered at all, settles
+ * immediately with nothing done — so no caller has to ask first whether the thing it is
+ * about to open is loader-backed.
+ */
+export function warmDestination(
+  surfaceRegistry: ConsoleSurfaceRegistry,
+  destination: RailDestination,
+): void {
+  // Fire-and-forget, and the rejection is dropped on the idle warm's own reasoning: a
+  // speculative fetch has nobody waiting on it, and a chunk that will not load is a
+  // damaged install whose honest surface is the mount, where the console's error
+  // boundary can say so. A rail press has a painted surface under it already, so waiting
+  // here would be a stall where the reserved frame is the honest thing to show.
+  void warmRouteSurface(surfaceRegistry, routeForDestination(destination));
+}
+
+/**
+ * Start loading the surface a ROUTE would mount, and settle when it has landed.
+ *
+ * THE STEP `warmDestination` IS BUILT ON, hoisted because a second caller reaches a
+ * surface by a route the rail has no destination for. The frame's context picker is that
+ * caller: a bare auxiliary window resolves its subject there, and what it commits is an
+ * `auxiliary` route rather than one of the rail's three. Open-coding the slot lookup
+ * beside it would be a second reading of `surfaceSlotFor` to drift from this one.
+ *
+ * NEVER REJECTS, so a caller may await it without a `catch` of its own and a caller that
+ * does not may drop it. What a chunk that will not load means is a damaged install, and
+ * the honest place to say so is the mount, inside the console's own surface error
+ * boundary — not at a warm nobody is watching.
+ *
+ * A route whose surface is component-form, or not registered at all, settles immediately
+ * with nothing done, so no caller has to ask first whether the thing it is about to open
+ * is loader-backed.
+ */
+export async function warmRouteSurface(
+  surfaceRegistry: ConsoleSurfaceRegistry,
+  route: ConsoleRoute,
+): Promise<void> {
+  const slot = surfaceSlotFor(route);
+  if (slot === undefined) {
+    return;
+  }
+  await surfaceRegistry.preload(slot).catch(() => undefined);
 }

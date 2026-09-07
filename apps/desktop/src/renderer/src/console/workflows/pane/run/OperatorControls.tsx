@@ -150,7 +150,7 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
   const budget = useMemo(() => cancelReasonBudget(reason), [reason]);
 
   return (
-    <section className="meridian-run-controls" aria-label="Run controls">
+    <section className="meridian-workflow-run-controls" aria-label="Run controls">
       {renderCancel(props.cancel, {
         reason,
         setReason,
@@ -238,7 +238,7 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
   const pastBound = fields.budget.isPastBound;
   return (
     <form
-      className="meridian-run-controls__control"
+      className="meridian-workflow-run-controls__control"
       onSubmit={(submitEvent) => {
         submitEvent.preventDefault();
         // A reason past the bound does not travel. The refusal explaining why is on
@@ -255,12 +255,12 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
         control.cancel(fields.reason === "" ? undefined : fields.reason);
       }}
     >
-      <div className="meridian-run-controls__head">
-        <button type="submit" className="meridian-run-controls__action">
+      <div className="meridian-workflow-run-controls__head">
+        <button type="submit" className="meridian-workflow-run-controls__action">
           <Glyph name="stop" size={GLYPH_SIZE_CHROME} />
           Cancel this run
         </button>
-        <span className="meridian-run-controls__note">
+        <span className="meridian-workflow-run-controls__note">
           Cancelling is never queued and never waits on a provider window.
         </span>
       </div>
@@ -273,22 +273,27 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
         the previous round trip's answer read as the response to this press.
       */}
       <RunControlOutcome outcome={control.outcome} />
-      <details className="meridian-run-controls__disclosure" ref={fields.reasonDisclosure}>
-        <summary className="meridian-run-controls__summary">Add a reason (optional)</summary>
-        <label className="meridian-run-controls__field-label" htmlFor={fields.reasonFieldId}>
+      <details className="meridian-workflow-run-controls__disclosure" ref={fields.reasonDisclosure}>
+        <summary className="meridian-workflow-run-controls__summary">
+          Add a reason (optional)
+        </summary>
+        <label
+          className="meridian-workflow-run-controls__field-label"
+          htmlFor={fields.reasonFieldId}
+        >
           Reason
         </label>
         <textarea
           id={fields.reasonFieldId}
           ref={fields.reasonField}
-          className="meridian-run-controls__reason"
+          className="meridian-workflow-run-controls__reason"
           rows={3}
           value={fields.reason}
           onChange={(changeEvent) => {
             fields.setReason(changeEvent.target.value);
           }}
         />
-        <p className="meridian-run-controls__budget">
+        <p className="meridian-workflow-run-controls__budget">
           <DerivedFigure text={formatByteQuantity(fields.budget.remainingBytes).text} />
           <span> of the reason budget left.</span>
         </p>
@@ -315,7 +320,7 @@ interface RepinFieldState {
 function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): React.JSX.Element {
   return (
     <form
-      className="meridian-run-controls__control"
+      className="meridian-workflow-run-controls__control"
       onSubmit={(submitEvent) => {
         submitEvent.preventDefault();
         control.resume(
@@ -325,12 +330,12 @@ function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): 
         );
       }}
     >
-      <div className="meridian-run-controls__head">
-        <button type="submit" className="meridian-run-controls__action">
+      <div className="meridian-workflow-run-controls__head">
+        <button type="submit" className="meridian-workflow-run-controls__action">
           <Glyph name="play" size={GLYPH_SIZE_CHROME} />
           Resume this run
         </button>
-        <span className="meridian-run-controls__note">
+        <span className="meridian-workflow-run-controls__note">
           <span>A run that re-parks on its next dispatch answers </span>
           <WireFigure value={WORKFLOW_RUN_RE_PARKED_STATE} />
           <span>, which is an outcome and not a failure.</span>
@@ -338,13 +343,16 @@ function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): 
       </div>
       <RunControlOutcome outcome={control.outcome} />
       {control.versionChain.length === 0 ? null : (
-        <div className="meridian-run-controls__repin">
-          <label className="meridian-run-controls__field-label" htmlFor={fields.repinFieldId}>
+        <div className="meridian-workflow-run-controls__repin">
+          <label
+            className="meridian-workflow-run-controls__field-label"
+            htmlFor={fields.repinFieldId}
+          >
             Re-pin to a version
           </label>
           <select
             id={fields.repinFieldId}
-            className="meridian-run-controls__select"
+            className="meridian-workflow-run-controls__select"
             value={fields.repinTarget}
             onChange={(changeEvent) => {
               fields.setRepinTarget(changeEvent.target.value);
@@ -358,7 +366,7 @@ function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): 
             ))}
           </select>
           {fields.repinTarget === NO_REPIN ? null : (
-            <p className="meridian-run-controls__repin-target">
+            <p className="meridian-workflow-run-controls__repin-target">
               <span>Resuming onto </span>
               <WireFigure value={fields.repinTarget} />
             </p>

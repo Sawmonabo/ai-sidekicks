@@ -28,7 +28,7 @@
 // A run on any host that did not declare that runner skips unless it opts in, and an
 // opted-in run is advisory in the small, measured way `frame.test.tsx` records.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
@@ -38,6 +38,7 @@ import {
   type MountedFamilySurface,
 } from "../surfaces/browser-terminal.js";
 import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
+import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -82,7 +83,7 @@ describe("screenshot — the browser and terminal surfaces", () => {
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
 
-        await expect(mounted.element).toMatchScreenshot(`${surface.referenceName}-${scheme}`);
+        await captureSettled(mounted.element, `${surface.referenceName}-${scheme}`);
       });
     }
   }

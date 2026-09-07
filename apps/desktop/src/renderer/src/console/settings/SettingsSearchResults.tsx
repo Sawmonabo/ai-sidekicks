@@ -1,9 +1,6 @@
 import { Nothing } from "../primitives/index.js";
-import {
-  SETTINGS_SECTION_LABELS,
-  type SettingsEntryMatch,
-  type SettingsSectionId,
-} from "./settings-page-registry.js";
+import { type SettingsEntryMatch } from "./settings-page-registry.js";
+import { SETTINGS_SECTION_LABELS, type SettingsSectionId } from "./settings-sections.js";
 
 export interface SettingsSearchResultsProps {
   readonly query: string;

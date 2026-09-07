@@ -255,3 +255,60 @@ describe("which pane board the surface opens out of", () => {
     }
   });
 });
+
+describe("the pane about to open is warmed before the address is published", () => {
+  it("starts the body loading while the lists are still on screen", async () => {
+    // The ordering IS the claim. Publishing the address re-renders this host and mounts
+    // the pane, and a loader-backed body reached at that mount would show its reserved
+    // frame first; one statement earlier, the fetch is already in flight. So the spy
+    // asserts where the host was when it warmed — the lists still up, the pane host not
+    // yet in the tree — rather than merely that a warm happened at all.
+    const composed = composeWindow(DEFAULT_WINDOW);
+    const warmedWhileListsShowing: string[] = [];
+    const container = renderComposed(composed);
+    await settle();
+
+    const preload = vi.spyOn(composed.paneRegistry, "preload").mockImplementation(async (kind) => {
+      if (container.querySelector(".meridian-workflows-pane-host") === null) {
+        warmedWhileListsShowing.push(kind);
+      }
+      return await Promise.resolve();
+    });
+    pressFirst(container, ".meridian-run-row__open");
+    await settle();
+
+    expect(warmedWhileListsShowing).toStrictEqual(["workflow-run"]);
+    expect(container.querySelector(".meridian-workflows-pane-host")).not.toBeNull();
+    preload.mockRestore();
+  });
+
+  it("warms the kind the pressed row names, and only that one", async () => {
+    // The board this family registers into holds two loader-backed kinds, so a host
+    // that warmed the board rather than the address would be indistinguishable from a
+    // correct one on the case above — and would fetch the builder's chunk every time
+    // somebody opened a run.
+    const composed = composeWindow(DEFAULT_WINDOW);
+    const container = renderComposed(composed);
+    await settle();
+
+    const preload = vi.spyOn(composed.paneRegistry, "preload");
+    pressFirst(container, ".meridian-definition-row__open");
+    await settle();
+
+    expect(preload.mock.calls.map(([kind]) => kind)).toStrictEqual(["workflow-builder"]);
+    preload.mockRestore();
+  });
+
+  it("negative control: nothing is warmed while the destination is merely showing", async () => {
+    // Without this, both cases above would pass over a host that warmed every kind on
+    // its board at mount — every loader-backed body fetched for a surface a person may
+    // never open a pane from, which is the static import back under another name.
+    const composed = composeWindow(DEFAULT_WINDOW);
+    const preload = vi.spyOn(composed.paneRegistry, "preload");
+    renderComposed(composed);
+    await settle();
+
+    expect(preload).not.toHaveBeenCalled();
+    preload.mockRestore();
+  });
+});

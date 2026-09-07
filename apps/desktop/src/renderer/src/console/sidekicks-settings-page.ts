@@ -27,12 +27,23 @@
 // body is one registration is. It lived in `settings/pages/` while the rule did not
 // exist yet; nothing about what it does has changed.
 //
-// EACH FAMILY IS STILL REACHED THROUGH ITS DOOR
+// THE AGENTS FAMILY IS REACHED AS A CHUNK ROOT, NOT THROUGH ITS DOOR
 //
-// `./agents/index.js`, never `./agents/definitions/SidekickDefinitionsPage.js`. A deep
-// import would work
-// and would also be the first one, which is how a barrel stops being the boundary it
-// exists to be.
+// This file named `./agents/index.js` and held the page component, which is what a
+// cross-family import is supposed to look like — and it is exactly what put the page on
+// every launch. That door is imported EAGERLY by `collaboration-family.ts` for the agent
+// console's surface registration, so everything it statically reaches is in the entry
+// chunk; the page and its stylesheet rode there whether or not settings was ever opened.
+// Naming the door from a LOADER would have changed nothing either: a module already
+// assigned to the static chunk is what a dynamic import of it resolves to.
+//
+// So the specifier below names a module the eager graph does not reach —
+// `./agents/definitions/sidekick-definitions-page-body.js`, the page's own chunk root,
+// which owns its sheet. That it is a deep path is not this file bending the door rule: a
+// chunk root is not a symbol a barrel can publish, `agent-console-mounts.ts` names its two
+// roots the same way from inside its own family, and `console-cross-family-deep-import` is
+// scoped to importers inside a family directory — a composition site directly under
+// `console/`, which this file is, is not one of them.
 //
 // THE SETTINGS FAMILY IS REACHED FOR EXACTLY ONE DECLARED THING: `SettingsPageRegistrar`,
 // the one-method view of its registry that family declares for the page registered
@@ -42,9 +53,6 @@
 // `settings/index.js` because that door imports THIS file to compose the page, and a
 // type line back through it closes a module cycle `no-circular` fails on.
 
-import { createElement } from "react";
-
-import { SidekickDefinitionsPage } from "./agents/index.js";
 import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
@@ -57,7 +65,14 @@ const OWNER = "collaboration-settings-sidekicks";
  * saved-sidekick registry on mount and deletes through the same port, so the seam
  * hands it the one member those calls need; `openSection` and `retainedSessionId` are
  * deliberately not threaded, because the page navigates nowhere and its subject is
- * node-local rather than scoped to whichever session this window happens to hold.
+ * node-local rather than scoped to whichever session this window happens to hold. The
+ * chunk root declares exactly that narrower parameter, which is what keeps the agents
+ * family from naming the settings family's context type to satisfy this registration.
+ *
+ * `label` and `keywords` stay HERE rather than travelling with the body, and that is what
+ * makes the loader form usable at all: the rail lists every registered section and the
+ * search index ranks them before a person has opened any of them, so a page whose name
+ * arrived with its chunk would be unfindable until it had already been found.
  */
 export function registerSidekicksPage(registry: SettingsPageRegistrar): void {
   registry.register({
@@ -74,6 +89,6 @@ export function registerSidekicksPage(registry: SettingsPageRegistrar): void {
       "tools",
       "attach",
     ],
-    render: (context) => createElement(SidekickDefinitionsPage, { bridge: context.bridge }),
+    body: () => import("./agents/definitions/sidekick-definitions-page-body.js"),
   });
 }

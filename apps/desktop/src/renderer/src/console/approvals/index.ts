@@ -17,21 +17,13 @@
 // refuses a second owner on one kind, and a refusal that named a whole family would
 // leave a reader hunting three directories for which body is already there.
 
-import { createElement } from "react";
+// THE STYLESHEETS ARE NOT IMPORTED HERE. The pane is loader-backed, so the directory
+// that owns its sheets is the one carrying the chunk — `pane/approvals-pane-body.ts` —
+// and a sheet on this door would put an unopened queue's rules on the initial document
+// of every session. `apps/desktop/AGENTS.md` keys the rule on ownership rather than on
+// depth, which is what makes the chunk root the owner here.
 
-import { paneBodyForKind, type ConsolePaneRegistry } from "../seats/index.js";
-import { ApprovalsPane } from "./pane/ApprovalsPane.js";
-
-// The sheet is imported here, at the pane's single door, for the reason
-// `seats/index.ts` gives for the chrome's own: every body behind this door renders
-// through the registration below, so a body cannot arrive without its CSS, and the
-// seat board six branches each replace one line in is never touched.
-import "./pane/approvals.css";
-// The sections this pane hosts carry their own sheet beside the pane's, split at
-// the same seam their components are: the rules that address selectors in BOTH
-// sheets — the pane-wide control metrics and the one focus ring — stay in
-// `approvals.css` as a single declaration rather than being written twice.
-import "./pane/approvals-sections.css";
+import { type ConsolePaneRegistry } from "../seats/index.js";
 
 /**
  * Claim the `approvals` kind.
@@ -46,10 +38,10 @@ export function registerApprovalsPane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "approvals",
     owner: "approvals-pane",
-    // Narrowed to this kind's own address arm before the body sees it, so the body
-    // reads the entity its kind admits and nothing else. `createElement` rather than
-    // JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a single
-    // PascalCase component per file.
-    render: paneBodyForKind("approvals", (context) => createElement(ApprovalsPane, context)),
+    // A LOADER AND NOT A `render`: this pane is not on the flagship first paint, so
+    // its body, its readers, and its sheets ride the chunk the specifier below names
+    // rather than the initial import graph. `apps/desktop/AGENTS.md` states the rule
+    // beside the seat-board one.
+    body: () => import("./pane/approvals-pane-body.js"),
   });
 }

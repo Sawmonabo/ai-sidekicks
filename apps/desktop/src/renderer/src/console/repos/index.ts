@@ -46,12 +46,7 @@ import "./artifacts/artifacts.css";
 import "./attachments/attachments.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import {
-  REPOS_FAMILY_OWNER,
-  registerRepos,
-  renderArtifactPaneBody,
-  renderDiffPaneBody,
-} from "./family-bodies.js";
+import { REPOS_FAMILY_OWNER, registerRepos } from "./family-bodies.js";
 
 // The sidebar and card seats, from the module that fills them. `console/families.ts`
 // calls this at the family's own reserved line; `family-bodies.ts` says why the calls
@@ -80,11 +75,21 @@ export { registerRepos };
  * in six families' registrations.
  */
 export function registerReposPanes(registry: ConsolePaneRegistry): void {
-  registry.register({ kind: "diff", owner: REPOS_FAMILY_OWNER, render: renderDiffPaneBody });
+  registry.register({
+    kind: "diff",
+    owner: REPOS_FAMILY_OWNER,
+    // BOTH KINDS ARE LOADER-BACKED. Neither pane is on the flagship first paint —
+    // both open from the sidebar's repo and artifact sections — and between them they
+    // reach the diff parser, the virtualized diff-row renderer, and the artifact
+    // payload views, which is the largest single block this family put on the initial
+    // import graph. The specifiers are written at the registration so the boundary is
+    // visible where the claim is made.
+    body: () => import("./diff-pane/diff-pane-body.js"),
+  });
   registry.register({
     kind: "artifact",
     owner: REPOS_FAMILY_OWNER,
-    render: renderArtifactPaneBody,
+    body: () => import("./artifact-pane/artifact-pane-body.js"),
   });
 }
 

@@ -43,7 +43,7 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { CONSOLE_CHORD_PLATFORM, PaletteOverlay, consoleCommands } from "../palette/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
-import { consolePaneRegistry } from "../seats/index.js";
+import { consolePaneRegistry, consoleSurfaceRegistry } from "../seats/index.js";
 import {
   FrameStore,
   consoleEntityProjectorRegistry,
@@ -53,7 +53,8 @@ import {
 import { AppFrame } from "./AppFrame.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
-import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
+import { useLazyBodyIdleWarm } from "./lazy-body-warm-binding.js";
+import { RAIL_ENTRIES, routeForDestination, warmDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useSchemePreference } from "./scheme-preference.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
@@ -115,6 +116,12 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // owner. `hash-route-binding.ts` says why one owner and not two effects here.
   useHashRouteBinding(frameStore, hash);
 
+  // Every loader-backed body on both boards, warmed once after this window's first
+  // frame. `lazy-body-warm-binding.ts` says why this is what a loader costs a person
+  // rather than a launch: the chunks are fetched on idle callbacks, so the first open
+  // of any pane or destination is warm and none of it was charged to the launch.
+  useLazyBodyIdleWarm(consolePaneRegistry, consoleSurfaceRegistry);
+
   // Window focus is a refresh reason, not a poll.
   //
   // The re-read rides the TRANSITION into focus rather than the event itself. A
@@ -154,6 +161,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     frameStore,
     uiStateStore,
     chooseScheme,
+    surfaceRegistry: consoleSurfaceRegistry,
   });
 
   const sessionStore = useActiveSessionStore(sessionStoreRegistry, activeSessionId);
@@ -178,6 +186,12 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
       railEntries={RAIL_ENTRIES}
       railDestination={railDestinationFor(route)}
       onSelectDestination={(destination) => {
+        // Warmed BEFORE the navigation, which is the whole of why the two lines are in
+        // this order: `navigate` commits the route synchronously and the surface mounts
+        // on the commit after it, so a fetch started first is already in flight when the
+        // mount asks for the body. `rail-navigation.ts` says what a destination whose
+        // surface is not loader-backed does here, which is nothing.
+        warmDestination(consoleSurfaceRegistry, destination);
         frameStore.navigate(routeForDestination(destination));
       }}
       modalOverlayOpen={commandSurface.paletteOpen}
