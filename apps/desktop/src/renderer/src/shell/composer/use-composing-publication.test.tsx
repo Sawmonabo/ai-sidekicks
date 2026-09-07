@@ -116,19 +116,36 @@ interface MountedProbe {
   readonly setCalls: Mock;
   readonly clearCalls: Mock;
   readonly container: HTMLElement;
+  /**
+   * Re-address the composer, which is what moving between panes does to this hook.
+   *
+   * The probe is re-rendered rather than re-mounted, and that distinction is the whole
+   * of the re-address cases: a fresh mount has no previous observation and publishes
+   * nothing by construction, so a case that re-mounted would assert the restored-draft
+   * rule again under another name.
+   */
+  readonly reAddressTo: (focusedPane: ConsolePaneAddress) => void;
+}
+
+/** One draft already under a key before the composer ever reads it. */
+interface RestoredDraft {
+  readonly draftKey: string;
+  readonly text: string;
 }
 
 /**
  * Mount the probe at one address over a port whose two writes this suite watches.
  *
- * `restoredDraft` is written BEFORE the mount, which is the whole point of the
+ * `restoredDrafts` are written BEFORE the mount, which is the whole point of the
  * restored-draft case: a draft that survived a pane being closed is already under the
  * key when the composer comes back, and the first observation of it is not a keystroke.
+ * A case may seed SEVERAL keys, which is what the re-address cases need: the line the
+ * composer moves to has to already hold something for "the same text at two addresses"
+ * to be a state at all.
  */
 function mountProbe(options: {
   readonly focusedPane: ConsolePaneAddress;
-  readonly draftKey: string;
-  readonly restoredDraft?: string;
+  readonly restoredDrafts?: readonly RestoredDraft[];
   /** Replaces the served `presenceComposingSet`, for the refusing-port case. */
   readonly presenceComposingSet?: GrowthPort["presenceComposingSet"];
 }): MountedProbe {
@@ -142,19 +159,34 @@ function mountProbe(options: {
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
     restartNoticePending: false,
   });
-  if (options.restoredDraft !== undefined) {
-    draftStore.write(options.draftKey, options.restoredDraft);
+  for (const restored of options.restoredDrafts ?? []) {
+    draftStore.write(restored.draftKey, restored.text);
   }
-  const { container } = render(
+  // One store across every render, because a re-address moves the composer and not the
+  // session: a fresh one per pass would re-seed the partitions the address resolves
+  // against and hand the hook a new subject to hold its publisher under.
+  const sessionStore = seededSessionStore();
+  const probeAt = (focusedPane: ConsolePaneAddress): React.JSX.Element => (
     <ComposingProbe
-      sessionStore={seededSessionStore()}
+      sessionStore={sessionStore}
       bridge={bridge}
       draftStore={draftStore}
       route={{ kind: "workspace", sessionId: SESSION_ID }}
-      focusedPane={options.focusedPane}
-    />,
+      focusedPane={focusedPane}
+    />
   );
-  return { draftStore, setCalls, clearCalls, container };
+  const { container, rerender } = render(probeAt(options.focusedPane));
+  return {
+    draftStore,
+    setCalls,
+    clearCalls,
+    container,
+    reAddressTo: (focusedPane) => {
+      act(() => {
+        rerender(probeAt(focusedPane));
+      });
+    },
+  };
 }
 
 describe("useComposingPublication — the first observation is not a keystroke", () => {
@@ -164,8 +196,7 @@ describe("useComposingPublication — the first observation is not a keystroke",
     // everybody else's roster, by a window that just came back.
     const { setCalls, clearCalls } = mountProbe({
       focusedPane: MAIN_CHANNEL_PANE,
-      draftKey: CHANNEL_DRAFT_KEY,
-      restoredDraft: "half a thought from yesterday",
+      restoredDrafts: [{ draftKey: CHANNEL_DRAFT_KEY, text: "half a thought from yesterday" }],
     });
 
     expect(setCalls).not.toHaveBeenCalled();
@@ -177,8 +208,7 @@ describe("useComposingPublication — the first observation is not a keystroke",
     // NOTHING would pass that one and be wrong about every message ever typed.
     const { draftStore, setCalls } = mountProbe({
       focusedPane: MAIN_CHANNEL_PANE,
-      draftKey: CHANNEL_DRAFT_KEY,
-      restoredDraft: "half a thought from yesterday",
+      restoredDrafts: [{ draftKey: CHANNEL_DRAFT_KEY, text: "half a thought from yesterday" }],
     });
 
     act(() => {
@@ -198,7 +228,6 @@ describe("useComposingPublication — a line that moved to empty", () => {
     // way an indicator ends.
     const { draftStore, setCalls, clearCalls } = mountProbe({
       focusedPane: MAIN_CHANNEL_PANE,
-      draftKey: CHANNEL_DRAFT_KEY,
     });
 
     act(() => {
@@ -216,6 +245,84 @@ describe("useComposingPublication — a line that moved to empty", () => {
   });
 });
 
+describe("useComposingPublication — the composer moved to another line", () => {
+  /** What both drafts read, so text equality can never be what decides these cases. */
+  const SHARED_LINE = "ship it after the migration";
+
+  it("clears the line it left, even where the line it arrives at reads the same", async () => {
+    // The failure this is about is invisible in the sender's own window: the indicator
+    // it leaves standing is in everybody ELSE's roster, and it comes down at the
+    // receiver's stale bound rather than when its author walked away.
+    const { draftStore, setCalls, clearCalls, reAddressTo } = mountProbe({
+      focusedPane: MAIN_CHANNEL_PANE,
+      restoredDrafts: [
+        { draftKey: CHANNEL_DRAFT_KEY, text: "half a thought" },
+        { draftKey: AGENT_DRAFT_KEY, text: SHARED_LINE },
+      ],
+    });
+    act(() => {
+      draftStore.write(CHANNEL_DRAFT_KEY, SHARED_LINE);
+    });
+    expect(setCalls).toHaveBeenCalledTimes(1);
+
+    reAddressTo(AGENT_PANE);
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+
+    expect(clearCalls).toHaveBeenCalledTimes(1);
+    expect(clearCalls).toHaveBeenCalledWith({ sessionId: SESSION_ID });
+    expect(setCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes for the line it arrives at, even where that line reads the same", async () => {
+    // The other half of one move, and the one a text comparison silently swallowed: a
+    // person who moves to a channel with a draft under it is composing THERE, and the
+    // publication that says so never happened because the two strings matched.
+    const { setCalls, clearCalls, reAddressTo } = mountProbe({
+      focusedPane: AGENT_PANE,
+      restoredDrafts: [
+        { draftKey: AGENT_DRAFT_KEY, text: SHARED_LINE },
+        { draftKey: CHANNEL_DRAFT_KEY, text: SHARED_LINE },
+      ],
+    });
+    expect(setCalls).not.toHaveBeenCalled();
+
+    reAddressTo(MAIN_CHANNEL_PANE);
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+
+    expect(setCalls).toHaveBeenCalledTimes(1);
+    expect(setCalls).toHaveBeenCalledWith({ sessionId: SESSION_ID, channelId: MAIN_CHANNEL_ID });
+    // Nothing was outstanding to clear, and the publisher's own idempotent stop is what
+    // keeps a move that publishes from also announcing a stop nobody was owed.
+    expect(clearCalls).not.toHaveBeenCalled();
+  });
+
+  it("negative control: a re-render at the SAME address publishes nothing", async () => {
+    // Without it, the two cases above would pass over a hook that published on every
+    // commit. The pane is a structurally equal but distinct object, which is what a
+    // parent re-render hands down — so what has to decide is the draft KEY the two
+    // addresses resolve to, never the reference the address was carried in.
+    const { draftStore, setCalls, clearCalls, reAddressTo } = mountProbe({
+      focusedPane: MAIN_CHANNEL_PANE,
+    });
+    act(() => {
+      draftStore.write(CHANNEL_DRAFT_KEY, SHARED_LINE);
+    });
+    expect(setCalls).toHaveBeenCalledTimes(1);
+
+    reAddressTo({ kind: "timeline", entity: { kind: "channel", id: MAIN_CHANNEL_ID } });
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+
+    expect(setCalls).toHaveBeenCalledTimes(1);
+    expect(clearCalls).not.toHaveBeenCalled();
+  });
+});
+
 describe("useComposingPublication — an address that may not publish", () => {
   it("publishes nothing for a provider-bound composer", () => {
     // A steer is addressed to one agent's run and is nobody else's room to watch, so
@@ -223,7 +330,6 @@ describe("useComposingPublication — an address that may not publish", () => {
     // by construction rather than by a branch that could be forgotten.
     const { draftStore, setCalls, clearCalls } = mountProbe({
       focusedPane: AGENT_PANE,
-      draftKey: AGENT_DRAFT_KEY,
     });
 
     act(() => {
@@ -246,7 +352,6 @@ describe("useComposingPublication — an address that may not publish", () => {
     };
     const { draftStore, setCalls, container } = mountProbe({
       focusedPane: MAIN_CHANNEL_PANE,
-      draftKey: CHANNEL_DRAFT_KEY,
       presenceComposingSet: refusingSet,
     });
 

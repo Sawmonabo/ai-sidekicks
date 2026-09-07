@@ -217,12 +217,19 @@ function viewerOf(overrides: {
     : PARTICIPANT_YOU;
 }
 
-/** Render the directory, with a real bridge under it. */
-export function renderChannelList(
+/**
+ * The element itself, so a case can serve a SECOND read into the same list.
+ *
+ * Declared once and rendered twice rather than spelled again beside a `rerender`: a
+ * second copy of this prop table is a case whose re-render quietly changes a prop it
+ * did not mean to, and the props that must not move — the bridge above all — are
+ * exactly the ones a subject-scoped surface reads as a re-address.
+ */
+function channelListElement(
   state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
-  overrides: ChannelListOverrides = {},
-): ReturnType<typeof render> {
-  return render(
+  overrides: ChannelListOverrides,
+): React.JSX.Element {
+  return (
     <ChannelList
       state={state}
       bridge={overrides.bridge ?? channelsBridge()}
@@ -234,8 +241,32 @@ export function renderChannelList(
       labels={LABELS}
       isCatchingUp={overrides.isCatchingUp ?? false}
       onReopen={overrides.onReopen ?? (() => undefined)}
-    />,
+    />
   );
+}
+
+/** Render the directory, with a real bridge under it. */
+export function renderChannelList(
+  state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
+  overrides: ChannelListOverrides = {},
+): ReturnType<typeof render> {
+  return render(channelListElement(state, overrides));
+}
+
+/**
+ * Serve a fresh directory read into a list already on screen, and let it land.
+ *
+ * The case passes the SAME overrides it rendered with — its own bridge included — so
+ * this is one session's list reading again rather than a different session's list
+ * mounting, which is a distinction every subject-scoped holder under the surface draws.
+ */
+export async function serveChannelRead(
+  rendered: ReturnType<typeof render>,
+  state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
+  overrides: ChannelListOverrides = {},
+): Promise<void> {
+  rendered.rerender(channelListElement(state, overrides));
+  await settle();
 }
 
 /**

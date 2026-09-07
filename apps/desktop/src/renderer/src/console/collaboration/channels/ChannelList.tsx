@@ -27,6 +27,14 @@
 // and a daemon obligation. A row the roster did not name wears no badge at all rather
 // than one the console worked out for itself.
 //
+// A SERVED RECEIPT MOVES THE ROW IT NAMES, AND ONLY UNTIL THE READ MOVES. A mute, an
+// unmute and an archive each answer with the state the daemon put the channel in, and
+// the directory only catches up when the matching `channel.*` event drives a fresh
+// read — so the row rendered its prior state in between and offered the same control
+// again, inviting a second press the daemon would answer with nothing. The overlay
+// that closes that window, and every other thing this list holds in order to offer an
+// act at all, is `use-channel-lifecycle.ts`; what is left here is the drawing.
+//
 // TWO REFUSALS MOVE A ROW AND THE REST DO NOT. `channel.not_found` says the channel is
 // gone, so its row goes and the daemon's own sentence stands in its place — leaving a
 // row with controls on a channel that no longer exists would offer acts that can only
@@ -45,12 +53,11 @@
 // list will not show is a lie the person cannot even page past — no channel read
 // carries a cursor.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { MAIN_CHANNEL_NAME, type ChannelListResponseChannel } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import type { ConsoleRefusal } from "../../core/index.js";
 import {
   DerivedFigure,
   InlineRefusal,
@@ -60,19 +67,11 @@ import {
   formatCount,
 } from "../../primitives/index.js";
 import type { PushDrivenReadState, SidebarSectionContext } from "../../seats/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
 import { type ActivityIndicatorRegistry, type ChannelActivityLabels } from "../activity-model.js";
-import { WireMutationCoordinator, useWireMutation } from "../mutation-coordinator.js";
-import { orderChannelRows, type ChannelRow } from "./channel-model.js";
 import { rosterEntriesById, rosterRefusal, useChannelRoster } from "./channel-roster.js";
-import {
-  CHANNEL_NOT_FOUND_CODE,
-  channelLifecycleMutation,
-  type ChannelLifecycleAction,
-} from "./channel-writes.js";
+import { useChannelLifecycle } from "./use-channel-lifecycle.js";
 import { CreateChannel } from "./CreateChannel.js";
 import { ChannelListRow } from "./ChannelListRow.js";
-import { type ChannelRowLifecycle } from "./ChannelRowControls.js";
 
 export interface ChannelListProps {
   readonly state: PushDrivenReadState<readonly ChannelListResponseChannel[]>;
@@ -125,44 +124,17 @@ export interface ChannelListProps {
 export function ChannelList(props: ChannelListProps): React.JSX.Element {
   const { state, bridge, sessionId, openPane, activity, labels, isCatchingUp, onReopen } = props;
 
-  const ordered = useMemo(
-    () => (state.kind === "loaded" ? orderChannelRows(state.value) : undefined),
-    [state],
+  // The rows exactly as the daemon served them, and `undefined` until it has. Read
+  // apart from the state that carries it because the hook below takes the rows and
+  // draws no conclusion from which arm they came off.
+  const readChannels = state.kind === "loaded" ? state.value : undefined;
+  const { live, archived, goneNotices, lifecycleFor } = useChannelLifecycle(
+    bridge,
+    sessionId,
+    readChannels,
   );
   const roster = useChannelRoster(bridge, sessionId);
   const rosterByChannelId = useMemo(() => rosterEntriesById(roster), [roster]);
-
-  const lifecycleCoordinator = useMemo(
-    () =>
-      new WireMutationCoordinator({
-        perform: channelLifecycleMutation(bridge),
-        describeWhat: "The channel",
-      }),
-    // Keyed on the SUBJECT and not only on the transport: what is in flight and whose
-    // refusal stands is about ONE session's rows, and a session's list inheriting
-    // another's is what closes every control on the frame after a move.
-    [bridge, sessionId],
-  );
-  const lifecycle = useWireMutation(lifecycleCoordinator);
-  // Which of the three the row in flight is performing. Read only while that row is
-  // the pending one, so it is never stale: the coordinator is rebuilt when the subject
-  // moves, and its fresh snapshot names no pending row at all.
-  const [pendingAction, setPendingAction] = useState<ChannelLifecycleAction | undefined>(undefined);
-  // The channels a lifecycle move found GONE, with the daemon's own words for it.
-  // Held against the subject so a settlement arriving after a re-address writes
-  // nowhere, and holding the refusal rather than a bare flag so the notice standing in
-  // the row's place says what the daemon said rather than a sentence this file wrote.
-  const { value: goneChannels, publish: publishGone } = useSubjectScopedState<
-    ReadonlyMap<string, ConsoleRefusal>
-  >(bridge, sessionId, () => new Map());
-
-  useEffect(() => {
-    // The coordinator being retired is superseded rather than dropped: dropping the
-    // reference leaves its unsettled call able to publish into a list now on screen.
-    return () => {
-      lifecycleCoordinator.supersede();
-    };
-  }, [lifecycleCoordinator]);
 
   const openChannel = useCallback(
     (channelId: string) => {
@@ -173,50 +145,6 @@ export function ChannelList(props: ChannelListProps): React.JSX.Element {
       openPane({ kind: "timeline", entity: { kind: "channel", id: channelId } });
     },
     [openPane],
-  );
-
-  const actOnChannel = useCallback(
-    (channelId: string, action: ChannelLifecycleAction) => {
-      setPendingAction(action);
-      void lifecycleCoordinator.run(channelId, { channelId, action }).then((settlement) => {
-        // `undefined` is the refused arm — and the superseded one, where the subject
-        // moved while the call was unsettled. The daemon's answer is on the
-        // coordinator's snapshot in the first case and gone in the second, which is
-        // why the code is read from there rather than carried out of this closure.
-        if (settlement !== undefined) {
-          return;
-        }
-        const refusal = lifecycleCoordinator.snapshot().refusalByKey[channelId];
-        if (refusal?.code !== CHANNEL_NOT_FOUND_CODE) {
-          return;
-        }
-        publishGone((held) => new Map([...held, [channelId, refusal]]));
-      });
-    },
-    [lifecycleCoordinator, publishGone],
-  );
-
-  const lifecycleFor = useCallback(
-    (row: ChannelRow): ChannelRowLifecycle | undefined => {
-      if (row.channel.state === "archived") {
-        return undefined;
-      }
-      const channelId = row.channel.id;
-      return {
-        pendingAction: lifecycle.pendingKey === channelId ? pendingAction : undefined,
-        // Every row's controls close while ANY move is unsettled, not only the one
-        // being moved: the coordinator behind them applies one at a time.
-        isAnyPending: lifecycle.pendingKey !== undefined,
-        refusal: lifecycle.refusalByKey[channelId],
-        onAct: (action) => {
-          actOnChannel(channelId, action);
-        },
-        onDismissRefusal: () => {
-          lifecycleCoordinator.dismiss(channelId);
-        },
-      };
-    },
-    [actOnChannel, lifecycle, lifecycleCoordinator, pendingAction],
   );
 
   if (state.kind === "not-loaded") {
@@ -257,12 +185,6 @@ export function ChannelList(props: ChannelListProps): React.JSX.Element {
     );
   }
 
-  const rows = ordered ?? { live: [], archived: [] };
-  const live = rows.live.filter((row) => !goneChannels.has(row.channel.id));
-  const archived = rows.archived.filter((row) => !goneChannels.has(row.channel.id));
-  const goneNotices = [...goneChannels.entries()].filter(([channelId]) =>
-    [...rows.live, ...rows.archived].some((row) => row.channel.id === channelId),
-  );
   const rosterUnavailable = rosterRefusal(roster);
 
   return (
@@ -294,9 +216,9 @@ export function ChannelList(props: ChannelListProps): React.JSX.Element {
               lifecycle={lifecycleFor(row)}
             />
           ))}
-          {goneNotices.map(([channelId, refusal]) => (
-            <li key={channelId} className="meridian-channels__gone">
-              <InlineRefusal code={refusal.code} detail={refusal.detail} />
+          {goneNotices.map((notice) => (
+            <li key={notice.channelId} className="meridian-channels__gone">
+              <InlineRefusal code={notice.refusal.code} detail={notice.refusal.detail} />
             </li>
           ))}
         </ul>

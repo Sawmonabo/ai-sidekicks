@@ -29,6 +29,18 @@
 // was typing every time a pane was re-opened, which is a claim about a person who is
 // not there. What publishes is the line MOVING, and a line that moves to empty — a
 // send landing, a person clearing what they wrote — stops rather than publishes.
+//
+// AND A CHANGE IS A CHANGE OF LINE, NOT OF TEXT, WHICH IS WHY THE ADDRESS IS OBSERVED
+// BESIDE IT. The composer is one control that re-addresses; the draft under it is a
+// different line each time it does. Comparing the two texts alone made two drafts that
+// happen to read the same word indistinguishable from one line nobody touched — so
+// moving from a channel to another address left that channel's indicator lit until the
+// receiver's idle bound expired it, and the address arrived at published nothing at
+// all. The observation therefore carries the DRAFT KEY the text was read under, which
+// is exactly the identity `use-composer-draft-text.ts` subscribes by, and a key that
+// moved is a re-address whatever the two texts say: the line left behind is stopped and
+// the line arrived at is noted. Nothing here holds a timer for that — the idle clear
+// stays armed on the publisher, which is the one object that owns a timeout at all.
 
 import { useEffect, useRef } from "react";
 
@@ -55,6 +67,20 @@ const publisherDisposal: SubjectScopedDisposal<ComposingPublisher> = {
 };
 
 /**
+ * One reading of the composer's line, and the address it was read under.
+ *
+ * The pair rather than the text alone, because "did this change" is a question about
+ * both: two addresses whose drafts read the same word are two different lines, and a
+ * comparison that could not tell them apart is what left one channel's indicator up.
+ */
+interface ObservedComposerLine {
+  /** The `DraftStore` key the text below was read under — this composer's address. */
+  readonly draftKey: string;
+  /** What that key held on the render this observation was taken from. */
+  readonly text: string;
+}
+
+/**
  * Publish this participant's composing indicator for as long as they are typing.
  *
  * Renders nothing and returns nothing: the indicator this produces is read by
@@ -65,7 +91,8 @@ const publisherDisposal: SubjectScopedDisposal<ComposingPublisher> = {
 export function useComposingPublication(props: ComposerSeatProps): void {
   const { bridge, sessionStore, draftStore, focusedPane } = props;
   const { target } = useComposerAddress(sessionStore, focusedPane);
-  const { text } = useComposerDraftText(draftStore, composerDraftKey(target));
+  const draftKey = composerDraftKey(target);
+  const { text } = useComposerDraftText(draftStore, draftKey);
   // The BRIDGE is the subject and the session is the key, which is the opposite of
   // the command enumeration's choice beside it and is opposite for a reason: this
   // publisher holds a growth port belonging to one binding, so a replaced bridge has
@@ -82,19 +109,30 @@ export function useComposingPublication(props: ComposerSeatProps): void {
   // steer is addressed to one agent's run and is nobody else's room to watch.
   const channelId = target.path === "channel-message" ? target.channelId : undefined;
   const channelName = target.path === "channel-message" ? target.channelLabel : undefined;
-  const observedTextRef = useRef<string | undefined>(undefined);
+  const observedLineRef = useRef<ObservedComposerLine | undefined>(undefined);
   useEffect(() => {
-    const observed = observedTextRef.current;
-    observedTextRef.current = text;
-    if (observed === undefined || observed === text) {
+    const observed = observedLineRef.current;
+    observedLineRef.current = { draftKey, text };
+    if (observed === undefined) {
       return;
     }
-    if (text === "") {
+    const hasReAddressed = observed.draftKey !== draftKey;
+    if (!hasReAddressed && observed.text === text) {
+      return;
+    }
+    // A re-address stops the line being LEFT before the line arrived at is noted, and
+    // an emptied line stops for the same reason a send does. Both take the publisher's
+    // own idempotent clear, so an address that was never publishing costs no wire call
+    // — `stop` returns early with nothing outstanding — and the two conditions
+    // collapsing onto one statement is what keeps a move to an empty draft from
+    // clearing twice.
+    if (hasReAddressed || text === "") {
       publisher.stop();
-      return;
     }
-    publisher.noteComposing({ channelId, channelName });
-  }, [publisher, text, channelId, channelName]);
+    if (text !== "") {
+      publisher.noteComposing({ channelId, channelName });
+    }
+  }, [publisher, draftKey, text, channelId, channelName]);
 }
 
 /** Declared rather than inlined, so the resource holder is handed one shape. */
