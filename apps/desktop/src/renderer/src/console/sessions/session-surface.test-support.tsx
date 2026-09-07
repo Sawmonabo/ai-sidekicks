@@ -156,7 +156,10 @@ export function contextWith(options: {
   readonly emittedNotifications?: unknown[];
   /** Whether the window has focus. Focused unless a case says otherwise. */
   readonly isWindowFocused?: boolean;
-  /** The session the route names, for the emitter's audience rule. */
+  /**
+   * The session this window's route names, for the emitter's audience rule. None by
+   * default, which is the sessions destination — where this surface renders.
+   */
   readonly activeSessionId?: string;
   /** Every route the surface navigated to, appended in order. */
   readonly navigations?: unknown[];
@@ -177,6 +180,16 @@ export function contextWith(options: {
     connection: options.shellConnection ?? UNREPORTED_SHELL_STATE.connection,
   };
   const frameStoreState = {
+    // The route, because the emitter's audience rule reads it — and derived from the
+    // named session rather than set beside it, which is how the real store holds the
+    // pair: `FrameStore.activeSessionId` is a projection of `route` and never a second
+    // record of it, so two independent stub members could describe a window that
+    // cannot exist. Naming no session is the sessions destination itself, which is
+    // where this surface renders and where the centre shows every session at once.
+    route:
+      options.activeSessionId === undefined
+        ? { kind: "sessions" }
+        : { kind: "workspace", sessionId: options.activeSessionId },
     isWindowFocused: options.isWindowFocused ?? true,
     shellState,
   };
@@ -231,6 +244,10 @@ export function contextWith(options: {
           },
         },
       },
+      // The attention plane's change signal, attached and silent: a case moves this
+      // destination's projection by naming what each session's read answers, never by
+      // playing a beat, so a bridge that signalled here would re-read on nothing.
+      attentionSubscribe: () => () => undefined,
     },
     frameStore: {
       navigate: (route: unknown) => {

@@ -125,6 +125,11 @@ function harness(
         ? {}
         : { permissionState: options.permissionState }),
     }),
+    // The attention plane's own change signal, attached and silent. These cases move
+    // the projection through the reader they hand the binding and re-read it by
+    // taking the published retry, so a bridge that signalled here would be a second
+    // thing driving the read and the call counts would stop meaning anything.
+    attentionSubscribe: () => () => undefined,
     // Recorded rather than asserted on the shell: the claim is that a call LEFT this
     // window, and `showNotification` returns `void` on the real bridge too, so the
     // count of calls is the whole observable.
@@ -253,9 +258,16 @@ describe("the window's attention binding — the count outlives a destination", 
     // screen they were not on — so an approval that started waiting while a person sat
     // in Settings reached them nowhere at all. The subtree here is never the sessions
     // destination, on this file's own navigation convention.
-    const { bridge, context, raisedNotifications, setWaitingSessionIds } = harness({
+    //
+    // AND THE ROUTE SAYS SO TOO, because the emitter's audience rule reads it rather
+    // than reading the subtree: a focused window ON the sessions destination is
+    // already showing every session's attention, so a banner there would be about
+    // something in front of the person. Settings is the screen the comment above
+    // names, and now the window is actually on it.
+    const { bridge, context, frameStore, raisedNotifications, setWaitingSessionIds } = harness({
       waitingSessionIds: [],
     });
+    frameStore.navigate({ kind: "settings", page: undefined });
 
     render(
       <SidekicksBridgeProvider bridge={bridge as never}>

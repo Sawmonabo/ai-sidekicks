@@ -9,15 +9,29 @@
 //
 //   • The item is LIVE. A resolved item is already dropped by the plane, so nothing
 //     here re-checks `resolvedAt`; what reaches this class is what needs a person.
-//   • The item is NEW TO THIS WINDOW. Announced ids are remembered, so a re-read that
-//     returns the same projection raises nothing and a reconnect catch-up burst raises
-//     each of its items once. `ATTENTION_NOTIFIED_ITEM_CAP` bounds that memory over
-//     the ids that have CLEARED and never over the ones a read still returns — a cap
-//     that could drop a live id would make every refresh re-announce the projection.
-//   • The item is NOT the session a focused window is looking at. Interrupting
-//     someone about the thing on their screen is the one case where the banner is
-//     strictly worse than silence. An unfocused window announces every session,
-//     including the one it is parked on, because nobody is reading it.
+//   • The EVENT is NEW TO THIS WINDOW. What is remembered is the canonical event an
+//     item was raised by, not the item's own id, so a re-read that returns the same
+//     projection raises nothing and a reconnect catch-up burst raises each of its
+//     events once. `ATTENTION_NOTIFIED_ITEM_CAP` bounds that memory over the events
+//     that have CLEARED and never over the ones a read still returns — a cap that
+//     could drop a live one would make every refresh re-announce the projection.
+//
+//     KEYED ON THE EVENT BECAUSE ONE EVENT IS ONE THING THAT HAPPENED. A projection
+//     carries a run-scoped item AND its session aggregate over the same
+//     `sourceEventId` — Plan-019 D-019-2 derives the aggregate from its contributors
+//     and takes the representative's event — so one run beginning to wait produced
+//     two distinct item ids, both new, and this class raised two banners for it. An
+//     id-keyed memory cannot see that they are the same news; the event they name
+//     is exactly what says so. Excluding the aggregate instead would have been the
+//     narrower fix and the wrong one: a session-scoped item is not always an
+//     aggregate over runs, and a rule that dropped every item without a `runId`
+//     would silence the ones that are nobody's run.
+//   • The item is NOT already on screen. Interrupting someone about the thing in
+//     front of them is the one case where the banner is strictly worse than silence,
+//     and a focused window is on screen in two different ways: it may be parked on
+//     the item's own session, and it may be on the destination that renders EVERY
+//     session's attention. An unfocused window announces everything, including the
+//     session it is parked on, because nobody is reading it.
 //
 // AND THE FIRST SETTLED READ RAISES NOTHING. Mounting the sessions destination is not
 // an event: the projection's first answer is the state of the world as the surface
@@ -36,6 +50,7 @@ import { useEffect, useState } from "react";
 
 import { ATTENTION_NOTIFIED_ITEM_CAP } from "../../core/index.js";
 import type { AttentionItem, ConsoleBridge } from "../../bridge/index.js";
+import { routeSessionId } from "../../routing/index.js";
 import type { FrameStore } from "../../store/index.js";
 import { type AttentionReading } from "./attention-plane.js";
 import { type OsNotificationDelivery } from "./os-notification-delivery.js";
@@ -44,6 +59,17 @@ import { type OsNotificationDelivery } from "./os-notification-delivery.js";
 export interface AttentionNotifierAudience {
   /** The session the route names, or `undefined` where it names none. */
   readonly activeSessionId: string | undefined;
+  /**
+   * Whether the route names the destination that renders the notification centre.
+   *
+   * A SECOND MEMBER RATHER THAN A SECOND READING OF THE FIRST, because there is no
+   * session id that describes this window. The sessions destination names no session,
+   * so {@link activeSessionId} is `undefined` there — and an audience rule that
+   * inferred visibility from a session id alone answered "nothing is on screen" for
+   * the one screen showing every session's attention at once, and raised a banner
+   * about each item the person was already looking at.
+   */
+  readonly isAttentionSurfaceRouted: boolean;
   readonly isWindowFocused: boolean;
 }
 
@@ -60,20 +86,27 @@ export interface AttentionNotifierAudience {
  * needed to know which to drop.
  */
 export class AttentionNotifier {
-  readonly #announcedItemIds = new Set<string>();
+  readonly #announcedSourceEventIds = new Set<string>();
   #hasBaseline = false;
 
   /**
    * Fold one settled projection into the items this window should announce.
    *
-   * Every live id is remembered whether or not it is announced — an item the audience
-   * rule held back is still an item this window has seen, and announcing it later
-   * because the person happened to focus a different session would be a banner about
+   * AT MOST ONE ARRIVAL PER CANONICAL EVENT. Two items over one `sourceEventId` are
+   * two views of one thing that happened — the run-scoped item and the session
+   * aggregate that represents it are exactly that pair — so the first of them stands
+   * for both and the rest are folded into it silently. Which one comes first is the
+   * projection's order and it changes nothing a person sees: items sharing an event
+   * share its session too, so the audience rule below answers the same either way.
+   *
+   * Every live event is remembered whether or not it is announced — an item the
+   * audience rule held back is still news this window has seen, and announcing it
+   * later because the person happened to navigate elsewhere would be a banner about
    * something that did not just happen.
    *
-   * The projection's own ids are collected as the fold runs, because what the cap may
-   * forget afterwards is decided against THIS read and never against the remembered
-   * set alone — the rule the eviction below states.
+   * The projection's own events are collected as the fold runs, because what the cap
+   * may forget afterwards is decided against THIS read and never against the
+   * remembered set alone — the rule the eviction below states.
    */
   public arrivalsToAnnounce(
     liveItems: readonly AttentionItem[],
@@ -81,63 +114,99 @@ export class AttentionNotifier {
   ): readonly AttentionItem[] {
     const announceable = this.#hasBaseline;
     this.#hasBaseline = true;
-    const liveItemIds = new Set<string>();
+    const liveSourceEventIds = new Set<string>();
     const arrivals: AttentionItem[] = [];
     for (const item of liveItems) {
-      liveItemIds.add(item.id);
-      if (this.#announcedItemIds.has(item.id)) {
+      liveSourceEventIds.add(item.sourceEventId);
+      if (this.#announcedSourceEventIds.has(item.sourceEventId)) {
         continue;
       }
-      this.#announcedItemIds.add(item.id);
+      this.#announcedSourceEventIds.add(item.sourceEventId);
       if (announceable && this.#reachesAPerson(item, audience)) {
         arrivals.push(item);
       }
     }
-    this.#forgetClearedItemIdsOverTheCap(liveItemIds);
+    this.#forgetClearedSourceEventIdsOverTheCap(liveSourceEventIds);
     return arrivals;
   }
 
-  /** Whether a banner about this item tells its reader something the screen does not. */
+  /**
+   * Whether a banner about this item tells its reader something the screen does not.
+   *
+   * Three answers over two facts, in the order they stop being questions. Nobody is
+   * reading an unfocused window, so it announces everything. A focused window sitting
+   * on the notification centre is already showing every session's attention, so it
+   * announces nothing — the case that has no session id to compare against, and the
+   * one this rule used to get exactly backwards. Anywhere else, the route names at
+   * most one session and only that session's items are already in front of a person.
+   */
   #reachesAPerson(item: AttentionItem, audience: AttentionNotifierAudience): boolean {
     if (!audience.isWindowFocused) {
       return true;
+    }
+    if (audience.isAttentionSurfaceRouted) {
+      return false;
     }
     return item.sessionId !== audience.activeSessionId;
   }
 
   /**
-   * Bring the remembered ids back under the cap by forgetting CLEARED ones, oldest
+   * Bring the remembered events back under the cap by forgetting CLEARED ones, oldest
    * first.
    *
-   * AN ID IN THE CURRENT PROJECTION IS NEVER FORGOTTEN, and that is the whole rule.
+   * AN EVENT IN THE CURRENT PROJECTION IS NEVER FORGOTTEN, and that is the whole rule.
    * The eviction used to run over the remembered set alone, so a projection larger
-   * than the cap evicted the very ids it was in the middle of remembering: adding one
-   * id dropped the next live one, the following read found that one missing and raised
-   * a banner for it, and the drop walked on. A window holding 201 unresolved items
-   * re-announced its entire projection on every refresh, for as long as the items
-   * stayed unresolved — which is precisely as long as they matter.
+   * than the cap evicted the very entries it was in the middle of remembering: adding
+   * one dropped the next live one, the following read found that one missing and
+   * raised a banner for it, and the drop walked on. A window holding 201 unresolved
+   * items re-announced its entire projection on every refresh, for as long as the
+   * items stayed unresolved — which is precisely as long as they matter.
    *
-   * So the cap bounds what this window remembers about items that have CLEARED, not
-   * what it remembers about items still standing. Where the live set alone exceeds the
+   * So the cap bounds what this window remembers about news that has CLEARED, not
+   * what it remembers about news still standing. Where the live set alone exceeds the
    * cap the remembered set stays above it, deliberately: the alternative is a banner
    * about something the projection is still showing, and a memory proportional to a
    * projection the daemon itself bounds is the cheaper of the two costs.
    *
-   * Cleared ids are kept while there is room under the cap rather than dropped on
+   * Cleared events are kept while there is room under the cap rather than dropped on
    * sight, because a fan-out read that refused for one session answers without that
    * session's items — and forgetting them would re-announce every one of them the
    * moment the read recovered.
    */
-  #forgetClearedItemIdsOverTheCap(liveItemIds: ReadonlySet<string>): void {
-    for (const rememberedItemId of this.#announcedItemIds) {
-      if (this.#announcedItemIds.size <= ATTENTION_NOTIFIED_ITEM_CAP) {
+  #forgetClearedSourceEventIdsOverTheCap(liveSourceEventIds: ReadonlySet<string>): void {
+    for (const rememberedSourceEventId of this.#announcedSourceEventIds) {
+      if (this.#announcedSourceEventIds.size <= ATTENTION_NOTIFIED_ITEM_CAP) {
         return;
       }
-      if (!liveItemIds.has(rememberedItemId)) {
-        this.#announcedItemIds.delete(rememberedItemId);
+      if (!liveSourceEventIds.has(rememberedSourceEventId)) {
+        this.#announcedSourceEventIds.delete(rememberedSourceEventId);
       }
     }
   }
+}
+
+/**
+ * What this window is putting in front of a person, at the moment a read settles.
+ *
+ * ONE SNAPSHOT AND TWO ANSWERS OFF IT, rather than two reads of the store. Both
+ * route-derived members come from the same `route`, so a navigation landing between
+ * two reads cannot compose an audience describing a window that never existed — the
+ * shape this replaced took the session id through one getter and the focus flag
+ * through a second `getState()`.
+ *
+ * The destination is read as the route's own kind rather than through
+ * `railDestinationFor`, which folds a workspace route onto the sessions rail too: a
+ * person in a workspace is looking at one session's timeline, not at the centre that
+ * lists every session's attention, and suppressing their banners would be the
+ * over-broad half of the same mistake this rule exists to correct.
+ */
+function audienceFor(frameStore: FrameStore): AttentionNotifierAudience {
+  const { isWindowFocused, route } = frameStore.getState();
+  return {
+    activeSessionId: routeSessionId(route),
+    isAttentionSurfaceRouted: route.kind === "sessions",
+    isWindowFocused,
+  };
 }
 
 /**
@@ -166,21 +235,18 @@ export function useAttentionNotifications(options: {
 }): void {
   const { bridge, delivery, frameStore, reading } = options;
   // Minted once per mount and held in state rather than in a memo: a memo is a hint
-  // React may discard, and a discarded notifier forgets every id it has announced and
-  // re-raises the whole projection on the next settlement.
+  // React may discard, and a discarded notifier forgets every event it has announced
+  // and re-raises the whole projection on the next settlement.
   const [notifier] = useState(() => new AttentionNotifier());
   const isWithheld = delivery.status === "withheld";
   useEffect(() => {
     if (reading.phase !== "read") {
       return;
     }
-    const arrivals = notifier.arrivalsToAnnounce(reading.plane.liveItems, {
-      activeSessionId: frameStore.activeSessionId,
-      isWindowFocused: frameStore.getState().isWindowFocused,
-    });
+    const arrivals = notifier.arrivalsToAnnounce(reading.plane.liveItems, audienceFor(frameStore));
     if (isWithheld) {
       // Remembered and not raised. The read says this machine will show nothing, so
-      // the call is spent for no one — and the ids are still taken, because a
+      // the call is spent for no one — and the events are still taken, because a
       // permission that is granted later must not replay a backlog as though every
       // one of those items had just arrived.
       return;
