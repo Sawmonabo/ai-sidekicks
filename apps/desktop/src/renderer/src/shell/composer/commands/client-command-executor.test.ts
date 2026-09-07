@@ -9,16 +9,28 @@
 // from `invoke`'s synchronous return would pass every clean case here and still clear
 // a person's line on a command that had not finished.
 
+import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { GrowthPort } from "../../../console/bridge/index.js";
 import { consoleCommands } from "../../../console/palette/index.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
-import { createClientCommandExecutor } from "./client-command-executor.js";
+import type { ComposerTarget } from "../chips/chip-models.js";
+import { createClientCommandExecutor, useComposerCommandZone } from "./client-command-executor.js";
+import { clientCommandRefusal } from "./client-command-recognizer.js";
 import {
   NO_DIRECTIVE_LINE_HANDLERS,
   type DirectiveLineHandlers,
 } from "./directive-line-handlers.js";
 import { composerCommandSurface } from "./console-command-surface.js";
+import { ProviderCommandEnumeration } from "./provider-command-holder.js";
+import { FIRST_AGENT, targetForAgent } from "./provider-command-holder.test-support.js";
+import { WORKFLOW_COMMAND_ROOT } from "./workflow-start/grammar.js";
+import {
+  fixtureGrowthPort,
+  recordedWorkflowCalls,
+  WORKFLOW_TEST_SESSION_ID,
+} from "./workflow-start/workflow-start.test-support.js";
 
 const RAN_COMMAND_ID = "composer-executor-test.ran";
 const FAILING_COMMAND_ID = "composer-executor-test.failing";
@@ -229,5 +241,129 @@ describe("a command that reads arguments off its own line", () => {
 
     expect(outcome.status).toBe("refused");
     expect(handled).not.toHaveBeenCalled();
+  });
+});
+
+describe("a directive handler that fails", () => {
+  // The executor's contract is that it "returns a settlement; never throws to report
+  // one", and a directive handler is reached THROUGH it — so an escaping rejection
+  // was that contract broken from the inside. What reached a person was an unhandled
+  // rejection: the send controller's interception arm has a `finally` and no `catch`,
+  // so no refusal rendered beside the line and the line was left unexplained.
+  it("settles a handler that returns a rejected promise as a refusal", async () => {
+    registerCommand({ id: "test.rejectingHandler", run: vi.fn() });
+    const executor = executorOverConsoleRegistry(
+      new Map([["test.rejectingHandler", () => Promise.reject(new Error("the wire went away"))]]),
+    );
+
+    const outcome = await executor(directiveLine("test.rejectingHandler"));
+
+    expect(outcome.status).toBe("refused");
+    if (outcome.status !== "refused") {
+      throw new Error("a failed handler must not report applied");
+    }
+    expect(outcome.refusal.code).toBe("command-failed");
+    expect(outcome.refusal.detail).toContain("the wire went away");
+  });
+
+  it("settles a handler that throws before it ever returns a promise", async () => {
+    // A handler that throws synchronously and one that returns a rejected promise are
+    // the same failure to the person who typed the line, and only calling it INSIDE
+    // the boundary catches both.
+    registerCommand({ id: "test.throwingHandler", run: vi.fn() });
+    const executor = executorOverConsoleRegistry(
+      new Map([
+        [
+          "test.throwingHandler",
+          () => {
+            throw new Error("the handler was built wrong");
+          },
+        ],
+      ]),
+    );
+
+    const outcome = await executor(directiveLine("test.throwingHandler"));
+
+    expect(outcome.status).toBe("refused");
+    expect(outcome.status === "refused" ? outcome.refusal.detail : "").toContain(
+      "the handler was built wrong",
+    );
+  });
+
+  it("negative control: a handler that settles normally is still not touched", async () => {
+    // The guard settles failures and nothing else — a handler's own refusal reaches
+    // the composer as the refusal it built, not as `command-failed`.
+    registerCommand({ id: "test.refusingHandler", run: vi.fn() });
+    const handlerRefusal = {
+      status: "refused",
+      refusal: clientCommandRefusal("command-argument-invalid", "that name matched nothing"),
+    } as const;
+    const executor = executorOverConsoleRegistry(
+      new Map([["test.refusingHandler", async () => handlerRefusal]]),
+    );
+
+    expect(await executor(directiveLine("test.refusingHandler"))).toStrictEqual(handlerRefusal);
+  });
+});
+
+describe("the command zone's accelerator wiring", () => {
+  /** The zone as the send bar builds it, for one address. */
+  function zoneFor(target: ComposerTarget, growth: GrowthPort) {
+    return renderHook(() =>
+      useComposerCommandZone({
+        route: DEFAULT_ROUTE,
+        commandEnumeration: new ProviderCommandEnumeration(),
+        target,
+        growth,
+        sessionId: WORKFLOW_TEST_SESSION_ID,
+      }),
+    ).result.current;
+  }
+
+  const CHANNEL_TARGET: ComposerTarget = {
+    path: "channel-message",
+    sessionId: WORKFLOW_TEST_SESSION_ID,
+    channelId: "channel-nightly-standup",
+    workspaceId: undefined,
+    channelLabel: undefined,
+  };
+
+  it("threads the addressed channel onto a start typed into a channel composer", async () => {
+    // `Spec-017 §Chat-start surface (SA-38)`: a start issued from a channel carries
+    // the originating channel. The zone already holds that address, so the field is
+    // read off it rather than composed anywhere.
+    registerCommand({ id: WORKFLOW_COMMAND_ROOT, run: vi.fn() });
+    const calls = recordedWorkflowCalls();
+    const zone = zoneFor(
+      CHANNEL_TARGET,
+      fixtureGrowthPort({ definitions: [{ name: "nightly" }], calls }),
+    );
+
+    const outcome = await zone.commandExecutor({
+      commandName: WORKFLOW_COMMAND_ROOT,
+      text: "/workflow start nightly",
+    });
+
+    expect(outcome).toStrictEqual({ status: "applied" });
+    expect(calls.started[0]?.channelId).toBe("channel-nightly-standup");
+  });
+
+  it("negative control: a start typed at a running turn carries no channel", async () => {
+    // There is no channel it came from, and a `channelId` the zone invented would be
+    // provenance nobody supplied.
+    registerCommand({ id: WORKFLOW_COMMAND_ROOT, run: vi.fn() });
+    const calls = recordedWorkflowCalls();
+    const zone = zoneFor(
+      targetForAgent(FIRST_AGENT),
+      fixtureGrowthPort({ definitions: [{ name: "nightly" }], calls }),
+    );
+
+    await zone.commandExecutor({
+      commandName: WORKFLOW_COMMAND_ROOT,
+      text: "/workflow start nightly",
+    });
+
+    expect(calls.started).toHaveLength(1);
+    expect(calls.started[0]).not.toHaveProperty("channelId");
   });
 });

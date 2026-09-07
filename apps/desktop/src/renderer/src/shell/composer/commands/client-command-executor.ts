@@ -16,6 +16,13 @@
 // apply where this composer is — two different remedies, so two different codes. A
 // rejected `completion` is a third: the command ran and failed, and the honest report
 // is the command's own failure rather than a claim that it was never recognised.
+//
+// AND THE DIRECTIVE-LINE HANDLER IS INSIDE THAT GUARANTEE RATHER THAN BESIDE IT. The
+// seam's own contract is that an executor returns a settlement and never throws to
+// report one; a handler reached through this module is reached through that promise,
+// so a handler that rejected broke the contract from the inside. The send controller
+// awaits this call under a `finally` and no `catch`, so such a rejection reached a
+// person as no refusal at all. Both paths into an act now settle through one report.
 
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
@@ -25,7 +32,6 @@ import {
   readGuardedProperty,
 } from "../../../../../shared/wire-errors.js";
 import type { GrowthPort } from "../../../console/bridge/index.js";
-import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
 import type {
@@ -42,7 +48,7 @@ import { composerCommandSurface, type ComposerCommandSurface } from "./console-c
 import { addressedProviderBinding } from "./provider-command-catalog.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { DirectiveLineHandlers } from "./directive-line-handlers.js";
-import { useWorkflowStartAccelerator } from "./workflow-start-accelerator.js";
+import { useWorkflowStartHandlers } from "./workflow-start/index.js";
 
 /**
  * Build the executor for one composer.
@@ -71,7 +77,22 @@ export function createClientCommandExecutor(options: {
     // `invoke` would run with the line thrown away.
     const handler = options.readDirectiveHandlers().get(recognition.commandId);
     if (handler !== undefined) {
-      return await handler(line);
+      try {
+        // CALLED INSIDE THE BOUNDARY rather than awaited from outside it, on
+        // `palette/bridge-commands.ts`'s own reasoning: a handler that throws
+        // synchronously and one that returns a rejected promise are the same failure
+        // to the person who typed the line, and only this placement catches both.
+        return await handler(line);
+      } catch (cause) {
+        // The contract this seam declares is that an executor "returns a settlement;
+        // never throws to report one", and a handler is reached THROUGH it — so an
+        // escaping rejection was the composer's contract broken from the inside. The
+        // send controller's interception arm has a `finally` and no `catch`, so what
+        // reached a person was an unhandled rejection: no refusal beside the line,
+        // and the line left in an unexplained state. It settles here, through the
+        // same report a registered command's own failure takes.
+        return commandFailureRefusal(recognition.commandId, cause);
+      }
     }
     return await settleInvocation(surface, recognition.commandId);
   };
@@ -108,36 +129,48 @@ async function settleInvocation(
         await outcome.completion;
         return { status: "applied" };
       } catch (cause) {
-        // The command's own failure, carried rather than paraphrased. A command that
-        // renders its own refusal has already done so; this is what keeps the LINE
-        // from being cleared as though the act had succeeded.
-        //
-        // NOT `normalizeWireRejection`, and the reason is what threw. A client
-        // command runs IN THIS WINDOW — nothing crossed a wire, so there is no
-        // daemon code to preserve, and letting a callback's thrown `code` become
-        // the refusal's code would widen a closed composer vocabulary from outside
-        // it. What is wanted here is one thing the thrown value can always give: a
-        // sentence. The shared leaf helpers answer that and nothing else, so no
-        // second stringifier is written and none of the wire machinery is invoked
-        // on a value that never saw the wire.
-        // Read guardedly and stringified totally, because this is the report path:
-        // an `Error` subclass is free to define an accessor over `message`, and a
-        // throw from inside the sentence that says something failed is the one
-        // outcome this branch exists to prevent.
-        const thrownMessage = readGuardedProperty(cause, "message");
-        const failureMessage =
-          isErrorInstance(cause) && typeof thrownMessage === "string"
-            ? thrownMessage
-            : lossyStringify(cause);
-        return {
-          status: "refused",
-          refusal: clientCommandRefusal(
-            "command-failed",
-            `${commandId} did not complete: ${failureMessage}`,
-          ),
-        };
+        return commandFailureRefusal(commandId, cause);
       }
   }
+}
+
+/**
+ * The report a client command's own failure takes, wherever it was reached from.
+ *
+ * ONE BUILDER FOR BOTH PATHS. The registry's `invoke` and the directive-line handler
+ * map are two ways into one act, and a person meeting a failure on either is owed the
+ * same sentence under the same code — two copies of this reading would be two accounts
+ * of one thing the day either was tuned.
+ *
+ * The command's own failure, carried rather than paraphrased. A command that renders
+ * its own refusal has already done so; this is what keeps the LINE from being cleared
+ * as though the act had succeeded.
+ *
+ * NOT `normalizeWireRejection`, and the reason is what threw. A client command runs IN
+ * THIS WINDOW — nothing crossed a wire, so there is no daemon code to preserve, and
+ * letting a callback's thrown `code` become the refusal's code would widen a closed
+ * composer vocabulary from outside it. What is wanted here is one thing the thrown
+ * value can always give: a sentence. The shared leaf helpers answer that and nothing
+ * else, so no second stringifier is written and none of the wire machinery is invoked
+ * on a value that never saw the wire.
+ *
+ * Read guardedly and stringified totally, because this is the report path: an `Error`
+ * subclass is free to define an accessor over `message`, and a throw from inside the
+ * sentence that says something failed is the one outcome this exists to prevent.
+ */
+function commandFailureRefusal(commandId: string, cause: unknown): CommandOutcome {
+  const thrownMessage = readGuardedProperty(cause, "message");
+  const failureMessage =
+    isErrorInstance(cause) && typeof thrownMessage === "string"
+      ? thrownMessage
+      : lossyStringify(cause);
+  return {
+    status: "refused",
+    refusal: clientCommandRefusal(
+      "command-failed",
+      `${commandId} did not complete: ${failureMessage}`,
+    ),
+  };
 }
 
 /**
@@ -174,9 +207,6 @@ export function useComposerCommandZone(options: {
   readonly growth: GrowthPort;
   /** The session an accelerator starts work in, or nothing where there is none. */
   readonly sessionId: string | undefined;
-  readonly draftStore: DraftStore;
-  /** This composer's own line, which the workflow accelerator's palette entry types. */
-  readonly draftKey: string;
 }): ComposerCommandZone {
   const { route, commandEnumeration, target } = options;
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
@@ -190,11 +220,17 @@ export function useComposerCommandZone(options: {
   // Read through a thunk for the same reason the surface is: an accelerator closes
   // over the session and the port this composer is addressed at, and both move under
   // a mounted composer.
-  const directiveHandlers = useWorkflowStartAccelerator({
+  //
+  // THE CHANNEL COMES OFF THE ADDRESS THIS ZONE ALREADY HOLDS. A start typed into a
+  // channel composer is a chat-borne start and carries its originating channel; a
+  // start typed at a running turn carries none, because there is no channel it came
+  // from. Reading it here rather than taking it as an option keeps one answer to
+  // "where is this composer addressed" — the same target the recogniser and the
+  // published-name lookup are already reading.
+  const directiveHandlers = useWorkflowStartHandlers({
     growth: options.growth,
     sessionId: options.sessionId,
-    draftStore: options.draftStore,
-    draftKey: options.draftKey,
+    channelId: target.path === "channel-message" ? target.channelId : undefined,
   });
   const handlersRef = useRef<DirectiveLineHandlers>(directiveHandlers);
   // Written from an effect and never during render. React's own rule is that a ref

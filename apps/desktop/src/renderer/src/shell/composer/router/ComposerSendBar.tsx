@@ -36,7 +36,6 @@ import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";
 import { useComposerCommandZone } from "../commands/client-command-executor.js";
-import { composerDraftKey } from "./draft-key.js";
 import type { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { useSendController } from "./send-controller.js";
 import { ResendOffer } from "./ResendOffer.js";
@@ -66,10 +65,11 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     target: address.target,
     // The accelerators' own inputs. The zone reaches no wire of its own for the
     // recogniser or the enumeration; these are for the one command that starts work.
+    // The composer's LINE is not among them: the palette entry that types a directive
+    // and the candidate list that completes one are the discovery seat's, and this bar
+    // holds only the handler that runs a line already typed.
     growth: props.bridge.growth,
     sessionId: props.sessionStore.sessionId,
-    draftStore: props.draftStore,
-    draftKey: composerDraftKey(address.target),
   });
   const controller = useSendController({
     bridge: props.bridge,
