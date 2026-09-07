@@ -26,6 +26,7 @@
 // travels on the execution-context read, and a reading that carries none means the
 // binding is running the mode it was asked for.
 
+import type { WorkspaceState } from "@ai-sidekicks/contracts";
 import type { ConsoleRefusal } from "../../core/index.js";
 
 /**
@@ -195,6 +196,96 @@ function summaryLineForContext(
   return rows.every((row, index) => index === 0 || row.matchesPrevious)
     ? "all three roots agree"
     : "the roots differ";
+}
+
+/**
+ * The one lifecycle position that opens the three-path disclosure by itself.
+ *
+ * Named once rather than spelled at each comparison, because the rule below reads it
+ * twice and a second spelling is how the mount default and the transition default
+ * come to disagree.
+ */
+const DISCLOSING_WORKSPACE_STATE: WorkspaceState = "stale";
+
+/**
+ * Whether the three-path disclosure stands open, and the position it was derived at.
+ *
+ * The second member is what makes this a rule about a TRANSITION rather than about a
+ * render: without it every render while the workspace is `stale` would re-open a
+ * disclosure the participant had just closed, and the `<details>` would be a control
+ * that does not stay where it is put.
+ */
+export interface ExecutionRootsDisclosure {
+  readonly isOpen: boolean;
+  readonly derivedAtWorkspaceState: WorkspaceState;
+}
+
+/**
+ * How the disclosure opens: expanded exactly while the workspace arrives `stale`.
+ *
+ * A `stale` workspace is the one position where the three roots are the question
+ * rather than reference detail — writable runs are blocked until repair, and which
+ * root stopped answering is what a person is about to go and look at. Every other
+ * position keeps this module's ordinary posture: collapsed, with the summary line
+ * already reporting what was found.
+ */
+export function initialExecutionRootsDisclosure(
+  workspaceState: WorkspaceState,
+): ExecutionRootsDisclosure {
+  return {
+    isOpen: workspaceState === DISCLOSING_WORKSPACE_STATE,
+    derivedAtWorkspaceState: workspaceState,
+  };
+}
+
+/**
+ * The disclosure after a re-read moved the workspace's lifecycle position.
+ *
+ * THE DEFAULT IS RE-DERIVED ON THE EDGE INTO `stale` AND ON NO OTHER TRANSITION, which
+ * is the whole rule and is asymmetric on purpose:
+ *
+ *   • A workspace that goes `stale` under a card already on screen opens it, exactly as
+ *     one that was `stale` when the card mounted. The fact that arrived is the reason
+ *     to look, and it arrives after the mount as often as before it.
+ *   • A participant's own toggle then wins until the next such edge, so closing this on
+ *     a `stale` row keeps it closed — a control that reopened itself on the section's
+ *     next scheduled read would be a control nobody can put away.
+ *   • RECOVERY IS NOT AN EDGE THIS ACTS ON. A workspace leaving `stale` keeps whatever
+ *     the disclosure was showing, because collapsing it would shut three paths in the
+ *     face of the person who opened them to find out why the row went stale in the
+ *     first place — and the repair is precisely when those paths are worth re-reading.
+ *
+ * Returns the value it was handed where the position has not moved, so a caller holding
+ * this in React state can store the result unconditionally without minting a new object
+ * per render.
+ */
+export function executionRootsDisclosureAfterWorkspaceState(
+  disclosure: ExecutionRootsDisclosure,
+  workspaceState: WorkspaceState,
+): ExecutionRootsDisclosure {
+  if (workspaceState === disclosure.derivedAtWorkspaceState) {
+    return disclosure;
+  }
+  return {
+    isOpen: workspaceState === DISCLOSING_WORKSPACE_STATE ? true : disclosure.isOpen,
+    derivedAtWorkspaceState: workspaceState,
+  };
+}
+
+/**
+ * The disclosure after the participant moved it themselves.
+ *
+ * Beside the rule above rather than inside the component, so the one place that decides
+ * what `isOpen` may become is this module. Returns the value it was handed where the
+ * `<details>` reports the state it is already in — which is what a browser does when the
+ * open attribute is written rather than clicked, and what keeps that report from
+ * re-rendering the row for nothing.
+ */
+export function toggledExecutionRootsDisclosure(
+  disclosure: ExecutionRootsDisclosure,
+  isOpen: boolean,
+): ExecutionRootsDisclosure {
+  return disclosure.isOpen === isOpen ? disclosure : { ...disclosure, isOpen };
 }
 
 /** The badge a substituted execution mode wears, and the sentence beside it. */

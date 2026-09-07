@@ -19,16 +19,29 @@
 // carries the reconnect edge and the repo-lifecycle frames, two of the four reasons
 // `Spec-023 §Rules every console surface obeys` names. It is handed down rather than
 // reached for, exactly as every other reading in this family takes it.
+//
+// THE DISCLOSURE'S OWN OPEN STATE IS HERE FOR THE SAME REASON THE READER IS. Where the
+// three paths stand is decided by a transition — the edge into `stale` — so somebody
+// has to hold the position the last decision was taken at and compare. That is a
+// lifecycle collaboration rather than a render, so it sits in a hook beside the one
+// above rather than in the component's body; the RULE it applies is
+// `execution-context-model.ts`'s, and nothing here decides what open means.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
+import type { WorkspaceState } from "@ai-sidekicks/contracts";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import {
   CONTROLLER_DISPOSAL,
   useSubjectScopedResource,
   type SessionStore,
 } from "../../store/index.js";
-import type { ExecutionContextReading } from "./execution-context-model.js";
+import {
+  executionRootsDisclosureAfterWorkspaceState,
+  initialExecutionRootsDisclosure,
+  toggledExecutionRootsDisclosure,
+  type ExecutionContextReading,
+} from "./execution-context-model.js";
 import { WorkspaceExecutionContextReader } from "./execution-context-reader.js";
 
 /**
@@ -62,4 +75,42 @@ export function useWorkspaceExecutionContext(
   );
   const read = useCallback(() => reader.snapshot, [reader]);
   return useSyncExternalStore(subscribe, read, read);
+}
+
+/** What a `<details>` needs to stand where this family's density rule puts it. */
+export interface ExecutionRootsDisclosureBinding {
+  readonly isOpen: boolean;
+  readonly onToggle: (isOpen: boolean) => void;
+}
+
+/**
+ * Bind the three-path disclosure's open state to the workspace's lifecycle position.
+ *
+ * The rule itself is `execution-context-model.ts`'s and is stated there. What this owns
+ * is the React half: the position the last decision was taken at, carried across
+ * renders, so the model can be asked about a TRANSITION rather than about the value of
+ * the moment.
+ *
+ * THE NEW POSITION IS APPLIED DURING THE RENDER THAT FIRST SEES IT, not in an effect
+ * after it — the documented shape for state that has to follow a prop — so a row going
+ * `stale` never paints once collapsed and then jumps open. The model returns the value
+ * it was handed where nothing moved, so the comparison settles in one pass and commits
+ * no second render; the same identity rule makes the toggle a no-op when the platform
+ * reports the state the disclosure is already in, which is what it does when the open
+ * attribute is written rather than pressed.
+ */
+export function useExecutionRootsDisclosure(
+  workspaceState: WorkspaceState,
+): ExecutionRootsDisclosureBinding {
+  const [disclosure, setDisclosure] = useState(() =>
+    initialExecutionRootsDisclosure(workspaceState),
+  );
+  const derived = executionRootsDisclosureAfterWorkspaceState(disclosure, workspaceState);
+  if (derived !== disclosure) {
+    setDisclosure(derived);
+  }
+  const onToggle = useCallback((isOpen: boolean) => {
+    setDisclosure((current) => toggledExecutionRootsDisclosure(current, isOpen));
+  }, []);
+  return { isOpen: derived.isOpen, onToggle };
 }

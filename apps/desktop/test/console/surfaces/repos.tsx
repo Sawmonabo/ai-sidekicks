@@ -86,7 +86,7 @@ import {
 } from "../../../src/renderer/src/console/seats/index.js";
 
 /**
- * The repos sidebar section, open, with its two mounts read.
+ * The repos sidebar section, open, with its three mounts read.
  *
  * Waited on rather than read straight after the mount: the section holds the
  * `repo.workspaceList` / `repo.mountRead` pair, so a tier that captured immediately

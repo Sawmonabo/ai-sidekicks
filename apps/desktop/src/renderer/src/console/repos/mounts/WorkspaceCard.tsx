@@ -127,6 +127,11 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         bridge={props.bridge}
         workspaceId={workspace.id}
         mountCanonicalRoot={props.mountCanonicalRoot}
+        // The disclosure's own density rule reads this: the three paths are expanded by
+        // default only while the row is `stale`. Handed down from the row that already
+        // holds it rather than read again, so the chip above and the disclosure below
+        // can never disagree about which position this workspace is in.
+        workspaceState={workspace.state}
         sessionStore={props.sessionStore}
       />
 

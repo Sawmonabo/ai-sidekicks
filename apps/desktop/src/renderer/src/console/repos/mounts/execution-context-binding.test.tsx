@@ -1,12 +1,20 @@
-// The three-path disclosure against the fixture: the badge, the roots, and the absence.
+// The three-path disclosure against the fixture: the badge, the roots, the absence, and
+// where the disclosure stands.
 //
 // RENDERED THROUGH THE REAL BINDING AND THE REAL GROWTH PORT. The read is a growth-slate
 // row with no registered wire method behind it, so its ordinary answer in a shipped
 // build is a typed absence — and the case that asserts the served rendering has to come
 // from a bridge that actually serves it, which is what the repos fixture does.
+//
+// THE DENSITY CASES DRIVE THE WORKSPACE'S POSITION AND NOT THE READ. Where the
+// disclosure stands is decided by the lifecycle position the row is in, so those cases
+// re-render with a new position and never advance the clock — a rule about a transition
+// is only pinned by a suite that actually performs one.
 
-import { render, within } from "@testing-library/react";
+import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
+import type { WorkspaceState } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
@@ -31,25 +39,61 @@ interface DisclosureUnderTest {
   readonly container: HTMLElement;
   /** Move the fixture's frozen clock until the assertion holds. See the support module. */
   readonly advanceUntil: (assert: () => void) => Promise<void>;
+  /** Re-render the same mounted row at a new lifecycle position, as a re-read does. */
+  readonly setWorkspaceState: (workspaceState: WorkspaceState) => void;
 }
 
 function renderDisclosure(
   workspaceId: string,
   mountCanonicalRoot: string = MOUNT_ROOT,
+  workspaceState: WorkspaceState = "ready",
 ): DisclosureUnderTest {
   const bridge: ConsoleBridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
-  const { container } = render(
+  // Both held outside the element factory: a fresh bridge or store per re-render would
+  // re-mint the reader beneath the row, so the re-render would be a remount and the
+  // transition cases would be pinning a first mount twice.
+  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
+  const rowAt = (state: WorkspaceState): React.JSX.Element => (
     <ExecutionContextDisclosure
       bridge={bridge}
       workspaceId={workspaceId}
       mountCanonicalRoot={mountCanonicalRoot}
-      sessionStore={new SessionStore({ sessionId: REPOS_SCENARIO.sessionId })}
-    />,
+      workspaceState={state}
+      sessionStore={sessionStore}
+    />
   );
+  const { container, rerender } = render(rowAt(workspaceState));
   return {
     container,
     advanceUntil: (assert) => advanceScenarioUntil(bridge, assert),
+    setWorkspaceState: (state) => {
+      rerender(rowAt(state));
+    },
   };
+}
+
+/** The `<details>` the three paths sit behind. */
+function pathsDisclosure(container: HTMLElement): HTMLDetailsElement {
+  const disclosure = container.querySelector(".meridian-execution-context__paths");
+  if (!(disclosure instanceof HTMLDetailsElement)) {
+    throw new Error("the row rendered no disclosure for its execution roots");
+  }
+  return disclosure;
+}
+
+/**
+ * Close the disclosure the way a participant does — by pressing its summary.
+ *
+ * The press and not a write to `open`: this disclosure's open state is the component's,
+ * so what has to be pinned is that a real toggle reaches it. A test that assigned the
+ * property would move the DOM and prove nothing about the control.
+ */
+function pressSummary(container: HTMLElement): void {
+  const summary = pathsDisclosure(container).querySelector("summary");
+  if (summary === null) {
+    throw new Error("the disclosure rendered no summary to press");
+  }
+  fireEvent.click(summary);
 }
 
 describe("ExecutionContextDisclosure — the three roots", () => {
@@ -113,6 +157,63 @@ describe("ExecutionContextDisclosure — the fallback badge", () => {
       expect(disclosure.container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     });
     expect(disclosure.container.querySelector(".meridian-execution-context__fallback")).toBeNull();
+  });
+});
+
+describe("ExecutionContextDisclosure — expanded by default only while the workspace is stale", () => {
+  it("stands open on a stale row, where the roots are the question rather than detail", () => {
+    // `Spec-023 §Console Design (Meridian)` fixes this family's density: the three
+    // paths collapse behind one disclosure, expanded by default only while the
+    // workspace is `stale`. Writable runs are blocked until repair there, and which
+    // root stopped answering is the next thing a person goes and looks at.
+    const disclosure = renderDisclosure(GIT_WORKSPACE_ID, MOUNT_ROOT, "stale");
+
+    expect(pathsDisclosure(disclosure.container).open).toBe(true);
+  });
+
+  it("negative control: a ready row keeps this family's collapsed posture", () => {
+    // Without this, a disclosure that simply stood open on every row would pass the
+    // case above — which is the density rule inverted rather than met.
+    const disclosure = renderDisclosure(GIT_WORKSPACE_ID, MOUNT_ROOT, "ready");
+
+    expect(pathsDisclosure(disclosure.container).open).toBe(false);
+  });
+
+  it("opens on the edge into stale, so a row that goes stale under a reader opens too", () => {
+    // The rule is about the TRANSITION and not about the mount: a workspace loses its
+    // path while its card is on screen at least as often as before one is drawn.
+    const disclosure = renderDisclosure(GIT_WORKSPACE_ID, MOUNT_ROOT, "ready");
+    expect(pathsDisclosure(disclosure.container).open).toBe(false);
+
+    disclosure.setWorkspaceState("stale");
+
+    expect(pathsDisclosure(disclosure.container).open).toBe(true);
+  });
+
+  it("stays closed once a participant has closed it on a stale row", () => {
+    // The section re-reads on all four of the reasons `Spec-023 §Rules every console
+    // surface obeys` names, so a default re-derived per render would reopen this on
+    // every one of them and the control could never be put away.
+    const disclosure = renderDisclosure(GIT_WORKSPACE_ID, MOUNT_ROOT, "stale");
+    pressSummary(disclosure.container);
+    expect(pathsDisclosure(disclosure.container).open).toBe(false);
+
+    // A re-read landing on the same position, which is what most re-reads are.
+    disclosure.setWorkspaceState("stale");
+
+    expect(pathsDisclosure(disclosure.container).open).toBe(false);
+  });
+
+  it("does not slam shut on the reader when the workspace recovers", () => {
+    // Recovery is not an edge this acts on. Collapsing here would shut three paths in
+    // the face of the person who opened them to find out why the row went stale, at the
+    // moment those paths are most worth re-reading.
+    const disclosure = renderDisclosure(GIT_WORKSPACE_ID, MOUNT_ROOT, "stale");
+    expect(pathsDisclosure(disclosure.container).open).toBe(true);
+
+    disclosure.setWorkspaceState("ready");
+
+    expect(pathsDisclosure(disclosure.container).open).toBe(true);
   });
 });
 
