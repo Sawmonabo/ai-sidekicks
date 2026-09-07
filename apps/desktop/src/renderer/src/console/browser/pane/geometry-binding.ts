@@ -13,9 +13,9 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
-import { consoleOcclusionRegistryFor } from "../geometry/occlusion-registry.js";
 import { resolvePaneViewHost, type PaneViewHost } from "../geometry/view-host.js";
 import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
+import { airspaceRegistryFor, type AirspaceRegistry } from "../../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 
 /**
@@ -48,27 +48,42 @@ export interface PaneSubject {
  * pane's viewport is describing this pane's host" a fact rather than two lookups that
  * agree today.
  *
- * THE CLOCK AND THE OVERLAY REGISTRY BOTH COME OFF THE BRIDGE, which is the same rule
- * twice. `Spec-023 §Console Design (Meridian)` §The fixture bridge: "the fixture clock
- * is the only clock the renderer reads in fixture mode", and the console has one answer
- * to which clock a window reads. A privately minted `RealClock` here was invisible to
- * `ManualClock` — the instrument the budgets are counted with — so under a frozen
- * scenario this publisher's frame and its `sampledAtMs` ran on wall time while every
- * other timer in the same pane was stopped, and whether a screenshot caught the first
- * publish was decided by how fast the runner was.
+ * THE CLOCK COMES OFF THE BRIDGE. `Spec-023 §Console Design (Meridian)` §The fixture
+ * bridge: "the fixture clock is the only clock the renderer reads in fixture mode", and
+ * the console has one answer to which clock a window reads. A privately minted
+ * `RealClock` here was invisible to `ManualClock` — the instrument the budgets are
+ * counted with — so under a frozen scenario this publisher's frame and its
+ * `sampledAtMs` ran on wall time while every other timer in the same pane was stopped,
+ * and whether a screenshot caught the first publish was decided by how fast the runner
+ * was.
  *
- * Pure: it arms nothing.
+ * THE AIRSPACE COMES OFF THE DOCUMENT, and that is the same rule read the other way.
+ * The overlay set is `core/`'s so that the overlay primitives — which sit below
+ * `bridge/` and cannot name a bridge — can register into the same one this pane reads.
+ * A document is what an overlay element and this pane's host already share when they
+ * are in one window and do not share when they are not, so it is the key both sides can
+ * name (`core/airspace-registries.ts`).
+ *
+ * AND THE MOTION OBSERVATION IS THE PUBLISHER'S, not this function's. Only a consumer
+ * drawing a native view needs an overlay carried across the screen sampled per frame,
+ * and the publisher is that consumer: it arms the observation with its other five
+ * invalidation sources and retires it with them, so an unavailable host arms none and
+ * a self-disposal after a `pane-gone` rejection ends the frame loop rather than
+ * leaving it running under a binding nothing will dispose until the mount ends. The
+ * airspace still comes from here because the publisher is handed it as its overlay
+ * source, which is the one reading of it both halves share.
+ *
+ * Pure: it arms nothing at all. Every source this binding costs is armed by the
+ * publisher's own `observe` and retired by its own `dispose`.
  */
 export function createGeometryBinding(subject: PaneSubject): BoundGeometryPublisher {
   const host = resolvePaneViewHost(subject);
+  const clock = consoleClockFor(subject.bridge);
+  const airspace: AirspaceRegistry = airspaceRegistryFor(document);
   return {
     ...subject,
     host,
-    publisher: new PaneGeometryPublisher({
-      host,
-      clock: consoleClockFor(subject.bridge),
-      occlusion: consoleOcclusionRegistryFor(subject.bridge),
-    }),
+    publisher: new PaneGeometryPublisher({ host, clock, occlusion: airspace }),
   };
 }
 

@@ -28,7 +28,7 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { InlineRefusal, Nothing } from "../../../primitives/index.js";
+import { InlineRefusal, Nothing, OverlayAlertDialogPopup } from "../../../primitives/index.js";
 import { useConfirmationLifecycle } from "../confirmation/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
@@ -75,33 +75,37 @@ export function RootDisposalConfirmation(props: RootDisposalConfirmationProps): 
         >
           {DISPOSAL_VERB[props.kind]}
         </AlertDialog.Trigger>
-        <AlertDialog.Portal>
-          <AlertDialog.Backdrop className="meridian-root-disposal__backdrop" />
-          <AlertDialog.Popup className="meridian-root-disposal__dialog">
-            <AlertDialog.Title className="meridian-root-disposal__title">
-              {DISPOSAL_QUESTION[props.kind]}
-            </AlertDialog.Title>
-            <AlertDialog.Description className="meridian-root-disposal__body">
-              {subject.consequence}
-            </AlertDialog.Description>
-            <div className="meridian-root-disposal__acts">
-              <AlertDialog.Close
-                className="meridian-root-disposal__cancel"
-                onClick={lifecycle.cancelled}
-              >
-                Keep it
-              </AlertDialog.Close>
-              <AlertDialog.Close
-                className="meridian-root-disposal__confirm"
-                onClick={() => {
-                  send();
-                }}
-              >
-                {DISPOSAL_VERB[props.kind]}
-              </AlertDialog.Close>
-            </div>
-          </AlertDialog.Popup>
-        </AlertDialog.Portal>
+        {/* The popup shell is the primitive's, which is what puts this confirmation in
+            the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+            browser-pane view yields to what is registered there, and a confirmation it
+            painted over is the one thing 12.3 forbids outright. */}
+        <OverlayAlertDialogPopup
+          backdropClassName="meridian-root-disposal__backdrop"
+          className="meridian-root-disposal__dialog"
+        >
+          <AlertDialog.Title className="meridian-root-disposal__title">
+            {DISPOSAL_QUESTION[props.kind]}
+          </AlertDialog.Title>
+          <AlertDialog.Description className="meridian-root-disposal__body">
+            {subject.consequence}
+          </AlertDialog.Description>
+          <div className="meridian-root-disposal__acts">
+            <AlertDialog.Close
+              className="meridian-root-disposal__cancel"
+              onClick={lifecycle.cancelled}
+            >
+              Keep it
+            </AlertDialog.Close>
+            <AlertDialog.Close
+              className="meridian-root-disposal__confirm"
+              onClick={() => {
+                send();
+              }}
+            >
+              {DISPOSAL_VERB[props.kind]}
+            </AlertDialog.Close>
+          </div>
+        </OverlayAlertDialogPopup>
       </AlertDialog.Root>
       {renderSettlement(reading, onSettled)}
     </div>

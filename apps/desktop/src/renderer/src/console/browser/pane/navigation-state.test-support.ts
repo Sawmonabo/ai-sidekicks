@@ -36,6 +36,7 @@ export const REPORTED_PAGE: NavigationEvent = {
   isLoading: false,
   canGoBack: true,
   canGoForward: false,
+  loadProgress: null,
 };
 
 interface DeferredSubscriptionOptions {

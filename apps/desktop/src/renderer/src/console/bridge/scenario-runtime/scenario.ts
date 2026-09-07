@@ -77,6 +77,27 @@ export interface ScenarioResolvingReply extends ScenarioReplyBase {
 }
 
 /**
+ * The refusal shape a scenario scripts: the wire envelope plus its structured context.
+ *
+ * `WireErrorEnvelope` is `{code, message}` and closes there, which is right for the
+ * shape every renderer catch arm matches on and WRONG for what a daemon actually
+ * sends on the refusals that name something: `pty.control_held_by_other` carries the
+ * holder, and a rate-limited refusal carries its retry bound. `core/wire-rejection.ts`
+ * reads both positions the corpus registers — `data.fields` on a JSON-RPC envelope and
+ * `details` on a flat one — so a fixture that could only script `{code, message}` left
+ * every extension-reading surface unreachable from any scenario.
+ *
+ * The member is OPTIONAL and typed as the flat position, so a scenario that scripts a
+ * bare envelope is unchanged and one that scripts context reaches the same reader a
+ * live rejection reaches. It is deliberately not a second extension vocabulary:
+ * `core/refusal-extensions.ts` remains the one closed registry of what may be read
+ * out of it, and a member no reader is registered for is simply not read.
+ */
+export type ScenarioRefusalEnvelope = WireErrorEnvelope & {
+  readonly details?: Readonly<Record<string, unknown>>;
+};
+
+/**
  * A canned reply that REFUSES, with the shape the wire refuses in.
  *
  * Without this arm no scenario could reach a refusal at all: the fixture's own
@@ -96,7 +117,7 @@ export interface ScenarioResolvingReply extends ScenarioReplyBase {
  * value the live bridge never sends.
  */
 export interface ScenarioRejectingReply extends ScenarioReplyBase {
-  readonly refusal: WireErrorEnvelope;
+  readonly refusal: ScenarioRefusalEnvelope;
   readonly result?: never;
   readonly resultFor?: never;
 }

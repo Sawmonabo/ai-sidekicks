@@ -143,6 +143,11 @@ function isBridgeFamilyModule(module: string): boolean {
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
+ *  11. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
+ *      read. The pane's file control has to say which roots a local file may come
+ *      from before a person picks one, and the trust envelope is the daemon's: a
+ *      renderer that answered from anything else would be deriving the eligibility
+ *      the refusal it renders exists to report.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
  * none around it. The composer's half was six until its target chip stopped taking a
@@ -157,7 +162,9 @@ function isBridgeFamilyModule(module: string): boolean {
  * was settling — two idempotency keys against one run version, which the wire reads as
  * two distinct mutations rather than replays of one. It now dispatches through
  * `RunControlSurface`, which is entry #4, so this number FALLING is what that fix looks
- * like from here.
+ * like from here. It reads eleven again rather than ten because entry #11 landed in the
+ * same window — two independent moves that happen to cancel, which is exactly why the
+ * pin is re-derived by counting the enumeration above and never carried forward.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
@@ -167,7 +174,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 10;
+const CALL_DOOR_CONSUMER_COUNT = 11;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

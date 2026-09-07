@@ -40,6 +40,7 @@ import {
   COMMAND_PALETTE_OPEN_CHORD,
   formatChordForPlatform,
   formatCount,
+  OverlayDialogPopup,
   type ChordPlatform,
 } from "../primitives/index.js";
 import type { CommandSearchResult } from "./command-ranking.js";
@@ -213,62 +214,69 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
       onItemHighlighted={warmHighlighted}
     >
       <Dialog.Root open={open} onOpenChange={handleOpenChange} modal="trap-focus">
-        <Dialog.Portal container={overlayContainer}>
-          <Dialog.Backdrop className="console-palette__backdrop" />
-          <Dialog.Popup
-            className="console-palette__popup"
-            initialFocus={inputRef}
-            aria-label="Command palette"
-          >
-            {scopeLabel === undefined ? null : (
-              <div className="console-palette__scope">
-                <span className="console-palette__scope-label">Acting on</span>
-                <span className="console-palette__scope-value">{scopeLabel}</span>
-              </div>
-            )}
+        {/* THE AIRSPACE REGISTRATION IS THE PRIMITIVE'S, and the whole of this
+            surface's part in it is the kind it names (`Spec-023 §Console Design
+            (Meridian)` 12.3, §4.3). An open palette is one of the seven overlay kinds
+            a native browser-pane view has to yield to, and a view painted over it is
+            the one thing 12.3 forbids outright — so the shell that mounts the popup is
+            also what registers its live rectangle, and no surface can mount one
+            without. */}
+        <OverlayDialogPopup
+          airspaceKind="command-palette"
+          container={overlayContainer}
+          backdropClassName="console-palette__backdrop"
+          className="console-palette__popup"
+          label="Command palette"
+          initialFocus={inputRef}
+        >
+          {scopeLabel === undefined ? null : (
+            <div className="console-palette__scope">
+              <span className="console-palette__scope-label">Acting on</span>
+              <span className="console-palette__scope-value">{scopeLabel}</span>
+            </div>
+          )}
 
-            <Combobox.Input
-              ref={inputRef}
-              className="console-palette__input"
-              placeholder="Search commands"
-              aria-label="Search commands"
-            />
+          <Combobox.Input
+            ref={inputRef}
+            className="console-palette__input"
+            placeholder="Search commands"
+            aria-label="Search commands"
+          />
 
-            <PaletteResultList
-              context={context}
-              platform={platform}
-              bindings={bindings}
-              onRunResult={runResult}
-            />
+          <PaletteResultList
+            context={context}
+            platform={platform}
+            bindings={bindings}
+            onRunResult={runResult}
+          />
 
-            {/*
+          {/*
               Must stay mounted: it announces by mutating its own text, and it is
               already a `role="status"` / `aria-live="polite"` region — which is
               why `Combobox.Status` below falls silent when the list is empty.
               Two live regions describing one absence would announce it twice.
             */}
-            <Combobox.Empty className="console-palette__empty">
-              <PaletteAbsence
-                readiness={readiness}
-                registry={registry}
-                query={query}
-                visibleCount={visibleCount}
-              />
-            </Combobox.Empty>
+          <Combobox.Empty className="console-palette__empty">
+            <PaletteAbsence
+              readiness={readiness}
+              registry={registry}
+              query={query}
+              visibleCount={visibleCount}
+            />
+          </Combobox.Empty>
 
-            <Combobox.Status className="meridian-visually-hidden">
-              {results.length === 0 ? "" : resultCountLabel}
-            </Combobox.Status>
+          <Combobox.Status className="meridian-visually-hidden">
+            {results.length === 0 ? "" : resultCountLabel}
+          </Combobox.Status>
 
-            <div className="console-palette__footer">
-              <span className="console-palette__footer-hints">
-                <span>{formatChordForPlatform("Enter", platform)} to run</span>
-                <span>{formatChordForPlatform("Escape", platform)} to close</span>
-              </span>
-              <span>{resultCountLabel}</span>
-            </div>
-          </Dialog.Popup>
-        </Dialog.Portal>
+          <div className="console-palette__footer">
+            <span className="console-palette__footer-hints">
+              <span>{formatChordForPlatform("Enter", platform)} to run</span>
+              <span>{formatChordForPlatform("Escape", platform)} to close</span>
+            </span>
+            <span>{resultCountLabel}</span>
+          </div>
+        </OverlayDialogPopup>
       </Dialog.Root>
     </Combobox.Root>
   );

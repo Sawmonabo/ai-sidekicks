@@ -103,6 +103,16 @@ export interface ConsoleRefusalExtensions {
    * sentence and this is a list a surface renders as wire figures.
    */
   readonly failedBindingIds?: readonly string[];
+  /**
+   * Registered by `core/wire-rejection.ts`: who holds a lease this caller asked for.
+   *
+   * The corpus puts it on the envelope rather than in the sentence — `data.fields`
+   * on the JSON-RPC surface, mirrored as `details` on the HTTP one — precisely so a
+   * surface can NAME the holder instead of paraphrasing the daemon's prose. A
+   * refusal is not the place to learn an identity from, so nothing derives one: the
+   * member is present only where the refusing side sent it.
+   */
+  readonly holderParticipantId?: string;
 }
 
 /** A refusal plus whatever registered members its producer carried on it. */
@@ -148,6 +158,19 @@ export function wireRetryExtension(source: unknown): ConsoleRefusalExtensions {
     reset?.kind === "instant" ? reset.epochMilliseconds : undefined,
   );
   return retry === undefined ? {} : { retry };
+}
+
+/**
+ * The position a lease holder is registered at on the WIRE, as an extension.
+ *
+ * A sibling of {@link wireRetryExtension} and not a reader, for the same reason: the
+ * source is an envelope member rather than a refusal, and the two wire arms differ in
+ * where that member sits — `data.fields` under the JSON-RPC envelope, `details` under
+ * the HTTP one — so the caller names the source and this names the member.
+ */
+export function wireHolderExtension(source: unknown): ConsoleRefusalExtensions {
+  const holder = readWireString(readGuardedProperty(source, "holderParticipantId"));
+  return holder === undefined ? {} : { holderParticipantId: holder };
 }
 
 /** A hint a refusal already carries, in this console's own spelling, read guardedly. */
@@ -229,6 +252,7 @@ const REFUSAL_EXTENSION_READERS: {
   owningDocument: identifierMemberReader("owningDocument"),
   failedBindingIds: (candidate: unknown) =>
     identifierListOf(readGuardedProperty(candidate, "failedBindingIds")),
+  holderParticipantId: identifierMemberReader("holderParticipantId"),
 };
 
 /** Every registered extension member, as a set a test can walk. */

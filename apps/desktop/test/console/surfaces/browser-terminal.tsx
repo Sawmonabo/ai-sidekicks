@@ -241,7 +241,13 @@ export async function mountBrowserCaptureCard(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
   const { container } = await renderSettled(
     <BrowserCaptureCard
+      artifactId="019b7b30-0280-7c11-8420-b1a5c0de2201"
       captureName="checkout-step-two.png"
+      // The settled row rather than a transitional one, for the same reason the ingest
+      // arm below is `stored`: a baseline pins the state a person spends their time
+      // looking at, and the two moving states are the ones a card reaches on its way
+      // here.
+      state="published"
       scope="viewport"
       mediaType="image/png"
       ingest={{

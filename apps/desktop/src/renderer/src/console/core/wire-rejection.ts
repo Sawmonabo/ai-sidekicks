@@ -80,6 +80,7 @@ export type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 import {
   readRefusalExtensions,
   wireFailedBindingsExtension,
+  wireHolderExtension,
   wireRetryExtension,
   withRefusalExtensions,
   type ConsoleRefusalExtensions,
@@ -247,22 +248,29 @@ function classifyRejection(
   const dottedCode = readGuardedProperty(data, "type");
   const message = readGuardedProperty(rejection, "message");
   if (typeof dottedCode === "string" && dottedCode.length > 0) {
+    // One read of `fields`, then one pass per registered member over the value it
+    // produced: a getter that answered differently the second time would otherwise
+    // assemble one refusal's extensions out of two envelopes. The readers are MERGED
+    // rather than chosen between — an envelope may carry a retry bound, a
+    // failed-binding list, a lease holder, any combination of them, or none — and
+    // each reader contributes only the member it actually found.
     const fields = readGuardedProperty(data, "fields");
     return withRefusalExtensions(refuse(origin, dottedCode, envelopeDetail(message, fallback)), {
-      // Both `data.fields` readers, merged rather than chosen between: an envelope
-      // may carry a retry bound, a failed-binding list, both, or neither, and each
-      // reader contributes only the member it actually found.
       ...wireRetryExtension(fields),
       ...wireFailedBindingsExtension(fields),
+      ...wireHolderExtension(fields),
     });
   }
   // The flat envelope — `{ code, message }` — from the same two readings the arms
   // above already took, never a second pass over the candidate.
   if (typeof members.code === "string") {
-    return withRefusalExtensions(
-      refuse(origin, members.code, envelopeDetail(message, fallback)),
-      wireRetryExtension(rejection),
-    );
+    // The flat envelope spells the structured context `details`, and the retry bound
+    // sits at the root — the two positions the corpus registers for this arm, read
+    // where each one actually is rather than at one guessed shared prefix.
+    return withRefusalExtensions(refuse(origin, members.code, envelopeDetail(message, fallback)), {
+      ...wireRetryExtension(rejection),
+      ...wireHolderExtension(readGuardedProperty(rejection, "details")),
+    });
   }
   if (fallback !== undefined) {
     return refuse(origin, fallback.code, fallback.detail);

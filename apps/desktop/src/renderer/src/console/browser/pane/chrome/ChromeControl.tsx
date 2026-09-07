@@ -4,7 +4,7 @@
 // composition and this is a leaf, they change for different reasons, and the package
 // binds one component per `.tsx`.
 
-import { Glyph, type GlyphName } from "../../primitives/index.js";
+import { Glyph, type GlyphName } from "../../../primitives/index.js";
 
 /** The glyph size the chrome's controls share, so the row's baseline stays even. */
 const CONTROL_GLYPH_SIZE = 13;

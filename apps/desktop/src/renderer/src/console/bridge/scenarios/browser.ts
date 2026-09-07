@@ -22,6 +22,13 @@
 // the payload shape `{sessionId, artifactId?, runId?, diffArtifactId?, visibility?,
 // state}`, so the rows below are wire-true today.
 //
+// AND WHICH OF THEM CAME OUT OF THE BROWSER IS SCRIPTED, BECAUSE THE BEATS CANNOT SAY.
+// That payload names no producer, no origin, and no pane, so nothing on the log tells
+// this session's capture from a repository attachment published beside it. The
+// provenance is the daemon's — every browser producer enters the ingest pipeline
+// through it — and the scenario states it as a reply, which is what lets the shelf be
+// built against the answer rather than against a renderer-local guess.
+//
 // WHERE THE ROW'S NAME, KIND, AND SIZE COME FROM, AND WHY THEY ARE NOT HERE. The
 // design's density rule collapses a row to name, kind, and size — and none of the
 // three is on the event. They live on the artifact MANIFEST, which the console
@@ -48,6 +55,19 @@
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 
 export const BROWSER_SCENARIO_ID = "browser";
+
+/**
+ * The routing key the produced-object provenance read is answered under.
+ *
+ * Keyed on the growth OPERATION rather than on a wire method, on
+ * `scenarios/workflows.ts`' rule and for the same reason: the browser namespace is
+ * registered nowhere, so this read has no method name to transcribe, and writing a
+ * plausible-looking one here would put a wire fact traceable to nothing in the
+ * fixture. The `growth:` prefix is what makes the key manifestly not a method, so the
+ * day the daemon registers the read under whatever name it chooses this reply is not
+ * already answering under a different one.
+ */
+export const BROWSER_PRODUCED_ARTIFACTS_CALL = "growth:browserProducedArtifacts";
 
 // Wire-declared UUIDs rather than readable placeholders: `wire-truth.ts` presents
 // each beat to the strict contract layer as the whole envelope it claims to be,
@@ -78,6 +98,16 @@ const RUN_ID = "019b7b20-0280-740e-8110-d1a4c1150044";
  */
 const FIRST_CAPTURE_ARTIFACT_ID = "artifact-capture-staging-header";
 const REPLACEMENT_CAPTURE_ARTIFACT_ID = "artifact-capture-staging-header-retake";
+
+/**
+ * The other two produced objects, bound for the same reason.
+ *
+ * Each is named twice now — by the beat that publishes it and by the provenance reply
+ * that says it came out of the browser — and a drift between the two would leave the
+ * shelf silently short a row with nothing failing.
+ */
+const DOWNLOAD_ARTIFACT_ID = "artifact-download-release-notes";
+const ASSET_BUNDLE_ARTIFACT_ID = "artifact-bundle-staging-assets";
 
 export const BROWSER_SCENARIO: ConsoleScenario = {
   id: BROWSER_SCENARIO_ID,
@@ -288,7 +318,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         // an artifact member naming the browser.
         payload: {
           sessionId: SESSION_ID,
-          artifactId: "artifact-download-release-notes",
+          artifactId: DOWNLOAD_ARTIFACT_ID,
           runId: RUN_ID,
           visibility: "local-only",
           state: "published",
@@ -310,7 +340,7 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
         // like its name and its size.
         payload: {
           sessionId: SESSION_ID,
-          artifactId: "artifact-bundle-staging-assets",
+          artifactId: ASSET_BUNDLE_ARTIFACT_ID,
           runId: RUN_ID,
           visibility: "shared",
           state: "published",
@@ -380,9 +410,27 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
     },
   ],
   replies: [
-    // The one read the scenario answers, instantly: nothing this family renders waits
+    // The two reads the scenario answers, instantly: nothing this family renders waits
     // on a reply. Its loading states are the in-flight capture row and the run that
     // stops, and both arrive as beats on the scenario clock.
     { call: "agent.list", result: { agents: [{ agentId: AGENT_PARTICIPANT_ID }] } },
+    // WHICH OF THE FOUR ARTIFACTS ABOVE CAME OUT OF THE BROWSER, which is the one
+    // thing the beats cannot say: `artifact_publication` names no producer, so a fold
+    // over the log alone cannot tell this session's capture from a repository
+    // attachment. All four are named here because all four are what this scenario is
+    // FOR — an agent's capture, its retake, a completed download, and a bundled asset
+    // set — and a scenario that named only the ones a renderer could correlate would
+    // be scripting the defect rather than the session.
+    {
+      call: BROWSER_PRODUCED_ARTIFACTS_CALL,
+      result: {
+        artifactIds: [
+          FIRST_CAPTURE_ARTIFACT_ID,
+          REPLACEMENT_CAPTURE_ARTIFACT_ID,
+          DOWNLOAD_ARTIFACT_ID,
+          ASSET_BUNDLE_ARTIFACT_ID,
+        ],
+      },
+    },
   ],
 };
