@@ -59,6 +59,19 @@
 // `useState` cell beside a remembered bridge would be a second copy of that
 // substrate, and it would miss what the substrate was written for: a render React
 // discards still builds a pair, and nothing would ever retire it.
+//
+// AND THE READINESS SCOPE IS INSTALLED WHERE AN ACTIVATION IS ACCEPTED. Every one of
+// the three openings arrives through one function here, so this is the only place a
+// scope is known BEFORE any state moves — and installing it from the walkthrough's own
+// effect instead left one committed frame rendering the previous account's readiness
+// under the new account's activation, with its provider actions wired to that stale
+// snapshot. An effect cannot run before the commit that schedules it, so the install
+// moved to the act rather than to a lifecycle hook. The second install site is the
+// model FACTORY, for the one case an act cannot cover: a replacement bridge mints a
+// fresh pair under an activation already on screen, and a pair born at the provider
+// default would silently widen the scope of the account the person is looking at.
+
+import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
@@ -186,10 +199,15 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
   // One pair per bridge, opened during the render that first sees a bridge and
   // retired however that render ended. There is no second axis to key on — a window
   // has one walkthrough — so the key is `undefined`.
+  //
+  // The builder is handed the LIVE activation's scope rather than nothing, because a
+  // bridge that moves under an open activation mints this pair afresh: born at the
+  // provider default it would answer about a different account from the one on
+  // screen, and no act runs at that moment to correct it.
   const { value: models } = useSubjectScopedResource(
     bridge,
     undefined,
-    () => buildModels(bridge, frameStore),
+    () => buildModels(bridge, frameStore, activation?.accountScope),
     ONBOARDING_MODELS_DISPOSAL,
   );
 
@@ -202,6 +220,13 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
 
   useEffect(() => {
     const open = (next: OnboardingActivation): void => {
+      // BEFORE THE ACTIVATION MOVES, AND NOT FROM AN EFFECT BELOW IT. Addressing
+      // retires what the previous account put on screen and returns the reading to its
+      // zero state, so a walkthrough rendered for this activation reads THIS account
+      // from its first committed frame — never the previous one's entries with the
+      // previous one's per-provider acts still pressable beside them. Re-addressing at
+      // a scope this model already holds costs nothing: the model answers that itself.
+      models.readiness.addressAt(next.accountScope);
       setActivation(next);
       setActivationSequence((sequence) => sequence + 1);
     };
@@ -274,11 +299,13 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
         setActivation(undefined);
       }}
     >
-      {/* The popup shell is the primitive's, which is also what puts this
-          walkthrough in the window's airspace (`Spec-023 §Console Design (Meridian)`
-          12.3): a native browser-pane view yields to whatever is registered there,
-          and a dialog that mounted its own portal would be one the view paints over —
-          backdrop included, which is the half that covers the whole window. */}
+      {/* THE PORTAL, BACKDROP, AND POPUP ARE THE PRIMITIVE'S, and the whole of this
+          surface's part in it is what it puts inside (`Spec-023 §Console Design
+          (Meridian)` 12.3, §4.3). A dialog mounted by hand here reached the window's
+          airspace through nothing, so a native browser-pane view went on painting over
+          this walkthrough and taking its input — including the backdrop press. No
+          `label`: the title below is what names this dialog, and Base UI hands the
+          popup that title's id. */}
       <OverlayDialogPopup
         backdropClassName="meridian-onboarding__backdrop"
         className="meridian-onboarding__popup"
@@ -290,7 +317,6 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
             flow={models.flow}
             readiness={models.readiness}
             openAtStep={activation.openAtStep}
-            accountScope={activation.accountScope}
             onOpenAccountRegistry={(providerName) => {
               // The registry's own page owns registration and defaults; this step
               // is a view. Closing first, because leaving the walkthrough open over
@@ -336,13 +362,20 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
  * supervisor is not serving, and the provider step's re-check dispatches one — so that
  * model reads the shell state this store publishes and refuses the probe itself. The
  * store is the window's, not this overlay's, so it is handed over rather than built.
+ *
+ * A FRESH PAIR IS ADDRESSED BEFORE IT IS HANDED OVER. The scope is a property of the
+ * activation on screen, and a pair minted mid-activation — which is what a bridge swap
+ * does — would otherwise read the provider default for an account the person was
+ * already looking at. Addressing here is not a read: `addressAt` publishes the zero
+ * state and puts nothing on the wire, and the trigger set the walkthrough opens is
+ * what asks.
  */
 function buildModels(
   bridge: ConsoleSurfaceContext["bridge"],
   frameStore: ConsoleSurfaceContext["frameStore"],
+  accountScope: ProviderAccountId | undefined,
 ): OnboardingModels {
-  return {
-    flow: new OnboardingFlow(bridge),
-    readiness: new ProviderReadinessModel(bridge, frameStore),
-  };
+  const readiness = new ProviderReadinessModel(bridge, frameStore);
+  readiness.addressAt(accountScope);
+  return { flow: new OnboardingFlow(bridge), readiness };
 }

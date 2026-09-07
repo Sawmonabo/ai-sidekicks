@@ -47,6 +47,16 @@
 // AND NOTHING RE-READS ON A TIMER. Every other read is the tail of an act somebody
 // performed: a step recorded, a choice made, a re-check asked for.
 //
+// AND THE READINESS SCOPE IS INSTALLED BEFORE THIS COMPONENT EXISTS, which is why no
+// prop here names one. Addressing from a passive effect put the install one COMMITTED
+// FRAME after the activation that raised it: a reopening at a different account
+// rendered — and wired its provider actions against — the previous account's snapshot,
+// and an interaction reaching that frame acted on the wrong credential home. An effect
+// cannot be moved earlier than the commit it follows, so the address moved to the
+// moment the activation is ACCEPTED, in `OnboardingOverlay.tsx`, where the scope is
+// known before any state moves. What is left here is a model already addressed, which
+// is the only shape that has no stale frame at all.
+//
 // AND THE READINESS SUBSCRIPTION TAKES THAT MODEL'S SNAPSHOT AND NOT ITS PROJECTION.
 // A per-provider act moves without the projection moving, so subscribing to the
 // reading alone handed `useSyncExternalStore` a value that had not re-identified and
@@ -58,9 +68,7 @@
 // asks it for the step that is open, so the entry a person cannot press and the
 // control they would have found behind it are the same refusal rather than two.
 
-import type { ProviderAccountId } from "@ai-sidekicks/contracts";
-
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 import { RefusalCard } from "../primitives/index.js";
 import { useWindowReadTriggers, type ShellMutationBlock } from "../store/index.js";
@@ -83,11 +91,17 @@ import { TelemetryStep } from "./steps/TelemetryStep.js";
 
 export interface OnboardingWalkthroughProps {
   readonly flow: OnboardingFlow;
+  /**
+   * The readiness reading, ALREADY ADDRESSED at this activation's account scope.
+   *
+   * A precondition of the prop and not a step this component performs — see the
+   * header. There is deliberately no `accountScope` beside it: a component holding a
+   * scope it does not install is a second record of where this model points, and the
+   * frame in which the two disagree is exactly the defect that moved the install.
+   */
   readonly readiness: ProviderReadinessModel;
   /** Which step this activation opens at, or `resume` for wherever this node got to. */
   readonly openAtStep: OnboardingOpening;
-  /** Scopes the readiness read; present only on the post-refusal activation. */
-  readonly accountScope: ProviderAccountId | undefined;
   /** Open the account registry, scoped to a provider where a row named one. */
   readonly onOpenAccountRegistry: (providerName: string | undefined) => void;
   /**
@@ -115,17 +129,6 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
   const readReadiness = useCallback(() => readiness.snapshot, [readiness]);
   const readinessSnapshot = useSyncExternalStore(subscribeToReadiness, readReadiness);
 
-  const { accountScope } = props;
-  // ADDRESSED BEFORE THE TRIGGERS OPEN, and the ordering is why this effect is
-  // declared above them rather than beside the props it reads. `useWindowReadTriggers`
-  // asks for the arrival read from an effect of its own, React runs a component's
-  // effects in the order its hooks were called, and a readiness model still holding
-  // the previous activation's scope would answer about a different account than the
-  // one this activation was raised over. Addressing is not a read: the scope arrives
-  // through one verb and every read leaves through the routed entry.
-  useEffect(() => {
-    readiness.addressAt(accountScope);
-  }, [readiness, accountScope]);
   // THE TWO REASONS A NODE-SCOPED READING RE-READS, wired through the one home for
   // them. Nothing here performs a read; a reading that wired its own arrival by hand
   // is the reading that never hears about the second one.

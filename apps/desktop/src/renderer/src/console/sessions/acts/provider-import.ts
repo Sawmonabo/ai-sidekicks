@@ -25,10 +25,19 @@
 // state of its own: it is the `refused` arm, reached from the middle of a reading
 // rather than from its start, because a delivery that stopped is a delivery that
 // failed and a line left sitting on its last frame says the opposite.
+//
+// AND A BROKEN SUBSCRIPTION IS NOT AN ENDED IMPORT. The two are one arm on the
+// reading and they are different facts about the DAEMON: a producer that finished
+// said so, and a delivery that stopped said nothing at all. Reading the second as the
+// first is what re-opened the submit control over an import the daemon may still have
+// been running — a second begin then replaced the id, and the first import went on
+// with nothing anywhere reporting it. So the refused arm holds the guard closed and
+// offers a re-attach to the SAME id instead, and the guard opens only where the
+// producer reached its own end or where the refusal itself says the act is over.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, refusalRemedyFor, type ConsoleRefusal } from "../../core/index.js";
 import {
   settleGrowthRead,
   type GrowthImportProgress,
@@ -68,6 +77,43 @@ export type ImportProgressReading =
 
 const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
 
+/** One import's progress subscription, and the way back onto it when it breaks. */
+export interface ImportProgressSubscription {
+  /** Where the subscription got to, in the producer's own words. */
+  readonly reading: ImportProgressReading;
+  /**
+   * Re-attach to the same import, or `undefined` where there is nothing to re-attach.
+   *
+   * PRESENT ONLY ON THE ARM THAT CAN USE IT, rather than always offered with the
+   * caller left to decide: a control that re-subscribes to a producer which already
+   * finished would open a stream over an import nobody is running, and one offered
+   * against a refusal that says the act is over can only earn the same refusal again.
+   * Absence is therefore the surface's whole instruction — no second predicate, and
+   * no chance of the two disagreeing.
+   */
+  readonly retry: (() => void) | undefined;
+}
+
+/**
+ * Whether a refusal establishes that the import it answered about is over.
+ *
+ * THE CONSOLE'S OWN READING OF THAT QUESTION AND NOT A SECOND ONE, on the precedent
+ * `approvals/pane/approval-offer.ts` sets for the two approval answers: the shared
+ * remedy table already says, per registered wire code, whether the request a refusal
+ * names is finished, and a vocabulary invented here would be console words appearing
+ * in no registry.
+ *
+ * IT IS FAIL-CLOSED, which is the half that matters. An unregistered code — the
+ * broken-delivery sentence this module composes, a rejection nobody typed, a wire the
+ * corpus has not registered — answers `undefined` and so answers "not established",
+ * and the guard stays shut. Nothing here asks whether the daemon is still reading;
+ * this window cannot see that, and the only honest release is an answer that says
+ * the act itself is over.
+ */
+function namesImportFinished(refusal: ConsoleRefusal): boolean {
+  return refusalRemedyFor(refusal.code)?.settled === true;
+}
+
 /**
  * Whether the import an id names is still being read.
  *
@@ -82,6 +128,13 @@ const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
  * for the frame between the commit and the effect that opens the stream. Reading the
  * arm alone would leave the control enabled for that frame — the same overlap the
  * open stream would leave, one frame earlier.
+ *
+ * AND `refused` COUNTS AS UNDERWAY TOO, unless the refusal says the act is over. A
+ * subscription that broke is this window losing sight of the import, not the import
+ * ending: the begin already minted the id, so the daemon may still be reading, and a
+ * control re-opened here lets a second begin replace that id and leave the first
+ * running with nothing on screen reporting it. `closed` is the one arm that is a
+ * producer's own terminal, and it is the one arm that opens the guard on its own.
  */
 export function isImportUnderway(
   importId: string | undefined,
@@ -94,8 +147,9 @@ export function isImportUnderway(
     case "unsubscribed":
     case "open":
       return true;
-    case "closed":
     case "refused":
+      return !namesImportFinished(progress.refusal);
+    case "closed":
       return false;
   }
 }
@@ -114,12 +168,23 @@ export function isImportUnderway(
  * either is the refusal saying so. Left uncaught, the second was an unhandled
  * rejection in the renderer, a line frozen on its last frame reading as though
  * delivery were still coming, and a stream handle nobody closed.
+ *
+ * AND THE WAY BACK IS AN ATTEMPT ORDINAL RATHER THAN A FRESH ID. Re-attaching means
+ * subscribing to the import that is ALREADY running, so what a retry moves is not
+ * which import is watched but which attempt at watching it this is — which is why the
+ * ordinal is a dependency of the drain and never reaches the request. A retry that
+ * had gone back through the begin call would have started a second import, which is
+ * the very thing the guard above exists to prevent.
  */
 export function useImportProgress(
   growth: GrowthPort,
   importId: string | undefined,
-): ImportProgressReading {
+): ImportProgressSubscription {
   const [reading, setReading] = useState<ImportProgressReading>(UNSUBSCRIBED);
+  const [attemptOrdinal, setAttemptOrdinal] = useState(0);
+  const retry = useCallback(() => {
+    setAttemptOrdinal((ordinal) => ordinal + 1);
+  }, []);
 
   useEffect(() => {
     if (importId === undefined) {
@@ -187,7 +252,14 @@ export function useImportProgress(
       isDisposed = true;
       closeStream();
     };
-  }, [growth, importId]);
+    // `attemptOrdinal` is read by nothing in the body and is a dependency all the
+    // same: it is what a re-attach MOVES, so the drain above runs again for the same
+    // import rather than the retry having to reach into a live subscription.
+  }, [growth, importId, attemptOrdinal]);
 
-  return reading;
+  return {
+    reading,
+    retry:
+      reading.status === "refused" && !namesImportFinished(reading.refusal) ? retry : undefined,
+  };
 }

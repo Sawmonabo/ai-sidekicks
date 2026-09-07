@@ -27,6 +27,12 @@
 // import, the begin and the stream that follows it, and the two phases keep their own
 // sentences because they fail differently.
 //
+// AND A STREAM THAT BROKE IS A THIRD SENTENCE, not the end of the second. Delivery
+// stopping tells this window nothing about the daemon, so the control stays shut and
+// says exactly that, the label drops back to "Import" rather than claiming frames
+// nobody is sending, and the way out is the re-attach on the progress line — never a
+// second import started to find out what happened to the first.
+//
 // THE IMPORT ITSELF IS NOT HELD HERE, AND THAT IS DELIBERATE. This panel is rendered
 // behind a disclosure, so anything it held would end the moment somebody looked at the
 // join form instead — a closed progress stream, a lost import id, and the guard above
@@ -57,6 +63,12 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
   const trimmedProviderName = providerName.trim();
   const trimmedSourceRef = sourceRef.trim();
   const isIncomplete = trimmedProviderName.length === 0 || trimmedSourceRef.length === 0;
+  // Delivery stopped while the guard is still armed. Neither the label nor the
+  // sentence may say the import is being read — this window is no longer being told
+  // anything — and neither may say it has ended, which is the claim that re-opened
+  // the control over an import the daemon may still be running.
+  const isProgressLost = isReading && progress.status === "refused";
+  const isBeingRead = isReading && !isProgressLost;
   const disabledReason = useMemo(() => {
     if (blockedReason !== undefined) {
       return blockedReason;
@@ -64,11 +76,14 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
     if (isBeginning) {
       return "The last import is still starting.";
     }
-    if (isReading) {
+    if (isProgressLost) {
+      return "The last import stopped reporting, and another cannot start until it says it has finished.";
+    }
+    if (isBeingRead) {
       return "The last import is still being read.";
     }
     return isIncomplete ? "Both the provider and what to read are needed." : undefined;
-  }, [blockedReason, isBeginning, isReading, isIncomplete]);
+  }, [blockedReason, isBeginning, isProgressLost, isBeingRead, isIncomplete]);
 
   return (
     <form
@@ -116,13 +131,17 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
         disabled={disabledReason !== undefined}
         title={disabledReason}
       >
-        {importSubmitLabel(isBeginning, isReading)}
+        {importSubmitLabel(isBeginning, isBeingRead)}
       </button>
       {disabledReason === undefined ? null : (
         <p className="meridian-session-import__blocked">{disabledReason}</p>
       )}
       {settlement.status === "refused" ? <InlineRefusal {...settlement.refusal} /> : null}
-      <ImportProgressLine progress={progress} />
+      {/* The re-attach travels with the reading it belongs to. Whether one is offered
+          is the model's answer — see `provider-import.ts` — so this passes the handler
+          through rather than deciding, and an arm with nothing to re-attach carries
+          `undefined`. */}
+      <ImportProgressLine progress={progress} onRetry={model.retryProgress} />
     </form>
   );
 }
@@ -134,10 +153,15 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
  * an import once the disabled predicate grew the stream, which names the one phase
  * that has already finished. The progress line below says what the PRODUCER has
  * counted; this says which of the panel's two calls is outstanding.
+ *
+ * AND THREE RATHER THAN FOUR. A guard held open by a delivery that stopped reads
+ * "Import", disabled, with the sentence beside it saying why — because "Reading…"
+ * over a broken subscription would be this button reporting frames nobody is sending,
+ * and a fourth label for a phase the sentence already names is a second account of it.
  */
-function importSubmitLabel(isBeginning: boolean, isReading: boolean): string {
+function importSubmitLabel(isBeginning: boolean, isBeingRead: boolean): string {
   if (isBeginning) {
     return "Starting…";
   }
-  return isReading ? "Reading…" : "Import";
+  return isBeingRead ? "Reading…" : "Import";
 }

@@ -140,6 +140,25 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* The re-attach, inside a refusal's action slot. Quiet like the acts bar's secondary
+   controls rather than sized like the submit beside it: it is the next move for a
+   delivery that stopped, and never a second way to start an import. */
+.meridian-session-import__retry {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.meridian-session-import__retry:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
 .meridian-auto-pin {
   display: flex;
   flex-direction: column;

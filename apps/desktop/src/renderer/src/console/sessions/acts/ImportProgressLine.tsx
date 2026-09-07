@@ -12,21 +12,41 @@
 //
 // NOTHING IS COMPUTED FROM THE FRAMES. The turn count and the state are the producer's
 // own words; a percentage would be this console inventing a denominator nobody sent.
+//
+// AND THE REFUSED ARM CARRIES THE WAY BACK ONTO THE STREAM. `Spec-023 §Console Design
+// (Meridian)` rule 9 puts the operator's next move in the refusal's own action slot,
+// and for a delivery that stopped over an import the daemon may still be running that
+// move is re-attaching rather than starting again. Whether there is one to offer is
+// the model's answer and never this component's: the handler is absent where nothing
+// can be re-attached, so the control is not rendered rather than rendered inert.
 
 import { InlineRefusal, WireFigure, formatCount } from "../../primitives/index.js";
 import type { ImportProgressReading } from "./provider-import.js";
 
 export interface ImportProgressLineProps {
   readonly progress: ImportProgressReading;
+  /** Re-attach to the running import, or `undefined` where nothing can be. */
+  readonly onRetry?: (() => void) | undefined;
 }
 
 export function ImportProgressLine(props: ImportProgressLineProps): React.JSX.Element | null {
-  const { progress } = props;
+  const { progress, onRetry } = props;
   if (progress.status === "unsubscribed") {
     return null;
   }
   if (progress.status === "refused") {
-    return <InlineRefusal {...progress.refusal} />;
+    return (
+      <InlineRefusal
+        {...progress.refusal}
+        action={
+          onRetry === undefined ? undefined : (
+            <button type="button" className="meridian-session-import__retry" onClick={onRetry}>
+              Watch this import again
+            </button>
+          )
+        }
+      />
+    );
   }
   const { newest } = progress;
   const isOpen = progress.status === "open";
