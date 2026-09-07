@@ -18,15 +18,46 @@
 // NOTHING IS COMPUTED FROM THE FRAMES. The turn count and the state are the
 // producer's own words, rendered verbatim; a percentage would be this console
 // inventing a denominator nobody sent.
+//
+// AND A STREAM HAS FOUR WAYS TO FINISH, NOT THREE. The call can refuse, the producer
+// can finish, the panel can unmount — and the iterator can REJECT part-way, which a
+// torn-down subscription and an undecodable frame both do. That fourth one has no
+// state of its own: it is the `refused` arm, reached from the middle of a reading
+// rather than from its start, because a delivery that stopped is a delivery that
+// failed and a line left sitting on its last frame says the opposite.
 
 import { useEffect, useState } from "react";
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js";
 import {
   settleGrowthRead,
   type GrowthImportProgress,
   type GrowthPort,
 } from "../../bridge/index.js";
+
+/** The subsystem name a refusal this module composes itself carries. */
+const IMPORT_PROGRESS_REFUSAL_ORIGIN = "provider-import-progress";
+
+/**
+ * What a broken progress subscription refuses under, where the failure carries no
+ * code of its own.
+ *
+ * A fallback and not a mapping: `normalizeWireRejection` is the console's one
+ * rejection reader, so a refusal the bridge raised travels through naming its own
+ * author and a typed wire envelope keeps its own code — flattening those into this
+ * sentence would throw away the only actionable half. This pair is reached only where
+ * neither applies.
+ *
+ * The sentence deliberately does not say the import stopped. What this window knows is
+ * that it is no longer being told; whether the daemon is still reading the transcript
+ * is a different question, and claiming an answer to it would be the console inventing
+ * one.
+ */
+const PROGRESS_STREAM_FAILURE_FALLBACK = {
+  code: "import-progress-subscription-failed",
+  detail:
+    "This window is no longer being told how the import is going. Whether it is still running is not something this window can see; starting another import opens a new subscription.",
+};
 
 /** Where one import's progress subscription has got to. */
 export type ImportProgressReading =
@@ -76,6 +107,13 @@ export function isImportUnderway(
  * `unsubscribed` arm rather than an empty `open` one: nothing has been asked, and a
  * surface rendering "no progress yet" for a question nobody put is the conflation
  * `Spec-023 §Console Design (Meridian)` rule 8 exists to prevent.
+ *
+ * THE CALL AND THE ITERATOR FAIL THE SAME WAY AND SETTLE THE SAME WAY. One `try`
+ * covers both, because a subscription that never opened and one that broke leave the
+ * panel in the same place — with no reading — and the only honest thing to render for
+ * either is the refusal saying so. Left uncaught, the second was an unhandled
+ * rejection in the renderer, a line frozen on its last frame reading as though
+ * delivery were still coming, and a stream handle nobody closed.
  */
 export function useImportProgress(
   growth: GrowthPort,
@@ -89,45 +127,65 @@ export function useImportProgress(
       return;
     }
     let isDisposed = false;
-    let openStreamClose: (() => void) | undefined;
+    let openStream: { close(): void } | undefined;
+    /** Close the acquired stream at most once, from whichever path reaches it first. */
+    const closeStream = (): void => {
+      const acquired = openStream;
+      openStream = undefined;
+      acquired?.close();
+    };
     setReading({ status: "open", newest: undefined });
 
     void (async () => {
-      // Through the console's one rejection reader, for the reason the panel next
-      // door states: this port throws a scripted refusal verbatim, and a drain that
-      // read only the fulfilment arm would leave the line reading "open, nothing yet"
-      // forever while an unhandled rejection reached the window.
-      const outcome = await settleGrowthRead(growth.providerSessionImportSubscribe({ importId }));
-      if (isDisposed) {
-        if (outcome.status === "served") {
-          outcome.value.close();
-        }
-        return;
-      }
-      if (outcome.status !== "served") {
-        setReading({ status: "refused", refusal: outcome });
-        return;
-      }
-      const stream = outcome.value;
-      openStreamClose = () => {
-        stream.close();
-      };
-      let newest: GrowthImportProgress | undefined;
-      for await (const frame of stream.events) {
+      try {
+        // Through the console's one rejection reader, for the reason the panel next
+        // door states: this port throws a scripted refusal verbatim, and a drain that
+        // read only the fulfilment arm would leave the line reading "open, nothing yet"
+        // forever while an unhandled rejection reached the window.
+        const outcome = await settleGrowthRead(growth.providerSessionImportSubscribe({ importId }));
         if (isDisposed) {
+          if (outcome.status === "served") {
+            outcome.value.close();
+          }
           return;
         }
-        newest = frame;
-        setReading({ status: "open", newest: frame });
-      }
-      if (!isDisposed) {
-        setReading({ status: "closed", newest });
+        if (outcome.status !== "served") {
+          setReading({ status: "refused", refusal: outcome });
+          return;
+        }
+        openStream = outcome.value;
+        let newest: GrowthImportProgress | undefined;
+        for await (const frame of outcome.value.events) {
+          if (isDisposed) {
+            return;
+          }
+          newest = frame;
+          setReading({ status: "open", newest: frame });
+        }
+        if (!isDisposed) {
+          setReading({ status: "closed", newest });
+        }
+      } catch (failure) {
+        // The stream goes first and unconditionally: a producer that rejected part-way
+        // is still a subscription somebody has to end, and a failure arriving after the
+        // panel has gone publishes nothing — there is no surface left to read it.
+        closeStream();
+        if (!isDisposed) {
+          setReading({
+            status: "refused",
+            refusal: normalizeWireRejection(
+              IMPORT_PROGRESS_REFUSAL_ORIGIN,
+              failure,
+              PROGRESS_STREAM_FAILURE_FALLBACK,
+            ),
+          });
+        }
       }
     })();
 
     return () => {
       isDisposed = true;
-      openStreamClose?.();
+      closeStream();
     };
   }, [growth, importId]);
 

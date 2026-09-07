@@ -1,11 +1,21 @@
 // The local-runtime page: the supervisor's numbers, and the two controls that confirm.
 //
-// The page's honesty rests on four things, and each has a case with its control:
+// The page's honesty rests on five things, and each has a case with its control:
 // the numbers it shows are the ones it was told and never invented, a control names
 // what it will interrupt before it does anything, a confirmation answered once
-// dispatches once, and a refused control says so instead of looking like it worked.
+// dispatches once, a refused control says so instead of looking like it worked, and
+// the daemon's own reported line is asked again once it can have changed.
+//
+// THE FIFTH IS TWO CLAIMS AT ONCE and needs both halves driven. A read that never
+// happens again leaves a stopped runtime beside `Reported state: connected` for the
+// rest of the visit; a read that happens on every render, or on every retry the
+// supervisor's ladder makes, is the interval poll wearing a different coat. So the
+// cases below drive a settled control and a supervisor transition — and the control
+// drives an advancing retry ATTEMPT, which changes the state object and must change
+// nothing else.
 
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
@@ -18,6 +28,13 @@ import { DaemonPage } from "./DaemonPage.js";
 /** The calls a case wants to see, in the order they were made. */
 interface ControlLedger {
   readonly calls: string[];
+  /**
+   * One entry per status read, carrying the version THAT read answered with.
+   *
+   * A list and not a count, because both halves of the fifth claim are read off it:
+   * how many reads there were, and which answer is the one on screen.
+   */
+  readonly statusReads: string[];
 }
 
 /** How a case wants the port underneath the page to behave. */
@@ -41,10 +58,17 @@ function bridgeWith(ledger: ControlLedger, script: PortScript): ConsoleBridge {
   };
   const growth = {
     ...createRefusingGrowthPort(),
-    daemonStatusRead: async () =>
-      script.servesStatus
-        ? ({ status: "served", value: { state: "connected", version: "2026-04-30" } } as const)
-        : await createRefusingGrowthPort().daemonStatusRead({}),
+    // A DIFFERENT VERSION EVERY TIME, so a case can tell a re-read from a re-render:
+    // an answer that never changes cannot distinguish a page that asked again from one
+    // that kept the first reply.
+    daemonStatusRead: async () => {
+      if (!script.servesStatus) {
+        return await createRefusingGrowthPort().daemonStatusRead({});
+      }
+      const version = `2026-04-30-read-${ledger.statusReads.length + 1}`;
+      ledger.statusReads.push(version);
+      return { status: "served", value: { state: "connected", version } } as const;
+    },
     daemonStop: async () => {
       ledger.calls.push("stop");
       await holdOpen();
@@ -59,24 +83,39 @@ function bridgeWith(ledger: ControlLedger, script: PortScript): ConsoleBridge {
   return { growth } as unknown as ConsoleBridge;
 }
 
+/** One mounted page, and the supervisor state a case can move under it. */
+interface MountedDaemonPage {
+  readonly container: HTMLElement;
+  readonly ledger: ControlLedger;
+  /** Re-render the page under a different supervisor state, over the SAME bridge. */
+  readonly showShellState: (next: ShellState) => void;
+}
+
 function renderPage(options: {
   readonly shellState?: ShellState;
   readonly servesStatus?: boolean;
   readonly holdsControls?: boolean;
   readonly ledger?: ControlLedger;
-}): { readonly container: HTMLElement; readonly ledger: ControlLedger } {
-  const ledger = options.ledger ?? { calls: [] };
-  const context = settingsPageContextWith(
-    bridgeWith(ledger, {
-      servesStatus: options.servesStatus ?? true,
-      holdsControls: options.holdsControls ?? false,
-    }),
-    undefined,
-    undefined,
-    options.shellState ?? UNREPORTED_SHELL_STATE,
+}): MountedDaemonPage {
+  const ledger = options.ledger ?? { calls: [], statusReads: [] };
+  // Built ONCE and reused across every re-render. The status answer is held against
+  // the growth port that produced it, so a bridge rebuilt per render would re-address
+  // the holder on every pass and make every case below read as a re-read.
+  const bridge = bridgeWith(ledger, {
+    servesStatus: options.servesStatus ?? true,
+    holdsControls: options.holdsControls ?? false,
+  });
+  const pageUnder = (shellState: ShellState): ReactNode => (
+    <DaemonPage context={settingsPageContextWith(bridge, undefined, undefined, shellState)} />
   );
-  const { container } = render(<DaemonPage context={context} />);
-  return { container, ledger };
+  const { container, rerender } = render(pageUnder(options.shellState ?? UNREPORTED_SHELL_STATE));
+  return {
+    container,
+    ledger,
+    showShellState: (next) => {
+      rerender(pageUnder(next));
+    },
+  };
 }
 
 describe("DaemonPage — the supervisor's numbers", () => {
@@ -127,7 +166,7 @@ describe("DaemonPage — the reported status", () => {
   it("renders what the read answered", async () => {
     const { container } = renderPage({ servesStatus: true });
     await waitFor(() => {
-      expect(container.textContent).toContain("2026-04-30");
+      expect(container.textContent).toContain("2026-04-30-read-1");
     });
   });
 
@@ -136,6 +175,64 @@ describe("DaemonPage — the reported status", () => {
     await waitFor(() => {
       expect(container.textContent).toContain("wire-unregistered");
     });
+  });
+
+  it("asks the runtime again once a control settles", async () => {
+    // The defect this pins: a stop that was accepted changes what the runtime would
+    // answer, and a page holding the pre-control reply shows a stopped supervisor
+    // beside its own `Reported state: connected` for the rest of the visit.
+    const { container, ledger } = renderPage({});
+    await waitFor(() => {
+      expect(container.textContent).toContain("2026-04-30-read-1");
+    });
+
+    fireEvent.click(getButton(container, "Stop the local runtime"));
+    fireEvent.click(getButton(container, "Stop the local runtime"));
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("2026-04-30-read-2");
+    });
+    expect(ledger.calls).toStrictEqual(["stop"]);
+  });
+
+  it("asks the runtime again when the supervisor moves under the window", async () => {
+    const { container, ledger, showShellState } = renderPage({
+      shellState: { ...UNREPORTED_SHELL_STATE, connection: { kind: "connected" } },
+    });
+    await waitFor(() => {
+      expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
+    });
+
+    showShellState({ ...UNREPORTED_SHELL_STATE, connection: { kind: "stopped" } });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain("2026-04-30-read-2");
+    });
+  });
+
+  it("negative control: a re-render and an advancing retry attempt ask nothing", async () => {
+    // Both halves of the anti-poll claim. A page that re-read on every render would
+    // satisfy the two cases above and put a call on the wire per pass — and keying the
+    // read on the whole connection would put one per attempt of the supervisor's
+    // ladder, which is interval polling arriving by the back door.
+    const { ledger, showShellState } = renderPage({
+      shellState: {
+        ...UNREPORTED_SHELL_STATE,
+        connection: { kind: "reconnecting", attempt: 1, attemptLimit: 5 },
+      },
+    });
+    await waitFor(() => {
+      expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
+    });
+
+    showShellState({
+      ...UNREPORTED_SHELL_STATE,
+      connection: { kind: "reconnecting", attempt: 2, attemptLimit: 5 },
+      lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
+    });
+    await settle();
+
+    expect(ledger.statusReads).toStrictEqual(["2026-04-30-read-1"]);
   });
 });
 
