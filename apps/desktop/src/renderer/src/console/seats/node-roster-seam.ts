@@ -23,19 +23,22 @@
 // SPLIT OUT OF `absorbed-surfaces.ts`, WHICH IS WHERE THE SEAM WAS WRITTEN. That module
 // decides which shipped component is mounted and under which guard; this one owns the
 // seam's identity, its lifetime, and what it remembers. Different subjects, and the file
-// was already the family's longest.
+// was already the family's longest. What a burst of re-read reasons COSTS is
+// `node-roster-refresh.ts` and which signals become reasons at all is
+// `node-roster-triggers.ts`, both split out for the same reason.
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import type { RuntimeNodeRosterResponse, SessionId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { ConsoleRefusalError, type ConsoleRefusal } from "../core/index.js";
 import {
-  NO_TRIGGERING_EVENT_KINDS,
-  useWindowReadTriggers,
-  type ReadTriggerTarget,
+  GenerationLatch,
+  type CurrentGenerationClaim,
+  type RefreshReason,
 } from "../store/index.js";
+import { NodeRosterRefresh } from "./node-roster-refresh.js";
 import type { NodeRosterReads } from "../../runtime-node-attach/index.js";
 
 /**
@@ -77,14 +80,33 @@ const UNREAD: NodeRosterObservation = { kind: "unread" };
 class NodeRosterSeam {
   readonly #reads: NodeRosterReads;
   readonly #watchers = new Set<() => void>();
-  // The change handlers the absorbed view registered, per session. See
-  // {@link NodeRosterSeam.requestReRead} for what they are used for beyond the daemon's
-  // own pushes; a session with no mounted roster has no entry, and a re-read requested
-  // for it does nothing rather than opening a read nobody is rendering.
-  readonly #presenceHandlersBySession = new Map<string, Set<() => void>>();
+  /**
+   * The single arbiter of which answer the observation is allowed to be.
+   *
+   * ONE GUARD, ONE HOME, and this is the home. The wrapper below used to record every
+   * completion the moment it arrived, while `useNodeRosterRead` applied its own
+   * request-sequence guard only after `readRoster` RETURNED — so two overlapping reads
+   * settling out of order left the older reply rejected by the roster and recorded by
+   * this seam, and the capability and control-holder blocks then disagreed with the
+   * rows beside them. The claim is taken at DISPATCH, in the same call the view's own
+   * counter is incremented by, and the record runs inside `settle`, so both admit
+   * exactly the newest-issued read for a session and neither can admit one the other
+   * refuses.
+   *
+   * Keyed by session under `#reads` as the subject, which is the pair the absorbed view
+   * scopes its own held state by — the same addressing, stated once.
+   */
+  readonly #readGenerations = new GenerationLatch();
+  // One per session with a mounted roster: what raises that view's own change signal,
+  // and the scheduler that decides what a burst of reasons costs. A session with no
+  // mounted roster has no entry, and a refresh requested for it does nothing rather
+  // than opening a read nobody is rendering.
+  readonly #refreshBySession = new Map<string, NodeRosterRefresh>();
+  readonly #bridge: ConsoleBridge;
   #observationsBySession: ReadonlyMap<string, NodeRosterObservation> = new Map();
 
   public constructor(bridge: ConsoleBridge) {
+    this.#bridge = bridge;
     this.#reads = {
       // BOTH ARMS CONVERT A RETURNED REFUSAL INTO A THROWN ONE, and the conversion is
       // the whole adapter. The bridge answers outcomes because a surface that renders a
@@ -93,13 +115,33 @@ class NodeRosterSeam {
       // shape for a refusal travelling as an exception, so the code, the sentence and
       // the origin all survive the trip.
       readRoster: async (request) => {
-        const outcome = await bridge.runtimeNodeRosterRead(request);
-        if (outcome.status === "refused") {
-          this.#record(request.sessionId, { kind: "unreadable", refusal: outcome });
-          throw new ConsoleRefusalError(outcome);
+        // Claimed HERE, before the call, because the view's own sequence counter is
+        // incremented here too — this wrapper IS the call it makes. Newest-issued wins
+        // on both sides, from one ordering.
+        const readGeneration = this.#readGenerations.supersedeAndClaim(
+          this.#reads,
+          request.sessionId,
+        );
+        try {
+          const outcome = await this.#bridge.runtimeNodeRosterRead(request);
+          if (outcome.status === "refused") {
+            this.#settleObservation(readGeneration, request.sessionId, {
+              kind: "unreadable",
+              refusal: outcome,
+            });
+            throw new ConsoleRefusalError(outcome);
+          }
+          this.#settleObservation(readGeneration, request.sessionId, {
+            kind: "read",
+            response: outcome.value,
+          });
+          return outcome.value;
+        } finally {
+          // Total and guarded: it frees nothing once a later read has taken the key,
+          // and it covers the arm where the transport itself rejected rather than
+          // answering a refusal, which would otherwise leave one held key per session.
+          readGeneration.release();
         }
-        this.#record(request.sessionId, { kind: "read", response: outcome.value });
-        return outcome.value;
       },
       // The SUBSCRIBE arm throws for a second reason beyond symmetry. Handing back a
       // no-op unsubscribe would leave the roster believing it is live: it would never
@@ -108,22 +150,28 @@ class NodeRosterSeam {
       // renders it, and deliberately skips the initial read rather than painting a
       // snapshot with no channel behind it.
       subscribePresence: (sessionId, onPresenceChange) => {
-        const subscription = bridge.runtimeNodePresenceSubscribe(sessionId, onPresenceChange);
+        // Minted BEFORE the subscribe, so a seam that signals synchronously from
+        // inside its own subscribe has somewhere to land.
+        const refresh = this.#refreshFor(sessionId);
+        const subscription = this.#bridge.runtimeNodePresenceSubscribe(sessionId, () => {
+          refresh.request("terminal-event");
+        });
         if (subscription.status === "refused") {
-          this.#record(sessionId, { kind: "unreadable", refusal: subscription });
+          // The refusal is the newest answer for this session, so it takes a generation
+          // of its own: a read still in flight from a torn-down mount would otherwise
+          // settle over it and put a `read` observation beside a view rendering the
+          // refusal.
+          this.#recordNewestObservation(sessionId, { kind: "unreadable", refusal: subscription });
+          this.#dropRefreshWithoutReaders(sessionId);
           throw new ConsoleRefusalError(subscription);
         }
         // Held so a console surface can raise the same signal the daemon raises, and
         // released with the subscription itself — a handler outliving the mount that
         // registered it would re-read through a seam nobody is rendering.
-        const handlers = this.#presenceHandlersBySession.get(sessionId) ?? new Set();
-        handlers.add(onPresenceChange);
-        this.#presenceHandlersBySession.set(sessionId, handlers);
+        const releaseReader = refresh.addReader(onPresenceChange);
         return () => {
-          handlers.delete(onPresenceChange);
-          if (handlers.size === 0) {
-            this.#presenceHandlersBySession.delete(sessionId);
-          }
+          releaseReader();
+          this.#dropRefreshWithoutReaders(sessionId);
           subscription.unsubscribe();
         };
       },
@@ -140,28 +188,22 @@ class NodeRosterSeam {
   }
 
   /**
-   * Raise the same change signal the daemon's presence channel raises.
+   * Ask the absorbed roster to read again, through the console's refresh chokepoint.
    *
-   * THE ONE MECHANISM THAT RE-READS THE ABSORBED ROSTER WITHOUT EDITING IT. That view
-   * holds its state against the `(seam, session)` pair it read for and seeds a new pair
-   * at `loading`, so handing it a fresh seam to force a refresh would return a live
-   * roster to its loading shape — which is exactly the flash its own tripwire forbids.
-   * Its presence handler is the seam the contract already gives for this: a push says
-   * WHEN to re-read, the view re-reads through its own path, and its refresh
-   * deliberately never re-enters `loading`.
+   * THE ONE MECHANISM THAT RE-READS THAT VIEW WITHOUT EDITING IT. It holds its state
+   * against the `(seam, session)` pair it read for and seeds a new pair at `loading`,
+   * so handing it a fresh seam to force a refresh would return a live roster to its
+   * loading shape — exactly the flash its own tripwire forbids. Its presence handler is
+   * the seam the contract already gives for this: a push says WHEN to re-read, the view
+   * re-reads through its own path, and its refresh deliberately never re-enters
+   * `loading`.
    *
-   * A window regaining focus is a legitimate raiser of that signal and not a
-   * substitute for it. The channel stayed open while the window was away; what is
-   * unknown is whether every push over it arrived, and one read settles that.
+   * The reason travels with the request rather than being inferred at the far end, and
+   * the schedule is `node-roster-refresh.ts`'s: a window focus, a reconnect, and a
+   * lease frame landing together cost one read.
    */
-  public requestReRead(sessionId: string): void {
-    const handlers = this.#presenceHandlersBySession.get(sessionId);
-    if (handlers === undefined) {
-      return;
-    }
-    for (const onPresenceChange of [...handlers]) {
-      onPresenceChange();
-    }
+  public requestRefresh(sessionId: string, reason: RefreshReason): void {
+    this.#refreshBySession.get(sessionId)?.request(reason);
   }
 
   public watch(onObservationChanged: () => void): () => void {
@@ -169,6 +211,57 @@ class NodeRosterSeam {
     return () => {
       this.#watchers.delete(onObservationChanged);
     };
+  }
+
+  /** The coordinator for one session, minted on the first subscription for it. */
+  #refreshFor(sessionId: string): NodeRosterRefresh {
+    const held = this.#refreshBySession.get(sessionId);
+    if (held !== undefined) {
+      return held;
+    }
+    // The window's own clock — the scenario's frozen one under the fixture — resolved
+    // once per seam, which is once per bridge, because that is the lifetime a clock
+    // identity belongs to and the live arm mints a fresh `RealClock` per call.
+    const minted = new NodeRosterRefresh(consoleClockFor(this.#bridge));
+    this.#refreshBySession.set(sessionId, minted);
+    return minted;
+  }
+
+  /**
+   * Drop a session's coordinator once no mounted roster is left to raise.
+   *
+   * Terminal on the scheduler, which is why it is a drop rather than a reset: nothing
+   * armed may outlive the surface that armed it, and the next subscription mints a
+   * fresh one.
+   */
+  #dropRefreshWithoutReaders(sessionId: string): void {
+    const held = this.#refreshBySession.get(sessionId);
+    if (held === undefined || held.readerCount > 0) {
+      return;
+    }
+    held.dispose();
+    this.#refreshBySession.delete(sessionId);
+  }
+
+  /** Record an answer that has no read of its own, as the newest generation. */
+  #recordNewestObservation(sessionId: string, observation: NodeRosterObservation): void {
+    const answerGeneration = this.#readGenerations.supersedeAndClaim(this.#reads, sessionId);
+    try {
+      this.#settleObservation(answerGeneration, sessionId, observation);
+    } finally {
+      answerGeneration.release();
+    }
+  }
+
+  /** Record an answer if its generation is still the one this session is on. */
+  #settleObservation(
+    generation: CurrentGenerationClaim,
+    sessionId: string,
+    observation: NodeRosterObservation,
+  ): void {
+    generation.settle(() => {
+      this.#record(sessionId, observation);
+    });
   }
 
   /**
@@ -222,7 +315,7 @@ class NodeRosterSeams {
   }
 }
 
-/** This window's seams. Not exported: the two accessors below are the way in. */
+/** This window's seams. Not exported: the accessors below are the way in. */
 const nodeRosterSeams = new NodeRosterSeams();
 
 /** The read pair the absorbed view is mounted with. The same object per bridge, always. */
@@ -254,35 +347,16 @@ export function useNodeRosterObservation(
 }
 
 /**
- * Re-read the absorbed roster when this window comes back to the front.
+ * Ask the seam this bridge holds to re-read one session's roster.
  *
- * THE MOUNT ARM IS THE ONE THAT IS DROPPED. `useWindowReadTriggers` fires on mount,
- * on focus, and on the transport coming back; the mount arm is the absorbed view's own
- * initial read, so forwarding it would put a second `runtimenode.roster` on the wire
- * for one mount, which is the duplication this whole module exists to avoid. The other
- * two are re-reads of a roster this window already holds and are both forwarded — a
- * reconnect is exactly the edge after which the held roster is most likely stale.
- *
- * `NO_TRIGGERING_EVENT_KINDS` is the claim that goes with it: the roster is served by
- * the control plane and pushed over the daemon's presence channel, so nothing in any
- * session's own timeline says a node moved.
+ * The one way in from above. `node-roster-triggers.ts` decides WHICH signals owe this
+ * roster a read and reaches the schedule through here, so the seam registry stays
+ * private and the edge between the two modules runs one way.
  */
-export function useNodeRosterFocusReRead(
+export function requestNodeRosterRefresh(
   bridge: ConsoleBridge,
-  sessionId: SessionId | string | undefined,
+  sessionId: string,
+  reason: RefreshReason,
 ): void {
-  const seam = nodeRosterSeams.forBridge(bridge);
-  const target = useMemo<ReadTriggerTarget>(
-    () => ({
-      triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
-      requestRead: (reason) => {
-        if (reason === "subscribe" || sessionId === undefined) {
-          return;
-        }
-        seam.requestReRead(sessionId);
-      },
-    }),
-    [seam, sessionId],
-  );
-  useWindowReadTriggers(target, bridge.transportReconnect);
+  nodeRosterSeams.forBridge(bridge).requestRefresh(sessionId, reason);
 }
