@@ -260,6 +260,11 @@ export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
     // Not one of the nine tiers: the micro-benchmark ledger. Separated so a
     // benchmark's timing noise can never fail a gate — it records, and a
     // human reads the ledger.
+    // The fixture flag is FALSE here, as it is for every non-fixture project: an arm
+    // that imports a console module imports `core/`'s tripwires with it, and the flag
+    // is what decides whether they publish themselves onto `globalThis`. A benchmark
+    // measures the shipping path, so it measures the shipping value.
+    define: { __SIDEKICKS_CONSOLE_FIXTURES__: "false" },
     test: {
       name: "console-bench",
       environment: "node",
