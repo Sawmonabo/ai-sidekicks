@@ -8,8 +8,8 @@
 // author, and a vocabulary with one author is a set that can be closed.
 //
 // AND WHY IT WAS WORTH CLOSING. `refuseLocally` used to take `code: string`, and the
-// fallbacks were bare object literals, so a fourteenth code could be minted at any
-// call site and nothing anywhere would report it. The two pre-existing sets in this
+// fallbacks were bare object literals, so one more code could be minted at any call
+// site and nothing anywhere would report it. The two pre-existing sets in this
 // family — `keyboard-handback.ts` and `geometry/view-host.ts` — already had the shape;
 // what was missing was the set covering everything else the pane says for itself.
 //
@@ -33,9 +33,9 @@ import { BROWSER_BOUND_REFUSAL_CODE } from "../bounds/bound-enforcement.js";
 /**
  * Every refusal code the browser pane authors or renders as its own.
  *
- * Ordered by where a person meets them: the acts, the pane's own controls, the two
- * subscriptions, the handback's publishes, the composer entry, and the one bound this
- * renderer spends.
+ * Ordered by where a person meets them: the acts, the view this pane holds, the pane's
+ * own controls, the two subscriptions, the handback's publishes, the composer entry,
+ * and the one bound this renderer spends.
  *
  * Written as an annotated tuple rather than `as const`, on the
  * `FIXTURE_SERVED_GROWTH_OPERATION_IDS` precedent: `isolatedDeclarations` cannot infer
@@ -46,6 +46,8 @@ import { BROWSER_BOUND_REFUSAL_CODE } from "../bounds/bound-enforcement.js";
 export const BROWSER_PANE_REFUSAL_CODES: readonly [
   "navigation-call-failed",
   "chrome-call-failed",
+  "view-attach-failed",
+  "view-detach-failed",
   "no-session",
   "no-selected-page",
   "no-current-page",
@@ -63,6 +65,12 @@ export const BROWSER_PANE_REFUSAL_CODES: readonly [
   // split where the sentence stops being true (see `chrome/chrome-acts.ts`).
   "navigation-call-failed",
   "chrome-call-failed",
+  // The view this pane holds, on the two calls that create and release it
+  // (`view-binding.ts`). The second is recorded on the diagnostic band rather than
+  // rendered — by the time a teardown answers there is no pane left to read it — and it
+  // is a member here anyway, because this pane is what authored the sentence.
+  "view-attach-failed",
+  "view-detach-failed",
   // The pane's own controls, each refused before anything is dispatched.
   "no-session",
   "no-selected-page",

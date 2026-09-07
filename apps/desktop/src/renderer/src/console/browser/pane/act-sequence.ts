@@ -118,7 +118,7 @@ export interface BrowserPaneActs {
    *
    * The code is one of the pane's OWN closed set (`pane-refusals.ts`) rather than a
    * free string: every code that reaches here was decided by this renderer, so a
-   * caller inventing a fourteenth one is a decision and reads as one.
+   * caller inventing one more is a decision and reads as one.
    */
   refuseLocally(code: BrowserPaneRefusalCode, detail: string): void;
   /** Clear what is on screen. Starts nothing, and supersedes nothing. */

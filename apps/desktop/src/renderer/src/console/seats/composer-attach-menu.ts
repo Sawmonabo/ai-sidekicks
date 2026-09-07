@@ -48,14 +48,48 @@ export interface ComposerAttachMenuContext {
 }
 
 /**
+ * One artifact a family has put on the composer's message.
+ *
+ * ARTIFACT-BACKED, WHICH IS THE ONLY ARM THE WIRE SUPPORTS. `Spec-014 §Required
+ * Behavior` types the attachment reference as an ordered list of artifact ids and
+ * forbids delivering an attachment over `SteerPayload.attachments`, which
+ * `packages/contracts` types `unknown[]`; the corpus registers no operation that hands a
+ * conversation a reference to anything else. So a family that wants to attach something
+ * puts its bytes through the ingest pipeline first and hands back what that pipeline
+ * minted — which is what `repos/attachments/` does for a file a participant chose, and
+ * what the browser's capture does for a page.
+ *
+ * The two figures beside the id are the pipeline's own answer rather than a second
+ * reading of the artifact: a composer row can state what it is carrying and how big it
+ * is without a read of its own, and neither is re-derived anywhere.
+ *
+ * NOT `InlineCardAttachmentRef`, which is next door and names a different thing: that is
+ * a reference to an attachment already ON a message, carried by a card rendering
+ * history. This is what a family hands the composer BEFORE a message exists.
+ */
+export interface ComposerArtifactAttachment {
+  readonly artifactId: string;
+  /** The encoded type the pipeline stored, wire-verbatim. Never checked here. */
+  readonly mediaType: string;
+  /** What was stored, so a row can state a size without a second read. */
+  readonly byteLength: number;
+}
+
+/**
  * How picking an entry settled.
  *
  * A refusal comes BACK rather than being rendered by the entry, because the surface a
  * person is looking at when they pick a menu row is the composer, and an owning family
  * that rendered its own refusal would put the answer in a pane that may not be open.
+ *
+ * AND SO DOES THE ATTACHMENT, for the same reason read the other way. The `attached` arm
+ * used to carry nothing, so an entry could report success having put nothing on the
+ * message — which is what the browser's row did: it dispatched a pane operation,
+ * discarded its answer, and said `attached` while the conversation gained nothing. An
+ * arm that has to carry the attachment cannot be satisfied by an act that produced none.
  */
 export type ComposerAttachOutcome =
-  | { readonly status: "attached" }
+  | { readonly status: "attached"; readonly attachment: ComposerArtifactAttachment }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /** One row in the composer's `+` menu, contributed by a view family. */
