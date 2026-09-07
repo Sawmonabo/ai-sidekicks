@@ -67,6 +67,7 @@ import {
 import {
   FrameStore,
   consoleEntityProjectorRegistry,
+  modalSurfaceClaimFor,
   shellMutationBlock,
   useFrameStore,
   useLocationHash,
@@ -239,6 +240,12 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // the window it is drawn in. Composed by the seat that declares the obligation
   // rather than written out here, so the seam has one spelling.
   const openSession = useMemo(() => sessionOpenerFor(frameStore), [frameStore]);
+  // The other half of the inert fold, for the one card the frame may not import. The
+  // overlay body's dialog is `modal="trap-focus"` like every other console dialog, so
+  // it has to tell the shell it is up — and it cannot reach this store, because the
+  // seat hands it acts. Composed once per store so the body's effect keeps its
+  // identity: an act rebuilt each render would release and re-hold on every pass.
+  const claimModalSurface = useMemo(() => modalSurfaceClaimFor(frameStore), [frameStore]);
 
   const surfaceContext: ConsoleSurfaceContext = {
     route,
@@ -307,7 +314,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
               />
               {windowOverlay === undefined || isAuxiliaryRoute(route)
                 ? null
-                : windowOverlay({ bridge: props.bridge, openSession })}
+                : windowOverlay({ bridge: props.bridge, openSession, claimModalSurface })}
               {props.renderOverlays === undefined ? null : props.renderOverlays(surfaceContext)}
             </>
           }

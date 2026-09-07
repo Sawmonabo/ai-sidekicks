@@ -8,15 +8,16 @@
 // was reachable.
 //
 // The card's own readings are `InviteConfirmation.test.tsx`; the lifecycle's state
-// machine is `pending-invite.test.ts`. What is asserted here is the HOSTING: which
-// acts each entry point dispatches, and what the window does when a join lands.
+// machine is `pending-invite.test.ts`; the shell's `inert` guard over the same mount is
+// `InviteLifecycleOverlay.modal-surface.test.tsx`, which is its own file because it
+// asserts a fact nothing renders. What is asserted here is the HOSTING: which acts each
+// entry point dispatches, and what the window does when a join lands.
 
-import { act, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import {
   createFixtureBridge,
-  type ConsoleBridge,
   type GrowthOutcome,
   type GrowthPendingInviteState,
 } from "../../bridge/index.js";
@@ -26,7 +27,7 @@ import {
   growthRefusing,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { InviteLifecycleOverlay } from "./InviteLifecycleOverlay.js";
+import { mountOverlay, press } from "./invite-lifecycle-overlay.test-support.js";
 import {
   FIRST_SESSION,
   PENDING_INVITE_ATTEMPT,
@@ -35,12 +36,6 @@ import {
   scenarioWithArrivals,
   unavailablePreview,
 } from "./pending-invite.test-support.js";
-
-/** What one mount of the overlay hands back to a case. */
-interface MountedOverlay {
-  readonly body: HTMLElement;
-  readonly openSession: ReturnType<typeof vi.fn>;
-}
 
 /** What one mount over a hand-built pending feed hands back, plus what it retried. */
 interface MountedArrivals {
@@ -54,24 +49,6 @@ type RetryAnswer = (request: unknown) => Promise<GrowthOutcome<undefined>>;
 /** The answer a retry gets unless a case wants the refused arm instead. */
 const RETRY_SERVED: RetryAnswer = async () =>
   await Promise.resolve({ status: "served", value: undefined });
-
-/**
- * Mount the overlay over a scripted arrival, with no session anywhere in the tree.
- *
- * The bridge is the only thing it is given, which is the claim: this lifecycle is
- * bridge-scoped, so a window that has opened nothing still receives what arrives.
- */
-async function mountOverlay(bridge?: ConsoleBridge): Promise<MountedOverlay> {
-  const openSession = vi.fn();
-  const resolved = bridge ?? createFixtureBridge({ scenario: scenarioWithArrivals() });
-  const { container } = render(
-    <InviteLifecycleOverlay bridge={resolved} openSession={openSession} />,
-  );
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
-  return { body: container.ownerDocument.body, openSession };
-}
 
 /**
  * Mount the overlay over a pending feed carrying exactly these arrivals, in order.
@@ -101,18 +78,6 @@ async function mountOverPendingFeed(
   });
   const { body } = await mountOverlay(bridge);
   return { body, retries };
-}
-
-/** Press one control by the class it carries, letting whatever it dispatched settle. */
-async function press(root: HTMLElement, className: string): Promise<void> {
-  const found = root.querySelector<HTMLButtonElement>(`.${className}`);
-  if (found === null) {
-    throw new Error(`no ${className}`);
-  }
-  await act(async () => {
-    found.click();
-    await crossMacrotaskBoundary();
-  });
 }
 
 describe("the invite lifecycle — with no session open at all", () => {

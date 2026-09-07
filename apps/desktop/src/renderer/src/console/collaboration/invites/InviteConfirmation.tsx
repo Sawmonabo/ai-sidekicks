@@ -133,7 +133,10 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
       // The mode `Spec-023 §Console Libraries` adopts, and never the library default:
       // fully modal locks body scroll and hangs `aria-hidden` on a background the
       // shell was never told to inert. `trap-focus` keeps the keyboard inside this
-      // card and leaves the background to the shell.
+      // card and leaves the background to the shell — which has to be TOLD, and is
+      // told by whoever owns this card's open state. That is `InviteLifecycleOverlay`,
+      // on the palette's precedent: the owner of the boolean arms the guard, so this
+      // card stays a card and takes no window store.
       modal="trap-focus"
     >
       {/* The popup shell is the primitive's, which is what puts this card in the

@@ -33,7 +33,7 @@
 // for a store it has no business steering.
 
 import { type ConsoleBridge } from "../bridge/index.js";
-import { type FrameStore } from "../store/index.js";
+import { type FrameStore, type ModalSurfaceClaimAct } from "../store/index.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 
 /** What the frame hands the window's overlay body on every render. */
@@ -48,6 +48,21 @@ export interface WindowOverlaySeatProps {
    * and an auxiliary window would have no way to hand it a different answer.
    */
   readonly openSession: (sessionId: string) => void;
+  /**
+   * Say that this body has a modal surface up, for exactly as long as it has one.
+   *
+   * An act for the same reason `openSession` is one, and needed for the same reason the
+   * sign-in card and the walkthrough take the store-bound hook: a `modal="trap-focus"`
+   * dialog traps the keyboard and leaves inerting the app root to the shell, so a card
+   * that claims nothing is one a reader navigating by STRUCTURE walks straight behind.
+   * The body drives it through `useModalSurfaceClaim`, which mints the claim id.
+   *
+   * The producer is `modalSurfaceClaimFor` and it lives in `store/` rather than beside
+   * these props, unlike `sessionOpenerFor`: the register it binds is that family's own
+   * and the store-bound hook there needs the same binding, so the lowest family that
+   * needs it owns it and this seat spends only the type.
+   */
+  readonly claimModalSurface: ModalSurfaceClaimAct;
 }
 
 /** The window overlay body. Returns `React.ReactNode` so the frame renders it directly. */

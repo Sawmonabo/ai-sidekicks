@@ -1,0 +1,75 @@
+// The mount every case that drives the window's invite lifecycle takes, and the press.
+//
+// HOISTED ON THE SECOND USE, which is what this module is for. Two suites drive one
+// overlay over two subjects — `InviteLifecycleOverlay.test.tsx` asserts what each entry
+// point dispatches and where the window goes, and `InviteLifecycleOverlay.modal-
+// surface.test.tsx` asserts the shell's `inert` guard, which renders nothing and is
+// visible only in the frame store's own cell. A second copy of the mount would be a
+// second answer to WHAT THE SEAT HANDS THIS BODY, and the props it is handed are
+// exactly what both files are about.
+//
+// THE MOUNT COMPOSES THE CLAIM ACT ONCE, the same way `ConsoleFrame` does: the act's
+// identity is what the body's effect depends on, so one rebuilt per render would
+// release and re-hold on every pass. It is composed here rather than in a case because
+// this is where the props are, and a case composing its own would be the seam written
+// twice over.
+
+import { act, render } from "@testing-library/react";
+import { vi } from "vitest";
+
+import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+import { FrameStore, modalSurfaceClaimFor } from "../../store/index.js";
+import { InviteLifecycleOverlay } from "./InviteLifecycleOverlay.js";
+import { scenarioWithArrivals } from "./pending-invite.test-support.js";
+
+/** What one mount of the overlay hands back to a case. */
+export interface MountedOverlay {
+  readonly body: HTMLElement;
+  readonly openSession: ReturnType<typeof vi.fn>;
+  /**
+   * The window this mount was seated in.
+   *
+   * A real `FrameStore` rather than a spy on the claim act, because what the card owes
+   * the shell is the CELL the frame hangs `inert` on — and a spy would pass over an act
+   * that was called and published nothing.
+   */
+  readonly frameStore: FrameStore;
+  /** Tear the overlay down, which is the other way its card can end. */
+  readonly unmount: () => void;
+}
+
+/**
+ * Mount the overlay over a scripted arrival, with no session anywhere in the tree.
+ *
+ * The bridge is the only READ it is given, which is the claim: this lifecycle is
+ * bridge-scoped, so a window that has opened nothing still receives what arrives.
+ */
+export async function mountOverlay(bridge?: ConsoleBridge): Promise<MountedOverlay> {
+  const openSession = vi.fn();
+  const frameStore = new FrameStore();
+  const resolved = bridge ?? createFixtureBridge({ scenario: scenarioWithArrivals() });
+  const { container, unmount } = render(
+    <InviteLifecycleOverlay
+      bridge={resolved}
+      openSession={openSession}
+      claimModalSurface={modalSurfaceClaimFor(frameStore)}
+    />,
+  );
+  await act(async () => {
+    await crossMacrotaskBoundary();
+  });
+  return { body: container.ownerDocument.body, openSession, frameStore, unmount };
+}
+
+/** Press one control by the class it carries, letting whatever it dispatched settle. */
+export async function press(root: HTMLElement, className: string): Promise<void> {
+  const found = root.querySelector<HTMLButtonElement>(`.${className}`);
+  if (found === null) {
+    throw new Error(`no ${className}`);
+  }
+  await act(async () => {
+    found.click();
+    await crossMacrotaskBoundary();
+  });
+}

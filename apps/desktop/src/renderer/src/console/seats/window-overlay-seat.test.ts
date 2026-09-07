@@ -7,6 +7,9 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createFixtureBridge } from "../bridge/index.js";
+import { COLLABORATION_SCENARIO } from "../bridge/scenarios/collaboration.js";
+import { FrameStore, modalSurfaceClaimFor } from "../store/index.js";
 import {
   registerWindowOverlaySeat,
   unregisterWindowOverlaySeat,
@@ -44,6 +47,42 @@ describe("the window overlay seat", () => {
     expect(() => {
       registerWindowOverlaySeat("another-test", () => null);
     }).toThrow(/window overlay/u);
+  });
+
+  it("carries a working modal-surface claim through to the body it seats", () => {
+    // The seat is where the frame's props for the body are declared, so an act that
+    // arrives as a name and moves no window is a `modal="trap-focus"` card with a live
+    // background behind it. Driven end to end — the real act, over a real store — so
+    // the case cannot pass on a stand-in the body would never be handed.
+    const frameStore = new FrameStore();
+    registerWindowOverlaySeat(OWNER, (props) => {
+      props.claimModalSurface("a-seated-card", true);
+      return null;
+    });
+
+    windowOverlayRenderer()?.({
+      bridge: createFixtureBridge({ scenario: COLLABORATION_SCENARIO }),
+      openSession: () => undefined,
+      claimModalSurface: modalSurfaceClaimFor(frameStore),
+    });
+
+    expect(frameStore.getState().isModalSurfaceOpen).toBe(true);
+    expect(frameStore.modalSurfaceClaims.heldClaimCount).toBe(1);
+  });
+
+  it("negative control: a seated body that claims nothing leaves the window live", () => {
+    // Without this the case above would pass over a store that reported a modal
+    // surface whether or not anything had claimed one.
+    const frameStore = new FrameStore();
+    registerWindowOverlaySeat(OWNER, () => null);
+
+    windowOverlayRenderer()?.({
+      bridge: createFixtureBridge({ scenario: COLLABORATION_SCENARIO }),
+      openSession: () => undefined,
+      claimModalSurface: modalSurfaceClaimFor(frameStore),
+    });
+
+    expect(frameStore.getState().isModalSurfaceOpen).toBe(false);
   });
 
   it("negative control: releasing it empties the seat for the next claimant", () => {

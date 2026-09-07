@@ -56,6 +56,7 @@ import { useCallback, useState } from "react";
 import type { GrowthPendingInvite, GrowthPendingInvitePreviewFailure } from "../../bridge/index.js";
 import { InlineRefusal } from "../../primitives/index.js";
 import type { WindowOverlaySeatProps } from "../../seats/index.js";
+import { useModalSurfaceClaim } from "../../store/index.js";
 import { InviteConfirmation } from "./InviteConfirmation.js";
 import { useJoinedOutcomeNavigation } from "./joined-outcome-navigation.js";
 import type { PendingInviteSnapshot } from "./pending-invite.js";
@@ -79,7 +80,7 @@ type PendingInvitePrompt = GrowthPendingInvite | GrowthPendingInvitePreviewFailu
 export function InviteLifecycleOverlay(
   props: InviteLifecycleOverlayProps,
 ): React.JSX.Element | null {
-  const { bridge, openSession } = props;
+  const { bridge, claimModalSurface, openSession } = props;
   const { snapshot, adapter } = usePendingInvites(bridge);
   // The head a person actually asked to see, and not a flag saying one of them was.
   const [promptLookedAt, setPromptLookedAt] = useState<PendingInvitePrompt | undefined>(undefined);
@@ -119,6 +120,20 @@ export function InviteLifecycleOverlay(
   const prompt: PendingInvitePrompt | undefined = snapshot.invite ?? snapshot.previewFailure;
   const hasPrompt = prompt !== undefined;
   const isConfirmationOpen = hasPrompt && prompt === promptLookedAt;
+  // THE CARD IS OPEN, SO THE WINDOW SAYS SO. `InviteConfirmation` opens under
+  // `modal="trap-focus"`, which traps the keyboard and leaves inerting the app root to
+  // the shell — and the shell cannot see a view family's card, so without this publish
+  // the rail and the whole route surface stayed reachable behind an open confirmation
+  // to anyone moving by structure. Nothing renders differently, which is why the
+  // register's own cell is the only thing that can report it.
+  //
+  // ON THIS BOOLEAN AND NOT ON `hasPrompt`, which is the same boolean the card takes as
+  // `open`: an arrival draws a notice and never opens the card, and a claim armed on
+  // the arrival would inert the window behind a notice a person is meant to be able to
+  // ignore. The claim ends with the card on every path this component has — the two
+  // close acts, a queue that moves on, a bridge swap that empties the reading, and the
+  // unmount — because all of them are this one value going false.
+  useModalSurfaceClaim(claimModalSurface, isConfirmationOpen);
   return (
     <>
       {hasPrompt || snapshot.feedRefusal !== undefined ? (
