@@ -27,8 +27,10 @@
 // liveness reading that counts a zombie as terminated, through vitest's own poll
 // rather than a sleep loop.
 //
-// The stand-ins those two paragraphs describe live in
-// `electron-child-lifetime.test-support.ts`; the claims made with them are here.
+// The stand-ins those two paragraphs describe live beside this file —
+// `electron-child-lifetime.test-support.ts` for the children and
+// `electron-child-doubles.test-support.ts` for what a spawn is handed; the claims
+// made with them are here.
 //
 // What the child was HOLDING is a different subject and is
 // `electron-child-profile-removal.test.ts`'s: a kill bound to the test does not
@@ -40,13 +42,15 @@ import { describe, expect, it } from "vitest";
 import { PROCESS_TREE_TERMINATION_MODE } from "../../helpers/process-tree/dispatch.js";
 import { readProcessLiveness } from "../../helpers/process-tree/liveness.js";
 import {
-  AbandonedPair,
-  ABANDONED_SETUP_MESSAGE,
-  LIFETIME_TEST_TIMEOUT_MS,
   ObservedTreeTerminator,
   RecordingSettleRegistrar,
-  RefusedRegistrationSpawn,
   REGISTRAR_REFUSAL_MESSAGE,
+} from "./electron-child-doubles.test-support.js";
+import {
+  ABANDONED_SETUP_MESSAGE,
+  AbandonedPair,
+  LIFETIME_TEST_TIMEOUT_MS,
+  RefusedRegistrationSpawn,
   spawnChildWithGrandchild,
 } from "./electron-child-lifetime.test-support.js";
 import { exitOf, expectTerminatedWithin, reap } from "./electron-child-liveness.test-support.js";

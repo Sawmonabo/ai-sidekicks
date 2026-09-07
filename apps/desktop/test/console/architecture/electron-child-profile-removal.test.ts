@@ -37,8 +37,9 @@
 // injected because a `taskkill` that spawns, exits non-zero and leaves Electron
 // running is not a state a platform can be asked for on demand.
 //
-// The stand-ins are `electron-child-lifetime.test-support.ts`'s and the bounded
-// readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
+// The doubles a spawn is handed are `electron-child-doubles.test-support.ts`'s,
+// the child programs are `electron-child-lifetime.test-support.ts`'s, and the
+// bounded readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
 
 import { existsSync, rmSync } from "node:fs";
 import process from "node:process";
@@ -53,10 +54,12 @@ import type {
 import { readProcessLiveness } from "../../helpers/process-tree/liveness.js";
 import {
   heldProfile,
-  LIFETIME_TEST_TIMEOUT_MS,
-  NON_TERMINATING_PROGRAM,
   ObservedTreeTerminator,
   RecordingSettleRegistrar,
+} from "./electron-child-doubles.test-support.js";
+import {
+  LIFETIME_TEST_TIMEOUT_MS,
+  NON_TERMINATING_PROGRAM,
 } from "./electron-child-lifetime.test-support.js";
 import { expectTerminatedWithin, reap } from "./electron-child-liveness.test-support.js";
 

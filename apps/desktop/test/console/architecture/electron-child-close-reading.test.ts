@@ -28,8 +28,9 @@
 // with `exitCode` still `null` — and the first version of this file did, which
 // made its control pass against the very defect it was written for.
 //
-// The stand-ins are `electron-child-lifetime.test-support.ts`'s and the bounded
-// readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
+// The doubles a spawn is handed are `electron-child-doubles.test-support.ts`'s,
+// the child programs are `electron-child-lifetime.test-support.ts`'s, and the
+// bounded readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
 
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,9 +40,11 @@ import { describe, expect, it } from "vitest";
 
 import { readProcessLiveness } from "../../helpers/process-tree/liveness.js";
 import {
-  LIFETIME_TEST_TIMEOUT_MS,
   ObservedTreeTerminator,
   RecordingSettleRegistrar,
+} from "./electron-child-doubles.test-support.js";
+import {
+  LIFETIME_TEST_TIMEOUT_MS,
   spawnChildWithGrandchild,
 } from "./electron-child-lifetime.test-support.js";
 import {

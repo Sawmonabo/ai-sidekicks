@@ -34,16 +34,13 @@ import {
   type LaunchPlatform,
 } from "../launch-args.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import { readPlaywrightLaunch } from "./playwright-launch-reach.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEST_TIER_DIRECTORY = resolve(HERE, "..");
 
 /** The module that owns the launch, named by the display path the scan reports. */
 const LAUNCHER_DISPLAY_PATH = "test/console/electron-harness.ts";
-
-/** The package the launcher binds Electron through. */
-const PLAYWRIGHT_SPECIFIER = "@playwright/test";
-const ELECTRON_LAUNCH_BINDING = "_electron";
 
 /** The composer, the input that decides its whole software-GL arm, and the only
  * expression that may fill it. */
@@ -71,34 +68,21 @@ function testTierModules(): readonly ConsoleSourceModule[] {
 }
 
 /**
- * Whether `source` imports the binding a launch is started through.
+ * Whether `source` can REACH the binding a launch is started through.
  *
  * The import is the subject rather than the call, because it is what makes a
- * launch REACHABLE from a module: a second launcher would have to import this to
- * exist, and would then be free to compose its own arguments where nothing reads
- * them.
+ * launch REACHABLE from a module: a second launcher would have to hold this
+ * binding to exist, and would then be free to compose its own arguments where
+ * nothing reads them.
+ *
+ * Read through `playwright-launch-reach.ts` rather than out of a named-import
+ * clause here, because the clause is one of six spellings that hold the binding
+ * and a private reader for a second of them would be a second idea of what a
+ * launcher is. The chokepoint beside it asks the other half of the same reading —
+ * whether the module also LAUNCHES — which is why one home answers both.
  */
-function importsTheElectronLauncher(source: string, fileName: string): boolean {
-  for (const statement of parseSourceText(fileName, source).statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
-      continue;
-    }
-    if (statement.moduleSpecifier.text !== PLAYWRIGHT_SPECIFIER) {
-      continue;
-    }
-    const bindings = statement.importClause?.namedBindings;
-    if (bindings === undefined || !ts.isNamedImports(bindings)) {
-      continue;
-    }
-    if (
-      bindings.elements.some(
-        (element) => (element.propertyName ?? element.name).text === ELECTRON_LAUNCH_BINDING,
-      )
-    ) {
-      return true;
-    }
-  }
-  return false;
+function reachesTheElectronLauncher(source: string, fileName: string): boolean {
+  return readPlaywrightLaunch(source, fileName).reachesLauncher;
 }
 
 /**
@@ -243,7 +227,7 @@ describe("launch arguments — one home for every switch a launch passes", () =>
     // compose arguments this file never reads.
     const launchers = modules
       .filter((module) =>
-        importsTheElectronLauncher(readConsoleSourceModule(module), module.displayPath),
+        reachesTheElectronLauncher(readConsoleSourceModule(module), module.displayPath),
       )
       .map((module) => module.displayPath);
     expect(launchers).toStrictEqual([LAUNCHER_DISPLAY_PATH]);

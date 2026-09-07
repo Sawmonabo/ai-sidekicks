@@ -12,11 +12,11 @@
 // are measured against — because a control that only asserts the new reader fires
 // would pass over a reader that fires on everything.
 //
-// Playwright's `_electron.launch` is not a `spawn` and is not banned here. It
-// has its own chokepoint (`withLaunchedConsole` is the one way in, and
-// `launchConsole` is not exported) and it reaches the SAME settle-time door,
-// `disposeWhenTestFinishes`, which the last case below asserts rather than
-// assumes.
+// Playwright's `_electron.launch` is not a `spawn` and is not read here — it
+// reaches `node:child_process` inside the Playwright package rather than inside
+// this one, so no arm below can see it. It has a chokepoint of its own, and one
+// this gate cannot make: `playwright-launch-chokepoint.test.ts` names the single
+// launch site and asserts it CALLS the settle-time door rather than naming it.
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,9 +33,6 @@ const TEST_ROOT = path.resolve(HERE, "..", "..");
 
 /** The one module allowed to reach `spawn`, relative to `test/`. */
 const SPAWN_CHOKEPOINT = path.join("helpers", "electron-child.ts");
-
-/** The launcher that must reach the same settle-time door, relative to `test/`. */
-const PLAYWRIGHT_LAUNCHER = path.join("console", "electron-harness.ts");
 
 /**
  * This file, which carries every planted control below as literal source text.
@@ -382,17 +379,5 @@ describe("every Electron spawn under test/ goes through one owner", () => {
     } finally {
       rmSync(plantedRoot, { recursive: true, force: true });
     }
-  });
-
-  it("holds the Playwright launcher to the same settle-time door", () => {
-    // It spawns nothing here, so the rule above cannot reach it — and it has the
-    // identical hole: its close runs in the body's own settlement, and vitest's
-    // per-test timeout does not run that.
-    const launcher = readTestSource(PLAYWRIGHT_LAUNCHER);
-    expect(
-      launcher.includes("disposeWhenTestFinishes"),
-      "`withLaunchedConsole` no longer registers a settle-time close — a tier that " +
-        "overruns its own budget will leave a real Electron and its profile behind",
-    ).toBe(true);
   });
 });
