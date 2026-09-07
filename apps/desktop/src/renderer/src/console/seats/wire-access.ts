@@ -19,8 +19,8 @@
 //
 // WHY A SUBSCRIPTION STILL CASTS. A subscribe names a STREAM and answers with an
 // unsubscribe handle; it has no reply to parse, so the registry has nothing to bind
-// it to. Which names are streams and what each carries is
-// `bridge/daemon/session-event-streams.ts`'s table.
+// it to. Which names are streams is `bridge/daemon/session-event-streams.ts`'s
+// table, and what each carries is `bridge/daemon/session-event-stream-kinds.ts`'s.
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 

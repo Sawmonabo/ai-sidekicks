@@ -13,8 +13,9 @@
 // exactly what the preload gives, `growth` is exactly what it does not.
 //
 // The subscribe seam's own vocabulary — which names are registered STREAMS, and
-// which event kinds each one carries — lives in `session-event-streams.ts` rather
-// than here: both sides of that seam read it, and neither of them is this file.
+// which event kinds each one carries — lives in `session-event-streams.ts` and the
+// kind tables beside it rather than here: both sides of that seam read them, and
+// neither of them is this file.
 
 import type { SidekicksBridge, Unsubscribe } from "@ai-sidekicks/contracts";
 import { RealClock, type ConsoleClock } from "../core/index.js";

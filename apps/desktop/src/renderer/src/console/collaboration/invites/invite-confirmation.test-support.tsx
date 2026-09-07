@@ -1,9 +1,9 @@
-// The cast both confirmation suites drive the card with.
+// The cast every confirmation suite drives the card with.
 //
 // Hoisted on this package's second-use rule the moment the preview-failure readings
-// moved to a file of their own: three helpers — how the card is rendered at all, how
-// one control is reached, and what the whole act row says — and two suites that each
-// need every one of them. A second `renderCard` is two suites disagreeing about which
+// moved to a file of their own, and read by every suite that has landed beside it
+// since: how the card is rendered at all, how one control is reached, and what the
+// whole act row says. A second `renderCard` is two suites disagreeing about which
 // props the card is mounted with, which is exactly the disagreement a portalled dialog
 // hides: the second copy renders into a container the first case never queries.
 
