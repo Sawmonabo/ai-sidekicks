@@ -102,6 +102,7 @@ import { LedgerFeedHeader } from "./LedgerFeedHeader.js";
 import { LedgerFeedRail } from "./LedgerFeedRail.js";
 import {
   LedgerWindowAbsences,
+  LedgerWindowReadState,
   useLedgerProjection,
   useRailGeometry,
   useVisibleLedgerWindow,
@@ -373,6 +374,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           onReplayFromRowInView={structureActs.replayFromRowInView}
         />
       </div>
+      <LedgerWindowReadState sessionStore={props.sessionStore} />
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}

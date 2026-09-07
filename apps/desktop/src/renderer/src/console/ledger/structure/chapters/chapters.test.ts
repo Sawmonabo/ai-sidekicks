@@ -166,3 +166,91 @@ describe("chapters — the index folds once and answers from the fold", () => {
     expect(chapterFor(fold.chapters, "run-c").rowIds).toStrictEqual(["stub"]);
   });
 });
+
+describe("the run state — the daemon's newest word, and nothing after a rewind", () => {
+  it("carries the newest state a run reported, not only the one that ended it", () => {
+    const fold = foldChapters(mixedWindow());
+    expect(chapterFor(fold.chapters, "run-a").runStateEventType).toBe("run.running");
+    expect(chapterFor(fold.chapters, "run-b").runStateEventType).toBe("run.completed");
+  });
+
+  it("negative control: a live chapter used to have no state to say at all", () => {
+    // The header drew `terminalEventType`, which is undefined for every run that has
+    // not ended — so this is the member that makes a live chapter's line non-empty.
+    expect(chapterFor(foldChapters(mixedWindow()).chapters, "run-a").terminalEventType).toBe(
+      undefined,
+    );
+  });
+
+  it("clears the state on a rewind, because a rewind does not say what it came back into", () => {
+    const fold = foldChapters([
+      runRow({ id: "c1", sequence: 1, type: "run.completed", runId: "run-c", position: 1 }),
+      runRow({ id: "c2", sequence: 2, type: "run.rolled_back", runId: "run-c", position: 2 }),
+    ]);
+    const chapter = chapterFor(fold.chapters, "run-c");
+    expect(chapter.lifecycle).toBe("live");
+    expect(chapter.runStateEventType).toBe(undefined);
+  });
+
+  it("takes the run's next state after the rewind, verbatim", () => {
+    const fold = foldChapters([
+      runRow({ id: "c1", sequence: 1, type: "run.completed", runId: "run-c", position: 1 }),
+      runRow({ id: "c2", sequence: 2, type: "run.rolled_back", runId: "run-c", position: 2 }),
+      runRow({ id: "c3", sequence: 3, type: "run.running", runId: "run-c", position: 3 }),
+    ]);
+    expect(chapterFor(fold.chapters, "run-c").runStateEventType).toBe("run.running");
+  });
+});
+
+describe("the paying account — read off the admission row and never composed", () => {
+  it("carries the account the run was admitted under", () => {
+    const fold = foldChapters([
+      runRow({
+        id: "d1",
+        sequence: 1,
+        type: "run.queued",
+        runId: "run-d",
+        position: 1,
+        payload: { admittedProviderAccountId: "acct-7" },
+      }),
+      runRow({ id: "d2", sequence: 2, type: "run.running", runId: "run-d", position: 2 }),
+    ]);
+    expect(chapterFor(fold.chapters, "run-d").payingAccountId).toBe("acct-7");
+  });
+
+  it("holds the FIRST naming, so a run never changes who pays for it mid-flight", () => {
+    const fold = foldChapters([
+      runRow({
+        id: "d1",
+        sequence: 1,
+        type: "run.queued",
+        runId: "run-d",
+        position: 1,
+        payload: { admittedProviderAccountId: "acct-7" },
+      }),
+      runRow({
+        id: "d2",
+        sequence: 2,
+        type: "run.running",
+        runId: "run-d",
+        position: 2,
+        payload: { admittedProviderAccountId: "acct-9" },
+      }),
+    ]);
+    expect(chapterFor(fold.chapters, "run-d").payingAccountId).toBe("acct-7");
+  });
+
+  it("reads a wrongly-typed member as an absence rather than coercing it", () => {
+    const fold = foldChapters([
+      runRow({
+        id: "d1",
+        sequence: 1,
+        type: "run.queued",
+        runId: "run-d",
+        position: 1,
+        payload: { admittedProviderAccountId: 7 },
+      }),
+    ]);
+    expect(chapterFor(fold.chapters, "run-d").payingAccountId).toBe(undefined);
+  });
+});

@@ -24,63 +24,24 @@
 //     live chapter" is a branch that cannot be reached rather than a rule a caller
 //     has to remember.
 //
-// WHAT THIS MODULE IS NOT. It renders nothing. The header — the agent's name
-// and hue, the run state, the paying account label, the row count — is drawn by
-// the ledger frame from this model, so the fold stays a pure derivation the
-// `console-unit` tier can drive with no DOM at all.
+// WHAT THIS MODULE IS NOT. It renders nothing. The header — the agent's name and
+// hue, the run state, the paying account label, the row count — is drawn by
+// `ChapterHeader.tsx` from this model, and every one of those five is a member sealed
+// below, so the fold stays a pure derivation the `console-unit` tier can drive with no
+// DOM at all. The two that read a wire read it VERBATIM: the run state is the daemon's
+// own newest lifecycle type and the account is the id the run was admitted under, so
+// neither is a word this console composed.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-/**
- * The run-lifecycle event types that END a run, wire-verbatim.
- *
- * Declared once as a tuple with the membership test derived from it. All three
- * are registered in the `@ai-sidekicks/contracts` event census; `run.rolled_back`
- * is deliberately absent, because a rewind is not a terminal — the run continues
- * from the boundary, which is exactly why `Spec-013` gives the rollback its own
- * non-state event. It appears in {@link CHAPTER_REOPENING_EVENT_TYPES} instead,
- * where it CLEARS a terminal the run has come back from.
- */
-export const CHAPTER_TERMINAL_EVENT_TYPES = [
-  "run.completed",
-  "run.failed",
-  "run.interrupted",
-] as const;
-
-/** One terminal event type. Derived from the tuple, never restated. */
-export type ChapterTerminalEventType = (typeof CHAPTER_TERMINAL_EVENT_TYPES)[number];
-
-/**
- * The run-lifecycle event types that say a run is NOT ended, wire-verbatim.
- *
- * A terminal is not a one-way door. A rollback accepted from a finished run appends
- * a pause and a rewind for that same run before it can resume, so a chapter that
- * only ever ACQUIRED a terminal kept a completion the daemon had already undone: it
- * stayed folded by rule 7's default, its header went on reading the old ending, and
- * every row appended after the rewind sat behind a receipt for something that did
- * not happen.
- *
- * WHY THESE SEVEN AND NOT EVERY RUN ROW. `@ai-sidekicks/contracts` registers
- * thirteen `run_lifecycle` types: the nine run-state-machine states, the forward
- * non-terminal rollback event, and three rows that report no state at all
- * (`run.provider_initialized`, `run.turn_started`, `run.worker_shutdown`). These are
- * the six non-terminal STATES plus the rollback — every row that says the run is in
- * a state other than ended. The three non-state rows are deliberately absent: a
- * worker shutting down after a completion says nothing about the run, and reading it
- * as a reopening would unfold every finished chapter in the session.
- */
-export const CHAPTER_REOPENING_EVENT_TYPES = [
-  "run.queued",
-  "run.starting",
-  "run.running",
-  "run.waiting_for_approval",
-  "run.waiting_for_input",
-  "run.paused",
-  "run.rolled_back",
-] as const;
-
-/** One reopening event type. Derived from the tuple, never restated. */
-export type ChapterReopeningEventType = (typeof CHAPTER_REOPENING_EVENT_TYPES)[number];
+import { ChapterBodyRowWindow, chapterClippedHeadRowIds } from "./chapter-body.js";
+import {
+  isReopeningEventType,
+  isRunStateEventType,
+  isTerminalEventType,
+  payingAccountIdOf,
+  type ChapterTerminalEventType,
+} from "./chapter-lifecycle.js";
 
 /**
  * Whether a chapter is still being written.
@@ -104,9 +65,10 @@ export interface LedgerChapter {
   readonly rowIds: readonly string[];
   readonly rowCount: number;
   /**
-   * Rows past `CHAPTER_VISIBLE_ROW_CAP`, which the body clips behind a top-edge
-   * fade. Reported rather than dropped: a chapter that hid rows silently would
-   * make its own row count a lie.
+   * Rows the outer list's ceiling left out, which the body clips behind a top-edge
+   * fade and scrolls to. Counted by the same selector the body's window is cut with,
+   * so the figure and the rows are one rule; reported rather than dropped, because a
+   * chapter that hid rows silently would make its own row count a lie.
    */
   readonly clippedRowCount: number;
   /**
@@ -116,6 +78,31 @@ export interface LedgerChapter {
    */
   readonly actorId: string | undefined;
   readonly lifecycle: ChapterLifecycle;
+  /**
+   * The newest run state the log reported for this run, wire-verbatim, or `undefined`
+   * where no row in the window carried one and after a rewind that cleared it.
+   *
+   * It is not `terminalEventType` under another name: a terminal is one of these and
+   * a live run's state is not, so a chapter that has never ended still has a state to
+   * say. The header renders this and nothing about it is composed here.
+   */
+  readonly runStateEventType: string | undefined;
+  /**
+   * The provider account this run was admitted under, wire-verbatim, or `undefined`
+   * where no row in the window named one. The header renders it as the paying account;
+   * an absent one draws no label, because the receipt named none.
+   */
+  readonly payingAccountId: string | undefined;
+  /**
+   * The rows immediately older than the ones the outer list mounted, oldest first and
+   * bounded by the same ceiling.
+   *
+   * The body's window, sealed here so the component that draws it asks the chapter
+   * rather than re-reading the log. It is a SUBSET of what `clippedRowCount` counts:
+   * a run long enough to outrun both bounds has older rows than these, and the body
+   * says so rather than implying the head is all there was.
+   */
+  readonly clippedHeadRows: readonly TimelineRow[];
   /**
    * Which terminal ended it, wire-verbatim, or `undefined` while live. The
    * receipt's past tense is composed from this by the header, so the console
@@ -161,19 +148,15 @@ interface ChapterAccumulator {
   actorId: string | undefined;
   terminalEventType: ChapterTerminalEventType | undefined;
   terminalRowId: string | undefined;
+  runStateEventType: string | undefined;
+  payingAccountId: string | undefined;
+  /** The bounded head this chapter's body will draw. Fed one row at a time. */
+  readonly bodyRows: ChapterBodyRowWindow;
   firstSequence: number;
   lastSequence: number;
   firstTimestamp: string;
   lastTimestamp: string;
   hasIncompleteChildExpand: boolean;
-}
-
-function isTerminalEventType(wireType: string): wireType is ChapterTerminalEventType {
-  return CHAPTER_TERMINAL_EVENT_TYPES.some((terminal) => terminal === wireType);
-}
-
-function isReopeningEventType(wireType: string): wireType is ChapterReopeningEventType {
-  return CHAPTER_REOPENING_EVENT_TYPES.some((reopening) => reopening === wireType);
 }
 
 /**
@@ -274,6 +257,9 @@ function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {
     actorId: undefined,
     terminalEventType: undefined,
     terminalRowId: undefined,
+    runStateEventType: undefined,
+    payingAccountId: undefined,
+    bodyRows: new ChapterBodyRowWindow(),
     firstSequence: row.sequence,
     lastSequence: row.sequence,
     firstTimestamp: row.timestamp,
@@ -284,12 +270,27 @@ function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {
 
 function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
   accumulator.rowIds.push(row.id);
+  accumulator.bodyRows.admit(row);
+  // First naming wins, for the actor's reason one line down and for one of its own:
+  // the account is settled when the run is admitted, so a later row naming another
+  // would be a run that changed who pays while it ran.
+  accumulator.payingAccountId ??= payingAccountIdOf(row);
   // First actor wins. A chapter is one run and a run has one agent; a later row
   // naming a different actor is a human steering inside the agent's chapter,
   // which `Spec-023 §Meridian, the design language` rule 1 keeps on the ROW's own
   // "2 px attribution edge in the author's hue" rather than moving the chapter's
   // header onto the person who interrupted it.
   accumulator.actorId ??= row.actor;
+  if (isRunStateEventType(row.type)) {
+    // NEWEST wins, which is the opposite of the account above and for the opposite
+    // reason: a state is what the run is NOW, so every transition replaces it.
+    accumulator.runStateEventType = row.type;
+  } else if (row.type === "run.rolled_back") {
+    // A rewind says the run came back and not what it came back into, so the state it
+    // had is cleared rather than kept: a chapter reporting `run.completed` after the
+    // completion was rewound would be reading a receipt the daemon already undid.
+    accumulator.runStateEventType = undefined;
+  }
   if (isTerminalEventType(row.type)) {
     // LAST terminal wins, in the same act for both members so the type and the row
     // it was read from can never name two different rows.
@@ -322,9 +323,12 @@ function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
     runId: accumulator.runId,
     rowIds: accumulator.rowIds,
     rowCount,
-    clippedRowCount: Math.max(0, rowCount - CHAPTER_VISIBLE_ROW_CAP),
+    clippedRowCount: chapterClippedHeadRowIds(accumulator.rowIds).length,
     actorId: accumulator.actorId,
     lifecycle: accumulator.terminalEventType === undefined ? "live" : "terminal",
+    runStateEventType: accumulator.runStateEventType,
+    payingAccountId: accumulator.payingAccountId,
+    clippedHeadRows: accumulator.bodyRows.headRows,
     terminalEventType: accumulator.terminalEventType,
     terminalRowId: accumulator.terminalRowId,
     firstSequence: accumulator.firstSequence,
@@ -334,4 +338,3 @@ function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
     hasIncompleteChildExpand: accumulator.hasIncompleteChildExpand,
   };
 }
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../../core/index.js";
