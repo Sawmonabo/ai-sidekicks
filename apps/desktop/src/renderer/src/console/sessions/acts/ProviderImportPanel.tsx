@@ -26,65 +26,36 @@
 // nothing on screen reporting it — so what disables the control is the whole of the
 // import, the begin and the stream that follows it, and the two phases keep their own
 // sentences because they fail differently.
+//
+// THE IMPORT ITSELF IS NOT HELD HERE, AND THAT IS DELIBERATE. This panel is rendered
+// behind a disclosure, so anything it held would end the moment somebody looked at the
+// join form instead — a closed progress stream, a lost import id, and the guard above
+// bypassed on the way back. `provider-import-model.ts` says the rest; what matters
+// here is that this component is a VIEW over an import and never the place one lives.
+// The two fields are the exception and are correctly the panel's: they are what the
+// NEXT import will be, and a person who has left the form has not typed one yet.
 
 import { useMemo, useState } from "react";
 
-import { SessionAct, useSessionAct } from "./act-settlement.js";
-import { isImportUnderway, useImportProgress } from "./provider-import.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";
+import type { ProviderImportModel } from "./provider-import-model.js";
 import { InlineRefusal } from "../../primitives/index.js";
-import { settleGrowthRead, type GrowthPort } from "../../bridge/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
-
-/** The holder key the import's opening act is addressed by, within a port. */
-const IMPORT_ACT_KEY = "provider-session-import";
 
 export interface ProviderImportPanelProps {
-  readonly growth: GrowthPort;
+  /** The import this bar is holding, running or not. */
+  readonly model: ProviderImportModel;
   /** Why the import cannot be started, or `undefined` where it can. */
   readonly blockedReason?: string | undefined;
 }
 
 export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.Element {
-  const { growth, blockedReason } = props;
+  const { model, blockedReason } = props;
   const [providerName, setProviderName] = useState("");
   const [sourceRef, setSourceRef] = useState("");
-  // Keyed on the PORT, on the rule `JoinSessionForm.tsx` states: an act minted in a
-  // mount-lifetime cell stays bound to the growth port the window closed when the
-  // bridge or the scenario moved.
-  const begin = useSubjectScopedState(
-    growth,
-    IMPORT_ACT_KEY,
-    () =>
-      new SessionAct<{ providerName: string; sourceRef: string }, { importId: string }>({
-        // Through `settleGrowthRead`, which is the console's one reader of a growth
-        // call that REJECTED rather than answering — the fixture throws a scripted
-        // daemon refusal verbatim, and the live seam will throw the same shape the day
-        // the wire lands, so a call site reading only the fulfilment arm leaves the
-        // form pinned on "running" for the life of the mount while an unhandled
-        // rejection reaches the window.
-        //
-        // The refusing arm IS a `ConsoleRefusal` either way and carries the operation,
-        // the slate row, and the document that owes the wire, so it travels onto the
-        // act's refused arm untouched rather than being re-minted here.
-        attempt: async (request) => {
-          const outcome = await settleGrowthRead(growth.providerSessionImportBegin(request));
-          return outcome.status === "served"
-            ? { status: "served", value: outcome.value }
-            : { status: "refused", refusal: outcome };
-        },
-        describeWhat: "The import",
-      }),
-  ).value;
-  const settlement = useSessionAct(begin);
-  const importId = settlement.status === "settled" ? settlement.answer.importId : undefined;
-  const progress = useImportProgress(growth, importId);
+  const { settlement, progress, isBeginning, isReading, isUnderway } = model;
 
   const trimmedProviderName = providerName.trim();
   const trimmedSourceRef = sourceRef.trim();
-  const isBeginning = settlement.status === "running";
-  const isReading = isImportUnderway(importId, progress);
-  const isRunning = isBeginning || isReading;
   const isIncomplete = trimmedProviderName.length === 0 || trimmedSourceRef.length === 0;
   const disabledReason = useMemo(() => {
     if (blockedReason !== undefined) {
@@ -108,7 +79,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
         if (disabledReason !== undefined) {
           return;
         }
-        void begin.run({ providerName: trimmedProviderName, sourceRef: trimmedSourceRef });
+        model.put({ providerName: trimmedProviderName, sourceRef: trimmedSourceRef });
       }}
     >
       <p className="meridian-session-import__lede">
@@ -120,7 +91,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
         <input
           className="meridian-session-import__input"
           value={providerName}
-          disabled={isRunning}
+          disabled={isUnderway}
           placeholder="claude"
           onChange={(event) => {
             setProviderName(event.target.value);
@@ -132,7 +103,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
         <input
           className="meridian-session-import__input"
           value={sourceRef}
-          disabled={isRunning}
+          disabled={isUnderway}
           placeholder="The transcript this node can reach"
           onChange={(event) => {
             setSourceRef(event.target.value);

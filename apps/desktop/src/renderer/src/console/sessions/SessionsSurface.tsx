@@ -340,8 +340,6 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
               settleSessionStart({
                 bridge: context.bridge,
                 sessionStoreRegistry: context.sessionStoreRegistry,
-                pins,
-                preferences,
                 openSession,
                 sessionId: created.sessionId,
               });

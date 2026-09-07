@@ -36,8 +36,8 @@
 
 import { recordConsoleStartedSession, requestSessionDirectoryRead } from "../../seats/index.js";
 import type { ConsoleSurfaceContext, SessionOriginEvidence } from "../../seats/index.js";
-import type { SessionPinBinding } from "../rows/session-pins.js";
-import type { SessionPreferenceBinding } from "../rows/session-preferences.js";
+import { pinSessionToFrontTier } from "../rows/session-pins.js";
+import { readWindowAutoPinOnFirstSend } from "../rows/session-preferences.js";
 
 /**
  * A session this window started: every marker known, none of them an exclusion.
@@ -54,17 +54,30 @@ export const STARTED_IN_THIS_WINDOW: SessionOriginEvidence = {
   startedByWorkflow: false,
 };
 
-/** The tier a pinned session sits on, named where the auto-pin write is composed. */
-const PINNED_TIER = "front";
+/**
+ * The durable half of the auto-pin rule, as the two verbs this act hands over.
+ *
+ * NEITHER VERB NAMES A STORE, AND THAT IS THE WHOLE OF WHY IT IS A CONSTANT. Both
+ * resolve the binding this window is holding at the moment they are CALLED, through
+ * the window-lifetime holders `rows/session-pins.ts` and `rows/session-preferences.ts`
+ * declare — so a first send made after somebody went back to the list, turned the
+ * switch off and rearranged the tiers reads the switch they left and writes over the
+ * map they left. Composed from this destination's own render-time bindings instead,
+ * both verbs resolved through the holder that mount had built: a later mount built
+ * another, and the record went on answering through the first.
+ *
+ * Frozen at module level rather than built per settled start, because it closes over
+ * nothing — there is one auto-pin authority per window and it has no fields.
+ */
+const WINDOW_AUTO_PIN_AUTHORITY = {
+  readAutoPinOnFirstSend: readWindowAutoPinOnFirstSend,
+  pinToFront: pinSessionToFrontTier,
+};
 
 /** What the destination hands this act, and everything the act touches. */
 export interface SessionStartSettlement {
   readonly bridge: ConsoleSurfaceContext["bridge"];
   readonly sessionStoreRegistry: ConsoleSurfaceContext["sessionStoreRegistry"];
-  /** The durable pin map, so a first send has a writer. */
-  readonly pins: SessionPinBinding;
-  /** The durable switch, so a first send has a rule to read. */
-  readonly preferences: SessionPreferenceBinding;
   /** Where a settled start goes. The same navigation a settled join performs. */
   readonly openSession: (sessionId: string) => void;
   /** The session the daemon minted. Never a guess, and never a press. */
@@ -79,7 +92,7 @@ export interface SessionStartSettlement {
  * hand its settlement out before any of this was reachable.
  */
 export function settleSessionStart(settlement: SessionStartSettlement): void {
-  const { bridge, sessionStoreRegistry, pins, preferences, openSession, sessionId } = settlement;
+  const { bridge, sessionStoreRegistry, openSession, sessionId } = settlement;
   // The disposed check is the remount window `frame/session-lifecycle.ts` names:
   // `open` is the one registry call that raises rather than returning a refusal, and
   // a settlement landing after this window's registry was replaced must not take the
@@ -92,17 +105,13 @@ export function settleSessionStart(settlement: SessionStartSettlement): void {
     bridge,
     sessionId,
     origin: STARTED_IN_THIS_WINDOW,
-    // BOTH VERBS RESOLVE THE DURABLE BINDING ON EVERY CALL, through the acquiring
-    // holder both bindings are built on. That is what lets the record outlive this
-    // surface: the first send that consults it usually happens after the navigation
-    // below has unmounted the destination, and a captured VALUE would by then be a
-    // copy of a durable record rather than a reading of it.
-    authority: {
-      readAutoPinOnFirstSend: () => preferences.readAutoPinOnFirstSend(),
-      pinToFront: (pinnedSessionId) => {
-        pins.setTier(pinnedSessionId, PINNED_TIER);
-      },
-    },
+    // BOTH VERBS RESOLVE THE WINDOW'S DURABLE BINDING ON EVERY CALL. That is what
+    // lets the record outlive this surface: the first send that consults it usually
+    // happens after the navigation below has unmounted the destination, and a
+    // captured VALUE would by then be a copy of a durable record rather than a
+    // reading of it — while a binding captured from THIS mount would be a reading of
+    // the store a later mount stopped writing to.
+    authority: WINDOW_AUTO_PIN_AUTHORITY,
   });
   requestSessionDirectoryRead(bridge.growth);
   openSession(sessionId);
