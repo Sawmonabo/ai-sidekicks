@@ -54,6 +54,18 @@ const BARE_AGENT_CONSOLE_HASH = "#/window/agent-console";
 
 const SESSION_WITH_AGENT = "session-with-agent";
 const AGENT_ID = "agent-alpha";
+/** A second agent in the same session, so a second choice is a different destination. */
+const OTHER_AGENT_ID = "agent-beta";
+
+/**
+ * Somewhere else entirely, for the case that navigates away mid-warm.
+ *
+ * The sessions list rather than another auxiliary route: it needs no registration, mounts
+ * no picker of its own, and is the address a person actually reaches when they abandon a
+ * window they opened by mistake.
+ */
+const SESSIONS_ROUTE: ConsoleRoute = { kind: "sessions" };
+const SESSIONS_HASH = "#/sessions";
 
 /**
  * A registry holding one open, INITIALISED session with these agents in it.
@@ -96,9 +108,12 @@ function BoundRouteSurface(props: {
    * case that wants to see the surface mount has to hand the frame the store the window's
    * own session lifecycle would have opened.
    *
-   * `| undefined` and not a bare `?`: `exactOptionalPropertyTypes` is on, and the caller
-   * below forwards its own optional parameter — which is `SessionStore | undefined` and
-   * not an absent property — so the bare form refuses every call that passes it through.
+   * `| undefined` beside the `?`, because this prop is a pass-through into
+   * `ConsoleSurfaceContext.sessionStore`, which the seam declares required-and-nullable —
+   * absent and explicitly-absent are the same fact to every reader downstream. Under
+   * `exactOptionalPropertyTypes` an exact-optional prop would refuse the forwarded
+   * `SessionStore | undefined` and buy nothing: the distinction it enforces does not
+   * survive into the context this component builds.
    */
   readonly sessionStore?: SessionStore | undefined;
 }): React.JSX.Element {
@@ -250,6 +265,119 @@ describe("RouteSurface — an agent-console window collects both identifiers bef
       // The commit landed on a settled module, so the surface never suspended and the
       // reserved frame was never committed — which is the whole claim.
       expect(pendingPaneKindsIn(container)).toStrictEqual([]);
+    } finally {
+      consoleSurfaceRegistry.unregister("agent-console");
+    }
+  });
+
+  it("leaves a route reached during the warm alone when the load lands behind it", async () => {
+    // THE COST OF WAITING. The case above buys "no reserved frame" by holding the picker
+    // up until the chunk lands, and what that buys is a window — as long as the fetch
+    // takes — in which the window can be somewhere else by the time the continuation
+    // runs. Unguarded it navigated anyway, so a person who chose a subject, changed their
+    // mind and went to the sessions list was dragged into the agent console a moment
+    // later, by a press they had already abandoned.
+    //
+    // The arrival is the case's for the reason the warm case states: a loader over
+    // `Promise.resolve` settles inside the first drain, before there is any interval in
+    // which to navigate at all.
+    const deferred = deferredBodyModule<ConsoleSurfaceContext>();
+    const owner = "route-surface-stale-commit-test";
+    try {
+      registerConsoleSurface({ slot: "agent-console", owner, body: deferred.load });
+      const registry = registryWithSessionAgents(SESSION_WITH_AGENT, [AGENT_ID]);
+      const frameStore = new FrameStore({ initialRoute: BARE_AGENT_CONSOLE_ROUTE });
+
+      renderBoundSurface(frameStore, registry, registry.open(SESSION_WITH_AGENT));
+      await settleReactWork();
+      await clickChoice(SESSION_WITH_AGENT);
+      await clickChoice(AGENT_ID);
+      await settleReactWork();
+      expect(frameStore.getState().route).toStrictEqual(BARE_AGENT_CONSOLE_ROUTE);
+
+      // Away, while the chunk is still in flight. Through the store rather than the
+      // address, because this is the direction a rail press takes and the binding
+      // publishes it either way.
+      await act(async () => {
+        frameStore.navigate(SESSIONS_ROUTE);
+        await crossMacrotaskBoundary();
+      });
+      await settleReactWork();
+
+      await act(async () => {
+        deferred.arrive(() => createElement("p", null, "the agent console body"));
+        await crossMacrotaskBoundary();
+      });
+      await settleReactWork();
+
+      // The newer address stands, and the address bar agrees with it — the second
+      // assertion is what says the settled continuation wrote nothing anywhere, rather
+      // than writing a route the store then happened to overwrite.
+      expect(frameStore.getState().route).toStrictEqual(SESSIONS_ROUTE);
+      expect(window.location.hash).toBe(SESSIONS_HASH);
+    } finally {
+      consoleSurfaceRegistry.unregister("agent-console");
+    }
+  });
+
+  it("commits the second choice even when the first choice's chunk lands first", async () => {
+    // The other way the wait is overtaken, and the one the ROUTE comparison cannot answer:
+    // the person chose, waited, and chose again without leaving. Both choices were made at
+    // the same bare address, so both continuations find the address unchanged and both are
+    // entitled to commit — and the one that lands first wins. Nothing behind a chunk fetch
+    // is cancellable, and chunk arrival order is not choice order, so the person who chose
+    // beta got alpha because alpha's chunk was smaller.
+    //
+    // THE ABANDONED LOAD LANDS FIRST HERE, DELIBERATELY. That is the only ordering in which
+    // the latch is the thing deciding: with the newest arriving first, the stale one is
+    // already refused by the address it was chosen at, and the case would be green over a
+    // console that had no latch at all.
+    //
+    // TWO LOADERS, NOT ONE RE-REGISTERED PROMISE. `LoadedLazyBody` memoises on the promise,
+    // so a second choice against one registration joins the first load and both
+    // continuations settle in the same drain, at which point the ordering rather than the
+    // latch picks the winner. Re-registering between the choices gives each one a load of
+    // its own to settle at its own moment.
+    const firstLoad = deferredBodyModule<ConsoleSurfaceContext>();
+    const secondLoad = deferredBodyModule<ConsoleSurfaceContext>();
+    const owner = "route-surface-superseded-choice-test";
+    try {
+      registerConsoleSurface({ slot: "agent-console", owner, body: firstLoad.load });
+      const registry = registryWithSessionAgents(SESSION_WITH_AGENT, [AGENT_ID, OTHER_AGENT_ID]);
+      const frameStore = new FrameStore({ initialRoute: BARE_AGENT_CONSOLE_ROUTE });
+
+      renderBoundSurface(frameStore, registry, registry.open(SESSION_WITH_AGENT));
+      await settleReactWork();
+      await clickChoice(SESSION_WITH_AGENT);
+      await clickChoice(AGENT_ID);
+      await settleReactWork();
+
+      registerConsoleSurface({ slot: "agent-console", owner, body: secondLoad.load });
+      await clickChoice(OTHER_AGENT_ID);
+      await settleReactWork();
+
+      // The ABANDONED choice's chunk lands first, onto a superseded round, and installs
+      // nothing — the assertion the whole case exists for. The address is still bare, so
+      // nothing but the latch is refusing it.
+      await act(async () => {
+        firstLoad.arrive(() => createElement("p", null, "the agent console body"));
+        await crossMacrotaskBoundary();
+      });
+      await settleReactWork();
+      expect(frameStore.getState().route).toStrictEqual(BARE_AGENT_CONSOLE_ROUTE);
+
+      // And the choice the person actually made commits when its own chunk lands.
+      await act(async () => {
+        secondLoad.arrive(() => createElement("p", null, "the agent console body"));
+        await crossMacrotaskBoundary();
+      });
+      await settleReactWork();
+      expect(frameStore.getState().route).toStrictEqual({
+        kind: "auxiliary",
+        route: "agent-console",
+        sessionId: SESSION_WITH_AGENT,
+        agentId: OTHER_AGENT_ID,
+      });
     } finally {
       consoleSurfaceRegistry.unregister("agent-console");
     }

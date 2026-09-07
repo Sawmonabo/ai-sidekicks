@@ -21,7 +21,8 @@ import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 import { registerSettingsSurface } from "./index.js";
-import { SETTINGS_SECTION_IDS, SettingsPageRegistry } from "./settings-page-registry.js";
+import { SettingsPageRegistry } from "./settings-page-registry.js";
+import { SETTINGS_SECTION_IDS } from "./settings-sections.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 // The descriptor type by its own specifier: no production module names it, so the
 // seats door publishes no line for it and the barrel census would fail one written
