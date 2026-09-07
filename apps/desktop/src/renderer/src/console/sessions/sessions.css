@@ -140,11 +140,34 @@
   color: var(--meridian-text-faint);
 }
 
+/* The identity column takes whatever the row's controls leave it, so everything in
+   it has to be able to give the width back. `min-width: 0` is what lets the column
+   shrink; this is what lets its TEXT shrink with it, and without the second half the
+   first only moves the overflow one box inward.
+
+   `anywhere` and not `break-word`, because the two differ in exactly the place that
+   matters here: only `anywhere` lowers a box's min-content contribution, so only it
+   makes the narrowest line the identity can draw one character rather than one
+   unbreakable run of the wire's own text. A session id is a UUID and its four
+   hyphens are break opportunities, so the narrowest line the name could make was a
+   twelve-character group — measured at 94 px against the 85 px the column has at the
+   320 px floor, on this machine and on the Linux runner alike. A digest-shaped
+   identifier hands the breaker nothing at all and is wider again. Every identifier
+   this column carries has that shape, so the rule sits on the column and is
+   inherited rather than being written once per figure.
+
+   Wrapping and not an ellipsis: a session is told apart from its neighbour by the
+   TAIL of its id, so a truncated one is two rows that read alike, and `figure.css`
+   states in its own words that a figure a person cannot read whole is one they have
+   to retype. Clipping the row would satisfy the reflow walk — which skips a box the
+   author has clipped — while taking the bytes off the screen, which is the criterion's
+   other half rather than a way past it. */
 .meridian-session-row__identity {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .meridian-session-row__name {
