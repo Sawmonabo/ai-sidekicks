@@ -74,7 +74,9 @@ function shownMemberValue(read: AttentionPreferenceRead): boolean | undefined {
   if (reading?.kind !== "answered" || reading.outcome.status !== "served") {
     return undefined;
   }
-  return reading.outcome.value.preferences[0]?.value["mentions"];
+  const member = reading.outcome.value.preferences[0]?.value["mentions"];
+  // The stored value is an open record on the wire; only a boolean is a position.
+  return typeof member === "boolean" ? member : undefined;
 }
 
 /** Let a settled reply reach the reading's own publication. */

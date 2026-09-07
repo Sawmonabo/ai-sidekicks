@@ -37,7 +37,7 @@ import {
 } from "./provider-quota-feed.test-support.js";
 import { useProviderQuotas } from "./provider-quota-feed.js";
 import { readRefusalOf } from "../readings/reading-lifecycle.js";
-import type { ProviderQuotaReadout } from "./provider-account-quota.js";
+import type { ProviderQuotaReadout } from "./provider-quota-readout.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 
 /** A bridge answering the registry read with an empty node. */
