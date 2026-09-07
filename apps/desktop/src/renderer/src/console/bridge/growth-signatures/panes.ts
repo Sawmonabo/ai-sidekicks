@@ -87,6 +87,34 @@ export interface PaneGrowthSignatures {
       readonly byteLength: number;
     };
   };
+  /**
+   * Which of the session's artifacts came out of the browser.
+   *
+   * THE PROVENANCE, AND THE ONLY PLACE IT CAN COME FROM. The `artifact.*` family is
+   * `{sessionId, artifactId?, runId?, diffArtifactId?, visibility?, state}` and names
+   * no producer, no origin, and no pane — so a fold over the log cannot tell a
+   * capture from a repository attachment, and a fold over this window's own capture
+   * replies sees only the captures this window took: an agent's capture, a completed
+   * download, and a bundled asset set are the daemon's own acts and reach no renderer
+   * reply at all. The daemon is the one party that sees every browser producer,
+   * because every one of them enters the ingest pipeline through it.
+   *
+   * SESSION-KEYED, because the shelf that reads it is: the design's overflow control
+   * shows the SESSION's recent browser-produced artifacts, and a pane is one window
+   * onto that session exactly as the tool relay next door is. A pane-keyed answer
+   * would hide an object the session's other window produced and would go empty the
+   * first time a person moved the pane.
+   *
+   * IDS AND NOT MANIFESTS. What this answers is membership; the state each object has
+   * reached is the log's and is joined on at the shelf, and the name, kind, and size
+   * are the manifest's and are read through `artifactRead`. An answer carrying any of
+   * them would be a second, staler copy of a record the console already reads
+   * elsewhere.
+   */
+  browserProducedArtifacts: {
+    request: { readonly sessionId: string };
+    value: { readonly artifactIds: readonly string[] };
+  };
   /** Arm hover-highlight. The chip the next click composes travels as a tool result. */
   browserPickElement: { request: { readonly paneId: string }; value: void };
   /**

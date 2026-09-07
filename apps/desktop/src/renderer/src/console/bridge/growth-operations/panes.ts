@@ -119,6 +119,12 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "method",
     "screenshot the visible page into the session's artifacts",
   ),
+  browserProducedArtifacts: op(
+    "browserProducedArtifacts",
+    "browser-pane-namespace",
+    "method",
+    "which of the session's artifacts came out of the browser, for the produced-object shelf",
+  ),
   browserPickElement: op(
     "browserPickElement",
     "browser-pane-namespace",

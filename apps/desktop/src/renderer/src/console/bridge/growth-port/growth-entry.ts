@@ -80,6 +80,7 @@ export type GrowthOperationId =
   | "browserDevtools"
   | "browserSubscribePages"
   | "browserCapture"
+  | "browserProducedArtifacts"
   | "browserPickElement"
   | "browserOpenFile"
   | "browserClearSiteData"

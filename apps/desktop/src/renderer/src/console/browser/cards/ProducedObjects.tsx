@@ -22,11 +22,12 @@
 //   • An IDENTITY ROW otherwise, carrying what the log actually said. It is not a
 //     degraded card and it does not leave a name-shaped hole: it says which object,
 //     what state it reached, and which run made it, which is the whole of what is
-//     known. "Otherwise" is the shelf being TOTAL over its own props rather than a
-//     state the pane reaches today — the pane's register is both the provenance and
-//     the card store, so an id it names it also has a card for. A shelf that answered
-//     an unbacked id with nothing would be a row silently missing from a list whose
-//     density rule is one row per produced object.
+//     known. "Otherwise" is now a state the shelf reaches on any ordinary session,
+//     because the provenance ledger names every browser producer and this window
+//     performed only some of them — an agent's capture, a completed download, and a
+//     bundled asset set each arrive as an id with no card behind it. The `undefined`
+//     branch below is the same row for the same reason, kept because this component
+//     is TOTAL over its own props rather than over what one caller happens to pass.
 //
 // A row is never a card with invented fields. Rendering the artifact id where a name
 // belongs would put a locator in a name's place on every row, and a person would
@@ -66,12 +67,12 @@ export function ProducedObjects(props: ProducedObjectsProps): React.JSX.Element 
         kind="empty"
         placement="inline"
         title="Nothing produced yet"
-        // Scoped to this window rather than to the session, because that is the whole
-        // extent of what the console can know: the artifact events name no producer,
-        // so an object another window's browser made is indistinguishable on the log
-        // from a repository attachment, and claiming the session produced nothing
-        // would be a claim about surfaces this one cannot see.
-        detail="This window's browser has not produced a capture, a download, or an asset bundle."
+        // Scoped to what was actually consulted. The provenance ledger is the
+        // daemon's answer for this SESSION, so an empty shelf is a session whose
+        // browser has produced nothing — and on a build where that read is refused
+        // the ledger stays unanswered and the only ids left are this window's own,
+        // which is the narrower claim this sentence makes.
+        detail="No capture, download, or asset bundle has been produced by this session's browser in this window."
       />
     );
   }
@@ -80,7 +81,7 @@ export function ProducedObjects(props: ProducedObjectsProps): React.JSX.Element 
     <div className="meridian-browser-cards">
       {artifacts.map((artifact) => {
         const card = cardsByArtifactId.get(artifact.artifactId);
-        if (card === undefined) {
+        if (card === undefined || card.kind === "named") {
           return <ProducedObjectRow key={artifact.artifactId} artifact={artifact} />;
         }
         return card.kind === "capture" ? (

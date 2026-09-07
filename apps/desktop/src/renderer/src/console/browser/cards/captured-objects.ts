@@ -20,10 +20,17 @@
 // accident — so nothing could tell a named capture from an unnamed one, here or
 // anywhere downstream.
 //
-// THE ID IS ALSO THE PANE'S PROVENANCE. The artifact events carry no producer member,
-// so this register is the only record that an artifact came out of the browser at all:
-// `SessionProducedObjects` folds the log against these keys, and an artifact absent
-// from them is some other surface's output rather than an unnamed one of ours.
+// THE ID IS PART OF THE PANE'S PROVENANCE AND NOT THE WHOLE OF IT, which is the one
+// thing this register must not be read as. The artifact events carry no producer
+// member, so provenance has to be asked for — and the party that can answer is the
+// daemon, which sees every browser producer, not this register, which sees only the
+// captures a person took through THIS pane's control. An agent's capture, a completed
+// download, a bundled asset set, and everything the browser produced before this
+// pane's mount are absent from it by construction. `produced-provenance.ts` asks the
+// daemon and unions these keys in as the ids this window already knows about before
+// any read could answer; the shelf renders that union. A shelf that folded the log
+// against these keys ALONE would report an ordinary session as having produced
+// nothing.
 //
 // THE REGISTER IS PER PANE AND BOUNDED. It is held against the pane the captures were
 // taken in, so a deck slot handed a different pane does not carry one pane's captures

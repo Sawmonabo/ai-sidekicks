@@ -312,6 +312,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     browserDevtools: async () => growthUnavailable("browserDevtools"),
     browserSubscribePages: async () => growthUnavailable("browserSubscribePages"),
     browserCapture: async () => growthUnavailable("browserCapture"),
+    browserProducedArtifacts: async () => growthUnavailable("browserProducedArtifacts"),
     browserPickElement: async () => growthUnavailable("browserPickElement"),
     browserOpenFile: async () => growthUnavailable("browserOpenFile"),
     browserClearSiteData: async () => growthUnavailable("browserClearSiteData"),

@@ -199,6 +199,23 @@
 // subset below and refuse by name under a scenario that scripts neither, which is the
 // `agentAttach` disposition and for the same reason.
 //
+// WHY THE BROWSER PROVENANCE READ IS THE ONE SERVED OPERATION IN ITS NAMESPACE.
+// Every other operation in the browser namespace ACTS on a live view — navigate,
+// select, capture, clear the partition — and a fixture that answered one would be
+// reporting that a page this bridge does not host had moved. This one asks a
+// question ABOUT THE SESSION'S OWN LOG: which of the artifacts the scenario already
+// publishes came out of the browser. That is a fact a scenario can state, and while
+// it could not, the produced-object shelf had exactly one source for it — the cards
+// this window's own capture control minted — so a scenario's agent captures, its
+// completed download, and its bundled asset set were folded out of the shelf and it
+// reported that nothing had been produced.
+//
+// AND THE UNSCRIPTED ARM IS THE EMPTY SET rather than a refusal, on the invite
+// ledger's rule: a session whose browser has produced nothing is an ordinary session
+// and the shelf draws it, whereas a refusal here would claim the question was never
+// asked. A scenario that publishes artifacts and names none of them as browser
+// output is saying they came from somewhere else, which is the answer this serves.
+//
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -241,6 +258,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "browserProducedArtifacts",
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
 ] = [
@@ -285,6 +303,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // browser — the one read in that namespace a scenario can answer, and the shelf's
+  // only source of provenance. See the browser section of the header.
+  "browserProducedArtifacts",
   // terminal lease — the two calls whose interesting answers are all refusals, served
   // so a scenario can script one. See the lease section of the header.
   "terminalAcquireWriteLease",
