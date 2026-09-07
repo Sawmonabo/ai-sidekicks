@@ -181,14 +181,15 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
       // The node's health, which is a MEASUREMENT and so is scripted rather than
       // folded out of beats: nothing in a session's log says whether the node's
       // storage is healthy. Two components, one of them not — so the cast bar's
-      // compact mark has something to say, and the mark's own absence when
-      // everything is healthy is still reachable from any other scenario.
+      // compact mark has something to say. A scenario that scripts no reading gets
+      // a refusal rather than a healthy verdict, which is why this one has to say
+      // what it measured: the fixture invents no health for anybody.
       call: "health.statusRead",
       result: {
         overall: "degraded",
         components: [
-          { component: "session-store", state: "healthy", observedAt: STARTED_AT_ISO },
-          { component: "relay", state: "degraded", observedAt: STARTED_AT_ISO },
+          { name: "session-store", state: "healthy", lastChecked: STARTED_AT_ISO },
+          { name: "relay", state: "degraded", lastChecked: STARTED_AT_ISO },
         ],
       },
     },

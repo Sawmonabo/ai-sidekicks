@@ -487,13 +487,17 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  *
  * Every other served operation has an honest answer for a scenario that scripts
  * nothing — an empty ledger, an empty roster, a workspace with no branch context —
- * and answers `served` under any scenario at all. Two classes have no such answer.
+ * and answers `served` under any scenario at all. Three classes have no such answer.
  * A WRITE: there is no such thing as "the attach that happened and produced nothing",
  * and serving a synthesized receipt would tell a surface the daemon did something no
- * author said it did. And a READ ADDRESSED BY A SUBJECT: a run's snapshot, a finished
+ * author said it did. A READ ADDRESSED BY A SUBJECT: a run's snapshot, a finished
  * phase's outputs, a definition's version chain — each answers with facts ABOUT a
  * named thing, so an empty form would assert that the thing exists and holds nothing,
- * which for a run no author declared is the same invention as a receipt. The
+ * which for a run no author declared is the same invention as a receipt. And a
+ * MEASUREMENT: the node's health verdict is a reading somebody took, and the reply
+ * carrying it has to name one of three categories — so there is no empty form of it
+ * at all, and a synthesized `healthy` would put a claim about the operator's own
+ * machine on the cast bar of every fixture window whose author measured nothing. The
  * enumerations beside them stay out of this set: a list of none is a real answer to
  * "what does this session hold". So these are implemented, and refuse by name under a
  * scenario that does not script them.
@@ -526,6 +530,7 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "onboardingComplete",
   "onboardingPresentChoice",
   "onboardingTelemetryPrompt",
+  "healthStatusRead",
   "healthFailureDetailRead",
   "healthStuckRunInspect",
   "healthRecoveryActionRequest",

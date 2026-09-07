@@ -61,10 +61,10 @@ function healthReply(
     call: "health.statusRead",
     result: {
       overall,
-      components: Object.entries(componentStates).map(([component, state]) => ({
-        component,
+      components: Object.entries(componentStates).map(([name, state]) => ({
+        name,
         state,
-        observedAt: "2026-01-01T14:20:00.000Z",
+        lastChecked: "2026-01-01T14:20:00.000Z",
       })),
     },
   };
