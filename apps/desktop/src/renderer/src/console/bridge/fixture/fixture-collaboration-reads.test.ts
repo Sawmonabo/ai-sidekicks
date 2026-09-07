@@ -134,8 +134,39 @@ describe("the fixture's collaboration answers", () => {
     expect(outcome.value.controlHolder).not.toBe(COLLABORATION_SCENARIO.viewingParticipantId);
   });
 
+  it("refuses every session-scoped answer addressed to a session this room is not playing", async () => {
+    // The five that carry a session, asked about ANOTHER one while this room's script
+    // answers them all. Served, an experiment would read one session's channels,
+    // people, devices and lease under a session that owns none of them — and a
+    // subject-scoping regression on any surface above would look exactly like this
+    // room working.
+    const port = collaborationPort();
+    const elsewhere = { sessionId: FLAGSHIP_SCENARIO.sessionId };
+    const [participantId] = COLLABORATION_SCENARIO.participantIdsInJoinOrder;
+
+    for (const outcome of [
+      await port.channelRosterRead(elsewhere),
+      await port.membershipRosterRead(elsewhere),
+      // A person this room DOES hold, so the session is the only thing refusing.
+      await port.participantPresenceDetailRead({
+        ...elsewhere,
+        participantId: participantId ?? "",
+      }),
+      await port.terminalControlHolderRead(elsewhere),
+      await port.channelCreate({ ...elsewhere, name: "design" }),
+    ]) {
+      expect(outcome.status).toBe("unavailable");
+      if (outcome.status === "unavailable") {
+        // The SCENARIO's gap, exactly as an unscripted call takes: this build serves
+        // all five, so `wire-unregistered` would name a document owing a wire that
+        // already has a stand-in.
+        expect(outcome.code).toBe("reply-unscripted");
+      }
+    }
+  });
+
   it("negative control: every one of them refuses for a room that scripts none", async () => {
-    // Without this the six cases above would hold over a fixture that served these
+    // Without this the seven cases above would hold over a fixture that served these
     // answers to every scenario, which is the fabrication the script-only rule exists
     // to prevent: an audience badge on a session whose channels nobody asked about,
     // or a free lease on a session nobody asked about the terminal in.

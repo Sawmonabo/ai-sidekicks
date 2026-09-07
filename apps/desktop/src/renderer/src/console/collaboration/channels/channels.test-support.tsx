@@ -140,9 +140,22 @@ export function rosterEntry(
 /** The scenario id every bridge below plays under. Named once; it rides every refusal. */
 const SCENARIO_ID = "collaboration-channels-test";
 
+/**
+ * A scenario playing the session these suites render, and scripting nothing else.
+ *
+ * The session is stated rather than left to `unscriptedScenario`'s own, because the
+ * surfaces below are rendered with `SESSION_ID` and the fixture's session-scoped
+ * answers are scoped to the session the scenario plays: a harness addressing one
+ * session while its bridge played another was being answered anyway, and every case
+ * built on it was passing for a reason no daemon would reproduce.
+ */
+function channelsScenario(): ConsoleScenario {
+  return { ...unscriptedScenario(SCENARIO_ID), sessionId: SESSION_ID };
+}
+
 /** A scenario whose one scripted reply ANSWERS the named call. */
 export function scenarioAnswering(call: string, result: unknown): ConsoleScenario {
-  return { ...unscriptedScenario(SCENARIO_ID), replies: [{ call, result }] };
+  return { ...channelsScenario(), replies: [{ call, result }] };
 }
 
 /**
@@ -153,7 +166,7 @@ export function scenarioAnswering(call: string, result: unknown): ConsoleScenari
  * surfaces against a value no bridge produces.
  */
 export function scenarioRefusing(call: string, code: string, message: string): ConsoleScenario {
-  return { ...unscriptedScenario(SCENARIO_ID), replies: [{ call, refusal: { code, message } }] };
+  return { ...channelsScenario(), replies: [{ call, refusal: { code, message } }] };
 }
 
 /** How a case wants its bridge to answer: which script, and what the roster read says. */
@@ -173,7 +186,7 @@ export interface ChannelsBridgeOptions {
  * travels the same seam a person's press will.
  */
 export function channelsBridge(options: ChannelsBridgeOptions = {}): ConsoleBridge {
-  const scenario = options.scenario ?? unscriptedScenario(SCENARIO_ID);
+  const scenario = options.scenario ?? channelsScenario();
   const { roster } = options;
   if (roster === undefined) {
     return fixtureBridgeWithGrowth(scenario, {});

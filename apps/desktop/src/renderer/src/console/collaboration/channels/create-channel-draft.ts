@@ -339,11 +339,27 @@ function readIdentifierList(typed: string): readonly string[] | undefined {
  * holding `two` is not the same fact as an empty one — the first is something a
  * person meant and the console could not read, and sending the session's default for
  * it would silently discard what they asked for.
+ *
+ * AND DIGIT-SHAPED IS NOT THE SAME FACT AS NUMBER-SHAPED, which is the second test.
+ * The pattern alone accepts any run of digits, and past `Number.MAX_SAFE_INTEGER`
+ * `Number` answers the nearest value it can represent rather than the one that was
+ * typed — so a cap of `9007199254740993` composed a request carrying `…992`, a
+ * different cap presented back as the person's own choice. Long enough and the answer
+ * is `Infinity`, which JSON has no form for at all, so the request could not even be
+ * encoded. Both are the SAME fact as `two`: something a person meant and this console
+ * cannot read, so both take the unreadable arm and the field says so where it can
+ * still be answered. There is no upper bound to check beyond that one — the corpus
+ * registers `turnsPerAgent` as a number and declares no ceiling — and inventing one
+ * here would be the form refusing a cap the daemon would have accepted.
  */
 function readTurnCap(typed: string): number | undefined | "unreadable" {
   const trimmed = typed.trim();
   if (trimmed === "") {
     return undefined;
   }
-  return /^[1-9][0-9]*$/.test(trimmed) ? Number(trimmed) : "unreadable";
+  if (!/^[1-9][0-9]*$/.test(trimmed)) {
+    return "unreadable";
+  }
+  const turnCap = Number(trimmed);
+  return Number.isSafeInteger(turnCap) ? turnCap : "unreadable";
 }
