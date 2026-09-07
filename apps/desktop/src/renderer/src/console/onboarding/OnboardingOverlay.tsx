@@ -141,7 +141,7 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
   const { value: models } = useSubjectScopedResource(
     bridge,
     undefined,
-    () => buildModels(bridge),
+    () => buildModels(bridge, frameStore),
     ONBOARDING_MODELS_DISPOSAL,
   );
 
@@ -276,6 +276,20 @@ export function OnboardingOverlay(props: OnboardingOverlayProps): React.JSX.Elem
   );
 }
 
-function buildModels(bridge: ConsoleSurfaceContext["bridge"]): OnboardingModels {
-  return { flow: new OnboardingFlow(bridge), readiness: new ProviderReadinessModel(bridge) };
+/**
+ * The pair one window holds. The store travels because the readiness model needs it.
+ *
+ * `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations while the
+ * supervisor is not serving, and the provider step's re-check dispatches one — so that
+ * model reads the shell state this store publishes and refuses the probe itself. The
+ * store is the window's, not this overlay's, so it is handed over rather than built.
+ */
+function buildModels(
+  bridge: ConsoleSurfaceContext["bridge"],
+  frameStore: ConsoleSurfaceContext["frameStore"],
+): OnboardingModels {
+  return {
+    flow: new OnboardingFlow(bridge),
+    readiness: new ProviderReadinessModel(bridge, frameStore),
+  };
 }

@@ -50,6 +50,16 @@
 // own page; this step renders the remedy for them as text, which is what the design
 // requires of a remedy in any case.
 //
+// AND THE RE-CHECK IS ITSELF A MUTATION, SO THE SUPERVISOR'S CONDITION CLOSES IT.
+// `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations while the
+// supervisor is not serving, and `providerAccount.probe` is one — so a re-check
+// dispatched while the shell is starting, reconnecting, offline, stopped, or
+// version-incompatible is a write this window had no business putting. The
+// classification is NOT made here: the method name is bound to the store family's own
+// closed tuple at compile time and asked of `shellBlockForMethod`, the one seam every
+// dispatching control goes through — which is also why the read beside it survives the
+// same outage, since that seam answers about a method and not about the window.
+//
 // SUPERSESSION IS THE FLOW'S RULE. A generation stamps every call and a settlement
 // arriving after this model was retired publishes nowhere.
 //
@@ -58,14 +68,13 @@
 // touches no reading — so a surface reading the projection alone compared a value
 // `Object.is` had no reason to call different: React suppressed the render, and a row
 // stayed pressable with its refusal off screen until a later read replaced the reading.
+//
+// The vocabulary those surfaces read is `provider-readiness-reading.ts` beside this
+// file; this module owns the behaviour over it.
 
-import type {
-  ProviderAccount,
-  ProviderAccountId,
-  ProviderReadiness,
-} from "@ai-sidekicks/contracts";
+import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type Unsubscribe } from "../../core/index.js";
 import {
   callDaemon,
   consoleClockFor,
@@ -75,52 +84,34 @@ import {
 import {
   NO_TRIGGERING_EVENT_KINDS,
   RefreshScheduler,
+  shellBlockForMethod,
+  shellBlocksAreEqual,
+  type FrameStore,
+  type MutatingDaemonMethod,
   type ReadTriggerTarget,
   type RefreshReason,
+  type ShellMutationBlock,
 } from "../../store/index.js";
-
-/** What the step knows about this node's providers. Closed; every arm renders. */
-export type ProviderReadinessReading =
-  | { readonly kind: "reading" }
-  | {
-      readonly kind: "read";
-      readonly entries: readonly ProviderReadiness[];
-      readonly accounts: readonly ProviderAccount[];
-    }
-  | { readonly kind: "unreadable"; readonly refusal: ConsoleRefusal };
-
-/** What this window has done about ONE provider since the step opened. */
-export type ProviderActionReading =
-  | { readonly kind: "idle" }
-  | { readonly kind: "handing-off" }
-  | { readonly kind: "handed-off" }
-  | { readonly kind: "rechecking" }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
-
-/** The idle reading, shared rather than rebuilt, so an untouched row is one object. */
-const IDLE: ProviderActionReading = { kind: "idle" };
+import {
+  IDLE_PROVIDER_ACTION,
+  signInAccountFor,
+  zeroStateSnapshot,
+  type ProviderActionReading,
+  type ProviderReadinessReading,
+  type ProviderReadinessSnapshot,
+} from "./provider-readiness-reading.js";
 
 /**
- * Everything one render of the step reads, as one value it can compare.
+ * The mutating verb a re-check dispatches, named once and bound to the closed set.
  *
- * `useSyncExternalStore` compares what its snapshot getter answers with `Object.is`
- * and renders nothing when the answer has not moved, so the acts ride a map REPLACED
- * on every publish: one mutated behind a stable reference is a change nothing
- * downstream can see.
+ * The `satisfies` IS the binding, and it is what keeps the classification out of this
+ * file: `MUTATING_DAEMON_METHODS` is the store family's registration of what a
+ * supervisor's condition closes, so a probe that ever left that tuple stops compiling
+ * here rather than quietly going back to being dispatchable through a stopped shell.
+ * The literal type survives it, which is what `callDaemon` needs to type the request
+ * and the reply — a wider annotation would take both.
  */
-export interface ProviderReadinessSnapshot {
-  readonly reading: ProviderReadinessReading;
-  /** What this window has done about each provider. Absent means untouched. */
-  readonly actions: ReadonlyMap<string, ProviderActionReading>;
-}
-
-/**
- * The zero reading, shared for `IDLE`'s reason: the model opens in it and a
- * re-addressing returns to it, and one object makes that reset legible as the same
- * state rather than as a second spelling of it. Its snapshot is minted per reset —
- * the acts beside it are this window's and belong to the scope that produced them.
- */
-const ZERO_STATE_READING: ProviderReadinessReading = { kind: "reading" };
+const RECHECK_METHOD = "providerAccount.probe" satisfies MutatingDaemonMethod;
 
 export class ProviderReadinessModel implements ReadTriggerTarget {
   /**
@@ -138,9 +129,12 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: ConsoleBridge;
+  readonly #frameStore: FrameStore;
   readonly #refresh: RefreshScheduler;
   readonly #changes = new Emitter<void>("provider readiness");
-  #snapshot: ProviderReadinessSnapshot = zeroStateSnapshot();
+  /** Dropped at supersession, so a retired model stops deriving from a live store. */
+  readonly #stopWatchingShell: Unsubscribe;
+  #snapshot: ProviderReadinessSnapshot;
   /**
    * The scope this model is addressed at. Read by every reason, written by one verb.
    *
@@ -152,8 +146,17 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   #accountScope: ProviderAccountId | undefined = undefined;
   #generation = 0;
 
-  public constructor(bridge: ConsoleBridge) {
+  public constructor(bridge: ConsoleBridge, frameStore: FrameStore) {
     this.#bridge = bridge;
+    this.#frameStore = frameStore;
+    this.#snapshot = zeroStateSnapshot(this.#currentRecheckBlock());
+    // The block is a fact about the window, so it is watched for the model's whole
+    // life rather than sampled at construction: a shell that goes away while the step
+    // is open has to close the control that is already on screen, and one that comes
+    // back has to re-open it without waiting for a remount.
+    this.#stopWatchingShell = frameStore.readable.subscribe(() => {
+      this.#syncRecheckBlock();
+    });
     this.#refresh = new RefreshScheduler({
       // The fixture's frozen clock wherever a scenario is playing and the real one
       // otherwise, resolved once per model.
@@ -201,7 +204,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
     }
     this.#accountScope = accountScope;
     this.#retireInFlight();
-    this.#publish(zeroStateSnapshot());
+    this.#publish(zeroStateSnapshot(this.#snapshot.recheckBlock));
   }
 
   /**
@@ -223,7 +226,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
 
   /** What this window has done about one provider. Never `undefined` — idle is real. */
   public actionFor(providerName: string): ProviderActionReading {
-    return this.#snapshot.actions.get(providerName) ?? IDLE;
+    return this.#snapshot.actions.get(providerName) ?? IDLE_PROVIDER_ACTION;
   }
 
   public subscribe(listener: () => void): Unsubscribe {
@@ -233,6 +236,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   /** Drop this model's claim on anything unsettled. Nothing published after this. */
   public supersede(): void {
     this.#retireInFlight();
+    this.#stopWatchingShell();
     this.#refresh.dispose();
   }
 
@@ -247,6 +251,28 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    */
   #retireInFlight(): void {
     this.#generation += 1;
+  }
+
+  /** What the supervisor's condition currently costs a re-check. Derived, never held. */
+  #currentRecheckBlock(): ShellMutationBlock | undefined {
+    return shellBlockForMethod(this.#frameStore.getState().shellState, RECHECK_METHOD);
+  }
+
+  /**
+   * Re-derive the re-check's block, and publish only where it actually moved.
+   *
+   * COMPARED RATHER THAN REPUBLISHED, because the store publishes on every cell it
+   * holds and the shell state itself is replaced on every heartbeat that carries a new
+   * timestamp — so an unguarded publish here would re-render every provider row
+   * several times a minute for a cause that had not changed. The comparison is the
+   * store family's own, beside the shape it compares.
+   */
+  #syncRecheckBlock(): void {
+    const recheckBlock = this.#currentRecheckBlock();
+    if (shellBlocksAreEqual(this.#snapshot.recheckBlock, recheckBlock)) {
+      return;
+    }
+    this.#publish({ ...this.#snapshot, recheckBlock });
   }
 
   /**
@@ -293,7 +319,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    */
   public async handOffSignIn(providerName: string): Promise<void> {
     const generation = this.#generation;
-    const providerAccountId = this.#signInAccountFor(providerName);
+    const providerAccountId = signInAccountFor(this.#snapshot.reading, providerName);
     this.#publishAction(providerName, { kind: "handing-off" });
     const settlement = await settleGrowthRead(
       this.#bridge.growth.onboardingProviderSignInHandoff(
@@ -319,11 +345,22 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    * from whichever account resolved. Reading the probe's own reply as the row's new
    * state would be this console re-deriving readiness, which is the defect the
    * required `readiness` member exists to remove.
+   *
+   * FAIL-CLOSED AT THE DISPATCH SITE, ahead of the in-flight publish and not only on
+   * the control. The row is disabled from the same block and renders it, so a press
+   * cannot ordinarily arrive here — but the block can land in the frame between the
+   * render that enabled the control and the click that reaches this method, and what
+   * must not happen then is a write. Publishing `rechecking` first would also leave a
+   * spinner nothing settles, so the guard sits above it; nothing is published at all,
+   * because the cause is already on screen beside the control that was pressed.
    */
   public async recheck(providerName: string, accountId: ProviderAccountId): Promise<void> {
+    if (this.#currentRecheckBlock() !== undefined) {
+      return;
+    }
     const generation = this.#generation;
     this.#publishAction(providerName, { kind: "rechecking" });
-    const reply = await callDaemon(this.#bridge, "providerAccount.probe", { accountId });
+    const reply = await callDaemon(this.#bridge, RECHECK_METHOD, { accountId });
     if (generation !== this.#generation) {
       return;
     }
@@ -331,27 +368,8 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
       this.#publishAction(providerName, { kind: "refused", refusal: reply.refusal });
       return;
     }
-    this.#publishAction(providerName, IDLE);
+    this.#publishAction(providerName, IDLE_PROVIDER_ACTION);
     await this.#read();
-  }
-
-  /**
-   * The account one provider's sign-in remedy named, where the daemon composed one.
-   *
-   * OFF THE REMEDY RATHER THAN OFF `resolvedAccountId`, though the contract holds the
-   * two equal on this arm: the remedy is what the control was rendered from, and its
-   * `accountId` is the account the invocation and the credential home beside it
-   * belong to. `undefined` where the reading has not answered, or where the
-   * provider's remedy is a registry verb rather than a sign-in — there is no account
-   * to name, and naming one anyway would be this console electing one.
-   */
-  #signInAccountFor(providerName: string): ProviderAccountId | undefined {
-    const { reading } = this.#snapshot;
-    if (reading.kind !== "read") {
-      return undefined;
-    }
-    const remedy = reading.entries.find((entry) => entry.provider === providerName)?.remedy;
-    return remedy?.kind === "sign_in" ? remedy.accountId : undefined;
   }
 
   /**
@@ -371,29 +389,4 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
     this.#snapshot = snapshot;
     this.#changes.emit();
   }
-}
-
-/**
- * Where this model starts, and where a re-addressing returns it to.
- *
- * A FACTORY AND NOT A SHARED VALUE, because the act map is a collection: `ReadonlyMap`
- * restricts the TypeScript view and not the runtime object, so one held at module
- * scope would be mutable from every model in the renderer. The reading beside it is a
- * literal, which is why that one stays a constant.
- */
-function zeroStateSnapshot(): ProviderReadinessSnapshot {
-  return { reading: ZERO_STATE_READING, actions: new Map() };
-}
-
-/** Which registered accounts belong to one provider, for the row's disclosure. */
-export function accountsForProvider(
-  accounts: readonly ProviderAccount[],
-  providerName: string,
-): readonly ProviderAccount[] {
-  return accounts.filter((account) => account.provider === providerName);
-}
-
-/** The providers that are NOT ready, named for the completion summary. */
-export function providersNotReady(entries: readonly ProviderReadiness[]): readonly string[] {
-  return entries.filter((entry) => entry.state !== "authenticated").map((entry) => entry.provider);
 }

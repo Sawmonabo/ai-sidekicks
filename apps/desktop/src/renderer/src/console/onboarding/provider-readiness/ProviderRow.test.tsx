@@ -18,6 +18,11 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import {
+  UNREPORTED_SHELL_STATE,
+  shellMutationBlock,
+  type ShellMutationBlock,
+} from "../../store/index.js";
 import { ProviderRow } from "./ProviderRow.js";
 import { providerAccountRecord } from "./provider-readiness.test-support.js";
 import type {
@@ -36,6 +41,7 @@ function renderRow(
   accounts: readonly ProviderAccount[],
   entry: ProviderReadiness = { provider: "codex", state: "authenticated" },
   onOpenAccountRegistry: (providerName: string) => void = () => undefined,
+  recheckBlock: ShellMutationBlock | undefined = undefined,
 ): HTMLElement {
   const { container } = render(
     // Inside a list, because the row renders an `<li>` and a case that mounted one
@@ -47,6 +53,7 @@ function renderRow(
         action={{ kind: "idle" }}
         onSignIn={() => undefined}
         onRecheck={() => undefined}
+        recheckBlock={recheckBlock}
         onOpenAccountRegistry={onOpenAccountRegistry}
       />
     </ul>,
@@ -192,5 +199,62 @@ describe("the remedy this row cannot perform", () => {
     });
 
     expect(controlLabels(container)).toStrictEqual(["Sign in to this provider"]);
+  });
+});
+
+describe("the re-check while the shell cannot be written to", () => {
+  /**
+   * The block the store derives for one supervisor state, so no sentence is retyped.
+   *
+   * Through the store's own derivation rather than a literal, because what this case
+   * claims is that the ROW renders the cause it was handed — a hand-typed sentence
+   * would keep passing after the store's own words moved.
+   */
+  const OFFLINE_BLOCK: ShellMutationBlock = (() => {
+    const block = shellMutationBlock({
+      ...UNREPORTED_SHELL_STATE,
+      connection: { kind: "offline", attemptLimit: 5, lastError: undefined },
+    });
+    if (block === undefined) {
+      throw new Error("the store derives no block for an offline supervisor");
+    }
+    return block;
+  })();
+
+  /** The row this arm is about: an account resolved, so a re-check is offered at all. */
+  const RESOLVED: ProviderReadiness = {
+    provider: "codex",
+    state: "reauth_required",
+    resolvedAccountId: ACCOUNT_ID,
+  };
+
+  /** The row's re-check control, failing rather than answering `undefined`. */
+  function recheckControl(container: HTMLElement): HTMLButtonElement {
+    const control = [...container.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Check again",
+    );
+    if (control === undefined) {
+      throw new Error("the row rendered no re-check control");
+    }
+    return control;
+  }
+
+  it("disables the re-check and puts the block's own sentence beside it", () => {
+    const container = renderRow([], RESOLVED, () => undefined, OFFLINE_BLOCK);
+
+    expect(recheckControl(container).disabled).toBe(true);
+    // Beside it and not instead of it: the control stays on screen, and the reason it
+    // cannot be pressed is on screen with it.
+    expect(container.textContent ?? "").toContain(OFFLINE_BLOCK.detail);
+    expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+  });
+
+  it("leaves the re-check pressable while nothing blocks it", () => {
+    // The negative control. Without it every assertion above passes on a row that
+    // disabled this control unconditionally.
+    const container = renderRow([], RESOLVED);
+
+    expect(recheckControl(container).disabled).toBe(false);
+    expect(container.querySelector(".meridian-refusal--inline")).toBeNull();
   });
 });

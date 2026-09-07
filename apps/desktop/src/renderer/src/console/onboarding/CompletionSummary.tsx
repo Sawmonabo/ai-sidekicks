@@ -30,8 +30,10 @@
 
 import { WireFigure } from "../primitives/index.js";
 import { ZERO_ACCOUNTS_NOTE } from "./provider-readiness/provider-readiness-copy.js";
-import type { ProviderReadinessReading } from "./provider-readiness/provider-readiness.js";
-import { providersNotReady } from "./provider-readiness/provider-readiness.js";
+import {
+  providersNotReady,
+  type ProviderReadinessReading,
+} from "./provider-readiness/provider-readiness-reading.js";
 import type { OnboardingCompletionStanding } from "./steps/step-model.js";
 
 export interface CompletionSummaryProps {

@@ -104,8 +104,8 @@ export {
   MUTATING_DAEMON_METHODS,
   /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
   isMutatingDaemonMethod,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
   shellBlockForMethod,
+  shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell-mutation-block.js";
 export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell-mutation-block.js";

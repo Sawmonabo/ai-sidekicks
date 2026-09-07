@@ -33,11 +33,8 @@ import {
 import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import {
-  accountsForProvider,
-  providersNotReady,
-  type ProviderReadinessModel,
-} from "./provider-readiness.js";
+import { accountsForProvider, providersNotReady } from "./provider-readiness-reading.js";
+import type { ProviderReadinessModel } from "./provider-readiness.js";
 import { READINESS_CALL, arrive, fixture, modelOver } from "./provider-readiness.test-support.js";
 
 /**
