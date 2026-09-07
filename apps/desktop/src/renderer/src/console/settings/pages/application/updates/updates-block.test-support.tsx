@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import type { SidekicksBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { ManualClock } from "../../../../core/index.js";
+import type { SessionStore } from "../../../../store/index.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../../primitives/index.js";
 import { politeText } from "../../../../primitives/live-region.test-support.js";
 import {
@@ -160,6 +161,53 @@ export async function pressCheckNow(block: HTMLElement): Promise<void> {
   });
 }
 
+/**
+ * Open the restart confirmation and leave it open, so a case can read what it says.
+ *
+ * The trigger is the block's own button; the popup it opens is PORTALLED to the
+ * document, which is why {@link restartDialog} looks for it there.
+ */
+export async function openRestartConfirmation(block: HTMLElement): Promise<void> {
+  const trigger = [...block.querySelectorAll("button")].find(
+    (button) => button.textContent === "Restart to apply",
+  );
+  await act(async () => {
+    trigger?.click();
+    await crossMacrotaskBoundary();
+  });
+}
+
+/** The confirmation's own popup, or `null` while it is closed. It is portalled. */
+export function restartDialog(): HTMLElement | null {
+  return document.body.querySelector<HTMLElement>(".meridian-confirm");
+}
+
+/**
+ * Open the restart confirmation and answer it.
+ *
+ * TWO PRESSES, because a restart is two acts now: the trigger states the consequence
+ * and the answer settles it. Written here rather than in each case so a suite cannot
+ * accidentally assert on a restart that was never confirmed — which is exactly the
+ * shape the cases below are checking for.
+ *
+ * Exact text equality separates the three buttons in the document: the trigger says
+ * "Restart to apply", the confirm says "Restart", the cancel says "Not now".
+ */
+export async function answerRestartConfirmation(
+  block: HTMLElement,
+  answer: "Restart" | "Not now",
+): Promise<void> {
+  await openRestartConfirmation(block);
+  const settle = [...document.body.querySelectorAll("button")].find(
+    (button) => button.textContent === answer,
+  );
+  await act(async () => {
+    settle?.click();
+    await crossMacrotaskBoundary();
+    await crossMacrotaskBoundary();
+  });
+}
+
 /** The block's own element, so a case never reads the announcer's regions by accident. */
 export function updatesBlockOf(root: HTMLElement): HTMLElement {
   const block = root.querySelector<HTMLElement>('section[aria-label="Application updates"]');
@@ -183,7 +231,10 @@ export function updatesBlockOf(root: HTMLElement): HTMLElement {
  * suite that mounted its own tree to reach either had a second copy of this mount and
  * the two disagreed about which announcer clock the block runs on.
  */
-export async function renderSettled(bridge: ConsoleBridge): Promise<{
+export async function renderSettled(
+  bridge: ConsoleBridge,
+  retainedSessionStore?: SessionStore,
+): Promise<{
   readonly block: HTMLElement;
   readonly clock: ManualClock;
   readonly politeText: () => string;
@@ -197,7 +248,7 @@ export async function renderSettled(bridge: ConsoleBridge): Promise<{
   const announcer = new LiveAnnouncer({ clock });
   const treeFor = (transport: ConsoleBridge): ReactNode => (
     <LiveAnnouncerProvider announcer={announcer}>
-      <UpdatesBlock bridge={transport} />
+      <UpdatesBlock bridge={transport} retainedSessionStore={retainedSessionStore} />
     </LiveAnnouncerProvider>
   );
   let rendered: ReturnType<typeof render> | undefined;

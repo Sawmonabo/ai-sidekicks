@@ -8,6 +8,13 @@
 // translated into the wrong kind of answer — a never-released reply reaching a
 // surface as an absent value, say — and the two are separate failures with separate
 // evidence.
+//
+// `answerScriptOnly` below is the one disposition of that mapping that more than one
+// plane takes, so it is hoisted here rather than written twice: the port keeps the agent
+// and sidekick writes, and `fixture-diagnostics-reads.ts`, `fixture-provider-account-writes.ts`,
+// `fixture-mcp-governance.ts` and `fixture-onboarding-answers.ts` each take it for their
+// own. A second copy would drift on exactly the half that matters — WHICH refusal an
+// unscripted call meets.
 
 import {
   growthScriptedReplyUnavailable,
@@ -99,28 +106,34 @@ export async function answerFromScriptedReply<TOperationId extends GrowthOperati
 }
 
 /**
- * Answer one WRITE from the script, and refuse where the scenario scripts none.
+ * Answer one SCRIPT-ONLY operation from the script, and refuse where none is scripted.
  *
  * BESIDE ITS READING SIBLING because it is the same join: a settlement mapped onto an
- * outcome. It lived in `fixture-growth-port.ts` while that port was its only caller,
- * and moved here when the onboarding plane took a module of its own — two callers, one
- * rule, and a copy in the second would have been free to disagree about the one
- * decision below.
+ * outcome. It lived in `fixture-growth-port.ts` while that port was its only caller, and
+ * moved here as soon as a second plane took a module of its own — one rule, and a copy
+ * in the second caller would have been free to disagree about the one decision below.
  *
- * A read has an empty state and a write does not: "this session has no agents" is a
- * state the console draws, and there is no such thing as "the attach that happened and
- * produced nothing". So a write no scenario answers cannot take the served arm with a
- * synthesized receipt — that would tell a surface the daemon did something no author
- * ever said it did, and for an attach it would mint an identity every later read is
- * keyed by.
+ * Two classes land here, and `fixture-served-operations.ts` names both because the
+ * membership decision is that module's. A WRITE: "this session has no agents" is a
+ * state the console draws and there is no such thing as "the attach that happened and
+ * produced nothing", so a synthesized receipt would tell a surface the daemon did
+ * something no author ever said it did — and for an attach it would mint an identity
+ * every later read is keyed by. And a READ ADDRESSED BY A SUBJECT: one run's failure
+ * detail, one run's stall reading, one run's snapshot — each answers with facts ABOUT
+ * a named thing, so an empty form would assert the thing exists and holds nothing,
+ * which for a run no author declared is the same invention as a receipt.
  *
- * The precondition is checked here rather than inside the seam because it is a fact
- * about the SCENARIO rather than about the settlement — `callerParticipantRead` reads
- * its own precondition off `engine.scenario` for the same reason. What is left after
- * the check is exactly the settlement the seam reports, so the parked, abandoned, and
+ * The enumerations are deliberately not in either class: a list of none is a real
+ * answer to "what does this session hold", and those operations serve it.
+ *
+ * The precondition is read off `engine.scenario` BEFORE the settlement rather than as a
+ * fifth settlement arm inside `answerFromScriptedReply`, because it is a fact about the
+ * SCENARIO rather than about the settlement — `callerParticipantRead` in the port reads
+ * its own precondition the same way and for the same reason. What is left after the
+ * check is exactly the settlement the seam reports, so the parked, abandoned, and
  * over-cap arms all keep their own answers.
  */
-export async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
+export async function answerScriptOnly<TOperationId extends GrowthOperationId>(
   engine: ScenarioEngine,
   call: string,
   operationId: TOperationId,
@@ -136,10 +149,10 @@ export async function answerScriptedWrite<TOperationId extends GrowthOperationId
     return growthUnscriptedReply(operationId, call);
   }
   return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
-    // Unreachable: the guard above already refused every unscripted call, and the seam
-    // reports `unscripted` only for exactly that. Named rather than cast, so a later
-    // change that moves the guard fails here loudly instead of serving a value that was
-    // never scripted.
+    // Unreachable: the guard above already refused every unscripted call, and the
+    // seam reports `unscripted` only for exactly that. Named rather than cast, so a
+    // later change that moves the guard fails here loudly instead of serving a value
+    // that was never scripted.
     throw new Error(`${call} reached the unscripted arm behind its own scripted guard`);
   });
 }

@@ -8,7 +8,7 @@
 // same mount, and the same way of typing into the field. Written twice they would drift
 // the first time either grew a member.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 
 import { settle } from "../core/settle.test-support.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
@@ -33,7 +33,7 @@ import {
  * It also makes the slot claim itself a covered fact: a registrar that claimed nothing
  * fails here rather than rendering an empty rail.
  */
-export async function shippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
+async function loadShippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
   const surfaces = new ConsoleSurfaceRegistry();
   registerSettingsSurface(surfaces);
   // The chunk, before the mount — which is what a window does too: the idle warm walks
@@ -48,6 +48,52 @@ export async function shippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["
   }
   return descriptor.render;
 }
+
+/**
+ * That chunk, fetched once per suite and warmed off the per-case clock.
+ *
+ * THE COST IS REAL AND IT IS NOT WHAT ANY CASE MEASURES. The loader above pulls the
+ * settings chunk — a dozen page modules, the combobox stack two of them mount, and the
+ * stylesheets they carry — and the first case to await it pays the transform for all of
+ * them inside vitest's 5 s per-case default. That is comfortable when a file runs alone
+ * and it is not comfortable when the tier runs beside a dozen others on one machine: the
+ * first case times out, the render it abandoned keeps its effects, and every case after
+ * it fails against a document the aborted one left behind — a dozen failures reported as
+ * a dozen defects, none of them real, green standalone and red in the suite.
+ * `test/console/architecture/act-settling.test.ts` records the same finding about its own
+ * parse and takes the same remedy.
+ *
+ * So the fetch is memoised in a holder, and a suite that renders the shipped arm awaits
+ * it once in `beforeAll`, where the budget belongs to a hook rather than to an assertion.
+ * A class with a private field rather than a module-level `let`, per
+ * `apps/desktop/AGENTS.md`.
+ */
+class ShippedSurfaceRenderHolder {
+  #fetched: Promise<ConsoleSurfaceDescriptor["render"]> | undefined;
+
+  public fetch(): Promise<ConsoleSurfaceDescriptor["render"]> {
+    this.#fetched ??= loadShippedSurfaceRender();
+    return this.#fetched;
+  }
+}
+
+const shippedSurfaceRenderHolder = new ShippedSurfaceRenderHolder();
+
+/** The shipped render, fetched on the first ask and handed back on every one after it. */
+export function shippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["render"]> {
+  return shippedSurfaceRenderHolder.fetch();
+}
+
+/**
+ * Long enough for a cold transform of that chunk on a loaded machine, and no case's.
+ *
+ * Measured rather than guessed: a suite's own cold run reports ~50 s of transform and
+ * import while a dozen sibling suites hold the machine, and about a second when the
+ * transform cache is warm. The bound is roughly twice the measured worst case, because
+ * it gates nothing — the bundle and endurance tiers own what this chunk may cost — and
+ * a bound too tight here reintroduces exactly the cascade it exists to prevent.
+ */
+export const CHUNK_WARM_TIMEOUT_MS = 120_000;
 
 /** A window parked on a settings address, plus the store that remembers where it has been. */
 export interface SettingsWindow {
@@ -128,11 +174,18 @@ export async function renderSurface(
  *
  * The native value setter rather than an assignment, because React reads the input's
  * value through its own descriptor and a plain write is invisible to it.
+ *
+ * INSIDE `act`, like a press is. The dispatch drives a state write through React's own
+ * change handler, and outside React's scope that write is applied without the surrounding
+ * commit — so an assertion taken next reads the render before it, and React reports the
+ * escape on stderr rather than failing.
  */
 export function searchFor(container: HTMLElement, query: string): void {
   const field = container.querySelector(".meridian-settings__search-input");
   const input = field as HTMLInputElement;
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-  setter?.call(input, query);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+  act(() => {
+    setter?.call(input, query);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }

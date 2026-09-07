@@ -32,6 +32,7 @@ import { useSettledGrowthRead, createFixtureBridge, type GrowthPort } from "../b
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { settle as settleReactWork } from "../core/settle.test-support.js";
+import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 import { useSubjectScopedState } from "../store/index.js";
 import {
   offeredSessionIds,
@@ -186,7 +187,7 @@ function DirectoryProbe(props: {
   readonly growth: GrowthPort;
   readonly onObserve: (state: SessionDirectoryState) => void;
 }): React.JSX.Element {
-  props.onObserve(useSessionDirectory(props.growth));
+  props.onObserve(useSessionDirectory(props.growth, NO_TRANSPORT_RECONNECT));
   return <></>;
 }
 

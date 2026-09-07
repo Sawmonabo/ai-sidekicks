@@ -8,13 +8,16 @@
  * red where something failed). Grep any of these files for `amber` and `red` and
  * every hit is one of those.
  *
- * Every sheet here is imported from the family's one chunk root,
- * `console/browser/pane/browser-pane-body.ts`, and from nowhere else, so the
- * bundler sees exactly one edge into each however many surfaces this
- * family grows. It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a
- * `styles/` directory of its own: one sheet per sub-module directory, named for
- * that directory, so the shapes and the rules that draw them are read together and
- * a further sheet has one plausible home instead of two.
+ * This sheet enters at `console/browser/pane/browser-pane-body.ts`, the family's
+ * one chunk root, because nothing on the initial import graph can render the
+ * surface it dresses. The split between the five sheets there and the two at the
+ * family door is read off the module graph rather than off the directory, and both
+ * halves of it are stated at the two modules that carry the edges.
+ *
+ * It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a `styles/` directory
+ * of its own: one sheet per sub-module directory, named for that directory, so the
+ * shapes and the rules that draw them are read together and a further sheet has one
+ * plausible home instead of two.
  *
  * The ledger the resource ceiling renders as: twenty-odd rows a reviewer scans
  * down one column of, which is what a table is for and what rule 5's density

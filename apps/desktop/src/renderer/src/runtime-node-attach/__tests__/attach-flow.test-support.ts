@@ -27,18 +27,20 @@
 // fixture annotation to satisfy some other constraint re-fails here.
 
 import { fireEvent, screen } from "@testing-library/react";
-import { expectTypeOf } from "vitest";
+import { expectTypeOf, vi } from "vitest";
+import type { Mock } from "vitest";
 
 import type {
   EventEnvelopeVersion,
   NodeId,
   ParticipantId,
+  RuntimeNodeAttachRequest,
   RuntimeNodeAttachResponse,
   SessionId,
   SidekicksBridge,
 } from "@ai-sidekicks/contracts";
 
-import type { RuntimeNodeAttachDraft } from "../attach-request.js";
+import type { RuntimeNodeAttachDraft, RuntimeNodeAttachReads } from "../attach-request.js";
 
 // Typed bridge arm — `Pick<...>` over the SHIPPED bridge interface rather than a
 // hand-written literal, so a renamed or deleted member makes the `Pick` constraint
@@ -99,4 +101,35 @@ expectTypeOf(READ_ONLY_ATTACH_RESPONSE).toEqualTypeOf<RuntimeNodeAttachResponse>
 /** Press the idle branch's one control. */
 export function clickAttach(): void {
   fireEvent.click(screen.getByRole("button", { name: "Attach runtime node" }));
+}
+
+/** What one case's attach answers. Concrete, so its return type is checked. */
+export type AttachNodeMock = Mock<
+  (request: RuntimeNodeAttachRequest) => Promise<RuntimeNodeAttachResponse>
+>;
+
+/** A built transport, plus the handle a case drives it by. */
+export interface DrivenAttachTransport {
+  readonly reads: RuntimeNodeAttachReads;
+  readonly attachNode: AttachNodeMock;
+}
+
+/**
+ * Build one transport for the view to attach through.
+ *
+ * A BUILDER RATHER THAN AN OBJECT LITERAL PER CASE, because the transport's IDENTITY
+ * is what the addressing cases are about: the view stamps its settled receipt with the
+ * seam it was attached through, so a case has to hold one object across a re-render and
+ * hand a DIFFERENT one in to express a replacement. A literal composed inline in the
+ * JSX would be a new object on every pass, which re-addresses the holder on every
+ * render and would make every one of those cases pass for the wrong reason.
+ *
+ * Mirrors `createDrivenSeam` on the roster suite beside it, one member narrower
+ * because this view's seam is one call.
+ */
+export function createAttachTransport(
+  attachNode: (request: RuntimeNodeAttachRequest) => Promise<RuntimeNodeAttachResponse>,
+): DrivenAttachTransport {
+  const mockedAttachNode: AttachNodeMock = vi.fn(attachNode);
+  return { reads: { attachNode: mockedAttachNode }, attachNode: mockedAttachNode };
 }

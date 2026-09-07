@@ -203,9 +203,18 @@ export interface PrfInput {
  * discriminated union is sufficient for the bridge type to compile. The
  * Tier-1-stub bridge throws on `update.getState()` so the runtime shape is
  * never observed by Tier 1 callers.
+ *
+ * `Spec-023 §Preload Bridge Contract` names this type on `update.getState` and
+ * `update.subscribe` and fixes no arm shape, so the arms are settled here. The
+ * `idle` arm carries the instant of the last completed check because the settings
+ * read-out has to say when the answer it is showing was established — an `idle`
+ * with no time behind it reads as "there is no update" when what it means is "we
+ * do not know". It is OPTIONAL and absent is a real state rather than a gap: a
+ * build that has never completed a check has no instant to report, and a
+ * fabricated one would be the renderer inventing a reading.
  */
 export type UpdateState =
-  | { readonly status: "idle" }
+  | { readonly status: "idle"; readonly lastCheckedAt?: string }
   | { readonly status: "checking" }
   | { readonly status: "downloading"; readonly percent: number }
   | { readonly status: "ready" }

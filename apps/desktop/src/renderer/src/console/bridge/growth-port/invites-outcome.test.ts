@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { growthUnavailable } from "./growth-port.js";
+import { growthUnavailable } from "./growth-refusals.js";
 import type { InvitesListRefusal, ServedInvite } from "./invites-outcome.js";
 
 /** `false` exactly when `T` is uninhabited. A derived row type never should be. */

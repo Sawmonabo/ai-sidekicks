@@ -44,6 +44,55 @@ describe("the page's refresh signals", () => {
     expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(2);
   });
 
+  it("re-reads the inventory when the transport comes back", async () => {
+    // The third signal the section names, and the one that was bound nowhere. It is a
+    // different fact from the two beside it: this window never lost focus and this
+    // session never went degraded, and the mount health on screen was still read
+    // before a gap in the wire.
+    const listMethods: string[] = [];
+    const reading = contextReading({
+      mountIds: [MOUNT_A],
+      onCall: (method) => {
+        listMethods.push(method);
+      },
+    });
+    const { settle } = await renderSettledPage(reading);
+    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
+
+    await act(async () => {
+      // Through the signal's own edge detection rather than by calling a refresh:
+      // what is asserted is that a window whose wire went away and came back re-reads,
+      // and the signal is the one place allowed to decide that happened.
+      reading.context.bridge.transportReconnect.observe("unreachable");
+      reading.context.bridge.transportReconnect.observe("reachable");
+      await settle();
+    });
+
+    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(2);
+  });
+
+  it("negative control: a transport that never went away re-reads nothing", async () => {
+    // Without this, the case above would hold for a list that re-read on any report
+    // of reachability — which a live bridge makes on every successful subscribe, and
+    // which would be the poll this design refuses wearing another name.
+    const listMethods: string[] = [];
+    const reading = contextReading({
+      mountIds: [MOUNT_A],
+      onCall: (method) => {
+        listMethods.push(method);
+      },
+    });
+    const { settle } = await renderSettledPage(reading);
+
+    await act(async () => {
+      reading.context.bridge.transportReconnect.observe("reachable");
+      reading.context.bridge.transportReconnect.observe("reachable");
+      await settle();
+    });
+
+    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
+  });
+
   it("negative control: the same event moves nothing when the window holds no store", async () => {
     // Without this the case above would pass over a page that re-read on any
     // render, and would prove nothing about which signal reached the read.

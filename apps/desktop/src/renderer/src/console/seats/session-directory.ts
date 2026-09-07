@@ -109,6 +109,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
+import type { TransportReconnectObservable } from "../core/index.js";
 import {
   useSettledGrowthRead,
   type GrowthPort,
@@ -250,9 +251,14 @@ export function requestSessionDirectoryRead(growth: GrowthPort): void {
  * `store/read-triggers.ts` states: this read is addressed at the NODE, so no one
  * session's repair and no one session's timeline bear on it, and it declares no
  * triggering event kinds because nothing in one session's timeline says the node's
- * list moved.
+ * list moved. The transport signal is the caller's because it is the BRIDGE's: this
+ * hook holds a port and a port carries no reconnect, so the one edge a node-wide list
+ * has to re-read on arrives as a parameter rather than as a signal invented here.
  */
-export function useSessionDirectory(growth: GrowthPort): SessionDirectoryState {
+export function useSessionDirectory(
+  growth: GrowthPort,
+  transportReconnect: TransportReconnectObservable,
+): SessionDirectoryState {
   const watchDirectoryRevision = useCallback(
     (wake: () => void) => sessionDirectoryStaleness.watch(growth, wake),
     [growth],
@@ -291,6 +297,7 @@ export function useSessionDirectory(growth: GrowthPort): SessionDirectoryState {
       }),
       [growth],
     ),
+    transportReconnect,
   );
   return state;
 }

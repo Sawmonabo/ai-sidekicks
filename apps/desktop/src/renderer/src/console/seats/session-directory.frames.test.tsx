@@ -31,6 +31,7 @@ import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { CommittedFrameRecorder } from "../core/committed-frame.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { useSessionDirectory, type SessionDirectoryState } from "./session-directory.js";
+import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 
 /**
  * The shape this hook replaced: a `useState` cell reset from inside the effect.
@@ -88,7 +89,9 @@ function directoryText(state: SessionDirectoryState): string {
 
 /** The shipped hook, painted. */
 function DirectoryFrame(props: { readonly growth: GrowthPort }): React.JSX.Element {
-  return <output>{directoryText(useSessionDirectory(props.growth))}</output>;
+  return (
+    <output>{directoryText(useSessionDirectory(props.growth, NO_TRANSPORT_RECONNECT))}</output>
+  );
 }
 
 /** The pre-holder hook, painted — the same surface over the shape this replaced. */

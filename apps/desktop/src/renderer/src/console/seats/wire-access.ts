@@ -24,7 +24,7 @@
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../bridge/index.js";
+import { openObservedSubscription, type ConsoleBridge } from "../bridge/index.js";
 
 /**
  * Subscribe to one daemon event.
@@ -32,6 +32,12 @@ import type { ConsoleBridge } from "../bridge/index.js";
  * The handler's payload is typed by the caller for the same reason and from the
  * same place. A surface that treats the payload as an opaque change signal — which
  * is what presence does — types it as `void` and reads nothing out of it.
+ *
+ * THE OPEN IS REPORTED, through the bridge family's own rule for what an open proves
+ * (`bridge/transport/observed-subscription.ts`). Every view family that subscribes
+ * reaches the wire here, so this is one of the console's few live readings of whether
+ * the transport is there at all — and the window's retry of a session whose own bind
+ * failed depends on a reading taken somewhere other than that binding.
  */
 export function subscribeDaemonEvent<TPayload>(
   bridge: ConsoleBridge,
@@ -42,5 +48,5 @@ export function subscribeDaemonEvent<TPayload>(
     eventName: string,
     onPayload: (payload: TPayload) => void,
   ) => Unsubscribe;
-  return subscribe(event, handler);
+  return openObservedSubscription(bridge.transportReconnect, () => subscribe(event, handler));
 }

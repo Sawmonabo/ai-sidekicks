@@ -27,6 +27,7 @@ import type {
   CallerParticipantOutcome,
 } from "./attention-preference-model.js";
 import { settle as settleReactWork } from "../../../core/settle.test-support.js";
+import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 
@@ -56,8 +57,32 @@ export function servedPreferences(
   return { status: "served", value: { preferences } };
 }
 
-/** Let the chained reads, the write, and the re-read all land. */
-export async function settle(): Promise<void> {
+/**
+ * How many scheduler windows the page's read chain crosses before it has settled.
+ *
+ * TWO, AND BOTH OF THEM ARE READS. The identity read is scheduled now — it takes the
+ * window's own triggers so a refused one is asked again on the next focus — and the
+ * participant it names is the subject the preference reading is minted under, so that
+ * reading does not exist to ask for its own set until the first window has elapsed and
+ * answered. A harness that advanced once would fire the identity read and then report
+ * the absence of a preference read it never gave the scheduler a chance to perform.
+ */
+const CHAINED_READ_WINDOWS = 2;
+
+/**
+ * Let the chained reads, the write, and the re-read all land.
+ *
+ * BOTH READS CROSS A SCHEDULER, and both are armed on the fixture's FROZEN clock, so a
+ * case that only drained React would advance nothing at all. The bridge is a parameter
+ * because the clock is the bridge's. React's own queue is drained between the windows
+ * as well as before them: the identity reply commits a render, and it is that render
+ * that mints the reading which asks for the set.
+ */
+export async function settle(bridge: ConsoleBridge): Promise<void> {
+  for (let window = 0; window < CHAINED_READ_WINDOWS; window += 1) {
+    await settleReactWork();
+    await settleScheduledRead(bridge);
+  }
   await settleReactWork();
 }
 
@@ -70,7 +95,7 @@ export async function settle(): Promise<void> {
  */
 export async function renderSettledPage(bridge: ConsoleBridge): Promise<HTMLElement> {
   const container = renderPageAt(bridge, SESSION_ID);
-  await settle();
+  await settle(bridge);
   return container;
 }
 
@@ -129,10 +154,17 @@ export function storedLabels(container: HTMLElement): string[] {
   ].map((element) => element.textContent ?? "");
 }
 
+/**
+ * Press one control and let what it started land.
+ *
+ * React's queue only, and deliberately: a press starts a write, and the re-read behind
+ * a served write is taken straight rather than scheduled — the writer needs the value
+ * in its own loop. Advancing the clock here would settle a read nothing had asked for.
+ */
 export async function press(element: HTMLElement | undefined): Promise<void> {
   await act(async () => {
     element?.click();
     await crossMacrotaskBoundary();
   });
-  await settle();
+  await settleReactWork();
 }

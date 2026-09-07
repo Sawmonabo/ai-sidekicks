@@ -38,6 +38,7 @@ import "./ledger-row.css";
 import "./partial-read.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
+import "./confirmation-dialog.css";
 import "./posture/posture.css";
 import "./restore/restore.css";
 
@@ -120,6 +121,14 @@ export { useSettlementAnnouncement } from "./settlement-announcement.js";
 export { useLatestRef } from "./latest-ref.js";
 
 export { Nothing } from "./Nothing.js";
+
+// The confirming dialog, and the tone its confirming act wears. Through the door
+// because two view families were composing the same eight Base UI parts and neither
+// could import the other's — siblings do not reach across — so a shared composition
+// has nowhere to live but a layer below both. What the callers keep is their own copy
+// and their own trigger class; the parts are here.
+export type { ConfirmationTone } from "./ConfirmationDialog.js";
+export { ConfirmationDialog } from "./ConfirmationDialog.js";
 
 // The incomplete-reading vocabulary and its one notice. Through the door for the
 // reason every family lane needs them: six families each wrote their own notice for
@@ -326,6 +335,7 @@ export {
   formatClockTime,
   formatCount,
   formatDateTime,
+  formatDayDuration,
   formatDuration,
   formatMoney,
   formatPercent,

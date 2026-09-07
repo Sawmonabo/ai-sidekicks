@@ -86,14 +86,42 @@ describe("SessionStoreRegistry — one store per open session", () => {
     expect(refusal?.code).toBe("session-not-open");
     expect(registry.requestRefresh("session-gone", "reconnect")?.code).toBe("session-not-open");
     expect(registry.flush("session-gone")?.code).toBe("session-not-open");
+    expect(registry.markDegraded("session-gone", "subscription-closed")?.code).toBe(
+      "session-not-open",
+    );
 
-    // Negative control: the same three calls against an OPEN session return no
+    // Negative control: the same four calls against an OPEN session return no
     // refusal, so the assertions above are about openness and not about the
     // methods always refusing.
     registry.open("session-1");
     expect(registry.enqueue("session-1", [eventAt(1, "run-1")])).toBeUndefined();
     expect(registry.requestRefresh("session-1", "reconnect")).toBeUndefined();
     expect(registry.flush("session-1")).toBeUndefined();
+    expect(registry.markDegraded("session-1", "subscription-closed")).toBeUndefined();
+    registry.disposeAll();
+  });
+
+  it("raises a degraded cause on one session's store, through the same ladder an apply uses", () => {
+    // The route the session-event binder takes for a stream that never opened. It
+    // holds no store — that is what keeps the apply chokepoint the only writer of
+    // projected state — so the cause travels through the registry exactly as an
+    // event and a refresh reason do.
+    const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
+    const store = registry.open("session-1");
+
+    expect(registry.markDegraded("session-1", "subscription-closed")).toBeUndefined();
+    expect(store.snapshot().degradedCause).toBe("subscription-closed");
+
+    // MERGED, not assigned: a store that could not follow the stream at all has not
+    // become less broken because its subscription then closed too.
+    registry.markDegraded("session-1", "stream-diverged");
+    registry.markDegraded("session-1", "subscription-closed");
+    expect(store.snapshot().degradedCause).toBe("stream-diverged");
+
+    // Negative control: an untouched session's store carries no cause, so the
+    // assertions above are about this call and not about a store born degraded.
+    const untouched = registry.open("session-2");
+    expect(untouched.snapshot().degradedCause).toBeUndefined();
     registry.disposeAll();
   });
 

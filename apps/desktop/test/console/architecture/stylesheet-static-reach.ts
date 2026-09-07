@@ -115,13 +115,32 @@ export class StylesheetReachIndex {
    */
   public anyReachableModuleUses(entry: string, classNames: ReadonlySet<string>): boolean {
     for (const modulePath of this.reachableFrom(entry)) {
-      if (isTestModule(modulePath)) {
-        continue;
+      if (this.moduleUses(modulePath, classNames)) {
+        return true;
       }
-      for (const className of classNames) {
-        if (this.#tokensOf(modulePath).has(className)) {
-          return true;
-        }
+    }
+    return false;
+  }
+
+  /**
+   * Whether ONE module could render against `classNames`.
+   *
+   * The grain underneath {@link anyReachableModuleUses}, published because the second
+   * claim this file answers asks it of a module rather than of a closure: a sheet that
+   * arrives on a chunk is misplaced when a module ALREADY on the initial graph names one
+   * of its classes, and walking that module's own closure to find out would re-ask the
+   * question of modules the set already holds. One tokeniser, two questions.
+   *
+   * Test modules are subtracted here rather than at either call site, so both readings
+   * agree about what is not part of a bundle.
+   */
+  public moduleUses(modulePath: string, classNames: ReadonlySet<string>): boolean {
+    if (isTestModule(modulePath)) {
+      return false;
+    }
+    for (const className of classNames) {
+      if (this.#tokensOf(modulePath).has(className)) {
+        return true;
       }
     }
     return false;
@@ -182,11 +201,158 @@ export class StylesheetReachIndex {
 
 const IDENTIFIER_TOKEN = /[A-Za-z_][\w-]*/gu;
 
+/**
+ * Every console module the composition sites reach without crossing an `import()`.
+ *
+ * THE EAGER GRAPH, DERIVED RATHER THAN LISTED. A composition site is a module the tree
+ * holds directly under `console/`: `console-root-is-composition-only` in
+ * `.dependency-cruiser.mjs` fails any module in that position that imports into the
+ * console and is not enumerated in `COMPOSITION_ROOT_FILES`, so the set of roots that
+ * can contribute to the initial graph IS the set of paths with no separator in them.
+ * The walk behind `modulePaths` has already dropped declaration files, co-located tests
+ * and their support modules, so nothing else has to be subtracted.
+ *
+ * Hoisted here on its second reader rather than left in the gate that had it first: the
+ * two claims that ask this question — nothing behind a loader is on the eager graph, and
+ * nothing on the eager graph is undressed — are two readings of one walk, and a copy of
+ * the derivation is how they would come to disagree about which roots count.
+ */
+export function eagerlyReachedModules(
+  tree: StylesheetTree,
+  index: StylesheetReachIndex,
+): ReadonlySet<string> {
+  const reached = new Set<string>();
+  for (const root of tree.modulePaths.filter((modulePath) => !modulePath.includes("/"))) {
+    for (const modulePath of index.reachableFrom(root)) {
+      reached.add(modulePath);
+    }
+  }
+  return reached;
+}
+
 /** One stylesheet sitting on the wrong side of a chunk boundary, and why. */
 export interface DeferredSheetOffence {
   readonly stylesheetPath: string;
   /** The module that imports it — a family door, in every offence. */
   readonly importer: string;
+}
+
+/** One sheet a surface on the initial graph renders against and cannot have yet. */
+export interface UndressedEagerReaderOffence {
+  readonly stylesheetPath: string;
+  /** The chunk root the sheet enters through, so it arrives only with that chunk. */
+  readonly importer: string;
+  /** A module on the eager graph naming a class no eagerly-arriving sheet declares. */
+  readonly eagerReader: string;
+}
+
+/**
+ * Every class name the sheets that arrive with the INITIAL graph declare.
+ *
+ * WHY THE CLAIM SUBTRACTS THIS RATHER THAN ASKING ABOUT ONE SHEET AT A TIME. What a
+ * person sees is a surface painted with no rules, and a class some eagerly-arriving
+ * sheet already declares is not that: the surface is dressed, whatever else restates it
+ * later. The case is in the tree — `browser/pane/pane.css` carries
+ * `.meridian-browser-chrome .meridian-browser-action`, a restatement scoped to a chrome
+ * bar the settings page has no ancestor of, while the button's own rules live in
+ * `browser/controls.css`. Asked per sheet, the pane sheet answers "an eager module names
+ * a class I declare" and is true and useless; asked against what arrives eagerly, it
+ * answers nothing at all and the sheet that actually owed the rules is the one reported.
+ *
+ * Keyed on the same reach walk the reader question uses, so both halves of the comparison
+ * speak about one graph: a sheet is dressing when the module it enters through is on the
+ * eager graph, which is the exact complement of entering through a chunk root that graph
+ * never loads.
+ */
+function eagerlyDeclaredClassNames(
+  tree: StylesheetTree,
+  importerOf: (stylesheetPath: string) => string | undefined,
+  eagerlyReached: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const declared = new Set<string>();
+  for (const stylesheetPath of tree.stylesheetPaths) {
+    const importer = importerOf(stylesheetPath);
+    if (importer === undefined || !eagerlyReached.has(importer)) {
+      continue;
+    }
+    for (const className of declaredClassNames(tree.read(stylesheetPath))) {
+      declared.add(className);
+    }
+  }
+  return declared;
+}
+
+/**
+ * Sheets that enter through a chunk root while the INITIAL graph renders against them.
+ *
+ * THE CONVERSE OF {@link deferredSheetOffences}, and the other half of one placement
+ * rule rather than a second rule. That predicate asks whether a sheet at a door has a
+ * reader; this one asks whether a sheet behind a boundary has a reader on the wrong side
+ * of it. Both are answered off the same reach index and the same class-name grammar, so
+ * a sheet cannot be reported misplaced by one and correctly placed by the other for
+ * having been measured differently.
+ *
+ * The failure it names is one a person sees and no other gate reports: a surface the
+ * settings route paints statically, whose rules travel on a chunk that route never
+ * loads, renders unstyled until somebody opens an unrelated pane — and then silently
+ * starts working, which is what makes it so hard to catch by hand.
+ *
+ * ONE OFFENCE PER SHEET, naming the first eager reader found. The remedy is a property
+ * of the SHEET — it moves to the barrel of the directory that owns it — so a report per
+ * reader would be one fix listed many times.
+ */
+export function undressedEagerReaderOffences(
+  tree: StylesheetTree,
+  importerOf: (stylesheetPath: string) => string | undefined,
+  isChunkRoot: (modulePath: string) => boolean,
+): readonly UndressedEagerReaderOffence[] {
+  const index = new StylesheetReachIndex(tree);
+  const eagerlyReached = eagerlyReachedModules(tree, index);
+  const alreadyDressed = eagerlyDeclaredClassNames(tree, importerOf, eagerlyReached);
+  const offences: UndressedEagerReaderOffence[] = [];
+  for (const stylesheetPath of tree.stylesheetPaths) {
+    const importer = importerOf(stylesheetPath);
+    if (importer === undefined || !isChunkRoot(importer)) {
+      continue;
+    }
+    const undressedClassNames = new Set(
+      [...declaredClassNames(tree.read(stylesheetPath))].filter(
+        (className) => !alreadyDressed.has(className),
+      ),
+    );
+    if (undressedClassNames.size === 0) {
+      continue;
+    }
+    const eagerReader = firstEagerReaderOf(index, eagerlyReached, undressedClassNames);
+    if (eagerReader !== undefined) {
+      offences.push({ stylesheetPath, importer, eagerReader });
+    }
+  }
+  return offences;
+}
+
+/**
+ * The first module on the eager graph naming any of `classNames`, in tree order.
+ *
+ * Use is read as a TOKEN MATCH, the same deliberately coarse reading
+ * {@link StylesheetReachIndex.anyReachableModuleUses} makes — but the direction the
+ * coarseness cuts is REVERSED here, and that is worth stating rather than inheriting.
+ * There the predicate reports on finding no user, so over-reporting a user refused a
+ * move; here it reports on finding one, so over-reporting a user fails a sheet that is
+ * placed correctly. Both are the safe side of their own claim: neither admits a surface
+ * that paints without its rules.
+ */
+function firstEagerReaderOf(
+  index: StylesheetReachIndex,
+  eagerlyReached: ReadonlySet<string>,
+  classNames: ReadonlySet<string>,
+): string | undefined {
+  for (const modulePath of eagerlyReached) {
+    if (index.moduleUses(modulePath, classNames)) {
+      return modulePath;
+    }
+  }
+  return undefined;
 }
 
 /**
