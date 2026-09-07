@@ -1,8 +1,19 @@
 /*
- * The file-restore disclosure: its enumerations, and the windowed path list.
+ * The file-restore disclosure: its enumerations, its path controls, and the windowed
+ * path list.
  *
- * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
- * why, and for the import rule every sheet in this family obeys.
+ * EVERY RULE ABOUT THIS DISCLOSURE IS HERE, and that is the repair of a hoist that
+ * left two of them behind. The component moved down to `primitives/` because the runs
+ * pane is a sibling view family of `repos/` and neither may import the other; the
+ * sheet came with it and the focus ring and the path link did not, so `repos.css`
+ * went on declaring `.meridian-restore-disclosure` classes for a directory that
+ * family no longer owns. Two families declaring one class do not conflict in either
+ * file — they conflict in the cascade, where the later sheet wins and "later" is the
+ * bundler's chunking rather than anybody's decision.
+ *
+ * Imported from `primitives/index.ts` and from nowhere else, which is the import rule
+ * every sheet in this family obeys and the reason a surface can never render this
+ * disclosure without the CSS that draws it.
  */
 
 /* ------------------------------------------------- file-restore disclosure */
@@ -20,6 +31,19 @@
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
   background: var(--meridian-surface-sunken);
+}
+
+/*
+ * One focus treatment for everything inside the disclosure, stated at the root rather
+ * than once per control: the summary, the path buttons and anything a later row adds
+ * are all descendants, and a ring named per control is a ring the next control does
+ * not get. `Spec-023 §Console Design (Meridian)` rule 3 puts it at 3:1 against
+ * ADJACENT colours, which is why it is an outline with an offset and never a
+ * box-shadow drawn over the control's own boundary.
+ */
+.meridian-restore-disclosure :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }
 
 .meridian-restore-disclosure__head {
@@ -64,11 +88,6 @@
   cursor: pointer;
 }
 
-.meridian-restore-disclosure__detail-summary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-restore-disclosure__paths {
   display: flex;
   flex-direction: column;
@@ -109,6 +128,26 @@
 .meridian-restore-disclosure__paths--windowed {
   gap: 0;
   padding-block-start: 0;
+}
+
+/*
+ * A path is a link into whatever the mounting surface offers on it and nothing more,
+ * so it carries no button chrome: the affordance is the underline on hover and the
+ * focus ring above, and a row of bordered buttons would turn a file list into a
+ * control panel.
+ */
+.meridian-restore-disclosure__path-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-restore-disclosure__path-link:hover {
+  text-decoration: underline;
 }
 
 /*
