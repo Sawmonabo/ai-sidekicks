@@ -6,8 +6,10 @@
 // would mean a test writing a second import into the source tree. So each tree below
 // is four or five literal sources with a known verdict, and each names the defect the
 // superseded collapsing walk could not see.
-
-import { join } from "node:path";
+//
+// THEIR KEYS ARE TREE PATHS, so they are written with `/` on every host, which is what
+// `stylesheet-edge-graph.ts` mints and what its predicates compare against. A control
+// spelling them the host's way would be asserting about a tree the console never mints.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,9 +29,9 @@ describe("the stylesheet edge walk", () => {
     // sheet as duplicated would satisfy them all and prove nothing.
     const cleanTree = syntheticStylesheetTree(
       new Map([
-        [join("family", "index.ts"), 'import "./family.css";\n'],
-        [join("family", "family.css"), '@import "./surface.css";\n'],
-        [join("family", "surface.css"), "\n"],
+        ["family/index.ts", 'import "./family.css";\n'],
+        ["family/family.css", '@import "./surface.css";\n'],
+        ["family/surface.css", "\n"],
       ]),
     );
     expect(stylesheetEdgeOffences(cleanTree, collectStylesheetEdges(cleanTree))).toStrictEqual({
@@ -48,10 +50,10 @@ describe("the stylesheet edge walk", () => {
     // has to compute it rather than treat any `index.ts` as an owner.
     const misownedTree = syntheticStylesheetTree(
       new Map([
-        [join("family", "index.ts"), 'import "./family.css";\n'],
-        [join("family", "family.css"), '@import "./doored/doored.css";\n'],
-        [join("family", "doored", "index.ts"), "export const doored = 1;\n"],
-        [join("family", "doored", "doored.css"), ".doored {\n  color: red;\n}\n"],
+        ["family/index.ts", 'import "./family.css";\n'],
+        ["family/family.css", '@import "./doored/doored.css";\n'],
+        ["family/doored/index.ts", "export const doored = 1;\n"],
+        ["family/doored/doored.css", ".doored {\n  color: red;\n}\n"],
       ]),
     );
 
@@ -61,7 +63,7 @@ describe("the stylesheet edge walk", () => {
     expect(offences.duplicatePaths).toStrictEqual([]);
     expect(offences.duplicateBarrels).toStrictEqual([]);
     expect(offences.misowned).toHaveLength(1);
-    expect(offences.misowned[0]).toContain(join("family", "doored", "doored.css"));
+    expect(offences.misowned[0]).toContain("family/doored/doored.css");
   });
 
   it("counts nothing once the door owns its own sheet, one edge moved and nothing else", () => {
@@ -70,10 +72,10 @@ describe("the stylesheet edge walk", () => {
     // the rule actually prescribes.
     const repairedTree = syntheticStylesheetTree(
       new Map([
-        [join("family", "index.ts"), 'import "./family.css";\n'],
-        [join("family", "family.css"), ".family {\n  color: blue;\n}\n"],
-        [join("family", "doored", "index.ts"), 'import "./doored.css";\n'],
-        [join("family", "doored", "doored.css"), ".doored {\n  color: red;\n}\n"],
+        ["family/index.ts", 'import "./family.css";\n'],
+        ["family/family.css", ".family {\n  color: blue;\n}\n"],
+        ["family/doored/index.ts", 'import "./doored.css";\n'],
+        ["family/doored/doored.css", ".doored {\n  color: red;\n}\n"],
       ]),
     );
 
@@ -89,9 +91,9 @@ describe("the stylesheet edge walk", () => {
     // family door pulling in its sheet is the family importing its own rules.
     const doorlessTree = syntheticStylesheetTree(
       new Map([
-        [join("family", "index.ts"), 'import "./family.css";\n'],
-        [join("family", "family.css"), '@import "./parts/part.css";\n'],
-        [join("family", "parts", "part.css"), ".part {\n  color: red;\n}\n"],
+        ["family/index.ts", 'import "./family.css";\n'],
+        ["family/family.css", '@import "./parts/part.css";\n'],
+        ["family/parts/part.css", ".part {\n  color: red;\n}\n"],
       ]),
     );
 
@@ -107,9 +109,9 @@ describe("the stylesheet edge walk", () => {
     // clean; the edge list holds two, from two barrels.
     const twoBarrelTree = syntheticStylesheetTree(
       new Map([
-        [join("one", "index.ts"), 'import "./shared.css";\n'],
-        [join("one", "shared.css"), "\n"],
-        [join("two", "index.ts"), 'import "../one/shared.css";\n'],
+        ["one/index.ts", 'import "./shared.css";\n'],
+        ["one/shared.css", "\n"],
+        ["two/index.ts", 'import "../one/shared.css";\n'],
       ]),
     );
     const edges = collectStylesheetEdges(twoBarrelTree);
@@ -126,8 +128,8 @@ describe("the stylesheet edge walk", () => {
     expect(offences.duplicatePaths).toHaveLength(1);
     expect(offences.duplicatePaths[0]).toContain("2 inbound edges");
     expect(offences.duplicateBarrels).toHaveLength(1);
-    expect(offences.duplicateBarrels[0]).toContain(join("one", "index.ts"));
-    expect(offences.duplicateBarrels[0]).toContain(join("two", "index.ts"));
+    expect(offences.duplicateBarrels[0]).toContain("one/index.ts");
+    expect(offences.duplicateBarrels[0]).toContain("two/index.ts");
   });
 
   it("admits two lazy chunk roots of ONE directory reaching one sheet", () => {
@@ -139,19 +141,19 @@ describe("the stylesheet edge walk", () => {
     const siblingRootTree = syntheticStylesheetTree(
       new Map([
         [
-          join("one", "index.ts"),
+          "one/index.ts",
           'export const open = async () => [import("./pane-body.js"), import("./surface-body.js")];\n',
         ],
-        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
-        [join("one", "surface-body.ts"), 'import "./shared.css";\n'],
-        [join("one", "shared.css"), "\n"],
+        ["one/pane-body.ts", 'import "./shared.css";\n'],
+        ["one/surface-body.ts", 'import "./shared.css";\n'],
+        ["one/shared.css", "\n"],
       ]),
     );
     const edges = collectStylesheetEdges(siblingRootTree);
     // Read out of the walk rather than asserted about it: the sheet really does carry
     // two inbound edges here, so the clean verdict below is the rule and not an
     // arrangement the walk failed to see.
-    expect(edges.get(join("one", "shared.css"))).toHaveLength(2);
+    expect(edges.get("one/shared.css")).toHaveLength(2);
 
     const offences = stylesheetEdgeOffences(siblingRootTree, edges);
     expect(offences.duplicatePaths).toStrictEqual([]);
@@ -170,19 +172,19 @@ describe("the stylesheet edge walk", () => {
     const nestedFanInTree = syntheticStylesheetTree(
       new Map([
         [
-          join("one", "index.ts"),
+          "one/index.ts",
           'export const open = async () => [import("./pane-body.js"), import("./surface-body.js")];\n',
         ],
-        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
-        [join("one", "surface-body.ts"), 'import "./shared.css";\n'],
-        [join("one", "shared.css"), '@import "./badge.css";\n'],
-        [join("one", "badge.css"), "\n"],
+        ["one/pane-body.ts", 'import "./shared.css";\n'],
+        ["one/surface-body.ts", 'import "./shared.css";\n'],
+        ["one/shared.css", '@import "./badge.css";\n'],
+        ["one/badge.css", "\n"],
       ]),
     );
     const edges = collectStylesheetEdges(nestedFanInTree);
     // Read out of the walk, so the clean verdict below is the rule rather than a fan-in
     // the walk did not find: the nested sheet really does carry one edge per root.
-    expect(edges.get(join("one", "badge.css"))).toHaveLength(2);
+    expect(edges.get("one/badge.css")).toHaveLength(2);
 
     const offences = stylesheetEdgeOffences(nestedFanInTree, edges);
     expect(offences.duplicatePaths).toStrictEqual([]);
@@ -199,17 +201,17 @@ describe("the stylesheet edge walk", () => {
     const doorPulledTree = syntheticStylesheetTree(
       new Map([
         [
-          join("one", "index.ts"),
+          "one/index.ts",
           'import "./shared.css";\nexport const open = async () => import("./pane-body.js");\n',
         ],
-        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
-        [join("one", "shared.css"), '@import "./badge.css";\n'],
-        [join("one", "badge.css"), "\n"],
+        ["one/pane-body.ts", 'import "./shared.css";\n'],
+        ["one/shared.css", '@import "./badge.css";\n'],
+        ["one/badge.css", "\n"],
       ]),
     );
     const offences = stylesheetEdgeOffences(doorPulledTree, collectStylesheetEdges(doorPulledTree));
     expect(offences.duplicatePaths).toHaveLength(2);
-    expect(offences.duplicatePaths.join("\n")).toContain(join("one", "badge.css"));
+    expect(offences.duplicatePaths.join("\n")).toContain("one/badge.css");
   });
 
   it("negative control: two chunk roots under DIFFERENT owners are still counted", () => {
@@ -218,11 +220,11 @@ describe("the stylesheet edge walk", () => {
     // two different barrels, so one directory is still the reason another is styled.
     const twoOwnerRootTree = syntheticStylesheetTree(
       new Map([
-        [join("one", "index.ts"), 'export const open = async () => import("./pane-body.js");\n'],
-        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
-        [join("one", "shared.css"), "\n"],
-        [join("two", "index.ts"), 'export const open = async () => import("./pane-body.js");\n'],
-        [join("two", "pane-body.ts"), 'import "../one/shared.css";\n'],
+        ["one/index.ts", 'export const open = async () => import("./pane-body.js");\n'],
+        ["one/pane-body.ts", 'import "./shared.css";\n'],
+        ["one/shared.css", "\n"],
+        ["two/index.ts", 'export const open = async () => import("./pane-body.js");\n'],
+        ["two/pane-body.ts", 'import "../one/shared.css";\n'],
       ]),
     );
     const offences = stylesheetEdgeOffences(
@@ -242,11 +244,11 @@ describe("the stylesheet edge walk", () => {
     const doorAndRootTree = syntheticStylesheetTree(
       new Map([
         [
-          join("one", "index.ts"),
+          "one/index.ts",
           'import "./shared.css";\nexport const open = async () => import("./pane-body.js");\n',
         ],
-        [join("one", "pane-body.ts"), 'import "./shared.css";\n'],
-        [join("one", "shared.css"), "\n"],
+        ["one/pane-body.ts", 'import "./shared.css";\n'],
+        ["one/shared.css", "\n"],
       ]),
     );
     const offences = stylesheetEdgeOffences(
@@ -265,20 +267,20 @@ describe("the stylesheet edge walk", () => {
     // reader looking for a second family.
     const diamondTree = syntheticStylesheetTree(
       new Map([
-        [join("family", "index.ts"), 'import "./family.css";\n'],
-        [join("family", "family.css"), '@import "./left.css";\n@import "./right.css";\n'],
-        [join("family", "left.css"), '@import "./shared.css";\n'],
-        [join("family", "right.css"), '@import "./shared.css";\n'],
-        [join("family", "shared.css"), "\n"],
+        ["family/index.ts", 'import "./family.css";\n'],
+        ["family/family.css", '@import "./left.css";\n@import "./right.css";\n'],
+        ["family/left.css", '@import "./shared.css";\n'],
+        ["family/right.css", '@import "./shared.css";\n'],
+        ["family/shared.css", "\n"],
       ]),
     );
     const offences = stylesheetEdgeOffences(diamondTree, collectStylesheetEdges(diamondTree));
     expect(offences.unreached).toStrictEqual([]);
     expect(offences.duplicateBarrels).toStrictEqual([]);
     expect(offences.duplicatePaths).toHaveLength(1);
-    expect(offences.duplicatePaths[0]).toContain(join("family", "shared.css"));
-    expect(offences.duplicatePaths[0]).toContain(join("family", "left.css"));
-    expect(offences.duplicatePaths[0]).toContain(join("family", "right.css"));
+    expect(offences.duplicatePaths[0]).toContain("family/shared.css");
+    expect(offences.duplicatePaths[0]).toContain("family/left.css");
+    expect(offences.duplicatePaths[0]).toContain("family/right.css");
   });
 
   it("counts what a doubly-reached sheet pulls in, at every level it injects", () => {
@@ -290,10 +292,10 @@ describe("the stylesheet edge walk", () => {
     // dependence, rebuilt inside the checker that exists to remove it.
     const sharedSubtreeTree = syntheticStylesheetTree(
       new Map([
-        [join("one", "index.ts"), 'import "./shared-parent.css";\n'],
-        [join("one", "shared-parent.css"), '@import "./deep.css";\n'],
-        [join("one", "deep.css"), "\n"],
-        [join("two", "index.ts"), 'import "../one/shared-parent.css";\n'],
+        ["one/index.ts", 'import "./shared-parent.css";\n'],
+        ["one/shared-parent.css", '@import "./deep.css";\n'],
+        ["one/deep.css", "\n"],
+        ["two/index.ts", 'import "../one/shared-parent.css";\n'],
       ]),
     );
     const offences = stylesheetEdgeOffences(
@@ -304,7 +306,7 @@ describe("the stylesheet edge walk", () => {
     // Both the sheet the barrels share and the sheet under it, each from both barrels.
     expect(offences.duplicatePaths).toHaveLength(2);
     expect(offences.duplicateBarrels).toHaveLength(2);
-    expect(offences.duplicateBarrels.join("\n")).toContain(join("one", "deep.css"));
+    expect(offences.duplicateBarrels.join("\n")).toContain("one/deep.css");
   });
 
   it("reports a sheet no barrel reaches", () => {
@@ -312,13 +314,13 @@ describe("the stylesheet edge walk", () => {
     // would report every tree clean on the two duplicate counts above.
     const strandedTree = syntheticStylesheetTree(
       new Map([
-        [join("family", "index.ts"), 'import "./family.css";\n'],
-        [join("family", "family.css"), "\n"],
-        [join("family", "stranded.css"), "\n"],
+        ["family/index.ts", 'import "./family.css";\n'],
+        ["family/family.css", "\n"],
+        ["family/stranded.css", "\n"],
       ]),
     );
     const offences = stylesheetEdgeOffences(strandedTree, collectStylesheetEdges(strandedTree));
-    expect(offences.unreached).toStrictEqual([join("family", "stranded.css")]);
+    expect(offences.unreached).toStrictEqual(["family/stranded.css"]);
     expect(offences.duplicatePaths).toStrictEqual([]);
     expect(offences.duplicateBarrels).toStrictEqual([]);
   });
@@ -329,15 +331,15 @@ describe("the stylesheet edge walk", () => {
     // recorded — the visited set skips the DESCENT and never the edge.
     const cyclicTree = syntheticStylesheetTree(
       new Map([
-        [join("family", "index.ts"), 'import "./family.css";\n'],
-        [join("family", "family.css"), '@import "./surface.css";\n'],
-        [join("family", "surface.css"), '@import "./family.css";\n'],
+        ["family/index.ts", 'import "./family.css";\n'],
+        ["family/family.css", '@import "./surface.css";\n'],
+        ["family/surface.css", '@import "./family.css";\n'],
       ]),
     );
     const offences = stylesheetEdgeOffences(cyclicTree, collectStylesheetEdges(cyclicTree));
     expect(offences.unreached).toStrictEqual([]);
     expect(offences.duplicatePaths).toHaveLength(1);
-    expect(offences.duplicatePaths[0]).toContain(join("family", "family.css"));
+    expect(offences.duplicatePaths[0]).toContain("family/family.css");
   });
 
   it("negative control: the readers and the predicate match what they claim to", () => {
@@ -361,8 +363,8 @@ describe("the stylesheet edge walk", () => {
     expect(moduleStylesheetImports("index.ts", '@import "./surface.css";\n')).toStrictEqual([
       "./surface.css",
     ]);
-    expect(isOwningBarrel(join("family", "index.ts"))).toBe(true);
-    expect(isOwningBarrel(join("family", "Surface.tsx"))).toBe(false);
+    expect(isOwningBarrel("family/index.ts")).toBe(true);
+    expect(isOwningBarrel("family/Surface.tsx")).toBe(false);
   });
 
   it("reads the edges a whole-line match could not see", () => {
@@ -412,16 +414,16 @@ describe("the stylesheet edge walk", () => {
     const lazyTree = syntheticStylesheetTree(
       new Map([
         [
-          join("family", "index.ts"),
+          "family/index.ts",
           'import "./family.css";\nexport const body = () => import("./pane/body.js");\n',
         ],
-        [join("family", "family.css"), "\n"],
-        [join("family", "pane", "body.ts"), 'import "./body.css";\nexport const Body = 1;\n'],
-        [join("family", "pane", "body.css"), ".body {\n  color: red;\n}\n"],
+        ["family/family.css", "\n"],
+        ["family/pane/body.ts", 'import "./body.css";\nexport const Body = 1;\n'],
+        ["family/pane/body.css", ".body {\n  color: red;\n}\n"],
       ]),
     );
 
-    expect([...lazyChunkRoots(lazyTree)]).toStrictEqual([join("family", "pane", "body.ts")]);
+    expect([...lazyChunkRoots(lazyTree)]).toStrictEqual(["family/pane/body.ts"]);
     expect(stylesheetEdgeOffences(lazyTree, collectStylesheetEdges(lazyTree))).toStrictEqual({
       unreached: [],
       duplicatePaths: [],
@@ -439,19 +441,19 @@ describe("the stylesheet edge walk", () => {
     const staticTree = syntheticStylesheetTree(
       new Map([
         [
-          join("family", "index.ts"),
+          "family/index.ts",
           'import "./family.css";\nimport { Body } from "./pane/body.js";\nexport const body = Body;\n',
         ],
-        [join("family", "family.css"), "\n"],
-        [join("family", "pane", "body.ts"), 'import "./body.css";\nexport const Body = 1;\n'],
-        [join("family", "pane", "body.css"), ".body {\n  color: red;\n}\n"],
+        ["family/family.css", "\n"],
+        ["family/pane/body.ts", 'import "./body.css";\nexport const Body = 1;\n'],
+        ["family/pane/body.css", ".body {\n  color: red;\n}\n"],
       ]),
     );
 
     expect([...lazyChunkRoots(staticTree)]).toStrictEqual([]);
     expect(
       stylesheetEdgeOffences(staticTree, collectStylesheetEdges(staticTree)).unreached,
-    ).toStrictEqual([join("family", "pane", "body.css")]);
+    ).toStrictEqual(["family/pane/body.css"]);
   });
 
   it("negative control: a chunk root is read from the parse and not from the text", () => {
@@ -462,11 +464,11 @@ describe("the stylesheet edge walk", () => {
     const proseTree = syntheticStylesheetTree(
       new Map([
         [
-          join("family", "index.ts"),
+          "family/index.ts",
           '// This family does not import("./pane/body.js") — it paints on first frame.\nconst specifier = \'import("./pane/body.js")\';\nimport "./family.css";\nexport const named = specifier;\n',
         ],
-        [join("family", "family.css"), "\n"],
-        [join("family", "pane", "body.ts"), "export const Body = 1;\n"],
+        ["family/family.css", "\n"],
+        ["family/pane/body.ts", "export const Body = 1;\n"],
       ]),
     );
 
@@ -477,11 +479,7 @@ describe("the stylesheet edge walk", () => {
     // The graph library's `base.css` is the live instance. A resolver that returned a
     // path for it would report the console short of one sheet it does not own, and
     // then throw reading a file that is not in the tree.
-    expect(resolveStylesheet(join("family", "index.ts"), "@xyflow/react/dist/base.css")).toBe(
-      undefined,
-    );
-    expect(resolveStylesheet(join("family", "index.ts"), "./family.css")).toBe(
-      join("family", "family.css"),
-    );
+    expect(resolveStylesheet("family/index.ts", "@xyflow/react/dist/base.css")).toBe(undefined);
+    expect(resolveStylesheet("family/index.ts", "./family.css")).toBe("family/family.css");
   });
 });
