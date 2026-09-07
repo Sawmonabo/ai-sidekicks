@@ -20,12 +20,23 @@ import {
 /** What a contribution is, read off the door rather than named a second time. */
 type RecordedContribution = Parameters<ConsoleCommandSurface["contribute"]>[0];
 
+/** The release a contribution hands back, read off the door for the same reason. */
+type ContributionRelease = ReturnType<ConsoleCommandSurface["contribute"]>;
+
 /** A surface that records what a family contributed, rather than a window's registry. */
 class RecordingCommandSurface implements ConsoleCommandSurface {
   contribution: RecordedContribution | undefined;
 
-  public contribute(contribution: RecordedContribution): void {
+  public contribute(contribution: RecordedContribution): ContributionRelease {
     this.contribution = contribution;
+    // The release RETRACTS, which is what the real surface's does. A recorder that
+    // handed back a no-op would let a case assert a released contribution was still
+    // held and pass, which is the one thing the release exists to prevent.
+    return () => {
+      if (this.contribution === contribution) {
+        this.contribution = undefined;
+      }
+    };
   }
 }
 

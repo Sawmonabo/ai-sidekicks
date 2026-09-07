@@ -40,11 +40,8 @@ import type { ReactNode } from "react";
 
 import { Chip, WireFigure } from "../../../primitives/index.js";
 import { PROVIDER_ACCOUNTS_PAGE } from "./provider-accounts-slot.js";
-import {
-  renderOwnerSlotPage,
-  type SettingsPageContext,
-  type SettingsPageRegistry,
-} from "../../settings-page-registry.js";
+import { renderOwnerSlotPage } from "../../owner-slot-page.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 import { WireVocabulary } from "./WireVocabulary.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
@@ -73,7 +70,15 @@ const HEALTH_STATE_MEANINGS: Readonly<Record<ProviderAccountHealthState, string>
   indeterminate: "Nothing decided. Treated as not signed in, which is not the same as a failure.",
 };
 
-/** The answer run admission will reach, pre-computed. It authorizes nothing. */
+/**
+ * The answer run admission will reach, pre-computed. It authorizes nothing.
+ *
+ * The onboarding walkthrough holds a second table over this same closed union, and
+ * the two are kept apart on REGISTER: these are an operator's reference and say what
+ * admission WOULD do; those are a first-run step and say what is true of the provider
+ * now. The union itself has one home in `packages/contracts`, so an arm added there is
+ * a compile error in both.
+ */
 const READINESS_STATE_MEANINGS: Readonly<Record<ProviderReadinessState, string>> = {
   authenticated: "A run would be admitted against the account this resolved to.",
   reauth_required: "An account resolved, and its home needs signing in again.",
@@ -89,7 +94,40 @@ const QUOTA_SOURCE_MEANINGS: Readonly<Record<ProviderAccountUsageWindowSource, s
   run: "Real traffic. The provider reported the window while a run was using it.",
 };
 
+/**
+ * The provider this page was opened FOR, where the address named one this build knows.
+ *
+ * NARROWED AGAINST THE CONTRACT'S OWN SET and never rendered as it arrived. The
+ * selection is a path segment anyone can type, and a page that printed it back would
+ * put an arbitrary string on screen in the position a provider name occupies. An
+ * unrecognised one resolves to `undefined`, which is the same state the rail hands
+ * this page — opened for nothing in particular — rather than a refusal: nothing here
+ * depends on the selection, so there is nothing for it to fail.
+ */
+function openedForProvider(selection: string | undefined): string | undefined {
+  return PROVIDER_NAMES.find((provider) => provider === selection);
+}
+
+/**
+ * What the reserved region says when a first-run row sent somebody here.
+ *
+ * IT NAMES THE CONSEQUENCE AND NOT THE WORK. A person arrives having pressed an action
+ * on a provider whose remedy was "register an account", and the region below the
+ * vocabulary is a reservation — so without this the page they land on says the registry
+ * has not been built and never says which provider they came for or what happens if
+ * they leave it. The second sentence is this page's own wording of what `Spec-026`
+ * makes true of a node that finishes setup with nothing registered; the walkthrough
+ * says the same thing in the second person, and the two are kept apart on voice
+ * exactly as the readiness-state tables are.
+ */
+const OPENED_FOR_LEDE =
+  "You were sent here from setting up this node, for the provider below. Registering an account is what the registry body will do, and it is not built here yet.";
+
+const OPENED_FOR_CONSEQUENCE =
+  "Leaving it unregistered is a finished setup rather than a failure. What it costs is that the first run against this provider is refused, and the refusal names the same thing this page does.";
+
 export function ProviderAccountsPage(props: { readonly context: SettingsPageContext }): ReactNode {
+  const openedFor = openedForProvider(props.context.selection);
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
@@ -167,6 +205,18 @@ export function ProviderAccountsPage(props: { readonly context: SettingsPageCont
           </p>
         </div>
       </section>
+
+      {openedFor === undefined ? null : (
+        <section className="meridian-settings-page__block" aria-label="Opened for a provider">
+          <h3 className="meridian-settings-page__block-title">
+            Opened for <WireFigure value={openedFor} />
+          </h3>
+          <div className="meridian-settings-page__prose">
+            <p>{OPENED_FOR_LEDE}</p>
+            <p>{OPENED_FOR_CONSEQUENCE}</p>
+          </div>
+        </section>
+      )}
 
       {renderOwnerSlotPage(PROVIDER_ACCOUNTS_PAGE, props.context)}
     </div>

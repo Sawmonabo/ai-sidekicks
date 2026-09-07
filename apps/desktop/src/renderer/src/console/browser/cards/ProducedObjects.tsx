@@ -1,0 +1,95 @@
+// The pane's produced-object shelf: what this session's browser has left behind.
+//
+// `Spec-023 §Console Design (Meridian)` 12.6 Renders: "The pane's overflow control
+// shows the session's recent browser-produced artifacts with a
+// reveal-in-file-manager action on each local one." 12.6 Density: "One artifact row
+// per produced object, collapsed to name, kind, and size, with the preview one click
+// away."
+//
+// WHERE EACH HALF OF A ROW COMES FROM, AND WHY THAT SPLIT IS THE HONEST ONE. The log
+// carries a produced object's IDENTITY, its state, and the run that made it, and it
+// carries nothing else — no name, no kind, no size, because none of the three is on
+// the event. They live on the artifact manifest, which the console reads through an
+// operation the growth port refuses today.
+//
+// So a row has two possible shapes and this shelf renders whichever one it can
+// justify:
+//
+//   • A CARD, for an object this window itself produced. A capture taken through the
+//     pane's own control answers with its artifact id, its stored media type, and its
+//     byte length, so every prop the card renders came back from the act that made
+//     it. That is a source, not a guess.
+//   • An IDENTITY ROW otherwise, carrying what the log actually said. It is not a
+//     degraded card and it does not leave a name-shaped hole: it says which object,
+//     what state it reached, and which run made it, which is the whole of what is
+//     known. "Otherwise" is now a state the shelf reaches on any ordinary session,
+//     because the provenance ledger names every browser producer and this window
+//     performed only some of them — an agent's capture, a completed download, and a
+//     bundled asset set each arrive as an id with no card behind it. The `undefined`
+//     branch below is the same row for the same reason, kept because this component
+//     is TOTAL over its own props rather than over what one caller happens to pass.
+//
+// A row is never a card with invented fields. Rendering the artifact id where a name
+// belongs would put a locator in a name's place on every row, and a person would
+// learn to read ids as names — which is exactly the conflation the identity row
+// avoids by saying plainly what it is showing.
+//
+// ALL THREE STATES RENDER, AND THEY RENDER DIFFERENTLY. `pending` is the design's own
+// loading state — an ingest in flight — `published` is the settled row, and
+// `superseded` is a retaken capture's predecessor kept as history rather than
+// deleted. A shelf that collapsed any two of them would hide the retake.
+//
+// AND THEY RENDER ON BOTH ROW SHAPES, which is why the state is joined on HERE rather
+// than carried in the register. A card used to win outright over the state-aware
+// identity row, so an object this window captured and the log later superseded went on
+// rendering as an ordinary capture: the richer row was the one that could not say the
+// one thing that had changed. The card keeps its richer content and takes the state as
+// a prop, so neither row shape is the degraded one.
+
+import { Nothing } from "../../primitives/index.js";
+import { BrowserCaptureCard } from "./CaptureCard.js";
+import { BrowserDownloadCard } from "./DownloadCard.js";
+import type { ProducedArtifact, ProducedObjectCard } from "./produced-objects.js";
+import { ProducedObjectRow } from "./ProducedObjectRow.js";
+
+export interface ProducedObjectsProps {
+  readonly artifacts: readonly ProducedArtifact[];
+  /** Cards for the objects this window itself produced, keyed by artifact id. */
+  readonly cardsByArtifactId: ReadonlyMap<string, ProducedObjectCard>;
+}
+
+export function ProducedObjects(props: ProducedObjectsProps): React.JSX.Element {
+  const { artifacts, cardsByArtifactId } = props;
+
+  if (artifacts.length === 0) {
+    return (
+      <Nothing
+        kind="empty"
+        placement="inline"
+        title="Nothing produced yet"
+        // Scoped to what was actually consulted. The provenance ledger is the
+        // daemon's answer for this SESSION, so an empty shelf is a session whose
+        // browser has produced nothing — and on a build where that read is refused
+        // the ledger stays unanswered and the only ids left are this window's own,
+        // which is the narrower claim this sentence makes.
+        detail="No capture, download, or asset bundle has been produced by this session's browser in this window."
+      />
+    );
+  }
+
+  return (
+    <div className="meridian-browser-cards">
+      {artifacts.map((artifact) => {
+        const card = cardsByArtifactId.get(artifact.artifactId);
+        if (card === undefined || card.kind === "named") {
+          return <ProducedObjectRow key={artifact.artifactId} artifact={artifact} />;
+        }
+        return card.kind === "capture" ? (
+          <BrowserCaptureCard key={artifact.artifactId} {...card.props} state={artifact.state} />
+        ) : (
+          <BrowserDownloadCard key={artifact.artifactId} {...card.props} state={artifact.state} />
+        );
+      })}
+    </div>
+  );
+}

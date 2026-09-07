@@ -6,8 +6,8 @@
 // given or cleared a goal here; beside it sit the surfaces a window has whether or
 // not a session is open —
 // the daemon's own status and control, onboarding, the shell's boolean settings,
-// the invite list, the health stream, and the provider-session import a new session
-// can be seeded from.
+// the invite list, the health stream, the provider-session import a new session can
+// be seeded from, and whether this machine will display an OS notification at all.
 
 import type { NegotiationIncompatibleReason } from "@ai-sidekicks/contracts";
 
@@ -16,9 +16,10 @@ import type {
   GrowthHealthReading,
   GrowthImportProgress,
   GrowthInviteSummary,
+  GrowthNotificationPermission,
   GrowthSessionSummary,
 } from "../growth-values/index.js";
-import type { SessionSnapshot } from "../../store/index.js";
+import type { SessionSnapshot, ShellReport } from "../../store/index.js";
 
 export interface SessionGrowthSignatures {
   sessionRename: { request: { readonly sessionId: string; readonly title: string }; value: void };
@@ -102,6 +103,7 @@ export interface SessionGrowthSignatures {
           readonly daemonSupportedProtocols?: readonly string[];
         };
   };
+  daemonStart: { request: Record<string, never>; value: void };
   onboardingStateRead: {
     request: Record<string, never>;
     value: { readonly completedStepIds: readonly string[]; readonly isComplete: boolean };
@@ -109,7 +111,43 @@ export interface SessionGrowthSignatures {
   onboardingStepAdvance: { request: { readonly stepId: string }; value: void };
   onboardingStepSkip: { request: { readonly stepId: string }; value: void };
   onboardingComplete: { request: Record<string, never>; value: void };
-  onboardingProviderSignInHandoff: { request: { readonly providerName: string }; value: void };
+  // NO SIGN-IN OPERATION, DELIBERATELY. `Spec-029 §Brokered interactive sign-in` puts
+  // the brokered login on the provider-management surface and its CLI parity verb, and
+  // says in the same breath that it "does not rewire" the first-run step: that step's
+  // `providerAccount.*` calls exclude `providerAccount.login` and `loginCancel`, so
+  // onboarding never depends on a brokered process the operator did not ask for. What
+  // the provider step has instead is the remedy the readiness entry already carries —
+  // which provider, which account, the invocation, the credential home — displayed, and
+  // the probe that decides whether it worked.
+
+  // The two bridge methods, whose values are what a MAIN-PROCESS dialog answered.
+  // `credentialHandle` is an opaque reference and never a secret: `Spec-026
+  // §Pitfalls To Avoid` records that rendering the admin-token field in the renderer
+  // has already leaked it once, so the token is typed into main's own window and the
+  // renderer is handed something that only names it.
+  //
+  // `relayMethodId` travels as a bare `string` deliberately. The three normative
+  // identifiers are `Spec-026 §Three-Way Choice Semantics`', and the console narrows
+  // against its own copy of them fail-closed at the step — an id this build does not
+  // recognise renders as the unrecognised row rather than as one of the three.
+  //
+  // `relayUrl` is on the reply because `Spec-026 §Desktop Surface` declares it there
+  // and `Spec-026 §Persistence` records it as plaintext config rather than a secret —
+  // and because Option 1's own required prompt is that the current published relay
+  // address is displayed. Without it this console could describe the consequence of a
+  // choice and never name the address it resolved to.
+  onboardingPresentChoice: {
+    request: Record<string, never>;
+    value: {
+      readonly relayMethodId: string;
+      readonly relayUrl: string;
+      readonly credentialHandle: string | undefined;
+    };
+  };
+  onboardingTelemetryPrompt: {
+    request: Record<string, never>;
+    value: { readonly enabled: boolean };
+  };
   shellConfigRead: { request: Record<string, never>; value: Readonly<Record<string, boolean>> };
   shellConfigWrite: { request: { readonly key: string; readonly enabled: boolean }; value: void };
   invitesList: { request: { readonly sessionId: string }; value: readonly GrowthInviteSummary[] };
@@ -143,4 +181,17 @@ export interface SessionGrowthSignatures {
     request: { readonly importId: string };
     value: GrowthStream<GrowthImportProgress>;
   };
+  // The shell's notification-permission reading. A READ and never a request for
+  // permission: asking for one is a prompt, which is an act on a person's machine
+  // that a panel rendering its own absence has no business performing.
+  shellNotificationPermissionRead: {
+    request: Record<string, never>;
+    value: GrowthNotificationPermission;
+  };
+  // The shell's own condition. The value is `ShellReport` rather than a shape
+  // declared beside it, because the console already has one: `store/shell-state.ts`
+  // owns the vocabulary every reader of this feed narrows on, and a second
+  // declaration here would be the same closed set written twice — the case the
+  // `growth-values/` door names as belonging to the module that already declares it.
+  shellStatusSubscribe: { request: Record<string, never>; value: GrowthStream<ShellReport> };
 }

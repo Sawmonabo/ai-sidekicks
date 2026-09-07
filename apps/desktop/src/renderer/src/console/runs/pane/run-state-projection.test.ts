@@ -118,3 +118,65 @@ describe("the run-state feed refuses the whole-session envelope", () => {
     expect(projection.runCount).toBe(1);
   });
 });
+
+/**
+ * The one transition that stamps a boundary, and the one that does not.
+ *
+ * `run.running` is the post-setup-gate spawn success — the point at which the
+ * resolved workspace root and the effective posture are final — so it is the only
+ * transition that carries `executionPosture`. Every case below turns on the fold
+ * carrying the DELIVERED event's member rather than the run's last known one.
+ */
+const POSTURE_DELIVERY: Readonly<Record<string, unknown>> = {
+  ...STATE_CHANGE_DELIVERY,
+  executionPosture: {
+    mode: "readonly-sandboxed",
+    credentialPolicyRef: "sha256:4f2c8a17d3e05b96c84f2c8a17d3e05b96c84f2c8a17d3e05b96c84f2c8a17d3",
+    networkAccess: "none",
+    writableRoots: [],
+  },
+};
+
+describe("the stamped execution posture is the delivered transition's own", () => {
+  it("carries the posture a running transition stamped", () => {
+    const projection = new RunStateProjection();
+    projection.accept(POSTURE_DELIVERY);
+    const [run] = projection.runs();
+    expect(run?.executionPosture?.mode).toBe("readonly-sandboxed");
+    expect(run?.executionPosture?.networkAccess).toBe("none");
+  });
+
+  it("clears it when the run leaves running, rather than remembering the last one", () => {
+    // The failure this is the control for: a fold that kept the held posture would
+    // show a completed run still executing under a boundary it no longer has, which
+    // is a claim about an agent's permissions that nothing on the wire supports.
+    const projection = new RunStateProjection();
+    projection.accept(POSTURE_DELIVERY);
+    projection.accept({
+      ...STATE_CHANGE_DELIVERY,
+      runVersion: 4,
+      previousState: "running",
+      currentState: "completed",
+      timestamp: "2026-09-02T09:00:01.000Z",
+    });
+    const [run] = projection.runs();
+    expect(run?.state).toBe("completed");
+    expect(run?.executionPosture).toBeUndefined();
+  });
+
+  it("clears it on a rewind, which re-opens the run paused", () => {
+    const projection = new RunStateProjection();
+    projection.accept(POSTURE_DELIVERY);
+    projection.accept(ROLLED_BACK_DELIVERY);
+    const [run] = projection.runs();
+    expect(run?.state).toBe("paused");
+    expect(run?.executionPosture).toBeUndefined();
+  });
+
+  it("reads a transition that stamped none as absent, never as a default", () => {
+    const projection = new RunStateProjection();
+    projection.accept(STATE_CHANGE_DELIVERY);
+    const [run] = projection.runs();
+    expect(run?.executionPosture).toBeUndefined();
+  });
+});

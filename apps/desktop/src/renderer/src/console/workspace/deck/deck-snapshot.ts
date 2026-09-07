@@ -43,12 +43,11 @@
 // no version of this console would ever write.
 
 import { isConsoleRefusal, isWireRecord, refuse, type NarrowedRefusal } from "../../core/index.js";
-import { isPaneKind, parseConsolePaneAddress } from "../../seats/index.js";
+import { isEphemeralPaneKind, isPaneKind, parseConsolePaneAddress } from "../../seats/index.js";
 import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../workspace-bounds.js";
 import { isDeckDensity } from "./density.js";
 import {
   DECK_TOTAL_PERMILLE,
-  EPHEMERAL_PANE_KINDS,
   normalise,
   paneAddressKey,
   type DeckLayoutState,
@@ -277,7 +276,7 @@ function decodePane(
   refusals: DeckRestoreRefusal[],
 ): DeckPane | undefined {
   const kind = entry["kind"];
-  if (isPaneKind(kind) && EPHEMERAL_PANE_KINDS.includes(kind)) {
+  if (isPaneKind(kind) && isEphemeralPaneKind(kind)) {
     // Nothing this build writes can produce one, so its presence means the record
     // was written by something else. Refused for the same reason it is never
     // written: a restart must not reopen a page nobody asked for. Ahead of the

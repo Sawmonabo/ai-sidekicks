@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { type ConsoleBridge, type GrowthOutcome, type ParsedRows } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
+import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { useApprovalsReader } from "./approvals-hooks.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
 import {
@@ -74,8 +74,17 @@ export function ReaderHarness(props: {
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
   readonly onReader: (reader: ApprovalsReader) => void;
+  /**
+   * The window store the reader escalates a whole-workspace refusal into.
+   *
+   * Required and carrying no default, on `paneContext`'s own reading for the two
+   * bindings a surface actually reads: a store minted inside this harness would be
+   * one no case could assert against, and a `??` fallback at module scope would be
+   * the singleton the package's state rule rejects.
+   */
+  readonly frameStore: FrameStore;
 }): React.JSX.Element | null {
-  const { reader } = useApprovalsReader(props.bridge, props.sessionStore);
+  const { reader } = useApprovalsReader(props.bridge, props.sessionStore, props.frameStore);
   const { onReader } = props;
   useEffect(() => {
     onReader(reader);
@@ -90,6 +99,7 @@ export async function mountReader(sessionStore: SessionStore): Promise<Approvals
       <ReaderHarness
         bridge={silentBridge()}
         sessionStore={sessionStore}
+        frameStore={new FrameStore()}
         onReader={(reader) => {
           held = reader;
         }}

@@ -1,13 +1,13 @@
 // Step in: take the work from an agent in one move.
 //
 // One control, three acts: pause the run, put the run's execution root on the deck,
-// and address the composer at that run as a steer. The person presses once; the
-// console does the three things they would otherwise do in sequence and then tells
-// them what happened.
+// and open this run's own detail in the pane that mounts the control. The person
+// presses once; the console does the three things they would otherwise do in sequence
+// and then tells them what happened.
 //
-// TWO OF THE THREE BELONG TO ANOTHER FAMILY, AND TRAVEL AS A SEAT. Which panes are
+// ONE OF THE THREE BELONGS TO ANOTHER FAMILY, AND TRAVELS AS A SEAT. Which panes are
 // open and which one is focused are facts about the deck, and the composer resolves
-// what it is addressed to from the focused pane — so both acts are the workspace's,
+// what it is addressed to from the focused pane — so that act is the workspace's,
 // reached through `seats/take-the-floor-seat.ts` rather than through an import a
 // sibling view family may not make. An unfilled seat means no deck is mounted in this
 // window, which the receipt states rather than swallowing.
@@ -28,30 +28,46 @@
 // who holds it, and stepping in changes nothing about that — a person who has the
 // floor still has to ask for the terminal.
 //
-// AND ITS STATE BELONGS TO THE TRANSPORT AND THE RUN, not to the mount. The control
-// used to hold a mount-scoped `useState` and a hand-rolled in-flight boolean, and
-// `RunControls` keys its children by run — so a bridge replaced while a pause was
-// parked left this component mounted, and the retired transport's acknowledgment
-// settled into the live render and moved the floor to a run the current connection
-// had said nothing about. Both halves now come from the console's own primitives,
-// exactly as `compaction-dispatch.ts` takes them: the reading is held under
-// `(bridge, targetRunId)` so a replacement drops it, the publisher is the captured
-// `settle()` so a settlement measured against a retired visit is dropped rather
-// than rendered, and the single-flight rule is one `GenerationLatch` claim per
-// `(bridge, runId)` released in the settlement's own `finally`-shaped position.
+// AND IT DISPATCHES THROUGH THE PANE'S ONE SURFACE, WHICH IS THE WHOLE POINT. This
+// control used to call `run.pause` itself, holding a `GenerationLatch` claim of its
+// own under a `step-in:<runId>` key — and the palette contributes a `pause` row for
+// the same run that goes through `RunControlSurface.dispatch` and its
+// `<runId>:pause` claim. Two latches over one act admit each other: press the button
+// and run the palette row while it is settling and both dispatch, minting two
+// idempotency keys against one run version, which the wire reads as two distinct
+// mutations rather than replays of one — they race to apply and the loser's stale
+// refusal becomes the visible settlement. One dispatcher, one key, one latch is the
+// rule `run-control-dispatch.ts` states for the six controls, and this is the sixth
+// entry point rather than an exception to it.
+//
+// WHAT THE CONTROL STILL HOLDS is the token its own dispatch was admitted under and
+// the deck's answer to the act that token settled, and nothing else: the in-flight
+// reading and the settlement record both belong to the surface, which already rotates
+// them by bridge. Both are held under `(bridge, targetRunId)` so a replaced transport
+// — and a row reused for another run — reads that subject's own seed rather than the
+// previous one's answer.
 
-import { useCallback } from "react";
-import { refuse } from "../../../core/index.js";
-import { callDaemon, readRunId, type ConsoleBridge } from "../../../bridge/index.js";
-import { Glyph } from "../../../primitives/index.js";
-import { takeTheFloor } from "../../../seats/index.js";
+import { useCallback, useEffect } from "react";
+import { type ConsoleBridge } from "../../../bridge/index.js";
+import { Glyph, useLatestRef } from "../../../primitives/index.js";
+import { takeTheFloor, type TakeTheFloorOutcome } from "../../../seats/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
-import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
+import { useSubjectScopedState } from "../../../store/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
-import { STEP_IN_REFUSAL_ORIGIN, type StepInState } from "./step-in-state.js";
+import { readStepInState } from "./step-in-state.js";
+import { type RunControlSurface } from "./run-control-surface.js";
+
+/** The deck's answer, kept beside the token whose settlement asked for it. */
+interface SettledFloor {
+  readonly dispatchToken: string;
+  readonly outcome: TakeTheFloorOutcome;
+}
 
 export interface StepInProps {
+  /** Holds the token this control dispatched under, and rotates it with the transport. */
   readonly bridge: ConsoleBridge;
+  /** The pane's one dispatcher and its in-flight latch, shared with the palette row. */
+  readonly surface: RunControlSurface;
   /** The run to take over, and the version guard the daemon compares against. */
   readonly targetRunId: string;
   readonly expectedRunVersion: number;
@@ -60,98 +76,70 @@ export interface StepInProps {
   /**
    * Open this run's own detail in the pane that mounts this control.
    *
-   * The pane-LOCAL half, and the only half the runs family owns: the deck's two acts
-   * travel through the floor seat instead. Called only after the pause settles, for
-   * the reason both moves are — disclosing a run's history while the pause is still
-   * in flight would show a run that is still running under a control that says it is
-   * not.
+   * The pane-LOCAL half, and the only half the runs family owns: the deck's act
+   * travels through the floor seat instead. Called only after the pause settles, for
+   * the reason that act is — disclosing a run's history while the pause is still in
+   * flight would show a run that is still running under a control that says it is not.
    */
   readonly onTakeTheFloor: () => void;
 }
 
-const IDLE: StepInState = { phase: "idle" };
-
-/** The latch key one step-in round is claimed under, within its bridge. */
-function stepInLatchKey(targetRunId: string): string {
-  return `step-in:${targetRunId}`;
-}
-
 export function StepIn(props: StepInProps): React.JSX.Element {
-  const { bridge, targetRunId, expectedRunVersion, onTakeTheFloor } = props;
-  const {
-    value: state,
-    publish: publishState,
-    settle: captureVisit,
-  } = useSubjectScopedState<StepInState>(bridge, targetRunId, () => IDLE);
-  const latch = useGenerationLatch();
+  const { bridge, surface, targetRunId, expectedRunVersion, onTakeTheFloor } = props;
+  const { value: dispatchToken, publish: publishDispatchToken } = useSubjectScopedState<
+    string | undefined
+  >(bridge, targetRunId, () => undefined);
+  const { value: settledFloor, publish: publishSettledFloor } = useSubjectScopedState<
+    SettledFloor | undefined
+  >(bridge, targetRunId, () => undefined);
+  const state = readStepInState(
+    surface,
+    targetRunId,
+    dispatchToken,
+    // Read back only for the token that ASKED for it. A row reused for a second
+    // step-in on the same subject would otherwise draw the previous pause's checkout
+    // sentence beside the new pause's figures.
+    settledFloor?.dispatchToken === dispatchToken ? settledFloor?.outcome : undefined,
+  );
 
   const stepIn = useCallback(() => {
-    const parsedRunId = readRunId(targetRunId);
-    if (parsedRunId === undefined) {
-      publishState({
-        phase: "refused",
-        refusal: refuse(
-          STEP_IN_REFUSAL_ORIGIN,
-          "addressed-run-unparseable",
-          "The console is holding an identifier for this run that the daemon would not accept, so it asked for no pause. Reopen the session so its identifiers are read again.",
-        ),
-      });
+    const admission = surface.dispatch(targetRunId, "pause", (dispatcher) =>
+      dispatcher.pause({ runId: targetRunId, expectedRunVersion }),
+    );
+    if (!admission.admitted) {
+      // This run's pause is already going — pressed twice, or started from the
+      // palette row for the same control. The single-flight rule's no-op, and the
+      // button is already showing busy off the same reading that refused it.
       return;
     }
-    const claim = latch.claim(bridge, stepInLatchKey(targetRunId));
-    if (claim === undefined) {
-      // A second press while this run's pause is in flight: the no-op the
-      // single-flight rule asks for. A press after the transport was replaced is a
-      // first press on a new subject's latch and dispatches.
+    publishDispatchToken(admission.dispatchToken);
+  }, [surface, targetRunId, expectedRunVersion, publishDispatchToken]);
+
+  // The floor moves on THIS control's own acknowledgment and on nothing else. Read
+  // through a latest-ref so a re-rendered host handing over a fresh callback does not
+  // re-run the effect and move focus a second time for one settlement.
+  const takeTheFloorHandler = useLatestRef(onTakeTheFloor);
+  const acknowledgedToken = state.phase === "paused" ? dispatchToken : undefined;
+  useEffect(() => {
+    if (acknowledgedToken === undefined) {
       return;
     }
-    // Captured before the call rather than after it, so the publisher names the visit
-    // that dispatched: a settlement arriving after the bridge was replaced is dropped
-    // by the holder instead of being rendered as this run's live state.
-    const publishSettlement = captureVisit();
-    publishSettlement({ phase: "pausing" });
-    // The door parses both directions and never rejects, so the whole settlement is
-    // one branch: a refusal — the daemon's own code, or the door's `reply-unreadable`
-    // — renders verbatim, and a served acknowledgment is what the receipt is composed
-    // from. The floor moves only on the served arm AND only where the receipt was
-    // actually installed: the holder refuses the function form of a publish WITHOUT
-    // RUNNING it, so an update that ran is exactly the answer to "is this visit still
-    // on screen" — and a retired transport's acknowledgment therefore moves no
-    // cursor, which is the half a render-only guard would have left open.
-    void callDaemon(bridge, "run.pause", {
-      targetRunId: parsedRunId,
-      expectedRunVersion,
-    }).then(async (reply) => {
-      let wasStillAddressed = false;
-      claim.settle(() => {
-        if (reply.status === "refused") {
-          publishSettlement({ phase: "refused", refusal: reply.refusal });
-          return;
-        }
-        publishSettlement(() => {
-          wasStillAddressed = true;
-          return { phase: "paused", acknowledgment: reply.value, floor: undefined };
-        });
-        if (wasStillAddressed) {
-          onTakeTheFloor();
-        }
-      });
-      // THE DECK MOVES ONLY WHERE THE PAUSE LANDED ON SCREEN. `wasStillAddressed` is
-      // the holder's own answer to "is this visit still the live one", so a settlement
-      // measured against a retired transport rearranges no panes — the same rule that
-      // keeps its receipt off the render.
-      if (reply.status === "served" && wasStillAddressed) {
-        const floor = await takeTheFloor({ runId: targetRunId });
-        claim.settle(() => {
-          publishSettlement({ phase: "paused", acknowledgment: reply.value, floor });
-        });
+    takeTheFloorHandler.current();
+    // THE DECK'S ANSWER LANDS ONLY WHERE THE PAUSE DID. The publisher was captured at
+    // the render that dispatched, so a settlement measured against a retired transport
+    // or a re-addressed row is dropped rather than drawn — the same rule that keeps a
+    // stale receipt off the render.
+    let stillMounted = true;
+    void takeTheFloor({ runId: targetRunId }).then((outcome) => {
+      if (!stillMounted) {
+        return;
       }
-      // Released after the deck has answered, not after the pause: a second press
-      // while the execution-root read is open would pause an already-paused run and
-      // move the deck a second time under the person's hands.
-      claim.release();
+      publishSettledFloor({ dispatchToken: acknowledgedToken, outcome });
     });
-  }, [bridge, captureVisit, expectedRunVersion, latch, onTakeTheFloor, publishState, targetRunId]);
+    return () => {
+      stillMounted = false;
+    };
+  }, [acknowledgedToken, publishSettledFloor, takeTheFloorHandler, targetRunId]);
 
   return (
     <div className="meridian-step-in">

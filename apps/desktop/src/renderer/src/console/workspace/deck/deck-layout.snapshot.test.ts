@@ -59,7 +59,7 @@ describe("DeckLayout — what a snapshot carries", () => {
   });
 
   it("never writes an ephemeral pane", () => {
-    // `deck-model.ts`'s `EPHEMERAL_PANE_KINDS`: a browser pane is never written to the
+    // `seats/pane-kinds.ts`'s `isEphemeralPaneKind`: a browser pane is never written to the
     // layout snapshot, so a restart cannot reopen a page nobody asked for.
     const layout = twoPaneLayout();
     const source = layout.snapshot().panes[0];

@@ -7,6 +7,7 @@
 // the two flushes below exist to answer once.
 
 import { act, render, type RenderResult } from "@testing-library/react";
+import type { ReactNode } from "react";
 
 import { ConsoleRoot, type ConsoleRootProps } from "./ConsoleRoot.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
@@ -51,6 +52,14 @@ export interface MountConsoleOptions {
    * it — and a second observer beside it would be a second such seam.
    */
   readonly observe?: (context: ConsoleSurfaceContext) => void;
+  /**
+   * What goes in the window-scoped overlay slot the observer leaves empty.
+   *
+   * A second ROLE rather than a second observer: `App.tsx` composes the real
+   * window-scoped overlays into this same slot, so a case about what one of them
+   * does to the frame around it has to put the real component there.
+   */
+  readonly renderOverlay?: (context: ConsoleSurfaceContext) => ReactNode;
 }
 
 /**
@@ -61,19 +70,25 @@ export interface MountConsoleOptions {
  * against a half-settled tree and leave a state update landing outside `act`. Two
  * flushes rather than one: the open resolves a promise whose continuation schedules
  * another.
+ *
+ * `renderOverlay` fills the slot the observer leaves empty, and it is a second ROLE
+ * rather than a second observer: `App.tsx` composes the window-scoped overlays into
+ * this same slot, so a case about what one of them does to the frame around it has
+ * to put the real component there. Both callbacks take the context because both jobs
+ * need it, and the slot stays empty for every case that asks for neither.
  */
 export async function mountConsole(options: MountConsoleOptions = {}): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
-  const { scenarioId, observe } = options;
+  const { scenarioId, observe, renderOverlay } = options;
   openWindowAt(options.openedAtHash);
   const props: ConsoleRootProps = {
     ...(scenarioId === undefined ? {} : { scenarioId }),
-    ...(observe === undefined
+    ...(observe === undefined && renderOverlay === undefined
       ? {}
       : {
           renderOverlays: (context: ConsoleSurfaceContext) => {
-            observe(context);
-            return null;
+            observe?.(context);
+            return renderOverlay === undefined ? null : renderOverlay(context);
           },
         }),
   };

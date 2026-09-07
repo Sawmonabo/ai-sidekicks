@@ -21,19 +21,27 @@
 // `Spec-009 §Repo Mount Health (V1 Definition)` puts all three with the daemon, and
 // each is a Never of this module's own rather than a rule read off a citation.
 //
-// WHAT THE HEALTH AXIS DOES NOT CARRY, AND WHY IT IS NOT HERE. The console's repos
-// design describes a third verdict on this axis for a root that is no longer the
-// repository it was attached as. `RepoMountHealth` in
-// `packages/contracts/src/repo.ts` is a CLOSED two-member union today — that
-// module's own note says a third state would let a read answer "we did not check"
-// on a surface obliged to check — so scripting or rendering a third verdict here
-// would be the console inventing a value no daemon can send. The table is written
-// over the union the contract ships, so the day a third member lands this file is
-// a compile error and the copy is written then rather than guessed now.
+// THE THIRD VERDICT, AND WHY ITS COPY IS DIFFERENT IN KIND. `identity_mismatch` is a
+// root that is still THERE and is no longer the repository it was attached as: the
+// common directory re-derived from it no longer equals the identity anchor the attach
+// persisted. That is not a degraded reading of `unreachable` and it is not a softer
+// one — a probe answered, and what it answered is that this is a different repository.
+// The daemon's binds and runs are already refusing on the persisted-identity match, so
+// the console's obligation here is the one `Spec-009 §Repo Mount Health (V1 Definition)`
+// names: a projection still answering `healthy` for a mount that can never bind again
+// is a lying read model. The recovery is NAMED rather than implied — re-attach, which
+// mints a new mount row — because the alternative reading of this verdict is that a
+// participant waits for a root to come back that has not gone anywhere.
 
-import type { RepoMountHealth, RepoMountReadResponse, VcsType } from "@ai-sidekicks/contracts";
+import type {
+  ExecutionMode,
+  RepoMountHealth,
+  RepoMountReadResponse,
+  VcsType,
+} from "@ai-sidekicks/contracts";
 import type { RepoMountState } from "@ai-sidekicks/contracts";
 import type { ChipTone } from "../../primitives/index.js";
+import { selectionInFlightCopy } from "./execution-mode-selection.js";
 
 /**
  * One axis reading, as a card renders it.
@@ -69,6 +77,19 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisReadi
     // unavailable" — precedence between failing verdicts is the daemon's.
     sentence:
       "The root could not be probed, so nothing further can be asked of it. Binds and runs on this mount refuse until it is reachable again.",
+  },
+  identity_mismatch: {
+    tone: "failure",
+    label: "identity_mismatch",
+    // WAITING IS THE WRONG MOVE HERE, which is what separates this sentence from the
+    // one above it. `unreachable` can resolve on its own — a volume remounts, a network
+    // path answers again — and this cannot: the path resolves fine and holds a different
+    // repository, so no amount of waiting turns it back into the one that was attached.
+    // The sentence therefore says the refusal is permanent for THIS row and names the
+    // recovery, and the new-mount consequence is said here rather than left to the
+    // confirm dialog, because a participant reads the card before they press anything.
+    sentence:
+      "The root is reachable but is no longer the repository this mount was attached as. Binds and runs on this mount refuse permanently; re-attaching the path mints a new mount and leaves this row as history.",
   },
 };
 
@@ -163,4 +184,48 @@ export function bindControlPosture(mount: RepoMountReadResponse): BindControlPos
     };
   }
   return BIND_CONTROLS_OFFERED;
+}
+
+/**
+ * Whether ONE workspace's binding controls are live, and what is holding them.
+ *
+ * THE SAME QUESTION AS `bindControlPosture`, ONE LEVEL DOWN, and it exists because two
+ * controls on a workspace row ask it: the execution-mode picker and the root
+ * preparation beneath it. They are two halves of one act — the picker names the mode a
+ * run binds in, and the preparation puts that mode's root on disk — so a posture read
+ * twice would be two rules, and the pair that drifted apart is exactly the pair that
+ * shipped: the picker held itself for a pending switch and the preparation did not, so
+ * a writable workspace could submit a prepare read off the `executionMode` the switch
+ * was in the middle of replacing.
+ *
+ * TWO THINGS CLOSE THESE CONTROLS AND THE MOUNT'S IS FIRST, on `bindControlPosture`'s
+ * own precedence: a mount that will refuse every bind is a fact about the row, and a
+ * switch on the wire is a fact about this moment — so a detached row never reads as
+ * something to wait out.
+ *
+ * FAIL-CLOSED PROJECTION AND NOT ELIGIBILITY, in every clause `bindControlPosture`
+ * states it in: the daemon decides what it accepts and answers a refusal with its own
+ * typed code. What is decided here is only whether the console offers a control it has
+ * been told cannot succeed, and the held arm carries the sentence so no call site
+ * invents one.
+ */
+export type WorkspaceControlPosture =
+  | { readonly live: true }
+  | { readonly live: false; readonly heldBecause: string };
+
+const WORKSPACE_CONTROLS_LIVE: WorkspaceControlPosture = { live: true };
+
+export function workspaceControlPosture(
+  bindControls: BindControlPosture,
+  pendingMode: ExecutionMode | undefined,
+): WorkspaceControlPosture {
+  if (!bindControls.offered) {
+    return { live: false, heldBecause: bindControls.withheldBecause };
+  }
+  if (pendingMode !== undefined) {
+    // The sentence the selection act already refuses a second press with — one
+    // in-flight switch, one wording, wherever the participant meets it.
+    return { live: false, heldBecause: selectionInFlightCopy(pendingMode) };
+  }
+  return WORKSPACE_CONTROLS_LIVE;
 }

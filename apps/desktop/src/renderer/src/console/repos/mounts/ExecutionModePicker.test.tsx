@@ -11,6 +11,21 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
+import { workspaceControlPosture, type WorkspaceControlPosture } from "./mount-health.js";
+
+/** The two postures a card hands down, composed through the real predicate. */
+const CONTROLS_LIVE: WorkspaceControlPosture = workspaceControlPosture(
+  { offered: true },
+  undefined,
+);
+const CONTROLS_HELD_BY_THE_MOUNT: WorkspaceControlPosture = workspaceControlPosture(
+  { offered: false, withheldBecause: "This mount is no longer reachable." },
+  undefined,
+);
+const CONTROLS_HELD_BY_A_SWITCH: WorkspaceControlPosture = workspaceControlPosture(
+  { offered: true },
+  "worktree",
+);
 
 const GIT_CAPABILITIES: WorkspaceExecutionModeCapabilitiesReadResponse = {
   availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
@@ -37,8 +52,9 @@ function renderPicker(
       currentMode="read-only"
       capabilities={capabilities}
       refusal={undefined}
+      refusalMode={undefined}
       pendingMode={undefined}
-      disabled={false}
+      posture={CONTROLS_LIVE}
       onSelect={() => undefined}
       {...overrides}
     />,
@@ -142,7 +158,9 @@ describe("ExecutionModePicker — refusals and absences", () => {
   });
 
   it("disables the whole group when the mount withholds its bind controls", () => {
-    const { container } = renderPicker(GIT_CAPABILITIES, { disabled: true });
+    const { container } = renderPicker(GIT_CAPABILITIES, {
+      posture: CONTROLS_HELD_BY_THE_MOUNT,
+    });
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
   });
 });
@@ -152,7 +170,14 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     // Two selects issued before the first settles both run, and the LAST to reach the
     // daemon decides — so a corrected choice can silently lose to the one it corrected
     // away from. The group holds until the answer arrives.
-    const { container, getByRole } = renderPicker(GIT_CAPABILITIES, { pendingMode: "worktree" });
+    //
+    // BOTH MEMBERS, because the card supplies both from one derivation: the posture
+    // holds the group and `pendingMode` names the mode. Passing only one here would be
+    // a state the card cannot produce.
+    const { container, getByRole } = renderPicker(GIT_CAPABILITIES, {
+      pendingMode: "worktree",
+      posture: CONTROLS_HELD_BY_A_SWITCH,
+    });
 
     // THE FIELDSET AND NOT THE INPUTS. A disabled `<fieldset>` disables every control
     // it wraps, which is the whole reason the group is one — and asserting the
@@ -182,6 +207,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     const { container } = renderPicker(GIT_CAPABILITIES, {
       currentMode: "read-only",
       pendingMode: "worktree",
+      posture: CONTROLS_HELD_BY_A_SWITCH,
     });
     const checked = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].filter(
       (radio) => radio.checked,

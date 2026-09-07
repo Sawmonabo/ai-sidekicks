@@ -27,35 +27,49 @@
 // a second code path.
 
 import { registerCollaborationSections } from "./collaboration/index.js";
-import type { ConsoleSurfaceRegistry, SidebarSectionRegistry } from "./seats/index.js";
+import type {
+  ConsoleSurfaceRegistry,
+  FrameBindingRegistry,
+  SidebarSectionRegistry,
+} from "./seats/index.js";
 import { registerAgentConsoleSurface, registerAgentsSidebarSection } from "./agents/index.js";
-import { registerSessionsSurface, type SessionsSurfaceComposition } from "./sessions/index.js";
+import {
+  registerSessionAttentionBinding,
+  registerSessionsSurface,
+  type SessionsSurfaceComposition,
+} from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 
 /**
- * Claim every surface slot this family owns, and fill the sidebar sections it fills.
+ * Claim every surface slot this family owns, fill the sidebar sections it fills, and
+ * claim the frame-lifetime binding one of its subtrees keeps.
  *
- * The third argument is a COMPOSITION rather than a board, on the terms `families.ts`
- * names one under: the sessions destination offers a composed draft beside the shipped
- * probe, and that control is the workspace family's — a view family this one may not
- * import — so the root names which component fills the place and this file hands it on.
- *
- * Two boards, because they are two different seats: a surface slot is a whole
- * destination the frame mounts, and a sidebar section is a body inside a sidebar
- * another family owns. Both are HANDED to this function rather than reached for.
+ * Three boards, because they are three different seats: a surface slot is a whole
+ * destination the frame mounts, a sidebar section is a body inside a sidebar another
+ * family owns, and a frame binding is neither — it is a read this family performs for
+ * as long as the window is open, mounted around the frame's subtree rather than at a
+ * destination, so the rail's count outlives a person navigating away from the
+ * sessions list. All three are HANDED to this function rather than reached for.
  * The sidebar board ships a module-scope singleton and the sections registrar used
  * to write straight into it, which is the one shape `registerConsoleFamilies` exists
  * to refuse: an independent composition would mutate the running console's sidebar,
  * two compositions would leak sections into each other, and an auxiliary window
  * could not compose a subset however it asked. A board a caller supplies has none of
  * those failures, and a test composing this family owns what it asserts against.
+ *
+ * The fourth argument is a COMPOSITION rather than a board, on the terms `families.ts`
+ * names one under: the sessions destination offers a composed draft beside the shipped
+ * probe, and that control is the workspace family's — a view family this one may not
+ * import — so the root names which component fills the place and this file hands it on.
  */
 export function registerCollaborationFamily(
   surfaces: ConsoleSurfaceRegistry,
   sidebarSections: SidebarSectionRegistry,
+  frameBindings: FrameBindingRegistry,
   sessionsComposition: SessionsSurfaceComposition,
 ): void {
   registerSessionsSurface(surfaces, sessionsComposition);
+  registerSessionAttentionBinding(frameBindings);
   registerSettingsSurface(surfaces);
   registerAgentConsoleSurface(surfaces);
   registerCollaborationSections(sidebarSections);

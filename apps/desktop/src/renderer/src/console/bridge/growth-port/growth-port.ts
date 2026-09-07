@@ -334,6 +334,24 @@ export function createRefusingGrowthPort(): GrowthPort {
     browserSubscribeNavigation: async () => growthUnavailable("browserSubscribeNavigation"),
     browserSubscribeToolCalls: async () => growthUnavailable("browserSubscribeToolCalls"),
     browserRespondToToolCall: async () => growthUnavailable("browserRespondToToolCall"),
+    browserSelect: async () => growthUnavailable("browserSelect"),
+    browserReorder: async () => growthUnavailable("browserReorder"),
+    browserShow: async () => growthUnavailable("browserShow"),
+    browserHide: async () => growthUnavailable("browserHide"),
+    browserCreate: async () => growthUnavailable("browserCreate"),
+    browserClose: async () => growthUnavailable("browserClose"),
+    browserDevtools: async () => growthUnavailable("browserDevtools"),
+    browserSubscribePages: async () => growthUnavailable("browserSubscribePages"),
+    browserCapture: async () => growthUnavailable("browserCapture"),
+    browserProducedArtifacts: async () => growthUnavailable("browserProducedArtifacts"),
+    browserPickElement: async () => growthUnavailable("browserPickElement"),
+    browserOpenFile: async () => growthUnavailable("browserOpenFile"),
+    browserClearSiteData: async () => growthUnavailable("browserClearSiteData"),
+    browserRevealPageFile: async () => growthUnavailable("browserRevealPageFile"),
+    browserPaneAttach: async () => growthUnavailable("browserPaneAttach"),
+    browserPaneDetach: async () => growthUnavailable("browserPaneDetach"),
+    browserPublishChordMirror: async () => growthUnavailable("browserPublishChordMirror"),
+    browserSubscribeAccelerators: async () => growthUnavailable("browserSubscribeAccelerators"),
     terminalSubscribeOutput: async () => growthUnavailable("terminalSubscribeOutput"),
     terminalWrite: async () => growthUnavailable("terminalWrite"),
     terminalResize: async () => growthUnavailable("terminalResize"),
@@ -351,6 +369,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),
     daemonNegotiationRead: async () => growthUnavailable("daemonNegotiationRead"),
+    daemonStart: async () => growthUnavailable("daemonStart"),
     approvalProjectionRead: async () => growthUnavailable("approvalProjectionRead"),
     approvalResolve: async () => growthUnavailable("approvalResolve"),
     approvalRuleList: async () => growthUnavailable("approvalRuleList"),
@@ -361,8 +380,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     onboardingStepAdvance: async () => growthUnavailable("onboardingStepAdvance"),
     onboardingStepSkip: async () => growthUnavailable("onboardingStepSkip"),
     onboardingComplete: async () => growthUnavailable("onboardingComplete"),
-    onboardingProviderSignInHandoff: async () =>
-      growthUnavailable("onboardingProviderSignInHandoff"),
+    onboardingPresentChoice: async () => growthUnavailable("onboardingPresentChoice"),
+    onboardingTelemetryPrompt: async () => growthUnavailable("onboardingTelemetryPrompt"),
     shellConfigRead: async () => growthUnavailable("shellConfigRead"),
     shellConfigWrite: async () => growthUnavailable("shellConfigWrite"),
     invitesList: async () => growthUnavailable("invitesList"),
@@ -403,6 +422,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     // gitflow
     gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
     gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),
+    workspaceExecutionContextRead: async () => growthUnavailable("workspaceExecutionContextRead"),
     // identity, and the callback-tool registry read
     callerParticipantRead: async () => growthUnavailable("callerParticipantRead"),
     callbackToolRegistryRead: async () => growthUnavailable("callbackToolRegistryRead"),
@@ -422,5 +442,12 @@ export function createRefusingGrowthPort(): GrowthPort {
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
     timelineSubscribe: async () => growthUnavailable("timelineSubscribe"),
+    // the shell
+    shellNotificationPermissionRead: async () =>
+      growthUnavailable("shellNotificationPermissionRead"),
+    // the shell's own condition — the one operation here whose eventual producer is
+    // the main process rather than the daemon, and which refuses exactly as the rest
+    // do until a bridge namespace carries it.
+    shellStatusSubscribe: async () => growthUnavailable("shellStatusSubscribe"),
   };
 }

@@ -21,6 +21,23 @@
 //
 // Test files are excluded: a test asserting that "1.0 KiB" renders has to write
 // "1.0 KiB", and forbidding that would forbid testing the chokepoint's own output.
+//
+// THE SECOND CLAIM: THE PLANE THAT SPEAKS FOR THE SHELL PUTS NO REPORTED VALUE INTO
+// PROSE. Byte scaling is one way to format a wire value outside the chokepoint and
+// interpolation is the other, and the second is the one that arrives without anybody
+// deciding to format anything: a sentence needs a version in it, so the version goes
+// in the template. That is how both protocol versions and both ladder counters reached
+// the screen as proportional prose — no mono signature, no `Intl`, and no element to
+// hang either on. The repair was a sentence MODEL with figure slots, and this is what
+// keeps it: a member of the shell's report inside a `${…}` fails here.
+//
+// SCOPED TO `frame/shell-state/`, WHICH IS A DIRECTORY AND NOT A NAMING CONVENTION.
+// The tree's other copy modules are announcement text — a live region is handed a
+// string, and an `Intl`-formatted number inside one is the only form a spoken sentence
+// can take — so a rule keyed on `*-copy.ts` would fail modules that have no element to
+// reach for. This plane's sentences are all rendered, so every figure in one has an
+// element available, and that is what makes the claim true here. Extending it to
+// another rendered plane is an ordinary widening of the needle list below.
 
 import { describe, expect, it } from "vitest";
 
@@ -67,6 +84,41 @@ const SCALING_STEP_FORMS: readonly string[] = [
  */
 function byteScalingSignatures(source: string): readonly string[] {
   return [...BINARY_UNIT_LABELS, ...SCALING_STEP_FORMS].filter((form) => source.includes(form));
+}
+
+/** The directory whose sentences are all rendered, and so may embed no report value. */
+const SENTENCE_PLANE_PREFIX = "console/frame/shell-state/";
+
+/**
+ * The members the shell's report carries, each a value the supervisor supplied.
+ *
+ * Taken from `store/shell-state.ts`'s `ShellNegotiation` and `ShellConnection`: the
+ * three the negotiation types "verbatim" plus the ladder's own counters, the last
+ * error, and the heartbeat stamp. Every one of them is a figure by rule 4's two
+ * classes, and none of them is a word this console wrote.
+ */
+const SHELL_REPORT_MEMBERS: readonly string[] = [
+  "attempt",
+  "attemptLimit",
+  "consoleProtocolVersion",
+  "daemonProtocolVersion",
+  "daemonSupportedProtocols",
+  "lastError",
+  "lastHeartbeatAt",
+];
+
+/**
+ * Every report member `source` puts inside a template interpolation, or `[]`.
+ *
+ * The interpolation is what makes it PROSE. Reading a member into a local, passing one
+ * to a figure slot, or comparing two is ordinary code and is not this rule's business;
+ * `${…}` around one is the module deciding how that value reads, which is the decision
+ * `primitives/wire-figures.ts` owns.
+ */
+function proseEmbeddedReportMembers(source: string): readonly string[] {
+  return [...source.matchAll(/\$\{[^}]*\}/gu)].flatMap((interpolation) =>
+    SHELL_REPORT_MEMBERS.filter((member) => interpolation[0].includes(member)),
+  );
 }
 
 describe("wire-figure-formatting — byte scaling happens in exactly one module", () => {
@@ -116,5 +168,65 @@ describe("wire-figure-formatting — byte scaling happens in exactly one module"
     expect(byteScalingSignatures("export const CAP: number = 64 * 1024;")).toStrictEqual([]);
     expect(byteScalingSignatures('const label = "KiB";')).toStrictEqual(["KiB"]);
     expect(byteScalingSignatures("const scaled = total / 1024;")).toStrictEqual(["/ 1024"]);
+  });
+});
+
+describe("wire-figure-formatting — the shell's sentences embed no reported value", () => {
+  const planeModules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] }).filter((module) =>
+    module.displayPath.startsWith(SENTENCE_PLANE_PREFIX),
+  );
+
+  it("finds the sentence plane at all", () => {
+    // Without this a renamed directory would scan nothing and the claim below would
+    // pass over the empty set — which is exactly how a chokepoint goes quiet.
+    expect(planeModules.map((module) => module.displayPath)).toContain(
+      `${SENTENCE_PLANE_PREFIX}shell-sentences.ts`,
+    );
+    expect(planeModules.length).toBeGreaterThan(3);
+  });
+
+  it("puts no member of the shell's report inside a template", () => {
+    const offenders = planeModules
+      .map((module) => ({
+        module: module.displayPath,
+        members: proseEmbeddedReportMembers(readConsoleSourceModule(module)),
+      }))
+      .filter((entry) => entry.members.length > 0)
+      .map((entry) => `${entry.module}: ${entry.members.join(", ")}`);
+    expect(offenders).toStrictEqual([]);
+  });
+
+  it("negative control: the sentences this rule was written against still trip it", () => {
+    // The two forms the plane actually carried, planted verbatim. Without this the
+    // clean result above would pass for a needle list that matched nothing at all.
+    expect(
+      proseEmbeddedReportMembers(
+        "return `This console speaks ${negotiation.consoleProtocolVersion};" +
+          " the local runtime answered ${negotiation.daemonProtocolVersion}.`;",
+      ),
+    ).toStrictEqual(["consoleProtocolVersion", "daemonProtocolVersion"]);
+    expect(
+      proseEmbeddedReportMembers(
+        "return `Reconnecting — attempt ${String(connection.attempt)}" +
+          " of ${String(connection.attemptLimit)}.`;",
+      ),
+    ).toStrictEqual(["attempt", "attempt", "attemptLimit"]);
+    expect(
+      proseEmbeddedReportMembers(
+        '`The runtime supports ${negotiation.daemonSupportedProtocols.join(", ")}.`',
+      ),
+    ).toStrictEqual(["daemonSupportedProtocols"]);
+  });
+
+  it("negative control: reading a member is not putting one into prose", () => {
+    // The other side of the line the header draws. A module that takes the value and
+    // hands it to a figure slot is doing exactly what the repair asks for, and a rule
+    // that flagged it would have no repair left to offer.
+    expect(
+      proseEmbeddedReportMembers(
+        'return [words("speaks "), figure(negotiation.daemonProtocolVersion)];',
+      ),
+    ).toStrictEqual([]);
+    expect(proseEmbeddedReportMembers("const attempt = connection.attempt;")).toStrictEqual([]);
   });
 });

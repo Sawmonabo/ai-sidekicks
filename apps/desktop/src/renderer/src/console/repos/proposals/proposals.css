@@ -152,6 +152,13 @@
   cursor: pointer;
 }
 
+/*
+ * One focus treatment for everything inside the gate, and the summary named beside it
+ * because `ProposalSummary` and `StatusRollup` are mounted by whoever composes them:
+ * the descendant rule covers every control this gate draws, and the summary's own rule
+ * is what a summary rendered outside the gate still gets.
+ */
+.meridian-proposal-gate :focus-visible,
 .meridian-proposal-gate__detail-summary:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
@@ -232,6 +239,25 @@
   max-block-size: var(--meridian-enumeration-max-height);
   overflow-y: auto;
   list-style: none;
+}
+
+/*
+ * A path is a link into the diff pane and nothing more, so it carries no button
+ * chrome: the affordance is the underline on hover and the focus ring above, and a
+ * row of bordered buttons would turn a file list into a control panel.
+ */
+.meridian-proposal__path-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-proposal__path-link:hover {
+  text-decoration: underline;
 }
 
 .meridian-proposal__blob {

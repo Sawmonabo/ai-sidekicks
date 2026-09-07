@@ -7,7 +7,10 @@
 // them. No JSX here, so every arm is drivable from a test with no rendered tree at
 // all, which is what the exhaustive tails below are worth.
 
+import type { RollbackCompositeRejectionGuard } from "@ai-sidekicks/contracts";
+
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { compositeGuardReading } from "../controls/rollback/composite-guard.js";
 import {
   RUN_CONTROL_REFUSAL_ORIGIN,
   type RunControlOutcome,
@@ -37,6 +40,11 @@ export type ComposerSettlement =
  * get out of the way. Every other arm keeps the body, and the code a person sees is
  * the daemon's own: `rejectionReason` where the wire sent one, and the wire's state
  * otherwise. Nothing here paraphrases a wire code into console prose.
+ *
+ * The guard reading below takes the daemon's own typed `rejectionGuard`, which is
+ * producer-obligated on the rollback `rejected` arm and absent on every other
+ * refusal family — so a bare rollback, and a steer the daemon rejected for a live
+ * turn, carry none and are answered with the general sentence.
  */
 export function readComposerSettlement(outcome: RunControlOutcome): ComposerSettlement {
   if (outcome.kind === "refused") {
@@ -63,7 +71,7 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
         notice: refuse(
           RUN_CONTROL_REFUSAL_ORIGIN,
           response.rejectionReason ?? settledState,
-          "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.",
+          rejectedDetail(response.rejectionGuard),
         ),
       };
     case "expired":
@@ -88,6 +96,31 @@ export function readComposerSettlement(outcome: RunControlOutcome): ComposerSett
     default:
       return unreadableSettlement(settledState);
   }
+}
+
+/**
+ * What the form says beside a rejected settlement.
+ *
+ * The four structural guards of the edit-and-resend composite each leave a different
+ * next move, and two of them are acts a person has to perform before this same
+ * request can ever be admitted — so where the daemon names one, the form says the act
+ * rather than "change what it asks for", which for a pending queued send names
+ * nothing the participant can change in this box. Every other rejection keeps the
+ * general sentence, because that is the honest one when the wire attributed the
+ * refusal to none of the four.
+ *
+ * This reads the same typed member `InterventionBody.tsx` reads on the history half,
+ * through the same function, so the two surfaces cannot answer differently.
+ *
+ * The wire cause itself is the refusal's `code` on both paths and is rendered
+ * verbatim either way; this is only the sentence beside it.
+ */
+function rejectedDetail(rejectionGuard: RollbackCompositeRejectionGuard | undefined): string {
+  const guard = compositeGuardReading(rejectionGuard);
+  if (guard === undefined) {
+    return "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
+  }
+  return `${guard.refused} ${guard.remedy} What you typed is still here.`;
 }
 
 /**

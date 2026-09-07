@@ -33,7 +33,10 @@
 // The process tree is SIGKILLed, and the outcome is reported rather than thrown.
 // Cleanup is never the interesting failure — something else already went wrong to
 // get here — so it returns a verdict the caller attaches to the error it was
-// already carrying, in the shape `FrameWitness` uses for the same reason.
+// already carrying, in the shape `FrameWitness` uses for the same reason. A kill
+// the platform REFUSES is asked again inside that one pass, bounded by the same
+// figure the settle-time child disposal uses — `#terminateUntilGone` has the
+// reason it cannot be left to a second call.
 //
 // THE PROFILE IS PART OF THE VERDICT, NOT A STEP BESIDE IT
 //
@@ -45,121 +48,15 @@
 // about any of this — including which outcomes raise — is
 // `cleanup-disposition.ts`.
 
-import { processExists, terminateProcessTree } from "../helpers/process-tree.js";
-import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
+import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "../helpers/managed-electron-child.js";
 import {
-  type LaunchProfile,
-  type ProfileRemovalFailure,
-  removeLaunchProfile,
-} from "./launch-profile.js";
-
-/**
- * The launched application, reduced to what cleanup needs of it.
- *
- * An interface rather than Playwright's `ElectronApplication` so a stub whose
- * `close()` never settles is one object literal. That case cannot be produced
- * with a real Electron — no fixture makes a browser process refuse to close on
- * demand — which is exactly why it was the case nothing checked.
- */
-export interface ClosableApplication {
-  readonly close: () => Promise<void>;
-  /** The launched process, or `undefined` once it has exited or was never spawned. */
-  readonly processId: () => number | undefined;
-}
-
-/**
- * Force-termination, as a seam.
- *
- * A constructor argument so a test can assert the SIGKILL happened without
- * signalling anything: a spy is an object literal, and these cases run INSIDE
- * the runner, where a terminator that really killed something would deliver to
- * a whole process group — the launched tree only because playwright-core spawns
- * detached, and somebody else's group for any other pid it is handed.
- */
-export interface ProcessTerminator {
-  /** Kill the tree led by `processId`. Returns whether a signal was delivered. */
-  readonly terminate: (processId: number) => boolean;
-  /**
-   * Whether that process is still alive, asked without signalling it.
-   *
-   * On the same seam as `terminate` rather than a fourth constructor argument,
-   * because the two are one subject: `terminationSucceeded` already decides a
-   * kill by asking this question, and a cleanup that must decide whether a
-   * FAILED close left anything running asks exactly the same one.
-   */
-  readonly isRunning: (processId: number) => boolean;
-}
-
-/**
- * How the close settled.
- *
- * `unterminable` is deliberately distinct from `terminated` rather than folded
- * into it: it means a process may still be running and holding a profile, which
- * is the one cleanup outcome that can affect a LATER launch, and a reader who
- * cannot tell it from a successful kill has lost the only actionable half.
- *
- * `closed-after-rejection` is distinct from `closed` for the mirror reason. The
- * close failed and the process is nonetheless gone, so nothing leaked and no kill
- * was needed — but a caller told plain `closed` would have no way to surface the
- * rejection, and this cleanup used to discard it silently.
- */
-export type CleanupSettlement = "closed" | "closed-after-rejection" | "terminated" | "unterminable";
-
-export interface CleanupOutcome {
-  readonly settlement: CleanupSettlement;
-  /**
-   * Why `application.close()` rejected, when it did.
-   *
-   * Present on every settlement reached through a rejection and absent
-   * otherwise, so a caller can attach it rather than lose it. It used to be
-   * caught and dropped on the floor, which is how a close that failed outright
-   * could be reported as one that succeeded.
-   */
-  readonly closeRejection?: unknown;
-  /** Wall milliseconds spent closing, measured driver-side. */
-  readonly waitedMs: number;
-  /**
-   * The bound this close was held to, in milliseconds.
-   *
-   * `CLEANUP_BUDGET_MS` for every launched console, and reported rather than
-   * re-derived by its readers so the sentence a reader sees and the race that
-   * produced it cannot disagree: the cases that exercise a hung close supply a
-   * bound short enough to exhaust, and a message naming the constant there would
-   * misdescribe the very measurement it is reporting.
-   */
-  readonly budgetMs: number;
-  /**
-   * The process the settlement is about, when one was still addressable.
-   *
-   * Carried so a failure can NAME it: an operator told only that termination was
-   * refused has nothing to look for in `ps`.
-   */
-  readonly processId?: number | undefined;
-  /**
-   * The launch profile still on disk, when removing it failed.
-   *
-   * On the verdict rather than raised where it happens, and independent of the
-   * settlement rather than folded into it: a close can go perfectly while the
-   * removal fails, and the two facts are separately actionable. Absent means the
-   * directory is gone.
-   */
-  readonly profileRemovalFailure?: ProfileRemovalFailure | undefined;
-}
-
-/**
- * The terminator every real launch uses, over the one shared implementation.
- *
- * A thin binding rather than a body: the platform facts live in
- * `test/helpers/process-tree.ts`, shared with the Tier-1 smoke probe, because
- * two copies of them had already disagreed about whether `taskkill`'s exit
- * status counts. `BoundedCleanup` still takes the seam as a constructor
- * argument — a terminator that really killed something would signal a whole
- * process group from inside the runner, and a test must signal nothing.
- */
-export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
-  isRunning: (processId: number): boolean => processExists(processId),
-  terminate: (processId: number): boolean => terminateProcessTree(processId),
-};
+  type CleanupClock,
+  type CleanupOutcome,
+  type ClosableApplication,
+  type ProcessTerminator,
+} from "./cleanup-contract.js";
+import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
+import { type LaunchProfile, removeLaunchProfile } from "./launch-profile.js";
 
 /**
  * Closes an application within the cleanup budget, or kills it.
@@ -169,24 +66,31 @@ export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
  * worth checking — a close that never settles, a removal that will not — are
  * unreachable through the real ones. The bound is the fourth argument for the
  * same reason and no other: a case that has to EXHAUST it cannot afford to wait
- * the registered ten seconds out.
+ * the registered ten seconds out, and the fifth — how long a REFUSED kill is
+ * given to leave nothing running — is the same argument for the same reason.
  */
 export class BoundedCleanup {
   readonly #application: ClosableApplication;
   readonly #terminator: ProcessTerminator;
   readonly #profile: LaunchProfile;
   readonly #budgetMs: number;
+  readonly #terminationWaitMs: number;
+  readonly #readClock: CleanupClock;
 
   constructor(
     application: ClosableApplication,
     terminator: ProcessTerminator,
     profile: LaunchProfile,
     budgetMs: number = CLEANUP_BUDGET_MS,
+    terminationWaitMs: number = TERMINATION_GRACE_MS,
+    readClock: CleanupClock = Date.now,
   ) {
     this.#application = application;
     this.#terminator = terminator;
     this.#profile = profile;
     this.#budgetMs = budgetMs;
+    this.#terminationWaitMs = terminationWaitMs;
+    this.#readClock = readClock;
   }
 
   /**
@@ -207,7 +111,7 @@ export class BoundedCleanup {
 
   /** The race itself: close inside the bound, or SIGKILL what would not. */
   async #closeOrTerminate(): Promise<CleanupOutcome> {
-    const startedAt = Date.now();
+    const startedAt = this.#readClock();
     const budgetMs = this.#budgetMs;
     let timeoutHandle: NodeJS.Timeout | undefined;
     const budgetExpired = new Promise<"expired">((resolveExpiry) => {
@@ -241,7 +145,7 @@ export class BoundedCleanup {
       clearTimeout(timeoutHandle);
     }
     if (raced === "closed") {
-      return { settlement: "closed", waitedMs: Date.now() - startedAt, budgetMs };
+      return { settlement: "closed", waitedMs: this.#readClock() - startedAt, budgetMs };
     }
     const processId = this.#application.processId();
     if (raced === "rejected") {
@@ -249,18 +153,24 @@ export class BoundedCleanup {
       // still failed, so this is not plain `closed` and the rejection travels
       // with it — the launch-failure path attaches it, and the success path
       // refuses to report a green tier over it.
-      if (processId === undefined || !this.#terminator.isRunning(processId)) {
+      // Charged to what the CLOSE has left, which on this path is usually most
+      // of it: a close that rejected fast has spent almost nothing, and the
+      // probe still must not be able to outlive the budget it sits inside.
+      if (
+        processId === undefined ||
+        !this.#terminator.isRunning(processId, this.#budgetLeftSince(startedAt))
+      ) {
         return {
           settlement: "closed-after-rejection",
-          waitedMs: Date.now() - startedAt,
+          waitedMs: this.#readClock() - startedAt,
           budgetMs,
           closeRejection,
           processId,
         };
       }
       return {
-        settlement: this.#terminator.terminate(processId) ? "terminated" : "unterminable",
-        waitedMs: Date.now() - startedAt,
+        settlement: (await this.#terminateUntilGone(processId)) ? "terminated" : "unterminable",
+        waitedMs: this.#readClock() - startedAt,
         budgetMs,
         closeRejection,
         processId,
@@ -269,12 +179,152 @@ export class BoundedCleanup {
     // The budget expired with the close still outstanding, so the process is
     // presumed alive and the probe is skipped: a SIGKILL has not been reaped yet
     // at this instant, and asking would only make a live target look gone.
-    const terminated = processId !== undefined && this.#terminator.terminate(processId);
+    const terminated = processId !== undefined && (await this.#terminateUntilGone(processId));
     return {
       settlement: terminated ? "terminated" : "unterminable",
-      waitedMs: Date.now() - startedAt,
+      waitedMs: this.#readClock() - startedAt,
       budgetMs,
       processId,
     };
+  }
+
+  /**
+   * Signal the tree, and ask again while the platform says it refused.
+   *
+   * ONE ASK WAS NOT ENOUGH, and the settle-time path is where that showed. A
+   * refused kill is a real outcome rather than a hypothetical — a `taskkill` that
+   * spawns, exits non-zero and leaves Electron running, which is why
+   * `terminateProcessTree` reports delivery and survival as two answers — and the
+   * close this cleanup performs is idempotent by a `closed` guard set BEFORE the
+   * cleanup runs, so a caller that received `unterminable` could not ask again by
+   * closing again. The retry therefore belongs inside the one pass, and the shape
+   * is the settle-time child disposal's down to the constant: attempt, wait for
+   * evidence, return the moment the tree is gone. `DISPOSAL_ATTEMPTS` is
+   * imported from `managed-electron-child.ts`, which is where that bound lives
+   * for every caller that spends it, rather than restated — two `3`s in two
+   * files are two bounds that will disagree.
+   *
+   * THE DELIVERY REPORT SHORT-CIRCUITS AND THE EVIDENCE DECIDES. A terminator
+   * that says it delivered is believed and the loop ends there, which is what
+   * keeps every ordinary cleanup exactly one call long and unchanged by this. A
+   * REFUSAL is what costs a wait, and after that wait the question is asked of the
+   * process rather than of the platform's exit status: a tree that is gone is
+   * gone, whatever `taskkill` said about it.
+   *
+   * THE WAITS ARE BOUNDED BY A BUDGET, NOT ADDED BESIDE ONE. They used to be
+   * added: three grace intervals began once `application.close()` had already
+   * spent its whole registered ceiling, so the all-refused path cost the ceiling
+   * plus the intervals — past what `tierTimeoutFor` reserves for cleanup, which
+   * meant vitest's own timeout fired first and took the `unterminable` verdict
+   * and every diagnostic on it with it. That is the inversion this module's
+   * header opens with, reintroduced one level in. A spawner's own deadline has to
+   * fire before its enclosing budget, so the pause is DERIVED from what is left
+   * of a budget rather than spent beside it — and from THIS phase's, which is the
+   * correction the paragraph below states. The ATTEMPTS are unchanged: they are
+   * the policy, and a verdict reached with no pause left is still the verdict a
+   * reader came for, while a verdict vitest killed is not reached at all.
+   *
+   * AND THE PROBES ARE CHARGED TOO, WHICH THE PAUSE ALONE NEVER WAS. The pause is
+   * the cheapest thing here. `terminate` and `isRunning` are both SYNCHRONOUS
+   * host queries — a root start-stamp read and a whole process-table read, each
+   * bounded only by `HOST_QUERY_TIMEOUT_MS` and each blocking this thread — so on
+   * the path this loop exists for, a close that spent its ceiling and a platform
+   * that refuses every kill, three attempts added roughly thirty seconds that
+   * NOTHING was charged for, past what `tierTimeoutFor` reserves. Vitest fired
+   * first and took the `unterminable` verdict with it.
+   *
+   * So the loop carries its OWN deadline, DERIVED rather than invented: the same
+   * registered figure the close was held to, restarted at the first attempt. It
+   * cannot be the close's REMAINING budget, which on that path is already zero —
+   * refusing the first kill after a hung close would trade a bounded overrun for
+   * a live Electron still holding its profile.
+   *
+   * AND EVERY READER INSIDE THE LOOP TAKES THAT DEADLINE, THE PAUSE INCLUDED.
+   * The pause was the one that did not: it was charged to the close's origin,
+   * which on this path is spent, so `min(grace, 0)` made every retry timer
+   * zero-length and the three attempts ran back to back. A platform whose refusal
+   * is TRANSIENT — the `taskkill` that spawns, exits non-zero, and takes the next
+   * ask — was therefore asked three times inside a few milliseconds, reported
+   * `unterminable`, and had its profile removed under an Electron that would have
+   * died inside the grace it was never given. Two deadlines here are not two
+   * budgets: they are one figure with two origins, and a reader inside the second
+   * phase charged to the first phase's origin has no time by construction.
+   *
+   * WHICH MAKES THIS PHASE THE SECOND ONE THE TIER RESERVES FOR, and a restart
+   * left unstated is a restart nothing waits for: the tier's slice held ONE such
+   * figure, so this loop's whole deadline sat outside it and vitest could fire
+   * before the `unterminable` verdict or the removal existed. `CLEANUP_PHASES`
+   * in `launch-deadline.ts` is where that count lives, and
+   * `architecture/cleanup-slice-derivation.test.ts` measures this class's own
+   * end-to-end spend against it rather than trusting the two to agree. Giving up
+   * an ask never gives up the removal: `close()` above removes the profile on
+   * every settlement this returns into.
+   */
+  async #terminateUntilGone(processId: number): Promise<boolean> {
+    const terminationStartedAt = this.#readClock();
+    for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
+      const budgetBeforeAttempt = this.#budgetLeftSince(terminationStartedAt);
+      if (budgetBeforeAttempt <= 0) {
+        return false;
+      }
+      if (this.#terminator.terminate(processId, budgetBeforeAttempt)) {
+        return true;
+      }
+      await this.#whenTerminationHasHadTime(terminationStartedAt);
+      // The liveness read is deliberately NOT behind that guard: it is the
+      // evidence that decides this verdict, and skipping it would report
+      // `unterminable` over a tree the refused-then-landed kill already took
+      // down — a false alarm on the one settlement a later launch feels. Its
+      // budget is read AFRESH rather than reused, because the attempt above may
+      // have spent all of it — and at zero this reading spawns nothing and
+      // answers "still there", which sends the loop back to the guard.
+      if (!this.#terminator.isRunning(processId, this.#budgetLeftSince(terminationStartedAt))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * What a deadline that began at `origin` has left of the budget, never negative.
+   *
+   * ONE derivation for all three readers — the pause between attempts, the
+   * budget each host query is charged against, and the liveness probe on the
+   * rejected path — because the same subtraction written three times is three
+   * things that drift. The origin differs because the deadlines do: the close is
+   * charged from when it started, and every reader inside the termination loop —
+   * the attempt's own budget, the pause after a refusal, and the liveness
+   * recheck — from that loop's first attempt. A reader inside the loop charged to
+   * the close's origin is charged to a deadline that is already spent on the one
+   * path the loop exists for, which reads as zero and is not what any of them
+   * mean.
+   */
+  #budgetLeftSince(origin: number): number {
+    return Math.max(0, this.#budgetMs - (this.#readClock() - origin));
+  }
+
+  /**
+   * The bounded pause a refused attempt spends before the tree is asked about again.
+   *
+   * The grace interval, or whatever the TERMINATION phase has left — whichever
+   * is shorter, and the origin is the whole of it. Charged to the close instead,
+   * every wait after a close that had already spent its ceiling was a zero-length
+   * timer: the three attempts ran back to back inside one macrotask each, so a
+   * platform that refuses a kill transiently was asked three times inside a few
+   * milliseconds, answered `unterminable`, and had its profile removed under a
+   * live Electron — while the refusal would have cleared inside
+   * `TERMINATION_GRACE_MS`. The attempts are the policy and the pause is what
+   * makes each one a genuinely later question, so it is charged to the phase that
+   * reserved time for it.
+   *
+   * Still deliberately allowed to reach zero, once that phase's OWN budget is
+   * spent: a zero-length timer yields the loop a macrotask, so the liveness
+   * recheck is a second reading rather than the same one.
+   */
+  async #whenTerminationHasHadTime(terminationStartedAt: number): Promise<void> {
+    const waitMs = Math.min(this.#terminationWaitMs, this.#budgetLeftSince(terminationStartedAt));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, waitMs);
+    });
   }
 }

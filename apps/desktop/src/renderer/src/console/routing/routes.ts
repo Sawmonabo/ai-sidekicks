@@ -35,25 +35,10 @@
 // the console cannot accept a fragment the menu cannot produce or the reverse.
 
 import {
-  auxiliaryWindowIdOf,
   formatAuxiliaryFragment,
   parseAuxiliaryFragment,
   type AuxiliaryRouteTarget,
 } from "../../../../shared/auxiliary-route-fragment.js";
-
-/**
- * Destinations on the icon rail, in rail order. Closed; the rail renders exactly
- * these.
- *
- * A tuple rather than a bare union because "exactly these" is a claim about a set,
- * and a set nothing can walk at runtime cannot be held to it: the rail's own entry
- * table is an array, so a destination added to the union alone would typecheck and
- * render nowhere.
- */
-export const RAIL_DESTINATIONS = ["sessions", "workflows", "settings"] as const;
-
-/** One icon-rail destination, derived from the tuple above. */
-export type RailDestination = (typeof RAIL_DESTINATIONS)[number];
 
 /** Where the console currently is. A closed union — every arm renders something. */
 export type ConsoleRoute =
@@ -64,7 +49,18 @@ export type ConsoleRoute =
   // carries its own context — a definition id written into the address here would
   // be a second, unowned locator for something the builder has not defined yet.
   | { readonly kind: "workflows" }
-  | { readonly kind: "settings"; readonly page: string | undefined }
+  // TWO ARMS AND NOT ONE OPTIONAL MEMBER. `#/settings` carries no page and therefore
+  // has nowhere to put a page-scoped selection: such a pair is a value
+  // {@link formatRoute} cannot write down, and a route that cannot be written down is
+  // one {@link parseRoute} can never give back. The split makes it unrepresentable
+  // rather than merely undocumented — the same disposition the auxiliary arm takes to
+  // half-supplied context.
+  //
+  // The selection is a bare `string` for `pane-harness`' reason, the DAG: `settings/`
+  // sits above this module, so WHAT a page does with the segment is that page's to
+  // decide. Routing owns the grammar and never the meaning.
+  | { readonly kind: "settings"; readonly page: undefined }
+  | { readonly kind: "settings"; readonly page: string; readonly selection?: string }
   // The shared target with a kind tag, INTERSECTED rather than restated. That
   // target is route-discriminated — an agent console carries its agent with its
   // session or not at all, a timeline carries no agent — and writing the arm out
@@ -172,15 +168,26 @@ export function parseRoute(hash: string): ConsoleRoute {
   }
 
   if (head === "settings") {
-    if (rest.length > 1) {
+    if (rest.length > 2) {
       return notFound(hash);
     }
-    const page = rest[0];
-    if (page === undefined) {
+    const [pageSegment, selectionSegment] = rest;
+    if (pageSegment === undefined) {
       return { kind: "settings", page: undefined };
     }
-    const decoded = decodeSegment(page);
-    return decoded === undefined ? notFound(hash) : { kind: "settings", page: decoded };
+    const page = decodeSegment(pageSegment);
+    if (page === undefined) {
+      return notFound(hash);
+    }
+    if (selectionSegment === undefined) {
+      // The key is OMITTED and never set to `undefined`, which is what keeps the
+      // round trip exact under `exactOptionalPropertyTypes`: a present-but-undefined
+      // member and an absent one are different values to a structural comparison, and
+      // this is the arm `#/settings/<page>` has to give back.
+      return { kind: "settings", page };
+    }
+    const selection = decodeSegment(selectionSegment);
+    return selection === undefined ? notFound(hash) : { kind: "settings", page, selection };
   }
 
   // Behind the build-time constant so Rollup collapses `if (false && …)` and this
@@ -237,10 +244,15 @@ export function formatRoute(route: ConsoleRoute): string {
       return `#/session/${encodeURIComponent(route.sessionId)}`;
     case "workflows":
       return "#/workflows";
-    case "settings":
-      return route.page === undefined
-        ? "#/settings"
-        : `#/settings/${encodeURIComponent(route.page)}`;
+    case "settings": {
+      if (route.page === undefined) {
+        return "#/settings";
+      }
+      const pageAddress = `#/settings/${encodeURIComponent(route.page)}`;
+      return route.selection === undefined
+        ? pageAddress
+        : `${pageAddress}/${encodeURIComponent(route.selection)}`;
+    }
     case "pane-harness":
       return `#/pane-harness/${encodeURIComponent(route.paneKind)}/${encodeURIComponent(route.sessionId)}`;
     case "auxiliary": {
@@ -253,143 +265,6 @@ export function formatRoute(route: ConsoleRoute): string {
     }
     case "not-found":
       return route.attempted;
-  }
-}
-
-/**
- * Which rail destination is current, or `undefined` in an auxiliary window.
- *
- * The map is NOT one-to-one, and `workspace` is the arm that makes it so: a
- * session is reached FROM the sessions destination, so a window sitting in a
- * workspace is still under that destination and the rail highlights it there.
- * Answering with a destination of its own would name an icon the rail does not
- * render, and the current-destination highlight would simply go out.
- */
-export function railDestinationFor(route: ConsoleRoute): RailDestination | undefined {
-  switch (route.kind) {
-    case "sessions":
-    case "workspace":
-      return "sessions";
-    case "workflows":
-      return "workflows";
-    case "settings":
-      return "settings";
-    case "auxiliary":
-    case "pane-harness":
-    case "not-found":
-      return undefined;
-  }
-}
-
-/** The auxiliary arm of the route union, named so predicates can narrow to it. */
-export type AuxiliaryConsoleRoute = Extract<ConsoleRoute, { kind: "auxiliary" }>;
-
-/**
- * True when this window is an auxiliary one, which changes what chrome renders.
- *
- * A type PREDICATE rather than a `boolean`, because the call sites that would
- * otherwise keep writing `route.kind === "auxiliary"` are not all asking a
- * yes/no question — several go on to read `route.sessionId`, which only the
- * discriminant narrows. Returning `boolean` here is what left four hand-written
- * copies of this comparison in the tree: adopting the helper would have cost
- * those callers their narrowing, so they kept the comparison instead.
- */
-export function isAuxiliaryRoute(route: ConsoleRoute): route is AuxiliaryConsoleRoute {
-  return route.kind === "auxiliary";
-}
-
-/**
- * The session a route is scoped to, or `undefined` where it names none.
- *
- * One accessor rather than a presence test at each call site. The auxiliary arm
- * is route-discriminated, so `sessionId` is on the type of some arms and off the
- * type of others; without this, every reader narrows for itself, and the two that
- * already did — the frame store's active session and the legacy mounts' subject —
- * had written two different walks over one union before the arm was discriminated
- * at all.
- */
-export function routeSessionId(route: ConsoleRoute): string | undefined {
-  switch (route.kind) {
-    case "workspace":
-    case "pane-harness":
-      return route.sessionId;
-    case "auxiliary":
-      return "sessionId" in route ? route.sessionId : undefined;
-    case "sessions":
-    case "workflows":
-    case "settings":
-    case "not-found":
-      return undefined;
-  }
-}
-
-/** The agent a route is scoped to. Module-private: only the comparison below asks. */
-function routeAgentId(route: ConsoleRoute): string | undefined {
-  return route.kind === "auxiliary" && "agentId" in route ? route.agentId : undefined;
-}
-
-/**
- * The shell's handle for THIS window, or `undefined` where the address carries none.
- *
- * Exported, unlike {@link routeAgentId} beside it, because a surface asks it a product
- * question rather than a comparison one: a window whose address carries a handle is one a
- * deck opened and is keeping a slot for, so it can offer to put its pane back — and a
- * window without one was opened from the menu bar, has no slot behind it, and must not
- * offer a control that would address a window nobody is waiting on.
- *
- * Delegated to the shared grammar rather than walking the union here, so which arms may
- * carry a handle is answered in the one module that also encodes and decodes it.
- */
-export function routeAuxiliaryWindowId(route: ConsoleRoute): string | undefined {
-  if (route.kind !== "auxiliary") {
-    return undefined;
-  }
-  const { kind: _consoleRouteKind, ...target } = route;
-  return auxiliaryWindowIdOf(target);
-}
-
-/**
- * True when an auxiliary route needs the context picker: it named a window but not
- * what to show in it.
- */
-export function needsContextPicker(route: ConsoleRoute): boolean {
-  return route.kind === "auxiliary" && routeSessionId(route) === undefined;
-}
-
-/** Structural route comparison, so an unchanged hash costs no transition. */
-export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean {
-  if (left.kind !== right.kind) {
-    return false;
-  }
-  switch (left.kind) {
-    case "sessions":
-    case "workflows":
-      return true;
-    case "workspace":
-      return right.kind === "workspace" && left.sessionId === right.sessionId;
-    case "pane-harness":
-      return (
-        right.kind === "pane-harness" &&
-        left.paneKind === right.paneKind &&
-        left.sessionId === right.sessionId
-      );
-    case "settings":
-      return right.kind === "settings" && left.page === right.page;
-    case "auxiliary":
-      return (
-        right.kind === "auxiliary" &&
-        left.route === right.route &&
-        routeSessionId(left) === routeSessionId(right) &&
-        routeAgentId(left) === routeAgentId(right) &&
-        // The handle is compared like any other member of the address: two
-        // windows on one session and one route are still two addresses when the
-        // shell minted different handles for them, and a comparison that
-        // ignored it would call an unchanged hash out of a re-detach the same
-        // address and skip the transition.
-        routeAuxiliaryWindowId(left) === routeAuxiliaryWindowId(right)
-      );
-    case "not-found":
-      return right.kind === "not-found" && left.attempted === right.attempted;
   }
 }
 

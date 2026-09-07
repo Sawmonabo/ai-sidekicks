@@ -22,6 +22,14 @@
 // is released when the last React subscriber goes, which is what makes the projection
 // safe to hold for the life of a window rather than of a mount.
 //
+// IT ALSO CARRIES THE DEGRADATION FOLD, and that is a consequence of the fan-out
+// rather than a second job: the set of stores whose degradation the destination has
+// to report is exactly the set already subscribed here, and a second class walking
+// the same registry would take a second subscription per open session to answer a
+// question this one is already awake for. The RULE it folds by is
+// `store/degradation.ts`' own — the worst standing cause wins, so a milder later
+// fact never reads as a repair — and this module reimplements none of it.
+//
 // IT PROJECTS AND DOES NOT MERGE. `session-directory-rows.ts` owns the merge with the
 // node's directory and owns which kind of nothing an empty list is; this module
 // answers only "what do the open stores say", and answers with an empty array when
@@ -29,6 +37,7 @@
 
 import { useRef, useSyncExternalStore } from "react";
 
+import { worstDegradedCause, type SessionDegradedCause } from "../../store/index.js";
 import type { SessionStore, SessionStoreRegistry } from "../../store/index.js";
 import type { SessionListRow } from "./session-rows.js";
 
@@ -91,6 +100,20 @@ export class OpenSessionRowProjection {
   public readonly readRows = (): readonly SessionListRow[] => {
     this.#rows ??= this.#buildRows();
     return this.#rows;
+  };
+
+  /**
+   * The worst degraded cause standing across every open store, or `undefined`.
+   *
+   * A primitive rather than a cached object, so `useSyncExternalStore`'s `Object.is`
+   * comparison is satisfied by the VALUE and this read needs no cache of its own.
+   */
+  public readonly readDegradedCause = (): SessionDegradedCause | undefined => {
+    return worstDegradedCause(
+      ...this.#registry.openSessionIds.map(
+        (sessionId) => this.#registry.peek(sessionId)?.snapshot().degradedCause,
+      ),
+    );
   };
 
   /** Stores this projection currently holds a subscription on. The bound, observable. */
@@ -157,7 +180,8 @@ export class OpenSessionRowProjection {
     return store.readable.subscribe((state, previousState) => {
       if (
         state.partitions.session === previousState.partitions.session &&
-        state.partitions.participant === previousState.partitions.participant
+        state.partitions.participant === previousState.partitions.participant &&
+        state.degradedCause === previousState.degradedCause
       ) {
         return;
       }
@@ -209,14 +233,28 @@ function projectOneStore(store: SessionStore): readonly SessionListRow[] {
   }));
 }
 
+/** What the open stores say about themselves, and about how well they are following. */
+export interface OpenSessionProjectionReading {
+  readonly rows: readonly SessionListRow[];
+  readonly degradedCause: SessionDegradedCause | undefined;
+}
+
 /**
- * The rows every session this window has open can describe, as a subscription.
+ * What every session this window has open can describe, as a subscription.
  *
  * The projection is built once per registry and held in a ref: a fresh one per render
  * would re-subscribe every pass, and a fresh one per registry is what makes a window
  * that replaces its registry follow the new one rather than the object it dropped.
+ *
+ * TWO SNAPSHOTS OVER ONE SUBSCRIPTION, deliberately, rather than one snapshot over a
+ * composed object: `useSyncExternalStore` compares consecutive reads with `Object.is`
+ * and re-renders while they differ, so a read that composed `{ rows, degradedCause }`
+ * would hand React a new identity on every call and spin. The returned object is
+ * composed AFTER both reads settle, where nothing compares it.
  */
-export function useOpenSessionRows(registry: SessionStoreRegistry): readonly SessionListRow[] {
+export function useOpenSessionProjection(
+  registry: SessionStoreRegistry,
+): OpenSessionProjectionReading {
   const heldProjection = useRef<{
     readonly registry: SessionStoreRegistry;
     readonly projection: OpenSessionRowProjection;
@@ -225,5 +263,11 @@ export function useOpenSessionRows(registry: SessionStoreRegistry): readonly Ses
     heldProjection.current = { registry, projection: new OpenSessionRowProjection(registry) };
   }
   const { projection } = heldProjection.current;
-  return useSyncExternalStore(projection.subscribe, projection.readRows, projection.readRows);
+  const rows = useSyncExternalStore(projection.subscribe, projection.readRows, projection.readRows);
+  const degradedCause = useSyncExternalStore(
+    projection.subscribe,
+    projection.readDegradedCause,
+    projection.readDegradedCause,
+  );
+  return { rows, degradedCause };
 }

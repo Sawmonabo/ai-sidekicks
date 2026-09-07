@@ -23,6 +23,7 @@ export {
   AWAITING_RUN_IDS_NAMED_CAP,
   BOUNDED_ENUMERATION_MAX_ROWS,
   BROAD_ALLOW_LIST_THRESHOLD,
+  CAPTURED_OBJECT_ROW_CAP,
   CAST_BAR_CHIP_CAP,
   CHAPTER_VISIBLE_ROW_CAP,
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
@@ -49,6 +50,8 @@ export {
   LEDGER_WINDOW_ROW_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
+  LOAD_PROGRESS_MAX,
+  LOAD_PROGRESS_MIN,
   MARKDOWN_BLOCK_CACHE_BYTE_CAP,
   MAXIMUM_LIVE_DRAFT_COUNT,
   MAX_REPAIRABLE_SEQUENCE_GAP,
@@ -70,6 +73,7 @@ export {
   RAIL_MAX_TICKS_PER_PIXEL,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  RELAYED_TOOL_CALL_ROW_CAP,
   RESOLVED_PROSE_INLINE_CAP,
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
@@ -81,6 +85,7 @@ export {
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
   SEATED_KNOWN_RUN_CAP,
+  ATTENTION_NOTIFIED_ITEM_CAP,
   SESSION_BACK_TIER_VISIBLE_CAP,
   SESSION_GOAL_MAX_LENGTH,
   SESSION_GOAL_MIN_LENGTH,
@@ -161,11 +166,20 @@ export {
 export {
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type ConsoleRefusalExtensions,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type ExtendedConsoleRefusal,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
+  readRefusalExtensions,
 } from "./refusal-extensions.js";
+// What a surface DOES about a named refusal, beside rendering the daemon's words:
+// the shape its blast radius calls for, the operator's next move, and whether the
+// control it answered has anything left to do. Through the door because the codes
+// reach the composer, the runs pane, and the approvals pane alike, and one code
+// answered in three sets of words is a remedy a person cannot learn once. The
+// LOOKUP is what crosses the door and its two types are not: every reader outside
+// this family reads the answer's fields off the returned value, and a door line
+// nothing imports is a dead export the census fails.
+export { refusalRemedyFor } from "./refusal-remedies.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
@@ -206,3 +220,16 @@ export { lossyStringify } from "../../../../shared/wire-errors.js";
 // sits below `bridge/` and may not reach `src/shared/` itself, so it takes the reader
 // through the floor that already owns this leaf's vocabulary.
 export { readWireErrorEnvelopeWithCode } from "../../../../shared/wire-errors.js";
+
+// The console's one airspace: which overlays are on screen in a window, so a native
+// view yields to them (`Spec-023 §Console Design (Meridian)` 12.3, §4.3). At the DAG
+// floor because its registrants are `primitives/` and its reader is a view family,
+// and this is the only rung both of them stand above.
+export {
+  AirspaceRegistry,
+  type AirspaceMotionObserver,
+  type AirspaceOverlayElement,
+  type AirspaceOverlayKind,
+  type AirspaceRect,
+} from "./airspace-registry.js";
+export { airspaceRegistryFor } from "./airspace-registries.js";

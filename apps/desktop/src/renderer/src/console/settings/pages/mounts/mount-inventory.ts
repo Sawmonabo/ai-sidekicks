@@ -66,11 +66,25 @@ import type {
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts";
 
-import type { ConsoleClock, ConsoleRefusal, Unsubscribe } from "../../../core/index.js";
-import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../../bridge/index.js";
+import {
+  ConsoleRefusalError,
+  type ConsoleClock,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../../../core/index.js";
+import {
+  abandonedReadRefusal,
+  callDaemon,
+  heldIdAsWireId,
+  type ConsoleBridge,
+} from "../../../bridge/index.js";
 import { MOUNT_INVENTORY_READ_CAP } from "../../../core/index.js";
 import { PushDrivenRead, servedValueOrRaise } from "../../../seats/index.js";
-import { subscribeToSessionEventKinds, type SessionStore } from "../../../store/index.js";
+import {
+  isReadAbandoned,
+  subscribeToSessionEventKinds,
+  type SessionStore,
+} from "../../../store/index.js";
 
 /** The registered method that names which mounts a session holds. */
 const WORKSPACE_LIST_METHOD = "repo.workspaceList";
@@ -180,7 +194,7 @@ export function createMountInventoryRead(options: {
   return new PushDrivenRead<MountInventory>({
     clock,
     origin: MOUNT_INVENTORY_ORIGIN,
-    read: async () => await readMountInventory(bridge, sessionId),
+    read: async (signal) => await readMountInventory(bridge, sessionId, signal),
     // One re-read per burst, never one per event: the signal goes to the read's own
     // `RefreshScheduler`, which debounces with an absolute deadline, so a run ending
     // three worktrees at once costs one inventory read rather than three.
@@ -192,23 +206,56 @@ export function createMountInventoryRead(options: {
   });
 }
 
-async function readMountInventory(
+/**
+ * The fan-out read, and the one in this console with most to gain from abandonment.
+ *
+ * It is a list read followed by up to `MOUNT_INVENTORY_READ_CAP` mount reads, every
+ * one of them parsed against its registered schema and every one of them folded into
+ * a row. A person who opens the mounts page and leaves it before it lands used to pay
+ * for all of that; the signal reaches each call, so an abandoned pass parses nothing
+ * it has not already parsed and folds nothing at all.
+ *
+ * AND THE SIGNAL IS READ AGAIN BETWEEN THE CALLS, which is what the door cannot do
+ * for a composed read. `callDaemon` guards its own three points; the two `await`
+ * boundaries HERE are this function's, and an abort landing in either of them reaches
+ * no listener the door has left attached — the list call resolves `settled` one
+ * microtask before the departure, and this frame resumes one microtask after it. The
+ * first check is what keeps a page that has left from starting a twelve-call fan-out;
+ * the second is what keeps it from folding twelve abandoned refusals into rows for a
+ * surface that is gone.
+ *
+ * Exported so its two checkpoints are drivable at their own boundary. Nothing outside
+ * this module's own test reaches it: what a page consumes is the model above.
+ */
+export async function readMountInventory(
   bridge: ConsoleBridge,
   sessionId: string,
+  signal: AbortSignal,
 ): Promise<MountInventory> {
   const workspaces = servedValueOrRaise(
-    await callDaemon(bridge, WORKSPACE_LIST_METHOD, {
-      sessionId: heldIdAsWireId(sessionId),
-    }),
+    await callDaemon(
+      bridge,
+      WORKSPACE_LIST_METHOD,
+      {
+        sessionId: heldIdAsWireId(sessionId),
+      },
+      { signal },
+    ),
   );
+  if (isReadAbandoned(signal)) {
+    raiseAbandonedInventoryRead();
+  }
   const mountIds = distinctMountIds(workspaces);
   const admittedMountIds = mountIds.slice(0, MOUNT_INVENTORY_READ_CAP);
   // `Promise.all` and not `allSettled`, because the call door answers a refusal as a
   // VALUE: one mount refusing no longer rejects, so there is no settled-outcome
   // wrapper left to unwrap and no `reason` left to normalize a second time.
   const replies = await Promise.all(
-    admittedMountIds.map(async (repoMountId) => await readOneMount(bridge, repoMountId)),
+    admittedMountIds.map(async (repoMountId) => await readOneMount(bridge, repoMountId, signal)),
   );
+  if (isReadAbandoned(signal)) {
+    raiseAbandonedInventoryRead();
+  }
   const readings = replies.map((reply, index): MountReading => {
     // The id is taken from the request rather than from the reply, because the
     // refused arm has no reply to take it from and both arms must name the same
@@ -222,6 +269,24 @@ async function readMountInventory(
 }
 
 /**
+ * Stop the composed read where nobody is waiting for the mounts any more.
+ *
+ * RAISED AND NOT RETURNED, and this is the settlement this read already has rather
+ * than a new one: where the abandonment lands before or during the list call, the
+ * door answers `read-abandoned` and `servedValueOrRaise` throws exactly this refusal
+ * two lines above. `PushDrivenRead` catches it, sees the round's own signal aborted,
+ * and reports nothing — so no surface ever meets the sentence, and returning an empty
+ * inventory instead would be composing a reading of a session that was never taken.
+ *
+ * It names the per-mount method because that is the work both checkpoints are about:
+ * the first stops the fan-out before it starts, the second stops the fold of what it
+ * answered.
+ */
+function raiseAbandonedInventoryRead(): never {
+  throw new ConsoleRefusalError(abandonedReadRefusal(MOUNT_READ_METHOD));
+}
+
+/**
  * One mount read, as its own function so the branded request infers in one place.
  *
  * The request is a NAMED local carrying the contracts type rather than an object
@@ -231,9 +296,9 @@ async function readMountInventory(
  * assignment is the error above — but the fix belongs at the site rather than in a
  * reader's memory, so the type is written where it is decided.
  */
-async function readOneMount(bridge: ConsoleBridge, repoMountId: string) {
+async function readOneMount(bridge: ConsoleBridge, repoMountId: string, signal: AbortSignal) {
   const request: RepoMountReadRequest = { repoMountId: heldIdAsWireId(repoMountId) };
-  return await callDaemon(bridge, MOUNT_READ_METHOD, request);
+  return await callDaemon(bridge, MOUNT_READ_METHOD, request, { signal });
 }
 
 /**

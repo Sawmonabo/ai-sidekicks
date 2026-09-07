@@ -15,10 +15,31 @@
 //     one producer raised banners. It stopped being unambiguous when a second one
 //     did, and two subsystems sharing a code word would have overwritten each
 //     other's sentence.
+//   • **The modal-surface cell.** The frame inerts its background for a modal
+//     overlay's lifetime, and it can only ask itself about the palette: a card a
+//     VIEW family renders is one `console-view-family-isolation` forbids the frame
+//     from naming at all. So the card takes a CLAIM here and the frame reads the one
+//     cell that register derives — which makes what the cell PUBLISHES the whole
+//     contract, and the control below is the one that matters: an unchanged write
+//     must publish nothing, because the writer is an effect that re-runs on inputs
+//     the cell does not depend on. Whose claim is whose is
+//     `modal-surface-claims.test.ts`; what reaches the readable is here.
+//   • **The focus seed.** `isWindowFocused` was `true` at construction and moved only
+//     on a transition, so a window that opened without focus received no `blur` to
+//     correct it and claimed an audience it never had. It is read from the document
+//     now, and the cases below drive both readings the store conjoins — the last of
+//     them is the negative control, since a seed that answered `false` everywhere
+//     would satisfy the first two and be just as wrong.
 
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
+import {
+  FOCUSED_DOCUMENT,
+  HIDDEN_DOCUMENT,
+  UNFOCUSED_DOCUMENT,
+  underDocumentFocus,
+} from "./document-focus.test-support.js";
 import { FrameStore } from "./frame-store.js";
 
 const SESSION_ROUTE_HASH = "#/session/session-alpha";
@@ -91,6 +112,59 @@ describe("FrameStore — the session a window has in hand outlives the route", (
   });
 });
 
+describe("FrameStore — a family-owned modal surface publishes whether it is up", () => {
+  it("reports no modal surface in a window that has just opened", () => {
+    expect(new FrameStore().getState().isModalSurfaceOpen).toBe(false);
+  });
+
+  it("publishes the open surface and clears it again, through the readable", () => {
+    // Read through `readable` rather than through `getState`, because that is the
+    // face the frame actually holds: a cell the class could set and the read-only
+    // face never reported would leave the background reachable with the card up.
+    const store = new FrameStore();
+    const published: boolean[] = [];
+    const unsubscribe = store.readable.subscribe((state) => {
+      published.push(state.isModalSurfaceOpen);
+    });
+
+    store.modalSurfaceClaims.hold("the-sign-in-card");
+    expect(store.readable.getState().isModalSurfaceOpen).toBe(true);
+
+    store.modalSurfaceClaims.release("the-sign-in-card");
+    expect(store.readable.getState().isModalSurfaceOpen).toBe(false);
+
+    unsubscribe();
+    expect(published).toStrictEqual([true, false]);
+  });
+
+  it("control: an unchanged write publishes nothing", () => {
+    // The publisher is an effect keyed on the card's open flag AND on the store, so
+    // it re-runs whenever the window hands it a new one — and the register speaks on
+    // every move it makes, which for a card closing while another is still up is the
+    // same `true` again. Without the guard each of those would re-render the rail,
+    // the banner stack, and the whole route surface for a fact that did not move.
+    const store = new FrameStore();
+    let publishCount = 0;
+    const unsubscribe = store.readable.subscribe(() => {
+      publishCount += 1;
+    });
+
+    store.modalSurfaceClaims.release("a-card-that-never-opened");
+    expect(publishCount).toBe(0);
+
+    store.modalSurfaceClaims.hold("the-sign-in-card");
+    store.modalSurfaceClaims.hold("the-onboarding-walkthrough");
+    expect(publishCount).toBe(1);
+
+    // The register republishes `true` here, and the cell must absorb it: the sign-in
+    // card is still up, so nothing the frame renders has moved.
+    store.modalSurfaceClaims.release("the-onboarding-walkthrough");
+    expect(publishCount).toBe(1);
+
+    unsubscribe();
+  });
+});
+
 describe("FrameStore — a refusal banner is keyed by its author and its code", () => {
   it("replaces its own banner when the same act fails twice", () => {
     const store = new FrameStore();
@@ -155,5 +229,51 @@ describe("FrameStore — a refusal banner is keyed by its author and its code", 
     store.dismissBanner("persistence:quota-exceeded");
     expect(notifications).toBe(2);
     unsubscribe();
+  });
+});
+
+describe("FrameStore — window focus is seeded from the window's own document", () => {
+  it("opens unfocused where the document does not hold the keyboard", () => {
+    // The defect: seeded `true`, this window never received a `blur` — it was never
+    // focused to lose it — so every consumer read an audience that was not there.
+    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+
+    expect(store.getState().isWindowFocused).toBe(false);
+  });
+
+  it("opens unfocused where the document is not on screen at all", () => {
+    // The second reading, and it is not the first one twice: a minimised window that
+    // had focus when it went down reports hidden, and a shell that creates a window
+    // without showing it reports hidden before anything is ever focused.
+    const store = underDocumentFocus(HIDDEN_DOCUMENT, () => new FrameStore());
+
+    expect(store.getState().isWindowFocused).toBe(false);
+  });
+
+  it("opens focused where the document is visible and holds the keyboard — the control", () => {
+    const store = underDocumentFocus(FOCUSED_DOCUMENT, () => new FrameStore());
+
+    expect(store.getState().isWindowFocused).toBe(true);
+  });
+
+  it("reads the document once, at construction, and not on every read", () => {
+    // What makes this a SEED rather than a subscription: the frame's focus and blur
+    // listeners are what move the cell afterwards, and a store that re-read the
+    // document on every access would be a second answer free to disagree with them.
+    const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+
+    store.setWindowFocused(true);
+
+    expect(store.getState().isWindowFocused).toBe(true);
+  });
+
+  it("gives two windows built under different documents different answers", () => {
+    // I-023-12: an auxiliary window shares no store with the main one, and each one's
+    // document is the only thing that says whether anybody is looking at IT.
+    const background = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new FrameStore());
+    const foreground = underDocumentFocus(FOCUSED_DOCUMENT, () => new FrameStore());
+
+    expect(background.getState().isWindowFocused).toBe(false);
+    expect(foreground.getState().isWindowFocused).toBe(true);
   });
 });

@@ -1,18 +1,29 @@
 // The repos scenario — a session with work on disk.
 //
 // What the repos family needs from a fixture is a session that HAS repositories
-// attached rather than one that could have: two mounts rather than one, because
+// attached rather than one that could have: three mounts rather than one, because
 // `Spec-009 §Required Behavior` admits several in a session and a section that had
 // only ever been drawn against one is a section that has never been drawn as a
-// list; and two DIFFERENT mounts, because a plain-directory mount is the case the
-// git-only controls have to be unavailable in, and a fixture that only ever serves
-// a git checkout cannot reach that state at all.
+// list; and three DIFFERENT mounts, because a plain-directory mount is the case the
+// git-only controls have to be unavailable in and a checkout that is no longer the
+// repository it was attached as is the case the bind controls have to be withheld
+// in, and a fixture that only ever serves a git checkout can reach neither.
 //
-// Beyond the two mounts it states four more facts the family's surfaces are drawn
+// ONE HEALTH VERDICT EACH, WHICH IS THE WHOLE OF WHAT THE WIRE SHIPS. `healthy` on
+// the git mount, `unreachable` on the plain one, `identity_mismatch` on the drifted
+// one — the three members of `RepoMountHealth["status"]` in
+// `packages/contracts/src/repo.ts` — so no arm of the card's health table is left
+// undrawable. Only `repo.mountRead` carries health, and the mounts it is asked about
+// are the ones the workspace roster names: there is no `repo.mountList` on the wire,
+// so a mount reaches the section through `repo.workspaceList` and through nothing
+// else. Two of the three also arrive as `repo.attached` beats; the third does not,
+// which is the ordinary case of a mount attached before the replay window opened.
+//
+// Beyond the three mounts it states four more facts the family's surfaces are drawn
 // against, each of which was previously unreachable: an execution root per agent
 // (`repos/mounts/RepoSection.tsx`'s two lists), a proposal waiting at the gate with the branch
 // context it is bound to (`repos/proposals/ProposalGate.tsx`), a run that was rewound after
-// publishing work (`repos/restore/FileRestoreDisclosure.tsx`), and three attachments whose
+// publishing work (`primitives/restore/FileRestoreDisclosure.tsx`), and three attachments whose
 // payloads stand in three different places
 // (`repos/attachments/AttachmentCard.tsx`'s unresolved arm). Every one of them is a beat or a
 // scripted reply, so
@@ -59,6 +70,7 @@ import {
   REPOS_ATTACHMENTS,
   SESSION_ID,
 } from "./repos-fixture-data.js";
+import { REPOS_RUNTIME_NODE_ROSTER } from "./repos-node-roster.js";
 import { REPOS_SCENARIO_REPLIES } from "./repos-replies.js";
 
 export { REPOS_WORKTREE_STATUS_REPLY } from "./repos-replies.js";
@@ -94,9 +106,9 @@ export const REPOS_PINNED_ARTIFACT_ID: string = PINNED_ATTACHMENT_ID;
 
 export const REPOS_SCENARIO: ConsoleScenario = {
   id: REPOS_SCENARIO_ID,
-  label: "Two mounts",
+  label: "Three mounts, two degraded",
   purpose:
-    "A git checkout and a plain-directory mount, an execution root per agent, a proposal waiting at the gate, a run rewound after it published, and three attachments whose payloads stand in three different places.",
+    "A healthy git checkout, an unreachable plain directory, and a checkout that is no longer the repository it was attached as, an execution root per agent, a proposal waiting at the gate, a run rewound after it published, and three attachments whose payloads stand in three different places.",
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [PARTICIPANT_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
   // Which of the three this window is. Stated rather than inferred from the head of
@@ -372,4 +384,5 @@ export const REPOS_SCENARIO: ConsoleScenario = {
     }),
   ],
   replies: REPOS_SCENARIO_REPLIES,
+  runtimeNodeRoster: REPOS_RUNTIME_NODE_ROSTER,
 };

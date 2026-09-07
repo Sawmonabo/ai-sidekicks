@@ -25,9 +25,24 @@
 // The reveal control takes no path. 12.6: "Reveal in file manager takes no path from
 // the renderer" — the callback is nullary, the main process resolves the file, and a
 // raw path crosses this boundary in neither direction.
+//
+// AND THE NAME SLOT HOLDS A NAME OR IT HOLDS NOTHING. `browserCapture` answers with an
+// artifact id, a media type, and a byte length, and with no name at all — so the
+// register that mints these cards had been assigning the id into `captureName`, which
+// put an opaque locator in the human-name slot, in the plain body face, on every
+// capture this window took. A person reading two of them side by side would learn to
+// read ids as names, which is the one conflation the shelf's identity row exists to
+// avoid. The name is therefore OPTIONAL here, and a card without one renders its
+// identity through the wire-figure chokepoint and says the manifest that would carry a
+// name has not been read. It stops being an identity the moment a producer supplies a
+// real name.
 
 import { ingestRemedySentence, type BrowserIngestState } from "./artifact-ingest.js";
 import { BrowserIngestMeter } from "./IngestMeter.js";
+import {
+  PRODUCED_ARTIFACT_STATE_LABELS,
+  type ProducedArtifactState,
+} from "./produced-artifact-state.js";
 import {
   Chip,
   InlineRefusal,
@@ -84,8 +99,32 @@ function displacedCaptureNote(ingest: BrowserIngestState): string {
 }
 
 export interface BrowserCaptureCardProps {
-  /** The capture's own name, composed by whoever asked for it. Not a wire figure. */
-  readonly captureName: string;
+  /**
+   * Which produced object this card is about, wire-verbatim.
+   *
+   * The SHELF's key, and never a display value: `ProducedObjects.tsx` looks a card up
+   * by the artifact id the log's own fold carries. Its own member rather than a
+   * reading of `ingest`, because three of the four ingest arms carry no id and a card
+   * that lost its identity the moment its bytes were refused would drop off the shelf
+   * exactly when the operator was looking for it.
+   */
+  readonly artifactId: string;
+  /**
+   * The capture's own name, composed by whoever asked for it. Not a wire figure.
+   *
+   * Optional because no producer supplies one today: `browserCapture` answers with an
+   * id, a media type, and a byte length. An absent name is rendered as an absent name
+   * — never as the id wearing the name's face.
+   */
+  readonly captureName?: string | undefined;
+  /**
+   * Where this object stands in the artifact lifecycle, as the LOG says.
+   *
+   * Required, and joined on by the shelf rather than held in the register: a card that
+   * could not state its state rendered a superseded capture as an ordinary one, with
+   * every other fact on the row still true and the only changed one invisible.
+   */
+  readonly state: ProducedArtifactState;
   readonly scope: BrowserCaptureScope;
   /** The encoded type, as the pipeline reported it. Wire-verbatim, never checked here. */
   readonly mediaType: string;
@@ -108,14 +147,35 @@ export function BrowserCaptureCard(props: BrowserCaptureCardProps): React.JSX.El
   const className = `meridian-browser-card${isRefused ? " meridian-browser-card--refused" : ""}`;
 
   return (
-    <article className={className} aria-label={`Capture ${props.captureName}`}>
+    <article
+      className={className}
+      // The id where no name exists, so the row is still addressable by assistive
+      // technology — an accessible name of "Capture undefined" is worse than a locator.
+      aria-label={`Capture ${props.captureName ?? props.artifactId}`}
+    >
       <div className="meridian-browser-card__head">
-        <span className="meridian-browser-card__name">{props.captureName}</span>
+        {props.captureName === undefined ? (
+          <WireFigure value={props.artifactId} />
+        ) : (
+          <span className="meridian-browser-card__name">{props.captureName}</span>
+        )}
         <div className="meridian-browser-card__meta">
+          <Chip label={PRODUCED_ARTIFACT_STATE_LABELS[props.state]} glyph="artifact" />
           <Chip label={CAPTURE_SCOPE_LABELS[props.scope]} glyph="browser" />
           <Chip mono label={props.mediaType} />
         </div>
       </div>
+
+      {props.captureName === undefined ? (
+        <Nothing
+          kind="not-checked"
+          placement="inline"
+          title="Manifest not read"
+          // Narrower than the identity row's sentence on purpose: this card's kind and
+          // size came back from the act that produced it, so only the name is unread.
+          detail="This capture's name is on its manifest, and the console has not read one for it — the artifact id stands in its place."
+        />
+      ) : null}
 
       {props.ingest.status === "not-checked" ? (
         <Nothing

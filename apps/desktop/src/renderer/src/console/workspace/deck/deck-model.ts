@@ -24,16 +24,6 @@ import type { DeckDensity } from "../workspace-bounds.js";
  */
 export const DECK_TOTAL_PERMILLE = 1000;
 
-/**
- * The pane kinds that are never written to a snapshot.
- *
- * This deck's own rule, because no committed document states one: a `browser` pane is
- * ephemeral and is never written to the layout snapshot. Declared as a set rather than
- * tested with `kind === "browser"` at three sites, so a second ephemeral kind is one
- * edit.
- */
-export const EPHEMERAL_PANE_KINDS: readonly PaneKind[] = ["browser"];
-
 /** One pane in the deck. Immutable; every mutation produces a new one. */
 export interface DeckPane {
   /** Stable across a layout restore — the identity `ConsolePaneContext` carries. */

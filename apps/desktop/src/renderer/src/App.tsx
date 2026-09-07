@@ -17,6 +17,9 @@
 
 import { ScenarioSelection } from "./console/bridge/index.js";
 import { ConsoleRoot } from "./console/frame/index.js";
+import { OnboardingOverlay } from "./console/onboarding/index.js";
+import type { ConsoleSurfaceContext } from "./console/seats/index.js";
+import { SignInOverlay } from "./console/sign-in/index.js";
 
 /**
  * The scenario this window plays, or `undefined` when fixtures are compiled out.
@@ -38,12 +41,39 @@ const FIXTURE_SCENARIO_ID: string | undefined = __SIDEKICKS_CONSOLE_FIXTURES__
   ? ScenarioSelection.fromDocumentLocation().scenarioId
   : undefined;
 
+/**
+ * The window-scoped overlays this root composes, above every route.
+ *
+ * NEITHER IS A DESTINATION, which is why both are here rather than on the icon rail
+ * or in the surface registry. Sign-in is a moment a person is in — the console is
+ * fully usable signed out and the card appears only when somebody asks for it — and
+ * the first-run walkthrough is forbidden from triggering on launch at all, so it too
+ * has to be opened rather than navigated to. The frame threads this seam down to the
+ * overlay slot beside the command palette, which is where a window-scoped dialog
+ * belongs.
+ *
+ * COMPOSED HERE RATHER THAN INSIDE THE CONSOLE, because a view family may not import
+ * a sibling: the frame cannot name either of them, and neither may name the other.
+ * This root sits above the whole family DAG and reaches both through their doors,
+ * which is the one place the composition can be written at all.
+ *
+ * Declared at module scope so its identity is stable: rebuilt per render it would
+ * remount both dialogs on every frame render and lose whatever either was holding.
+ */
+const renderConsoleOverlays = (context: ConsoleSurfaceContext): React.ReactNode => (
+  <>
+    <SignInOverlay context={context} />
+    <OnboardingOverlay context={context} />
+  </>
+);
+
 export function App(): React.JSX.Element {
   // Spread rather than passed as `scenarioId={FIXTURE_SCENARIO_ID}`: the prop is
   // optional under `exactOptionalPropertyTypes`, so an explicit `undefined` is a
   // different value from an absent prop and the release arm has to omit it.
   return (
     <ConsoleRoot
+      renderOverlays={renderConsoleOverlays}
       {...(FIXTURE_SCENARIO_ID === undefined ? {} : { scenarioId: FIXTURE_SCENARIO_ID })}
     />
   );

@@ -118,12 +118,12 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * SEVENTEEN, and PINNED rather than left as a floor. The count was zero when this gate
+ * TWENTY, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The seventeen, by module and by the family that bound it:
+ * It is no longer vacuous. The twenty, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -133,36 +133,55 @@ function isBridgeFamilyModule(module: string): boolean {
  *      dispatch.
  *   3. `shell/composer/commands/provider-command-read.ts` — the provider-command read.
  *   4. `console/runs/pane/controls/run-control-dispatch.ts` — the runs pane's
- *      run-control dispatch.
- *   5. `console/runs/pane/controls/StepIn.tsx` — its step-in control.
- *   6. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
- *   7. `console/collaboration/channels/channel-model.ts` — the channel model.
- *   8. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
- *   9. `console/collaboration/members/presence-model.ts` — the presence model.
- *  10. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
- *  11. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
+ *      run-control dispatch, for all six controls and BOTH of their entry points.
+ *   5. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
+ *   6. `console/collaboration/channels/channel-model.ts` — the channel model.
+ *   7. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
+ *   8. `console/collaboration/members/presence-model.ts` — the presence model.
+ *   9. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
+ *  10. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
- *  12. `console/workspace/new-session/new-session-send.ts` — the new-session send: the
+ *  11. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
+ *      read. The pane's file control has to say which roots a local file may come
+ *      from before a person picks one, and the trust envelope is the daemon's: a
+ *      renderer that answered from anything else would be deriving the eligibility
+ *      the refusal it renders exists to report.
+ *  12. `console/sessions/acts/JoinSessionForm.tsx` — the sessions destination's join.
+ *      The first surface to bind `session.join`: the shipped Tier-1 probe calls it
+ *      from a mount effect through the raw bridge, and a form a person fills in is a
+ *      different act from a probe that joins on being rendered.
+ *  13. `console/onboarding/provider-readiness/provider-readiness.ts` — the
+ *      onboarding walkthrough's provider-readiness step, which reads the account
+ *      plane's `providerAccount.list` readiness projection.
+ *      It is a VIEW over that plane and mints nothing: registration and defaults stay
+ *      the settings page's, so that read and the probe below are the whole of its
+ *      family's reach.
+ *  14. `console/onboarding/provider-readiness/provider-readiness-acts.ts` — the same
+ *      step's two mutations, which re-probe ONE account through
+ *      `providerAccount.probe`. TWO ENTRIES FOR ONE STEP AND NOT A WIDENED THIRTEENTH:
+ *      the step's reading and the acts over it are two modules because they are two
+ *      jobs, and a census that folded them would report one consumer for a directory
+ *      where either half could quietly leave the door.
+ *  15. `console/workspace/new-session/new-session-send.ts` — the new-session send: the
  *      draft module composes the request and imports the door nowhere, so the one
  *      module here is the one that dispatches it.
- *  13. `console/ledger/cards/shell/shell-row-reads.ts` — the two calls the ledger's
+ *  16. `console/ledger/cards/shell/shell-row-reads.ts` — the two calls the ledger's
  *      fixture shell rows make: the run-scoped reasoning-surface read a reasoning row
  *      offers, and the answer an input-ask row delivers. It dies with the shell, and
  *      the change that deletes that directory moves this number back down.
- *  14. `console/ledger/structure/child-runs/child-run-expansion.ts` — the child-run
- *      expansion's own read, bound while this list still read thirteen against a pin
- *      that already read fourteen; both halves are current as of this entry.
- *  15. `console/workspace/deck/take-the-floor.ts` — the deck's half of "Step in": the
+ *  17. `console/ledger/structure/child-runs/child-run-expansion.ts` — the child-run
+ *      expansion's own read.
+ *  18. `console/workspace/deck/take-the-floor.ts` — the deck's half of "Step in": the
  *      execution-root read that names which checkout a run created. The repos family
  *      reads that registry too, and is a sibling this one may not import.
- *  16. `console/workspace/sidebar/bulk/bulk-acts.ts` — the sidebar's bulk act table. It
+ *  19. `console/workspace/sidebar/bulk/bulk-acts.ts` — the sidebar's bulk act table. It
  *      is the one module that names all three bulk verbs, and it names them as LITERALS
  *      so each request keeps the type the method fixes — a table holding the method as
  *      data would have to widen every request to `unknown`, which is the check the door
  *      exists to make.
- *  17. `console/ledger/frame/paging/earlier-window-reader.ts` — the backward walk into
+ *  20. `console/ledger/frame/paging/earlier-window-reader.ts` — the backward walk into
  *      the rows below the window's head. The only read here that grows the log at the
  *      END the stream does not append to, and the one place `timeline.read` is sent
  *      from: the store owns where the page lands and this owns where the next one
@@ -180,6 +199,15 @@ function isBridgeFamilyModule(module: string): boolean {
  * describe what `callDaemon` answers, and the needle below separates an import clause
  * from a sentence.
  *
+ * The runs half was two until `console/runs/pane/controls/StepIn.tsx` stopped sending
+ * its own `run.pause`. It held a second single-flight latch beside the surface's, so
+ * the button and the palette's row for the same control each admitted while the other
+ * was settling — two idempotency keys against one run version, which the wire reads as
+ * two distinct mutations rather than replays of one. It now dispatches through
+ * `RunControlSurface`, which is entry #4, so a surface LEAVING the door is a move this
+ * number records too — which is exactly why the pin is re-derived by counting the
+ * enumeration above and never carried forward.
+ *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
  * started reaching past it would be caught by the reach scan above rather than here.
@@ -188,7 +216,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 17;
+const CALL_DOOR_CONSUMER_COUNT = 20;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

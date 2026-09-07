@@ -27,10 +27,10 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { isEphemeralPaneKind } from "../../seats/index.js";
 import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../workspace-bounds.js";
 import {
   DECK_TOTAL_PERMILLE,
-  EPHEMERAL_PANE_KINDS,
   addressesMatch,
   applyPaneSizePercentages,
   carveSplitFrom,
@@ -117,7 +117,7 @@ export class DeckLayout {
       kind: address.kind,
       entity: address.entity,
       sizePermille: DECK_TOTAL_PERMILLE,
-      isEphemeral: EPHEMERAL_PANE_KINDS.includes(address.kind),
+      isEphemeral: isEphemeralPaneKind(address.kind),
       sourcePaneId: address.sourcePaneId,
     };
 

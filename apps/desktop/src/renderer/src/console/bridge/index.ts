@@ -85,6 +85,7 @@ export {
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
   readChannelId,
+  readProviderAccountId,
   readQueueItemId,
   readRunId,
   readRunState,
@@ -161,6 +162,7 @@ export type { DriverCapabilityReadout } from "./driver-capabilities/driver-capab
 // and the questions asked of its answer are two subjects, and a door line pointing at
 // whichever file used to hold both would say otherwise.
 export {
+  readingAcrossRuns,
   readingForDriver,
   readingForRun,
   withRunDriverBindings,
@@ -211,7 +213,14 @@ export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 // registry, the bindings, or the schemas behind them: a surface names a method and
 // renders a served value or a refusal, and a surface that could reach a schema
 // would be a surface that could parse a second time, differently.
+// The abandoned-read refusal travels beside the call itself, for the COMPOSED read
+// only: one that calls the door more than once has `await` boundaries the door cannot
+// see, and an abort landing in one of those gaps has to stop the fold under the code
+// the door already answers with rather than under a second name for one settlement.
+// `settings/pages/mounts/mount-inventory.ts` is that read — a workspace list followed
+// by a per-mount fan-out.
 export {
+  abandonedReadRefusal,
   callDaemon,
   // Consumed by T-023p-1C-4
   DAEMON_REPLY_REFUSAL_ORIGIN,
@@ -277,6 +286,11 @@ export type { GrowthPort } from "./growth-port/growth-port.js";
 // leaves through `growth-port/growth-entry.js`, the module that declares it.
 export type { GrowthOperationId } from "./growth-port/growth-entry.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+// What a provider-session import reports as it runs. Published because the import
+// panel drains the progress subscription and renders the producer's own turn count
+// and state verbatim; a shape read only inside the fixture would leave the surface
+// narrowing an `unknown` it has no schema for.
+export type { GrowthImportProgress } from "./growth-values/sessions.js";
 // The attention projection's own vocabulary. Published because the notification
 // plane NARROWS against it: it used to declare a second copy of these six triggers
 // and two severities, which is two closed sets that agree until one of them is
@@ -410,7 +424,8 @@ export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js"
 // render an absence names the row that would fill it, and reading the row through the
 // barrel is what keeps a family out of this one's interior — the deep import a card
 // would otherwise take is exactly the reach past a door the layout rules forbid.
-export { growthSlateRow, type GrowthSlateRow } from "./growth-port/growth-slate.js";
+export { growthSlateRow } from "./growth-port/growth-slate.js";
+export type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
 
 // The posture vocabulary the definitions registry declares. Through this door
 // because the new-session draft's picker offers the same three modes: a second
@@ -496,3 +511,34 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // out — and the terminal's host-presence fold is the production reader that makes the
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
+
+// The WebAuthn ceremony seam. Through the door because the sign-in family is the
+// reader and this family is where the seam has to live: the fixture WRITES an
+// outcome and the sign-in family READS one, so the union sits below both — the
+// "two sides of one seam share a module" rule, applied across a bridge. The
+// encoder is deliberately absent: a renderer that could compose an `authenticated`
+// arm could assert an identity nothing established, so the writer is published to
+// the fixture through that directory's own door and to nobody else.
+//
+// THE THREE VALUE TUPLES ARE DELIBERATELY NOT HERE. They are the reader's own
+// vocabulary, narrowed against inside the declaring module and driven by its suite
+// from there; the sign-in family reads the TYPES, whose totality is what makes its
+// copy tables complete. Publishing the tuples would put three names on this door
+// whose only reader is a test.
+export {
+  readCeremonyOutcome,
+  type DeviceGrantHandoff,
+  type ParticipantIdentityClaims,
+  type WebAuthnCeremonyOutcome,
+  type WebAuthnCustody,
+  type WebAuthnProbeResult,
+  type WebAuthnRefusalReason,
+} from "./web-authn/ceremony-outcome.js";
+
+// The session goal: the fold that says what it is, and the two operations that change
+// it. Through this door because two VIEW families read it — the approvals pane's card
+// and the workspace sidebar's one-line reading — and those two may not import one
+// another; the module's own header says why this is the lowest family that owns its
+// inputs.
+export type { SessionGoalProjection } from "./session-goal.js";
+export { clearSessionGoal, foldSessionGoal, updateSessionGoal } from "./session-goal.js";

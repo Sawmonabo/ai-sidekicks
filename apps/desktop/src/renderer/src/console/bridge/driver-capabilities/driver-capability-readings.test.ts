@@ -10,11 +10,12 @@ import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import { neverRead } from "./driver-capability-read.test-support.js";
-import type { DriverCapabilityReadout } from "./driver-capability-read.js";
+import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-read.js";
 import {
   DRIVER_CAPABILITY_READINGS,
   boundDriverNameForRun,
   declaredFlagsForDriver,
+  readingAcrossRuns,
   readingForRun,
   withRunDriverBindings,
 } from "./driver-capability-readings.js";
@@ -96,5 +97,71 @@ describe("readingForRun — one readout, one run, one answer for every surface",
     const readout = soleReportReadout();
     expect(readingForRun(readout, CLAUDE_RUN, "rollback")).toBe("undeclared");
     expect(DRIVER_CAPABILITY_READINGS).toStrictEqual(["declared", "undeclared", "unknown"]);
+  });
+});
+
+describe("readingAcrossRuns — one answer for a session, over every run it addresses", () => {
+  const CLAUDE_RUN = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
+  const CODEX_RUN = "c4e1b2d3-5f60-4071-9b82-0d3e4f506172";
+  const UNBOUND_RUN = "d5f2c3e4-6071-4182-ac93-1e4f50617283";
+
+  /** One flag set, declaring exactly the flags named. */
+  function declaring(...declared: readonly DriverCapabilityFlag[]): DeclaredDriverFlags {
+    return Object.fromEntries(
+      DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, declared.includes(flag)]),
+    ) as DeclaredDriverFlags;
+  }
+
+  /** Two drivers reported, and a session projection naming which run is on which. */
+  function twoDriverReadout(): DriverCapabilityReadout {
+    return {
+      flagsByDriverName: new Map([
+        ["claude", declaring("callback_tools")],
+        ["codex", declaring("rollback")],
+      ]),
+      driverNameByRunId: new Map([
+        [CLAUDE_RUN, "claude"],
+        [CODEX_RUN, "codex"],
+      ]),
+      readRefusal: undefined,
+    };
+  }
+
+  it("answers the node's own reading where no run is addressed", () => {
+    // An unresolved addressed set and a resolved empty one land here together, and
+    // both are answered honestly: the sole-report fallback is decisive exactly when
+    // one driver reported, and says nobody has asked when two did.
+    expect(readingAcrossRuns(twoDriverReadout(), [], "callback_tools")).toBe("unknown");
+  });
+
+  it("does not let the first addressed run answer for the rest", () => {
+    // The finding: a session whose pending decisions name runs on two drivers had its
+    // capability read off `addressedPostures[0]`, so reordering the records changed
+    // what the section reported while the bindings stood still.
+    const readout = twoDriverReadout();
+    expect(readingAcrossRuns(readout, [CLAUDE_RUN, CODEX_RUN], "callback_tools")).toBe("declared");
+    expect(readingAcrossRuns(readout, [CODEX_RUN, CLAUDE_RUN], "callback_tools")).toBe("declared");
+    expect(readingAcrossRuns(readout, [CLAUDE_RUN, CODEX_RUN], "rollback")).toBe("declared");
+    expect(readingAcrossRuns(readout, [CODEX_RUN, CLAUDE_RUN], "rollback")).toBe("declared");
+  });
+
+  it("holds an unanswerable binding apart from a declared absence", () => {
+    // `undeclared` is the claim that NO addressed run can reach the capability, so a
+    // run whose binding nobody could name may not be folded into it — and a run that
+    // does declare it settles the session's answer whatever the others say.
+    const readout = twoDriverReadout();
+    expect(readingAcrossRuns(readout, [CODEX_RUN, UNBOUND_RUN], "callback_tools")).toBe("unknown");
+    expect(readingAcrossRuns(readout, [UNBOUND_RUN, CODEX_RUN], "callback_tools")).toBe("unknown");
+    expect(readingAcrossRuns(readout, [CLAUDE_RUN, UNBOUND_RUN], "callback_tools")).toBe(
+      "declared",
+    );
+  });
+
+  it("negative control: every addressed run declaring it absent is still an absence", () => {
+    // Without this the fold above would pass over a resolver that never answered
+    // `undeclared` at all, which is the reading the section's absence is gated on.
+    const readout = twoDriverReadout();
+    expect(readingAcrossRuns(readout, [CODEX_RUN], "callback_tools")).toBe("undeclared");
+    expect(readingAcrossRuns(readout, [CLAUDE_RUN], "rollback")).toBe("undeclared");
   });
 });

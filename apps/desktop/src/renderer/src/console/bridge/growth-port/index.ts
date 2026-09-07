@@ -24,7 +24,7 @@
 // reaching this door closes `growth-operations/index.ts → growth-port/index.ts →
 // growth-port.ts → growth-operations/index.ts`, which `no-circular` fails. Every
 // `growth-operations/*` and `growth-signatures/*` reader therefore takes
-// `growth-entry.js`, `growth-slate.js` and `growth-outcome.js` by their own
+// `growth-entry.js`, `growth-slate-row.js` and `growth-outcome.js` by their own
 // specifier — the deep edge is the remedy for that one cycle, not an untidied
 // import, and tidying it through this door turns the cruise red.
 
@@ -50,4 +50,5 @@ export {
 
 export { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
 
-export { GROWTH_SLATE_ROWS, type GrowthSlateRow, type GrowthSlateRowId } from "./growth-slate.js";
+export { GROWTH_SLATE_ROWS } from "./growth-slate.js";
+export type { GrowthSlateRow, GrowthSlateRowId } from "./growth-slate-row.js";

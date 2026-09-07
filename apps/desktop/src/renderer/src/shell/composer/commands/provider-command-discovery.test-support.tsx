@@ -28,7 +28,11 @@ import { consoleCommands } from "../../../console/palette/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../../console/frame/run-lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";
+import {
+  FrameStore,
+  SessionStore,
+  type ConsoleSessionEvent,
+} from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { MessageComposer } from "../../MessageComposer.js";
 import { settleEnumeration } from "./provider-command-read.js";
@@ -156,7 +160,17 @@ export async function scenarioBindingGroups(): Promise<readonly ProviderCommandB
   if (agentId === undefined) {
     throw new Error("the composer scenario attaches no agent");
   }
-  const state = await settleEnumeration(bridge, COMPOSER_SCENARIO.sessionId, agentId);
+  // A bare controller nothing ever aborts, which is the line this helper wants: it
+  // awaits the read to completion and has no owner who could leave. A `ReadScope`
+  // here would put a second module inside a helper whose whole job is to hand the
+  // suites the scenario's own groups.
+  const liveLine = new AbortController();
+  const state = await settleEnumeration(
+    bridge,
+    COMPOSER_SCENARIO.sessionId,
+    agentId,
+    liveLine.signal,
+  );
   if (state.phase !== "served") {
     throw new Error(`the composer scenario scripts no enumeration reply: ${state.phase}`);
   }
@@ -224,6 +238,7 @@ export async function mountComposer(options: {
 }): Promise<MountedComposer> {
   const sessionStore = composerSessionStore();
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
+  const frameStore = new FrameStore();
   const route = { kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId } as const;
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
@@ -232,6 +247,7 @@ export async function mountComposer(options: {
         sessionStore={sessionStore}
         bridge={options.bridge}
         draftStore={draftStore}
+        frameStore={frameStore}
         route={route}
         focusedPane={options.focusedPane}
       />,
@@ -259,6 +275,7 @@ export async function mountComposer(options: {
             sessionStore={sessionStore}
             bridge={options.bridge}
             draftStore={draftStore}
+            frameStore={frameStore}
             route={route}
             focusedPane={pane}
           />,

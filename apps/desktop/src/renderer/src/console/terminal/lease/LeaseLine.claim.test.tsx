@@ -31,6 +31,7 @@ import {
   markFor,
   refusingBridge,
   renderLease,
+  scriptlessLeaseBridge,
   requestShapeOf,
   servingBridge,
 } from "./LeaseLine.test-support.js";
@@ -56,12 +57,20 @@ const RETRY_HORIZON_MS = 60 * 60 * 1000;
 
 describe("the claim control — one affordance, and three things it never does", () => {
   it("renders the port's own refusal beside the control", async () => {
-    const { container } = renderLease(leaseState({ holding: "unheld", holderVouching: "vouched" }));
+    // The FIXTURE's refusal and not a daemon's: this bridge plays a scenario that
+    // scripts neither lease call, so a served operation with nothing to answer from
+    // takes `reply-unscripted`. The daemon-side arm — a scripted refusal naming a
+    // holder — is `LeaseLine.refusal-holder.test.tsx`'s, and the two are different
+    // facts about the same control.
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      scriptlessLeaseBridge(),
+    );
     fireEvent.click(claimControl(container));
     await waitFor(() => {
       expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     });
-    expect(container.textContent).toContain("wire-unregistered");
+    expect(container.textContent).toContain("reply-unscripted");
   });
 
   it("renders the wire's own code when the call REJECTED rather than refused", async () => {
@@ -229,6 +238,7 @@ describe("the claim control — one affordance, and three things it never does",
         markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
         callerRole={CALLER_ROLE_COLLABORATOR}
+        hasSteppableRun
       />,
     );
     fireEvent.click(claimControl(view.container));
@@ -242,6 +252,7 @@ describe("the claim control — one affordance, and three things it never does",
         markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
         callerRole={CALLER_ROLE_COLLABORATOR}
+        hasSteppableRun
       />,
     );
 
@@ -309,5 +320,22 @@ describe("stepping in is not this control (8.9)", () => {
     expect(container.textContent).toContain("It never moves the keyboard");
     // Two buttons: the claim and the disclosure. Step in belongs to the composer.
     expect(container.querySelectorAll("button")).toHaveLength(2);
+  });
+
+  it("says nothing about stepping in where no run could be stepped into", () => {
+    // The clarification is about a control, and a control nobody can reach is not
+    // worth a paragraph on every idle terminal — 8.9 renders it where it clarifies
+    // something, which is the visible-steppable-run condition and nothing else.
+    const { container } = renderLease(
+      UNREAD_TERMINAL_LEASE,
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      CALLER_ROLE_COLLABORATOR,
+      false,
+    );
+    expect(container.textContent).not.toContain("It never moves the keyboard");
+    // Negative control on the gate itself: the rest of the line still renders, so
+    // this is the aside being withheld rather than the surface having failed.
+    expect(container.querySelector(".meridian-lease-line__claim")).not.toBeNull();
   });
 });

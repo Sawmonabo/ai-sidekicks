@@ -52,6 +52,9 @@
 // build if that ever regresses to a forward through this file.
 
 export type {
+  GrowthAcceleratorChord,
+  GrowthBrowserPage,
+  GrowthBrowserPageList,
   GrowthNavigationState,
   GrowthPaneError,
   GrowthPaneReturn,
@@ -78,6 +81,7 @@ export type {
   GrowthHealthReading,
   GrowthImportProgress,
   GrowthInviteSummary,
+  GrowthNotificationPermission,
   GrowthSessionSummary,
 } from "./sessions.js";
 

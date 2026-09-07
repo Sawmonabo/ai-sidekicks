@@ -12,12 +12,18 @@
 //
 // WHY THE SEAT TAKES THE PAGE CONTEXT AND NOTHING ELSE
 //
-// A settings page is handed a bridge, a rail navigator, and the session the window
-// has open. The account registry is node-local and session-independent, so the body
-// needs the bridge and the navigator — the `choose_default` remedy sends a person
-// to a candidate list, which is a rail move — and nothing this page could add. A
-// seat that also carried, say, a selected account id would be this console deciding
-// the body's selection model, which is the body's decision and not the mount's.
+// A settings page is handed a bridge, a rail navigator, the session the window has
+// open, and whatever the ADDRESS asked the page to be opened for. The account registry
+// is node-local and session-independent, so the body needs the bridge and the
+// navigator — the `choose_default` remedy sends a person to a candidate list, which is
+// a rail move — and nothing this page could add.
+//
+// THE ADDRESS'S SELECTION IS NOT A SELECTION MODEL. What the mount hands on is the
+// second segment of `#/settings/<page>/<selection>`, untouched: which provider the row
+// that deep-linked here was about. A seat carrying a selected ACCOUNT id would be this
+// console deciding how the body selects, which is the body's decision; carrying what
+// the address said is the mount's job, because the mount is the half that owns the
+// route. The body narrows it against its own vocabulary or ignores it entirely.
 //
 // WHAT THIS FILE MAY NEVER GROW
 //
@@ -27,7 +33,8 @@
 // the re-login horizon, and the quota rows all have exactly one producer.
 
 import type { OwnerSlotProps } from "../../../seats/index.js";
-import type { OwnerSlotPage, SettingsPageBody } from "../../settings-page-registry.js";
+import type { OwnerSlotPage } from "../../owner-slot-page.js";
+import type { SettingsPageBody } from "../../settings-page-registry.js";
 
 /**
  * The seat itself.
@@ -43,7 +50,7 @@ export const PROVIDER_ACCOUNTS_PAGE_SLOT: OwnerSlotProps<SettingsPageBody> = {
     // Plan-016's committed-spend read.
     owningTask: "Plan-029, with the session figure read through Plan-016",
     mountObligation:
-      "the page frame, the section heading, and a SettingsPageContext carrying the console bridge and the rail navigator; the body owns the registry read, the readiness projection, every account control, the write-only token input, and every refusal",
+      "the page frame, the section heading, and a SettingsPageContext carrying the console bridge, the rail navigator, and the provider the address was opened for; the body owns the registry read, the readiness projection, every account control, the write-only token input, and every refusal",
     deleteShellIn: "the Plan-029 page-body task that fills this slot",
   },
   body: undefined,

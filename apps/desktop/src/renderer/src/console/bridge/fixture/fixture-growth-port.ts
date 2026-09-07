@@ -13,8 +13,11 @@
 // `fixture-attention-derivation.ts` folds beats into an attention projection,
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
-// them, `fixture-auxiliary-windows.ts` models the shell's own window plane, and
-// `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
+// them, `fixture-auxiliary-windows.ts` models the shell's own window plane,
+// `fixture-onboarding-answers.ts` holds the onboarding plane and the ledger its
+// own mutations move, `fixture-shell-answers.ts` holds the shell plane and the one
+// channel its feed and its three controls share, and `fixture-scripted-answer.ts` maps
+// a scripted settlement onto an outcome — reads and writes both.
 //
 
 import {
@@ -25,11 +28,13 @@ import {
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 import type { WireErrorEnvelope } from "../../core/index.js";
+import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../scenarios/browser.js";
 import { FixtureAuxiliaryWindowPlane } from "./fixture-auxiliary-windows.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
-import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
-import type { GrowthOperationId } from "../growth-port/growth-entry.js";
-import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
+import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
+import { answerFromScriptedReply, answerScriptedWrite } from "./fixture-scripted-answer.js";
+import { fixtureOnboardingAnswers } from "./fixture-onboarding-answers.js";
+import { fixtureShellAnswers } from "./fixture-shell-answers.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { scenarioSessionIdentity } from "./fixture-session-identity.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
@@ -44,6 +49,15 @@ import {
 import { DAEMON_NEGOTIATION_READ_CALL } from "../scenarios/negotiation-replies.js";
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
 import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
+import {
+  PROVIDER_SESSION_IMPORT_BEGIN_CALL,
+  PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
+  PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+} from "../scenarios/bring-your-history.js";
+// The routing key itself, from the scenario module that mints it — the workflow
+// enumeration's rule one file over: restated as a literal here, a rename would move
+// the constant and the reply and leave this handler answering a key nothing sends.
+import { REPOS_EXECUTION_CONTEXT_CALL } from "../scenarios/repos-mutation-replies.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
@@ -61,9 +75,15 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   // would hand a scenario switch a window the new shell has never heard of.
   const auxiliaryWindows = new FixtureAuxiliaryWindowPlane();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
-    // workflow — spread from the module that implements them, so the served ids next
-    // door and the handlers here are held to each other by the `Pick` above.
+    // workflow, onboarding and shell — spread from the modules that implement them, so
+    // the served ids next door and the handlers there are held to each other by the
+    // `Pick` above. The onboarding and shell planes also own the fixture's per-caller
+    // state, which is why each is a module and not a block here: the onboarding ledger
+    // and the shell channel are both minted per port inside those calls, so a step
+    // recorded — or a control pressed — in this window reaches no other.
     ...fixtureWorkflowReads(engine),
+    ...fixtureOnboardingAnswers(engine),
+    ...fixtureShellAnswers(engine),
     // The base state, and — for a scenario that declares it — the one refusal the
     // console's resume cycle can actually receive.
     //
@@ -177,9 +197,9 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // smuggled through an absent value and re-read by the caller.
       //
       // It refuses as the SCENARIO's gap and never as an unbuilt wire, on the rule
-      // `answerScriptedWrite` below states in full: this fixture serves the
-      // operation, so `wire-unregistered` would be false about the build and would
-      // send a reader to a document owing a wire that already has a stand-in.
+      // `answerScriptedWrite` states in full in `fixture-scripted-answer.ts`: this
+      // fixture serves the operation, so `wire-unregistered` would be false about the
+      // build and would send a reader to a document owing a wire that has a stand-in.
       answerFromScriptedReply(
         engine,
         "gitflow.branchContextRead",
@@ -290,6 +310,42 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       await answerScriptedWrite(engine, "agent.configUpdate", "agentConfigUpdate", request),
     agentDetach: async (request) =>
       await answerScriptedWrite(engine, "agent.detach", "agentDetach", request),
+    // browser — the provenance the produced-object shelf joins the log against.
+    //
+    // Routed through the scripted-reply seam and answered with the EMPTY SET when a
+    // scenario names nothing, on the invite ledger's rule: a session whose browser has
+    // produced nothing is an ordinary session the shelf has to draw, and a refusal
+    // here would say the question was never asked. A scenario that publishes artifacts
+    // and scripts no reply is saying those artifacts came from somewhere else.
+    browserProducedArtifacts: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        BROWSER_PRODUCED_ARTIFACTS_CALL,
+        "browserProducedArtifacts",
+        request,
+        () => ({ status: "served", value: { artifactIds: [] } }),
+      ),
+    // terminal lease — the two calls whose interesting answers are all refusals. Both
+    // route through the write seam rather than the read one: a take that nobody
+    // scripted has no honest served form, since taking the shell MOVES it and the
+    // pane's holder comes from the `pty.control_changed` beat rather than from this
+    // reply. A scenario that scripts a refusal reaches the caller's own `catch`
+    // exactly as a live rejection does, which is what makes the refusal renderings
+    // reachable at all.
+    terminalAcquireWriteLease: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "session.takeControl",
+        "terminalAcquireWriteLease",
+        request,
+      ),
+    terminalReleaseWriteLease: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "session.releaseControl",
+        "terminalReleaseWriteLease",
+        request,
+      ),
     orchestrationChildRunLinkRead: async (request) =>
       answerFromScriptedReply(
         engine,
@@ -328,6 +384,63 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     windowCloseAuxiliary: async (request) => auxiliaryWindows.closeAuxiliary(request),
     windowSubscribePaneErrors: async () => auxiliaryWindows.subscribePaneErrors(),
     windowSubscribePaneReturns: async () => auxiliaryWindows.subscribePaneReturns(),
+    // The provider-session import, both halves from the script. The opening call is a
+    // WRITE — there is no "the import that began and produced nothing" — and the
+    // subscription is addressed by the import that call minted, so neither has an
+    // honest empty answer and both refuse under a scenario that scripts no import.
+    providerSessionImportBegin: async (request) =>
+      await answerFromScriptedReply(
+        engine,
+        PROVIDER_SESSION_IMPORT_BEGIN_CALL,
+        "providerSessionImportBegin",
+        request,
+        () =>
+          growthUnscriptedReply("providerSessionImportBegin", PROVIDER_SESSION_IMPORT_BEGIN_CALL),
+      ),
+    //
+    // THE PROGRESS FEED IS PACED HERE, where the stream is opened, and it has to be:
+    // a scenario reaches no clock, so a script that drained its own frames handed the
+    // whole import to one turn — React batched the renders and the fixture painted
+    // only the terminal `complete` frame, leaving the running states and a
+    // mid-import cancellation reachable from nowhere. The values stay the script's;
+    // what this adds is the schedule, taken from the ticks the script declares beside
+    // them and spent on the frozen clock rather than on a timer.
+    providerSessionImportSubscribe: async (request) =>
+      mapGrowthServed(
+        await answerFromScriptedReply(
+          engine,
+          PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+          "providerSessionImportSubscribe",
+          request,
+          () =>
+            growthUnscriptedReply(
+              "providerSessionImportSubscribe",
+              PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
+            ),
+        ),
+        (scripted) =>
+          paceGrowthStreamOnScenarioClock(
+            engine,
+            scripted,
+            PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES,
+          ),
+      ),
+    // repos — the workspace's own execution context.
+    //
+    // ITS UNSCRIPTED ARM IS THE WORKFLOW SUBJECT READS' AND NOT THE INVITE LEDGER'S,
+    // for the reason `fixture-served-operations.ts` gives: this read answers facts
+    // about ONE named workspace, so an empty answer would assert that the workspace
+    // exists and is bound to no root — an invention, where an invite ledger with no
+    // rows is an ordinary session. Routed through the scripted seam so a scenario
+    // answers per workspace, exactly as the entity-scoped `repo.*` reads beside it do.
+    workspaceExecutionContextRead: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        REPOS_EXECUTION_CONTEXT_CALL,
+        "workspaceExecutionContextRead",
+        request,
+        () => growthUnscriptedReply("workspaceExecutionContextRead", REPOS_EXECUTION_CONTEXT_CALL),
+      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }
@@ -359,46 +472,6 @@ async function answerApprovalRead<TRow>(
     ),
     narrow,
   );
-}
-
-/**
- * Answer one WRITE from the script, and refuse where the scenario scripts none.
- *
- * A read has an empty state and a write does not: "this session has no agents" is a
- * state the console draws, and there is no such thing as "the attach that happened
- * and produced nothing". So a write that no scenario answers cannot take the served
- * arm with a synthesized receipt — that would tell a surface the daemon did
- * something no author ever said it did, and for an attach it would mint an identity
- * every later read is keyed by.
- *
- * The precondition is checked here rather than inside the seam because it is a fact
- * about the SCENARIO rather than about the settlement — `callerParticipantRead` next
- * door reads its own precondition off `engine.scenario` for the same reason. What is
- * left after the check is exactly the settlement the seam reports, so the parked,
- * abandoned, and over-cap arms all keep their own answers.
- */
-async function answerScriptedWrite<TOperationId extends GrowthOperationId>(
-  engine: ScenarioEngine,
-  call: string,
-  operationId: TOperationId,
-  request: unknown,
-): Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>> {
-  if (engine.replyFor(call) === undefined) {
-    // The SCENARIO's gap and never the build's. `growthUnavailable` would compose
-    // "this build does not carry the wire", which is false for an operation this
-    // fixture serves and would send a reader to the document that owes a wire the
-    // fixture already stands in for — the distinction `growthUnscriptedReply`'s own
-    // header draws, and the one `fixture-growth-port.test.ts` holds every served
-    // operation to.
-    return growthUnscriptedReply(operationId, call);
-  }
-  return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
-    // Unreachable: the guard above already refused every unscripted call, and the
-    // seam reports `unscripted` only for exactly that. Named rather than cast, so a
-    // later change that moves the guard fails here loudly instead of serving a value
-    // that was never scripted.
-    throw new Error(`${call} reached the unscripted arm behind its own scripted guard`);
-  });
 }
 
 /**

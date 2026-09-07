@@ -13,66 +13,13 @@
 // is deleted here and from the plan in the same PR, and the test then fails on the
 // port entry that still claims fixture-only, which is exactly the reminder the
 // console wants at that moment.
+//
+// THE ROW SHAPE AND THE CLOSED ID SET ARE `growth-slate-row.ts`'S — read that module
+// for what a row IS. What is left here is the ledger itself and the two views over
+// it, which is the half that changes every time a surface is built against a wire
+// the corpus has not registered.
 
-/** A row's stable identifier. Used by port entries and by the manifest. */
-export type GrowthSlateRowId =
-  | "browser-pane-namespace"
-  | "browser-tool-relay"
-  | "terminal-pane"
-  | "dev-server-probe"
-  | "session-lifecycle-verbs"
-  | "session-directory-read"
-  | "daemon-control-methods"
-  | "onboarding-methods"
-  | "shell-config-preferences"
-  | "invites-list"
-  | "health-subscribe"
-  | "agent-snapshot-axes"
-  | "child-run-linkage"
-  | "agent-provider-switch-failure"
-  | "gitflow-actions"
-  | "artifact-ingest-and-crud"
-  | "artifact-allowlist-and-abort"
-  | "worktree-setup-recipe"
-  | "workflow-event-registration"
-  | "workflow-definition-scope"
-  | "timeline-epoch-attestation"
-  | "timeline-path-reference"
-  | "approval-method-payloads"
-  | "approval-remembered-rule"
-  | "approval-amendment-arm"
-  | "session-goal-methods"
-  | "session-search"
-  | "window-control-namespace"
-  | "provider-session-import"
-  | "attention-plane"
-  | "workflow-run-control"
-  | "workflow-run-enumeration"
-  | "caller-participant-identity"
-  | "callback-tool-registry-read"
-  | "sidekick-definition-registry"
-  | "hydrated-event-read"
-  | "cost-receipt-read"
-  | "workflow-version-chain"
-  | "health-status-read"
-  | "daemon-version-negotiation"
-  | "timeline-live-resubscribe";
-
-export interface GrowthSlateRow {
-  readonly id: GrowthSlateRowId;
-  /** The wire the console needs, in the plan table's own words. */
-  readonly wire: string;
-  /** The document that owns registering it. */
-  readonly owningDocument: string;
-  /** The console surface family that consumes it. */
-  readonly consumingSurface: string;
-  /**
-   * Always false while the row is on the slate. Present as a field rather than
-   * implied so the test's assertion reads as a check rather than a tautology, and
-   * so the day a row is half-landed the discrepancy is representable.
-   */
-  readonly wireRegistered: false;
-}
+import type { GrowthSlateRow, GrowthSlateRowId } from "./growth-slate-row.js";
 
 /**
  * Every row, keyed by its id.
@@ -408,6 +355,49 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-013 §Timeline (the replay-from-a-kept-position reading a degraded ledger renders); Spec-023 §Preload Bridge Contract (the daemon namespace, whose subscribe half carries an event name and no request)",
     consumingSurface: "ledger replay gap fill",
+    wireRegistered: false,
+  },
+  "workspace-execution-context": {
+    id: "workspace-execution-context",
+    wire: "a workspace's own execution context — the normalized checkout root a turn-boundary snapshot operates on, and the marker that says a run is executing under a FALLBACK execution mode rather than the mode that was selected. Neither reaches a client: the checkout root is a column on run_execution_contexts and is carried by no reply, and no registered field anywhere carries the fallback marker, so the three roots a branch-mode workspace can hold cannot be shown together and a substituted mode cannot be told apart from a chosen one",
+    owningDocument:
+      "Spec-010 §Fallback Behavior (the selected mode is marked distinctly from normal worktree mode) + Spec-010 §Turn-Boundary Snapshots (the normalized checkout root, and the run_execution_contexts.checkout_root column that holds it); Plan-010 (the shared-contracts and client-SDK registration a read would join)",
+    consumingSurface:
+      "repos surface (the workspace card's three-path disclosure and its fallback badge)",
+    wireRegistered: false,
+  },
+  "mount-health-identity-verdict": {
+    id: "mount-health-identity-verdict",
+    wire: "the identity-mismatch verdict a mount's health projection reports — the third member of the mount-health status union. The member is on the contract and no producer can emit it: the daemon-side projection that would derive it is unbuilt, and the repo namespace that would carry a mount read is registered by no handler, so the console's fail-closed three-verdict projection has a live source for none of the three",
+    owningDocument:
+      "Spec-009 §Repo Mount Health (V1 Definition) + I-009-17 (the three-member union, its precedence, and the read-time derivation); Plan-009 T-009-2B-5 in Phase 2B (the daemon-side projection, which consumes that phase's own common-directory re-derivation and persisted anchor write) and Plan-009 Phase 3 (the daemon handler namespace and client-SDK surface that would carry the read)",
+    consumingSurface:
+      "repos surface (the mount card's health chip and the re-attach control the permanent verdict carries); settings mounts page (the mount row's verdict)",
+    wireRegistered: false,
+  },
+  "notification-permission-read": {
+    id: "notification-permission-read",
+    wire: "the shell's own reading of whether this machine will display an OS notification for this application. `native.showNotification` is on the preload contract and returns void, so the renderer cannot observe a denial through it, and no bridge member reports the permission",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects)",
+    consumingSurface: "notification centre (the OS-notifications-denied arm)",
+    wireRegistered: false,
+  },
+  "shell-status-signals": {
+    id: "shell-status-signals",
+    wire: "the shell's own status as one feed — the daemon supervisor's step and its attempt count out of five, the daemon.hello negotiation ack (compatible, protocolVersion, reason, daemonSupportedProtocols), the loopback-fallback signal, and the keystore-unavailable signal. Every one of them is a main-process fact and none of them is a daemon call: the renderer is not a direct daemon client, the ack belongs to the connection the main process holds, and a second handshake from here would be refused as one already completed",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (no namespace carries any of it); Spec-023 §Daemon Supervision Lifecycle (the six steps and the five-attempt ladder), §Fallback Behavior (the loopback fallback and the offline read-only mode), §Native Keystore (the memory-only degradation); Spec-007 (the DaemonHelloAck shape, which packages/contracts publishes and no bridge namespace serves)",
+    consumingSurface:
+      "frame shell-state chrome — the daemon chip, the version banner, the reconnect and read-only banners, and the loopback/keystore notice strip",
+    wireRegistered: false,
+  },
+  "onboarding-desktop-surface": {
+    id: "onboarding-desktop-surface",
+    wire: "`onboarding.presentChoice` and `onboarding.telemetryPrompt`, the two preload-bridge methods `Spec-026 §Desktop Surface` names — the main-process hosts for the relay choice's secret entry and the telemetry answer",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (which admits `onboarding` by name); Spec-026 §Desktop Surface",
+    consumingSurface: "first-run onboarding (group A)",
     wireRegistered: false,
   },
 };

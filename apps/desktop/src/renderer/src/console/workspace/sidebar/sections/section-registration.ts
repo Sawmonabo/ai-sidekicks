@@ -7,13 +7,19 @@
 // own through the same seat — which is the whole reason the seat exists, because
 // eight bodies edited into one component would be seven merge conflicts.
 //
-// OF THIS FAMILY'S THREE, TWO HAVE A BODY HERE: `runs` and `approvals`. The seat's
-// own header states why the approvals PANE was never a substitute for the section —
-// the pane is a whole surface a person navigates to and the section is the sidebar's
-// own independently loaded read of what this session is waiting on — so the section
-// is seated rather than deferred to the pane. `goal` still renders the sidebar's own
-// "reserved, not stubbed" answer, exactly as an unlanded family's sections do, and
-// seating it is a body this list grows rather than a contract anyone has to reopen.
+// ALL THREE HAVE A BODY HERE. `runs` and `approvals` are the sidebar's own
+// independently loaded reads — the seat's own header states why the approvals PANE was
+// never a substitute for the section, the pane being a whole surface a person navigates
+// to and the section being what this session is waiting on — and `goal` is a READING
+// under its own density rule: one line showing the goal clamped to a measure, with the
+// editor opening in place on the surface that owns it, which is what stops one session
+// having two editors over a contract that admits one in-flight change.
+//
+// `goal` carries neither a rollup nor an attention claim, and that is a third
+// disposition rather than an omission: one line has nothing to fold and reports no
+// urgency of its own. The two that do carry a rollup carry only that, because the seat
+// takes an explicit `attention` as a section's own claim and the fold over its `rollup`
+// as the fallback, so a descriptor carrying both would answer one question twice.
 //
 // A CALL, NOT A MODULE SIDE EFFECT, for `shell/index.ts`'s reason: registering at
 // module top level would fill an owner-scoped seat for anyone who imported this
@@ -27,6 +33,7 @@ import {
   type SidebarSectionRegistry,
 } from "../../../seats/index.js";
 import { ApprovalsSection, approvalsSectionRollup } from "./ApprovalsSection.js";
+import { GoalSection } from "./GoalSection.js";
 import { RunsSection, runsSectionRollup } from "./RunsSection.js";
 
 /**
@@ -66,6 +73,11 @@ const COMPOSER_SIDEBAR_SECTIONS: readonly SidebarSectionDescriptor[] = [
     // the sidebar reads it while the section is COLLAPSED, which is when the rule that
     // opens it has to decide, and it is the tree rather than also an explicit level.
     rollup: approvalsSectionRollup,
+  },
+  {
+    id: "goal",
+    owner: "composer-family",
+    render: (context) => createElement(GoalSection, context),
   },
 ];
 

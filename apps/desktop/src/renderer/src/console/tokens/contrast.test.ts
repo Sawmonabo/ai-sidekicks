@@ -46,7 +46,7 @@ describe("Meridian palette — every colour is inside the sRGB gamut as authored
   it("fits every scheme colour, so the browser maps nothing", () => {
     const outsideGamut: string[] = [];
     for (const scheme of CONSOLE_SCHEMES) {
-      for (const tokenName of SCHEME_COLOR_TOKENS.keys()) {
+      for (const [tokenName] of SCHEME_COLOR_TOKENS) {
         if (!isOklchInsideSrgbGamut(schemeColor(tokenName, scheme))) {
           outsideGamut.push(`${scheme}/${tokenName}`);
         }

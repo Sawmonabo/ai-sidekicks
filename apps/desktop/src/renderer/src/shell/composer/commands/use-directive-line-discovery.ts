@@ -45,6 +45,15 @@ import { useComposerDraftText } from "../use-composer-draft-text.js";
 export interface DirectiveLineDiscovery {
   /** The typed name after the trigger, or `undefined` while the surface is closed. */
   readonly prefix: string | undefined;
+  /**
+   * The whole line, as the same reading the prefix was taken from.
+   *
+   * A command that reads ARGUMENTS off its line needs the rest of it while the
+   * argument is still being typed, and the prefix is the first word alone. Handed
+   * back from the one reading rather than re-read by the caller, so the surface that
+   * offers a candidate and the surface that opened cannot be looking at two strings.
+   */
+  readonly lineText: string;
   /** Bumped when the person asks the list to take the arrow keys. */
   readonly stepIntoListToken: number;
   /** Close the surface for the text now in the line. */
@@ -148,6 +157,7 @@ export function useDirectiveLineDiscovery(
 
   return {
     prefix: isOpen ? typedPrefix : undefined,
+    lineText,
     stepIntoListToken,
     dismiss,
   };

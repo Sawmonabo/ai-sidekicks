@@ -71,6 +71,7 @@ import {
   type RunControl,
   type RunControlOutcome,
 } from "./run-control-dispatch.js";
+import { mintRunControlDispatchToken } from "./run-control-dispatch-token.js";
 
 /** One recorded dispatch, for the pane's own intervention history. */
 export interface RunControlRecord {
@@ -174,9 +175,15 @@ export function useRunControlSurface(
       }
       // Minted here rather than at settlement, because the caller needs it NOW: a
       // form that waits on its own settlement has to know which record will be its
-      // own before the answer exists.
+      // own before the answer exists. The ordinal rides it because records are
+      // appended in COMPLETION order and this counter is the only record of request
+      // order — `run-control-dispatch-token.ts` owns both halves of that encoding.
       nextDispatchOrdinal.current += 1;
-      const dispatchToken = `${runId}:${control}:${String(nextDispatchOrdinal.current)}`;
+      const dispatchToken = mintRunControlDispatchToken(
+        runId,
+        control,
+        nextDispatchOrdinal.current,
+      );
       publishInFlightKeys((held) => {
         const next = new Set(held);
         next.add(key);

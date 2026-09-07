@@ -1,38 +1,60 @@
-// The approvals pane's body: both reads, the lifecycle re-reads, and the two lists.
+// The approvals pane's body: three reads, the lifecycle re-reads, and the sections
+// each of them answers for.
 //
 // Split from `ApprovalsPane.tsx`, which is now the pane seat and nothing else —
 // resolve a session, mount this against it. Every hook below needs a session id to
 // mean anything, so they live on the side of the boundary where one exists rather
 // than behind a branch each would otherwise have to carry.
+//
+// WHAT STAYS HERE IS COMPOSITION. The folds over the reads, the two sections whose
+// rendering is a decision rather than a layout, and the arrival announcement each
+// live in `body/` beside this file: this module resolves the reads, hands each
+// section what it renders from, and takes exactly one decision of its own — which
+// refusal stops being this pane's business and reaches the frame.
+//
+// THREE CALLS GO OUT FROM HERE AND ANY OF THEM CAN END THE SESSION. The approval
+// projection, the standing-rule list, and the node's declared capabilities are
+// independent reads that fail independently, so `session.not_found` on any one of
+// them is a fact about the whole workspace. It used to be selected from the first
+// alone, which left a session that vanished between two concurrent calls reported
+// inside one surface and nowhere else.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import { parseInstant } from "../../core/index.js";
-import { consoleClockFor } from "../../bridge/index.js";
+import {
+  consoleClockFor,
+  foldSessionGoal,
+  readingAcrossRuns,
+  useDriverCapabilities,
+} from "../../bridge/index.js";
 import {
   useDeadlineWake,
   useSessionPartition,
   useSessionStore,
+  useRefusalBannerEscalation,
   useSubjectScopedState,
-  type ConsoleEntity,
   type SessionStore,
   type SessionStoreState,
 } from "../../store/index.js";
 import { type PaneContextOf } from "../../seats/index.js";
-import { findApprovalCardAction } from "./card/ApprovalCard.js";
 import { ApprovalList } from "./card/ApprovalList.js";
-import { providerAskFor, type ProviderAsk } from "./card/provider-ask.js";
-import { ExecutionPostureChip } from "./posture/ExecutionPosture.js";
-import { CallbackTools } from "./posture/CallbackTools.js";
+import { addressedRunPostures } from "./posture/addressed-run-postures.js";
+import { CALLBACK_TOOLS_CAPABILITY } from "./posture/CallbackTools.js";
+import { useCallbackToolRegistry } from "./posture/callback-tool-registry.js";
 import { SessionGoalCard } from "./goal/SessionGoalCard.js";
+import { useApprovalCommands } from "./approval-commands.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { useGoalMutationAuthorization } from "./goal/goal-authorization.js";
-import { type ApprovalRecord } from "../../bridge/index.js";
-import { type ReadPhase } from "./approvals-reader.js";
-import { foldSessionGoal } from "./goal/session-goal.js";
+import { useArrivalAnnouncement } from "./body/arrival-announcement.js";
+import {
+  bannerClassRefusalAmong,
+  partitionRecords,
+  providerAsksIn,
+  refusalOfPhase,
+} from "./body/approvals-read-fold.js";
+import { DaemonHostedToolsSection } from "./body/DaemonHostedToolsSection.js";
+import { ExecutionBoundaryReading } from "./body/ExecutionBoundaryReading.js";
 import { RulesRead } from "./RulesRead.js";
-
-/** The composer's root class. Focus moves to a new card only from inside it. */
-const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
 
 interface ApprovalsPaneBodyProps {
   readonly bridgeContext: PaneContextOf<"approvals">;
@@ -45,20 +67,60 @@ function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"]
 
 export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   const bridge = props.bridgeContext.bridge;
-  const { snapshot, reader } = useApprovalsReader(bridge, props.sessionStore);
-  const goalMutation = useSessionGoalMutation(bridge, props.sessionStore.sessionId);
+  const { snapshot, reader } = useApprovalsReader(
+    bridge,
+    props.sessionStore,
+    props.bridgeContext.frameStore,
+  );
+  const goalMutation = useSessionGoalMutation(
+    bridge,
+    props.sessionStore.sessionId,
+    props.bridgeContext.frameStore,
+  );
   const goalAuthorization = useGoalMutationAuthorization(bridge, props.sessionStore);
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const goal = useMemo(() => foldSessionGoal(timeline), [timeline]);
 
-  const pending = useMemo(() => partitionRecords(snapshot.approvals).pending, [snapshot.approvals]);
-  const history = useMemo(() => partitionRecords(snapshot.approvals).history, [snapshot.approvals]);
+  // One fold per read rather than one per list: the two arrays are halves of a single
+  // partition, and computing it twice made the pending half's identity change on a
+  // render the history half had caused.
+  const partitioned = useMemo(() => partitionRecords(snapshot.approvals), [snapshot.approvals]);
+  const pending = partitioned.pending;
 
   // The projected side of the same requests. The read answers the record and the
   // fold answers what the EVENT carried, and the provider-ask origin is only on the
   // second — so the two are joined here, by the id both spell, rather than either
   // one pretending to hold the whole request.
   const approvalEntities = useSessionPartition(props.sessionStore, "approval");
+  // The runs this pane's decisions are about, and the boundary each executed under.
+  // The partition is the store's own — the posture rides `run.running` into it like
+  // every other event — so no second subscription is opened for one member.
+  const runEntities = useSessionPartition(props.sessionStore, "run");
+  const addressedPostures = useMemo(
+    () => addressedRunPostures(pending, runEntities),
+    [pending, runEntities],
+  );
+  // The node's declarations, resolved for the runs the decisions are about — the same
+  // join the runs pane makes, because `driver.listCapabilities` names no run and a
+  // node with two drivers installed would otherwise answer for the wrong one.
+  const driverCapabilities = useDriverCapabilities(bridge);
+  // Asked of EVERY run a decision is about, and of the node's sole declaration where
+  // there is none. Reading the first addressed run and reporting its answer for the
+  // rest made this section's claim depend on the order the records arrived in, while
+  // the bindings behind them stood still; `readingAcrossRuns` folds the whole set, so
+  // reordering the queue cannot move the answer. The empty-set arm is the second
+  // question and not the same one asked of nothing: an id no binding names would read
+  // as an unbound run rather than as no run at all.
+  const addressedRunIds = useMemo(
+    () => addressedPostures.map((addressed) => addressed.runId),
+    [addressedPostures],
+  );
+  const callbackToolCapability = readingAcrossRuns(
+    driverCapabilities,
+    addressedRunIds,
+    CALLBACK_TOOLS_CAPABILITY,
+  );
+  const callbackToolRegistry = useCallbackToolRegistry(bridge, props.sessionStore.sessionId);
   const askByApprovalId = useMemo(() => providerAsksIn(approvalEntities), [approvalEntities]);
   // One clock, resolved once per bridge and read once per render. `consoleClockFor`
   // is the console's single answer to which clock a window reads — the fixture's
@@ -90,6 +152,42 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
   // expired, and the row a person was deciding about was the one row whose deadline
   // had passed. One timeout at a time, and none once every expiry is behind.
   const nowMilliseconds = useDeadlineWake(clock, expiryDeadlines);
+
+  // A refusal that ends the whole session rather than one read reaches the frame's
+  // banner instead of a line inside this pane. All three of this pane's reads name
+  // the session, so all three are candidates, in the order they are preferred — one
+  // handover for one fact, on `bannerClassRefusalAmong`'s reason. Each refusal still
+  // renders where it happened; escalation is in addition to that and never instead.
+  useRefusalBannerEscalation(
+    props.bridgeContext.frameStore,
+    bannerClassRefusalAmong([
+      refusalOfPhase(snapshot.approvals),
+      refusalOfPhase(snapshot.rules),
+      driverCapabilities?.readRefusal,
+    ]),
+  );
+
+  // The pane's acts, reachable from the palette while it is open. Every row is built
+  // from the same values the controls below render from AND through the same offer
+  // readings, so a row is offered exactly where its control is: `canMutate` fails
+  // closed on `undefined`, which is the unresolved role; a card already resolving
+  // contributes nothing; and a record whose own resolve refusal settled it
+  // contributes nothing either.
+  useApprovalCommands({
+    pending,
+    resolvingApprovalIds: snapshot.resolvingApprovalIds,
+    // The same map the card list below receives. Without it the rows read a record's
+    // state and nothing else, and a request somebody else answered kept two palette
+    // rows the card had already withdrawn.
+    resolveRefusalByApprovalId: snapshot.resolveRefusalByApprovalId,
+    resolve: (request) => {
+      reader.resolve(request);
+    },
+    goal,
+    canMutateGoal: goalAuthorization.canMutate === true,
+    isMutatingGoal: goalMutation.isMutating,
+    clearGoal: goalMutation.clear,
+  });
 
   const paneRootRef = useRef<HTMLDivElement>(null);
   const announcement = useArrivalAnnouncement(pending, paneRootRef);
@@ -146,7 +244,7 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
         <h2 className="meridian-approvals__heading">Decision history</h2>
         <ApprovalList
           phase={snapshot.approvals}
-          records={history}
+          records={partitioned.history}
           emptyTitle="No request has been resolved yet."
           emptyDetail="Approved, rejected, expired and canceled records all land here, labelled with the state the daemon gave them."
           snapshotResolving={snapshot.resolvingApprovalIds}
@@ -173,113 +271,14 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
 
       <section className="meridian-approvals__section" aria-label="Execution boundary">
         <h2 className="meridian-approvals__heading">Execution boundary</h2>
-        {/* A posture is stamped on `run.running` and travels on the run-state
-            subscription, which this pane does not open — the runs surface does.
-            So the absence is rendered rather than a boundary guessed at. */}
-        <ExecutionPostureChip posture={undefined} reading="stamped" />
+        <ExecutionBoundaryReading phase={snapshot.approvals} addressed={addressedPostures} />
       </section>
 
-      <section className="meridian-approvals__section" aria-label="Daemon-hosted tools">
-        <h2 className="meridian-approvals__heading">Daemon-hosted tools</h2>
-        <CallbackTools capability="unknown" isWithheld={false} tools={[]} />
-      </section>
+      <DaemonHostedToolsSection
+        capability={callbackToolCapability}
+        readRefusal={driverCapabilities?.readRefusal}
+        registry={callbackToolRegistry}
+      />
     </div>
   );
-}
-
-/**
- * The provider-ask origin of every projected approval, keyed by request id.
- *
- * Built over the whole partition rather than per rendered record: the partition's
- * identity changes only when an approval event lands, so one pass per fold serves
- * both lists, where a per-record lookup would rebuild on every render of either.
- */
-function providerAsksIn(
-  entities: Readonly<Record<string, ConsoleEntity>>,
-): ReadonlyMap<string, ProviderAsk> {
-  const asks = new Map<string, ProviderAsk>();
-  for (const [approvalRequestId, entity] of Object.entries(entities)) {
-    const ask = providerAskFor(entity);
-    if (ask !== undefined) {
-      asks.set(approvalRequestId, ask);
-    }
-  }
-  return asks;
-}
-
-/**
- * Split one answered read into the pending cards and the history.
- *
- * A rendering of ONE read rather than two reads or a filter of the wire: every
- * record the daemon returned appears in exactly one of the two lists, so the
- * history's "drops nothing" claim survives the split.
- */
-function partitionRecords(phase: ReadPhase<ApprovalRecord>): {
-  readonly pending: readonly ApprovalRecord[];
-  readonly history: readonly ApprovalRecord[];
-} {
-  if (phase.status !== "answered") {
-    return { pending: [], history: [] };
-  }
-  const pending: ApprovalRecord[] = [];
-  const history: ApprovalRecord[] = [];
-  for (const record of phase.rows) {
-    if (record.state === "pending") {
-      pending.push(record);
-    } else {
-      history.push(record);
-    }
-  }
-  return { pending, history };
-}
-
-/**
- * Announce a newly pending card, and move focus only when the composer had it.
- *
- * The focus rule is the sharp half, and it has two parts. WHETHER focus moves is a
- * question about where focus already is: a person typing in the composer is looking
- * at the work and has asked for nothing else, while a person reading a diff, or
- * mid-sentence in a field this pane knows nothing about, has not. WHERE it moves is
- * a question about which record arrived — the announcement names that record, so
- * landing the caret on an older card's button describes one request and hands over
- * another. Both the pane root and the record are named rather than assumed: a
- * document-wide query for the first action in DOM order answers with neither.
- */
-function useArrivalAnnouncement(
-  pending: readonly ApprovalRecord[],
-  paneRootRef: React.RefObject<HTMLElement | null>,
-): string {
-  const [announcement, setAnnouncement] = useState("");
-  const seenIdsRef = useRef<ReadonlySet<string>>(new Set());
-
-  useEffect(() => {
-    const currentIds = new Set(pending.map((record) => record.approvalRequestId));
-    const arrived = pending.filter((record) => !seenIdsRef.current.has(record.approvalRequestId));
-    seenIdsRef.current = currentIds;
-    if (arrived.length === 0) {
-      return;
-    }
-    const first = arrived[0];
-    if (first === undefined) {
-      return;
-    }
-    setAnnouncement(
-      arrived.length === 1
-        ? `A decision is waiting: ${first.category} requested by ${first.requestedBy}.`
-        : `${String(arrived.length)} decisions are waiting.`,
-    );
-    if (typeof document === "undefined") {
-      return;
-    }
-    const focused = document.activeElement;
-    if (!(focused instanceof HTMLElement) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {
-      return;
-    }
-    // Scoped to this pane, because a deck may hold a second one and its cards are
-    // no more this arrival's than an older card of this pane's is.
-    const action = findApprovalCardAction(paneRootRef.current ?? document, first.approvalRequestId);
-    action?.focus();
-  }, [pending, paneRootRef]);
-
-  return announcement;
 }

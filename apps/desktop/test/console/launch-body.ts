@@ -31,7 +31,7 @@
 // `boundedMs` takes both and the smaller wins, which is what makes the FIRST wait
 // that cannot fit fail with its own message.
 
-import { type ClosableApplication } from "./bounded-cleanup.js";
+import { type ClosableApplication } from "./cleanup-contract.js";
 import { closeAfterBody } from "./cleanup-disposition.js";
 import { BODY_ALLOWANCE_MS } from "./launch-budgets.js";
 import { LaunchDeadline } from "./launch-deadline.js";

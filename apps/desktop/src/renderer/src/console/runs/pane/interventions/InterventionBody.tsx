@@ -6,13 +6,21 @@
 // the directive it settled is two halves of one record a reader has to reassemble.
 
 import { WireFigure } from "../../../primitives/index.js";
-import { readAppliedRollback, readDegradedRollback } from "../controls/rollback-result.js";
+import type { ConsoleRefusal } from "../../../core/index.js";
+import { compositeGuardReading } from "../controls/rollback/composite-guard.js";
+import {
+  readAppliedRollback,
+  readDegradedRollback,
+} from "../controls/rollback/disposition-reading.js";
 import { RollbackDisclosure } from "../controls/RollbackDisclosure.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
 
 /** What one settlement carried, beyond its terminal. */
 export function InterventionBody(props: {
   readonly record: RunControlRecord;
+  /** What the history offers on one enumerated path, threaded to the file half. */
+  readonly onPathAction: ((path: string) => void) | undefined;
+  readonly pathActionRefusal: ConsoleRefusal | undefined;
 }): React.JSX.Element | null {
   const { outcome } = props.record;
   if (outcome.kind === "refused") {
@@ -26,6 +34,13 @@ export function InterventionBody(props: {
     );
   }
   const { response } = outcome;
+  // The daemon's own typed answer, and nothing inferred. `rejectionGuard` is
+  // producer-obligated on the rollback `rejected` arm and absent on every other
+  // refusal family, so its presence IS the discriminator — the record's own
+  // `composite` flag would be a second answer to a question the wire already
+  // settles, and reading the guard out of `rejectionReason` was a match against a
+  // vocabulary no contract publishes.
+  const guard = compositeGuardReading(response.rejectionGuard);
   return (
     <>
       <p className="meridian-interventions__detail">
@@ -40,11 +55,30 @@ export function InterventionBody(props: {
           <WireFigure value={response.rejectionReason} />
         </p>
       )}
+      {guard === undefined ? null : (
+        // Beside the verbatim code, never instead of it: the daemon still says what
+        // happened, and these two lines say what the check was and what clears it.
+        // A reason naming no guard renders nothing here at all.
+        <>
+          <p className="meridian-interventions__detail">{guard.refused}</p>
+          <p className="meridian-interventions__remedy">{guard.remedy}</p>
+        </>
+      )}
       {response.interventionType === "rollback" && response.state === "applied" ? (
-        <RollbackDisclosure reading={readAppliedRollback(response.result)} />
+        <RollbackDisclosure
+          reading={readAppliedRollback(response.result)}
+          result={response.result}
+          onPathAction={props.onPathAction}
+          pathActionRefusal={props.pathActionRefusal}
+        />
       ) : null}
       {response.interventionType === "rollback" && response.state === "degraded" ? (
-        <RollbackDisclosure reading={readDegradedRollback(response.result)} />
+        <RollbackDisclosure
+          reading={readDegradedRollback(response.result)}
+          result={response.result}
+          onPathAction={props.onPathAction}
+          pathActionRefusal={props.pathActionRefusal}
+        />
       ) : null}
     </>
   );

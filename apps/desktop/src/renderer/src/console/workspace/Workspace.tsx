@@ -307,6 +307,7 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
           {composer({
             sessionStore: props.sessionStore,
             bridge: props.bridge,
+            frameStore: props.frameStore,
             draftStore: props.draftStore,
             route: props.route,
             focusedPane,

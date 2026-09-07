@@ -21,11 +21,23 @@ import { describe, expect, it } from "vitest";
 
 import { registerConsoleFamilies } from "./families.js";
 import { ConsoleEntityProjectorRegistry, consoleEntityProjectorRegistry } from "./store/index.js";
+// The registry's own refusal, from the module that declares it: the core door
+// deliberately publishes no line for it, because a family consumes it by calling
+// `register` rather than by naming the class.
+import { DuplicateRegistrationError } from "./core/keyed-registry.js";
+import {
+  FRAME_BINDING_SLOTS,
+  mountFrameBindings,
+  type FrameBindingContext,
+  type FrameBindingSlot,
+} from "./seats/frame-bindings.js";
 import {
   ConsolePaneRegistry,
   consolePaneRegistry,
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
+  FrameBindingRegistry,
+  frameBindingRegistry,
   InlineCardSeatRegistry,
   inlineCardSeatRegistry,
   SidebarSectionRegistry,
@@ -61,13 +73,14 @@ const seatBoardSources = import.meta.glob("./families.ts", {
 /** The composition root's own source. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
-/** The five boards a case owns outright, so nothing it composes reaches production. */
+/** The six boards a case owns outright, so nothing it composes reaches production. */
 function ownedRegistries(): {
   readonly surfaces: ConsoleSurfaceRegistry;
   readonly panes: ConsolePaneRegistry;
   readonly projectors: ConsoleEntityProjectorRegistry;
   readonly sidebar: SidebarSectionRegistry;
   readonly inlineCards: InlineCardSeatRegistry;
+  readonly frameBindings: FrameBindingRegistry;
 } {
   return {
     surfaces: new ConsoleSurfaceRegistry(),
@@ -75,6 +88,7 @@ function ownedRegistries(): {
     projectors: new ConsoleEntityProjectorRegistry(),
     sidebar: new SidebarSectionRegistry(),
     inlineCards: new InlineCardSeatRegistry(),
+    frameBindings: new FrameBindingRegistry(),
   };
 }
 
@@ -86,6 +100,7 @@ function composeInto(boards: ReturnType<typeof ownedRegistries>): void {
     boards.projectors,
     boards.sidebar,
     boards.inlineCards,
+    boards.frameBindings,
   );
 }
 
@@ -96,6 +111,7 @@ const PRODUCTION_BOARDS: readonly (readonly [string, () => readonly unknown[]])[
   ["projectors", () => Object.keys(consoleEntityProjectorRegistry.snapshot())],
   ["sidebar sections", () => sidebarSectionRegistry.registeredSectionIds()],
   ["inline cards", () => inlineCardSeatRegistry.registeredCardKinds()],
+  ["frame bindings", () => frameBindingRegistry.registeredSlots()],
 ];
 
 describe("console families — composing every shipped family", () => {
@@ -161,15 +177,18 @@ describe("console families — the pane board a composition writes into", () => 
   // rather than about today's empty board, because today's empty board is exactly
   // what makes a behavioural assertion alone pass over the defect.
 
-  it("takes all five boards, so a composition names every board it writes into", () => {
+  it("takes all six boards, so a composition names every board it writes into", () => {
     // Arity, asserted directly. Under the first signature this reads 1 and there was
     // no pane registry a caller could pass; under the second it reads 2 and the fold
     // a store opens with was a constant no family could add to; under the third it
     // reads 3 and a family filling a sidebar section or an inline card had nowhere to
     // be handed one, so it would have reached for that board's module-scope
-    // registrar and written into production from inside a composition. Each defect is
-    // one number.
-    expect(registerConsoleFamilies).toHaveLength(5);
+    // registrar and written into production from inside a composition. Under the
+    // fifth, every seat a family could claim was a place to hand over a BODY, so a
+    // read the frame renders had to be mounted by whichever destination happened to
+    // perform it and ended when a person navigated away from that destination. Each
+    // defect is one number.
+    expect(registerConsoleFamilies).toHaveLength(6);
   });
 
   it("forwards the pane registry it was handed and reaches for no singleton", () => {
@@ -195,6 +214,7 @@ describe("console families — the pane board a composition writes into", () => 
       "consoleEntityProjectorRegistry",
       "sidebarSectionRegistry",
       "inlineCardSeatRegistry",
+      "frameBindingRegistry",
     ]) {
       expect({ singleton, named: seatBoardSource.includes(singleton) }).toStrictEqual({
         singleton,
@@ -270,3 +290,90 @@ describe("console families — the pane board a composition writes into", () => 
     }
   });
 });
+
+describe("console families — the frame-lifetime binding board", () => {
+  // The board that is not a place to hand over a body. Its seats are mounted once per
+  // window by the frame rather than by a route, so what is asserted here is the two
+  // halves nothing else can: that composing fills it, and that the fold the frame
+  // performs over it really does put a family's element around the frame's subtree.
+
+  it("is filled by the composition, and only with declared slots", () => {
+    const boards = ownedRegistries();
+
+    composeInto(boards);
+
+    const slots = boards.frameBindings.registeredSlots();
+    // Non-empty, or the membership claim below is a claim about nothing and this case
+    // passes over a composition that silently registered no binding at all.
+    expect(slots.length).toBeGreaterThan(0);
+    for (const slot of slots) {
+      expect(FRAME_BINDING_SLOTS).toContain(slot);
+    }
+  });
+
+  it("wraps the frame's subtree in what a family registered — the planted control", () => {
+    // The instrument, driven over a board this case fills itself. A planted binding is
+    // the only way to assert the WRAPPING without mounting React: what the fold returns
+    // for a registered slot has to be the family's own node holding the children, and a
+    // fold that silently dropped either would look identical from the composition side.
+    const registry = new FrameBindingRegistry();
+    const wrapped: unknown[] = [];
+    registry.register({
+      slot: PLANTED_BINDING_SLOT,
+      owner: "families.test",
+      mount: (bindingProps) => {
+        wrapped.push(bindingProps.children);
+        return PLANTED_BINDING_NODE;
+      },
+    });
+
+    expect(mountFrameBindings(registry, PLANTED_BINDING_CONTEXT, "the frame")).toBe(
+      PLANTED_BINDING_NODE,
+    );
+    expect(wrapped).toStrictEqual(["the frame"]);
+  });
+
+  it("negative control: an unfilled board hands the frame back untouched", () => {
+    // The other half, and the reason the case above is not vacuous. A seat nothing
+    // claimed contributes no element at all — reserved-not-stubbed, the same answer
+    // every other board gives — so a fold that wrapped regardless would put a mount and
+    // a reconciliation node in the tree standing for a family that has not landed.
+    expect(
+      mountFrameBindings(new FrameBindingRegistry(), PLANTED_BINDING_CONTEXT, "the frame"),
+    ).toBe("the frame");
+  });
+
+  it("negative control: a second owner claiming one binding is a conflict", () => {
+    // A binding is mounted once per window, so a second owner on one slot would mean
+    // two reads of one thing and which one ran would depend on module import order.
+    const registry = new FrameBindingRegistry();
+    const claim = (owner: string): void => {
+      registry.register({ slot: PLANTED_BINDING_SLOT, owner, mount: () => PLANTED_BINDING_NODE });
+    };
+
+    claim("first");
+
+    expect(() => {
+      claim("first");
+    }).not.toThrow();
+    expect(() => {
+      claim("second");
+    }).toThrow(DuplicateRegistrationError);
+  });
+});
+
+/** The slot the planted cases claim: a real member, on a board the case owns. */
+const PLANTED_BINDING_SLOT: FrameBindingSlot = FRAME_BINDING_SLOTS[0];
+
+/** What a planted binding returns, so the fold's result is identifiable by identity. */
+const PLANTED_BINDING_NODE = "the planted binding";
+
+/**
+ * What a planted binding is handed.
+ *
+ * Cast rather than constructed, on `sessions/session-surface.test-support.tsx`' rule:
+ * the three real members are a bridge, a frame store, and a session-store registry, and
+ * building all three to prove that a fold passes an object through would make the setup
+ * the subject.
+ */
+const PLANTED_BINDING_CONTEXT = {} as unknown as FrameBindingContext;

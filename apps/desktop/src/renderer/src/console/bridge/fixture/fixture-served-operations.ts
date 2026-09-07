@@ -228,6 +228,69 @@
 // kept, over a projection it knows is missing rows — and that is reachable from the
 // store rather than from this port.
 //
+// WHY THE SHELL'S NOTIFICATION-PERMISSION READ IS SERVED FROM THE SCRIPT
+//
+// `native.showNotification` returns `void`, so the emission path reports nothing: a
+// machine that will not display a notification is indistinguishable, from inside the
+// renderer, from one that just did. The notification centre has an arm for exactly
+// that state — it is the only surface these items reach a person on, and it says so —
+// and no bridge member carries the fact, so the read is the growth port's.
+//
+// It is served here so a scenario can put the centre in that arm, and it REFUSES for
+// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
+// rather than the invite ledger's: a permission has no empty form. "Nobody asked"
+// is a true statement about a script that has not said, and answering `granted`
+// would be the fixture promising a notification nothing in the console can deliver.
+//
+// WHY THE TWO LEASE OPERATIONS ARE SERVED, AND WHY THAT IS ABOUT REFUSALS
+//
+// The terminal's write lease is the one surface in the console whose interesting
+// states are all REFUSALS. `pty.permission_denied` before any lease comparison,
+// `pty.control_held_by_other` carrying the holder, `pty.control_not_held` on a release
+// by a non-holder — every one of them is the rejection of a CALL, and while these two
+// operations were outside the served set no scenario could reach any of them: the
+// refusing port answered `unavailable` by name and no script was ever consulted. So
+// the surfaces that render them — the inline refusal, and the holder line beside it —
+// were reachable from no scenario, no screenshot, and no bridge-driven test.
+//
+// AND THE SERVED ARM IS WHY THEY ARE WRITES RATHER THAN READS. Taking the shell moves
+// it; a fixture that answered a take nobody scripted would be reporting a transition
+// the scenario's own beats never made, and the pane's fold reads the holder off
+// `pty.control_changed` and never off this reply. So both sit in the script-only
+// subset below and refuse by name under a scenario that scripts neither, which is the
+// `agentAttach` disposition and for the same reason.
+//
+// WHY THE BROWSER PROVENANCE READ IS THE ONE SERVED OPERATION IN ITS NAMESPACE.
+// Every other operation in the browser namespace ACTS on a live view — navigate,
+// select, capture, clear the partition — and a fixture that answered one would be
+// reporting that a page this bridge does not host had moved. This one asks a
+// question ABOUT THE SESSION'S OWN LOG: which of the artifacts the scenario already
+// publishes came out of the browser. That is a fact a scenario can state, and while
+// it could not, the produced-object shelf had exactly one source for it — the cards
+// this window's own capture control minted — so a scenario's agent captures, its
+// completed download, and its bundled asset set were folded out of the shelf and it
+// reported that nothing had been produced.
+//
+// AND THE UNSCRIPTED ARM IS THE EMPTY SET rather than a refusal, on the invite
+// ledger's rule: a session whose browser has produced nothing is an ordinary session
+// and the shelf draws it, whereas a refusal here would claim the question was never
+// asked. A scenario that publishes artifacts and names none of them as browser
+// output is saying they came from somewhere else, which is the answer this serves.
+// WHY THE WORKSPACE EXECUTION-CONTEXT READ IS SERVED, AND ONLY FROM A SCRIPT
+//
+// It is served so the repos scenario can drive the workspace card's three-path
+// disclosure and its fallback badge, neither of which any registered reply can reach:
+// the normalized checkout root is a column on a daemon table and the fallback marker is
+// no field at all, so under a refusing port both were unreachable in every scenario,
+// screenshot, and bridge-driven test.
+//
+// AND IT IS SCRIPT-ONLY, which is the `workflowRunRead` disposition and not the invite
+// ledger's. This read is ADDRESSED BY A SUBJECT — it answers facts about one named
+// workspace — so an empty form would assert that the workspace exists and is bound to
+// no root at all, which for a workspace no author declared is an invention rather than
+// an absence. A scenario that scripts nothing for a workspace therefore gets the
+// unscripted refusal, and the disclosure draws the "not checked" it is owed.
+//
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -235,6 +298,8 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
+import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "./fixture-onboarding-answers.js";
+import { FIXTURE_SERVED_SHELL_OPERATION_IDS } from "./fixture-shell-answers.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
 /**
@@ -247,8 +312,10 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.
  *
  * Written as an annotated tuple rather than `as const`, on the
  * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
- * carrying a spread, so the workflow ids reach the annotation as
- * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`. They are named in one place and
+ * carrying a spread, so each plane that owns its own module reaches the annotation as
+ * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`,
+ * `...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS` and
+ * `...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS`. Each is named in one place and
  * spread in the other, and the compiler holds the two to each other.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
@@ -279,6 +346,14 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "windowCloseAuxiliary",
   "windowSubscribePaneErrors",
   "windowSubscribePaneReturns",
+  "browserProducedArtifacts",
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
+  "workspaceExecutionContextRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  ...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -342,6 +417,46 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "windowCloseAuxiliary",
   "windowSubscribePaneErrors",
   "windowSubscribePaneReturns",
+  // browser — the one read in that namespace a scenario can answer, and the shelf's
+  // only source of provenance. See the browser section of the header.
+  "browserProducedArtifacts",
+  // terminal lease — the two calls whose interesting answers are all refusals, served
+  // so a scenario can script one. See the lease section of the header.
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
+  // repos — the workspace's own execution context, answered from a scenario that
+  // scripts one and refused for one that does not. See the header.
+  "workspaceExecutionContextRead",
+  // provider-session import — the opening call and the progress subscription it
+  // mints a subject for, both answered from a scenario that scripts the import and
+  // refused by one that does not.
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  // shell — the whole six-operation plane, taken from the module that implements it so
+  // the ids and the handlers cannot disagree. Whether this machine will display an OS
+  // notification comes from a scenario that says so and is refused by one that does
+  // not. The shell's own condition is the first FEED this fixture serves, answered
+  // from the frames a scenario declares against the frozen clock: it is script-only
+  // for the reason the write operations are, since there is no such thing as "the
+  // shell reported and said nothing", and a served stream that never yielded would
+  // read on screen exactly like a shell that has not reported — one of which is a
+  // scripting gap and the other the console's ordinary state. The three daemon
+  // controls and the status read answer from the same channel the feed is answered
+  // from, so a stop moves what the feed says rather than resolving into a shell
+  // nothing reports, and all four refuse under a scenario that scripts no shell
+  // condition for the same reason the feed does.
+  ...FIXTURE_SERVED_SHELL_OPERATION_IDS,
+  // onboarding — the whole six-operation surface, taken from the module that
+  // implements it so the ids and the handlers cannot disagree. The split between them
+  // is this module's own rule rather than a preference. The state read has an honest
+  // answer for a scenario that scripts nothing: a node nobody has onboarded has no
+  // completed steps and is not complete, which is a real state the walkthrough draws
+  // and the state a fresh install is genuinely in. The other five are WRITES or
+  // main-process dialogs — there is no such thing as "the step that was recorded and
+  // recorded nothing", and a synthesized relay choice would tell the walkthrough a
+  // person answered a question nobody was asked — so each of them refuses by name
+  // under a scenario that does not script it.
+  ...FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -368,6 +483,11 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  * separates them is whether an empty answer would be a lie.
  */
 export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGrowthOperationId[] = [
+  "shellStatusSubscribe",
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
   "agentAttach",
   "agentConfigUpdate",
   "agentDetach",
@@ -375,4 +495,15 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "terminalAcquireWriteLease",
+  "terminalReleaseWriteLease",
+  "workspaceExecutionContextRead",
+  "shellNotificationPermissionRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ];

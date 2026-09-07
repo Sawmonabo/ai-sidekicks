@@ -48,8 +48,8 @@
 
 import { RAIL_FISHEYE_MAX_SCALE, RAIL_MAX_TICKS_PER_PIXEL } from "../../../core/index.js";
 import {
-  SCHEME_COLOR_TOKENS,
   formatOklch,
+  schemeColor,
   tokenVariableName,
   type ParticipantHueAssignment,
 } from "../../../tokens/index.js";
@@ -284,8 +284,12 @@ function resolveToneFills(
     if (declared !== undefined && declared.length > 0) {
       return declared;
     }
-    const pair = SCHEME_COLOR_TOKENS.get(tokenName);
-    return pair === undefined ? undefined : formatOklch(pair.light);
+    // Asked of the tokens family's own reader rather than of the published entries:
+    // that module states the entries are iterated and the lookup by name is its, and
+    // a scan written here would be a second answer to the same question. The three
+    // names above are its own token names, so an unknown one is a rename that was
+    // not swept — which this raises rather than paints around.
+    return formatOklch(schemeColor(tokenName, "light"));
   };
   return {
     actor: resolve(TICK_TONE_TOKEN_NAMES.actor),

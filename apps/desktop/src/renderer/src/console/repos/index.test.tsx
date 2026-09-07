@@ -294,13 +294,13 @@ describe("repos family — the deck's pane kinds", () => {
 });
 
 describe("repos door — the bodies a sibling family mounts", () => {
-  it("publishes the file-restore disclosure through the door", () => {
-    // The disclosure renders the rollback intervention's own result and is mounted by
-    // the runs pane, a sibling view family: the layering gate forbids either family
-    // from importing the other's modules, so the door is the only way across. Read
-    // through the barrel rather than through the declaring module, because a symbol
-    // reachable only by a deep specifier is one the mounting family may not reach.
-    expect(typeof reposDoorModule.FileRestoreDisclosure).toBe("function");
+  it("no longer publishes the file-restore disclosure, which left the family", () => {
+    // It was published here for the runs pane, a SIBLING view family — an edge the
+    // layering gate forbids in both directions, so the door line could never have
+    // carried its only traffic. The component moved to `console/primitives/restore/`
+    // and both callers reach it through that door. Asserted as an absence rather
+    // than deleted, so a re-export that re-opened the illegal seam fails here.
+    expect(Object.keys(reposDoorModule)).not.toContain("FileRestoreDisclosure");
   });
 
   it("publishes the attachment carrier through the door", () => {

@@ -33,6 +33,11 @@
 // one of the failure modes this substrate exists to make unrepresentable, and a
 // `dispose` that merely cancelled the current arm would leave the next `enqueue`
 // to start it again.
+//
+// AND THE READ SIDE OWNS ITS SUPERSESSION. Every fire opens a round on this
+// scheduler's own read line and hands it to the performer, so a read that cannot be
+// superseded and cannot be abandoned is not a thing this class can produce. What a
+// round is, and which reads ignore theirs, is `read-cancellation.ts`'s to say.
 
 import {
   APPLY_COALESCE_MS,
@@ -42,6 +47,7 @@ import {
   type ScheduledHandle,
 } from "../core/index.js";
 import type { ConsoleSessionEvent } from "./entities.js";
+import { ReadScope, type ReadRound } from "./read-cancellation.js";
 
 /**
  * Why a refresh was requested. Rendered in diagnostics; never inferred.
@@ -64,8 +70,17 @@ export type RefreshReason =
   | "gap-repull"
   | "participant-request";
 
-/** The read a scheduler performs. Rejections are surfaced, never swallowed. */
-export type RefreshPerformer = (reasons: readonly RefreshReason[]) => Promise<void>;
+/**
+ * The read a scheduler performs. Rejections are surfaced, never swallowed.
+ *
+ * THE ROUND IS SUPPLIED, NEVER ASKED FOR — already taken, so there is no arrangement
+ * a caller can decline and no pairing a caller can get half of. Ignoring it is a read
+ * that cannot be superseded, which is now a visible omission at one call site.
+ */
+export type RefreshPerformer = (
+  reasons: readonly RefreshReason[],
+  round: ReadRound,
+) => Promise<void>;
 
 export interface RefreshSchedulerOptions {
   readonly clock: ConsoleClock;
@@ -78,6 +93,17 @@ export interface RefreshSchedulerOptions {
 
 export class RefreshScheduler {
   readonly #clock: ConsoleClock;
+  /**
+   * The read line every read this scheduler fires is on.
+   *
+   * CONSTRUCTED HERE AND NOT ACCEPTED FROM A CALLER, which is the whole of the
+   * pairing: a supersession rule a caller supplies is one a caller can omit, and
+   * thirteen readers across five families each decided that for themselves — some
+   * with a latch, most with a `#disposed` flag read after the `await`, one with
+   * nothing. It is not published either, since a caller holding the scope could
+   * abandon a line it does not own; a performer is handed its round and nothing more.
+   */
+  readonly #readScope = new ReadScope();
   readonly #perform: RefreshPerformer;
   readonly #debounceMs: number;
   readonly #maxWaitMs: number;
@@ -143,6 +169,9 @@ export class RefreshScheduler {
   /** Drop anything armed. The pane-unmount path; performs no read, and is terminal. */
   public dispose(): void {
     this.#disposed = true;
+    // Abandoned rather than ignored on landing: the owner is gone, so the reply is
+    // never parsed and no projection is built. Ignoring kept the work either way.
+    this.#readScope.abandon();
     if (this.#armedHandle !== undefined) {
       this.#clock.cancel(this.#armedHandle);
       this.#armedHandle = undefined;
@@ -195,8 +224,11 @@ export class RefreshScheduler {
     this.#firstRequestAt = undefined;
     this.#inFlight = true;
     this.#performCount += 1;
+    // Per fire and not per scheduler: a round is one read, and opening it here ends
+    // the previous one — ordinarily a settled one, since fires serialize.
+    const round = this.#readScope.openRound();
     try {
-      await this.#perform(reasons);
+      await this.#perform(reasons, round);
     } catch (error) {
       if (this.#onError === undefined) {
         throw error;

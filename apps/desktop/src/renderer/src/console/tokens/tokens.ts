@@ -109,18 +109,35 @@ function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string,
 }
 
 /**
- * Every scheme-varying color token, resolved. Insertion order is surfaces, then
- * text, then attention, then the two family vocabularies — the order
- * `meridian.css` emits, so the generated file reads top-down from ground to
- * signal and finishes with the sets a single family spends.
+ * Every scheme-varying color token, resolved, as ENTRIES. Order is surfaces, then
+ * text, then attention, then the two family vocabularies — the order `meridian.css`
+ * emits, so the generated file reads top-down from ground to signal and finishes with
+ * the sets a single family spends.
+ *
+ * DATA AND NOT A `Map`, which is `apps/desktop/AGENTS.md` §State and views' rule and
+ * is enforced as syntax in `eslint.console-syntax-bans.mjs`: an exported `Map` is one
+ * object every importer in the window shares, `ReadonlyMap` hides `set` and `delete`
+ * from a reader and from nothing at runtime, and `Object.freeze` does not close a
+ * `Map`. A single importer writing into this one would have repainted the whole
+ * console for every later reader. Every consumer iterates it or reads the names off
+ * it; the one lookup by name is this module's own, below.
  */
-export const SCHEME_COLOR_TOKENS: ReadonlyMap<string, SchemePair> = new Map([
+export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
   ...resolvePairs(SURFACE_TOKENS),
   ...resolvePairs(TEXT_TOKENS),
   ...resolvePairs(ATTENTION_TOKENS),
   ...resolvePairs(CODE_TOKENS),
   ...resolvePairs(ANSI_TOKENS),
-]);
+];
+
+/**
+ * The same entries, keyed, for the one lookup this module performs.
+ *
+ * MODULE-PRIVATE, WHICH IS THE WHOLE DIFFERENCE. A collection nothing outside this
+ * file can reach is a lookup table rather than shared state: `schemeColor` is the only
+ * reader, no importer holds it, and no other module can grow it.
+ */
+const SCHEME_PAIR_BY_TOKEN_NAME = new Map<string, SchemePair>(SCHEME_COLOR_TOKENS);
 
 /** The token name of a participant wheel step. */
 export function participantHueTokenName(step: number): string {
@@ -259,7 +276,7 @@ export const NON_TEXT_CONTRAST_FLOOR = 3;
 
 /** Resolve a scheme-varying color token for one scheme. Throws on an unknown name. */
 export function schemeColor(tokenName: string, scheme: ConsoleScheme): OklchColor {
-  const pair = SCHEME_COLOR_TOKENS.get(tokenName);
+  const pair = SCHEME_PAIR_BY_TOKEN_NAME.get(tokenName);
   if (pair === undefined) {
     throw new RangeError(`unknown Meridian color token ${tokenName}`);
   }

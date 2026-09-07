@@ -102,7 +102,7 @@ export { scoreSubsequence } from "./subsequence-score.js";
 export { KeyBindingTable } from "./keybindings.js";
 
 // The chord grammar itself, forwarded because it is this family's own and because a
-// second consumer arrived for it: `browser/pane/keyboard-handback.ts` has to decide whether
+// second consumer arrived for it: `browser/pane/handback/keyboard-handback.ts` has to decide whether
 // a keystroke inside an embedded page is one the console bound, which is the same
 // question `keybindings.ts` asks and has to be answered by the same parser and the
 // same matcher. A chord grammar written a second time beside that decision is how a
@@ -130,3 +130,10 @@ export { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
 export { composeEffectiveBindings, type KeybindingOverrideMap } from "./keybinding-overrides.js";
 
 export { consoleKeybindingOverrides, useKeybindingSurface } from "./keybinding-override-store.js";
+
+// The lifecycle a VIEW family's commands take: contributed while a surface is on
+// screen, cleared when it goes. Published because the runs and approvals panes are
+// its readers and a view family may reach nothing else in this one — and because the
+// alternative, each pane writing its own register/unregister effect against
+// `registerConsoleCommands`, is a contribution the open palette never re-reads.
+export { useConsoleCommandSeat } from "./command-seat.js";

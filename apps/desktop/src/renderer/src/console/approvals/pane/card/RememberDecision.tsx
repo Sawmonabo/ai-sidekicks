@@ -32,6 +32,7 @@ import { Checkbox } from "@base-ui/react/checkbox";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Select } from "@base-ui/react/select";
 
+import { OverlaySelectPopup } from "../../../primitives/index.js";
 import {
   REMEMBERED_SCOPE_KINDS,
   SCOPE_KIND_PHRASE,
@@ -124,21 +125,17 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
           >
             <Select.Value />
           </Select.Trigger>
-          <Select.Portal>
-            <Select.Positioner>
-              <Select.Popup className="meridian-approval-card__scope-popup">
-                {REMEMBERED_SCOPE_KINDS.map((kind) => (
-                  <Select.Item
-                    className="meridian-approval-card__scope-item"
-                    key={kind}
-                    value={kind}
-                  >
-                    <Select.ItemText>{SCOPE_KIND_PHRASE[kind]}</Select.ItemText>
-                  </Select.Item>
-                ))}
-              </Select.Popup>
-            </Select.Positioner>
-          </Select.Portal>
+          {/* The anchored list is the primitive's, which is what puts it in the
+              window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a card
+              that mounted its own portal would be a popup a native browser-pane view
+              paints over. */}
+          <OverlaySelectPopup className="meridian-approval-card__scope-popup">
+            {REMEMBERED_SCOPE_KINDS.map((kind) => (
+              <Select.Item className="meridian-approval-card__scope-item" key={kind} value={kind}>
+                <Select.ItemText>{SCOPE_KIND_PHRASE[kind]}</Select.ItemText>
+              </Select.Item>
+            ))}
+          </OverlaySelectPopup>
         </Select.Root>
         <label className="meridian-approval-card__pattern-label" htmlFor={patternFieldId}>
           Narrow it to a pattern (optional)

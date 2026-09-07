@@ -37,12 +37,22 @@ import type {
   PresenceReadResponse,
   ProviderAccountListRequest,
   ProviderAccountListResponse,
+  ProviderAccountProbeRequest,
+  ProviderAccountProbeResponse,
   QueueItemCancelRequest,
   QueueItemCancelResponse,
   QueueItemCreateRequest,
   QueueItemCreateResponse,
   QueueItemListRequest,
   QueueItemListResponse,
+  EphemeralCloneDisposeRequest,
+  EphemeralCloneDisposeResponse,
+  EphemeralClonePrepareRequest,
+  EphemeralClonePrepareResponse,
+  ExecutionRootPrepareRequest,
+  ExecutionRootPrepareResponse,
+  RepoAttachRequest,
+  RepoAttachResponse,
   RepoMountReadRequest,
   RepoMountReadResponse,
   RunControlAck,
@@ -50,14 +60,20 @@ import type {
   RunResumeRequest,
   SessionCreateRequest,
   SessionCreateResponse,
+  SessionJoinRequest,
+  SessionJoinResponse,
   TimelineReadRequest,
   TimelineReadResponse,
   WorkspaceExecutionModeCapabilitiesReadRequest,
   WorkspaceExecutionModeCapabilitiesReadResponse,
+  WorkspaceBindRequest,
+  WorkspaceBindResponse,
   WorkspaceListRequest,
   WorkspaceListResponse,
   WorktreeRetireRequest,
   WorktreeRetireResponse,
+  WorktreeReuseCheckRequest,
+  WorktreeReuseCheckResponse,
   WorktreeStatusReadRequest,
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
@@ -150,26 +166,57 @@ export interface ConsoleDaemonMethodContract {
     readonly response: ReasoningSurfaceReadResponse;
   };
 
-  // repo — the mounts, workspaces, and execution roots the repos section reads.
+  // repo — the mounts, workspaces, and execution roots the repos section reads AND
+  // mutates. One namespace and two registry tables behind it: the six mount-and-
+  // workspace rows and the seven worktree-and-clone rows are registered in
+  // `docs/architecture/contracts/api-payload-contracts.md` §Repo Method-Name Registry
+  // (Tier 6) as one `repo` root, and the rows below are in those tables' own order.
+  //
+  // TWELVE OF THE THIRTEEN. `repo.detach` is the one registered method this console
+  // deliberately does not bind, and its absence is a rule rather than a gap:
+  // `Spec-009 §Detach Semantics (V1 Definition)` gives the desktop renderer no detach
+  // surface in V1, so binding the shape would make the call one import away from a
+  // surface that must not offer it. The mount card DISCLOSES where detach lives
+  // instead of being silent about it.
+  readonly "repo.attach": {
+    readonly request: RepoAttachRequest;
+    readonly response: RepoAttachResponse;
+  };
   readonly "repo.mountRead": {
     readonly request: RepoMountReadRequest;
     readonly response: RepoMountReadResponse;
   };
-  readonly "repo.workspaceList": {
-    readonly request: WorkspaceListRequest;
-    readonly response: WorkspaceListResponse;
+  readonly "repo.workspaceBind": {
+    readonly request: WorkspaceBindRequest;
+    readonly response: WorkspaceBindResponse;
   };
   readonly "repo.executionModeCapabilitiesRead": {
     readonly request: WorkspaceExecutionModeCapabilitiesReadRequest;
     readonly response: WorkspaceExecutionModeCapabilitiesReadResponse;
   };
+  readonly "repo.workspaceList": {
+    readonly request: WorkspaceListRequest;
+    readonly response: WorkspaceListResponse;
+  };
   readonly "repo.executionModeSelect": {
     readonly request: ExecutionModeSelectRequest;
     readonly response: ExecutionModeSelectResponse;
   };
-  readonly "repo.worktreeStatusRead": {
-    readonly request: WorktreeStatusReadRequest;
-    readonly response: WorktreeStatusReadResponse;
+  readonly "repo.executionRootPrepare": {
+    readonly request: ExecutionRootPrepareRequest;
+    readonly response: ExecutionRootPrepareResponse;
+  };
+  readonly "repo.worktreeReuseCheck": {
+    readonly request: WorktreeReuseCheckRequest;
+    readonly response: WorktreeReuseCheckResponse;
+  };
+  readonly "repo.ephemeralClonePrepare": {
+    readonly request: EphemeralClonePrepareRequest;
+    readonly response: EphemeralClonePrepareResponse;
+  };
+  readonly "repo.ephemeralCloneDispose": {
+    readonly request: EphemeralCloneDisposeRequest;
+    readonly response: EphemeralCloneDisposeResponse;
   };
   /**
    * The worktree plane's one mutation the console sends. Bound because the sidebar's
@@ -180,11 +227,18 @@ export interface ConsoleDaemonMethodContract {
     readonly request: WorktreeRetireRequest;
     readonly response: WorktreeRetireResponse;
   };
-
+  readonly "repo.worktreeStatusRead": {
+    readonly request: WorktreeStatusReadRequest;
+    readonly response: WorktreeStatusReadResponse;
+  };
   // session, channels, membership, presence, invites — the collaboration plane.
   readonly "session.create": {
     readonly request: SessionCreateRequest;
     readonly response: SessionCreateResponse;
+  };
+  readonly "session.join": {
+    readonly request: SessionJoinRequest;
+    readonly response: SessionJoinResponse;
   };
   readonly "channel.list": {
     readonly request: ChannelListRequest;
@@ -241,5 +295,21 @@ export interface ConsoleDaemonMethodContract {
   readonly "providerAccount.list": {
     readonly request: ProviderAccountListRequest;
     readonly response: ProviderAccountListResponse;
+  };
+  /**
+   * Live. The onboarding provider-readiness step's re-check control calls it: the
+   * readiness `providerAccount.list` serves is read from a STORED observation, so a
+   * person who has just signed a provider in out-of-band needs a way to ask again,
+   * and re-reading the registry would only re-serve the same stored reading.
+   *
+   * It is a MUTATING verb by the account plane's own reckoning — it writes back the
+   * health state and its timestamp, and crosses `credentialGeneration` where the
+   * probe changes an account's authenticated-ness — so the step offers it as a
+   * deliberate act and never on a cadence. This console reads nothing from its reply
+   * except that it settled; the readiness that follows is the registry read's.
+   */
+  readonly "providerAccount.probe": {
+    readonly request: ProviderAccountProbeRequest;
+    readonly response: ProviderAccountProbeResponse;
   };
 }

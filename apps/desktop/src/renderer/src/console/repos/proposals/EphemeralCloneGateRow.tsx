@@ -23,6 +23,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { EphemeralCloneCard } from "../mounts/EphemeralCloneCard.js";
+import { RootDisposalConfirmation } from "../mounts/roots/RootDisposalConfirmation.js";
 import { ProposalGateDisclosure } from "./ProposalGateDisclosure.js";
 import { CLONE_WORKSPACE_UNNAMED_COPY, type ProposalGateSubject } from "./proposal-gate-model.js";
 import type { EphemeralCloneStatusRecord } from "../mounts/worktree-model.js";
@@ -42,12 +43,25 @@ export interface EphemeralCloneGateRowProps {
   readonly sessionStore: SessionStore;
   /** The instant the section read at, so a countdown moves on a re-read and never on a render. */
   readonly nowMilliseconds: number;
+  /** Read the section again, so a disposed clone's new state reaches this list. */
+  readonly onRequestRead: () => void;
 }
 
 export function EphemeralCloneGateRow(props: EphemeralCloneGateRowProps): React.JSX.Element {
   return (
     <div className="meridian-root-gate-row">
       <EphemeralCloneCard record={props.record} nowMilliseconds={props.nowMilliseconds} />
+      {/*
+        OFFERED ON EVERY ROW, on the worktree row's reasoning: the act needs the clone's
+        own id and nothing else, and a clone that is already gone answers
+        `clone.not_found` rather than being guessed at here.
+      */}
+      <RootDisposalConfirmation
+        bridge={props.bridge}
+        kind="ephemeral-clone"
+        rootId={props.record.cloneId}
+        onSettled={props.onRequestRead}
+      />
       {props.subject === undefined ? (
         // No gate at all rather than a gate that could not ask: no reader is built for
         // a root whose workspace the roster does not name, so no call is made.

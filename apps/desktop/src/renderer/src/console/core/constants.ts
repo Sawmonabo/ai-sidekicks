@@ -415,6 +415,19 @@ export const SETTLED_INVITE_VISIBLE_CAP = 16;
 export const SESSION_BACK_TIER_VISIBLE_CAP = 5;
 
 /**
+ * Attention items the notification emitter remembers having already announced.
+ *
+ * A bound rather than an unbounded set, because the thing being remembered is a wire
+ * id and the projection is re-read for the life of a window: a console left open for
+ * a week would otherwise hold every item it ever saw. Two hundred is roughly two
+ * orders of magnitude above what a person has open at once, so the oldest id evicted
+ * is one whose item cleared long ago — and re-announcing an item that survived an
+ * eviction is a duplicate banner, never a lost one, which is the direction this cap
+ * is allowed to be wrong in.
+ */
+export const ATTENTION_NOTIFIED_ITEM_CAP = 200;
+
+/**
  * Invitations the shelf remembers a person set aside.
  *
  * Bounded because the hide set is a durable cache and an unbounded cache is a
@@ -1038,3 +1051,49 @@ export const PHASE_GRAPH_MIN_ZOOM = 0.35;
  * there is nothing on this surface to inspect at pixel scale.
  */
 export const PHASE_GRAPH_MAX_ZOOM = 1.5;
+// ── The load hairline's progress range ───────────────────────────────────────
+//
+// `LOAD_PROGRESS_MAX` is the bound of the two and is what brought them here; the
+// floor came with it on the sidebar range's rule above, because the hairline clamps
+// between them on every paint and a range split across two modules is a clamp a
+// reviewer opens two files to check.
+
+/**
+ * The floor of a reported load fraction.
+ *
+ * Zero rather than a hair above it: a load that has genuinely reported nothing yet is
+ * a zero-width fill, and a floor that painted a sliver would be the renderer claiming
+ * progress the view did not report.
+ */
+export const LOAD_PROGRESS_MIN = 0;
+
+/**
+ * The ceiling. The fraction crosses a boundary this window does not own, and a value
+ * past one would paint a fill wider than its track and hand an assistive technology a
+ * percentage above a hundred.
+ */
+export const LOAD_PROGRESS_MAX = 1;
+// ── The browser pane's shelf rows ────────────────────────────────────────────
+//
+// Two display bounds over renderer lists, and NEITHER is one of the browser
+// subsystem's resource ceilings — those live in `browser/bounds/browser-bounds.ts`
+// and are the daemon's. Nothing is refused, truncated, or deleted because of these:
+// what is dropped is a row nobody scrolled to.
+
+/**
+ * How many relayed agent tool calls the pane's shelf holds at once.
+ *
+ * Twelve is what fits inside an open disclosure without turning the overflow control
+ * into a scroll region of its own. It bounds a renderer list and nothing else: not
+ * what the daemon relays, not what an agent may call, not what the timeline records.
+ */
+export const RELAYED_TOOL_CALL_ROW_CAP = 12;
+
+/**
+ * How many of a pane's own captures keep a card.
+ *
+ * The same twelve, and deliberately the same number rather than a second one: the two
+ * lists render into the same disclosure and a shelf whose halves cut off at different
+ * depths reads as one of them having lost rows.
+ */
+export const CAPTURED_OBJECT_ROW_CAP = 12;

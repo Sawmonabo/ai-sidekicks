@@ -15,7 +15,7 @@
 // Nothing here holds data and nothing here decides anything. A row's CONTENT is
 // its table's; a row's SHAPE is this file's.
 
-import type { GrowthSlateRowId } from "./growth-slate.js";
+import type { GrowthSlateRowId } from "./growth-slate-row.js";
 
 /** Whether an entry is wired to a real bridge yet. Checked against the slate. */
 export type GrowthLiveStatus = "fixture-only" | "live";
@@ -23,7 +23,17 @@ export type GrowthLiveStatus = "fixture-only" | "live";
 /** A callable the eventual namespace will expose. */
 export type GrowthOperationKind = "method" | "subscription";
 
-/** The non-callable prerequisites a row also needs. */
+/**
+ * The non-callable prerequisites a row also needs.
+ *
+ * `daemon-producer` is the odd one and is here because the others could not hold it:
+ * every kind above names something that is not DECLARED anywhere, and this one names a
+ * value that is fully declared and that nothing on the producing side can ever emit.
+ * Filing such a row as a `type-member` would claim the contract is missing a member it
+ * already carries, and filing it as a `governing-document` would claim a decision is
+ * open that is already approved — both are read by a person deciding what to build,
+ * and both would send them to the wrong file.
+ */
 export type GrowthPrerequisiteKind =
   | "pane-kind"
   | "settings-key"
@@ -31,7 +41,8 @@ export type GrowthPrerequisiteKind =
   | "event-type"
   | "error-namespace"
   | "tool-registration"
-  | "governing-document";
+  | "governing-document"
+  | "daemon-producer";
 
 export interface GrowthOperationEntry {
   readonly id: GrowthOperationId;
@@ -60,6 +71,35 @@ export type GrowthOperationId =
   | "browserSubscribeNavigation"
   | "browserSubscribeToolCalls"
   | "browserRespondToToolCall"
+  // The rest of the human half of the pane's chrome. The navigation verbs above landed
+  // first because the address field needed them; these are the page-lifecycle acts the
+  // strip and the picker dispatch — select, reorder, show, hide, create, close, and
+  // developer tools — the page reading both of them draw from, and the acts that are
+  // not page actions at all: capture, pick element, the file open that runs the
+  // mount-envelope check, and the site-data reset. `browserPaneAttach` /
+  // `browserPaneDetach` open and tear down the pane's view, `browserRevealPageFile`
+  // hands a page's own local file to the file manager, and the chord mirror and the
+  // accelerator stream are the keyboard handback's two halves. Every one of them
+  // serves the same slate row the verbs above do, because they are one namespace and
+  // it is registered nowhere yet.
+  | "browserSelect"
+  | "browserReorder"
+  | "browserShow"
+  | "browserHide"
+  | "browserCreate"
+  | "browserClose"
+  | "browserDevtools"
+  | "browserSubscribePages"
+  | "browserCapture"
+  | "browserProducedArtifacts"
+  | "browserPickElement"
+  | "browserOpenFile"
+  | "browserClearSiteData"
+  | "browserRevealPageFile"
+  | "browserPaneAttach"
+  | "browserPaneDetach"
+  | "browserPublishChordMirror"
+  | "browserSubscribeAccelerators"
   | "terminalSubscribeOutput"
   | "terminalWrite"
   | "terminalResize"
@@ -84,11 +124,13 @@ export type GrowthOperationId =
   // id names the READ and never `daemon.hello`, which a window must never re-issue:
   // a second handshake on a live connection is refused by design.
   | "daemonNegotiationRead"
+  | "daemonStart"
   | "onboardingStateRead"
   | "onboardingStepAdvance"
   | "onboardingStepSkip"
   | "onboardingComplete"
-  | "onboardingProviderSignInHandoff"
+  | "onboardingPresentChoice"
+  | "onboardingTelemetryPrompt"
   | "shellConfigRead"
   | "shellConfigWrite"
   | "invitesList"
@@ -171,7 +213,17 @@ export type GrowthOperationId =
   | "orchestrationCostReceiptRead"
   | "orchestrationBudgetRead"
   // the live gap fill: re-open the stream after a position the caller states
-  | "timelineSubscribe";
+  | "timelineSubscribe"
+  // the workspace execution context — the normalized checkout root and the
+  // fallback-mode marker, neither of which any registered reply carries
+  | "workspaceExecutionContextRead"
+  // the shell's notification-permission reading, which decides whether the
+  // notification centre is the only surface these items reach a person on
+  | "shellNotificationPermissionRead"
+  // the shell's own condition, which is a main-process fact and not a daemon call:
+  // the supervisor's step and attempt count, the handshake ack, and the two notices
+  // an install can be quietly weaker for.
+  | "shellStatusSubscribe";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"
@@ -193,4 +245,5 @@ export type GrowthPrerequisiteId =
   | "approvalAmendmentArm"
   | "agentProviderSwitchFailedEvent"
   | "providerSessionImportSpec"
-  | "timelineResumeCursorMember";
+  | "timelineResumeCursorMember"
+  | "mountHealthIdentityProjection";

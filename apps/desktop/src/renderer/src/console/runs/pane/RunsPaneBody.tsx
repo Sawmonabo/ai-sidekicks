@@ -15,8 +15,13 @@ import {
   withRunDriverBindings,
 } from "../../bridge/index.js";
 import { DerivedFigure, formatCount, InlineRefusal } from "../../primitives/index.js";
-import { useSessionPartition, type SessionStore } from "../../store/index.js";
-import { type PaneContextOf } from "../../seats/index.js";
+import {
+  bannerClassRefusalAmong,
+  useRefusalBannerEscalation,
+  useSessionPartition,
+  type SessionStore,
+} from "../../store/index.js";
+import { requestComposerFocus, type PaneContextOf } from "../../seats/index.js";
 import { KnownRunRow } from "./KnownRunRow.js";
 import { QueueContents } from "./queue/QueueContents.js";
 import {
@@ -24,7 +29,10 @@ import {
   type ComposedControl,
 } from "./interventions/RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
+import { settledRunPosture } from "./run-posture.js";
 import { seatRuns } from "./run-seating.js";
+import { useRunControlCommands } from "./controls/run-control-commands.js";
+import { readRunControlSettlement } from "./controls/run-control-reading.js";
 import { useRunControlSurface } from "./controls/run-control-surface.js";
 import { useRunFeed } from "./run-state-feed.js";
 import { NoRuns } from "./NoRuns.js";
@@ -87,6 +95,60 @@ export function RunsPaneBody(props: {
     setComposerTarget(undefined);
   }, []);
 
+  // A refusal that ends the whole session rather than this pane's read reaches the
+  // frame's banner instead of a line inside one pane. The subscription's open
+  // refusal is where `session.not_found` lands here, because that is the call that
+  // names the session.
+  useRefusalBannerEscalation(context.frameStore, stateFeed.openRefusal);
+
+  // What the empty state is reading, built once and handed to both the surface that
+  // renders the control and the contribution that lists it — so the palette offers
+  // the start act on exactly the reading the button is drawn on.
+  const startOffer = useMemo(
+    () => ({
+      seatedRunCount: seating.rows.length,
+      hasRead: stateFeed.hasRead,
+      openRefusal: stateFeed.openRefusal,
+    }),
+    [seating.rows.length, stateFeed.hasRead, stateFeed.openRefusal],
+  );
+
+  // AND SO DOES A CONTROL THAT CAME BACK WITH ONE. A pause, a resume, a steer or a
+  // rewind is a mutation, and a mutation is the other way this pane learns the
+  // session has left the node — the row keeps the daemon's words beside the control
+  // that was pressed, and the frame is told as well, because every other pane is
+  // still drawing a session that is gone. Read through the settlement reading rather
+  // than off the raw records so the rule that surface already states holds here too:
+  // only the NEWEST settlement for a run speaks for it, and a refusal a later working
+  // control has superseded escalates nothing.
+  const controlRefusal = useMemo(
+    () =>
+      bannerClassRefusalAmong(
+        [...new Set(surface.records.map((record) => record.runId))].map(
+          (runId) => readRunControlSettlement(surface, runId).refusal,
+        ),
+      ),
+    [surface],
+  );
+  useRefusalBannerEscalation(context.frameStore, controlRefusal);
+
+  // The same six acts the rows draw — and the empty state's own — reachable from the
+  // palette while this pane is open. Contributed here rather than at module scope
+  // because every one of them closes over this pane's dispatcher, and dispatched
+  // through that same surface so a palette press and a button press are one mutation
+  // with one idempotency key.
+  useRunControlCommands({
+    runs: stateFeed.runs,
+    driverCapabilities,
+    surface,
+    onRequestSteer,
+    onRequestRewind,
+    startOffer,
+    // The same function the empty state's button is handed, so the two entry points
+    // are one act rather than two callers that happen to agree.
+    onRequestComposerFocus: requestComposerFocus,
+  });
+
   // The composer is offered only against a run the STREAM has described: its guard
   // is `expectedRunVersion` reconciled against the live reading, which a row seated
   // from the session's record does not have — and that row offers no control to
@@ -131,7 +193,13 @@ export function RunsPaneBody(props: {
           />
         ) : null}
         {seating.rows.length === 0 ? (
-          <NoRuns hasRead={stateFeed.hasRead} openRefusal={stateFeed.openRefusal} />
+          <NoRuns
+            reading={startOffer}
+            // The empty state names an act this pane cannot perform — the composer
+            // is the workspace's, mounted beside the deck — so it asks for it
+            // rather than reaching into another family for the element.
+            onStart={requestComposerFocus}
+          />
         ) : (
           <div className="meridian-runs__rows" role="feed" aria-label="Runs in this session">
             {seating.rows.map((seated) =>
@@ -139,6 +207,11 @@ export function RunsPaneBody(props: {
                 <RunRow
                   key={seated.runId}
                   run={seated.projection}
+                  // One arrival path for the daemon's stamp, scoped to the run that
+                  // is executing under it: this row's own stream projection, with the
+                  // durable entry the approvals pane reads as the named fallback for
+                  // a run whose start this subscription never saw.
+                  posture={settledRunPosture(knownRuns[seated.runId], seated.projection)}
                   surface={surface}
                   bridge={context.bridge}
                   driverCapabilities={driverCapabilities}
