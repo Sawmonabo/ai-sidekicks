@@ -26,16 +26,24 @@
 // new subject, and a reply to the old one is dropped rather than overwriting a newer
 // one. Nothing here polls, and nothing here arms a timer: the two triggers are a
 // settlement this hook's sibling produced and a transition the shell pushed.
+//
+// AND EVERY CALL ON THIS PAGE SETTLES THROUGH `settleGrowthRead`, none of them through
+// a bare `await`. The growth port is TYPED to resolve — its two arms are the answer
+// and the refusal — and the rejection channel of a promise exists whether a contract
+// uses it or not: a transport that goes away mid-call rejects, and the seam the
+// fixture drives throws a daemon envelope verbatim. Read only on the fulfilment arm,
+// that rejection left the status region rendering "Asking the runtime" for the rest of
+// the visit, and left a control's dispatch latch HELD — both confirmation actions
+// disabled for the life of the window over a call that had already failed — with the
+// rejection itself reaching no surface at all. The settler is the console's one
+// reading of that channel and it answers a refusal, so both failures render as the
+// refusal they are.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-import type { GrowthPort } from "../../../bridge/index.js";
+import { settleGrowthRead, useSettledGrowthRead, type GrowthPort } from "../../../bridge/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
-import {
-  useGenerationLatch,
-  useSubjectScopedState,
-  type ShellConnection,
-} from "../../../store/index.js";
+import { useGenerationLatch, type ShellConnection } from "../../../store/index.js";
 
 /** What the daemon says about itself, once it has been asked. */
 export interface DaemonStatus {
@@ -87,39 +95,37 @@ function daemonStatusSubject(freshness: DaemonStatusFreshness): string {
 /**
  * Read the daemon's own status line, and read it again when it can have changed.
  *
- * `useSubjectScopedState` rather than a bare `useState`, because the answer is scoped
- * to the port that produced it: a window whose bridge is swapped — which the fixture
- * does on a scenario change — must not keep rendering the previous port's answer, and
- * the publisher this hook hands back is bound to the visit that dispatched the read,
- * so a reply that arrives after a swap is dropped instead of overwriting a newer one.
+ * `useSettledGrowthRead` rather than a holder with a hand-written effect beside it,
+ * because this read WAS that block token for token — state held against the port and
+ * the subject, seeded to the unsettled phase, the call put inside an effect keyed on
+ * the publisher, the answer projected — and the one token it did not carry is the arm
+ * the shared reader exists for: a rejection settles into a refusal instead of leaving
+ * the region on `reading` for the life of the window.
  *
- * The freshness rides the KEY for that same reason, and it is the whole mechanism: the
- * holder re-seeds during the render that first sees a new subject, and `publish`
- * re-identifies with it, which is what tells the effect below to put the read again. A
- * flag beside the state would have been a second record of which answer is current,
+ * The answer stays scoped to the port that produced it, which is the holder that
+ * reader already keeps: a window whose bridge is swapped — which the fixture does on
+ * a scenario change — must not keep rendering the previous port's answer, and a reply
+ * arriving after a swap is dropped rather than overwriting a newer one.
+ *
+ * The freshness rides the KEY, and that is the whole re-read mechanism: the holder
+ * re-seeds during the render that first sees a new subject and the read is put again.
+ * A flag beside the state would have been a second record of which answer is current,
  * free to disagree with the one the holder keeps.
  */
 export function useDaemonStatus(
   growth: GrowthPort,
   freshness: DaemonStatusFreshness,
 ): DaemonStatusReading {
-  const read = useSubjectScopedState<DaemonStatusReading>(
-    growth,
-    daemonStatusSubject(freshness),
-    () => ({ phase: "reading" }),
-  );
-  const { publish } = read;
-  useEffect(() => {
-    void (async () => {
-      const outcome = await growth.daemonStatusRead({});
-      publish(
-        outcome.status === "served"
-          ? { phase: "read", status: outcome.value }
-          : { phase: "refused", refusal: outcome },
-      );
-    })();
-  }, [growth, publish]);
-  return read.value;
+  return useSettledGrowthRead<
+    Awaited<ReturnType<GrowthPort["daemonStatusRead"]>>,
+    DaemonStatusReading
+  >(growth, daemonStatusSubject(freshness), () => growth.daemonStatusRead({}), {
+    unsettled: () => ({ phase: "reading" }),
+    settled: (settlement) =>
+      settlement.status === "served"
+        ? { phase: "read", status: settlement.value }
+        : { phase: "refused", refusal: settlement },
+  }).value;
 }
 
 /** Which of the two controls was pressed. Closed, because the page offers two. */
@@ -178,6 +184,14 @@ export interface DaemonControlDispatch {
  * The latch is mount-scoped and superseded by its own unmount, so a reply arriving
  * after the page is gone installs nothing rather than reporting a settlement into a
  * tree that no longer exists.
+ *
+ * AND THE CALL IS AWAITED INSIDE THE CLEANUP THAT RELEASES IT. The release is what
+ * lets the next press through, so the one thing it must survive is the call failing:
+ * awaited outside, a rejection left the key held and both confirmation actions
+ * disabled for the rest of the window — a destructive control that quietly stopped
+ * working, with the reason nowhere on screen. Inside, the settler answers a refusal
+ * on that arm, the refusal renders through `onSettled` like any the port served, and
+ * the `finally` gives the key back whichever way the settlement went.
  */
 export function useDaemonControl(
   growth: GrowthPort,
@@ -194,9 +208,10 @@ export function useDaemonControl(
       }
       setInFlight(control);
       void (async () => {
-        const outcome =
-          control === "stop" ? await growth.daemonStop({}) : await growth.daemonRestart({});
         try {
+          const settlement = await settleGrowthRead(
+            control === "stop" ? growth.daemonStop({}) : growth.daemonRestart({}),
+          );
           dispatch.settle(() => {
             setInFlight(undefined);
             // Counted inside the latch's own settle, so a reply that arrives after the
@@ -204,9 +219,9 @@ export function useDaemonControl(
             // reporting a settlement into a tree that no longer exists.
             setSettledCount((previous) => previous + 1);
             onSettled(
-              outcome.status === "served"
+              settlement.status === "served"
                 ? { control, outcome: "sent" }
-                : { control, outcome: "refused", refusal: outcome },
+                : { control, outcome: "refused", refusal: settlement },
             );
           });
         } finally {
