@@ -7,8 +7,23 @@
 //
 // THIS IS THAT SOMEWHERE. A capture taken here answers with the artifact it became,
 // the media type the pipeline stored, and the byte length it stored — so the card's
-// name, kind, size, and ingest state are all the act's own answer. Nothing is
-// inferred, and an object this window did not produce gets no card at all.
+// kind, size, and ingest state are all the act's own answer. Nothing is inferred, and
+// an object this window did not produce gets no card at all.
+//
+// AND THE REPLY ANSWERS WITH NO NAME, WHICH THE CARD IS TOLD RATHER THAN SENT AROUND.
+// `browserCapture`'s registered value is `{artifactId, mediaType, byteLength}` and the
+// signature says so in terms — "it answers with the artifact id and nothing else". So
+// the card is minted WITHOUT a `captureName`, and its head renders the identity
+// through the wire-figure chokepoint. Assigning the id into that member, which is what
+// this register used to do, put an opaque locator in the human-name slot in the plain
+// body face, and made the shelf's key and its display name the same string by
+// accident — so nothing could tell a named capture from an unnamed one, here or
+// anywhere downstream.
+//
+// THE ID IS ALSO THE PANE'S PROVENANCE. The artifact events carry no producer member,
+// so this register is the only record that an artifact came out of the browser at all:
+// `SessionProducedObjects` folds the log against these keys, and an artifact absent
+// from them is some other surface's output rather than an unnamed one of ours.
 //
 // THE REGISTER IS PER PANE AND BOUNDED. It is held against the pane the captures were
 // taken in, so a deck slot handed a different pane does not carry one pane's captures
@@ -69,7 +84,7 @@ export function useCapturedObjects(
           {
             kind: "capture" as const,
             props: {
-              captureName: artifactId,
+              artifactId,
               // The human control captures what is on screen. The clip and full-page
               // scopes belong to the page tool that offers a choice; this one does not.
               scope: "viewport" as const,

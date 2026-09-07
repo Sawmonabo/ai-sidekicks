@@ -13,6 +13,7 @@ import { BrowserDownloadCard, type BrowserDownloadCardProps } from "./DownloadCa
 
 const BASE: BrowserDownloadCardProps = {
   artifactId: "artifact-91cd",
+  state: "published",
   proposedFileName: "quarterly-report.pdf",
   sourcePageLabel: "Staging dashboard",
   ingest: { status: "stored", artifactId: "artifact-91cd", byteLength: 5242880 },
@@ -41,6 +42,10 @@ describe("download card — where the bytes went", () => {
     const text = renderDownload(BASE).textContent ?? "";
     expect(text).toContain("artifact store");
     expect(text).toContain("never at the destination the page asked for");
+  });
+
+  it("says which lifecycle state the log has this object in", () => {
+    expect(renderDownload({ ...BASE, state: "superseded" }).textContent).toContain("Superseded");
   });
 
   it("renders the proposed name as text and as no locator at all", () => {

@@ -80,6 +80,17 @@ describe("the captures this pane took", () => {
     const card = harness.read().cardsByArtifactId.get("artifact-a");
     expect(card?.kind).toBe("capture");
     expect(card?.kind === "capture" ? card.props.mediaType : undefined).toBe("image/png");
+    expect(card?.kind === "capture" ? card.props.artifactId : undefined).toBe("artifact-a");
+  });
+
+  it("mints no name for a reply that carried none, rather than promoting the id", async () => {
+    // `browserCapture`'s registered value is `{artifactId, mediaType, byteLength}`, so
+    // there is no name to mint one from — and the id belongs in the identity member,
+    // which the card renders as a wire figure, never in the human-name slot.
+    const harness = mountCaptures(capturingBridge(["artifact-a"]));
+    await harness.capture();
+    const card = harness.read().cardsByArtifactId.get("artifact-a");
+    expect(card?.kind === "capture" ? card.props.captureName : "unread").toBeUndefined();
   });
 
   it("replaces a retaken capture's card rather than holding two for one artifact", async () => {

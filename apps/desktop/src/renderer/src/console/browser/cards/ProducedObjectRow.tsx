@@ -14,14 +14,8 @@
 // id where a name belongs and teaching a person to read a locator as a name.
 
 import { Chip, Nothing, WireFigure } from "../../primitives/index.js";
-import type { ProducedArtifact, ProducedArtifactState } from "./produced-objects.js";
-
-/** How each state reads on a row. Total over the set by construction. */
-const PRODUCED_STATE_LABELS: Readonly<Record<ProducedArtifactState, string>> = {
-  pending: "Ingest in flight",
-  published: "Stored",
-  superseded: "Superseded",
-};
+import { PRODUCED_ARTIFACT_STATE_LABELS } from "./produced-artifact-state.js";
+import type { ProducedArtifact } from "./produced-objects.js";
 
 /**
  * One produced object, as the log knows it.
@@ -41,7 +35,7 @@ export function ProducedObjectRow(props: {
       <div className="meridian-browser-card__head">
         <WireFigure value={artifact.artifactId} />
         <div className="meridian-browser-card__meta">
-          <Chip label={PRODUCED_STATE_LABELS[artifact.state]} glyph="artifact" />
+          <Chip label={PRODUCED_ARTIFACT_STATE_LABELS[artifact.state]} glyph="artifact" />
           {artifact.visibility === undefined ? null : <Chip mono label={artifact.visibility} />}
         </div>
       </div>
