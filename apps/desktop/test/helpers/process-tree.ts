@@ -25,12 +25,10 @@
 //   • Windows has no process group to signal, and its "signals" are
 //     `TerminateProcess` calls that are never forwarded, so signalling the
 //     launcher alone orphans the browser holding the inherited stdout write end.
-//     `taskkill /pid N /t` walks the descendant tree: without `/f` it posts
-//     WM_CLOSE to each windowed process (the graceful analog — the tree members
-//     that matter here all have windows), with `/f` it terminates every node
-//     outright (the SIGKILL analog). This is also the form `playwright-core`
-//     itself runs for this process. It is a SEPARATE PROGRAM rather than a
-//     delivered signal, which is why the mode below is named and exported: a
+//     `taskkill /pid N /t` walks the descendant tree instead — `runPlatformTreeKill`
+//     in `process-tree-arms.ts` states what the flags do and why. It is a
+//     SEPARATE PROGRAM rather than a delivered signal, which is why the mode
+//     below is named and exported: a
 //     tree terminated that way reports no signal on the child's `exit`, so a
 //     test asserting one is asserting a POSIX detail on a platform that has none.
 //
@@ -42,7 +40,9 @@
 //     a failure either: a tree already gone is one of the things taskkill refuses.
 //     Which one it was is asked of the OS, never read out of taskkill's message,
 //     because that message is localised and this must not depend on the runner's
-//     display language.
+//     display language. Both arms of that decision live in
+//     `process-tree-arms.ts`, because neither can be executed on the platform
+//     this suite runs on; this module supplies them the platform's own readings.
 //
 //   • Survival itself is two questions, and `kill(pid, 0)` answers the wrong one.
 //     A process that has exited and has not been reaped by its parent is a
@@ -71,6 +71,14 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
+
+import {
+  deliverSignal,
+  readProcessParentTable,
+  runPlatformTreeKill,
+  terminateExternalTree,
+  terminateSignalledTree,
+} from "./process-tree-arms.js";
 
 /** How this platform's tree kill reaches a tree. */
 export type ProcessTreeTerminationMode = "signal" | "external";
@@ -113,6 +121,36 @@ export type ProcessLiveness = "gone" | "zombie" | "running";
 export function processExists(processId: number): boolean {
   try {
     process.kill(processId, 0);
+    return true;
+  } catch (error: unknown) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Whether the process GROUP led by `processId` still holds any member.
+ *
+ * The reading that survives the root's exit, and the reason it has to exist
+ * separately from `processExists`. A group is alive for exactly as long as one
+ * of its members is, so on a detached spawn it is the tree's handle rather than
+ * a fact about the leader: the launcher shim can be gone and reaped while the
+ * browser process it started is still in the group and still running.
+ *
+ * `EPERM` means the group is there and out of reach, which for this question is
+ * "still there" — `processExists`'s reason, one target wider. The negative form
+ * is safe HERE only because the caller's pid leads its own group, which the
+ * detached spawn in `electron-child.ts` is what guarantees; handed a pid that
+ * leads somebody else's group this reports on that group instead.
+ *
+ * Never asked of `0`: on POSIX `kill(0, …)` addresses the CALLER's own group,
+ * so a pid that was never recorded would report this runner as the live tree.
+ */
+export function processGroupExists(processId: number): boolean {
+  if (processId <= 0) {
+    return false;
+  }
+  try {
+    process.kill(-processId, 0);
     return true;
   } catch (error: unknown) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
@@ -271,57 +309,34 @@ export function processHasTerminated(processId: number): boolean {
 }
 
 /**
- * Whether a termination attempt left nothing to worry about.
- *
- * Two ways to succeed, and the second is why this is a function rather than a
- * boolean at each call site. A signal that was delivered is a success. A signal
- * that was NOT is still a success if there is nothing left to kill — which is
- * the ordinary outcome when a process exited between a close timing out and the
- * kill being issued.
- *
- * Splitting the probe out as an argument is what makes both arms testable at
- * all: the real one signals a real process, so a test exercising it would kill
- * something — on the POSIX arm a whole process group, which is the launched
- * tree only because of the detached spawn described above.
- */
-export function terminationSucceeded(
-  signalDelivered: boolean,
-  processStillRunning: () => boolean,
-): boolean {
-  return signalDelivered || !processStillRunning();
-}
-
-/**
- * Signal the process tree led by `processId`, and say whether it landed.
+ * Signal the process tree led by `processId`, and say whether the TREE is gone.
  *
  * `true` means the signal was delivered or there was nothing left to signal;
- * `false` means a live process refused it. A caller escalating from `SIGTERM`
- * asks again after its grace period rather than reading `true` as "gone" — a
- * delivered graceful signal says the tree was asked to exit, not that it has.
+ * `false` means something that can still run refused it. A caller escalating
+ * from `SIGTERM` asks again after its grace period rather than reading `true` as
+ * "gone" — a delivered graceful signal says the tree was asked to exit, not that
+ * it has.
+ *
+ * The verdict is over the TREE and never over the root alone, which is what the
+ * arms in `process-tree-arms.ts` are for: this function's whole body is the
+ * platform dispatch and the readings each arm is handed. Answering from the root
+ * is what let a rootless Windows tree — a reaped launcher shim with a live
+ * browser under it — be reported as a delivered kill.
  */
 export function terminateProcessTree(
   processId: number,
   signal: NodeJS.Signals = "SIGKILL",
 ): boolean {
-  const stillRunning = (): boolean => !processHasTerminated(processId);
   if (PROCESS_TREE_TERMINATION_MODE === "external") {
-    const forced = signal === "SIGKILL" ? ["/f"] : [];
-    const result = spawnSync("taskkill", ["/pid", String(processId), "/t", ...forced], {
-      stdio: "ignore",
+    return terminateExternalTree(processId, signal, {
+      killTreeFrom: runPlatformTreeKill,
+      parentByChild: readProcessParentTable,
+      hasTerminated: processHasTerminated,
     });
-    return terminationSucceeded(result.error === undefined && result.status === 0, stillRunning);
   }
-  for (const target of [-processId, processId]) {
-    try {
-      process.kill(target, signal);
-      return true;
-    } catch {
-      // Group already reaped, or this pid does not lead one after all.
-    }
-  }
-  // Both throws land here, and ESRCH is the commonest reason: the process was
-  // already gone. Reporting that as a failed termination would tell a reader an
-  // Electron may still be holding a profile when nothing is — the same
-  // misdescription as the Windows arm, in the opposite direction.
-  return terminationSucceeded(false, stillRunning);
+  return terminateSignalledTree(processId, signal, {
+    deliver: deliverSignal,
+    groupHasMember: processGroupExists,
+    hasTerminated: processHasTerminated,
+  });
 }

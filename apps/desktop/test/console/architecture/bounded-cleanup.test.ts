@@ -34,9 +34,18 @@
 // than a slice of whatever is left; the verdict the witness renders just before
 // them is `frame-witness.test.ts`.
 
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import { BoundedCleanup } from "../bounded-cleanup.js";
+import { processHasTerminated } from "../../helpers/process-tree.js";
+import { BoundedCleanup, ELECTRON_PROCESS_TERMINATOR } from "../bounded-cleanup.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import { withCleanupOutcome } from "../cleanup-disposition.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
 import {
@@ -299,5 +308,61 @@ describe("bounded cleanup — a close that never settles", () => {
     await expectNoUnhandledRejection(() => {
       abandonedClose.reject(new Error("Target page, context or browser has been closed"));
     });
+  });
+});
+
+/** The module whose verdicts the reading below decides, read as source once. */
+const BOUNDED_CLEANUP_PATH = join(
+  resolve(dirname(fileURLToPath(import.meta.url)), "..", ".."),
+  "console",
+  "bounded-cleanup.ts",
+);
+
+/** Every identifier the module CALLS, out of the parse rather than a pattern. */
+function calleeNamesIn(sourcePath: string): ReadonlySet<string> {
+  const parsed = parseSourceText(sourcePath, readFileSync(sourcePath, "utf8"));
+  const calleeNames = new Set<string>();
+  forEachDescendant(parsed, (node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      calleeNames.add(node.expression.text);
+    }
+  });
+  return calleeNames;
+}
+
+describe("bounded cleanup — which liveness reading a verdict rests on", () => {
+  // THE CLASS, not the one call site. `processExists` answers whether a pid
+  // NAMES anything, and a process that has exited and not been reaped still
+  // does — which is the state a group SIGKILL leaves every grandchild in, for
+  // as long as whichever init inherited it takes to reap. Both of this class's
+  // verdicts read that seam, so bare existence there reports `unterminable`
+  // over a tree that is gone, and `unterminable` is the settlement that fails a
+  // tier and warns about the launches after it.
+
+  it("binds the real terminator to the reading that counts a zombie as gone", () => {
+    const reaped = spawnSync(process.execPath, ["-e", ""]);
+    expect(reaped.pid).toBeGreaterThan(0);
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid)).toBe(true);
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(reaped.pid)).toBe(false);
+    // The two pids above agree under either reading, which is exactly why they
+    // cannot settle the class on their own — the one pid that separates them is
+    // an unreaped zombie, and whether one lingers is the reaping behaviour of an
+    // init this process does not own. So the binding is asserted as well.
+    expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid)).toBe(
+      !processHasTerminated(process.pid),
+    );
+  });
+
+  it("reaches no bare existence probe anywhere in the module", () => {
+    const calleeNames = calleeNamesIn(BOUNDED_CLEANUP_PATH);
+    // Non-vacuity first: a reader that found no calls at all would pass the
+    // claim below over an empty set.
+    expect(calleeNames, "the parse found no calls, so the absence below is vacuous").toContain(
+      "processHasTerminated",
+    );
+    expect(
+      calleeNames,
+      "a verdict path reached `processExists` — an unreaped zombie reads as a live process there",
+    ).not.toContain("processExists");
   });
 });

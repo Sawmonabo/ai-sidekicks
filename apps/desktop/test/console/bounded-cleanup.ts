@@ -48,9 +48,8 @@
 // about any of this — including which outcomes raise — is
 // `cleanup-disposition.ts`.
 
-import { DISPOSAL_ATTEMPTS } from "../helpers/electron-child-cleanup.js";
-import { TERMINATION_GRACE_MS } from "../helpers/managed-electron-child.js";
-import { processExists, terminateProcessTree } from "../helpers/process-tree.js";
+import { DISPOSAL_ATTEMPTS, TERMINATION_GRACE_MS } from "../helpers/managed-electron-child.js";
+import { processHasTerminated, terminateProcessTree } from "../helpers/process-tree.js";
 import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
 import {
   type LaunchProfile,
@@ -85,12 +84,20 @@ export interface ProcessTerminator {
   /** Kill the tree led by `processId`. Returns whether a signal was delivered. */
   readonly terminate: (processId: number) => boolean;
   /**
-   * Whether that process is still alive, asked without signalling it.
+   * Whether that process may still EXECUTE, asked without signalling it.
    *
    * On the same seam as `terminate` rather than a fourth constructor argument,
    * because the two are one subject: `terminationSucceeded` already decides a
    * kill by asking this question, and a cleanup that must decide whether a
    * FAILED close left anything running asks exactly the same one.
+   *
+   * A pid that still ANSWERS is not the question, and answering that one was a
+   * defect on both of this class's verdict paths. A process that has exited and
+   * not been reaped holds its pid, answers signal 0, and will never run another
+   * instruction — and a group SIGKILL produces exactly that state for every
+   * grandchild, for as long as whichever init inherited it takes to reap.
+   * Reading it as alive reports `unterminable` over a tree that is gone, and
+   * `unterminable` is the settlement that fails a tier.
    */
   readonly isRunning: (processId: number) => boolean;
 }
@@ -162,7 +169,10 @@ export interface CleanupOutcome {
  * process group from inside the runner, and a test must signal nothing.
  */
 export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
-  isRunning: (processId: number): boolean => processExists(processId),
+  // `processHasTerminated` and never `processExists`: the reading this verdict
+  // needs counts an unreaped zombie as gone, which is the state a group SIGKILL
+  // leaves every grandchild in.
+  isRunning: (processId: number): boolean => !processHasTerminated(processId),
   terminate: (processId: number): boolean => terminateProcessTree(processId),
 };
 
@@ -268,7 +278,9 @@ export class BoundedCleanup {
         };
       }
       return {
-        settlement: (await this.#terminateUntilGone(processId)) ? "terminated" : "unterminable",
+        settlement: (await this.#terminateUntilGone(processId, startedAt))
+          ? "terminated"
+          : "unterminable",
         waitedMs: Date.now() - startedAt,
         budgetMs,
         closeRejection,
@@ -278,7 +290,8 @@ export class BoundedCleanup {
     // The budget expired with the close still outstanding, so the process is
     // presumed alive and the probe is skipped: a SIGKILL has not been reaped yet
     // at this instant, and asking would only make a live target look gone.
-    const terminated = processId !== undefined && (await this.#terminateUntilGone(processId));
+    const terminated =
+      processId !== undefined && (await this.#terminateUntilGone(processId, startedAt));
     return {
       settlement: terminated ? "terminated" : "unterminable",
       waitedMs: Date.now() - startedAt,
@@ -297,10 +310,11 @@ export class BoundedCleanup {
    * close this cleanup performs is idempotent by a `closed` guard set BEFORE the
    * cleanup runs, so a caller that received `unterminable` could not ask again by
    * closing again. The retry therefore belongs inside the one pass, and the shape
-   * is `disposeUntilChildHasClosed`'s in `test/helpers/electron-child-cleanup.ts`
-   * down to the constant: attempt, wait for evidence, return the moment the tree
-   * is gone. `DISPOSAL_ATTEMPTS` is imported from there rather than restated,
-   * because two `3`s in two files are two bounds that will disagree.
+   * is the settle-time child disposal's down to the constant: attempt, wait for
+   * evidence, return the moment the tree is gone. `DISPOSAL_ATTEMPTS` is
+   * imported from `managed-electron-child.ts`, which is where that bound lives
+   * for every caller that spends it, rather than restated — two `3`s in two
+   * files are two bounds that will disagree.
    *
    * THE DELIVERY REPORT SHORT-CIRCUITS AND THE EVIDENCE DECIDES. A terminator
    * that says it delivered is believed and the loop ends there, which is what
@@ -308,13 +322,25 @@ export class BoundedCleanup {
    * REFUSAL is what costs a wait, and after that wait the question is asked of the
    * process rather than of the platform's exit status: a tree that is gone is
    * gone, whatever `taskkill` said about it.
+   *
+   * THE WAITS ARE CHARGED TO THE CLOSE BUDGET, NOT ADDED AFTER IT. They used to
+   * be added: three grace intervals began once `application.close()` had already
+   * spent its whole registered ceiling, so the all-refused path cost the ceiling
+   * plus the intervals — past what `tierTimeoutFor` reserves for cleanup, which
+   * meant vitest's own timeout fired first and took the `unterminable` verdict
+   * and every diagnostic on it with it. That is the inversion this module's
+   * header opens with, reintroduced one level in. A spawner's own deadline has to
+   * fire before its enclosing budget, so the pause is DERIVED from what is left
+   * of that budget rather than spent beside it. The ATTEMPTS are unchanged — they
+   * are the policy, and a verdict reached with no pause left is still the verdict
+   * a reader came for, while a verdict vitest killed is not reached at all.
    */
-  async #terminateUntilGone(processId: number): Promise<boolean> {
+  async #terminateUntilGone(processId: number, startedAt: number): Promise<boolean> {
     for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
       if (this.#terminator.terminate(processId)) {
         return true;
       }
-      await this.#whenTerminationHasHadTime();
+      await this.#whenTerminationHasHadTime(startedAt);
       if (!this.#terminator.isRunning(processId)) {
         return true;
       }
@@ -322,10 +348,19 @@ export class BoundedCleanup {
     return false;
   }
 
-  /** The bounded pause a refused attempt spends before the tree is asked about again. */
-  async #whenTerminationHasHadTime(): Promise<void> {
+  /**
+   * The bounded pause a refused attempt spends before the tree is asked about again.
+   *
+   * The grace interval, or whatever the close left of the budget — whichever is
+   * shorter. Never negative and deliberately allowed to reach zero: a zero-length
+   * timer still yields the loop a macrotask, so the liveness recheck below it is
+   * a genuine second reading rather than the same instant asked twice.
+   */
+  async #whenTerminationHasHadTime(startedAt: number): Promise<void> {
+    const remainingMs = Math.max(0, this.#budgetMs - (Date.now() - startedAt));
+    const waitMs = Math.min(this.#terminationWaitMs, remainingMs);
     await new Promise<void>((resolve) => {
-      setTimeout(resolve, this.#terminationWaitMs);
+      setTimeout(resolve, waitMs);
     });
   }
 }

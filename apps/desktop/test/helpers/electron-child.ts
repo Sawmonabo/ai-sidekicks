@@ -212,10 +212,19 @@ export function spawnManagedElectronChild(
     // nothing ever drives. Disposing here is driven on every run by the case in
     // `electron-child-lifetime.test.ts`.
     //
-    // A failure inside `dispose` is deliberately not swallowed to preserve the
-    // refusal below it: a tree kill that itself threw means the child's fate is
-    // unknown, which is the more urgent of the two things to say.
-    managed.dispose();
+    // AND IT ASKS AS MANY TIMES AS THE SETTLE-TIME PATH DOES. A single ask was
+    // the whole disposal this arm ever made, and it is the ONLY one that will
+    // ever be made: no disposer was registered — the registrar is what just
+    // refused — and the caller never receives the handle, so a platform that
+    // refused that one kill left a detached tree with nothing anywhere that
+    // could name it again. The bound is `ManagedElectronChild`'s own, spent
+    // through its `disposeUntilKillDelivered`, so this arm cannot drift from the
+    // retry the ordinary settlement performs.
+    //
+    // A failure inside the disposal is deliberately not swallowed, to preserve
+    // the refusal below it: a tree kill that itself threw means the child's fate
+    // is unknown, which is the more urgent of the two things to say.
+    managed.disposeUntilKillDelivered();
     throw registrationRefusal;
   }
   return managed;

@@ -222,7 +222,12 @@ export const NON_TERMINATING_PROGRAM = "setInterval(() => {}, 60000);";
  */
 export class RefusedRegistrationSpawn {
   readonly #registrar = new RefusingSettleRegistrar();
-  readonly #terminator = new ObservedTreeTerminator();
+  readonly #terminator: ObservedTreeTerminator;
+
+  /** `refusedKills` denies the recovery's first asks — the misuse's second half. */
+  constructor(refusedKills = 0) {
+    this.#terminator = new ObservedTreeTerminator(refusedKills);
+  }
 
   /** Spawn, and let the registrar's refusal come back out. */
   readonly attempt = (): void => {

@@ -45,6 +45,23 @@ import { terminateProcessTree } from "./process-tree.js";
 export const TERMINATION_GRACE_MS = 2_000;
 
 /**
+ * How many times a refused disposal asks again before it gives the child up.
+ *
+ * Small on purpose, and a bound rather than a condition: the first call is the
+ * ordinary one, the second is the whole reason the loop exists — a tree that
+ * refused one kill and takes the next — and past that the tree is unkillable by
+ * this process. A further ask would hold teardown open for the same answer.
+ *
+ * It lives HERE, beside the class whose `disposeUntilKillDelivered` spends it,
+ * because three callers need it and two of them cannot reach the fourth
+ * candidate home: `electron-child-cleanup.ts` imports `electron-child.ts`, so a
+ * figure declared there and read by the spawn door would close an import cycle.
+ * `test/console/bounded-cleanup.ts` takes it from here rather than restating it,
+ * because two `3`s in two files are two bounds that will disagree.
+ */
+export const DISPOSAL_ATTEMPTS = 3;
+
+/**
  * The child shape every spawn here produces: no stdin, both output streams piped.
  *
  * Named rather than inferred so callers keep the non-null `stdout` / `stderr`
@@ -255,5 +272,35 @@ export class ManagedElectronChild {
       return;
     }
     this.terminate("SIGKILL");
+  }
+
+  /**
+   * Dispose, and ask again while the platform says the kill was REFUSED.
+   *
+   * THE ONE HOME FOR THE KILL RETRY, and it is here rather than in either
+   * caller because the two callers are otherwise unable to share it. The
+   * settle-time disposal in `electron-child-cleanup.ts` retries around a wait
+   * for `close`; the spawn door's misuse recovery has nothing to wait ON and
+   * cannot await anything at all — it is rethrowing a registration refusal out
+   * of a synchronous function — and a second loop written there would be a
+   * second bound that drifts from this one.
+   *
+   * What separates the asks is the ASK's own cost rather than a pause, and that
+   * is the honest bound rather than a compromise: on the arm where a refusal is
+   * transient it is `taskkill` spawning, exiting non-zero and being spawned
+   * again, which is a real second attempt against a real tree; on the arm where
+   * a refusal is `EPERM` nothing will change and the loop costs three syscalls.
+   *
+   * Stops the moment there is nothing further to ask — a delivered kill, a
+   * `close` that arrived, or a child that never received a pid — so an ordinary
+   * disposal stays exactly one call long.
+   */
+  disposeUntilKillDelivered(): void {
+    for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
+      this.dispose();
+      if (this.#killDelivered || this.#closeDelivered || this.#child.pid === undefined) {
+        return;
+      }
+    }
   }
 }

@@ -15,6 +15,13 @@
 // restated), in the same shape: attempt, wait for the tree's own evidence, return
 // the moment it is gone.
 //
+// AND THE WAITS ARE INSIDE THE CLOSE BUDGET RATHER THAN AFTER IT, which is the
+// second claim here and the one a reader would not guess from the first. Three
+// grace intervals added once `application.close()` had spent its whole registered
+// ceiling put the all-refused path past what `tierTimeoutFor` reserves for
+// cleanup — so vitest's own timeout fired first and took the `unterminable`
+// verdict with it, which is the one settlement a later launch can feel.
+//
 // The stand-ins are `bounded-cleanup.test-support.ts`'s, for that module's reason:
 // no platform can be asked to refuse a kill on demand, and these cases run inside
 // the runner, where a terminator that really signalled would reach a process group
@@ -22,12 +29,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DISPOSAL_ATTEMPTS } from "../../helpers/electron-child-cleanup.js";
+import { DISPOSAL_ATTEMPTS } from "../../helpers/managed-electron-child.js";
 import { BoundedCleanup } from "../bounded-cleanup.js";
 import {
   applicationThatNeverCloses,
+  applicationWhoseCloseRejects,
   profileSpy,
   TEST_BUDGET_MS,
+  TEST_OVERLONG_TERMINATION_WAIT_MS,
   TEST_TERMINATION_WAIT_MS,
   terminatorRefusingThenDelivering,
   terminatorSpy,
@@ -76,6 +85,49 @@ describe("bounded cleanup — a tree that refuses the kill", () => {
       terminator.killed.length,
       "the retry is not held to the shared attempt bound — a tree nothing can kill holds teardown open",
     ).toBe(DISPOSAL_ATTEMPTS);
+  });
+
+  it("charges the retry's waits to the close budget instead of adding them after it", async () => {
+    // THE SECOND FINDING. The close spends its whole ceiling here — the
+    // application never settles — and the terminator then refuses every ask, so
+    // this is the exact path that used to cost the ceiling PLUS three grace
+    // intervals. `tierTimeoutFor` reserves only the ceiling and a two-second
+    // settlement residual, so on the registered figures that overrun put the
+    // cleanup past its enclosing tier timeout and vitest killed the test before
+    // the `unterminable` verdict below could be returned at all.
+    const outcome = await new BoundedCleanup(
+      applicationThatNeverCloses(4242),
+      terminatorSpy(false),
+      profileSpy(),
+      TEST_BUDGET_MS,
+      TEST_OVERLONG_TERMINATION_WAIT_MS,
+    ).close();
+    expect(outcome.settlement).toBe("unterminable");
+    // Non-vacuity: the close really did spend the ceiling, so what follows is a
+    // statement about the retry rather than about a cleanup that finished early.
+    expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_BUDGET_MS);
+    expect(
+      outcome.waitedMs,
+      "a grace interval was added after the close ceiling — the cleanup outruns the tier timeout that reserves it",
+    ).toBeLessThan(TEST_BUDGET_MS + TEST_OVERLONG_TERMINATION_WAIT_MS);
+  });
+
+  it("still pauses between asks while the budget has room, rather than never pausing", async () => {
+    // The foil for the case above, and the reason the pause is DERIVED rather
+    // than deleted. This close rejects at once, so almost the whole budget is
+    // unspent and every ask is entitled to its full grace — a fix that answered
+    // the overrun by dropping the pause would pass the case above and turn the
+    // retry into three kills issued in one instant, which asks the platform the
+    // same question three times and gives the tree no time to answer.
+    const outcome = await new BoundedCleanup(
+      applicationWhoseCloseRejects(new Error("close refused")),
+      terminatorSpy(false),
+      profileSpy(),
+      TEST_BUDGET_MS,
+      TEST_TERMINATION_WAIT_MS,
+    ).close();
+    expect(outcome.settlement).toBe("unterminable");
+    expect(outcome.waitedMs).toBeGreaterThanOrEqual(DISPOSAL_ATTEMPTS * TEST_TERMINATION_WAIT_MS);
   });
 
   it("negative control: a delivered kill is asked exactly once", async () => {

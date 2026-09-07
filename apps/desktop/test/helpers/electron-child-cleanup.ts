@@ -68,23 +68,11 @@ import {
   type ElectronChildSpawnOptions,
   type SettleTimeRegistrar,
 } from "./electron-child.js";
-import { TERMINATION_GRACE_MS, type ManagedElectronChild } from "./managed-electron-child.js";
-
-/**
- * How many times a settle-time disposal asks before it gives the child up.
- *
- * Small on purpose, and a bound rather than a condition: the first call is the
- * ordinary one, the second is the whole reason the loop exists — a tree that
- * refused one kill and takes the next — and past that the tree is unkillable by
- * this process. A further ask would hold teardown open for the same answer,
- * which is the trade the bounded wait below already refuses.
- *
- * Exported because the Playwright launcher's settle-time close asks the same
- * question of the same kind of tree, and answering it with a second `3` beside
- * this one would be two homes for one bound — `test/console/bounded-cleanup.ts`
- * takes this figure rather than restating it.
- */
-export const DISPOSAL_ATTEMPTS = 3;
+import {
+  DISPOSAL_ATTEMPTS,
+  TERMINATION_GRACE_MS,
+  type ManagedElectronChild,
+} from "./managed-electron-child.js";
 
 /**
  * Spawn a child that is already holding a resource, and release it if the spawn
@@ -157,12 +145,20 @@ export function cleanUpAfterChildAtSettleTime(
 /**
  * Signal and wait, and ask again while the child is still there.
  *
- * The FIRST `dispose` is unconditional, even against a child whose `close` has
+ * The FIRST disposal is unconditional, even against a child whose `close` has
  * already been delivered, because signalling is not all it does: it also
  * releases an armed escalation timer, and a pending timer is a claim on a
  * worker that is being torn down — the shape `electron-child.ts`'s header opens
  * with. Every LATER one is the retry, and it is asked only of a child that has
- * not closed, which is the only state in which `dispose` still signals anything.
+ * not closed, which is the only state in which a disposal still signals anything.
+ *
+ * TWO BOUNDS OVER TWO SUBJECTS, AND THIS LOOP OWNS ONLY THE SECOND.
+ * `disposeUntilKillDelivered` owns the kill retry — a platform that REFUSED the
+ * signal, which is answered by asking it again straight away — and this loop
+ * owns the close wait, a child that took the kill and has not yet released the
+ * stdio a descendant inherited, which is answered only by time. Writing the kill
+ * retry here as well would put the same bound in two places, and the spawn
+ * door's misuse recovery could reach neither of them.
  *
  * Returning early on `hasClosed` rather than on the attempt count is what keeps
  * the ordinary run one call long: the bound is what a refusal costs, not what
@@ -173,7 +169,7 @@ async function disposeUntilChildHasClosed(
   exitWaitMs: number,
 ): Promise<void> {
   for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {
-    managed.dispose();
+    managed.disposeUntilKillDelivered();
     await whenChildIsGone(managed, exitWaitMs);
     if (managed.hasClosed) {
       return;

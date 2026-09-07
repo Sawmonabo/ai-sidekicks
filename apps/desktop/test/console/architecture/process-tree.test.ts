@@ -24,12 +24,19 @@ import process from "node:process";
 import { describe, expect, it } from "vitest";
 
 import {
+  descendantsOf,
+  parseProcessParentTable,
+  readProcessParentTable,
+  terminationSucceeded,
+} from "../../helpers/process-tree-arms.js";
+import {
   isTerminatedProcessState,
+  PROCESS_TREE_TERMINATION_MODE,
   processExists,
+  processGroupExists,
   processHasTerminated,
   processStateFromProcStat,
   readProcessLiveness,
-  terminationSucceeded,
   type ProcessLivenessProbes,
 } from "../../helpers/process-tree.js";
 
@@ -133,6 +140,92 @@ describe("process termination — asking whether a pid is still there", () => {
     expect(reaped.status).toBe(0);
     expect(reaped.pid).toBeGreaterThan(0);
     expect(processExists(reaped.pid)).toBe(false);
+  });
+});
+
+describe("process termination — the tree handles that outlive a root", () => {
+  // A TREE IS NOT ITS ROOT, and both arms answer the survival question from a
+  // handle that is meant to survive the root's exit: the process GROUP on POSIX,
+  // and the parent table on Windows. Reading the root instead is what reported a
+  // rootless tree — a reaped launcher shim under a live browser — as terminated.
+
+  it("finds the group this process is in, which is the one group guaranteed to hold a member", () => {
+    // Asked of this runner's OWN group rather than of a spawned tree: the probe
+    // is a reading and not a signal, and this group certainly holds a member
+    // because this process is that member. The id is read from the platform
+    // rather than guessed — a worker is not usually its own group's leader, so
+    // `process.pid` and `process.ppid` are both the wrong number for this.
+    if (PROCESS_TREE_TERMINATION_MODE !== "signal") {
+      // Windows has no process group to ask about, which is the whole reason the
+      // other arm exists; asserting one here would be a POSIX detail on a
+      // platform that has none.
+      return;
+    }
+    const reported = spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {
+      encoding: "utf8",
+    });
+    expect(reported.status).toBe(0);
+    const processGroupId = Number(reported.stdout.trim());
+    expect(processGroupId).toBeGreaterThan(0);
+    expect(processGroupExists(processGroupId)).toBe(true);
+  });
+
+  it("refuses the pid that would report this runner as the live tree", () => {
+    // `0` is the one foil: `kill(-0, 0)` is `kill(0, 0)`, which on POSIX
+    // addresses the CALLER's own process group — so an unrecorded pid handed
+    // through would answer "the tree is alive" about the test runner itself.
+    expect(processGroupExists(0)).toBe(false);
+  });
+
+  it("reads this very process out of the parent table, through the real platform arm", () => {
+    // The half the parser cannot claim: that the command emits the shape it is
+    // parsed as. This process is the one row whose answer is already known.
+    expect(readProcessParentTable().get(process.pid)).toBe(process.ppid);
+  });
+
+  it("parses two integers per line and contributes nothing for anything else", () => {
+    const parsed = parseProcessParentTable(
+      ["  PID  PPID", " 4242   4241", "4243 4242", "", "warning: something happened"].join("\n"),
+    );
+    expect([...parsed]).toStrictEqual([
+      [4242, 4241],
+      [4243, 4242],
+    ]);
+  });
+
+  it("walks the descendant closure transitively, so a browser's own children are in the tree", () => {
+    expect(
+      descendantsOf(
+        4242,
+        new Map([
+          [4243, 4242],
+          [4244, 4243],
+          [4245, 4244],
+          [9999, 1],
+        ]),
+      ).sort(),
+    ).toStrictEqual([4243, 4244, 4245]);
+  });
+
+  it("terminates the closure over a parent cycle rather than walking one forever", () => {
+    // Not hypothetical on a table read as a snapshot: pids are reused, and a
+    // reused pid can appear as its own descendant's parent between two rows.
+    expect(
+      descendantsOf(
+        4242,
+        new Map([
+          [4243, 4242],
+          [4242, 4243],
+        ]),
+      ),
+    ).toStrictEqual([4243]);
+  });
+
+  it("negative control: a root with no children yields nothing to address", () => {
+    // Without this the closure cases above are ambiguous between "it walks the
+    // table" and "it returns everything in it", and the second would hand a
+    // rootless kill every pid on the host.
+    expect(descendantsOf(4242, new Map([[9999, 1]]))).toStrictEqual([]);
   });
 });
 

@@ -35,6 +35,16 @@ export const TEST_BUDGET_MS = 120;
  */
 export const TEST_TERMINATION_WAIT_MS = 5;
 
+/**
+ * A grace interval deliberately LONGER than the whole close budget above.
+ *
+ * The one figure that separates a retry charged to that budget from one added
+ * after it. At this length three added intervals dwarf the budget, so the two
+ * shapes are hundreds of milliseconds apart rather than tens — which is what
+ * makes the claim an assertion rather than a race against a loaded runner.
+ */
+export const TEST_OVERLONG_TERMINATION_WAIT_MS = 500;
+
 /** An application whose close never settles, and whose process has a pid. */
 export function applicationThatNeverCloses(processId: number | undefined): ClosableApplication {
   return { close: () => new Promise<void>(() => undefined), processId: () => processId };
