@@ -17,10 +17,13 @@
 // declared the scheduler construction, the snapshot, and both trigger members until
 // those six pass-throughs were hoisted onto `store/act-controller-base.ts`; read as
 // bare declarations afterwards, all three would have silently left the gate's subject
-// set while behaving identically. So the walk follows the `extends` clause one hop —
-// resolved as a BINDING through the same import list, and through the family door's
-// own re-export to the module that declares the base — and folds what the base
-// declares into the subclass's census. A base reached by name is not followed.
+// set while behaving identically. So the walk follows the `extends` chain, bounded at
+// four hops — each link resolved as a BINDING through the same import list, and through
+// the family door's own re-export to the module that declares the base — and folds what
+// every base declares into the subclass's census. The bound is `RESOLUTION_DEPTH_LIMIT`
+// and it is a guard rather than a policy: no console class is more than one link deep
+// today, and a chain that ran longer than four would be a cycle the parse cannot see.
+// A base reached by name rather than by import is not followed at all.
 
 import ts from "typescript";
 

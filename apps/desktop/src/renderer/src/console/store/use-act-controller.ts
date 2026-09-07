@@ -10,14 +10,16 @@
 // with a real read on the wire and real triggers armed, and no effect ever commits to
 // end it. The resource seam closes one inside the render that drops it.
 //
-// AND THE DISPOSAL IS DECLARED ONCE, for every subject-scoped controller in the
-// console and not only for the ones this hook binds. Four surfaces each carried their
-// own `SubjectScopedDisposal` constant naming the same two methods on classes that
-// spelled them identically, which is four places one rule could drift — so the
-// constant is typed on {@link DisposableController}, the whole of what disposing one
-// requires, and the fourth surface (the repos family's root-disposal controller,
-// which publishes into a host rather than off a snapshot and so binds through
-// `useSubjectScopedResource` directly) takes the same one.
+// AND THE DISPOSAL IS DECLARED ONCE, for every subject-scoped resource in the console
+// that ends the ordinary way and not only for the ones this hook binds. SEVEN modules
+// each carried their own `SubjectScopedDisposal` constant — the three repos act
+// controllers behind this hook, plus `roots/disposal-controller.ts`,
+// `mounts/repo-mounts-binding.ts`, `mounts/execution-context-binding.ts`,
+// `proposals/proposal-gate-binding.ts`, `artifact-pane/use-artifact-reading.ts` and
+// `attachments/attachment-carrier.ts` — naming the same two methods on classes that
+// spelled them identically. Counting them is what makes this sentence checkable: what
+// is left in the tree is `frame/` and `browser/`, whose constants call NAMED closers
+// or take the `release` arm, which is a different shape and not a copy of this one.
 
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -85,7 +87,19 @@ export function useActController<TController extends ActControllerSurface>(
   return { controller, reading };
 }
 
-/** How one controller ends, and how one already ended is recognised. Declared once. */
+/**
+ * How one resource ends, and how one already ended is recognised. Declared once.
+ *
+ * ONE MODULE-LEVEL OBJECT, because the resource seam holds `dispose` and `isClosed` on
+ * dependencies of their own: a literal minted in a render body would hand over a fresh
+ * identity on every pass and restart the lifetime beneath it. `dispose` is TERMINAL,
+ * which is why `isClosed` travels beside it in the same object rather than being
+ * re-derived in an effect — re-derived there, the seam records the corpse as committed,
+ * the caller publishes a replacement, and the value-change cleanup calls `dispose()` on
+ * the corpse a second time. That was measured rather than reasoned: it happened to be
+ * harmless only because `AttachmentIngestClient.dispose` is re-entrant, one
+ * non-idempotent teardown away from a real double-release.
+ */
 export const CONTROLLER_DISPOSAL: SubjectScopedDisposal<DisposableController> = {
   dispose: (controller) => {
     controller.dispose();

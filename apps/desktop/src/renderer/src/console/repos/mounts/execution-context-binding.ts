@@ -24,9 +24,9 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import {
+  CONTROLLER_DISPOSAL,
   useSubjectScopedResource,
   type SessionStore,
-  type SubjectScopedDisposal,
 } from "../../store/index.js";
 import type { ExecutionContextReading } from "./execution-context-model.js";
 import { WorkspaceExecutionContextReader } from "./execution-context-reader.js";
@@ -51,7 +51,7 @@ export function useWorkspaceExecutionContext(
     bridge,
     workspaceId,
     () => new WorkspaceExecutionContextReader({ bridge, workspaceId, sessionStore, clock }),
-    EXECUTION_CONTEXT_READER_DISPOSAL,
+    CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
     reader.start();
@@ -63,19 +63,3 @@ export function useWorkspaceExecutionContext(
   const read = useCallback(() => reader.snapshot, [reader]);
   return useSyncExternalStore(subscribe, read, read);
 }
-
-/**
- * How one reader ends, and how one this module already ended is recognised.
- *
- * ONE MODULE-LEVEL OBJECT, on the proposal gate's reason: the resource seam holds
- * `dispose` and `isClosed` on dependencies of their own, so a literal minted in the
- * render body would hand over a fresh identity every pass and restart the lifetime
- * beneath it. The disposal is TERMINAL — a disposed reader publishes nothing again —
- * which is why the reading travels beside it rather than being re-derived in an effect.
- */
-const EXECUTION_CONTEXT_READER_DISPOSAL: SubjectScopedDisposal<WorkspaceExecutionContextReader> = {
-  dispose: (reader) => {
-    reader.dispose();
-  },
-  isClosed: (reader) => reader.isDisposed,
-};

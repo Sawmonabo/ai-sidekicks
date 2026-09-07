@@ -1,0 +1,102 @@
+/*
+ * One execution-root card: a worktree row, or an ephemeral-clone row.
+ *
+ * SPLIT OUT OF `mounts.css` WHEN THAT SHEET PASSED THE PACKAGE'S ~400-LINE RULE, along
+ * its own `execution-root cards` banner and verbatim — a move, not a restyle. It is a
+ * SIBLING of `mounts.css` rather than a resident of `roots/`, because ownership follows
+ * the components: these rules dress `mounts/WorktreeCard.tsx` and
+ * `mounts/EphemeralCloneCard.tsx`, both of which live in this directory. `roots/` holds
+ * the two ACT surfaces — preparing a root, and retiring or disposing of one — and
+ * `roots/roots.css` says exactly that; a card is what an act produced, not the act.
+ *
+ * THE SHAPES THESE CARDS SHARE WITH THE ARTIFACT ROWS STAY IN `repos/repos.css`, which
+ * is imported ahead of this sheet: `__pair`, `__detail-summary`, and the focus ring are
+ * declared there against both block names at once, because a shape two families wear
+ * belongs to the family sheet. What is here is what only a root card wears.
+ *
+ * IMPORTED FROM `repos/index.ts` IMMEDIATELY AFTER `mounts.css` AND BEFORE
+ * `mount-acts.css`. Eight rule blocks, all of them formerly `mounts.css:353-434`, and no
+ * selector here appears in any other sheet in this directory — so the only sheet whose
+ * position relative to this one matters is `repos.css`, which loaded before `mounts.css`
+ * and still loads before this.
+ */
+
+/*
+ * One card per worktree or clone row. Both record kinds share this shape
+ * and differ only in which columns they fill, which is `RepoSection.tsx`'s two lists
+ * with different columns read as one rhythm rather than two visual languages: an
+ * operator scanning for what is safe to reclaim reads the same three lines in the
+ * same three places in either list.
+ */
+.meridian-root-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-root-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * The branch name is the card's title and a wire string, so it is mono and it
+ * truncates at the measure rather than in the string — the full value stays
+ * reachable, and two branches differing only in their tail never render alike.
+ */
+.meridian-root-card__title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-root-card__meaning,
+.meridian-root-card__disposition {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The sub-state line reads louder than the state's own sentence, because it is the
+ * one that answers "is this disk free" — the question `worktree-model.ts` says the
+ * surface exists to answer and the one a plain `retired` chip gets wrong.
+ */
+.meridian-root-card__disposition {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-root-card__summary,
+.meridian-root-card__detail-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+/* A filesystem root is long and its TAIL is the part that identifies it. */
+.meridian-root-card__path {
+  direction: rtl;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-root-card__detail-list {
+  padding-block-start: var(--meridian-space-2);
+}

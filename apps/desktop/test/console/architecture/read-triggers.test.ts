@@ -37,10 +37,10 @@
 //
 // HOW A CLASS IS READ IS `reading-census.ts`'S, beside this file on the tier's own
 // census/claims split: every name this gate keys on is BOUND to the module it came
-// from rather than matched as text, and a class is read together with the base its
-// `extends` clause binds. Both rules are stated there, where the walk that applies
-// them lives; what stays here is the rule they serve, the census pin, and the
-// controls that prove each half fails on the shape it is written against.
+// from rather than matched as text, and a class is read together with every base its
+// `extends` chain binds, bounded at four hops. Both rules are stated there, where the
+// walk that applies them lives; what stays here is the rule they serve, the census pin,
+// and the controls that prove each half fails on the shape it is written against.
 //
 // THE CONTRACT AND NOT THE WIRING, which is why the three repos readings satisfy this
 // gate without mounting a hook. A reading minted per subject inside a resource seam

@@ -17,29 +17,12 @@ import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import {
+  CONTROLLER_DISPOSAL,
   useSubjectScopedResource,
   type SessionStore,
-  type SubjectScopedDisposal,
 } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import type { RepoMountsReading } from "./repo-mounts-model.js";
-/**
- * How one reader ends, and how one this module already ended is recognised.
- *
- * ONE MODULE-LEVEL OBJECT, because the resource seam holds `dispose` and `isClosed` on
- * dependencies of their own: a literal minted in the render body would hand over a
- * fresh identity on every pass and restart the lifetime beneath it. `dispose` here is
- * TERMINAL, which is why the reading travels beside it in the same object rather than
- * being re-derived in an effect — re-derived there it left the corpse recorded as
- * committed and disposed a second time when the caller's own replacement retired it.
- */
-const REPO_MOUNTS_READER_DISPOSAL: SubjectScopedDisposal<RepoMountsReader> = {
-  dispose: (reader) => {
-    reader.dispose();
-  },
-  isClosed: (reader) => reader.isDisposed,
-};
-
 /** What the hook hands a surface: the reading, the picker's mutation, and the re-read. */
 export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
@@ -81,7 +64,7 @@ export function useRepoMounts(
     bridge,
     sessionStore.sessionId,
     () => new RepoMountsReader({ bridge, sessionStore, clock }),
-    REPO_MOUNTS_READER_DISPOSAL,
+    CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
     // THE STORE AXIS, AND ONLY IT. The seam holds one resource per `(subject, key)`,

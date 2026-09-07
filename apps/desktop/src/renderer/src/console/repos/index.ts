@@ -40,6 +40,13 @@ import "./repos.css";
 // a sheet as a `<style>` element and a relative `@import` inside one resolves against
 // the document rather than against the sheet, so the rules silently do not arrive.
 import "./mounts/mounts.css";
+// The two surfaces that left `mounts.css` when it passed the ~400-line rule, directly
+// after it and ahead of the act sheets, so the four below keep the order they had.
+// Siblings rather than residents of `bind/` and `roots/` because ownership follows the
+// components: all four of the ones they dress live in `mounts/` itself. Each header
+// says so, and says why the cascade cannot turn on the move.
+import "./mounts/mode-picker.css";
+import "./mounts/root-cards.css";
 // The mount surfaces' own four sheets, after the sheet they were split out of and in
 // the order their rules held inside it — the shape the act surfaces share, then the
 // three sub-directories that override it. `mounts/mount-acts.css` says why a shape

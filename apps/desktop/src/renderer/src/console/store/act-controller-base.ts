@@ -30,7 +30,7 @@
 //
 // WHAT THIS IS NOT. It is not a reading in its own right: it holds no `ConsoleBridge`
 // and knows no method name, so `test/console/architecture/read-triggers.test.ts` does
-// not count it as one. What that gate DOES do is follow a subclass's `extends` clause
+// not count it as one. What that gate DOES do is follow a subclass's `extends` chain
 // into this module, so a controller inherits the scheduler and the trigger contract it
 // used to declare by hand and stays a subject of the rule.
 
