@@ -14,6 +14,7 @@ import type { ConsoleRefusal } from "../../../core/index.js";
 import { ChordHint, InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
 import {
   readChordFromEvent,
+  readHeldModifiersFromEvent,
   type CompletedChordRecording,
   type KeybindingRow,
 } from "./keybinding-map.js";
@@ -108,6 +109,21 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
             }
             setHeldModifiers([]);
             props.onRecorded(read);
+          }}
+          onKeyUp={(event) => {
+            if (!recording) {
+              return;
+            }
+            // A release is the other half of the hint, and without it the sentence is
+            // in the present tense about a key that is no longer down: a person who
+            // pressed ⇧ and let go read "Holding ⇧" until they pressed something else,
+            // blurred the control, or started over. Recomputed rather than cleared,
+            // because releasing ⇧ on the way to ⌥⇧J leaves ⌥ held — and read through
+            // the same function the chord is composed with, so the hint and the chord
+            // cannot disagree about what a modifier is called.
+            event.preventDefault();
+            event.stopPropagation();
+            setHeldModifiers(readHeldModifiersFromEvent(event.nativeEvent));
           }}
         >
           {recording ? "Press a chord" : "Rebind"}

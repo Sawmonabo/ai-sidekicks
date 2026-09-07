@@ -179,7 +179,10 @@ describe("browser — the provider-account token field is write-only in the engi
   }
 
   /** Fill the form the way a person does, then press its submit. */
-  async function typeAndSubmit(container: HTMLElement): Promise<void> {
+  async function typeAndSubmit(
+    container: HTMLElement,
+    typedLabel = "A machine account",
+  ): Promise<void> {
     const label = container.querySelector<HTMLInputElement>('input[type="text"]');
     const submit = container.querySelector<HTMLButtonElement>('button[type="submit"]');
     if (label === null || submit === null) {
@@ -192,7 +195,7 @@ describe("browser — the provider-account token field is write-only in the engi
     // the promise resolves rather than before it, which React reports as an act
     // warning and a case observes as a tree one render behind.
     await act(async () => {
-      await userEvent.fill(label, "A machine account");
+      await userEvent.fill(label, typedLabel);
       await userEvent.fill(tokenFieldIn(container), TYPED_TOKEN);
       await userEvent.click(submit);
       await crossMacrotaskBoundary();
@@ -247,6 +250,33 @@ describe("browser — the provider-account token field is write-only in the engi
       await crossMacrotaskBoundary();
     });
     expect(field.value).toBe(TYPED_TOKEN);
+  });
+
+  // A LABEL OF SPACES IS THE ENGINE'S CASE AND NOT A DOM SHIM'S. `required` is
+  // satisfied by any non-empty value, so this browser submits the form and the handler
+  // is what has to notice — which is exactly the reading a shimmed DOM cannot make,
+  // because it does not run constraint validation on a submit at all.
+  it("refuses a label of spaces and keeps the credential the person typed", async () => {
+    const container = renderRegistrationForm();
+    await typeAndSubmit(container, "   ");
+
+    // Said, rather than silently dropped: before this the handler cleared the token
+    // and returned, so the form looked untouched and the person had to retype a
+    // credential with no explanation of what went wrong.
+    const refusal = container.querySelector(".meridian-settings-page__state--failed");
+    expect(refusal).not.toBeNull();
+    expect(refusal?.textContent ?? "").toContain("label");
+    // And the field still holds what was typed, because nothing was dispatched.
+    expect(tokenFieldIn(container).value).toBe(TYPED_TOKEN);
+  });
+
+  it("negative control: a real label clears that same field, so retention is the refusal's", async () => {
+    // Without this the case above would pass over a form that never cleared the token
+    // at all — retention proving nothing rather than a submission that did not happen.
+    const container = renderRegistrationForm();
+    await typeAndSubmit(container, "A machine account");
+    expect(tokenFieldIn(container).value).toBe("");
+    expect(container.querySelector(".meridian-settings-page__state--failed")).toBeNull();
   });
 });
 

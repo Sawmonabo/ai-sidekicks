@@ -163,12 +163,18 @@
 
 /* The heading takes focus so the platform scrolls it into the pane. It is not a
    control, so it carries no persistent focus ring — only the one the browser draws
-   while a keyboard is driving. */
+   while a keyboard is driving.
+
+   The ring is written width-style-colour like every other focus rule in the tree, and
+   that is load-bearing rather than tidy: `outline` is a shorthand, so a value naming
+   only a colour resets `outline-style` to its initial `none` and draws nothing. The
+   rule above has already removed the browser's own outline, so the search destination
+   of a keyboard-driven act would have had no focus indicator at all. */
 .meridian-settings__page-heading:focus {
   outline: none;
 }
 
 .meridian-settings__page-heading:focus-visible {
-  outline: var(--meridian-focus-ring);
+  outline: 2px solid var(--meridian-focus-ring);
   outline-offset: var(--meridian-space-1);
 }

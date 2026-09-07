@@ -9,11 +9,16 @@ import { describe, expect, it } from "vitest";
 
 import type { ProviderAccountId, ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts";
 
+import type { ConsoleRefusal } from "../../../../core/index.js";
+
 import { bridgeAnswering, SIGN_IN_ATTEMPT } from "./account-plane-bridge.test-support.js";
 import {
   cancelSignIn,
+  readRegistrationFields,
   startSignIn,
   submitTokenRegistration,
+  TOKEN_REGISTRATION_REFUSAL_ORIGIN,
+  type RegistrationFieldReading,
   type SignInFlowState,
 } from "./signin-flow.js";
 
@@ -139,5 +144,53 @@ describe("submitTokenRegistration", () => {
       billingMode: "metered",
     });
     expect(outcome.kind).toBe("refused");
+  });
+});
+
+describe("readRegistrationFields", () => {
+  /** The three ordinary fields, as the form hands them over. */
+  function typed(displayLabel: string): Parameters<typeof readRegistrationFields>[0] {
+    return { displayLabel, provider: "codex", billingMode: "metered" };
+  }
+
+  /** The refusal one reading carries, or `undefined` where it admitted the fields. */
+  function refusalOf(reading: RegistrationFieldReading): ConsoleRefusal | undefined {
+    return reading.kind === "refused" ? reading.refusal : undefined;
+  }
+
+  it("admits a label with the surrounding whitespace trimmed off it", () => {
+    expect(readRegistrationFields(typed("  Metered  "))).toStrictEqual<RegistrationFieldReading>({
+      kind: "admitted",
+      fields: { provider: "codex", displayLabel: "Metered", billingMode: "metered" },
+    });
+  });
+
+  it("refuses a label of nothing but whitespace, which the browser's own check accepts", () => {
+    // `required` is satisfied by any non-empty value, so this is the one blank the
+    // engine lets through — and the reading, not the markup, is what has to catch it.
+    const refusal = refusalOf(readRegistrationFields(typed("   ")));
+    expect(refusal?.code).toBe("registration-label-blank");
+    expect(refusal?.origin).toBe(TOKEN_REGISTRATION_REFUSAL_ORIGIN);
+    expect(refusal?.detail ?? "").toContain("label");
+  });
+
+  it("refuses a value neither closed vocabulary publishes, naming which one", () => {
+    expect(
+      refusalOf(readRegistrationFields({ ...typed("Metered"), provider: "not-a-provider" }))?.code,
+    ).toBe("registration-provider-unadmitted");
+    expect(
+      refusalOf(readRegistrationFields({ ...typed("Metered"), billingMode: "not-a-mode" }))?.code,
+    ).toBe("registration-billing-mode-unadmitted");
+  });
+
+  it("echoes no refused value back into the sentence a person reads", () => {
+    // A label is participant content. `detail` says what would change the answer.
+    const refusal = refusalOf(readRegistrationFields(typed(" \t ")));
+    expect(JSON.stringify(refusal)).not.toContain("\\t");
+  });
+
+  it("negative control: an ordinary label is admitted, so the refusals are the reading's", () => {
+    // Without this the cases above would pass over a reader that refused everything.
+    expect(readRegistrationFields(typed("A machine account")).kind).toBe("admitted");
   });
 });

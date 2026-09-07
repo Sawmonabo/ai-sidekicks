@@ -14,6 +14,7 @@ import {
   composeStaleOverrideRows,
   matchKeybindingRows,
   readChordFromEvent,
+  readHeldModifiersFromEvent,
   type ChordRecording,
 } from "./keybinding-map.js";
 
@@ -220,6 +221,49 @@ describe("reading a keystroke as a chord", () => {
       outcome: "captured",
       chord: "F5",
     });
+  });
+});
+
+describe("reading what is held right now", () => {
+  it("answers the same tokens a chord is composed from", () => {
+    // The hint and the chord read one function, so a modifier cannot be called one
+    // thing on the row and another in the binding.
+    const held = press({ key: "K", code: "KeyK", metaKey: true, shiftKey: true });
+    expect(readHeldModifiersFromEvent(held, "darwin")).toStrictEqual(["$mod", "Shift"]);
+    expect(readChordFromEvent(held, "darwin")).toStrictEqual<ChordRecording>({
+      outcome: "captured",
+      chord: "$mod+Shift+KeyK",
+    });
+  });
+
+  it("answers the state a release leaves behind, not the key that ended", () => {
+    // A keyup carries the flags the host is in AFTER the release, so `⇧` released
+    // while `⌥` is still down reads as `⌥` alone — which is what makes recomputing
+    // correct where clearing is not.
+    expect(
+      readHeldModifiersFromEvent(
+        press({ key: "Shift", code: "ShiftLeft", altKey: true, shiftKey: false }),
+        "darwin",
+      ),
+    ).toStrictEqual(["Alt"]);
+  });
+
+  it("answers nothing once the last modifier is released", () => {
+    expect(
+      readHeldModifiersFromEvent(press({ key: "Shift", code: "ShiftLeft" }), "darwin"),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the key that ended does not decide the answer", () => {
+    // Without this the two cases above would pass over a reader that keyed on `key`
+    // and subtracted the released modifier itself — which is right for `⇧` and wrong
+    // for every host that reports a stuck flag, and wrong for a chord read on keydown.
+    expect(
+      readHeldModifiersFromEvent(
+        press({ key: "Shift", code: "ShiftLeft", shiftKey: true }),
+        "darwin",
+      ),
+    ).toStrictEqual(["Shift"]);
   });
 });
 
