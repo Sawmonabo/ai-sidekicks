@@ -44,18 +44,25 @@
 //     `dismissPending` on it would be an act against a handle main no longer holds.
 //     The card owns that branch because it already makes it — it is the same test
 //     that chooses which of the two blocks below renders.
+//
+// AND IT RENDERS THE TWO PREVIEWS THAT PRODUCED NO INVITATION, which is the other
+// half of what the pending feed carries. A preview the control plane REFUSED and one
+// that could not be put at all mint no reference, so neither has facts to confirm —
+// but a window that drew nothing for them would leave an expired link and an
+// unreachable control plane looking exactly like a link nobody followed, and the one
+// act either admits, the retry, would be offered by no surface at all. Those two arms
+// are `InvitePreviewFailureReading.tsx`, rendered inside this same dialog: it is the
+// same question about the same deep link, and a second overlay for it would be a
+// second card competing for one window's screen. On that branch every close path is
+// the ACKNOWLEDGEMENT above, for a stronger reason than a spent reference — there was
+// never a reference for `invite.dismissPending` to release.
 
 import { Dialog } from "@base-ui/react/dialog";
 import { useRef } from "react";
 
-import {
-  Chip,
-  InlineRefusal,
-  Nothing,
-  WireFigure,
-  formatDateTime,
-} from "../../primitives/index.js";
-import { InviteOutcomeReport } from "./InviteOutcomeReport.js";
+import { InlineRefusal } from "../../primitives/index.js";
+import { InvitationReading } from "./InvitationReading.js";
+import { InvitePreviewFailureReading } from "./InvitePreviewFailureReading.js";
 import type { PendingInviteSnapshot } from "./pending-invite.js";
 
 export interface InviteConfirmationProps {
@@ -63,6 +70,14 @@ export interface InviteConfirmationProps {
   /** The lifecycle's current reading. Rendered only where it names an invitation. */
   readonly snapshot: PendingInviteSnapshot;
   readonly onConfirm: () => void;
+  /**
+   * Put a preview that could not be put to the control plane again.
+   *
+   * Offered on exactly one arm and gated by the reading's own `canRetry`, never by
+   * this card's reading of which state it is looking at. It is not a close path: a
+   * retry's answer arrives as a fresh pending state rather than in this card, and the
+   * head it was dispatched on is released by the lifecycle when the call is served.
+   */
   readonly onRetry: () => void;
   /**
    * Release the reference and put the card away — the card's whole close path while
@@ -85,18 +100,27 @@ export interface InviteConfirmationProps {
 
 export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.Element | null {
   const { snapshot } = props;
-  const { invite } = snapshot;
+  const { invite, previewFailure } = snapshot;
+  // ONE REF FOR BOTH ARMS, because both name the same rule: the control that sends
+  // nothing is first in the tree and is the one the dialog opens with focused. Exactly
+  // one of the two arms is ever mounted, so exactly one control ever attaches to it.
   const dismissRef = useRef<HTMLButtonElement>(null);
-  if (invite === undefined) {
+  if (invite === undefined && previewFailure === undefined) {
     return null;
   }
   const isActing = snapshot.actInFlight !== undefined;
-  // The one close path, and the one branch that decides what closing MEANS. A
-  // settled outcome has already spent the reference, so the act that puts the card
-  // away is an acknowledgement; before one arrives it is the dismissal that releases
-  // what main is holding. The library hands this back for Escape and the backdrop as
-  // well as for the control, which is what makes the three entry points one act.
-  const close = snapshot.outcome === undefined ? props.onDismiss : props.onAcknowledge;
+  // The one close path, and the one branch that decides what closing MEANS. Closing
+  // is a DISMISSAL — the wire act that releases what main is holding — on exactly the
+  // arm where main is holding something: an invitation whose attempt has not settled.
+  // A settled outcome has already spent its reference and a preview failure never had
+  // one, so on both of those the act is the local acknowledgement, and a
+  // `dismissPending` there would be an act against a handle main does not hold. The
+  // library hands this back for Escape and the backdrop as well as for the control,
+  // which is what makes every entry point one act.
+  const close =
+    previewFailure === undefined && snapshot.outcome === undefined
+      ? props.onDismiss
+      : props.onAcknowledge;
 
   return (
     <Dialog.Root
@@ -111,88 +135,36 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
         <Dialog.Backdrop className="meridian-invite-confirmation__backdrop" />
         <Dialog.Popup
           className="meridian-invite-confirmation"
-          aria-label="Confirm this invitation"
+          aria-label={
+            previewFailure === undefined
+              ? "Confirm this invitation"
+              : "This invitation did not open"
+          }
           initialFocus={dismissRef}
         >
-          <Dialog.Title className="meridian-invite-confirmation__title">
-            {invite.sessionName ?? "You have been invited to a session."}
-          </Dialog.Title>
-          <p className="meridian-invite-confirmation__identity">
-            <WireFigure value={invite.sessionId} />
-          </p>
-
-          <dl className="meridian-invite-confirmation__facts">
-            <div className="meridian-invite-confirmation__fact">
-              <dt>Invited by</dt>
-              <dd>
-                {invite.inviterDisplayName ?? (
-                  <Nothing
-                    kind="empty"
-                    placement="inline"
-                    title="Not named"
-                    detail="The preview answered and carried no display name for the inviter, and the raw identifier is not a name."
-                  />
-                )}
-              </dd>
-            </div>
-            <div className="meridian-invite-confirmation__fact">
-              <dt>Joining as</dt>
-              <dd>
-                <Chip label={invite.joinMode} mono tone="accent" />
-              </dd>
-            </div>
-            <div className="meridian-invite-confirmation__fact">
-              <dt>Stops working</dt>
-              <dd>
-                <WireFigure value={formatDateTime(invite.expiresAt)} title={invite.expiresAt} />
-              </dd>
-            </div>
-          </dl>
-
-          {snapshot.outcome === undefined ? (
-            <div className="meridian-invite-confirmation__acts">
-              {/* First in the tree AND named by `initialFocus`: the ordering alone is
-                  not enough, since a later control could be inserted above it, and the
-                  reference alone is not either, since it says nothing to a reader
-                  scanning the markup. */}
-              <button
-                type="button"
-                ref={dismissRef}
-                className="meridian-invite-confirmation__dismiss"
-                disabled={isActing}
-                onClick={props.onDismiss}
-              >
-                Not now
-              </button>
-              <button
-                type="button"
-                className="meridian-invite-confirmation__confirm"
-                disabled={isActing}
-                aria-busy={isActing}
-                onClick={props.onConfirm}
-              >
-                {isActing ? "Joining…" : "Join this session"}
-              </button>
-            </div>
-          ) : (
-            <InviteOutcomeReport
-              outcome={snapshot.outcome}
-              onAcknowledge={props.onAcknowledge}
+          {previewFailure === undefined ? (
+            <InvitationReading
+              snapshot={snapshot}
               isActing={isActing}
+              dismissRef={dismissRef}
+              onConfirm={props.onConfirm}
+              onDismiss={props.onDismiss}
+              onAcknowledge={props.onAcknowledge}
+            />
+          ) : (
+            <InvitePreviewFailureReading
+              failure={previewFailure}
+              canRetry={snapshot.canRetry}
+              isActing={isActing}
+              onRetry={props.onRetry}
+              onAcknowledge={props.onAcknowledge}
+              acknowledgeRef={dismissRef}
             />
           )}
 
           {snapshot.actRefusal === undefined ? null : (
             <InlineRefusal code={snapshot.actRefusal.code} detail={snapshot.actRefusal.detail} />
           )}
-
-          <p className="meridian-invite-confirmation__footnote">
-            {snapshot.waitingBehind > 0
-              ? `Not now puts this away and tells nobody. ${String(snapshot.waitingBehind)} more ${
-                  snapshot.waitingBehind === 1 ? "invitation is" : "invitations are"
-                } behind it.`
-              : "Not now puts this away and tells nobody, because there is no decline to send. The link still works if you change your mind."}
-          </p>
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

@@ -19,6 +19,11 @@
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
+import { SESSION_EVENT_STREAM } from "../../bridge/index.js";
+import {
+  createFixture,
+  subscribeThroughBridge,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { acts, confirmArchive, press, rowNames } from "./channel-rows.test-support.js";
 import {
   CHANNEL_RELAY,
@@ -79,6 +84,34 @@ describe("channel list — the state a served receipt reported", () => {
       container.querySelectorAll(".meridian-channels__list--archived .meridian-channel-row"),
     ).toHaveLength(1);
     expect(acts(container)).toHaveLength(2);
+  });
+
+  it("publishes the transition its own re-read is bound to, off the fixture's feed", async () => {
+    // The other half of one move, and the half no case here could see: the receipt is
+    // what moves the row on screen, and the EVENT is what tells this window's directory
+    // to read again. A fixture that answered the call and published nothing left the
+    // overlay above standing with nothing able to retire it — and every case in this
+    // file went on passing, because the signal reaches the list as a fresh READ and the
+    // read is a prop here.
+    //
+    // So the frame is read off the real fixture the press already goes through, rather
+    // than pushed into a store by hand: what a hand-written frame proves is that the
+    // console folds one, and what is in doubt is whether the act produces one at all.
+    const fixture = createFixture(
+      scenarioAnswering("channel.mute", { channelId: CHANNEL_REVIEW, state: "muted" }),
+    );
+    const frames = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+    const { container } = await renderChannelListSettled(
+      loaded([channel(CHANNEL_REVIEW, "active", "review")]),
+      { bridge: fixture.bridge },
+    );
+
+    await press(container, 0);
+
+    expect(acts(container)[0]?.textContent).toBe("Unmute");
+    // One of the four kinds `channel-model.ts` re-reads on, naming the row that moved.
+    expect(frames.map((frame) => frame.type)).toStrictEqual(["channel.muted"]);
+    expect(frames[0]?.payload["channelId"]).toBe(CHANNEL_REVIEW);
   });
 
   it("negative control: a receipt naming another channel moves neither row", async () => {
