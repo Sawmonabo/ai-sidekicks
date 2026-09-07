@@ -49,6 +49,12 @@ import { RAIL_DESTINATIONS, formatRoute } from "../../../src/renderer/src/consol
 // stylesheet computes to when the row is given a column narrower than its text.
 import "../../../src/renderer/src/console/sessions/index.js";
 import { SessionRow } from "../../../src/renderer/src/console/sessions/SessionRow.js";
+// The chunk root the settings surface's loader fetches, imported for its side effect:
+// `apps/desktop/AGENTS.md` puts a lazily-loaded directory's stylesheets behind that
+// root, and the case below is about what the keyboard sheet computes to when the meta
+// line is given a column narrower than the id on it.
+import "../../../src/renderer/src/console/settings/settings-surface-body.js";
+import { KeybindingRowBody } from "../../../src/renderer/src/console/settings/pages/keyboard/KeybindingRowBody.js";
 import { SETTINGS_SECTION_IDS } from "../../../src/renderer/src/console/settings/settings-sections.js";
 import { REFLOW_MIN_WIDTH_PX } from "../../../src/renderer/src/console/tokens/palette.js";
 
@@ -64,6 +70,19 @@ import { REFLOW_MIN_WIDTH_PX } from "../../../src/renderer/src/console/tokens/pa
  * every font there is.
  */
 const UNBREAKABLE_SESSION_ID = "b3a7c1d95e2f48a06b1c3d5e7f9012345678abcdef0123456789abcdef012345";
+
+/**
+ * A command id long enough that no column at the floor holds it on one line.
+ *
+ * The keyboard page's meta line carries this id as a wire figure, and a figure is
+ * rendered verbatim in mono and never truncated — so whether the page reflows is a
+ * question about the longest id the command table happens to hold, which is data and
+ * changes. The dotted segments are real break opportunities, which is what makes this
+ * the honest question to ask: the row has to wrap INSIDE a segment, because the
+ * narrowest line the segments alone can draw is still wider than the column.
+ */
+const UNBREAKABLE_COMMAND_ID =
+  "console.workspace.deck.pane.terminal.lease.releaseAndReclaimEverySeatedViewer";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -150,6 +169,39 @@ describe("reflow — the console at 320 CSS px", () => {
     // The harness sizes its container to the viewport, which `beforeEach` has already
     // narrowed to the floor — so the row is laid out in exactly the width 1.4.10 asks
     // about, and the same reader the destination cases use names the box that fails.
+    expect(container.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
+    expect(describeHorizontalOverflow(container)).toStrictEqual([]);
+  });
+
+  // The keyboard row on its own, at the floor, carrying a command id the console did
+  // not choose the width of.
+  //
+  // The page case above measures whatever ids the command table holds today, in
+  // whatever face the host resolves — so it answers "these ids fit here" rather than
+  // the thing the meta line owes, which is that it wraps whatever the wire named. The
+  // id below is wider than the floor in any face, so the face is out of the question
+  // and what is left is whether the line is allowed to break inside a segment at all.
+  it("wraps a command id the meta line has no room for", async () => {
+    const { container } = await renderSettled(
+      <KeybindingRowBody
+        row={{
+          commandId: UNBREAKABLE_COMMAND_ID,
+          title: "Release every seated viewer's terminal lease",
+          group: "Workspace",
+          chord: "⌘⇧L",
+          whenExpression: undefined,
+          unavailableReason: undefined,
+          shippedChord: "⌘⇧L",
+          overridden: false,
+        }}
+        recording={false}
+        refusal={undefined}
+        onStartRecording={() => undefined}
+        onRecorded={() => undefined}
+        onReset={() => undefined}
+      />,
+    );
+
     expect(container.getBoundingClientRect().width).toBe(REFLOW_MIN_WIDTH_PX);
     expect(describeHorizontalOverflow(container)).toStrictEqual([]);
   });
