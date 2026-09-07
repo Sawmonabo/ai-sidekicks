@@ -67,8 +67,16 @@ function selectTimeline(state: SessionStoreState): SessionStoreState["timeline"]
 
 export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   const bridge = props.bridgeContext.bridge;
-  const { snapshot, reader } = useApprovalsReader(bridge, props.sessionStore);
-  const goalMutation = useSessionGoalMutation(bridge, props.sessionStore.sessionId);
+  const { snapshot, reader } = useApprovalsReader(
+    bridge,
+    props.sessionStore,
+    props.bridgeContext.frameStore,
+  );
+  const goalMutation = useSessionGoalMutation(
+    bridge,
+    props.sessionStore.sessionId,
+    props.bridgeContext.frameStore,
+  );
   const goalAuthorization = useGoalMutationAuthorization(bridge, props.sessionStore);
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const goal = useMemo(() => foldSessionGoal(timeline), [timeline]);

@@ -10,7 +10,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
 import {
   ReaderHarness,
@@ -95,14 +95,24 @@ describe("the reader is bound to the session it reads", () => {
     let rerender: (element: React.JSX.Element) => void = () => undefined;
     await act(async () => {
       const result = render(
-        <ReaderHarness bridge={options.bridge} sessionStore={options.first} onReader={onReader} />,
+        <ReaderHarness
+          bridge={options.bridge}
+          sessionStore={options.first}
+          frameStore={new FrameStore()}
+          onReader={onReader}
+        />,
       );
       rerender = result.rerender;
     });
     options.beforeRebind?.();
     await act(async () => {
       rerender(
-        <ReaderHarness bridge={options.bridge} sessionStore={options.second} onReader={onReader} />,
+        <ReaderHarness
+          bridge={options.bridge}
+          sessionStore={options.second}
+          frameStore={new FrameStore()}
+          onReader={onReader}
+        />,
       );
     });
     const [first, second] = seen;
@@ -140,7 +150,12 @@ describe("the reader is bound to the session it reads", () => {
     let unmount: () => void = () => undefined;
     await act(async () => {
       const result = render(
-        <ReaderHarness bridge={bridge} sessionStore={first} onReader={onReader} />,
+        <ReaderHarness
+          bridge={bridge}
+          sessionStore={first}
+          frameStore={new FrameStore()}
+          onReader={onReader}
+        />,
       );
       rerender = result.rerender;
       unmount = result.unmount;
@@ -152,7 +167,14 @@ describe("the reader is bound to the session it reads", () => {
     const disposeFirst = vi.spyOn(firstReader, "dispose");
 
     await act(async () => {
-      rerender(<ReaderHarness bridge={bridge} sessionStore={second} onReader={onReader} />);
+      rerender(
+        <ReaderHarness
+          bridge={bridge}
+          sessionStore={second}
+          frameStore={new FrameStore()}
+          onReader={onReader}
+        />,
+      );
     });
     const secondReader = seen.at(-1);
     if (secondReader === undefined || secondReader === firstReader) {
