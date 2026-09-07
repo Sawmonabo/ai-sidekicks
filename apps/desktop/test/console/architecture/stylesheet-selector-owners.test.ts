@@ -7,31 +7,31 @@
 // between chunks and takes a sheet's position in the cascade with it.
 //
 // THE LIVE INSTANCE THAT PAID FOR THIS FILE. `runs/pane/runs.css` declares
-// `.meridian-run-controls { flex-direction: column }` and the WORKFLOWS run pane wears
+// `.meridian-run-controls { flex-direction: column }` and the WORKFLOWS run pane wore
 // that class. Moving the runs pane's body behind a loader took the runs sheet off the
 // initial graph, and the workflows run pane — untouched, in a family whose files were
 // not in the diff — went from a stacked control strip to a side-by-side one: its capture
-// changed from 1440x1751 to 1440x1172. The fix was to keep both runs sheets on the
-// family door; the hazard is that nothing named the coupling.
+// changed from 1440x1751 to 1440x1172. That pair is RESOLVED: the workflows block is
+// `.meridian-workflow-run-controls` now, so the class the runs sheet declares is the runs
+// family's alone and no bundle boundary decides how either surface looks.
 //
-// A PIN AND NOT A BAN, for a reason the pin itself records. Seven collisions are live.
-// Resolving one means renaming a class, and every committed screenshot reference that
-// shows the styled element is a picture of the current cascade — so the resolution has
-// to regenerate references on the baseline host, which is a different change from one
-// that moves bundle boundaries. Until then the seven are named here, and an eighth is a
-// failure. The comparison is EQUALITY rather than containment, so resolving one is also
-// a failure until its line is removed: a pin that only grows is a pin nobody trims.
+// A PIN AND NOT A BAN, for a reason the pin itself records. Five collisions are still
+// live. Resolving one means renaming a class, and every committed screenshot reference
+// that shows the styled element is a picture of the current cascade — so a resolution
+// comes with regenerating references on the baseline host. Until then the five are named
+// here, and a sixth is a failure. The comparison is EQUALITY rather than containment, so
+// resolving one is also a failure until its line is removed: a pin that only grows is a
+// pin nobody trims.
 
 import { describe, expect, it, vi } from "vitest";
 
 import {
   consoleStylesheetTexts,
   crossFamilyCollisions,
-  declaredClassNamesIn,
   formatCollision,
-  selectorPreludesIn,
   type StylesheetText,
 } from "./stylesheet-selector-owners.js";
+import { declaredClassNames, selectorPreludes } from "./stylesheet-selectors.js";
 
 /** Reading and scanning 66 sheets, measured at ~60ms on the authoring machine. */
 vi.setConfig({ testTimeout: 20_000 });
@@ -39,19 +39,19 @@ vi.setConfig({ testTimeout: 20_000 });
 /**
  * Every cross-family collision in the tree today, as `className: families`.
  *
- * Each line is debt with a known shape. The three `runs, workflows` lines are the pair
- * that produced the capture change above; the `frame, primitives` and
- * `primitives, repos` and `primitives, workflows` lines are a family restating a
- * primitive's class instead of composing it, which is the same hazard with a shorter
- * fuse because `primitives` is imported by nearly everything.
+ * Each line is debt with a known shape. The surviving `runs, workflows` line is the run
+ * LIST's — `workflows/runs/run-list.css` and `runs/pane/runs.css` both declare
+ * `.meridian-run-row__failure` — and it is what still holds both runs sheets at that
+ * family's door; the `frame, primitives` and `primitives, repos` and
+ * `primitives, workflows` lines are a family restating a primitive's class instead of
+ * composing it, which is the same hazard with a shorter fuse because `primitives` is
+ * imported by nearly everything.
  */
 const PINNED_CROSS_FAMILY_COLLISIONS: readonly string[] = [
   "meridian-choice-list: frame, primitives",
   "meridian-choice-list__choice: frame, primitives",
   "meridian-figure--wire: primitives, repos",
   "meridian-refusal--inline: primitives, workflows",
-  "meridian-run-controls: runs, workflows",
-  "meridian-run-controls__action: runs, workflows",
   "meridian-run-row__failure: runs, workflows",
 ];
 
@@ -81,12 +81,15 @@ describe("the console's cross-family class-name census", () => {
   it("reads class names out of the real stylesheets", () => {
     const declared = new Set<string>();
     for (const sheet of consoleStylesheetTexts()) {
-      for (const className of declaredClassNamesIn(sheet.source)) {
+      for (const className of declaredClassNames(sheet.source)) {
         declared.add(className);
       }
     }
     expect(declared.size).toBeGreaterThan(DECLARED_CLASS_NAME_FLOOR);
     expect(declared.has("meridian-run-controls")).toBe(true);
+    // Its resolved counterpart, so the positive control also names the rename this pin
+    // was trimmed for: both blocks exist, under two names, in two families.
+    expect(declared.has("meridian-workflow-run-controls")).toBe(true);
   });
 });
 
@@ -126,9 +129,7 @@ describe("the collision reader, against planted stylesheets", () => {
       ),
     ];
     expect(crossFamilyCollisions(sheets)).toStrictEqual([]);
-    expect(declaredClassNamesIn(sheets[1]?.source ?? "")).toStrictEqual(
-      new Set(["workflows-only"]),
-    );
+    expect(declaredClassNames(sheets[1]?.source ?? "")).toStrictEqual(new Set(["workflows-only"]));
   });
 
   // Nested rules are reached, so a collision cannot hide inside a media query.
@@ -143,8 +144,8 @@ describe("the collision reader, against planted stylesheets", () => {
   });
 
   it("drops the at-rule prelude itself rather than reading it as a selector", () => {
-    expect(
-      selectorPreludesIn("@import url(x.css);\n@media print { .a { top: 0; } }"),
-    ).toStrictEqual([".a"]);
+    expect(selectorPreludes("@import url(x.css);\n@media print { .a { top: 0; } }")).toStrictEqual([
+      ".a",
+    ]);
   });
 });

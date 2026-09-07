@@ -20,6 +20,34 @@ import { Suspense, useState } from "react";
 import { RevealFocusHandoff } from "./lazy-body-focus.js";
 import { LazyBodyFocusHandoff } from "./LazyBodyFocusHandoff.js";
 
+/** What one mount holds for as long as its registration is the one it started on. */
+interface PinnedBody<TContext extends object> {
+  /**
+   * The registration this pin belongs to, read as the `lazy()` component it built.
+   *
+   * The board mints exactly one of those per registration and holds it, so comparing it
+   * is comparing registrations — no counter, no id, and nothing for a caller to keep in
+   * step with the thing it identifies.
+   */
+  readonly registration: React.ComponentType<TContext>;
+  /** The arm this mount renders: the settled body if there was one, else the lazy form. */
+  readonly MountedBody: React.ComponentType<TContext>;
+  /** The reveal record the reserved side writes and the loaded side reads. */
+  readonly focusHandoff: RevealFocusHandoff;
+}
+
+/** Pin one registration's arm, with the reveal record that belongs to that mount. */
+function pinBody<TContext extends object>(
+  Body: React.ComponentType<TContext>,
+  resolvedBody: React.ComponentType<TContext> | undefined,
+): PinnedBody<TContext> {
+  return {
+    registration: Body,
+    MountedBody: resolvedBody ?? Body,
+    focusHandoff: new RevealFocusHandoff(),
+  };
+}
+
 export interface LazyBodyProps<TContext extends object> {
   /**
    * The lazy form of the registered body.
@@ -62,16 +90,35 @@ export function LazyBody<TContext extends object>(
   props: LazyBodyProps<TContext>,
 ): React.JSX.Element {
   const { Body, resolvedBody, fallback, context } = props;
-  // PINNED AT THIS MOUNT'S FIRST RENDER, and pinning is the whole of the care here.
-  // The two arms are different component TYPES, so swapping between them mid-mount is an
-  // unmount and a rebuild — the body loses its state and its effects run again, for a
-  // module that had merely finished arriving. Choosing once means a mount that started
-  // warm never suspends and a mount that started cold keeps the lazy element it began
-  // with and swaps nothing when the module lands.
-  const [MountedBody] = useState<React.ComponentType<TContext>>(() => resolvedBody ?? Body);
-  // One record per MOUNT, minted once for the same reason the body is pinned once: two
-  // panes revealing in the same commit each restore their own control.
-  const [focusHandoff] = useState(() => new RevealFocusHandoff());
+  // PINNED PER REGISTRATION, and pinning is the whole of the care here. The two arms are
+  // different component TYPES, so swapping between them mid-mount is an unmount and a
+  // rebuild — the body loses its state and its effects run again, for a module that had
+  // merely finished arriving. Choosing once means a mount that started warm never
+  // suspends and a mount that started cold keeps the lazy element it began with and swaps
+  // nothing when the module lands.
+  //
+  // AND THE PIN IS RELEASED WHEN THE REGISTRATION ITSELF CHANGES, which is the half a
+  // `useState` initializer alone cannot do. `Body` is the `lazy()` a registration builds
+  // once and holds, so its identity IS the registration's: a board re-registering the
+  // same kind under the same owner — a hot reload, a suite recomposing a family, a
+  // window swapping a fixture — replaces the `LoadedLazyBody` and hands this component a
+  // different `Body`. The element type and its position do not change, so React keeps
+  // this instance and the initializer never runs again; the pin then held a lazy
+  // component over a loader nothing would ever call, and the surface went on rendering
+  // the module the OLD registration named. Re-derived on the render that sees the new
+  // registration instead — React's own adjust-state-during-render, which re-renders
+  // before committing anything, so no frame shows the stale arm.
+  const [held, setPinned] = useState(() => pinBody(Body, resolvedBody));
+  // The SAME object is both rendered and stored, so the re-render this schedules settles
+  // on the first pass rather than minting a second pin nobody reads. The reveal record
+  // travels inside it and is re-minted with the body, for the reason it is per mount at
+  // all: it is a handoff between two subtrees of one mount, and a record kept across a
+  // swap would be read by a body the control it names never belonged to.
+  const pinned = held.registration === Body ? held : pinBody(Body, resolvedBody);
+  if (pinned !== held) {
+    setPinned(pinned);
+  }
+  const { MountedBody, focusHandoff } = pinned;
   return (
     <Suspense
       fallback={

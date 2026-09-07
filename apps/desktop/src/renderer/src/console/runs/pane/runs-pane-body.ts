@@ -7,11 +7,12 @@
 // opens the pane has any use for.
 //
 // THE SHEETS ARE THE ONE THING THAT DOES NOT RIDE WITH IT, and `runs/index.ts` carries
-// the measurement that says why: `runs.css` declares `.meridian-run-controls`, which
-// `workflows/pane/run/run-controls.css` also declares, and while both sheets are on the
-// initial document this one decides how the WORKFLOWS run pane lays its controls out.
-// Deferring the sheet with the body changes that surface, which belongs to another
-// family — so the sheets stay on the door until the collision is settled deliberately.
+// the measurement that says why: `runs.css` declares `.meridian-run-row__failure`, which
+// `workflows/runs/run-list.css` also declares, and while both sheets are on the document
+// the later one decides how the WORKFLOWS run list draws a failed run. Deferring the
+// sheet with the body changes that surface, which belongs to another family — so the
+// sheets stay on the door until that collision is settled the way the run-controls one
+// was, by giving the class one owner.
 //
 // Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
 

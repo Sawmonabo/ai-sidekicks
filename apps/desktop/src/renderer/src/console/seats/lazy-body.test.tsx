@@ -322,6 +322,44 @@ describe("the deck's board — a loader survives the duplicate policy", () => {
     expect(beforeEdit.callCount()).toBe(0);
   });
 
+  it("mounts the re-claimed body, not the one the host was already rendering", async () => {
+    // THE HALF THE REGISTRY CLAIM ABOVE CANNOT MAKE. The board really does replace the
+    // loader — and the host went on rendering the first body anyway. `LazyBody` pins its
+    // arm in a `useState` initializer, the element type and its position do not change
+    // across a re-registration, so React keeps the instance and the initializer never
+    // runs again: the pin held a `lazy()` over a loader nothing would call. A hot reload
+    // then read as an edit that did nothing, which is exactly the failure the registry's
+    // replacement was written to prevent.
+    //
+    // Driven through ONE host re-rendered, rather than two renders, because rendering
+    // twice would mount a fresh `LazyBody` each time and pass over a stale pin.
+    const registry = new ConsolePaneRegistry();
+    registry.register({
+      kind: "diff",
+      owner: "repos-family",
+      body: countingLoader(chromedBody("diff", "the body before the edit")).load,
+    });
+
+    function Host(): React.ReactNode {
+      return <>{registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"))}</>;
+    }
+
+    const { container, rerender } = render(<Host />);
+    await settle();
+    expect(container.textContent).toContain("the body before the edit");
+
+    registry.register({
+      kind: "diff",
+      owner: "repos-family",
+      body: countingLoader(chromedBody("diff", "the body after the edit")).load,
+    });
+    rerender(<Host />);
+    await settle();
+
+    expect(container.textContent).toContain("the body after the edit");
+    expect(container.textContent).not.toContain("the body before the edit");
+  });
+
   it("forgets the loader once the kind is released", async () => {
     const registry = new ConsolePaneRegistry();
     const loader = countingLoader<ConsolePaneContext>(() => null);

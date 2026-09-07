@@ -21,22 +21,23 @@
 // place this family departs from the rule the other loader-backed panes follow, and
 // the departure is measured rather than cautious.
 //
-// `pane/runs.css` declares `.meridian-run-controls`, and so does
-// `workflows/pane/run/run-controls.css` — two families, two different components,
-// one class name, disjoint children. While both sheets were on the initial document
-// this one loaded second and its `flex-direction: column` decided how the WORKFLOWS
-// run pane's operator controls lay out. Moving these sheets onto the chunk root took
-// that sheet off the document for any session that never opens a runs pane, which is
-// the whole point of the boundary — and it silently changed a surface belonging to
-// another family: the workflow-run pane's committed screenshot reference is 1440×1751
-// with the controls stacked, and without this sheet it renders 1440×1172 with them
-// side by side (measured 2026-09-06, `test/console/screenshot/workflows.test.tsx`).
+// `pane/runs.css` declares `.meridian-run-row__failure`, and so does
+// `workflows/runs/run-list.css` — two families, two different components, one class
+// name. While both sheets are on the document the later one decides how the WORKFLOWS
+// run list draws a failed run's line, and which is later is a property of the import
+// graph rather than of either sheet. Moving these sheets onto the chunk root would take
+// this one off the document for any session that never opens a runs pane, which is the
+// whole point of the boundary — and it would silently change a surface belonging to
+// another family, with nothing in the diff naming either sheet.
 //
-// So the sheets stay on the door. A bundle-boundary change must not decide how another
-// family's surface looks, and the collision itself is the thing to fix — deliberately,
-// with whichever layout the console actually wants and a regenerated reference — rather
-// than as a side effect here. `test/console/architecture/stylesheet-selector-owners.test.ts`
-// holds the collision census so a SECOND one cannot land unnoticed.
+// The `.meridian-run-controls` half of that coupling is GONE: the workflows run pane's
+// block carries its family's prefix now, so this sheet's `flex-direction: column` styles
+// this family's controls and nothing else. What is left is the run-row pair, and it is
+// enough to hold the sheets here — the fix is the same fix, a rename with the committed
+// references regenerated on the baseline host, and it belongs to a change that does that
+// rather than to one that moves bundle boundaries.
+// `test/console/architecture/stylesheet-selector-owners.test.ts` holds the collision
+// census so a NEW one cannot land unnoticed.
 
 import { type ConsolePaneRegistry } from "../seats/index.js";
 

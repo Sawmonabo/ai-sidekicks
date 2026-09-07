@@ -9,27 +9,26 @@
 // on the palette and the pre-route-commit trigger had nothing to fetch, so the whole
 // warming path was a no-op for the one destination it would have helped most.
 //
-// THE FAMILY'S PANE KINDS DO NOT TRAVEL WITH IT. `workflow-run` is registered with a
-// `render` for a measured cascade reason `index.ts` states, and this module does not
-// change that: the surface's chunk and the pane's registration are separate claims, and
-// `WorkflowRunPane` stays statically referenced from the pane table. The parked-run
-// pane's committed reference is 1440x1751 before and after this split (measured
-// 2026-09-06 against `test/console/screenshot/workflows.test.tsx`).
+// THE FAMILY'S PANE KINDS DO NOT TRAVEL WITH IT. Both are loader-backed registrations of
+// their own, so a session that opens the destination and never a pane pays for neither:
+// the surface's chunk and each pane's are separate claims.
 //
-// THE FAMILY'S SHEET DOES NOT TRAVEL WITH IT EITHER, for the same reason: `workflows.css`
-// stays at the door while `workflow-run` is static, because a static pane may not render
-// against rules that arrive with a chunk it does not pull.
+// THE FAMILY'S SHEET TRAVELS WITH IT, AND WITH BOTH PANE ROOTS TOO. `workflows.css` is
+// the chrome every workflows body stands in, and every one of those bodies is now behind
+// a loader — so the family door can no longer paint it for anyone, and each root names it
+// on `agents/agent-console`'s precedent: two first paints of one family's chrome are two
+// independent paints, and one relying on the other having run is a coupling with no name.
 //
-// ONE SHEET TRAVELS WITH IT. `definitions/definitions-browser.css` dresses
+// ONE MORE SHEET IS THIS CHUNK'S ALONE. `definitions/definitions-browser.css` dresses
 // `DefinitionsBrowser.tsx`, whose only reader is this chunk — it was `@import`ed from
 // `workflows.css` at the door, so every session paid for rules nothing on the initial
-// graph could render against. The family's other sheets stay at the door: `workflows.css`
-// itself and `parks/park-badge.css` dress the statically registered run pane, and
-// `runs/run-list.css` declares a class the RUNS family also declares, so where it lands
-// in the cascade is not this family's decision alone.
+// graph could render against. What does NOT travel is `runs/run-list.css`: it declares a
+// class the RUNS family also declares, so where it lands in the cascade is not this
+// family's decision alone and the door keeps it.
 //
 // Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
 
+import "./workflows.css";
 import "./definitions/definitions-browser.css";
 
 import { createElement } from "react";

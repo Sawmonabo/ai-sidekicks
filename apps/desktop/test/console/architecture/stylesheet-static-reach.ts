@@ -23,11 +23,18 @@
 // class names over-reports (a comment naming a class counts) and never under-reports,
 // and over-reporting is the direction that refuses a move rather than admitting a bad
 // one.
+//
+// WHICH CLASSES A SHEET DECLARES IS NOT READ HERE. `stylesheet-selectors.ts` owns that
+// grammar for both censuses that ask it, and the header there says why a second copy of
+// it is a defect rather than a duplication: this gate reports on finding NO user, so a
+// parser that read one class fewer than the collision census reads would turn an offence
+// off with nothing anywhere disagreeing out loud.
 
 import { sep } from "node:path";
 
 import type { StylesheetTree } from "./stylesheet-edge-graph.js";
 import { resolveStylesheet } from "./stylesheet-edge-graph.js";
+import { declaredClassNames } from "./stylesheet-selectors.js";
 import { moduleStaticImportSpecifiers } from "./stylesheet-specifiers.js";
 
 /** Test-file paths, which are part of no bundle and must not join a reach set. */
@@ -168,46 +175,6 @@ export class StylesheetReachIndex {
     }
     return undefined;
   }
-}
-
-/** Every class name a stylesheet DECLARES, read from its selector preludes. */
-export function declaredClassNames(source: string): ReadonlySet<string> {
-  const names = new Set<string>();
-  for (const prelude of selectorPreludes(source)) {
-    for (const match of prelude.matchAll(/\.(-?[_a-zA-Z][\w-]*)/gu)) {
-      const className = match[1];
-      if (className !== undefined) {
-        names.add(className);
-      }
-    }
-  }
-  return names;
-}
-
-/**
- * The selector preludes in a stylesheet: the text before each rule's opening brace.
- *
- * A brace scan rather than one pattern over the file, so a declaration VALUE carrying
- * dotted text — `content: "."`, `transition: transform .2s` — is never read as a
- * selector. At-rule preludes are dropped by their leading `@`; the rules nested inside
- * one are reached by the same scan a level down.
- */
-function selectorPreludes(source: string): readonly string[] {
-  const withoutComments = source.replaceAll(/\/\*[\s\S]*?\*\//gu, "");
-  const preludes: string[] = [];
-  let buffer = "";
-  for (const character of withoutComments) {
-    if (character === "{" || character === "}" || character === ";") {
-      const prelude = buffer.trim();
-      if (character === "{" && prelude !== "" && !prelude.startsWith("@")) {
-        preludes.push(prelude);
-      }
-      buffer = "";
-      continue;
-    }
-    buffer += character;
-  }
-  return preludes;
 }
 
 const IDENTIFIER_TOKEN = /[A-Za-z_][\w-]*/gu;

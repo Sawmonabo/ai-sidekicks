@@ -289,20 +289,48 @@ function isOwnedEdge(tree: StylesheetTree, sheet: string, edge: StylesheetEdge):
  * EVERY importer must qualify, so a barrel joining two chunk roots still offends: what
  * is admitted is a fan-in whose members are all deferred entries to one directory, not
  * a sheet that happens to have a chunk root among its importers.
+ *
+ * AND AN ADMITTED SHEET'S OWN `@import`S INHERIT IT, which is the second clause and not
+ * a widening of the first. A family sheet three sibling roots pull carries the sheets
+ * that family owns at its head, and each of those is then reached once per root — same
+ * importer, three edges — for a reason that is a property of the roots rather than of
+ * the sheet. Without this clause the model would forbid a fanned-in family sheet from
+ * carrying any `@import` at all, which is an accident of how the walk counts rather than
+ * a rule anybody decided: what makes the fan-in safe is that the members are alternative
+ * entries to ONE body, and a sheet that body's chrome pulls in is on exactly the same
+ * asset. A BARREL among the importers still offends, at this level and at every level
+ * below it, because the recursion admits only importers that are themselves admitted.
  */
 function isSiblingChunkRootFanIn(
   tree: StylesheetTree,
   sheet: string,
   inbound: readonly StylesheetEdge[],
   chunkRoots: ReadonlySet<string>,
+  edges: StylesheetEdgeGraph,
+  // The cycle guard, and the only reason this parameter exists: two sheets that
+  // `@import` each other would otherwise recur forever, and a malformed tree must fail
+  // the gate rather than hang it.
+  visiting: ReadonlySet<string> = new Set(),
 ): boolean {
   const owner = owningBarrelOf(tree, sheet);
-  if (owner === undefined) {
+  if (owner === undefined || visiting.has(sheet)) {
     return false;
   }
-  return inbound.every(
-    (edge) => chunkRoots.has(edge.importer) && owningBarrelOf(tree, edge.importer) === owner,
-  );
+  const descended = new Set([...visiting, sheet]);
+  return inbound.every((edge) => {
+    if (owningBarrelOf(tree, edge.importer) !== owner) {
+      return false;
+    }
+    if (chunkRoots.has(edge.importer)) {
+      return true;
+    }
+    const importerInbound = edges.get(edge.importer);
+    return (
+      importerInbound !== undefined &&
+      importerInbound.length > 0 &&
+      isSiblingChunkRootFanIn(tree, edge.importer, importerInbound, chunkRoots, edges, descended)
+    );
+  });
 }
 
 /** The offending sheets, each reported with the edges that made it one. */
@@ -321,7 +349,7 @@ export function stylesheetEdgeOffences(
       unreached.push(sheet);
       continue;
     }
-    const siblingRoots = isSiblingChunkRootFanIn(tree, sheet, inbound, chunkRoots);
+    const siblingRoots = isSiblingChunkRootFanIn(tree, sheet, inbound, chunkRoots, edges);
     if (inbound.length > 1 && !siblingRoots) {
       const paths = inbound.map((edge) => `${edge.importer} → "${edge.specifier}"`).join("; ");
       duplicatePaths.push(`${sheet}: ${inbound.length} inbound edges — ${paths}`);

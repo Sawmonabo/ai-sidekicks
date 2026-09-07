@@ -34,7 +34,8 @@ import {
   syntheticStylesheetTree,
 } from "./stylesheet-edge-graph.js";
 import { consoleStylesheetTexts, crossFamilyCollisions } from "./stylesheet-selector-owners.js";
-import { declaredClassNames, deferredSheetOffences } from "./stylesheet-static-reach.js";
+import { declaredClassNames } from "./stylesheet-selectors.js";
+import { deferredSheetOffences } from "./stylesheet-static-reach.js";
 
 /** Parsing the console's modules twice over; ~2s on the authoring machine. */
 vi.setConfig({ testTimeout: 60_000 });

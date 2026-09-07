@@ -394,13 +394,16 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
         join("workflows", "index.ts"),
         readConsoleFile(join("workflows", "index.ts")),
       ),
-    ).toStrictEqual(["./workflows.css"]);
+      // The family door's one remaining sheet. Its own chrome moved to the three chunk
+      // roots when the last of its bodies went behind a loader; what stays is the run
+      // list's sheet, whose cascade position is shared with the runs family.
+    ).toStrictEqual(["./runs/run-list.css"]);
     expect(
       stylesheetAtImports(
         join("workflows", "workflows.css"),
         readConsoleFile(join("workflows", "workflows.css")),
-      ).length,
-    ).toBeGreaterThan(1);
+      ),
+    ).toStrictEqual(["./parks/park-badge.css"]);
     // And the door this family's destination now enters on, so the pattern is shown to
     // match a module edge one directory down as well as the family's own.
     expect(
