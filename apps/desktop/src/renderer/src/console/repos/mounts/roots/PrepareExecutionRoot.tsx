@@ -12,7 +12,14 @@
 // one thing — this person has read that the candidate has uncommitted work in it and
 // wants to run there anyway — and a box that were always present would collect that
 // consent for the case that does not need it and, worse, would look like the override
-// for the case that has none.
+// for the case that has none. What the box RECORDS is the candidate's own id, so the
+// consent belongs to one tree rather than to the branch text that found it.
+//
+// AND THE CONTROL IS SHUT WHILE THE CHECK IS IN FLIGHT. The verdict is what decides
+// whether the prepare names a candidate at all, so a form that were sendable during the
+// debounce window would send a prepare with no `reuseWorktreeId` against a branch that
+// has one — an implicit collision the daemon refuses, which can leave the workspace
+// `stale`. The blocked line under the button says so rather than leaving a dead control.
 //
 // THE INCOMPATIBLE VERDICT OFFERS NOTHING TO PRESS THROUGH. It is a state, not a
 // gate: the daemon will not bind that candidate under any acknowledgement, so the
@@ -23,25 +30,25 @@
 // deliberate and infrequent, and an open form on every workspace card would put four
 // controls on a surface whose subject is what the session already holds.
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
-import type { SessionStore } from "../../../store/index.js";
+import { useSubjectScopedState, type SessionStore } from "../../../store/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
 import { usePrepareController } from "./prepare-binding.js";
 import type { PrepareReading } from "./prepare-controller.js";
 import {
   EMPTY_PREPARE_FORM,
-  prepareFormVerdict,
   prepareAcknowledgement,
+  prepareFormVerdict,
+  prepareReuseStanding,
   reuseConsentRequired,
   REUSE_VERDICT_COPY,
   type PrepareFormState,
-  type ReuseVerdict,
 } from "./root-act-model.js";
 
 /** The mode whose root is a clone rather than a worktree. */
@@ -64,18 +71,31 @@ export interface PrepareExecutionRootProps {
 
 export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JSX.Element | null {
   const isClone = props.executionMode === CLONE_EXECUTION_MODE;
-  const { reading, checkReuse, prepare, prepareClone, clearAct } = usePrepareController(
-    props.bridge,
-    {
-      workspaceId: props.workspaceId,
-      repoMountId: props.repoMountId,
-      executionMode: props.executionMode,
-    },
-    props.sessionStore,
+  const { reading, controllerIdentity, checkReuse, prepare, prepareClone, clearAct } =
+    usePrepareController(
+      props.bridge,
+      {
+        workspaceId: props.workspaceId,
+        repoMountId: props.repoMountId,
+        executionMode: props.executionMode,
+      },
+      props.sessionStore,
+    );
+  // THE FORM DIES WITH THE CONTROLLER IT IS BEING READ AGAINST. This row is keyed by
+  // workspace id, so a mode switch re-mints the mode-scoped controller underneath a
+  // component React never unmounts — and a plain register would carry the branch typed
+  // under the old mode into a controller that has asked nothing about it. Addressed at
+  // the controller's identity, so the pass that first sees the new one already reads an
+  // empty form; an effect would clear it one committed frame later, and that frame has a
+  // pressable control in it.
+  const { value: form, publish: publishForm } = useSubjectScopedState<PrepareFormState>(
+    controllerIdentity,
+    undefined,
+    () => EMPTY_PREPARE_FORM,
   );
-  const [form, setForm] = useState<PrepareFormState>(EMPTY_PREPARE_FORM);
-  const verdict = reuseVerdictOf(reading);
-  const formVerdict = prepareFormVerdict(form, verdict);
+  const standing = prepareReuseStanding(reading.prerequisite, !isClone);
+  const { verdict } = standing;
+  const formVerdict = prepareFormVerdict(form, standing);
   const { onPrepared } = props;
 
   const nameBranch = useCallback(
@@ -84,7 +104,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       // specific candidate: carried across an edit it would consent to a different
       // tree's uncommitted work, which is the one mistake this control exists to make
       // impossible. Clearing the act with it keeps a stale settlement off a new intent.
-      setForm({ branchName, acknowledgeDirtyCandidate: false });
+      publishForm({ branchName, acknowledgedCandidateId: undefined });
       clearAct();
       // A CLONE ASKS NO REUSE QUESTION. Clones are minted per run and nothing is
       // reused, so a check here would put a call on the wire whose answer no control
@@ -93,7 +113,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         checkReuse(branchName);
       }
     },
-    [checkReuse, clearAct, isClone],
+    [checkReuse, clearAct, isClone, publishForm],
   );
 
   const submit = useCallback(() => {
@@ -142,11 +162,16 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
         <label className="meridian-prepare-root__consent">
           <input
             type="checkbox"
-            checked={form.acknowledgeDirtyCandidate}
+            // THE BOX IS TICKED FOR A TREE AND NOT FOR A FORM. Both halves read the
+            // candidate the verdict is naming NOW, so a refresh that serves a different
+            // dirty checkout of the same branch draws the box unticked — the consent it
+            // is asking for has not been given for that tree, and `prepareAcknowledgement`
+            // is the same predicate the act sends on.
+            checked={prepareAcknowledgement(form, verdict)}
             onChange={(event) => {
-              setForm((current) => ({
+              publishForm((current) => ({
                 ...current,
-                acknowledgeDirtyCandidate: event.target.checked,
+                acknowledgedCandidateId: event.target.checked ? verdict.worktreeId : undefined,
               }));
             }}
           />
@@ -171,18 +196,6 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       ) : null}
     </details>
   );
-}
-
-/**
- * The verdict the form is being read against.
- *
- * A CHECK THAT HAS NOT ANSWERED IS `none`, NOT A REFUSAL TO PROCEED. The prepare is
- * legal with no candidate and the wire decides in any case; treating an unanswered
- * check as a blocker would close the control on a question still in flight, and
- * treating it as consent-requiring would ask for a consent about nothing.
- */
-function reuseVerdictOf(reading: PrepareReading): ReuseVerdict {
-  return reading.prerequisite.status === "read" ? reading.prerequisite.value : { kind: "none" };
 }
 
 /** One honest line per reading, for a summary with room for exactly one. */
