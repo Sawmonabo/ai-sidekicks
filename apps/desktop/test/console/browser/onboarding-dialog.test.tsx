@@ -23,14 +23,22 @@ import { ONBOARDING_SCENARIO } from "../../../src/renderer/src/console/bridge/sc
 import { onboardingActivation } from "../../../src/renderer/src/console/onboarding/index.js";
 import { OnboardingOverlay } from "../../../src/renderer/src/console/onboarding/OnboardingOverlay.js";
 import { SignInOverlay } from "../../../src/renderer/src/console/sign-in/SignInOverlay.js";
+import { FrameStore } from "../../../src/renderer/src/console/store/index.js";
 import type { ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/index.js";
 
-/** The two members these overlays read, and nothing this tier does not exercise. */
+/**
+ * The three members these overlays read, and nothing this tier does not exercise.
+ *
+ * The frame store is the REAL class rather than a stub with `navigate` on it: the
+ * sign-in card publishes into it while it is open, so a stub would have to grow a
+ * method every time the card learns to say something — and the day it did not, this
+ * tier would fail on the fixture rather than on the geometry it is here to measure.
+ */
 function surfaceContext(): ConsoleSurfaceContext {
   return {
     route: { kind: "sessions" },
     bridge: createFixtureBridge({ scenario: ONBOARDING_SCENARIO }),
-    frameStore: { navigate: () => undefined },
+    frameStore: new FrameStore(),
   } as unknown as ConsoleSurfaceContext;
 }
 

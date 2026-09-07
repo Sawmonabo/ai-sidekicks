@@ -7,6 +7,7 @@
 // the two flushes below exist to answer once.
 
 import { act, render, type RenderResult } from "@testing-library/react";
+import type { ReactNode } from "react";
 
 import { ConsoleRoot, type ConsoleRootProps } from "./ConsoleRoot.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
@@ -28,18 +29,25 @@ export const SESSIONS_HASH = "#/sessions";
  * That context is what the frame builds and hands to every surface, so it is the
  * one seam that reports what the composition root wired without replacing any of
  * it — and a second observer beside it would be a second such seam.
+ *
+ * `renderOverlay` fills the slot the observer leaves empty, and it is a second ROLE
+ * rather than a second observer: `App.tsx` composes the window-scoped overlays into
+ * this same slot, so a case about what one of them does to the frame around it has
+ * to put the real component there. Both callbacks take the context because both jobs
+ * need it, and the slot stays empty for every case that asks for neither.
  */
 export async function mountConsole(
   observe?: (context: ConsoleSurfaceContext) => void,
+  renderOverlay?: (context: ConsoleSurfaceContext) => ReactNode,
 ): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
   const props: ConsoleRootProps =
-    observe === undefined
+    observe === undefined && renderOverlay === undefined
       ? {}
       : {
           renderOverlays: (context) => {
-            observe(context);
-            return null;
+            observe?.(context);
+            return renderOverlay === undefined ? null : renderOverlay(context);
           },
         };
   await act(async () => {

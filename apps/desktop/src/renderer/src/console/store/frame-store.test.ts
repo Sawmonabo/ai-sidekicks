@@ -15,6 +15,13 @@
 //     one producer raised banners. It stopped being unambiguous when a second one
 //     did, and two subsystems sharing a code word would have overwritten each
 //     other's sentence.
+//   • **The modal-surface cell.** The frame inerts its background for a modal
+//     overlay's lifetime, and it can only ask itself about the palette: a card a
+//     VIEW family renders is one `console-view-family-isolation` forbids the frame
+//     from naming at all. So the card publishes here and the frame reads one cell —
+//     which makes what the cell PUBLISHES the whole contract, and the control below
+//     is the one that matters: an unchanged write must publish nothing, because the
+//     writer is an effect that re-runs on inputs the cell does not depend on.
 
 import { describe, expect, it } from "vitest";
 
@@ -88,6 +95,53 @@ describe("FrameStore — the session a window has in hand outlives the route", (
     store.navigate({ kind: "settings", page: undefined });
     expect(store.activeSessionId).toBeUndefined();
     expect(store.lastOpenedSessionId).toBe("session-alpha");
+  });
+});
+
+describe("FrameStore — a family-owned modal surface publishes whether it is up", () => {
+  it("reports no modal surface in a window that has just opened", () => {
+    expect(new FrameStore().getState().isModalSurfaceOpen).toBe(false);
+  });
+
+  it("publishes the open surface and clears it again, through the readable", () => {
+    // Read through `readable` rather than through `getState`, because that is the
+    // face the frame actually holds: a cell the class could set and the read-only
+    // face never reported would leave the background reachable with the card up.
+    const store = new FrameStore();
+    const published: boolean[] = [];
+    const unsubscribe = store.readable.subscribe((state) => {
+      published.push(state.isModalSurfaceOpen);
+    });
+
+    store.setModalSurfaceOpen(true);
+    expect(store.readable.getState().isModalSurfaceOpen).toBe(true);
+
+    store.setModalSurfaceOpen(false);
+    expect(store.readable.getState().isModalSurfaceOpen).toBe(false);
+
+    unsubscribe();
+    expect(published).toStrictEqual([true, false]);
+  });
+
+  it("control: an unchanged write publishes nothing", () => {
+    // The publisher is an effect keyed on the card's open flag AND on the store, so
+    // it re-runs whenever the window hands it a new one. Without the guard each of
+    // those passes would re-render the rail, the banner stack, and the whole route
+    // surface for a fact that did not move.
+    const store = new FrameStore();
+    let publishCount = 0;
+    const unsubscribe = store.readable.subscribe(() => {
+      publishCount += 1;
+    });
+
+    store.setModalSurfaceOpen(false);
+    expect(publishCount).toBe(0);
+
+    store.setModalSurfaceOpen(true);
+    store.setModalSurfaceOpen(true);
+    expect(publishCount).toBe(1);
+
+    unsubscribe();
   });
 });
 

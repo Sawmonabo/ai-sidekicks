@@ -79,6 +79,29 @@ export interface FrameStoreState {
   readonly lastOpenedSessionId: string | undefined;
   readonly schemePreference: SchemePreference;
   readonly isPaletteOpen: boolean;
+  /**
+   * True while a modal surface the frame cannot NAME owns the window.
+   *
+   * WHY THE FRAME CANNOT ASK. `Spec-023 §Console Libraries` adopts the dialog family
+   * under `modal="trap-focus"`, which traps focus and leaves inerting the app root to
+   * the shell — so the shell has to know that a dialog is up. It knows that for the
+   * palette, whose open state it owns. It cannot know it for a card a VIEW family
+   * renders: `console-view-family-isolation` forbids the frame from importing one, so
+   * there is no seam for the frame to read and the family has to publish. This is
+   * that seam, and it is on the WINDOW store because that is what the fact is about —
+   * a window with a card up, not a session with one.
+   *
+   * THE PALETTE IS DELIBERATELY NOT RECORDED HERE. Its open state already has an
+   * owner one layer up, and a copy of it in this cell would be a second record free
+   * to disagree with the first. The frame folds the two at the one place that reads
+   * both.
+   *
+   * ONE CELL RATHER THAN A REGISTRY OF OPEN SURFACES, because the console has exactly
+   * one such surface today. A SECOND publisher makes this a keyed set rather than a
+   * boolean: two cards up and whichever closed first would clear the cell under the
+   * one still open, and the background would come back reachable underneath it.
+   */
+  readonly isModalSurfaceOpen: boolean;
   readonly banners: readonly FrameBanner[];
   /** True while the window has focus; the refresh scheduler's `window-focus` reason. */
   readonly isWindowFocused: boolean;
@@ -136,6 +159,7 @@ export class FrameStore {
       lastOpenedSessionId: routeSessionId(initialRoute),
       schemePreference: options.initialSchemePreference ?? SYSTEM_SCHEME_PREFERENCE,
       isPaletteOpen: false,
+      isModalSurfaceOpen: false,
       banners: [],
       isWindowFocused: true,
       shellState: UNREPORTED_SHELL_STATE,
@@ -185,6 +209,26 @@ export class FrameStore {
 
   public setPaletteOpen(isPaletteOpen: boolean): void {
     this.#store.setState({ isPaletteOpen });
+  }
+
+  /**
+   * Publish whether a family-owned modal surface has the window.
+   *
+   * The one writer of {@link FrameStoreState.isModalSurfaceOpen}, and the surface
+   * that opens the card is the caller: it writes `true` while the card is up and
+   * `false` both when the card closes and when it unmounts, so a card React discards
+   * mid-ceremony cannot leave the window inert with nothing on screen to close.
+   *
+   * Compared before it is written, on {@link setWindowFocused}'s reasoning: the
+   * publisher writes from an effect that re-runs whenever its own inputs move, and an
+   * unguarded write on an unchanged value would re-render the rail, the surface, and
+   * every banner for a fact that did not move.
+   */
+  public setModalSurfaceOpen(isModalSurfaceOpen: boolean): void {
+    if (this.#store.getState().isModalSurfaceOpen === isModalSurfaceOpen) {
+      return;
+    }
+    this.#store.setState({ isModalSurfaceOpen });
   }
 
   /**

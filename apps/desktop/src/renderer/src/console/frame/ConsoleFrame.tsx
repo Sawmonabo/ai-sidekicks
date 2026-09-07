@@ -29,10 +29,15 @@
 //     offered from Settings and goes back to the session that is still open.
 //     `RouteSurface` still reads the route's own session, which is a different
 //     question — what to render now, rather than where to go back to.
-//   • **The frame's background is inert for exactly the palette's lifetime.** The
-//     dialog family traps focus and leaves inerting the app root to the shell, and
-//     this file is the shell: it owns the palette's open state, so it is the only
-//     place that can hand `AppFrame` the flag.
+//   • **The frame's background is inert for exactly a modal overlay's lifetime.**
+//     The dialog family traps focus and leaves inerting the app root to the shell,
+//     and this file is the shell — so it is the only place that can hand `AppFrame`
+//     the flag. It reads TWO producers and hands down one: the palette, whose open
+//     state it owns outright, and the frame store's `isModalSurfaceOpen`, which is
+//     how a card a VIEW family renders says it is up at all. The frame may not
+//     import that family — `console-view-family-isolation` — so the card publishes
+//     into the window store and this fold is where the two meet. Neither is a copy
+//     of the other: the palette's state is not written to the store.
 //   • **The bridge is provided, never reached for.** No component below this one
 //     touches `window.sidekicks`.
 //   • **The family-owned frame-lifetime reads wrap this whole subtree.** A view
@@ -124,6 +129,10 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   const banners = useFrameStore(frameStore, (state) => state.banners);
   // The session this window has in hand, which OUTLIVES a route that names none.
   const lastOpenedSessionId = useFrameStore(frameStore, (state) => state.lastOpenedSessionId);
+  // The other half of the inert fold — see the background bullet in this file's
+  // header. A boolean, so zustand's `Object.is` compares it by value and a window
+  // with no card up re-renders on nothing.
+  const isModalSurfaceOpen = useFrameStore(frameStore, (state) => state.isModalSurfaceOpen);
   const { schemePreference, chooseScheme } = useSchemePreference(frameStore, uiStateStore);
 
   // The sheet is already on the document — `ConsoleFrameHost` installed it above
@@ -253,7 +262,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
             warmDestination(consoleSurfaceRegistry, destination);
             frameStore.navigate(routeForDestination(destination));
           }}
-          modalOverlayOpen={commandSurface.paletteOpen}
+          modalOverlayOpen={commandSurface.paletteOpen || isModalSurfaceOpen}
           shellChrome={<ShellChrome frameStore={frameStore} onRetry={startDaemon} />}
           banners={banners}
           onDismissBanner={(bannerId) => {
