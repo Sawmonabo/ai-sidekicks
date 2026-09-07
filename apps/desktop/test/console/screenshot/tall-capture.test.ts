@@ -63,6 +63,15 @@ const PROBE_BAND_COLOUR = "#ff00ff";
 const PAGE_BACKGROUND_COLOUR = "#ffffff";
 
 /**
+ * How far the window-derived surface below hangs past whatever window it is in.
+ *
+ * The console's two full-height destinations measure exactly this much past theirs —
+ * `min-height: 100%` around 32px of their own padding — so the probe reproduces the
+ * shape with the arithmetic written out rather than inherited from a layout.
+ */
+const PROBE_OVERHANG_PX = 64;
+
+/**
  * The image the matcher wrote, taken from the failure that named it.
  *
  * From the matcher's own message rather than rebuilt out of configuration: the
@@ -100,6 +109,26 @@ function mountTallProbeSurface(): HTMLElement {
   band.style.background = PROBE_BAND_COLOUR;
   surface.append(band);
 
+  document.body.append(surface);
+  return surface;
+}
+
+/**
+ * A surface one window tall plus a constant, which is the shape no window holds.
+ *
+ * `calc(100vh + …)` states the dependence outright instead of building an ancestor
+ * chain that happens to produce it: the claim under test is about a box that tracks
+ * its window, and a probe whose tracking is three stylesheets deep would be a probe
+ * of those stylesheets.
+ */
+function mountWindowDerivedProbeSurface(): HTMLElement {
+  const surface = document.createElement("div");
+  surface.style.position = "absolute";
+  surface.style.top = "0";
+  surface.style.left = `${String(PROBE_LEFT_PX)}px`;
+  surface.style.width = `${String(PROBE_WIDTH_PX)}px`;
+  surface.style.height = `calc(100vh + ${String(PROBE_OVERHANG_PX)}px)`;
+  surface.style.background = PROBE_FIELD_COLOUR;
   document.body.append(surface);
   return surface;
 }
@@ -182,6 +211,36 @@ describe("the screenshot tier's capture reaches the whole element", () => {
     await captureAgainstNoReference(surface);
 
     expect({ width: window.innerWidth, height: window.innerHeight }).toStrictEqual(windowBefore);
+  });
+
+  it("photographs a window-derived surface at the tier's own window", async (context) => {
+    // The one shape growing cannot fix, and the reason the chokepoint stops instead
+    // of chasing: this surface is one window tall plus 64px at EVERY window, so each
+    // grow moves both numbers together. The claim is that the capture is taken at
+    // the size the tier configures — not at whatever the loop climbed to — and that
+    // the unpainted band is exactly the overhang and nothing more.
+    context.skip(
+      screenshotUpdateMode !== "none",
+      `this probe captures under a name nothing commits, so it is only safe while references are frozen; this run resolved "${screenshotUpdateMode}"`,
+    );
+
+    const surface = mountWindowDerivedProbeSurface();
+    const windowBefore = { width: window.innerWidth, height: window.innerHeight };
+
+    const image = await CapturedPng.read(
+      writtenCapturePath(await captureAgainstNoReference(surface)),
+    );
+
+    expect({ width: window.innerWidth, height: window.innerHeight }).toStrictEqual(windowBefore);
+    expect(image.height).toBe(windowBefore.height + PROBE_OVERHANG_PX);
+
+    // Painted to the window's last row, and the page's background for the overhang
+    // below it. Asserting the band rather than eliding it is the point: it is the
+    // residual this arm accepts, it is bounded by the surface's own padding, and a
+    // change in its size fails here rather than appearing in a reference nobody
+    // looks at the bottom of.
+    expect(image.rowColours(windowBefore.height - 1)).toStrictEqual([PROBE_FIELD_COLOUR]);
+    expect(image.rowColours(image.height - 1)).toStrictEqual([PAGE_BACKGROUND_COLOUR]);
   });
 });
 

@@ -22,6 +22,17 @@
 // grow is the tester window itself, so the element is laid out and painted whole
 // before anything is clipped out of it.
 //
+// AND ONE SHAPE OF SURFACE NO WINDOW HOLDS. A surface whose own height is derived
+// from the window's is exactly one window tall plus a constant, at every window: the
+// console's two full-height destinations are `min-height: 100%` around 32 px of their
+// own padding, so each measures 64 px past whatever window it is in. Growing moves
+// both numbers together and photographs the same picture in a taller frame, so this
+// module names that outcome instead of chasing it — the capture is taken at the
+// window the tier configures, which is the size every other reference is minted at,
+// and the overhang is that surface's own trailing padding rather than anything it
+// draws. Stated here because it is a property of THE SURFACE and not of the capture:
+// a destination that stops overflowing its scroll container stops taking this arm.
+//
 // AND THE PAGE HAS TO BE ABLE TO HOLD IT. Vitest sizes the tester iframe by writing
 // a width, a height, and a `transform: scale()` onto the orchestrator's container,
 // where the scale is `min(1, pageWidth / width, pageHeight / height)`
@@ -61,12 +72,35 @@ export interface CaptureViewport {
 export const CAPTURE_WINDOW_HEIGHT_CEILING = 3600;
 
 /**
- * The window a capture needs, or `undefined` when the one it already has holds it.
+ * What one sizing pass decided: the window fits, it should grow, or growing is futile.
  *
- * A PURE FUNCTION OVER TWO SIZES, which is what makes the sizing testable without a
+ * Three arms rather than a nullable window, because the third is a real outcome and
+ * not a failure. A surface whose own height is derived from the window's — the
+ * console's two full-height destinations are, each `min-height: 100%` around its own
+ * padding — is exactly one window tall plus a constant, at every window. Growing
+ * moves both numbers by the same amount and photographs the same picture in a taller
+ * frame, so the honest answer is to stop and take it at the window the tier
+ * configures, which is the size every other reference is minted at.
+ */
+export type CaptureWindowStep =
+  | { readonly kind: "fits" }
+  | { readonly kind: "grow"; readonly viewport: CaptureViewport }
+  | { readonly kind: "grows-with-its-window"; readonly overhangPx: number };
+
+/**
+ * Decide one sizing pass: fit, grow, or stop because the surface grows with its window.
+ *
+ * A PURE FUNCTION OVER SIZES, which is what makes the sizing testable without a
  * browser: the DOM read that produces `required` is `settled-capture.ts`'s and the
- * decision is here, so both refusals below can be driven by a node-shaped case
- * instead of by minting a capture that is too large on purpose.
+ * decision is here, so every arm and both refusals can be driven by a node-shaped
+ * case instead of by minting a capture that is too large on purpose.
+ *
+ * `previousOverhangPx` is how far the surface hung past the window on the pass
+ * before this one, and `undefined` on the first pass. It is the whole basis of the
+ * third arm: a surface that hangs over by no less after a grow than before it is
+ * being sized BY the window, and no window will hold it. Comparing overhangs rather
+ * than heights is what distinguishes that from a surface that simply needed a bigger
+ * window and got one.
  *
  * It throws rather than returning a wider window in the two cases where no window
  * would help. A surface wider than the page cannot be held at all — the page is
@@ -74,11 +108,12 @@ export const CAPTURE_WINDOW_HEIGHT_CEILING = 3600;
  * would relayout the console at a width no reference was minted under. A surface
  * taller than the ceiling is refused for the reason the ceiling records.
  */
-export function captureViewportFor(
+export function captureWindowStep(
   applied: CaptureViewport,
   required: CaptureViewport,
+  previousOverhangPx: number | undefined,
   referenceName: string,
-): CaptureViewport | undefined {
+): CaptureWindowStep {
   if (required.width > applied.width) {
     throw new Error(
       `Refusing to capture ${referenceName}: the surface extends ${String(required.width)}px ` +
@@ -86,8 +121,12 @@ export function captureViewportFor(
         `console relaid out at another width is not the surface the references pin.`,
     );
   }
-  if (required.height <= applied.height) {
-    return undefined;
+  const overhangPx = required.height - applied.height;
+  if (overhangPx <= 0) {
+    return { kind: "fits" };
+  }
+  if (previousOverhangPx !== undefined && overhangPx >= previousOverhangPx) {
+    return { kind: "grows-with-its-window", overhangPx };
   }
   if (required.height > CAPTURE_WINDOW_HEIGHT_CEILING) {
     throw new Error(
@@ -97,5 +136,5 @@ export function captureViewportFor(
         `part a person actually looks at.`,
     );
   }
-  return { width: applied.width, height: required.height };
+  return { kind: "grow", viewport: { width: applied.width, height: required.height } };
 }

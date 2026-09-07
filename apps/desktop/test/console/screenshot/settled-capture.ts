@@ -28,6 +28,12 @@
 // different route. `capture-viewport.ts` states the mechanism and the rule; this file
 // opens the window, re-runs the refusal on the resized tree, and puts it back.
 //
+// ONE SHAPE OF SURFACE STOPS THE GROWING RATHER THAN SATISFYING IT. A destination
+// sized from the window is one window tall plus its own padding at every window, so
+// the loop below recognises that on the pass after the first, puts the window back,
+// and photographs it at the tier's own size — the reason and its consequence are
+// `capture-viewport.ts`'s to state, and `tall-capture.test.ts` drives both.
+//
 // EVERY CAPTURE, AND NOT MOST. The capture files call this instead of
 // `toMatchScreenshot`, so a reference cannot be minted around either check by an author
 // who did not know they existed.
@@ -40,17 +46,19 @@ import { page } from "vitest/browser";
 // what `architecture/barrel-census.test.ts` reports.
 import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pending-pane-body.js";
 import { settle } from "../../../src/renderer/src/console/core/settle.test-support.js";
-import { captureViewportFor, type CaptureViewport } from "./capture-viewport.js";
+import { captureWindowStep, type CaptureViewport } from "./capture-viewport.js";
 
 /**
- * How many times a capture may re-measure and re-open its window before it gives up.
+ * How many times a capture may re-measure and re-open its window before it refuses.
  *
- * Opening a window is a layout change, so a surface whose own height is derived from
- * the window's can answer the first pass with a taller box than the one that was
- * measured. One more pass settles that; a surface still growing after three is chasing
- * its own window, and the refusal says so rather than looping until the run times out.
+ * Opening a window is a layout change, so a surface can answer the first grow with a
+ * taller box than the one that was measured — a deferred image lands, a container
+ * reflows — and settle on the second. A surface sized BY its window is recognised on
+ * the pass after the first and needs none of this budget; what the budget bounds is
+ * the surface that keeps closing the gap by a little each pass, which would otherwise
+ * resize the console hundreds of times before reaching the ceiling.
  */
-const CAPTURE_SIZING_PASSES = 3;
+const CAPTURE_SIZING_PASSES = 4;
 
 /**
  * Refuse a capture whose tree still holds an unloaded pane body.
@@ -117,30 +125,42 @@ class CaptureWindow {
   }
 
   /**
-   * Open the window until it holds the whole element, or refuse.
+   * Open the window until it holds the whole element, or stop when no window would.
    *
    * The settle after each resize is the shared act-wrapped one: a resize is a layout
    * change, so a surface that observes its own box writes state React has to flush
    * before the next measurement means anything.
+   *
+   * The `grows-with-its-window` arm PUTS THE WINDOW BACK before returning rather than
+   * capturing at whatever size the loop reached. Both windows leave the same overhang
+   * unpainted, so the larger one buys nothing and costs a reference minted at a size
+   * no other capture in the tier uses.
    */
   public async holdWhole(element: Element, referenceName: string): Promise<void> {
+    let previousOverhangPx: number | undefined;
     for (let pass = 0; pass <= CAPTURE_SIZING_PASSES; pass += 1) {
       const required = requiredViewportFor(element);
-      const grown = captureViewportFor(this.#applied, required, referenceName);
-      if (grown === undefined) {
+      const step = captureWindowStep(this.#applied, required, previousOverhangPx, referenceName);
+      if (step.kind === "fits") {
+        return;
+      }
+      if (step.kind === "grows-with-its-window") {
+        await this.restore();
         return;
       }
       if (pass === CAPTURE_SIZING_PASSES) {
         throw new Error(
-          `Refusing to capture ${referenceName}: the surface grew with its window ` +
-            `${String(CAPTURE_SIZING_PASSES)} times and still needs ` +
-            `${String(required.height)}px in a ${String(this.#applied.height)}px one. A ` +
-            `surface sized from the window it is captured in cannot be photographed whole.`,
+          `Refusing to capture ${referenceName}: the window was opened ` +
+            `${String(CAPTURE_SIZING_PASSES)} times and the surface still needs ` +
+            `${String(required.height)}px in a ${String(this.#applied.height)}px one. It is ` +
+            `closing the gap rather than fitting or tracking the window, and a capture ` +
+            `cannot decide which size a surface like that is meant to be photographed at.`,
         );
       }
-      await page.viewport(grown.width, grown.height);
+      previousOverhangPx = required.height - this.#applied.height;
+      await page.viewport(step.viewport.width, step.viewport.height);
       await settle();
-      this.#applied = grown;
+      this.#applied = step.viewport;
       this.#grown = true;
     }
   }
@@ -152,6 +172,8 @@ class CaptureWindow {
     }
     await page.viewport(this.#restoreTo.width, this.#restoreTo.height);
     await settle();
+    this.#applied = this.#restoreTo;
+    this.#grown = false;
   }
 }
 
