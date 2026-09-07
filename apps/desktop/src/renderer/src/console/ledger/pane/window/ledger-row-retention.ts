@@ -14,11 +14,12 @@ import { type LedgerViewportRow } from "../../frame/index.js";
 /**
  * The cut unit the window cap prunes by.
  *
- * `LedgerWindowRow.rootCursor` is the `timeline.read` cursor a row was read at, and
- * this console performs no timeline read — it holds one live subscription and the
- * whole log it delivered. So each row is its own cut unit, which is the FINEST the
- * cap can act on and therefore the least it can over-drop: a single shared cursor
- * would make the cap all-or-nothing over the entire window.
+ * `LedgerWindowRow.rootCursor` is the `timeline.read` cursor a row was read at. This
+ * console holds one live subscription and reads earlier pages on demand, and every
+ * row a page delivers is merged into the same window one at a time. So each row is
+ * its own cut unit, which is the FINEST the cap can act on and therefore the least
+ * it can over-drop: a single shared cursor would make the cap all-or-nothing over
+ * every row that page delivered.
  */
 function cutUnitFor(row: TimelineRow): string {
   return row.id;
