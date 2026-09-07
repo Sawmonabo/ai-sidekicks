@@ -88,15 +88,44 @@ export const EMPTY_PENDING_INVITE_SNAPSHOT: PendingInviteSnapshot = {
  * EXACTLY ONE ARM. An acceptance waiting on authentication has main driving a
  * ceremony and holding the reference across it, so the prompt stays open and offers
  * neither a second attempt nor a way to put the answer away — there is no answer yet.
- * Every other arm is terminal: joined, refused, and authentication-FAILED, whose
- * reference was released with the failure, which is what makes it an end and not a
- * pause.
+ * Every other arm is terminal: joined, refused, authentication-FAILED whose reference
+ * was released with the failure, the handle that stopped resolving, and the
+ * acceptance that could not be put — the last two being what a prompt held open by
+ * the ceremony above finally settles on, so five of the six are ends.
  *
- * NO ARM OFFERS A RETRY, which is why no predicate here says one does. Trying again
- * means putting a preview to the control plane again, and that is a property of the
- * pending state a person is looking at rather than of an answer already given —
- * `PendingInviteSnapshot.canRetry` is where it is read.
+ * A SWITCH RATHER THAN ONE EQUALITY, and that is the load-bearing part: the equality
+ * this replaces absorbed every arm added after it into the terminal set silently,
+ * which is exactly how a prompt comes to offer an act against an answer nobody
+ * classified. A seventh arm fails to compile here instead.
  */
 export function isInviteOutcomeInProgress(outcome: GrowthInviteOutcome): boolean {
-  return outcome.kind === "authentication-required";
+  switch (outcome.kind) {
+    case "authentication-required":
+      return true;
+    case "joined":
+    case "refused":
+    case "authentication-failed":
+    case "reference-invalid":
+    case "unavailable":
+      return false;
+  }
+}
+
+/**
+ * Whether the answer already given admits the same act being put again.
+ *
+ * EXACTLY ONE ARM, AND THE WIRE DECIDES IT. An acceptance that never reached the
+ * control plane settles `unavailable`, whose `retryable` is main's own statement that
+ * nothing was decided and the act may be dispatched again; this reads that arm and
+ * derives nothing. Whether the reference still resolves is main's answer to the
+ * second act — `reference-invalid` where it does not — and never a judgement a
+ * surface makes before sending.
+ *
+ * NOT THE PENDING RETRY, which re-drives a PREVIEW on an attempt handle and is read
+ * off `PendingInviteSnapshot.canRetry`. The two authentication arms look retryable
+ * and are neither: one is a ceremony still running and the other released its
+ * reference with the failure.
+ */
+export function isInviteOutcomeReattemptable(outcome: GrowthInviteOutcome): boolean {
+  return outcome.kind === "unavailable";
 }

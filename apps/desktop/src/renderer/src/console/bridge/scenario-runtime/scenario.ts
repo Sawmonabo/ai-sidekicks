@@ -22,6 +22,7 @@ import type { MembershipRole, RuntimeNodeRosterEntry } from "@ai-sidekicks/contr
 
 import type {
   GrowthActivitySnapshot,
+  GrowthInviteAttempt,
   GrowthInviteOutcome,
   GrowthPendingInvite,
 } from "../growth-values/index.js";
@@ -85,10 +86,16 @@ export interface ScenarioActivityFrame {
  * until a person presses the one control that accepts, so a scenario states what
  * would happen if they did and the fixture holds it until they do.
  *
- * `onRetry` is separate and optional for the same reason it exists on the wire: a
- * retryable failure is followed by a SECOND attempt on the same reference, and a
- * scenario that could only state one outcome could never show one succeed. Absent, a
- * retry re-delivers whatever `onConfirm` states.
+ * `onReconfirm` is separate and optional for the same reason its arm exists on the
+ * wire: an acceptance that could not be PUT settles `unavailable`, which the wire
+ * itself marks retryable, and the act that answers it is a second confirmation on
+ * the same reference. A scenario that could state only one outcome per reference
+ * could never show that recovery reach an end — and absent it, a second confirmation
+ * finds nothing, which is the single-use posture and the ordinary case.
+ *
+ * IT IS NOT THE RETRY. A retry re-drives a PREVIEW on an attempt handle and is
+ * scripted by {@link ScenarioPendingInviteAttemptFrame}, which mints invitations
+ * rather than settling them.
  *
  * The invitation carries an opaque reference and no token, which is
  * `Plan-023 §Invariants` I-023-5 made unrepresentable: a fixture cannot script a raw
@@ -98,7 +105,43 @@ export interface ScenarioPendingInviteFrame {
   readonly atMs: number;
   readonly invite: GrowthPendingInvite;
   readonly onConfirm: GrowthInviteOutcome;
-  readonly onRetry?: GrowthInviteOutcome;
+  readonly onReconfirm?: GrowthInviteOutcome;
+}
+
+/**
+ * The invitation a retry's preview produces, and how confirming that one settles.
+ *
+ * THE INVITATION FRAME WITHOUT ITS TICK, derived rather than restated, because the
+ * tick is the retry itself: this arrives when a person presses, not when the clock
+ * reaches a number, and a second `atMs` here would be a delivery moment nothing
+ * consults. Everything else an invitation can script it scripts, `onReconfirm`
+ * included — which is what lets one chain reach both handle-side outcome arms.
+ */
+export type ScenarioPendingInviteRetryResult = Omit<ScenarioPendingInviteFrame, "atMs">;
+
+/**
+ * One deep link whose preview could not be put at all, and what re-driving it yields.
+ *
+ * ITS OWN TABLE BECAUSE IT IS KEYED ON A DIFFERENT HANDLE. A pending invitation is
+ * addressed by the reference its preview minted; a preview that never reached the
+ * control plane minted none, and what names it is the opaque attempt handle the
+ * `unavailable` arm carries. `Plan-023 §Phase 2 — IPC Bridge Registry And Per-Surface
+ * Handlers` task T-023r-2-5 makes that a distinct brand accepted by no other
+ * operation, so a fixture that indexed both in one table by one string would serve a
+ * retry from whichever entry happened to collide — which is the defect this split
+ * closes.
+ */
+export interface ScenarioPendingInviteAttemptFrame {
+  readonly atMs: number;
+  readonly attempt: GrowthInviteAttempt;
+  /**
+   * The preview state the retry publishes on the pending feed.
+   *
+   * The scripted answer to the one act this arm admits. A retry that produced
+   * nothing observable would leave the surface holding a prompt it had already
+   * released, so the fixture always publishes this and never an empty success.
+   */
+  readonly onRetry: ScenarioPendingInviteRetryResult;
 }
 
 /** What every canned reply carries, whichever way it settles. */
@@ -314,6 +357,14 @@ export interface ConsoleScenario {
    * default would put a dialog in front of every screenshot of every other surface.
    */
   readonly pendingInvites?: readonly ScenarioPendingInviteFrame[];
+  /**
+   * Deep links whose preview could not be put, each with what a retry on it yields.
+   *
+   * A SECOND TABLE RATHER THAN A UNION MEMBER OF THE FIRST, because the two are keyed
+   * on different handles and a fixture that merged them would have to guess which
+   * kind a string names. Optional on the same rule as the invitations beside them.
+   */
+  readonly pendingInviteAttempts?: readonly ScenarioPendingInviteAttemptFrame[];
   /**
    * The host this scenario's node answers its control plane on.
    *

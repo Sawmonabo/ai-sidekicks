@@ -5,13 +5,17 @@
 // browser tier renders it in Chromium, and two literals for one shape would be two
 // places a member added to `GrowthPendingInvite` has to be remembered.
 
-import type { GrowthInviteAttempt, GrowthPendingInvite } from "../../bridge/index.js";
-// The three arm types by their declaring module rather than through the family door:
-// nothing in production names an arm on its own — every reader takes the union — so a
-// door line for them would be one the barrel census fails.
+import type {
+  GrowthInviteAttempt,
+  GrowthPendingInvite,
+  GrowthPendingInviteRefused,
+} from "../../bridge/index.js";
+// The two remaining arm types by their declaring module rather than through the family
+// door: no production reader names either on its own — every one of them takes the
+// union — so a door line for them would be one the barrel census fails. The refused arm
+// left this block when `pending-invite-arrivals.ts` began holding a register of them.
 import type {
   GrowthPendingInviteReady,
-  GrowthPendingInviteRefused,
   GrowthPendingInviteUnavailable,
 } from "../../bridge/growth-values/invites.js";
 import { createFixtureBridge } from "../../bridge/index.js";
@@ -162,12 +166,15 @@ export function scenarioWithArrivals(): ConsoleScenario {
           inviterDisplayName: null,
         },
         onConfirm: { kind: "authentication-required", reference: SECOND_REFERENCE },
-        onRetry: {
-          kind: "joined",
+        // What main answers a SECOND confirmation on a reference whose acceptance is
+        // already in flight: the entry is single-shot, so the handle no longer
+        // resolves. It is also the terminal a ceremony that outlives the reference's
+        // own bound reaches, which is the arm that lets a prompt held open by an
+        // authentication detour be put away at all.
+        onReconfirm: {
+          kind: "reference-invalid",
           reference: SECOND_REFERENCE,
-          sessionId: SECOND_SESSION,
-          membershipId: MEMBERSHIP,
-          role: "viewer",
+          reason: "consumed",
         },
       },
     ],

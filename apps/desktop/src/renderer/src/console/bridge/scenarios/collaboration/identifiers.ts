@@ -22,6 +22,7 @@ import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import type { MembershipRole, ParticipantId } from "@ai-sidekicks/contracts";
 
 import type { CollaborationRuntimeNodeScript } from "./runtime-nodes.js";
+import type { GrowthInviteAttempt } from "../../growth-values/index.js";
 
 // Wire identifiers, spelled as the wire spells them — UUID v7 values whose leading
 // bytes are this scenario's own start instant, so a rendered id still tells one
@@ -68,6 +69,16 @@ export const INVITED_SESSION_DESIGN = "019b7904-8ce0-7f22-8140-cca0117a0410";
 export const INVITED_SESSION_AUDIT = "019b7904-8ce0-7f22-8150-cca0117a0420";
 export const MEMBERSHIP_FROM_INVITE = "019b7904-8ce0-7f22-8160-cca0117a0430";
 export const MEMBERSHIP_FROM_RETRY = "019b7904-8ce0-7f22-8170-cca0117a0440";
+// The deep link whose preview never reached the control plane, and the invitation
+// re-driving it mints. The handle is a DIFFERENT BRAND from the references above —
+// it names an outstanding link rather than a confirmable invitation, and no act that
+// spends a reference accepts one — so it is branded where it is declared, which is
+// also the one place this scenario asserts a brand it does not compute.
+export const PENDING_ATTEMPT_UNREACHED = "pending-attempt-unreached" as GrowthInviteAttempt;
+export const PENDING_REFERENCE_RECHECKED = "pending-ref-rechecked";
+export const PENDING_REFERENCE_LAPSED = "pending-ref-lapsed";
+export const INVITED_SESSION_ROADMAP = "019b7904-8ce0-7f22-8180-cca0117a0450";
+export const INVITED_SESSION_INCIDENT = "019b7904-8ce0-7f22-8190-cca0117a0460";
 // A run this session's log has NOT carried, and deliberately so — see the activity
 // frames below, which say why an unresolved run id is the case worth scripting.
 export const PEER_RUN_ID = "019b7904-8ce0-740e-8110-cca0117a03c0";

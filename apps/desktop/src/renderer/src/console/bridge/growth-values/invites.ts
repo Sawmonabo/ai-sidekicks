@@ -130,18 +130,31 @@ export type GrowthPendingInvitePreviewFailure =
 export type GrowthPendingInviteState = GrowthPendingInviteReady | GrowthPendingInvitePreviewFailure;
 
 /**
- * The four ways an attempt on a pending invitation ends.
+ * The six ways an attempt on a pending invitation ends.
  *
- * FOUR ARMS AND NOT TWO. The shipped acceptance component settles `resolved` or
+ * SIX ARMS AND NOT TWO. The shipped acceptance component settles `resolved` or
  * `rejected`, which reads an authentication detour and a daemon refusal as the same
  * event — and they are not: one is a step the person can complete and the other is a
  * door that is closed. Both authentication arms are therefore their own members, so
  * a surface cannot render them with a refusal's copy without deleting a branch.
  *
+ * THE LAST TWO ARMS ARE ABOUT THE HANDLE RATHER THAN THE INVITATION, which is why
+ * neither is a refusal and why a union without them is not merely narrow but wrong.
+ * `reference-invalid` is main reporting that the handle this window sent no longer
+ * resolves — never issued, already consumed, or past the bound the reference carries,
+ * which is shorter than the invitation's own — and it is the terminal an acceptance
+ * waiting on authentication reaches when that bound lapses mid-ceremony, so without
+ * it that prompt has no arm to settle on and stays open with nothing to press for the
+ * life of the window. `unavailable` is the acceptance never reaching the control
+ * plane at all: nobody decided anything about this invitation, so it is neither a
+ * join nor a refusal, and its `retryable` is the WIRE's statement that the act may be
+ * put again rather than a judgement a surface makes for itself.
+ *
  * Every arm carries the `reference` it is about, because a window may hold one
  * pending confirmation and receive the outcome of the one it dismissed a moment ago.
  * A surface matches on it rather than assuming the feed speaks only of what is on
- * screen.
+ * screen — and the two handle arms carry it for a second reason: a handle that
+ * stopped resolving is the subject of the sentence they are.
  */
 export type GrowthInviteOutcome =
   | {
@@ -171,4 +184,24 @@ export type GrowthInviteOutcome =
       readonly code: string;
       /** The sentence the wire sent, verbatim. Never a substitute for the code. */
       readonly detail: string;
+    }
+  | {
+      readonly kind: "reference-invalid";
+      readonly reference: string;
+      /**
+       * Why the handle stopped resolving, as main's own closed vocabulary.
+       *
+       * NOT A WIRE REFUSAL CODE, and deliberately not spelled as one: no control
+       * plane was asked anything here. Main mints these handles and answers for
+       * them, so the three readings are its own — one it never issued, one an
+       * acceptance already spent, and one whose bound passed — and each of the three
+       * says something different about whether the LINK is still worth following.
+       */
+      readonly reason: "unknown" | "consumed" | "expired";
+    }
+  | {
+      readonly kind: "unavailable";
+      readonly reference: string;
+      /** Always true. The arm exists because the acceptance can be put again. */
+      readonly retryable: true;
     };

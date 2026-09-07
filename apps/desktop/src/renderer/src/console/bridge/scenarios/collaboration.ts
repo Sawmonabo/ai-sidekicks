@@ -78,7 +78,10 @@ import {
   RUNTIME_NODE_SCRIPT,
   SESSION_ID,
 } from "./collaboration/identifiers.js";
-import { COLLABORATION_PENDING_INVITES } from "./collaboration/pending-invites.js";
+import {
+  COLLABORATION_PENDING_INVITES,
+  COLLABORATION_PENDING_INVITE_ATTEMPTS,
+} from "./collaboration/pending-invites.js";
 import { COLLABORATION_REPLIES } from "./collaboration/replies.js";
 import { collaborationRuntimeNodeRoster } from "./collaboration/runtime-nodes.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
@@ -117,6 +120,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
   beats: COLLABORATION_BEATS,
   replies: COLLABORATION_REPLIES,
   pendingInvites: COLLABORATION_PENDING_INVITES,
+  pendingInviteAttempts: COLLABORATION_PENDING_INVITE_ATTEMPTS,
   // The node this scenario stands for answers its control plane here, so a minted
   // invitation reveals the link a person would actually send rather than an
   // identifier that opens nothing. A bare host: the link's own form is

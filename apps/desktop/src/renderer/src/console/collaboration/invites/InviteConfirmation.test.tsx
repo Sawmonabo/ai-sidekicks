@@ -211,7 +211,7 @@ describe("the confirmation — the two acts before an answer", () => {
   });
 });
 
-describe("the confirmation — the four ways an attempt ends", () => {
+describe("the confirmation — the six ways an attempt ends", () => {
   function outcomeCard(
     outcome: GrowthInviteOutcome,
     acts: Parameters<typeof renderCard>[1] = {},
@@ -282,6 +282,54 @@ describe("the confirmation — the four ways an attempt ends", () => {
     // Terminal: its reference went with the failure, so there is nothing left to
     // send and the only act is putting the answer away.
     expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
+  });
+
+  it("says the link is still worth following where only this window's hold lapsed", () => {
+    // Terminal and about the HANDLE rather than the invitation, which is why the
+    // reading turns on the one thing a person can act on next: the reference bound is
+    // shorter than the invitation's own, so an expired hold says nothing about the
+    // link in their message.
+    const body = outcomeCard({
+      kind: "reference-invalid",
+      reference: REFERENCE,
+      reason: "expired",
+    });
+    expect(body.textContent ?? "").toContain("Following the link again");
+    expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
+  });
+
+  it("says the opposite where the invitation itself was already spent", () => {
+    // The negative control for the reading above: one message for all three reasons
+    // would tell somebody whose invitation is gone to follow the link again.
+    const body = outcomeCard({
+      kind: "reference-invalid",
+      reference: REFERENCE,
+      reason: "consumed",
+    });
+    const text = body.textContent ?? "";
+    expect(text).toContain("already been accepted");
+    expect(text).not.toContain("Following the link again");
+    expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
+  });
+
+  it("offers the acceptance again when it could not be put, on the same reference", () => {
+    // The one outcome arm carrying a recovery, and the wire's own `retryable` is what
+    // says so — the surface derives no eligibility of its own. Pressing it puts the
+    // SAME act again, so main decides whether the reference still resolves rather
+    // than this card deciding it may.
+    const onConfirm = vi.fn();
+    const body = outcomeCard(
+      { kind: "unavailable", reference: REFERENCE, retryable: true },
+      { onConfirm },
+    );
+    expect(body.textContent ?? "").toContain("could not be sent");
+    expect(outcomeActs(body)).toEqual([
+      "meridian-invite-outcome__acknowledge",
+      "meridian-invite-outcome__retry",
+    ]);
+
+    control(body, "meridian-invite-outcome__retry").click();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
   it("negative control: an answer that ended still draws its act row", () => {

@@ -112,6 +112,10 @@ export function InvitationReading(props: InvitationReadingProps): React.JSX.Elem
       ) : (
         <InviteOutcomeReport
           outcome={snapshot.outcome}
+          // The same act the block above offers, handed on: an acceptance that never
+          // reached the control plane is answered by confirming again, and inventing a
+          // second callback for it would be one act reaching the lifecycle two ways.
+          onConfirm={props.onConfirm}
           onAcknowledge={props.onAcknowledge}
           isActing={isActing}
         />

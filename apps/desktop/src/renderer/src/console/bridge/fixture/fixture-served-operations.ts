@@ -258,8 +258,8 @@
 //
 // All five, because the surface is a lifecycle rather than a read: a confirmation
 // that could be shown but never confirmed, or confirmed but never answered, leaves
-// three of its four outcome arms unreachable from any scenario, screenshot, or
-// bridge-driven test. `fixture-pending-invites.ts` holds the whole of it and states
+// every one of its outcome arms unreachable from any scenario, screenshot, or
+// bridge-driven test — each of them is published by the act, never by the arrival. `fixture-pending-invites.ts` holds the whole of it and states
 // why the reference is spent where it is.
 //
 // WHY THE CONTROL-PLANE HOST READ IS SERVED FROM THE SCENARIO AND FROM NOWHERE ELSE
@@ -383,7 +383,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // activity frames and refused from one that does not. The composer's two writes
   // are deliberately absent: see the header.
   "presenceActivityRead",
-  // invite — the whole pending-invite lifecycle, so the confirmation's four outcome
+  // invite — the whole pending-invite lifecycle, so the confirmation's six outcome
   // arms are each reachable from a scenario rather than only from a unit case.
   "invitePendingSubscribe",
   "inviteOutcomeSubscribe",

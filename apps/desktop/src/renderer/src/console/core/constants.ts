@@ -848,6 +848,26 @@ export const PHASE_GRAPH_MAX_ZOOM = 1.5;
  * burst and small enough that the whole queue fits in one reading.
  */
 export const PENDING_INVITE_QUEUE_MAX = 8;
+
+/**
+ * How many refused previews this window holds BESIDE that queue, waiting for a slot.
+ *
+ * A SECOND REGISTER BECAUSE THE RECOVERY ABOVE DOES NOT COVER THIS ARM. The bound
+ * beside it is admissible because main holds every reference and re-delivers it; a
+ * REFUSED preview minted no reference, so main holds nothing for it and replays
+ * nothing — deferring one to that replay drops it for the life of the window, and the
+ * expired, revoked, or already-accepted explanation a person is owed is gone. So a
+ * refusal past the queue's bound is retained here instead and promoted the moment a
+ * release makes room.
+ *
+ * EIGHT, LIKE THE QUEUE, ON A DIFFERENT ARGUMENT. The queue's eight is what fits in
+ * one reading; this eight is how many terminal explanations may sit behind a person
+ * who has answered nothing at all. Past it the OLDEST retained refusal is dropped
+ * rather than the newest turned away: a register that refused new arrivals while
+ * holding stale ones would let one burst blind the window to every later refusal,
+ * which is worse than losing the oldest of sixteen unread prompts.
+ */
+export const PENDING_INVITE_RETAINED_REFUSAL_MAX = 8;
 // ── The load hairline's progress range ───────────────────────────────────────
 //
 // `LOAD_PROGRESS_MAX` is the bound of the two and is what brought them here; the

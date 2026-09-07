@@ -92,7 +92,7 @@ export type {
   GrowthComposingReading,
 } from "./presence.js";
 
-// The pending confirmation and its four outcomes.
+// The pending confirmation and its six outcomes.
 export type {
   GrowthInviteAttempt,
   GrowthInviteOutcome,

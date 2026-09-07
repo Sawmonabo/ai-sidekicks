@@ -2,7 +2,7 @@
 //
 // ITS OWN FILE because the two readings are two subjects. Everything next door is
 // about an invitation the console HOLDS — what it says about it, what the two acts
-// spend, how the four outcomes settle — and every case here is about the two arms that
+// spend, how the six outcomes settle — and every case here is about the two arms that
 // minted no reference, where there is nothing to confirm, nothing to release, and one
 // act that puts the preview again.
 //
