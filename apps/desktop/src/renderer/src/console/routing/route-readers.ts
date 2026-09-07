@@ -123,6 +123,28 @@ export function routeSessionId(route: ConsoleRoute): string | undefined {
   }
 }
 
+/**
+ * The workspace arm's focus, compared field by field.
+ *
+ * MODULE-PRIVATE, on {@link routeAgentId}'s terms below: the only question anybody
+ * asks of this member today is whether two addresses are the same address, and a
+ * published accessor would be an export with no production reader.
+ *
+ * Both-absent is EQUAL and one-absent is not, which is the whole content of the
+ * comparison: a bare workspace address and one focused on a phase of it are two
+ * different places, and treating them as one would make navigating from a run row to
+ * its phase cost no transition and render nothing new.
+ */
+function workflowPhaseFocusesAreEqual(
+  left: Extract<ConsoleRoute, { kind: "workspace" }>["workflowPhase"],
+  right: Extract<ConsoleRoute, { kind: "workspace" }>["workflowPhase"],
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.workflowRunId === right.workflowRunId && left.phaseId === right.phaseId;
+}
+
 /** The agent a route is scoped to. Module-private: only the comparison below asks. */
 function routeAgentId(route: ConsoleRoute): string | undefined {
   return route.kind === "auxiliary" && "agentId" in route ? route.agentId : undefined;
@@ -146,7 +168,11 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
     case "workflows":
       return true;
     case "workspace":
-      return right.kind === "workspace" && left.sessionId === right.sessionId;
+      return (
+        right.kind === "workspace" &&
+        left.sessionId === right.sessionId &&
+        workflowPhaseFocusesAreEqual(left.workflowPhase, right.workflowPhase)
+      );
     case "pane-harness":
       return (
         right.kind === "pane-harness" &&

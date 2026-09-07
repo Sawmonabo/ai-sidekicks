@@ -27,6 +27,7 @@
 
 import { DerivedFigure, Nothing, formatCount } from "../../primitives/index.js";
 import { RunListItem } from "./RunListItem.js";
+import { RunParkAttention } from "./RunParkAttention.js";
 import type { OpenRun, RunListProjection } from "./run-list-projection.js";
 
 export interface RunListProps {
@@ -37,7 +38,8 @@ export interface RunListProps {
 
 /** Every run, attention first, with each live park said in place. */
 export function RunList(props: RunListProps): React.JSX.Element {
-  const { rows, parkedRunCount, frozenPinCount } = props.projection;
+  const { rows, parkedRunCount, frozenPinCount, parkAttention, parkAttentionCount } =
+    props.projection;
   if (rows.length === 0) {
     return (
       <Nothing
@@ -71,7 +73,30 @@ export function RunList(props: RunListProps): React.JSX.Element {
             Frozen pins <DerivedFigure text={formatCount(frozenPinCount)} />
           </span>
         )}
+        {/*
+          THE BADGE COUNTS ENTRIES AND NOT RUNS, which is the fold's whole point:
+          six runs parked on one spent provider account are one thing to look at,
+          and a figure reading `6` here beside one line under it would undo the fold
+          on the surface most likely to be glanced at rather than read. It is
+          deliberately a different number from `Parked` above, which counts runs —
+          the two answer different questions and agreeing by construction would mean
+          one of them was not being asked.
+
+          And never a zero: nothing waiting is the ordinary state of a healthy
+          session, on the same rule the two counts beside it already obey.
+        */}
+        {parkAttentionCount === 0 ? null : (
+          <span className="meridian-run-list__summary-item">
+            Waiting on <DerivedFigure text={formatCount(parkAttentionCount)} />
+          </span>
+        )}
       </div>
+      {/*
+        The fold stands above the rows because it is the question a person opening
+        this list is asking — what is holding things up — and the rows are the answer
+        to a different one. It renders nothing at all when nothing is parked.
+      */}
+      <RunParkAttention entries={parkAttention} />
       {/*
         Ordered, because the order is the content: parked runs first, then active,
         then settled, newest first inside each. A reader who cannot see that sequence

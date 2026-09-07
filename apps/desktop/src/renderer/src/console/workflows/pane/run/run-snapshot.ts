@@ -19,20 +19,23 @@
 // door, which is where it lives: it settles a promise the growth port returned and
 // knows nothing about a run.
 //
-// ONE READ PER ROUND, AND NO POLLING. `Spec-017`'s run lifecycle is evented, and
-// `packages/contracts` registers none of those event types — so there is no stream to
-// subscribe to and no seam that re-reads on one. This hook therefore never re-reads on
-// a timer, which would be a console inventing a refresh cadence for a stream it will
-// later subscribe to and holding two answers to one question in the meantime.
+// ONE READ PER ROUND, AND NO POLLING. This hook never re-reads on a timer, which
+// would be a console inventing a refresh cadence and holding two answers to one
+// question in the meantime. What it does instead is re-read once per ROUND, and the
+// round is the caller's — a number that only rises, whose every advance means the run
+// this window is showing has moved under the answer in hand.
 //
-// WHAT IT DOES DO is re-read once per ROUND, and a round advances for one reason: an
-// operator's own act came back served, so the run this window is showing has changed
-// and the caller says so by handing the next round. That is a re-arm and not a
-// cadence — bounded by acts a person performed, zero of them if nobody presses
-// anything — and it is why the round joins the SUBJECT KEY rather than sitting beside
-// it: the seed rule then re-states the read as `reading` for the new round during the
-// render that brings it, exactly as it does for a new run, so no frame shows the
-// previous round's snapshot as though it were the answer to the new question.
+// TWO THINGS ADVANCE IT AND THEY ARE THE SAME CLAIM MADE BY DIFFERENT PARTIES. An
+// operator's own act came back served, which the dispatcher counts; or the session's
+// timeline carried a frame saying the run moved, which `run-live-rounds.ts` counts —
+// the engine advancing a phase, a park arming a resume, a second window's cancel,
+// another participant's gate resolution. Neither is a cadence: with nobody pressing
+// anything and nothing happening, no round advances and no read is put.
+//
+// AND THE ROUND JOINS THE SUBJECT KEY rather than sitting beside it: the seed rule
+// then re-states the read as `reading` for the new round during the render that brings
+// it, exactly as it does for a new run, so no frame shows the previous round's
+// snapshot as though it were the answer to the new question.
 
 import {
   useSettledGrowthRead,

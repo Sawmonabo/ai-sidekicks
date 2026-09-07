@@ -126,6 +126,46 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
         { kind: "settings", page: "providers" },
       ),
     ).toBe(false);
+    // The workspace arm's optional focus, in both directions: a bare address and a
+    // focused one are two places, and two focuses on different phases are two more.
+    expect(
+      routesAreEqual(
+        { kind: "workspace", sessionId: "session-1" },
+        {
+          kind: "workspace",
+          sessionId: "session-1",
+          workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
+        },
+      ),
+    ).toBe(false);
+    expect(
+      routesAreEqual(
+        {
+          kind: "workspace",
+          sessionId: "session-1",
+          workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
+        },
+        {
+          kind: "workspace",
+          sessionId: "session-1",
+          workflowPhase: { workflowRunId: "run-1", phaseId: "approve" },
+        },
+      ),
+    ).toBe(false);
+    expect(
+      routesAreEqual(
+        {
+          kind: "workspace",
+          sessionId: "session-1",
+          workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
+        },
+        {
+          kind: "workspace",
+          sessionId: "session-1",
+          workflowPhase: { workflowRunId: "run-2", phaseId: "review" },
+        },
+      ),
+    ).toBe(false);
     expect(
       routesAreEqual(
         { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-1" },

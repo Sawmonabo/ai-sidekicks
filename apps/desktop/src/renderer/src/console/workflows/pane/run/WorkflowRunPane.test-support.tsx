@@ -24,7 +24,7 @@ import { FLAGSHIP_SCENARIO } from "../../../bridge/scenarios/flagship.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
 import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
 import type { PaneContextOf } from "../../../seats/index.js";
-import type { ConsoleEntityRef } from "../../../store/index.js";
+import { SessionStore, type ConsoleEntityRef } from "../../../store/index.js";
 import { WorkflowRunPane } from "./WorkflowRunPane.js";
 
 /**
@@ -73,10 +73,23 @@ export function paneContext(
     kind: "workflow-run",
     entity,
     bridge,
-    sessionStore: { sessionId: WORKFLOWS_PARKED_RUN.sessionId },
+    // A REAL store rather than the `{ sessionId }` stub this used to cast, because
+    // the pane's live-round reading subscribes to the session's own transitions —
+    // `run-live-rounds.ts`, which is how a run moved by the engine or by another
+    // window reaches this pane at all. A stub answers `sessionId` and nothing else,
+    // so that subscription would throw at mount in every suite here. Initialised for
+    // the same reason the trigger set requires it: a base state is not a frame.
+    sessionStore: initialisedSessionStore(),
     // No actor attributes this pane in a suite, which is the chrome's neutral arm.
     focusHue: undefined,
   } as unknown as PaneContextOf<"workflow-run">;
+}
+
+/** The pane's session, established, so a frame applied to it is a transition. */
+function initialisedSessionStore(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: WORKFLOWS_PARKED_RUN.sessionId });
+  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  return sessionStore;
 }
 
 /** A bridge that answers the workflow reads. */
