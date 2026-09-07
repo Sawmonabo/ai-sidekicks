@@ -85,8 +85,9 @@ describe("the notifications page — the tier it never offers", () => {
 describe("the notifications page — the chain that starts with who you are", () => {
   it("asks nothing when this window has opened no session to resolve an identity from", async () => {
     const identityRead = vi.fn(async () => await Promise.resolve(SERVED_PARTICIPANT));
-    const container = renderPageAt(bridgeWith({ callerParticipantRead: identityRead }), undefined);
-    await settle();
+    const bridge = bridgeWith({ callerParticipantRead: identityRead });
+    const container = renderPageAt(bridge, undefined);
+    await settle(bridge);
     expect(identityRead).not.toHaveBeenCalled();
     expect(container.textContent ?? "").toContain("have not been read yet");
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
@@ -185,9 +186,8 @@ describe("the notifications page — what it draws from a record nobody named", 
   it("holds the rows and locks them while the set is read again", async () => {
     // The set is re-read when the window comes back. Blanking it first would read as
     // the console forgetting what it had already told the person.
-    const container = await renderSettledPage(
-      bridgeServing([{ key: "attention", value: { mentions: true } }]),
-    );
+    const bridge = bridgeServing([{ key: "attention", value: { mentions: true } }]);
+    const container = await renderSettledPage(bridge);
     const beforeFocus = storedLabels(container);
     act(() => {
       window.dispatchEvent(new Event("focus"));
@@ -196,7 +196,7 @@ describe("the notifications page — what it draws from a record nobody named", 
     expect(
       container.querySelector('.meridian-attention-preferences[aria-busy="true"]'),
     ).not.toBeNull();
-    await settle();
+    await settle(bridge);
     expect(container.querySelector('.meridian-attention-preferences[aria-busy="true"]')).toBeNull();
   });
 

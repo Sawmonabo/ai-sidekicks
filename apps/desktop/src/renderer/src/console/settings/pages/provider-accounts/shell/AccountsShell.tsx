@@ -19,15 +19,29 @@
 // hidden — while one is running, and `signin-plane.ts` beside this module owns both
 // that rule and where a refused start lands.
 
+// THE REGISTRY IS READ ONCE PER WINDOW AND THIS PAGE IS NOT THE READER. `bridge/quotas/`
+// holds the node's one account-plane reading: one `providerAccount.list`, one
+// `providerAccount.subscribe` behind it, and one fold. This shell used to run a SECOND
+// list read of its own with a subscription that opened nothing, so a push on the live
+// tail — an account removed, a credential generation rotated — moved the composer's
+// chips and left this page showing the registry as it had been at its own last read,
+// with nothing on screen saying the two disagreed. It reads that one reading instead,
+// and asks it for a fresh read at the one moment no window trigger names: a brokered
+// flow that has just ended.
+
 import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
-import { useConsoleClock, type ConsoleBridge } from "../../../../bridge/index.js";
+import {
+  readRefusalOf,
+  useConsoleClock,
+  useProviderAccountRefresh,
+  useProviderQuotas,
+  type ConsoleBridge,
+} from "../../../../bridge/index.js";
 import { Nothing } from "../../../../primitives/index.js";
-import { usePushDrivenRead } from "../../../../seats/index.js";
 import { AccountDetail } from "./AccountDetail.js";
 import { AccountRow } from "./AccountRow.js";
-import { createAccountRegistryRead } from "./accounts-reading.js";
 import { foldAccountQuotaRows, readinessForProvider } from "./quota-rows.js";
 import { QuotaTable } from "./QuotaTable.js";
 import { ReadinessRow } from "./ReadinessRow.js";
@@ -42,17 +56,14 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
   // advances this read's coalescing window exactly when it advances everything else's —
   // and so an observation's age is measured on the clock the scenario is driving.
   const clock = useConsoleClock();
-  const [openingOrdinal, setOpeningOrdinal] = useState(0);
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
-  const registryRead = useMemo(
-    () => createAccountRegistryRead({ bridge, clock }),
-    [bridge, clock, openingOrdinal],
-  );
-  // Rebuilt with the read it re-reads through, which is the honest lifetime: the only
-  // thing that mints a new read is the failed arm's "Try again", and that arm replaces
-  // this whole page — sign-in card included — so a flow could not have survived it
-  // anyway. Constructed in a memo and DISPOSED in an effect, the split every carrier in
-  // this console takes: building it owns nothing, and a memo React discards costs a
+  // The node's one account-plane reading. Its three window triggers and its live tail
+  // are wired inside it, so this page installs neither and cannot install a second of
+  // either.
+  const registry = useProviderQuotas(bridge);
+  const requestRegistryRead = useProviderAccountRefresh(bridge);
+  // Constructed in a memo and DISPOSED in an effect, the split every carrier in this
+  // console takes: building it owns nothing, and a memo React discards costs a
   // discarded object rather than a call in flight.
   const signInPlane = useMemo(
     () =>
@@ -66,10 +77,10 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
         // provider's login binary writes — so the page asks the registry rather than
         // assuming, which is the whole of what "completion is not a verdict" means.
         onFlowSettled: () => {
-          registryRead.refresh("terminal-event");
+          requestRegistryRead("terminal-event");
         },
       }),
-    [bridge, registryRead],
+    [bridge, requestRegistryRead],
   );
   useEffect(
     () => () => {
@@ -82,56 +93,25 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
     () => signInPlane.snapshot(),
     () => signInPlane.snapshot(),
   );
-  useEffect(() => {
-    registryRead.start();
-    return () => {
-      registryRead.dispose();
-    };
-  }, [registryRead]);
-  useEffect(() => {
-    const onWindowFocus = (): void => {
-      registryRead.refresh("window-focus");
-    };
-    window.addEventListener("focus", onWindowFocus);
-    return () => {
-      window.removeEventListener("focus", onWindowFocus);
-    };
-  }, [registryRead]);
-  // A SEPARATE EFFECT rather than a second listener inside the one above, because the
-  // two release differently: the focus listener is the window's and the reconnect
-  // subscription is the transport's, and one cleanup releasing both would be a single
-  // identity for two lifetimes.
-  useEffect(
-    () =>
-      bridge.transportReconnect.subscribe(() => {
-        registryRead.refresh("reconnect");
-      }),
-    [bridge, registryRead],
-  );
 
-  const state = usePushDrivenRead(registryRead);
-  if (state.kind === "not-loaded") {
-    return (
-      <Nothing
-        kind="not-loaded"
-        placement="surface"
-        title="Reading this machine’s account registry."
-      />
-    );
-  }
-  if (state.kind === "failed") {
+  const readRefusal = readRefusalOf(registry);
+  if (readRefusal !== undefined) {
     return (
       <Nothing
         kind="error"
         placement="surface"
-        title={state.refusal.code}
-        detail={state.refusal.detail}
+        title={readRefusal.code}
+        detail={readRefusal.detail}
         action={
           <button
             type="button"
             className="meridian-settings-page__action"
             onClick={() => {
-              setOpeningOrdinal((held) => held + 1);
+              // A press is a reason of its own, and the reading admits one while it is
+              // refused — asking again is exactly what a person pressing this means.
+              // Nothing is re-mounted: the reading is the window's, so a second page
+              // watching it does not get its flow thrown away by this press.
+              requestRegistryRead("participant-request");
             }}
           >
             Try again
@@ -140,7 +120,15 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
       />
     );
   }
-  const registry = state.value;
+  if (registry.phase === "reading") {
+    return (
+      <Nothing
+        kind="not-loaded"
+        placement="surface"
+        title="Reading this machine’s account registry."
+      />
+    );
+  }
   const selected =
     registry.accounts.find((account) => account.accountId === selectedAccountId) ??
     registry.accounts[0];
@@ -218,7 +206,7 @@ export function AccountsShell(props: { readonly bridge: ConsoleBridge }): ReactN
           <section className="meridian-settings-page__block">
             <h3 className="meridian-settings-page__block-title">{selected.displayLabel}</h3>
             <AccountDetail account={selected} />
-            {readinessForProvider(registry, selected.provider) === undefined ? (
+            {readinessForProvider(registry.readiness, selected.provider) === undefined ? (
               <p className="meridian-settings-page__aside">
                 The registry answered with no readiness entry for this account’s provider.
               </p>

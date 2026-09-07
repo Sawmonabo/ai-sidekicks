@@ -38,7 +38,10 @@
 // hold overflows are `provider-quota-deliveries.ts`', which is the module this one
 // hands every frame to.
 
-import { ProviderAccountSubscribeRequestSchema } from "@ai-sidekicks/contracts";
+import {
+  ProviderAccountSubscribeRequestSchema,
+  type ProviderReadiness,
+} from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
@@ -51,31 +54,17 @@ import {
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   subscribeNodeDaemon,
 } from "../daemon/daemon-streams.js";
-import { WireReadLifecycle, type WireReadState } from "../readings/index.js";
+import { WireReadLifecycle } from "../readings/index.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
-import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
+import { ProviderQuotaFold } from "./provider-quota-fold.js";
 import { ProviderQuotaDeliveries } from "./provider-quota-deliveries.js";
 import { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-quota-refusals.js";
-import type { UnreadableDeliveryReading } from "../readings/index.js";
+import {
+  NO_READINESS,
+  composeProviderQuotaReadout,
+  type ProviderQuotaReadout,
+} from "./provider-quota-readout.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
-
-/** What the account plane answered, and why it did not where it did not. */
-export interface ProviderQuotaReadout extends UnreadableDeliveryReading, WireReadState {
-  /** One reading per `(accountId, limitId)`, ordered by account then limit label. */
-  readonly readings: readonly ProviderQuotaReading[];
-  /**
-   * Every account the registry carries, `accountId` to `displayLabel`.
-   *
-   * The same read and the same tail that feed the readings, folded a second way
-   * rather than fetched a second time: any surface that names a paying account holds
-   * the daemon-minted handle and needs the operator's word for it, and this window
-   * has exactly one reader of the account plane. Empty until the read has served,
-   * which is what makes a missing entry mean "not read" rather than "no such
-   * account" — a consumer renders nothing for one rather than falling back to the
-   * handle.
-   */
-  readonly accountLabels: ReadonlyMap<string, string>;
-}
 
 /**
  * One bridge's live account-plane reading, and everyone watching it.
@@ -123,6 +112,14 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   // on was abandoned by an overflow re-read and seats nothing — without it the
   // abandoned snapshot would land after the fresh one and undo it.
   #seedReadOrdinal = 0;
+  /**
+   * The readiness projection the newest served read carried.
+   *
+   * Held here rather than in the fold because the fold owns what the TAIL and the read
+   * both move, and this is moved by the read alone — putting it there would invite a
+   * notification handler to update a projection the daemon never re-sent.
+   */
+  #readiness: readonly ProviderReadiness[] = NO_READINESS;
   #readout: ProviderQuotaReadout;
 
   public constructor(bridge: ConsoleBridge, onIdle: () => void) {
@@ -307,6 +304,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
         return;
       }
 
+      this.#readiness = reply.value.readiness;
       for (const account of reply.value.accounts) {
         this.#fold.seatAccount(account);
       }
@@ -351,12 +349,12 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   }
 
   #composeReadout(): ProviderQuotaReadout {
-    return {
-      ...this.#deliveries.unreadable,
-      ...this.#lifecycle.state,
-      readings: this.#fold.readings(),
-      accountLabels: this.#fold.accountLabels(),
-    };
+    return composeProviderQuotaReadout({
+      fold: this.#fold,
+      unreadable: this.#deliveries.unreadable,
+      readState: this.#lifecycle.state,
+      readiness: this.#readiness,
+    });
   }
 
   #publish(): void {

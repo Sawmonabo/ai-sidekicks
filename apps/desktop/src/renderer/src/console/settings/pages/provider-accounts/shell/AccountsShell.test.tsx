@@ -9,9 +9,18 @@
 // THE ONE STATE IT CANNOT REACH FROM THE DECK IS THE REFUSAL, because the deck
 // answers this read. That case overrides the bound call so the failed arm is drawn
 // too — every arm of the read is rendered somewhere.
+//
+// AND THE READ IS THE NODE'S, NOT THIS PAGE'S. The registry, the readiness projection
+// and the quota rows all reach this shell through `bridge/quotas/`, which is the one
+// reader of the account plane in a window and the one holder of its live tail. Two
+// cases below are about exactly that and could not have passed while this page ran a
+// read of its own: a frame pushed down the tail reaches the rows, and mounting the
+// page costs ONE `providerAccount.list`.
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+
+import type { ProviderAccount } from "@ai-sidekicks/contracts";
 
 import {
   SidekicksBridgeProvider,
@@ -19,7 +28,15 @@ import {
   growthUnavailable,
   type ConsoleBridge,
 } from "../../../../bridge/index.js";
+import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM } from "../../../../bridge/daemon/daemon-streams.js";
+import {
+  withCapturedStream,
+  withDaemonCall,
+  type BridgeUnderTest,
+  type StreamUnderTest,
+} from "../../../../bridge/fixture/fixture-bridge.test-support.js";
 import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
+import { SETTINGS_PROVIDER_ACCOUNT_LIST } from "../../../../bridge/scenarios/settings-account-plane.js";
 import { SETTINGS_SCENARIO } from "../../../../bridge/scenarios/settings.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
 import { AccountsShell } from "./AccountsShell.js";
@@ -72,6 +89,32 @@ function selectAccount(container: HTMLElement, displayLabel: string): void {
     throw new Error(`the registry rendered no account row labelled ${displayLabel}`);
   }
   fireEvent.click(row);
+}
+
+/** One account off the deck's own reply, so no case here invents a registry row. */
+function registryAccountAt(ordinal: number): ProviderAccount {
+  const account = SETTINGS_PROVIDER_ACCOUNT_LIST.accounts[ordinal];
+  if (account === undefined) {
+    throw new Error(`the settings deck holds no registry account at ordinal ${String(ordinal)}`);
+  }
+  return account;
+}
+
+/** How many rows the list is currently drawing for one account's label. */
+function rowsLabelled(container: HTMLElement, displayLabel: string): number {
+  return [...container.querySelectorAll(".meridian-accounts__row")].filter((row) =>
+    (row.textContent ?? "").includes(displayLabel),
+  ).length;
+}
+
+/** The deck, with the account plane's live tail in this case's hands. */
+function bridgeHoldingTheTail(): StreamUnderTest {
+  return withCapturedStream(fixtureBridge(), PROVIDER_ACCOUNT_SUBSCRIBE_STREAM);
+}
+
+/** The deck, with every daemon call answered by the deck and counted on the way. */
+function bridgeCountingItsCalls(): BridgeUnderTest {
+  return withDaemonCall(fixtureBridge(), async (_call, passThrough) => await passThrough());
 }
 
 describe("AccountsShell", () => {
@@ -223,5 +266,49 @@ describe("AccountsShell", () => {
     };
     const container = await renderSettledShell(refusing);
     expect(container.textContent).toContain("Try again");
+  });
+
+  // THE DEFECT. This page used to run a `providerAccount.list` of its own behind a
+  // subscribe that opened nothing, so the node's tail could report an account removed
+  // — the registry's own live signal, which this console already holds open — and the
+  // page went on listing it until something happened to focus the window. Two
+  // snapshots of one registry, and nothing on screen saying they disagreed.
+  it("drops an account the node's tail says the registry no longer holds", async () => {
+    const plane = bridgeHoldingTheTail();
+    const container = await renderSettledShell(plane.bridge);
+    const leaving = registryAccountAt(1);
+    expect(rowsLabelled(container, leaving.displayLabel)).toBe(1);
+
+    act(() => {
+      plane.deliver({ kind: "account_removed", accountId: leaving.accountId });
+    });
+
+    expect(rowsLabelled(container, leaving.displayLabel)).toBe(0);
+  });
+
+  // The negative control for the case above: a frame this build cannot read moves no
+  // account. Without it the case would hold for a page that emptied its list on any
+  // delivery at all, which is the opposite failure and just as wrong.
+  it("negative control: an unreadable frame moves no row", async () => {
+    const plane = bridgeHoldingTheTail();
+    const container = await renderSettledShell(plane.bridge);
+    const staying = registryAccountAt(1);
+
+    act(() => {
+      plane.deliver({ kind: "a frame from a daemon this build does not know" });
+    });
+
+    expect(rowsLabelled(container, staying.displayLabel)).toBe(1);
+  });
+
+  // ONE READER. The count is asserted exactly rather than as a ceiling, which makes it
+  // two-sided: two reads is the second snapshot this page used to take, and zero is a
+  // page rendering a registry it never asked for.
+  it("costs the node one registry read, not one of its own", async () => {
+    const counted = bridgeCountingItsCalls();
+    await renderSettledShell(counted.bridge);
+
+    const registryReads = counted.calls.filter((call) => call.method === "providerAccount.list");
+    expect(registryReads).toHaveLength(1);
   });
 });

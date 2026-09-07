@@ -238,10 +238,10 @@ describe("readinessForProvider", () => {
   };
 
   it("finds the entry for the provider asked about", () => {
-    expect(readinessForProvider(reply, "codex")?.state).toBe("indeterminate");
+    expect(readinessForProvider(reply.readiness, "codex")?.state).toBe("indeterminate");
   });
 
   it("answers nothing rather than fabricating a state", () => {
-    expect(readinessForProvider({ ...reply, readiness: [] }, "claude")).toBeUndefined();
+    expect(readinessForProvider([], "claude")).toBeUndefined();
   });
 });

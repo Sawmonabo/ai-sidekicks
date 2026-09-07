@@ -186,9 +186,12 @@ export type { QueueFeed } from "./queue/queue-reading.js";
 // Three modules, and the door re-exports each symbol from the one that DECLARES it:
 // `provider-quota-fold.ts` owns which reading is current and what a surface renders
 // for it, `provider-account-quota.ts` owns the wire that feeds it, and
-// `provider-quota-feed.ts` owns how many readings there are and how long each lives.
-export { useProviderQuotas } from "./quotas/provider-quota-feed.js";
-export type { ProviderQuotaReadout } from "./quotas/provider-account-quota.js";
+// `provider-quota-feed.ts` owns how many readings there are and how long each lives —
+// and, beside the three window triggers, the fourth moment that owes one a re-read: a
+// settled sign-in or a registered token changes what the registry says and neither is
+// a window fact, so the surface that caused one asks rather than reading for itself.
+export { useProviderAccountRefresh, useProviderQuotas } from "./quotas/provider-quota-feed.js";
+export type { ProviderQuotaReadout } from "./quotas/provider-quota-readout.js";
 export { remainingPercentOf } from "./quotas/provider-quota-fold.js";
 export type { ProviderQuotaReading } from "./quotas/provider-quota-fold.js";
 

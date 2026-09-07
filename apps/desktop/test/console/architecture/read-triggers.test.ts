@@ -64,6 +64,7 @@ const TRIGGER_CONTRACT_MEMBERS: readonly string[] = ["triggeringEventKinds", "re
 const EXPECTED_READINGS: readonly string[] = [
   "AgentRosterReading",
   "ApprovalsReader",
+  "AttentionPreferenceRead",
   "ArtifactPaneReader",
   "BridgeCapabilityRead",
   "BrowserSettingsView",

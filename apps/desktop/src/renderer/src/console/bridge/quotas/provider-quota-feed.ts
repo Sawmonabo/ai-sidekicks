@@ -21,7 +21,8 @@ import {
 } from "../../store/index.js";
 
 import type { ConsoleBridge } from "../console-bridge.js";
-import { NodeProviderQuotaReading, type ProviderQuotaReadout } from "./provider-account-quota.js";
+import { NodeProviderQuotaReading } from "./provider-account-quota.js";
+import type { ProviderQuotaReadout } from "./provider-quota-readout.js";
 
 /**
  * The window's readings, one per bridge.
@@ -110,4 +111,30 @@ export function useProviderQuotas(bridge: ConsoleBridge): ProviderQuotaReadout {
   useWindowReadTriggers(readTrigger, bridge.transportReconnect);
 
   return readout;
+}
+
+/**
+ * Ask this node's account-plane reading for a fresh read.
+ *
+ * THE THREE WINDOW TRIGGERS ARE WIRED ALREADY, and this is for the fourth kind of
+ * moment: something a person did that the registry now describes differently — a
+ * brokered sign-in that ended, a token registered. Those are not window facts and no
+ * trigger set names them, but they are exactly the reason the reading exists to be
+ * asked again, and the alternative a surface reaches for otherwise is a read of its
+ * own.
+ *
+ * The REASON is the caller's, never inferred here: `RefreshReason` is a diagnostics
+ * vocabulary, and a hook that stamped every one of these as the same word would report
+ * a person's press and a settled flow as one kind of event.
+ */
+export function useProviderAccountRefresh(bridge: ConsoleBridge): (reason: RefreshReason) => void {
+  // Resolved at CALL time for the reason the three callbacks above are: a reading
+  // retired between this render and the press is re-minted by the registry rather
+  // than woken through a handle this render happened to be holding.
+  return useCallback(
+    (reason: RefreshReason) => {
+      nodeProviderQuotaReadings.reading(bridge).requestRead(reason);
+    },
+    [bridge],
+  );
 }
