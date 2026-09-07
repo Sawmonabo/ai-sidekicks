@@ -162,29 +162,44 @@ export const VcsTypeSchema: z.ZodType<VcsType> = z.enum(["git", "none"]);
 // RepoMountHealth — derived projection, never persisted (D-009-2).
 // --------------------------------------------------------------------------
 //
-// Ratified shape: `{ status: "healthy" | "unreachable"; checkedAt: string }`
+// Ratified shape:
+// `{ status: "healthy" | "unreachable" | "identity_mismatch"; checkedAt: string }`
 // (`docs/architecture/contracts/api-payload-contracts.md §Plan-009 — Repo Attachment And Workspace Binding`;
 // semantics in `Spec-009 §Repo Mount Health (V1 Definition)`). A render-ready
 // discriminant plus the probe provenance that produced it.
 //
-// Three properties are load-bearing, and each is a deliberate rejection of a
+// Four properties are load-bearing, and each is a deliberate rejection of a
 // competing shape:
 //   • NO `unknown` member. The on-read probe floor (D-009-5) synchronously
 //     probes filesystem availability before every health-reporting read, so
-//     every read carries a fresh verdict and there is no third state to
-//     report. Admitting `unknown` would let a read answer "we did not check"
-//     for a surface contractually obliged to check.
+//     every read carries a fresh verdict and there is no "we did not check"
+//     state to report. Admitting `unknown` would let a read answer "we did not
+//     check" for a surface contractually obliged to check.
 //   • `"unreachable"`, NOT `"stale"`. `stale` already names a WORKSPACE state
 //     above; reusing it here would overload one vocabulary across two axes
 //     (mount reachability vs workspace lifecycle) and make a `health.status`
 //     of `"stale"` indistinguishable from a workspace-state leak.
+//   • `"identity_mismatch"` is the THIRD member and not a refusal. Spec-009's
+//     own words: "`identity_mismatch` when the root is reachable but the common
+//     directory re-derived from it no longer equals the attach-persisted
+//     identity anchor (`repo_mounts.metadata.commonDir`) … required because the
+//     mount's binds and runs are already refusing through the persisted-identity
+//     match, and a projection still answering `healthy` for a mount that can
+//     never bind again is a lying read model"
+//     (`Spec-009 §Repo Mount Health (V1 Definition)`; I-009-17, T-009-2B-5,
+//     D-009-2 as amended by the 2026-08-17 carried-findings adjudication).
+//     `unreachable` TAKES PRECEDENCE — no further question can be put to a root
+//     that cannot be probed — and a mount persisting no anchor (a plain
+//     directory, which has no repository identity at all) never projects it.
+//     Re-attach is the named recovery, and it mints a new mount row.
 //   • `checkedAt` is REQUIRED, not optional. A verdict with no probe
 //     timestamp is unauditable — the reader cannot tell a fresh probe from a
 //     cached one, which is the whole reason the field exists.
 // NO `health` column lands in `repo_mounts`: `Spec-009 §State And Data
-// Implications` pins health to projection state, not row state.
+// Implications` pins health to projection state, not row state — the identity
+// verdict included, which is re-derived on every health-reporting read.
 export interface RepoMountHealth {
-  status: "healthy" | "unreachable";
+  status: "healthy" | "unreachable" | "identity_mismatch";
   checkedAt: string;
 }
 // Single-T `z.ZodType<T>` — a derived read-side projection, never a tRPC input
@@ -193,7 +208,7 @@ export interface RepoMountHealth {
 // in runtime-node.ts).
 export const RepoMountHealthSchema: z.ZodType<RepoMountHealth> = z
   .object({
-    status: z.enum(["healthy", "unreachable"]),
+    status: z.enum(["healthy", "unreachable", "identity_mismatch"]),
     // ISO 8601 instant of the probe that produced the verdict.
     // `{ offset: true }` widens default Z-only acceptance to numeric RFC 3339
     // §5.6 offsets — the package-wide datetime convention (`createdAt` in

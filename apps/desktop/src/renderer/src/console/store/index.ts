@@ -209,6 +209,40 @@ export { useSubjectScopedResource } from "./subject-scoped-resource.js";
 export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
+// THE ACT PRIMITIVE, beside the two subject primitives and the latch it composes.
+// An act with a prerequisite read behind it — a roster before a node is named, the
+// modes a mount admits, whether a branch already has a checkout — was written three
+// times in one directory before this existed: three schedulers, three trigger
+// wirings, three emitters, three four-arm vocabularies, three overlap guards, and
+// three copies of the hook and its disposal constant. It ships through this door for
+// `RefreshScheduler`'s reason: a chokepoint reachable only by deep-importing past
+// this barrel is one a family would route around rather than through.
+//
+// WHAT LEAVES IS THE BASE CLASS AND NOT THE MACHINE, because the pass-through was the
+// last thing still being copied: `act-controller-base.ts` holds the `ActController`
+// and every family extends that. `ActController` itself therefore has no reader
+// outside this family, and a door line for it would be a name nothing outside
+// `store/` ever types — which the barrel census fails. It rejoins this door the day a
+// surface holds one directly.
+export { ActSurfaceController } from "./act-controller-base.js";
+// The three reading shapes travel with it because a controller composing one has to
+// NAME what it publishes: its own settled arm is its own, and the three arms around
+// that arm are this module's.
+export type {
+  ActOutcome,
+  ActPrerequisiteReading,
+  ActReading,
+  ActSettlementReading,
+} from "./act-reading.js";
+// The React half, from the module that declares it. It binds any controller offering
+// the four lifecycle members, which is why the repos family's three — each extending
+// the base rather than being an `ActController` — bind through it unchanged.
+export { useActController } from "./use-act-controller.js";
+// The disposal beside the hook, because it is not the hook's alone: a controller that
+// publishes into a host rather than off a snapshot binds through
+// `useSubjectScopedResource` directly and ends exactly the same way.
+export { CONTROLLER_DISPOSAL } from "./use-act-controller.js";
+
 export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
 export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch.js";
 // The caller's own membership role, forwarded with the two types a caller has to name

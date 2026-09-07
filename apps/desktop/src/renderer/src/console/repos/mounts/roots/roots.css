@@ -1,0 +1,96 @@
+/*
+ * Preparing an execution root, and retiring or disposing of one.
+ *
+ * Split out of `mounts.css` with the directory, verbatim and in order — a move, not a
+ * restyle. The trigger, dialog and field shape these two surfaces share with the attach
+ * and bind surfaces is in `mounts/mount-acts.css`, imported ahead of this sheet; what is
+ * here is what only a root's own surfaces wear — the reuse verdict's two toned readings
+ * and the settled line a disposal leaves behind.
+ *
+ * IMPORTED FROM `repos/index.ts`: this directory carries no barrel, so the family door
+ * owns its sheet.
+ */
+
+.meridian-prepare-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-prepare-root__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-prepare-root__line {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-prepare-root__verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-prepare-root__verdict p {
+  margin: 0;
+}
+
+/*
+ * THE TWO VERDICTS THAT CHANGE WHAT A PRESS DOES ARE TONED, and the two that do not
+ * are left plain. A dirty candidate is a consent about to be given, and an
+ * incompatible one is a control that cannot be pressed at all — those are the readings
+ * a person must not skim past. `none` and `reusable` are ordinary outcomes.
+ */
+.meridian-prepare-root__verdict--dirty {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-prepare-root__verdict--incompatible {
+  color: var(--meridian-red-text);
+}
+
+.meridian-prepare-root__candidate,
+.meridian-prepare-root__reason {
+  min-width: 0;
+}
+
+.meridian-prepare-root__consent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-prepare-root__prepared,
+.meridian-root-disposal__settled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  min-width: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-prepare-root__state,
+.meridian-root-disposal__state {
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-root-disposal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}

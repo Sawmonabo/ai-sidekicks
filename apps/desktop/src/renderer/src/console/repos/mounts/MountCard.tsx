@@ -33,6 +33,19 @@
 //     Definition)` gives the desktop renderer no detach surface in V1, and this card
 //     DISCLOSES that absence rather than silently omitting it, so the provenance
 //     disclosure names where detach lives instead.
+//   • THE BIND ENTRY POINT SITS ON THE CARD, AND ONLY WHERE BINDS ARE OFFERED.
+//     `Spec-009 §Default Behavior` mints one `read-only` workspace at attach, so every
+//     writable workspace in a session comes from `repo.workspaceBind` — and the mount
+//     is what that call is scoped to. It is drawn on exactly the posture that admits
+//     it, so a detached, unreachable, or drifted mount shows its withheld sentence
+//     instead of a control the daemon would refuse.
+//   • ONE VERDICT CARRIES A CONTROL, AND IT IS THE PERMANENT ONE. `identity_mismatch`
+//     refuses every bind and every run on this mount until someone acts, and
+//     `Spec-009 §Repo Mount Health (V1 Definition)` names re-attaching as the
+//     recovery — so that verdict, and no other, is drawn with the re-attach beside it.
+//     `unreachable` is transient and gets none: its remedy is to make the path
+//     reachable, and a control here would invite a second row for a repository that is
+//     about to answer for itself.
 //
 // WHAT THE CARD DOES NOT DO. It never resolves, canonicalises, or compares a path —
 // containment, symlink resolution, case folding, and working-tree-boundary awareness
@@ -64,10 +77,18 @@ import {
   mountLifecycleReading,
   mountVcsReading,
 } from "./mount-health.js";
+import { ReattachControl } from "./attach/ReattachControl.js";
+import { BindWorkspaceDialog } from "./bind/BindWorkspaceDialog.js";
 import { ProposalGateDisclosure } from "../proposals/ProposalGateDisclosure.js";
 import { branchRootGateSubject } from "../proposals/proposal-gate-model.js";
+import { mountRefusalRecovery } from "./mount-refusal-copy.js";
+import { RefusalRecovery } from "./RefusalRecovery.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
-import { workspaceRefusalFor, type WorkspaceRefusals } from "./repo-mounts-model.js";
+import {
+  workspaceRefusalFor,
+  workspaceSelectionModeFor,
+  type WorkspaceRefusals,
+} from "./repo-mounts-model.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { WorktreeGateRow } from "../proposals/WorktreeGateRow.js";
 import {
@@ -110,6 +131,8 @@ export interface MountCardProps {
   readonly sessionStore: SessionStore;
   /** Put the resolved root on the clipboard; the host's own refusal is the caller's to render. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
+  /** Read the section again, because a participant's act minted a mount it has not seen. */
+  readonly onRequestRead: () => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
 }
 
@@ -178,6 +201,24 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       {mount.vcsType === "none" ? (
         <p className="meridian-mount-card__sentence">{vcs.sentence}</p>
       ) : null}
+      {posture.offered ? (
+        <BindWorkspaceDialog
+          bridge={props.bridge}
+          repoMountId={mount.id}
+          canonicalRoot={mount.canonicalRoot}
+          sessionStore={props.sessionStore}
+          onBound={props.onRequestRead}
+        />
+      ) : null}
+      {mount.health.status === "identity_mismatch" ? (
+        <ReattachControl
+          bridge={props.bridge}
+          sessionStore={props.sessionStore}
+          localPath={mount.localPath}
+          nodeId={mount.nodeId}
+          onAttached={props.onRequestRead}
+        />
+      ) : null}
 
       <details className="meridian-mount-card__provenance">
         <summary className="meridian-mount-card__provenance-summary">Provenance</summary>
@@ -206,7 +247,16 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
 
       <div className="meridian-mount-card__roots">
         {props.worktreeRefusal === undefined ? null : (
-          <RefusalCard code={props.worktreeRefusal.code} detail={props.worktreeRefusal.detail} />
+          // THE RECOVERY RIDES THE CARD RATHER THAN SITTING BESIDE IT, because
+          // `primitives/refusal-contract.ts` reserves `action` for exactly this and a
+          // sentence rendered next to a refusal reads as a second, unrelated fact. A
+          // code this family has no recovery for supplies `undefined` and the card
+          // renders the daemon's own code and detail alone, which is the honest floor.
+          <RefusalCard
+            code={props.worktreeRefusal.code}
+            detail={props.worktreeRefusal.detail}
+            action={renderRefusalRecovery(props.worktreeRefusal.code)}
+          />
         )}
         {renderRoots(props)}
       </div>
@@ -226,7 +276,12 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 workspace={workspace}
                 capabilities={props.capabilitiesByWorkspaceId[workspace.id]}
                 refusal={workspaceRefusalFor(props.workspaceRefusals, workspace.id)}
+                refusalMode={workspaceSelectionModeFor(props.workspaceRefusals, workspace.id)}
                 pendingMode={props.pendingModeByWorkspaceId[workspace.id]}
+                mountCanonicalRoot={mount.canonicalRoot}
+                bridge={props.bridge}
+                sessionStore={props.sessionStore}
+                onRequestRead={props.onRequestRead}
                 modeControlsOffered={posture.offered}
                 onSelectExecutionMode={(executionMode) => {
                   props.onSelectExecutionMode(workspace.id, executionMode);
@@ -297,8 +352,29 @@ function renderRoots(props: MountCardProps): React.JSX.Element | null {
           bridge={props.bridge}
           sessionStore={props.sessionStore}
           nowMilliseconds={props.nowMilliseconds}
+          onRequestRead={props.onRequestRead}
         />
       ))}
     </>
   );
+}
+
+/**
+ * The recovery slot for a refusal that carries one, and nothing for a refusal that
+ * does not.
+ *
+ * A FUNCTION RATHER THAN AN INLINE TERNARY, because the same decision is made at two
+ * shapes in this family — a card here, an inline sentence in the mode picker — and
+ * `apps/desktop/AGENTS.md` hoists a helper on its second use. What is shared is the
+ * LOOKUP; which shape carries it stays each call site's decision about blast radius.
+ *
+ * NO CONTEXT IS SUPPLIED, and the omission is exact. The one code whose recovery takes
+ * one is `workspace.mode_unsupported`, whose remedy is the mount's own restriction
+ * reason for the mode that was refused — and a root read refuses none of the codes
+ * that carry a mode. Supplying an empty context here would be indistinguishable, at
+ * the call site, from having forgotten to look one up.
+ */
+function renderRefusalRecovery(code: string): React.JSX.Element | undefined {
+  const recovery = mountRefusalRecovery(code);
+  return recovery === undefined ? undefined : <RefusalRecovery recovery={recovery} />;
 }

@@ -19,12 +19,17 @@
 // `stale` plus `lastError`, and synthesising a second health axis would be the
 // renderer inventing an answer the daemon deliberately did not give.
 //
-// THE THREE PATHS ARE THREE FACTS. The mount's `canonicalRoot`, the workspace's
-// bound root, and the normalized checkout root the snapshot service operates on can
-// all differ in `branch` mode, and none is derived from another. This row renders
-// the `fsRoot` the wire gave it and nothing else; the checkout root rides the run's
-// own execution context (`run_execution_contexts.checkout_root`) and reaches the
-// screen where that context does.
+// THE THREE PATHS ARE THREE FACTS, AND ALL THREE ARE ON THIS ROW. The mount's
+// `canonicalRoot`, the workspace's bound root, and the normalized checkout root the
+// turn-snapshot service operates on can all differ in `branch` mode, and none is
+// derived from another. The `fsRoot` line below renders the bound root the workspace
+// list gave it; the other two — and the marker that says the mode in force was
+// SUBSTITUTED rather than chosen — reach the screen through
+// `ExecutionContextDisclosure`, which reads the workspace's own execution context.
+// That read is its own wire because neither of the two facts it carries is on the
+// workspace list at all: `run_execution_contexts.checkout_root` is captured per run,
+// and the workspace list's `executionMode` reads identically whether the daemon bound
+// the requested mode or fell back to another.
 
 import type {
   ExecutionMode,
@@ -32,9 +37,13 @@ import type {
   WorkspaceState,
 } from "@ai-sidekicks/contracts";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { Chip, Glyph, Nothing, WireFigure, type ChipTone } from "../../primitives/index.js";
+import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
+import { PrepareExecutionRoot } from "./roots/PrepareExecutionRoot.js";
+import type { SessionStore } from "../../store/index.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 /**
@@ -57,8 +66,25 @@ export interface WorkspaceCardProps {
   readonly workspace: RepoWorkspaceRow;
   readonly capabilities: WorkspaceExecutionModeCapabilitiesReadResponse | undefined;
   readonly refusal: ConsoleRefusal | undefined;
+  /**
+   * The mode the rendered refusal was about, where the refusal came from a press.
+   *
+   * Its own prop rather than read off `refusal`, because a `ConsoleRefusal` carries a
+   * code and a sentence and no subject: one code's recovery — the mount's own reason
+   * for refusing a mode — is keyed by mode on the capabilities reply, and a picker
+   * handed the refusal alone could say only that SOME mode was refused.
+   */
+  readonly refusalMode: ExecutionMode | undefined;
   /** The mode a switch on this workspace is waiting on the daemon for, where one is. */
   readonly pendingMode: ExecutionMode | undefined;
+  /** The mount's resolved root — the disclosure's first path, and the fixed one. */
+  readonly mountCanonicalRoot: string;
+  /** The bridge the execution-context read and the prepare acts are put on. */
+  readonly bridge: ConsoleBridge;
+  /** Read the section again, because a prepare put a root on disk the list has not seen. */
+  readonly onRequestRead: () => void;
+  /** The session the execution-context read's own refresh triggers listen to. */
+  readonly sessionStore: SessionStore;
   /** False when the owning mount's card withholds its bind controls. */
   readonly modeControlsOffered: boolean;
   readonly onSelectExecutionMode: (executionMode: ExecutionMode) => void;
@@ -97,14 +123,37 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         </p>
       ) : null}
 
+      <ExecutionContextDisclosure
+        bridge={props.bridge}
+        workspaceId={workspace.id}
+        mountCanonicalRoot={props.mountCanonicalRoot}
+        sessionStore={props.sessionStore}
+      />
+
       <ExecutionModePicker
         workspaceId={workspace.id}
         currentMode={workspace.executionMode}
         capabilities={props.capabilities}
         refusal={props.refusal}
+        refusalMode={props.refusalMode}
         pendingMode={props.pendingMode}
         disabled={!props.modeControlsOffered}
         onSelect={props.onSelectExecutionMode}
+      />
+
+      {/*
+        THE PREPARE SITS UNDER THE PICKER because it is about the mode the row is bound
+        in NOW: which call it sends and whether it asks a reuse question are both read
+        off that mode, so a control drawn above the picker would be offering to prepare
+        a root for a binding the participant is in the middle of changing.
+      */}
+      <PrepareExecutionRoot
+        bridge={props.bridge}
+        workspaceId={workspace.id}
+        repoMountId={workspace.repoMountId}
+        executionMode={workspace.executionMode}
+        sessionStore={props.sessionStore}
+        onPrepared={props.onRequestRead}
       />
     </article>
   );

@@ -1,0 +1,52 @@
+/*
+ * Binding a workspace to an execution mode: the mount root it is bound under, and the
+ * modes this mount cannot offer.
+ *
+ * Split out of `mounts.css` with the directory, verbatim and in order — a move, not a
+ * restyle. The dialog shape this surface shares with the attach and execution-root
+ * surfaces is in `mounts/mount-acts.css`, imported ahead of this sheet; what is here is
+ * what only the bind surface wears, including the one rule that overrides a shared one
+ * (`--out`'s `cursor`), which is why the import order is the order the rules were in.
+ *
+ * IMPORTED FROM `repos/index.ts`: this directory carries no barrel, so the family door
+ * owns its sheet.
+ */
+
+/*
+ * The mount root, above the directory field it is the base of. A row rather than a
+ * column, because the legend is naming ONE value and the pair reads as a caption on the
+ * figure — the field below it is the thing being composed and gets the column shape.
+ */
+.meridian-bind__root {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+/*
+ * An excluded mode is dimmed and still legible: `Spec-009 §Fallback Behavior` requires
+ * the gap explicit, so the row must stay readable next to its reason. Dimming it to the
+ * point of vanishing would be the same as dropping it, with extra steps.
+ */
+.meridian-bind__mode--out {
+  color: var(--meridian-text-muted);
+  cursor: default;
+}
+
+/* The mount's own sentence for why a mode is out. Wraps; never truncated. */
+.meridian-bind__mode-reason {
+  min-width: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-bind__settlement-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  min-width: 0;
+}

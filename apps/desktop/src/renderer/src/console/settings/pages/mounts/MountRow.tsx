@@ -27,8 +27,8 @@ export function MountRow(props: { readonly reading: MountReading }): ReactNode {
       <span className="meridian-mount-list__axes">
         <Chip tone={attachmentTone(mount)} label={`Attachment: ${mount.state}`} glyph="dot" />
         <Chip
-          tone={reachabilityTone(mount)}
-          label={`Reachability: ${mount.health.status}`}
+          tone={mountHealthTone(mount)}
+          label={`Health: ${mount.health.status}`}
           glyph="clock"
         />
         <Chip tone="neutral" label={mount.vcsType} mono />
@@ -50,7 +50,17 @@ export function attachmentTone(mount: RepoMountReadResponse): "neutral" | "atten
   return mount.state === "attached" ? "neutral" : "attention";
 }
 
-/** The same, for the reachability axis. The two are toned independently. */
-export function reachabilityTone(mount: RepoMountReadResponse): "neutral" | "failure" {
+/**
+ * The same, for the health axis. The two are toned independently.
+ *
+ * THE AXIS IS HEALTH AND NOT REACHABILITY, which is what the chip beside this says
+ * too. `RepoMountHealth` carries three verdicts and only one of them is about whether
+ * the root could be reached: `identity_mismatch` names a root that WAS reached and is
+ * no longer the repository it was attached as, so a label promising reachability would
+ * have been a false statement about the value printed next to it. The tone is right on
+ * all three — anything but `healthy` is a failure a person has to act on — so this is
+ * the name and the label moving to the axis, and no verdict changing.
+ */
+export function mountHealthTone(mount: RepoMountReadResponse): "neutral" | "failure" {
   return mount.health.status === "healthy" ? "neutral" : "failure";
 }

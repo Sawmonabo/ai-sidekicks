@@ -5,7 +5,9 @@ import type {
 import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import { ModeRowView } from "./ModeRowView.js";
-import { type ModeRow } from "./mode-row.js";
+import { executionModeRows } from "./mode-row.js";
+import { modeRestrictionReason, mountRefusalRecovery } from "./mount-refusal-copy.js";
+import { RefusalRecovery } from "./RefusalRecovery.js";
 
 export interface ExecutionModePickerProps {
   /** Wire-verbatim workspace id; the group's inputs are named by it so two pickers never collide. */
@@ -18,6 +20,14 @@ export interface ExecutionModePickerProps {
   readonly refusal: ConsoleRefusal | undefined;
   /** The mode a switch is on the wire for, where one is. Absent means nothing is pending. */
   readonly pendingMode: ExecutionMode | undefined;
+  /**
+   * The mode the refusal above was about, where it came from a refused switch.
+   *
+   * Absent for a refused capabilities READ, which is about the workspace and names no
+   * mode — so the one code whose recovery is the mount's own restriction reason cannot
+   * reach for a reason belonging to a mode nobody pressed.
+   */
+  readonly refusalMode: ExecutionMode | undefined;
   /** Whether the surrounding card offers its bind controls at all. */
   readonly disabled: boolean;
   readonly onSelect: (executionMode: ExecutionMode) => void;
@@ -25,11 +35,32 @@ export interface ExecutionModePickerProps {
 
 export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.Element {
   const { capabilities } = props;
+  // THE RECOVERY IS LOOKED UP ONCE FOR BOTH REFUSAL SITES BELOW, because both render
+  // the same refusal: the picker draws it beside the group when the modes are known and
+  // in place of the group when they are not, and a code's next move does not depend on
+  // which of the two the surface reached.
+  //
+  // The RESTRICTION REASON is available only on the arm that HAS a capabilities reply,
+  // which is the honest shape rather than a limitation: a refused read gives the picker
+  // no `restrictions` map at all, so `workspace.mode_unsupported` on that arm takes the
+  // table's own "no reason on file" sentence instead of one lifted from a stale reply.
+  const recovery =
+    props.refusal === undefined
+      ? undefined
+      : mountRefusalRecovery(props.refusal.code, {
+          restrictionReason: modeRestrictionReason(capabilities?.restrictions, props.refusalMode),
+        });
+  const recoveryAction =
+    recovery === undefined ? undefined : <RefusalRecovery recovery={recovery} />;
   if (capabilities === undefined) {
     return (
       <div className="meridian-mode-picker">
         {props.refusal !== undefined ? (
-          <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
+          <InlineRefusal
+            code={props.refusal.code}
+            detail={props.refusal.detail}
+            action={recoveryAction}
+          />
         ) : (
           <Nothing
             kind="not-checked"
@@ -40,7 +71,7 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
     );
   }
 
-  const rows = modeRows(capabilities);
+  const rows = executionModeRows(capabilities);
   const { pendingMode } = props;
   return (
     <div className="meridian-mode-picker">
@@ -71,35 +102,12 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
         </p>
       ) : null}
       {props.refusal !== undefined ? (
-        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
+        <InlineRefusal
+          code={props.refusal.code}
+          detail={props.refusal.detail}
+          action={recoveryAction}
+        />
       ) : null}
     </div>
   );
-}
-
-/**
- * The rows, built from the reply and from nothing else.
- *
- * Available modes first, in the order the daemon listed them; then every restricted
- * mode, in the order its reasons arrived. A mode named in BOTH halves is rendered
- * once, as available, and keeps its reason visible — the reply is malformed in that
- * case and hiding half of it would be the renderer deciding which half was true.
- */
-function modeRows(
-  capabilities: WorkspaceExecutionModeCapabilitiesReadResponse,
-): readonly ModeRow[] {
-  const restrictions = capabilities.restrictions ?? {};
-  const rows: ModeRow[] = capabilities.availableModes.map((mode) => ({
-    mode,
-    available: true,
-    restrictionReason: restrictions[mode],
-  }));
-  for (const [restrictedMode, reason] of Object.entries(restrictions)) {
-    const mode = restrictedMode as ExecutionMode;
-    if (rows.some((row) => row.mode === mode)) {
-      continue;
-    }
-    rows.push({ mode, available: false, restrictionReason: reason });
-  }
-  return rows;
 }

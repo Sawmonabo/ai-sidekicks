@@ -53,7 +53,8 @@ export type GrowthSlateRowId =
   | "sidekick-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
-  | "workflow-version-chain";
+  | "workflow-version-chain"
+  | "workspace-execution-context";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -381,6 +382,15 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  "workspace-execution-context": {
+    id: "workspace-execution-context",
+    wire: "a workspace's own execution context — the normalized checkout root a turn-boundary snapshot operates on, and the marker that says a run is executing under a FALLBACK execution mode rather than the mode that was selected. Neither reaches a client: the checkout root is a column on run_execution_contexts and is carried by no reply, and no registered field anywhere carries the fallback marker, so the three roots a branch-mode workspace can hold cannot be shown together and a substituted mode cannot be told apart from a chosen one",
+    owningDocument:
+      "Spec-010 §Fallback Behavior (the selected mode is marked distinctly from normal worktree mode) + Spec-010 §Turn-Boundary Snapshots (the normalized checkout root, and the run_execution_contexts.checkout_root column that holds it); Plan-010 (the shared-contracts and client-SDK registration a read would join)",
+    consumingSurface:
+      "repos surface (the workspace card's three-path disclosure and its fallback badge)",
     wireRegistered: false,
   },
 };

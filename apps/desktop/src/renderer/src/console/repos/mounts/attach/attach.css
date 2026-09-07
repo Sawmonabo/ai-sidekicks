@@ -1,0 +1,33 @@
+/*
+ * Attaching a repository, and re-attaching one whose identity has drifted.
+ *
+ * Split out of `mounts.css` with the directory, verbatim and in order — this was a move
+ * and not a restyle, and no pinned image may shift because of it. The shape these two
+ * surfaces share with the bind and execution-root surfaces is in `mounts/mount-acts.css`
+ * beside them, which is imported first; what is here is what only these two wear.
+ *
+ * THE BLOCK IS `meridian-repo-attach` AND NOT `meridian-attach`, because
+ * `console/agents/agents.css` declares that block for the agents family's own attach
+ * dialog and both sheets load into one document. Two families sharing a BEM block
+ * silently restyle each other, last sheet wins — so the block that shipped first keeps
+ * the name and this one carries its family in it.
+ *
+ * IMPORTED FROM `repos/index.ts`, like every sheet this family ships: this directory
+ * carries no barrel, so the family door owns its sheet.
+ */
+
+.meridian-repo-attach__minted,
+.meridian-reattach__subject {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-reattach {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--meridian-space-1);
+}

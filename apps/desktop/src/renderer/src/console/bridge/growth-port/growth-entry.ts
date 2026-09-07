@@ -156,7 +156,10 @@ export type GrowthOperationId =
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
-  | "orchestrationBudgetRead";
+  | "orchestrationBudgetRead"
+  // the workspace execution context — the normalized checkout root and the
+  // fallback-mode marker, neither of which any registered reply carries
+  | "workspaceExecutionContextRead";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

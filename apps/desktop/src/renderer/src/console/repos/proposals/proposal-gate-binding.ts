@@ -18,9 +18,9 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import {
+  CONTROLLER_DISPOSAL,
   useSubjectScopedResource,
   type SessionStore,
-  type SubjectScopedDisposal,
 } from "../../store/index.js";
 import type { ProposalGateReading } from "./proposal-gate-model.js";
 import { ProposalGateReader } from "./proposal-gate-reader.js";
@@ -73,7 +73,7 @@ export function useProposalGate(
     bridge,
     gateKey,
     () => new ProposalGateReader({ bridge, subject, sessionStore, clock }),
-    PROPOSAL_GATE_READER_DISPOSAL,
+    CONTROLLER_DISPOSAL,
   );
   useEffect(() => {
     // THE STORE AXIS, AND ONLY IT. The seam holds one resource per `(subject, key)`,
@@ -109,23 +109,6 @@ export function useProposalGate(
   );
   return { reading, requestAction };
 }
-
-/**
- * How one reader ends, and how one this module already ended is recognised.
- *
- * ONE MODULE-LEVEL OBJECT, because the resource seam holds `dispose` and `isClosed` on
- * dependencies of their own: a literal minted in the render body would hand over a
- * fresh identity on every pass and restart the lifetime beneath it. `dispose` here is
- * TERMINAL, which is why the reading travels beside it in the same object rather than
- * being re-derived in an effect — re-derived there it left the corpse recorded as
- * committed and disposed a second time when the caller's own replacement retired it.
- */
-const PROPOSAL_GATE_READER_DISPOSAL: SubjectScopedDisposal<ProposalGateReader> = {
-  dispose: (reader) => {
-    reader.dispose();
-  },
-  isClosed: (reader) => reader.isDisposed,
-};
 
 /**
  * The whole of a subject's content, as the one string the resource seam keys on.

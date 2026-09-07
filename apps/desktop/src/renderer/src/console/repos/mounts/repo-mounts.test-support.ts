@@ -82,9 +82,18 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
   }
 }
 
-/** Let the queued continuations of a settled act run, without moving the clock. */
+/**
+ * Let the queued continuations of a settled act run, without moving the clock.
+ *
+ * THE COUNT IS A CEILING ON A BURST AND NOT A TUNING. The section's read is a chain —
+ * the roster, then one mount read per distinct mount, then one capabilities read per
+ * workspace — and each link is a `await` of its own, so the number of turns the whole
+ * burst needs grows with the scenario. Raised from ten when the repos scenario grew its
+ * third mount, which pushed the last capabilities leg past the old ceiling and left a
+ * case reading a frame the burst had not finished writing.
+ */
 export async function drain(): Promise<void> {
-  for (let turn = 0; turn < 10; turn += 1) {
+  for (let turn = 0; turn < 40; turn += 1) {
     await Promise.resolve();
   }
 }

@@ -62,6 +62,7 @@ function renderRow(
         bridge={SERVING_BRIDGE}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
         nowMilliseconds={NOW}
+        onRequestRead={() => undefined}
       />
     </LiveAnnouncerProvider>,
   );

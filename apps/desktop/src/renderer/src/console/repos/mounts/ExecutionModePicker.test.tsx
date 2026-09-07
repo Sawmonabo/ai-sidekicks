@@ -37,6 +37,7 @@ function renderPicker(
       currentMode="read-only"
       capabilities={capabilities}
       refusal={undefined}
+      refusalMode={undefined}
       pendingMode={undefined}
       disabled={false}
       onSelect={() => undefined}
