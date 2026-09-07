@@ -180,7 +180,7 @@ export function createMountInventoryRead(options: {
   return new PushDrivenRead<MountInventory>({
     clock,
     origin: MOUNT_INVENTORY_ORIGIN,
-    read: async () => await readMountInventory(bridge, sessionId),
+    read: async (signal) => await readMountInventory(bridge, sessionId, signal),
     // One re-read per burst, never one per event: the signal goes to the read's own
     // `RefreshScheduler`, which debounces with an absolute deadline, so a run ending
     // three worktrees at once costs one inventory read rather than three.
@@ -192,14 +192,29 @@ export function createMountInventoryRead(options: {
   });
 }
 
+/**
+ * The fan-out read, and the one in this console with most to gain from abandonment.
+ *
+ * It is a list read followed by up to `MOUNT_INVENTORY_READ_CAP` mount reads, every
+ * one of them parsed against its registered schema and every one of them folded into
+ * a row. A person who opens the mounts page and leaves it before it lands used to pay
+ * for all of that; the signal reaches each call, so an abandoned pass parses nothing
+ * it has not already parsed and folds nothing at all.
+ */
 async function readMountInventory(
   bridge: ConsoleBridge,
   sessionId: string,
+  signal: AbortSignal,
 ): Promise<MountInventory> {
   const workspaces = servedValueOrRaise(
-    await callDaemon(bridge, WORKSPACE_LIST_METHOD, {
-      sessionId: heldIdAsWireId(sessionId),
-    }),
+    await callDaemon(
+      bridge,
+      WORKSPACE_LIST_METHOD,
+      {
+        sessionId: heldIdAsWireId(sessionId),
+      },
+      { signal },
+    ),
   );
   const mountIds = distinctMountIds(workspaces);
   const admittedMountIds = mountIds.slice(0, MOUNT_INVENTORY_READ_CAP);
@@ -207,7 +222,7 @@ async function readMountInventory(
   // VALUE: one mount refusing no longer rejects, so there is no settled-outcome
   // wrapper left to unwrap and no `reason` left to normalize a second time.
   const replies = await Promise.all(
-    admittedMountIds.map(async (repoMountId) => await readOneMount(bridge, repoMountId)),
+    admittedMountIds.map(async (repoMountId) => await readOneMount(bridge, repoMountId, signal)),
   );
   const readings = replies.map((reply, index): MountReading => {
     // The id is taken from the request rather than from the reply, because the
@@ -231,9 +246,9 @@ async function readMountInventory(
  * assignment is the error above — but the fix belongs at the site rather than in a
  * reader's memory, so the type is written where it is decided.
  */
-async function readOneMount(bridge: ConsoleBridge, repoMountId: string) {
+async function readOneMount(bridge: ConsoleBridge, repoMountId: string, signal: AbortSignal) {
   const request: RepoMountReadRequest = { repoMountId: heldIdAsWireId(repoMountId) };
-  return await callDaemon(bridge, MOUNT_READ_METHOD, request);
+  return await callDaemon(bridge, MOUNT_READ_METHOD, request, { signal });
 }
 
 /**

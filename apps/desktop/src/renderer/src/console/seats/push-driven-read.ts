@@ -31,7 +31,13 @@
 // AND ONE THAT IS ABOUT TEARDOWN. `dispose()` is terminal: the subscription is
 // released and the scheduler is disposed, so a late push cannot re-arm a timer behind
 // a section that unmounted. The clock is injected rather than read off the platform,
-// so a test drives all of this on frozen time with no real timers.
+// so a test drives all of this on frozen time with no real timers. Disposing also
+// ABANDONS the read in flight rather than only ignoring what it settles as — the
+// scheduler's own read line does that — so a section that unmounted mid-read stops
+// paying for the reply's parse and this model's projection of it, instead of paying
+// for both and discarding the result. The read body is handed that round's signal;
+// what it does with it is the read's own business, and a read that ignores it lands
+// exactly where it always did.
 //
 // AND ONE ABOUT THE SUBSCRIPTION THAT CANNOT BE OPENED AT ALL. Rule 1 puts the
 // subscribe first, so a `subscribe` that throws SYNCHRONOUSLY throws out of the open
@@ -70,7 +76,7 @@ import {
 } from "../core/index.js";
 import { wireRejectionToError } from "../../../../shared/wire-errors.js";
 import type { DaemonReply, GrowthOutcome } from "../bridge/index.js";
-import { RefreshScheduler, type RefreshReason } from "../store/index.js";
+import { RefreshScheduler, type ReadRound, type RefreshReason } from "../store/index.js";
 
 /**
  * The codes this module mints when a failure carried none of its own.
@@ -105,8 +111,16 @@ export type PushDrivenReadState<TValue> =
 
 export interface PushDrivenReadOptions<TValue> {
   readonly clock: ConsoleClock;
-  /** Performs the read. Rejections become the `failed` arm, never a silent empty. */
-  readonly read: () => Promise<TValue>;
+  /**
+   * Performs the read. Rejections become the `failed` arm, never a silent empty.
+   *
+   * The signal is the round's, from the read line the scheduler beneath this model
+   * owns: it aborts when a newer read supersedes this one and when the model is
+   * disposed. A read that forwards it to the call door stops costing anything the
+   * moment its surface goes; one that ignores it still has its answer discarded, and
+   * that is the difference the parameter exists to make visible.
+   */
+  readonly read: (signal: AbortSignal) => Promise<TValue>;
   /**
    * Opens the change subscription. Called exactly once, BEFORE the first read is
    * requested. The callback takes no payload on purpose — rule 2 above.
@@ -136,8 +150,8 @@ export class PushDrivenRead<TValue> {
     this.#options = options;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
-      perform: async () => {
-        await this.#performRead();
+      perform: async (_reasons, round) => {
+        await this.#performRead(round);
       },
       // The perform body already converts a rejection into the `failed` arm, so
       // this handler covers only a throw from the conversion itself. It must exist:
@@ -264,15 +278,21 @@ export class PushDrivenRead<TValue> {
     release?.();
   }
 
-  async #performRead(): Promise<void> {
+  async #performRead(round: ReadRound): Promise<void> {
     try {
-      const value = await this.#options.read();
-      if (this.#disposed) {
+      const value = await this.#options.read(round.signal);
+      // The round and not `#disposed` alone: disposal aborts the round, so this
+      // covers the same case and one more — a read this line has already superseded
+      // — with one reading rather than two that can disagree.
+      if (round.signal.aborted) {
         return;
       }
       this.#settle({ kind: "loaded", value });
     } catch (error) {
-      if (this.#disposed) {
+      if (round.signal.aborted) {
+        // An abandoned read has no failure to report: whatever it settled as, the
+        // surface that would have rendered the refusal is gone or is already
+        // rendering a newer read's answer.
         return;
       }
       this.#settle({ kind: "failed", refusal: this.#refusalFor(error) });

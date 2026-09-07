@@ -71,13 +71,20 @@ export function openReader(
  * The two turn counts are the shape `crossMacrotaskBoundary` replaced elsewhere and are kept
  * here for a reason that does not apply there: the second loop STOPS at the reading it
  * is waiting for, so the count is a ceiling on a wait rather than a tuning of one.
+ *
+ * BOTH CEILINGS ARE GENEROUS ON PURPOSE. How many turns a read pass costs is not a
+ * contract this reader makes — it is the sum of the awaits between the call and the
+ * publish, and it moves whenever a layer is added anywhere along that path. A ceiling
+ * tight enough to be exact is a ceiling that fails on a change which broke nothing, so
+ * these are sized well above the pass they bound. Turns cost nothing once the queue is
+ * empty, and the loop that matters stops at the reading rather than at its count.
  */
 export async function settle(clock: ManualClock, reader: RepoMountsReader): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
+  for (let turn = 0; turn < 32; turn += 1) {
     await Promise.resolve();
   }
   clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && reader.snapshot.status !== "read"; turn += 1) {
+  for (let turn = 0; turn < 400 && reader.snapshot.status !== "read"; turn += 1) {
     await Promise.resolve();
   }
 }

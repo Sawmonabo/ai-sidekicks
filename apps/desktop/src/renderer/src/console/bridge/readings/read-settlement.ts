@@ -57,6 +57,8 @@ import { useEffect } from "react";
 
 import { normalizeWireRejection, type WireRefusal } from "../../core/index.js";
 import {
+  settleUnlessAbandoned,
+  useReadScope,
   useSubjectScopedState,
   type SubjectKey,
   type SubjectScopedPublish,
@@ -150,31 +152,52 @@ export interface SettledGrowthReadProjection<TOutcome, TState> {
  * carries the addressing it was captured under, so an answer arriving after the
  * subject moved writes nowhere, and the holder re-seeds during the render that brings
  * a new subject rather than in an effect one commit later.
+ *
+ * AND THE READ IS ABANDONED RATHER THAN MERELY DROPPED. Publishing nowhere is the
+ * right answer and it arrives too late: the reply has already been settled and the
+ * caller's `settled` projection has already been built for a visit that is over. So
+ * the read is put on a line addressed at the same pairing the state is, its signal is
+ * handed to the caller's own `read`, and a settlement that loses the race returns
+ * before any projection is composed. A caller whose `read` ignores the signal keeps
+ * exactly the old behaviour — the projection is still skipped, and only the seam
+ * below it goes on waiting.
  */
 export function useSettledGrowthRead<TOutcome, TState>(
   growth: GrowthPort,
   key: SubjectKey,
-  read: (key: SubjectKey) => Promise<TOutcome> | undefined,
+  read: (key: SubjectKey, signal: AbortSignal) => Promise<TOutcome> | undefined,
   project: SettledGrowthReadProjection<TOutcome, TState>,
 ): SettledGrowthRead<TState> {
   const { value, publish } = useSubjectScopedState<TState>(growth, key, () =>
     project.unsettled(key),
   );
+  // Addressed at the same pairing the state is, so the line and the value it fills
+  // begin and end together: a surface re-addressed at a new key gets a fresh line
+  // and the old one's outstanding read is abandoned in the same render.
+  const readScope = useReadScope(growth, key);
   const { settled } = project;
   useEffect(() => {
-    const pending = read(key);
+    const round = readScope.openRound();
+    const pending = read(key, round.signal);
     if (pending === undefined) {
       return;
     }
-    void settleGrowthRead(pending).then((settlement) => {
-      publish(settled(settlement));
+    void settleUnlessAbandoned(settleGrowthRead(pending), round.signal).then((settlement) => {
+      if (settlement.status === "abandoned") {
+        // The whole saving is that `settled` never runs: the projection a surface
+        // renders is built here, and building one for a visit that is over is the
+        // work this hook exists to stop rather than merely to discard afterwards.
+        return;
+      }
+      publish(settled(settlement.value));
     });
     // `publish` re-identifies exactly when the holder is re-addressed, so it is both
     // the guard on this read's answer and the whole of what tells this effect to run
     // again — the dependency list the four hand-written copies of this effect already
     // carried. `read` and `settled` are deliberately not in it: each is a closure the
     // caller rebuilds every render over exactly the port and key already named here,
-    // so listing them would re-read on every render of every surface.
-  }, [growth, key, publish]);
+    // so listing them would re-read on every render of every surface. `readScope` is
+    // listed and re-identifies on exactly the same occasions `publish` does.
+  }, [growth, key, publish, readScope]);
   return { value, publish };
 }

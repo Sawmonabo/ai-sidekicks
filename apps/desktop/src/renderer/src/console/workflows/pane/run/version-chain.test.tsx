@@ -100,10 +100,20 @@ function observeChain(
   };
 }
 
-/** Let the read's own microtasks run, which is all an immediate answer needs. */
+/**
+ * Let the read's own microtasks run, which is all an immediate answer needs.
+ *
+ * A BOUNDED DRAIN RATHER THAN A COUNTED ONE. How many turns of the microtask queue a
+ * settlement chain costs is not a contract the hook makes — it moves whenever a layer
+ * is added between the call and the publish, which is how a suite written against an
+ * exact count fails on a change that broke nothing. Turns are free when nothing is
+ * queued, so the ceiling is generous and the cases below assert on what was published
+ * rather than on how many turns it took to get there.
+ */
 async function settle(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let turn = 0; turn < 32; turn += 1) {
+    await Promise.resolve();
+  }
 }
 
 describe("the version chain a served read offers", () => {

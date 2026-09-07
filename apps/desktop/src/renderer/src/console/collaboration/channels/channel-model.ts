@@ -126,10 +126,15 @@ export function createChannelDirectory(options: {
   return new PushDrivenRead<readonly ChannelListResponseChannel[]>({
     clock,
     origin: CHANNEL_DIRECTORY_ORIGIN,
-    read: async () => {
-      const reply = await callDaemon(bridge, CHANNEL_LIST_METHOD, {
-        sessionId: heldIdAsWireId(sessionStore.sessionId),
-      });
+    read: async (signal) => {
+      const reply = await callDaemon(
+        bridge,
+        CHANNEL_LIST_METHOD,
+        {
+          sessionId: heldIdAsWireId(sessionStore.sessionId),
+        },
+        { signal },
+      );
       return servedValueOrRaise(reply).channels;
     },
     subscribe: (onChangeSignal) =>
