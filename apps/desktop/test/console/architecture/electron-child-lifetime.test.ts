@@ -29,22 +29,19 @@
 //
 // The stand-ins those two paragraphs describe live in
 // `electron-child-lifetime.test-support.ts`; the claims made with them are here.
-
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import process from "node:process";
+//
+// What the child was HOLDING is a different subject and is
+// `electron-child-profile-removal.test.ts`'s: a kill bound to the test does not
+// on its own remove the temporary profile the child ran on, and which paths
+// reach that removal is the question that survives every claim here being true.
 
 import { describe, expect, it } from "vitest";
 
-import { cleanUpAfterChildAtSettleTime } from "../../helpers/electron-child-cleanup.js";
-import { spawnManagedElectronChild } from "../../helpers/electron-child.js";
 import { PROCESS_TREE_TERMINATION_MODE, readProcessLiveness } from "../../helpers/process-tree.js";
 import {
   AbandonedPair,
   ABANDONED_SETUP_MESSAGE,
   LIFETIME_TEST_TIMEOUT_MS,
-  NON_TERMINATING_PROGRAM,
   ObservedTreeTerminator,
   RecordingSettleRegistrar,
   RefusedRegistrationSpawn,
@@ -297,76 +294,6 @@ describe("the two shapes that leave an Electron running — negative controls", 
         reap(grandchildPid);
         await registrar.settle();
         reap(childPid);
-      }
-    },
-    LIFETIME_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "removes what the child was holding, on the path no terminal event reaches",
-    async () => {
-      // The probe's temporary Chromium profile, in the state a vitest timeout
-      // leaves it: the child is alive, so its `close` has not fired and never
-      // will — the harness's own settlement is exactly the code that does not
-      // run. Removal reached only from there is removal that never happens on
-      // the outcome that most needs it, which is how a run accumulated one
-      // profile directory per overrun.
-      const registrar = new RecordingSettleRegistrar();
-      const profileDirectory = mkdtempSync(path.join(tmpdir(), "sidekicks-profile-cleanup-"));
-      const managed = spawnManagedElectronChild({
-        command: process.execPath,
-        args: ["-e", NON_TERMINATING_PROGRAM],
-        cwd: process.cwd(),
-        env: process.env,
-        registerSettleTimeTermination: registrar.register,
-      });
-      const childPid = managed.child.pid ?? 0;
-
-      // Whether the child had actually CLOSED by the time the removal ran — the
-      // other half of the fix, and the half the outcome cannot show. On POSIX a
-      // removal issued while the process is still exiting succeeds anyway, so
-      // "the directory is gone" is true of a disposer that never waited; on
-      // Windows that same removal fails against the live handles in the
-      // directory. The event is the reading rather than the OS liveness, because
-      // liveness is already terminated on this platform microseconds after the
-      // SIGKILL and so answers the same for both orderings — an assertion that
-      // cannot fail on a known-bad input is not a control.
-      //
-      // Read off the managed child rather than a listener of this case's own:
-      // it records the delivery from its constructor, so it is already true when
-      // the disposer that waited runs, and still false for one that removed in
-      // the same turn as the kill.
-      let closedWhenRemoved: boolean | null = null;
-      cleanUpAfterChildAtSettleTime(
-        managed,
-        () => {
-          closedWhenRemoved = managed.hasClosed;
-          rmSync(profileDirectory, { recursive: true, force: true });
-        },
-        registrar.register,
-      );
-
-      try {
-        // Non-vacuity: the directory is there and the child is running, so the
-        // assertion after the settlement is about the settlement and not about a
-        // directory that was already gone.
-        expect(existsSync(profileDirectory)).toBe(true);
-        expect(readProcessLiveness(childPid)).toBe("running");
-
-        await registrar.settle();
-
-        await expectTerminatedWithin(childPid, "the child holding the profile");
-        expect(
-          existsSync(profileDirectory),
-          "the profile outlived the test — removal is still reachable only from the child's own `close`",
-        ).toBe(false);
-        expect(
-          closedWhenRemoved,
-          "the profile was removed in the same turn as the kill — the disposer no longer waits for the child to be gone",
-        ).toBe(true);
-      } finally {
-        reap(childPid);
-        rmSync(profileDirectory, { recursive: true, force: true });
       }
     },
     LIFETIME_TEST_TIMEOUT_MS,

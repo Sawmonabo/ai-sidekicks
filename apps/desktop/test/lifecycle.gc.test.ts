@@ -111,6 +111,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../src/main/window-reveal.js";
+import { cleanUpAfterChildAtSettleTime } from "./helpers/electron-child-cleanup.js";
 import { spawnManagedElectronChild, TEST_TIMEOUT_SLACK_MS } from "./helpers/electron-child.js";
 import { TERMINATION_GRACE_MS } from "./helpers/managed-electron-child.js";
 
@@ -140,10 +141,11 @@ const SPAWN_TIMEOUT_MS = 30_000;
 // four such orphans, carrying this file's own `sidekicks-gc-test-` profile
 // prefix, were found 25 minutes after the run that spawned them.
 //
-// The settle-time kill registered by `spawnManagedElectronChild` is what makes
-// the child survivable even if this arithmetic is ever wrong again. Both, not
-// either: the derivation keeps the diagnostic path reachable, and the hook
-// keeps the process bounded when it is not.
+// The settle-time kill registered by `spawnManagedElectronChild`, and the
+// settle-time profile removal registered beside it, are what make the spawn
+// survivable even if this arithmetic is ever wrong again. Both, not either: the
+// derivation keeps the diagnostic path reachable, and the hooks keep the process
+// and its directory bounded when it is not.
 const GC_TEST_TIMEOUT_MS: number = SPAWN_TIMEOUT_MS + TERMINATION_GRACE_MS + TEST_TIMEOUT_SLACK_MS;
 
 interface GcProbe {
@@ -188,10 +190,29 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
   // second sees `gotTheLock === false`, calls `app.quit()`, and exits
   // with code 0 before the probe runs — a Shape-C failure that has nothing
   // to do with BrowserWindow GC reachability.
-  // `mkdtempSync` returns a unique path; the close handler removes it.
+  // `mkdtempSync` returns a unique path; `removeProfileDirectory` below is what
+  // takes it off disk, from both of the paths that can reach it.
   // `launch.smoke.test.ts` isolates its own profile the same way, for the
   // same reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
+
+  /**
+   * The ONE remover of this spawn's profile, reached from both paths.
+   *
+   * The settlement after a terminal event and the settle-time disposer
+   * registered below call this same function rather than each spelling `rmSync`
+   * for itself, and `force: true` is what lets both run on one spawn — the
+   * settlement having already removed the directory before the disposer asks
+   * again. Best-effort, because a leftover temporary profile is a housekeeping
+   * fact and raising it would replace the result the reader came for.
+   */
+  const removeProfileDirectory = (): void => {
+    try {
+      rmSync(userDataDir, { recursive: true, force: true });
+    } catch {
+      // See above: the test's own result is the one that explains the run.
+    }
+  };
 
   // `--js-flags=--expose-gc` MUST precede the entry script so Electron
   // forwards it to the underlying Chromium/V8 child. The probe's GC-pressure
@@ -228,6 +249,15 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       },
     });
+    // The profile outlives the child unless something removes it on the paths
+    // the child's own events do not reach. `spawnManagedElectronChild` already
+    // bound the KILL to this test; this binds the REMOVAL to it, after the kill
+    // has landed. Without it a vitest timeout — the one outcome that runs
+    // neither `close` nor `error` — left the `sidekicks-gc-test-` profile on
+    // disk for the rest of the run to accumulate, which is how four of them were
+    // found beside four orphans.
+    cleanUpAfterChildAtSettleTime(managed, removeProfileDirectory);
+
     const child = managed.child;
 
     let stdout = "";
@@ -274,12 +304,7 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
       // On the spawn-`error` path it is the only kill there is, and the pid it
       // would need does not exist, so the direct handle is what it reaches.
       managed.dispose();
-      try {
-        rmSync(userDataDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup. A leftover temp dir is harmless;
-        // surfacing the cleanup error would mask the actual test result.
-      }
+      removeProfileDirectory();
     };
 
     child.on("error", (err: Error) => {

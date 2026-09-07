@@ -34,12 +34,25 @@
 // wait is for that fact rather than for a duration. A sleep would be the same
 // race with a nicer name on a slower runner, and a retry would hide a palette
 // that never took focus at all — which is a real defect this now reports as one.
+//
+// AND THE SECOND WAIT IS THE SAME PHASE AS THE FIRST
+//
+// Two waits, each declaring `IN_WINDOW_STEP_TIMEOUT_MS`, is a palette opening
+// entitled to twenty seconds — and the `console-launch-body` row that pays for it
+// counts the opening as ONE ten-second phase, by name, in its own derivation. The
+// arithmetic that leaves is the one the launch deadline exists to remove, one
+// layer in: an opening that is slow but inside its declared bound can spend a
+// second body allowance's worth of the body's, and the wait AFTER it is then
+// killed by the enclosing race with the generic overrun in place of its own
+// sentence. So the phase is minted once here and both waits draw from what is
+// left of it, which is what makes the pair cost what the row says it costs.
 
 import type { Locator, Page } from "@playwright/test";
 import { expect } from "vitest";
 
 import type { ConsoleApplication } from "./electron-harness.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "./launch-body.js";
+import { LaunchDeadline } from "./launch-deadline.js";
 
 /**
  * The palette input's accessible name, as `PaletteOverlay.tsx` publishes it.
@@ -53,6 +66,16 @@ export const PALETTE_INPUT_ACCESSIBLE_NAME = "Search commands";
 
 /** The palette's own chord, pressed as a real key event through the real window. */
 const PALETTE_OPEN_CHORD = "ControlOrMeta+KeyK";
+
+/**
+ * What these helpers need of a launched console: the window, and the allowance.
+ *
+ * Narrowed rather than taking the whole `ConsoleApplication`, on
+ * `withBoundedBody`'s precedent and for its reason: the pair is then reachable
+ * from a case that owns no Electron, which is how the phase arithmetic below is
+ * driven at all. A full `ConsoleApplication` satisfies it unchanged.
+ */
+type PaletteConsole = Pick<ConsoleApplication, "window" | "bodyAllowance">;
 
 /**
  * What one look at the palette input can find, named so a failure says which.
@@ -102,18 +125,33 @@ async function readPaletteInputFocus(consoleWindow: Page): Promise<PaletteInputF
  * one that opened without taking focus fails on the input. Both are charged to the
  * body's allowance, so neither can run past the enclosing budget and have its
  * sentence replaced by the generic overrun.
+ *
+ * ONE PHASE ACROSS BOTH, minted here and drawn from twice. The dialog wait takes
+ * what is left of it, and the focus poll takes the remainder of that SAME phase
+ * rather than a second full `IN_WINDOW_STEP_TIMEOUT_MS` — which is what makes the
+ * pair cost the one ten-second opening `console-launch-body`'s derivation counts,
+ * and what makes an opening that spends the whole phase fail on the focus reading
+ * inside it instead of ten seconds past it.
+ *
+ * `now` is the seam every clock in this harness takes, and for the same reason:
+ * a case proving that the second wait gets the remainder cannot be made to wait
+ * one out.
  */
-export async function openPalette(consoleApplication: ConsoleApplication): Promise<Locator> {
+export async function openPalette(
+  consoleApplication: PaletteConsole,
+  now: () => number = Date.now,
+): Promise<Locator> {
   const consoleWindow = consoleApplication.window;
+  const openingPhase = new LaunchDeadline(IN_WINDOW_STEP_TIMEOUT_MS, now);
   await consoleWindow.keyboard.press(PALETTE_OPEN_CHORD);
   await consoleWindow.getByRole("dialog").waitFor({
     state: "visible",
-    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+    timeout: consoleApplication.bodyAllowance.boundedMs(openingPhase.remainingMs()),
   });
 
   await expect
     .poll(async () => await readPaletteInputFocus(consoleWindow), {
-      timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+      timeout: consoleApplication.bodyAllowance.boundedMs(openingPhase.remainingMs()),
       message:
         "the palette opened but never moved focus into its input — the reading names whether the input was absent or present and unfocused",
     })
@@ -127,8 +165,12 @@ export async function openPalette(consoleApplication: ConsoleApplication): Promi
  * Beside `openPalette` because the two are one seam: a caller that opened through
  * the wait above and closed by pressing Escape without observing the dismissal
  * would leave the next step racing a dialog that is still trapping focus.
+ *
+ * ONE wait and therefore one phase, so it takes its own bound directly: a phase
+ * deadline here would be a clock with a single reader, which is a second name for
+ * `IN_WINDOW_STEP_TIMEOUT_MS` rather than a budget anything shares.
  */
-export async function closePalette(consoleApplication: ConsoleApplication): Promise<void> {
+export async function closePalette(consoleApplication: PaletteConsole): Promise<void> {
   const consoleWindow = consoleApplication.window;
   await consoleWindow.keyboard.press("Escape");
   await consoleWindow.getByRole("dialog").waitFor({
