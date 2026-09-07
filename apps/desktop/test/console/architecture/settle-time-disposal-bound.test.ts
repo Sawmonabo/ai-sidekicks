@@ -15,7 +15,7 @@
 // that is being torn down. A bound declared in one place and spent in two is not
 // a bound, so exactly one layer owns the count.
 //
-// The stand-ins are `electron-child-lifetime.test-support.ts`'s, for that
+// The doubles are `electron-child-doubles.test-support.ts`'s, for that
 // module's reason: no platform can be asked to refuse a kill on demand. The
 // child is real, because the loop reads `hasClosed` off a real handle, and it is
 // reaped in `finally` — a case that proves a refusal by leaking is the defect
@@ -28,10 +28,12 @@ import { describe, expect, it } from "vitest";
 import { spawnManagedElectronChild } from "../../helpers/electron-child.js";
 import { DISPOSAL_ATTEMPTS } from "../../helpers/managed-electron-child.js";
 import {
-  LIFETIME_TEST_TIMEOUT_MS,
-  NON_TERMINATING_PROGRAM,
   ObservedTreeTerminator,
   RecordingSettleRegistrar,
+} from "./electron-child-doubles.test-support.js";
+import {
+  LIFETIME_TEST_TIMEOUT_MS,
+  NON_TERMINATING_PROGRAM,
 } from "./electron-child-lifetime.test-support.js";
 import { reap } from "./electron-child-liveness.test-support.js";
 

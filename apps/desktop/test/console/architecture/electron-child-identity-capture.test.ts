@@ -45,10 +45,12 @@ import { describe, expect, it } from "vitest";
 import { spawnManagedElectronChild } from "../../helpers/electron-child.js";
 import { SpawnedTreeIdentity } from "../../helpers/process-tree/identity.js";
 import {
-  LIFETIME_TEST_TIMEOUT_MS,
-  NON_TERMINATING_PROGRAM,
   ObservedTreeTerminator,
   RecordingSettleRegistrar,
+} from "./electron-child-doubles.test-support.js";
+import {
+  LIFETIME_TEST_TIMEOUT_MS,
+  NON_TERMINATING_PROGRAM,
   spawnChildWithGrandchild,
 } from "./electron-child-lifetime.test-support.js";
 import { processTableOf } from "./process-table-fixture.test-support.js";

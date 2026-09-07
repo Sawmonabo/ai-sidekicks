@@ -1,9 +1,10 @@
 // Bounded observations of a spawned child's fate, and the reaper the controls owe.
 //
-// The second role the child-lifetime scaffolding holds, and it is a different
-// one from the stand-ins beside it: `electron-child-lifetime.test-support.ts`
-// makes a lifetime HAPPEN — a real child with a real grandchild, a settlement a
-// suite can cause, a platform that refuses a kill on demand — and this makes one
+// The third role the child-lifetime scaffolding holds, and it is a different one
+// from either module beside it: `electron-child-lifetime.test-support.ts` makes a
+// lifetime HAPPEN — a real child with a real grandchild — and
+// `electron-child-doubles.test-support.ts` stands in for what that spawn is handed,
+// including a platform that refuses a kill on demand. This makes a lifetime
 // OBSERVABLE. Two suites read through it, which is why it is a module rather
 // than a section of one.
 //

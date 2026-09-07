@@ -22,8 +22,9 @@
 // file makes that a property in both directions: the door releases and rethrows,
 // the superseded shape does not, and both spawners are on the door.
 //
-// The stand-ins are `electron-child-lifetime.test-support.ts`'s and the bounded
-// readings are `electron-child-liveness.test-support.ts`'s, for their reasons.
+// The doubles a spawn is handed are `electron-child-doubles.test-support.ts`'s,
+// the child programs are `electron-child-lifetime.test-support.ts`'s, and the
+// bounded readings are `electron-child-liveness.test-support.ts`'s, for their reasons.
 
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -40,11 +41,13 @@ import {
 } from "../../helpers/electron-child.js";
 import {
   heldProfile,
+  ObservedTreeTerminator,
+  RefusingSettleRegistrar,
+  REGISTRAR_REFUSAL_MESSAGE,
+} from "./electron-child-doubles.test-support.js";
+import {
   LIFETIME_TEST_TIMEOUT_MS,
   NON_TERMINATING_PROGRAM,
-  ObservedTreeTerminator,
-  REGISTRAR_REFUSAL_MESSAGE,
-  RefusingSettleRegistrar,
 } from "./electron-child-lifetime.test-support.js";
 import { expectTerminatedWithin, reap } from "./electron-child-liveness.test-support.js";
 

@@ -21,7 +21,7 @@
 // single act after the last attempt that disposer makes. A later attempt is then
 // impossible because there is no later disposer — not because a flag says so.
 //
-// The stand-ins are `electron-child-lifetime.test-support.ts`'s, for that
+// The doubles are `electron-child-doubles.test-support.ts`'s, for that
 // module's reason: no platform can be asked to refuse a kill on demand.
 
 import process from "node:process";
@@ -34,10 +34,12 @@ import {
 } from "../../helpers/electron-child.js";
 import { DISPOSAL_ATTEMPTS } from "../../helpers/managed-electron-child.js";
 import {
-  LIFETIME_TEST_TIMEOUT_MS,
-  NON_TERMINATING_PROGRAM,
   ObservedTreeTerminator,
   RecordingSettleRegistrar,
+} from "./electron-child-doubles.test-support.js";
+import {
+  LIFETIME_TEST_TIMEOUT_MS,
+  NON_TERMINATING_PROGRAM,
 } from "./electron-child-lifetime.test-support.js";
 import { reap } from "./electron-child-liveness.test-support.js";
 

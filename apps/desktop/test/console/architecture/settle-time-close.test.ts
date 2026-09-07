@@ -36,9 +36,9 @@ import { CleanupFailedError } from "../cleanup-disposition.js";
 import { registerSettleTimeClose } from "../electron-harness.js";
 import {
   RecordingSettleRegistrar,
-  REGISTRAR_REFUSAL_MESSAGE,
   RefusingSettleRegistrar,
-} from "./electron-child-lifetime.test-support.js";
+  REGISTRAR_REFUSAL_MESSAGE,
+} from "./electron-child-doubles.test-support.js";
 
 /**
  * The verdict a close that may have left something running rejects with.
