@@ -14,11 +14,20 @@
 // the composer through `seats/composer-focus.ts` — an ASK and not a handle, so this
 // family names no part of the composer's own tree — and it is offered on exactly the
 // arm whose sentence names the act. The two absence arms above it offer nothing,
-// because neither says a run could be started right now: one has not finished reading
-// and the other could not open the stream at all.
+// because neither says a run could be started right now.
+//
+// WHETHER IT IS OFFERED IS `run-start-offer.ts`'s ANSWER AND NOT THIS FILE'S. The
+// same act is reachable from the command palette, and an offer rule spelled out here
+// and again in the pane's contribution is one rule with two authors. This component
+// renders the arm; the predicate decides the act.
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import { type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import {
+  RUN_START_ACTION_LABEL,
+  offersRunStart,
+  type RunStartOfferReading,
+} from "./run-start-offer.js";
 
 /**
  * Two different absences, told apart by whether the read that says WHICH RUNS EXIST
@@ -33,15 +42,16 @@ import { InlineRefusal, Nothing } from "../../primitives/index.js";
  * terminal pre-existing run.
  */
 export function NoRuns(props: {
-  readonly hasRead: boolean;
-  readonly openRefusal: ConsoleRefusal | undefined;
+  /** The whole reading, so the arm shown and the act offered are one decision. */
+  readonly reading: RunStartOfferReading;
   /** Put the caret where the sentence points. Offered on the empty arm only. */
   readonly onStart: () => void;
 }): React.JSX.Element {
-  if (props.openRefusal !== undefined) {
-    return <InlineRefusal code={props.openRefusal.code} detail={props.openRefusal.detail} />;
+  const openRefusal: ConsoleRefusal | undefined = props.reading.openRefusal;
+  if (openRefusal !== undefined) {
+    return <InlineRefusal code={openRefusal.code} detail={openRefusal.detail} />;
   }
-  if (!props.hasRead) {
+  if (!props.reading.hasRead) {
     return (
       <Nothing kind="not-loaded" placement="surface" title="Reading the runs in this session." />
     );
@@ -53,9 +63,11 @@ export function NoRuns(props: {
       title="No run has started in this session yet."
       detail="Send a message to an agent and its run appears here with its status, its queue, and every intervention raised against it."
       action={
-        <button type="button" className="meridian-runs__start" onClick={props.onStart}>
-          Write a message
-        </button>
+        offersRunStart(props.reading) ? (
+          <button type="button" className="meridian-runs__start" onClick={props.onStart}>
+            {RUN_START_ACTION_LABEL}
+          </button>
+        ) : undefined
       }
     />
   );

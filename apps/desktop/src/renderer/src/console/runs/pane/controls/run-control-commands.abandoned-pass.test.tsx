@@ -56,6 +56,10 @@ function RunControlCommandsHost(props: {
       surface: addressedToAbandoned ? props.abandonedSurface : props.committedSurface,
       onRequestSteer: () => undefined,
       onRequestRewind: () => undefined,
+      // A pane with a described run seats a row, so the empty state's act is not
+      // offered here — the claim under test is about the six controls' own ref.
+      startOffer: { seatedRunCount: 1, hasRead: true, openRefusal: undefined },
+      onRequestComposerFocus: () => undefined,
     }),
     [addressedToAbandoned, props.abandonedSurface, props.committedSurface],
   );

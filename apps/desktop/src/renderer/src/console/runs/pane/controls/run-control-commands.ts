@@ -30,6 +30,15 @@
 // STEER AND REWIND OPEN THE COMPOSER, THEY DO NOT SEND. Both need a body the
 // participant has not written yet, and the row's own buttons open the same form.
 // A palette entry that sent an empty steer would be inventing a message.
+//
+// AND A SEVENTH ACT THAT BELONGS TO NO RUN. The pane's empty state offers to put the
+// caret in the composer, which is an operator action like any other and so is
+// palette-reachable like any other — but it is not a control OF a run, so it is not a
+// row in the set above and carries no run id. It is contributed here rather than from
+// a seat of its own because a family owns ONE contribution: a second
+// `useConsoleCommandSeat` under this owner would supersede these rows rather than
+// join them. Its offer reading is `run-start-offer.ts`, the same function the empty
+// state's own button is rendered on.
 
 import { useMemo } from "react";
 
@@ -37,6 +46,11 @@ import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/ind
 import { useLatestRef } from "../../../primitives/index.js";
 import { type DriverCapabilityReadout } from "../../../bridge/index.js";
 import { type RunProjection } from "../run-state-projection.js";
+import {
+  RUN_START_ACTION_LABEL,
+  offersRunStart,
+  type RunStartOfferReading,
+} from "../run-start-offer.js";
 import { RUN_CONTROL_PRESENTATION } from "./control-presentation.js";
 import { type RunControl } from "./run-control-dispatch.js";
 import { offeredRunControls } from "./run-control-gating.js";
@@ -60,6 +74,9 @@ const RUN_CONTROL_COMMAND_GROUP = "Run";
  */
 const RUN_CONTROL_COMMAND_WHEN = "sessionActive";
 
+/** The id the empty state's act is contributed under. Namespaced like the six. */
+export const RUN_START_COMMAND_ID = "runs.writeMessage";
+
 /** What a contributed row says. Derived per render; cheap and allocation-light. */
 export interface RunControlCommandRow {
   readonly runId: string;
@@ -78,6 +95,13 @@ export interface RunControlCommandInput {
   readonly onRequestSteer: (runId: string) => void;
   /** Open the rewind form against this run, which is the row's own Rewind button's act. */
   readonly onRequestRewind: (runId: string) => void;
+  /**
+   * What the empty state is reading, so the start row is offered exactly where its
+   * button is. The predicate lives beside the button; this carries its inputs.
+   */
+  readonly startOffer: RunStartOfferReading;
+  /** Ask the composer for the caret — the empty state's own button's act. */
+  readonly onRequestComposerFocus: () => void;
 }
 
 /** Contribute the controls of every described run for as long as the pane is mounted. */
@@ -95,17 +119,23 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
   // saw, latch and all.
   const inputRef = useLatestRef(input);
 
-  const signature = rows.map((row) => `${row.runId} ${row.control} ${row.title}`).join("|");
+  const offersStart = offersRunStart(input.startOffer);
+  // The start act joins the signature as what it SAYS — offered or not — for the same
+  // reason the rows do: the pane re-renders on every streamed event and only a change
+  // in what the palette would list may re-register the owner.
+  const signature = `${rows
+    .map((row) => `${row.runId} ${row.control} ${row.title}`)
+    .join("|")}#${String(offersStart)}`;
   // Built from THIS render's rows rather than through a ref. The memo runs during the
   // render whose signature changed, which is before that render's layout effect has
   // refreshed anything, so a ref read here would build this render's commands out of
   // the previous pass's rows. The signature is the dependency because it is what the
   // rows SAY: keying on the array's identity would re-register six commands per run
   // on every streamed run event.
-  const commands = useMemo(
-    () => rows.map((row) => buildRunControlCommand(row, inputRef)),
-    [signature, inputRef],
-  );
+  const commands = useMemo(() => {
+    const controlCommands = rows.map((row) => buildRunControlCommand(row, inputRef));
+    return offersStart ? [...controlCommands, buildRunStartCommand(inputRef)] : controlCommands;
+  }, [signature, inputRef]);
 
   useConsoleCommandSeat(RUN_CONTROL_COMMAND_OWNER, commands);
 }
@@ -171,6 +201,41 @@ function buildRunControlCommand(
       dispatchRunControlCommand(row, inputRef.current);
     },
   };
+}
+
+/**
+ * The empty state's act, as a palette row.
+ *
+ * It carries the button's own label rather than a title of its own, so the two names
+ * for one act cannot drift, and it reads the offer through the ref for the reason
+ * every row here does: the pane can fill with runs between the row being contributed
+ * and somebody pressing Enter.
+ */
+function buildRunStartCommand(inputRef: React.RefObject<RunControlCommandInput>): ConsoleCommand {
+  return {
+    id: RUN_START_COMMAND_ID,
+    title: RUN_START_ACTION_LABEL,
+    group: RUN_CONTROL_COMMAND_GROUP,
+    when: RUN_CONTROL_COMMAND_WHEN,
+    keywords: ["compose", "message", "start"],
+    run: () => {
+      performRunStart(inputRef.current);
+    },
+  };
+}
+
+/**
+ * Ask the composer for the caret, while the pane's own control still asks for it.
+ *
+ * The re-read is not ceremony: a run arriving in the gap takes the empty state off
+ * screen, and a palette that went on offering to start work in a pane full of runs
+ * would be the second offer set this module exists to prevent.
+ */
+export function performRunStart(input: RunControlCommandInput): void {
+  if (!offersRunStart(input.startOffer)) {
+    return;
+  }
+  input.onRequestComposerFocus();
 }
 
 /**

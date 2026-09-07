@@ -10,14 +10,16 @@
 // without checking the store's completeness would report its own gap as the
 // session's state, in the words a person reads as "nobody has set one".
 
-import { render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
+import { consoleCommands } from "../../../palette/index.js";
 import { type ConsolePaneAddress, type SidebarSectionContext } from "../../../seats/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
 import { GoalSection } from "./GoalSection.js";
+import { GOAL_SECTION_ACTION_LABEL, GOAL_SECTION_COMMAND_ID } from "./goal-section-commands.js";
 
 const SESSION_ID = "session-goal-section";
 
@@ -142,14 +144,77 @@ describe("GoalSection — it states the goal and never edits it", () => {
     expect(section.querySelector("input")).toBeNull();
     expect(
       [...section.querySelectorAll("button")].map((control) => control.textContent),
-    ).toStrictEqual(["Change the goal"]);
+    ).toStrictEqual([GOAL_SECTION_ACTION_LABEL]);
   });
 
   it("opens the surface that owns the editor rather than promising an edit here", () => {
     const { section, openedPanes } = renderSection({ events: [] });
     const control = section.querySelector("button");
-    expect(control?.textContent).toBe("Set a goal");
+    expect(control?.textContent).toBe(GOAL_SECTION_ACTION_LABEL);
     control?.click();
     expect(openedPanes).toStrictEqual([{ kind: "approvals" }]);
+  });
+
+  it("says the same neutral words whether or not a goal is set", () => {
+    // The label used to swap between "Set a goal" and "Change the goal", which
+    // advertised a mutation to every role — including the two the goal contract
+    // makes read-only, whose destination renders no editor at all.
+    const withGoal = renderSection({
+      events: [goalEvent({ id: "e1", sequence: 1, kind: "session.goal_updated", text: "Ship it" })],
+    });
+    expect(withGoal.section.querySelector("button")?.textContent).toBe(GOAL_SECTION_ACTION_LABEL);
+    cleanup();
+
+    const withoutGoal = renderSection({ events: [] });
+    expect(withoutGoal.section.querySelector("button")?.textContent).toBe(
+      GOAL_SECTION_ACTION_LABEL,
+    );
+  });
+
+  it("negative control: the words promise no mutation", () => {
+    // Without this the case above would pass over a label that swapped one advertised
+    // mutation for another, or that named the act "Set the goal" in both readings.
+    const { section } = renderSection({ events: [] });
+    const label = section.querySelector("button")?.textContent ?? "";
+    expect(label).not.toContain("Set a goal");
+    expect(label).not.toContain("Change the goal");
+  });
+});
+
+describe("GoalSection — the act is palette-reachable, and it is the same act", () => {
+  it("contributes a row carrying the button's own words", () => {
+    renderSection({ events: [] });
+
+    expect(consoleCommands.get(GOAL_SECTION_COMMAND_ID)?.title).toBe(GOAL_SECTION_ACTION_LABEL);
+  });
+
+  it("opens the same pane the button opens", () => {
+    const { openedPanes } = renderSection({ events: [] });
+
+    consoleCommands.get(GOAL_SECTION_COMMAND_ID)?.run();
+
+    expect(openedPanes).toStrictEqual([{ kind: "approvals" }]);
+  });
+
+  it("offers the row in every reading the section has, as the button is", () => {
+    // The control is not withheld while the projection is incomplete — that is when
+    // a person most wants to look at what the session is for — so the row is not
+    // either. Presence on both surfaces is the one condition: the section is mounted.
+    const { section } = renderSection({ events: [], degraded: true });
+
+    expect(section.querySelector("button")?.textContent).toBe(GOAL_SECTION_ACTION_LABEL);
+    expect(consoleCommands.get(GOAL_SECTION_COMMAND_ID)).not.toBeUndefined();
+  });
+
+  it("negative control: the row goes when the section does", () => {
+    // Without this every case above would pass over a contribution registered at
+    // module scope, which would keep offering to open a pane in a window whose
+    // sidebar had gone.
+    renderSection({ events: [] });
+    expect(consoleCommands.get(GOAL_SECTION_COMMAND_ID)).not.toBeUndefined();
+
+    cleanup();
+
+    expect(consoleCommands.get(GOAL_SECTION_COMMAND_ID)).toBeUndefined();
   });
 });

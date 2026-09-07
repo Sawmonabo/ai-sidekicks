@@ -17,7 +17,7 @@
 // rejected `completion` is a third: the command ran and failed, and the honest report
 // is the command's own failure rather than a claim that it was never recognised.
 
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   isErrorInstance,
@@ -26,6 +26,7 @@ import {
 } from "../../../../../shared/wire-errors.js";
 import type { GrowthPort } from "../../../console/bridge/index.js";
 import type { DraftStore } from "../../../console/persistence/index.js";
+import { useLatestRef } from "../../../console/primitives/index.js";
 import type { ConsoleRoute } from "../../../console/routing/index.js";
 import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
 import type {
@@ -196,25 +197,14 @@ export function useComposerCommandZone(options: {
     draftStore: options.draftStore,
     draftKey: options.draftKey,
   });
-  const handlersRef = useRef<DirectiveLineHandlers>(directiveHandlers);
-  // Written from an effect and never during render. React's own rule is that a ref
-  // is not touched while rendering — under a concurrent render that is thrown away,
-  // a render-body write has already mutated state the committed tree keeps — and the
-  // thunk below is what makes the effect sufficient: the handlers the executor reads
-  // are resolved at call time rather than closed over at render time.
-  //
-  // A LAYOUT EFFECT, which is the standard shape for a latest-ref. A passive effect
-  // is flushed AFTER paint, so between the commit that changed the handlers and that
-  // flush there is a window in which the committed tree is on screen and the ref
-  // still holds the previous render's value. Nothing here yields inside that window
-  // today — a person cannot type between paint and the passive flush — but the claim
-  // "never a render behind" is then a property of what a browser happens to schedule
-  // rather than of this hook. `useLayoutEffect` runs synchronously before paint, so
-  // the ref is current the moment the tree that produced it is, and the claim holds
-  // on its own. The write is one assignment, so the synchronous phase costs nothing.
-  useLayoutEffect(() => {
-    handlersRef.current = directiveHandlers;
-  }, [directiveHandlers]);
+  // The console's one latest-ref rather than a second copy of its shape: what makes
+  // the ref sufficient here is the thunk below, which resolves the handlers at call
+  // time instead of closing over them at render time. Why the write is a layout
+  // effect and never a render body — a discarded concurrent pass mutating state the
+  // committed tree keeps, and a passive flush leaving the ref a render behind the
+  // tree on screen — is `console/primitives/latest-ref.ts`'s to state, and it states
+  // it once for every surface that holds a long-lived callback.
+  const handlersRef = useLatestRef<DirectiveLineHandlers>(directiveHandlers);
   const commandExecutor = useMemo(
     () =>
       createClientCommandExecutor({
