@@ -14,6 +14,13 @@
 // a legitimate raiser of that signal — the channel stayed open while the window was
 // away, and what is unknown is whether every push over it arrived.
 //
+// THE SESSION STORE IS TAKEN FOR THE LEASE FRAME AND FOR NOTHING RENDERED HERE. The
+// block beside this one renders `controlHolder` out of the same recorded read, and
+// `pty.control_changed` is the one member of that reply the presence channel never
+// announces — so the store this block wires is what keeps the terminal-control line
+// current. It is raised from here rather than from there because one raiser per page is
+// the rule that block already states, and the seam coalesces the reasons anyway.
+//
 // NOTHING HERE FIRES ON MOUNT, and `seats/node-roster-seam.ts` states why: the mount
 // arm is the absorbed view's own initial read, and forwarding it would put a second
 // read on the wire for one mount.
@@ -21,15 +28,17 @@
 import type { ReactNode } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { useNodeRosterFocusReRead, useNodeRosterObservation } from "../../../seats/index.js";
+import { useNodeRosterObservation, useNodeRosterReReadTriggers } from "../../../seats/index.js";
+import type { SessionStore } from "../../../store/index.js";
 import { NodeDeclarationsBody } from "./NodeDeclarationsBody.js";
 
 export function NodeDeclarationsBlock(props: {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
+  readonly sessionStore: SessionStore | undefined;
 }): ReactNode {
   const observation = useNodeRosterObservation(props.bridge, props.sessionId);
-  useNodeRosterFocusReRead(props.bridge, props.sessionId);
+  useNodeRosterReReadTriggers(props.bridge, props.sessionId, props.sessionStore);
   return (
     <section
       className="meridian-settings-page__block meridian-node-declarations"

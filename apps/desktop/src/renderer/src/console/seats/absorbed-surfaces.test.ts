@@ -29,6 +29,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { COLLABORATION_SCENARIO } from "../bridge/scenarios/collaboration.js";
 import { unscriptedScenario } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { ConsoleRefusalError } from "../core/index.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../core/settle.test-support.js";
 import { SurfaceAbsence } from "../primitives/index.js";
 import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
 import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../bridge/scenarios/settings-runtime-nodes.js";
@@ -272,10 +273,24 @@ describe("absorbed surfaces — the read seam the roster is handed", () => {
         signals += 1;
       },
     );
+    // The departure beat has to fall INSIDE the window-crossing advance below for
+    // the release assertion to mean anything. Shrink the coalescing window past this
+    // and the second advance stops reaching the beat, leaving a case that passes
+    // because nothing was ever scheduled — asserted rather than assumed.
+    expect(ROSTER_POPULATED_MS + PAST_REFRESH_DEBOUNCE_MS).toBeGreaterThan(RUNNER_DEPARTURE_MS);
+    // A presence beat asks for a re-read; it does not perform one. The ask lands in
+    // the seam's scheduler, so the clock has to cross the coalescing window before
+    // any reader is raised at all — advancing only to the roster beat would read
+    // zero here and say nothing about the release.
     bridge.scenarioEngine?.advance(ROSTER_POPULATED_MS);
+    bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
     const signalsWhileSubscribed = signals;
     release();
-    bridge.scenarioEngine?.advance(RUNNER_DEPARTURE_MS - ROSTER_POPULATED_MS);
+    // The departure beat has already landed inside that second advance, so a refresh
+    // is pending for it at the moment of release. Crossing the window again is what
+    // makes the assertion below load-bearing: the scheduled raise this reader would
+    // have taken fires into a released seam.
+    bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
 
     expect(signalsWhileSubscribed).toBeGreaterThan(0);
     // Released means released: the departure beat past the release reaches nobody.

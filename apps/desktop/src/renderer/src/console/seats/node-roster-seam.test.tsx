@@ -1,43 +1,29 @@
-// One read, two readers — and the re-read the console raises without editing the view
-// that performs it.
+// One read, two readers — and which answer the second reader is allowed to see.
 //
-// Driven through the seam itself rather than through a page, because both claims are
-// about the seam: that what a console surface reads is what the absorbed roster's own
-// read answered, and that a window regaining focus raises the change signal that view's
-// contract already takes. A page in the middle would prove the page's wiring and leave
-// either of those free to be wrong.
+// Driven through the seam itself rather than through a page, because every claim here is
+// about the seam: that what a console surface reads beside the absorbed roster is what
+// that view's own read answered, including when two reads settle out of order. A page in
+// the middle would prove the page's wiring and leave the record free to be wrong.
+//
+// WHEN that roster is asked to read again is `node-roster-triggers.test.tsx`, beside the
+// module that owns it.
 
 import { act, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { RuntimeNodeRosterResponse } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { unscriptedScenario } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
-import { settle } from "../core/settle.test-support.js";
 import {
   nodeRosterReadsFor,
-  useNodeRosterFocusReRead,
   useNodeRosterObservation,
   type NodeRosterObservation,
 } from "./node-roster-seam.js";
-
-/** The tick this scenario's roster names two machines at. */
-const BOTH_MACHINES_ONLINE_MS = 200;
-
-/**
- * A scenario's session id, as the read seam is typed to take it.
- *
- * One cast in one place, matching the shipped mount's own `brandedSessionId`: a
- * scenario declares its session as a string and the registered request types it as a
- * brand, and spelling the cast at each call site would be four claims instead of one.
- */
-function sessionIdOf(value: string): SessionId {
-  return value as SessionId;
-}
+import { bridgeWithRoster, sessionIdOf } from "./node-roster.test-support.js";
 
 /** One line a case can assert on, so an arm change is a text change. */
 function readingOf(observation: NodeRosterObservation): string {
@@ -50,7 +36,7 @@ function readingOf(observation: NodeRosterObservation): string {
   return `read:${observation.response.nodes.length}`;
 }
 
-/** A private probe: the hook under test, and nothing else. */
+/** A private probe: the observation hook under test, and nothing else. */
 function ObservationProbe(props: {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string | undefined;
@@ -59,33 +45,59 @@ function ObservationProbe(props: {
   return <span data-testid="observation">{readingOf(observation)}</span>;
 }
 
-/** A second private probe: the focus trigger, with nothing rendered from it. */
-function FocusReReadProbe(props: {
+/**
+ * One roster reply, told apart from another by the lease holder it names.
+ *
+ * The holder rather than the node set, because it is one branded scalar the reply
+ * genuinely carries — building two node arrays would mean inventing nine members per
+ * entry to distinguish two replies by their length.
+ */
+function rosterHeldBy(participantId: string): RuntimeNodeRosterResponse {
+  return {
+    nodes: [],
+    controlHolder: participantId as RuntimeNodeRosterResponse["controlHolder"],
+  };
+}
+
+/** A second private probe: which reply the observation is holding, by its lease line. */
+function HolderProbe(props: {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
 }): ReactNode {
-  useNodeRosterFocusReRead(props.bridge, props.sessionId);
-  return null;
-}
-
-function bridgeWithRoster(): ConsoleBridge {
-  const bridge = createFixtureBridge({ scenario: SETTINGS_SCENARIO });
-  bridge.scenarioEngine?.advance(BOTH_MACHINES_ONLINE_MS);
-  return bridge;
+  const observation = useNodeRosterObservation(props.bridge, props.sessionId);
+  return (
+    <span data-testid="holder">
+      {observation.kind === "read" ? (observation.response.controlHolder ?? "none") : "unread"}
+    </span>
+  );
 }
 
 /**
- * Regaining focus, as the window reports it.
+ * A bridge whose roster read settles when the case says so, and never before.
  *
- * The wait is a BOUNDARY and not a count of microtask turns: the trigger fires an
- * effect that raises a handler that starts a read, and a fixed number of `await`s is
- * tuned against whatever that chain happens to be today.
+ * A stand-in for the TRANSPORT, never for the module under test: the seam is the real
+ * one, and what this replaces is the wire behind it — which is the only way to hold
+ * two reads open at once and settle them in the order that produced the defect.
  */
-async function refocusWindow(): Promise<void> {
-  await act(async () => {
-    window.dispatchEvent(new Event("focus"));
-    await crossMacrotaskBoundary();
-  });
+function bridgeWithHeldReads(): {
+  readonly bridge: ConsoleBridge;
+  readonly settleRead: (index: number, response: RuntimeNodeRosterResponse) => void;
+} {
+  const pendingResolvers: ((response: RuntimeNodeRosterResponse) => void)[] = [];
+  const bridge = {
+    runtimeNodeRosterRead: async () =>
+      await new Promise<{ status: "served"; value: RuntimeNodeRosterResponse }>((resolve) => {
+        pendingResolvers.push((response) => {
+          resolve({ status: "served", value: response });
+        });
+      }),
+  } as unknown as ConsoleBridge;
+  return {
+    bridge,
+    settleRead: (index, response) => {
+      pendingResolvers[index]?.(response);
+    },
+  };
 }
 
 describe("the seam the absorbed roster reads through", () => {
@@ -146,42 +158,47 @@ describe("what a console surface reads beside the roster", () => {
   });
 });
 
-describe("re-reading when the window comes back", () => {
-  it("raises the roster's own change signal, and raises none on mount", async () => {
-    // The signal the absorbed view's contract already takes — a push says WHEN to
-    // re-read — rather than a fresh seam, which would return a live roster to its
-    // loading shape. Nothing fires on mount: that arm is the view's own initial read.
-    const bridge = bridgeWithRoster();
-    const reads = nodeRosterReadsFor(bridge);
-    let signalCount = 0;
-    const release = reads.subscribePresence(sessionIdOf(SETTINGS_SCENARIO.sessionId), () => {
-      signalCount += 1;
+describe("two roster reads in flight at once", () => {
+  it("records the newest-issued read even when the older one settles last", async () => {
+    // THE DEFECT IN TERMS. The wrapper recorded every completion as it arrived, while
+    // the absorbed view applied its own request-sequence guard only after `readRoster`
+    // returned — so an older reply settling last was rejected by the roster and
+    // recorded here, and the capability and control-holder blocks then disagreed with
+    // the rows beside them. One generation, taken at dispatch, is what makes the two
+    // admit the same read.
+    const held = bridgeWithHeldReads();
+    const reads = nodeRosterReadsFor(held.bridge);
+    const sessionId = sessionIdOf("session-overlapping-reads");
+    render(<HolderProbe bridge={held.bridge} sessionId={sessionId} />);
+
+    const olderRead = reads.readRoster({ sessionId });
+    const newerRead = reads.readRoster({ sessionId });
+
+    await act(async () => {
+      held.settleRead(1, rosterHeldBy("participant-newer"));
+      held.settleRead(0, rosterHeldBy("participant-older"));
+      await Promise.all([olderRead, newerRead]);
+      await crossMacrotaskBoundary();
     });
 
-    render(<FocusReReadProbe bridge={bridge} sessionId={SETTINGS_SCENARIO.sessionId} />);
-    await settle();
-    expect(signalCount).toBe(0);
-
-    await refocusWindow();
-    expect(signalCount).toBe(1);
-
-    release();
+    expect(screen.getByTestId("holder").textContent).toBe("participant-newer");
   });
 
-  it("negative control: a released subscription is never signalled again", async () => {
-    // A handler outliving the mount that registered it would re-read through a seam
-    // nobody is rendering — and the case above would pass anyway.
-    const bridge = bridgeWithRoster();
-    const reads = nodeRosterReadsFor(bridge);
-    let signalCount = 0;
-    const release = reads.subscribePresence(sessionIdOf(SETTINGS_SCENARIO.sessionId), () => {
-      signalCount += 1;
+  it("negative control: one read on its own is still recorded", async () => {
+    // Without this the case above would hold for a guard that admitted NOTHING —
+    // an observation frozen at `unread` disagrees with the roster just as loudly.
+    const held = bridgeWithHeldReads();
+    const reads = nodeRosterReadsFor(held.bridge);
+    const sessionId = sessionIdOf("session-single-read");
+    render(<HolderProbe bridge={held.bridge} sessionId={sessionId} />);
+
+    await act(async () => {
+      const onlyRead = reads.readRoster({ sessionId });
+      held.settleRead(0, rosterHeldBy("participant-only"));
+      await onlyRead;
+      await crossMacrotaskBoundary();
     });
-    release();
 
-    render(<FocusReReadProbe bridge={bridge} sessionId={SETTINGS_SCENARIO.sessionId} />);
-    await refocusWindow();
-
-    expect(signalCount).toBe(0);
+    expect(screen.getByTestId("holder").textContent).toBe("participant-only");
   });
 });

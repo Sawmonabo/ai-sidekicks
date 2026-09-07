@@ -228,7 +228,7 @@ function bridgeSubscribing(options: {
 }
 
 describe("the live presence subscription", () => {
-  it("takes every registered state-transition name, in the set's own order", () => {
+  it("takes every registered presence name, in the set's own order", () => {
     const daemon = bridgeSubscribing({});
     const subscription = subscribeRuntimeNodePresence(daemon.bridge, SESSION_ID, () => undefined);
 

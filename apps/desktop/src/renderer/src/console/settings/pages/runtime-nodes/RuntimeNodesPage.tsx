@@ -33,7 +33,10 @@
 // seam it read through and seeds a new seam at `loading`, so handing it a fresh one to
 // refresh would return a live roster to its loading shape — the flash its own tripwire
 // forbids. What this page raises instead is the presence signal its contract already
-// takes, on window focus, and the view re-reads through its own path.
+// takes — on window focus, on the transport coming back, and on this session's own
+// `pty.control_changed` frames, which are the one thing the presence channel does not
+// announce — and the view re-reads through its own path. Every reason lands in the
+// seam's own `RefreshScheduler`, so a burst costs one read.
 //
 // AND WHO HOLDS THE SHARED SHELL, WHICH IS NOT A COLUMN. `controlHolder` rides the
 // roster RESPONSE rather than a row, because one write lease exists per session — so
@@ -109,7 +112,11 @@ export function RuntimeNodesPage(props: { readonly context: SettingsPageContext 
       )}
 
       {retainedSessionId === undefined ? null : (
-        <NodeDeclarationsBlock bridge={bridge} sessionId={retainedSessionId} />
+        <NodeDeclarationsBlock
+          bridge={bridge}
+          sessionId={retainedSessionId}
+          sessionStore={retainedSessionStore}
+        />
       )}
 
       <section
