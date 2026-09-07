@@ -17,6 +17,7 @@ import {
   UNREPRESENTABLE_VALUE_TEXT,
 } from "../../../../../../shared/wire-errors.js";
 import { ManualClock, REVEAL_FRAME_CHARACTER_BUDGET } from "../../../core/index.js";
+import { LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import { RopeSmoother } from "../scroll/rope-smoother.js";
@@ -24,7 +25,10 @@ import type { RevealDiagnostic } from "./reveal-vocabulary.js";
 
 /** One engine on the test's own clock, as the sibling suite builds one. */
 function engineOn(clock: ManualClock): RevealEngine {
-  return new RevealEngine({ clock });
+  // The engine no longer arms its own frame: every drain is submitted to the frame
+  // coordinator's phase two, so `clock.runFrame()` here runs the coordinator's frame
+  // and the coordinator runs the drain. What `pendingCount` measures is unchanged.
+  return new RevealEngine({ frameCoordinator: new LedgerFrameCoordinator({ clock }) });
 }
 
 describe("the reveal engine — a lane whose advance throws an unrenderable value", () => {

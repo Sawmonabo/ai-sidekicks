@@ -80,6 +80,7 @@ import {
   LedgerRowLeaseProvider,
   LedgerRowRevealProvider,
   LedgerViewport,
+  useLedgerFrameCoordinator,
   useLedgerReveal,
   useLedgerViewport,
   type LedgerScope,
@@ -183,7 +184,12 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // publishes reaches a row through the frame's own channel below; what it is DOING
   // reaches the viewport as the drain state, which used to be the literal `false` —
   // a default standing in for a reading of a scheduler nothing had mounted.
-  const reveal = useLedgerReveal({ clock });
+  // THE FRAME IS MINTED HERE, above both holders, because that is the only place one
+  // object can order the whole paint: phase one is the viewport's scroll writes and
+  // phase two is the reveal drain, and a coordinator minted inside either would order
+  // that half against nothing.
+  const frameCoordinator = useLedgerFrameCoordinator(clock);
+  const reveal = useLedgerReveal({ frameCoordinator });
   const viewport = useLedgerViewport({
     clock,
     rows: revealedViewportRows,

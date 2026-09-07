@@ -4,7 +4,7 @@
 // `reveal-engine.ts` holds the mechanism — the ordered queue, the per-frame budget
 // split across lanes, the rope smoother, the checkpoint tail. This module holds the
 // React side of it, on `viewport-binding.ts`' split and for the same reason: the
-// engine arms work through the clock seam and knows nothing about renders, and a
+// engine submits its drains to the frame coordinator and knows nothing about renders, and a
 // tree that has to repaint when a lane moves needs a notification the engine does
 // not owe it.
 //
@@ -37,7 +37,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type ConsoleClock } from "../../../core/index.js";
+import { type LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
 import { RevealEngine } from "./reveal-engine.js";
 import { type LedgerRowRevealChannel } from "./RowRevealProvider.js";
 import { type RevealDelta } from "./reveal-vocabulary.js";
@@ -59,30 +59,24 @@ export interface LedgerRevealBinding {
 
 export interface UseLedgerRevealOptions {
   /**
-   * The clock every frame in this engine is armed through — the window's, from
-   * `useConsoleClock`.
+   * The frame every drain in this engine is ordered inside — the feed's, minted
+   * above both this hook and the viewport so one object orders the whole frame.
    *
-   * NOT FIXED FOR THE MOUNT, AND NOT FIXED TO A BRIDGE. The rule is that the clock
-   * OBJECT is stable for the window and forwards every arm and cancel to whichever
-   * bridge is current, so a holder may capture it and stay live across a reconnect
-   * or a scenario switch. A reader who took the older reading — that the clock could
-   * not move under a mount — would conclude that capturing one at construction is
-   * always safe, which is the conclusion that writes a stale-clock defect into the
-   * next holder that is NOT handed the forwarder.
-   *
-   * The effect below re-mints on a replacement anyway, and deliberately: it costs
-   * one identity comparison, it is the honest reading of a value the type says may
-   * differ between renders, and a re-mint drops the lane text published so far,
-   * which is a loss this engine takes rather than carrying work armed on one
-   * scheduler and cancelled on another.
+   * NOT FIXED FOR THE MOUNT. The rule the clock carries applies here for the same
+   * reason: the feed re-mints its coordinator when the window's clock is replaced,
+   * so a holder that captured one at construction would go on submitting drains to
+   * a coordinator whose frames nothing arms. The effect below re-mints on a
+   * replacement, and deliberately: it costs one identity comparison, and a re-mint
+   * drops the lane text published so far, which is a loss this engine takes rather
+   * than carrying work submitted to one scheduler and cancelled on another.
    */
-  readonly clock: ConsoleClock;
+  readonly frameCoordinator: LedgerFrameCoordinator;
 }
 
 /** Mint one reveal engine for a feed, and bind it to the tree. */
 export function useLedgerReveal(options: UseLedgerRevealOptions): LedgerRevealBinding {
-  const { clock } = options;
-  const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ clock }));
+  const { frameCoordinator } = options;
+  const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameCoordinator }));
   // The engine owns its own state and is not React state; the revision is how the
   // tree finds out it moved. Nothing renders the number — see `viewport-binding.ts`'
   // lease revision, which is the same idiom for the same reason.
@@ -90,13 +84,13 @@ export function useLedgerReveal(options: UseLedgerRevealOptions): LedgerRevealBi
 
   useEffect(() => {
     if (engine.isDisposed) {
-      setEngine(new RevealEngine({ clock }));
+      setEngine(new RevealEngine({ frameCoordinator }));
       return;
     }
     return () => {
       engine.dispose();
     };
-  }, [engine, clock]);
+  }, [engine, frameCoordinator]);
 
   useEffect(
     () =>
