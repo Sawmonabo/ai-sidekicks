@@ -54,11 +54,16 @@ import process from "node:process";
 
 import { onTestFinished } from "vitest";
 
+import { OrderedChildTeardown, type ChildRelease } from "./electron-child-teardown.js";
 import {
   ManagedElectronChild,
+  TERMINATION_GRACE_MS,
   type ProcessTreeTerminator,
   type SpawnedTreeIdentityCapture,
 } from "./managed-electron-child.js";
+import { HOST_QUERY_TIMEOUT_MS } from "./process-tree/readers.js";
+
+export type { ChildRelease } from "./electron-child-teardown.js";
 
 /**
  * The reserve every spawner keeps between its OWN deadline and Vitest's.
@@ -75,6 +80,28 @@ import {
  * the promise settles.
  */
 export const TEST_TIMEOUT_SLACK_MS = 3_000;
+
+/**
+ * The ceiling the spawn's own identity capture can spend, per enclosing budget.
+ *
+ * A PHASE OF THE TEST THAT NO SPAWN DEADLINE CONTAINS. `captureTreeIdentity`
+ * runs inside `spawnManagedElectronChild`, which is to say before the probe
+ * harness that called it has armed the timer bounding its spawn — so a host
+ * whose `ps` or PowerShell answers slowly spends this here and the harness's own
+ * spawn budget still starts at zero afterwards. Reserving only
+ * `TEST_TIMEOUT_SLACK_MS` past the later phases therefore left the worst legal
+ * run outside its enclosure: on the GC probe's figures, 5 s of query plus a 30 s
+ * spawn budget plus the termination grace plus the reserve is 40 s against a
+ * 35 s enclosure, and vitest's generic timeout wins before the harness's own
+ * diagnostic path settles.
+ *
+ * It is `HOST_QUERY_TIMEOUT_MS` rather than a second figure beside it, because
+ * the capture's cost IS that bound — the query is `spawnSync`'s and the timeout
+ * is what abandons it. Named here rather than imported into each harness so the
+ * two derived budgets add a term that says WHICH phase it pays for, and so a
+ * change to the query bound moves both of them in one edit.
+ */
+export const IDENTITY_CAPTURE_CEILING_MS: number = HOST_QUERY_TIMEOUT_MS;
 
 /** What a harness hands over to be run when the test ends. */
 export type SettleTimeDisposer = () => void | Promise<void>;
@@ -170,6 +197,24 @@ export interface ElectronChildSpawnOptions {
    * be shown without a reader that throws.
    */
   readonly captureRootIdentity?: SpawnedTreeIdentityCapture | undefined;
+  /**
+   * What to release once this child's LAST termination attempt has settled.
+   *
+   * A spawn argument rather than a second settle-time registration a caller
+   * makes afterwards, and that is the whole ordering property: the door arms
+   * exactly one disposer, so the release cannot be sequenced before an attempt
+   * that some other disposer is still going to make. `OrderedChildTeardown`
+   * below has the leak that shape closes.
+   */
+  readonly releaseAfterTermination?: ChildRelease | undefined;
+  /**
+   * How long each termination attempt is given to produce a `close`.
+   *
+   * Injected for the reason the registrar is: a case that has to EXHAUST the
+   * attempt bound against a permanently refusing platform cannot afford three
+   * production graces, and no platform can be asked to refuse a kill on demand.
+   */
+  readonly terminationExitWaitMs?: number | undefined;
 }
 
 /**
@@ -224,9 +269,19 @@ export function spawnManagedElectronChild(
   // query that THROWS leaves the same state by the shorter route. Registering
   // first costs nothing and closes both: the identity is captured an instant
   // later, which is still before anything this spawn started can have exited.
+  const teardown = new OrderedChildTeardown(
+    managed,
+    options.terminationExitWaitMs ?? TERMINATION_GRACE_MS,
+    options.releaseAfterTermination,
+  );
   try {
-    disposeWhenTestFinishes(() => {
-      managed.dispose();
+    // EXACTLY ONE settle-time registration per spawned child, which is what
+    // makes the teardown's ordering a property of the code rather than of the
+    // order the runner happens to pick. A caller's resource travels INTO this
+    // registration as `releaseAfterTermination`, so there is never a second
+    // disposer whose kill could land after the release.
+    disposeWhenTestFinishes(async () => {
+      await teardown.settle();
     }, options.registerSettleTimeTermination);
   } catch (registrationRefusal: unknown) {
     // THE REGISTRAR ITSELF REFUSED, which is what `onTestFinished` outside a

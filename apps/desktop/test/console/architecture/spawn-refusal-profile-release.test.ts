@@ -32,11 +32,9 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { spawnChildCleanedUpAtSettleTime } from "../../helpers/electron-child-cleanup.js";
 import {
-  cleanUpAfterChildAtSettleTime,
-  spawnChildCleanedUpAtSettleTime,
-} from "../../helpers/electron-child-cleanup.js";
-import {
+  disposeWhenTestFinishes,
   spawnManagedElectronChild,
   type ElectronChildSpawnOptions,
 } from "../../helpers/electron-child.js";
@@ -133,10 +131,10 @@ describe("a spawn that refuses releases what it was already holding", () => {
     "negative control: spawning first and registering the removal after leaves the profile behind",
     async () => {
       // THE SUPERSEDED SHAPE, written out as both spawners used to spell it: the
-      // spawn on one line and `cleanUpAfterChildAtSettleTime` on the next. The
-      // second line is unreachable code the moment the first one throws, which is
-      // what makes the case above a property of the door rather than of `rmSync`
-      // happening to run somewhere.
+      // spawn on one line and the removal's own settle-time registration on the
+      // next. The second line is unreachable code the moment the first one
+      // throws, which is what makes the case above a property of the door rather
+      // than of `rmSync` happening to run somewhere.
       const registrar = new RefusingSettleRegistrar();
       const terminator = new ObservedTreeTerminator();
       const profile = heldProfile();
@@ -146,11 +144,10 @@ describe("a spawn that refuses releases what it was already holding", () => {
           const managed = spawnManagedElectronChild(
             nonTerminatingChildOptions(registrar, terminator),
           );
-          cleanUpAfterChildAtSettleTime(
-            managed,
-            profile.removeProfileDirectory,
-            registrar.register,
-          );
+          disposeWhenTestFinishes(() => {
+            managed.dispose();
+            profile.removeProfileDirectory();
+          }, registrar.register);
         }).toThrow(REGISTRAR_REFUSAL_MESSAGE);
 
         expect(

@@ -73,7 +73,7 @@ import process from "node:process";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
+import { IDENTITY_CAPTURE_CEILING_MS, TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { ELECTRON_BIN, MAIN_ENTRY, PACKAGE_ROOT } from "./electron-probe.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 
@@ -86,8 +86,12 @@ export const SPAWN_TIMEOUT_MS = 30_000;
 
 /**
  * The enclosing vitest budget, DERIVED from the phases it must contain rather
- * than written down: the spawn budget, then the SIGTERM-to-SIGKILL grace, then
- * the shared reserve. The relation is the one `TEST_TIMEOUT_SLACK_MS` states —
+ * than written down: the spawn's own blocking identity capture, then the spawn
+ * budget, then the SIGTERM-to-SIGKILL grace, then the shared reserve. The
+ * capture leads because it is a phase no spawn deadline contains — it runs
+ * inside `spawnManagedElectronChild`, before the deadline below is armed — and
+ * omitting it left the worst legal run outside this enclosure by exactly its
+ * ceiling. The relation is the one `TEST_TIMEOUT_SLACK_MS` states —
  * the suite's own deadline has to fire first, because a vitest timeout tears
  * the worker down and every pending timer in it, and the Electron that timer
  * was going to kill is then reparented to init. That is not hypothetical here:
@@ -101,7 +105,7 @@ export const SPAWN_TIMEOUT_MS = 30_000;
  * and its directory bounded when it is not.
  */
 export const GC_TEST_TIMEOUT_MS: number =
-  SPAWN_TIMEOUT_MS + TERMINATION_GRACE_MS + TEST_TIMEOUT_SLACK_MS;
+  IDENTITY_CAPTURE_CEILING_MS + SPAWN_TIMEOUT_MS + TERMINATION_GRACE_MS + TEST_TIMEOUT_SLACK_MS;
 
 /** One reading emitted by the main process's GC probe branch. */
 interface GcProbe {

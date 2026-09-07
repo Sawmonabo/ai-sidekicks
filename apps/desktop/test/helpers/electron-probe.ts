@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import { spawnChildCleanedUpAtSettleTime } from "./electron-child-cleanup.js";
-import { TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
+import { IDENTITY_CAPTURE_CEILING_MS, TEST_TIMEOUT_SLACK_MS } from "./electron-child.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -245,8 +245,16 @@ export const DIAGNOSTIC_COLLECTION_CEILING_MS: number =
 // display gate followed by a stalled boot — outside the enclosure, which is the
 // same defect as measuring the collection on one clock and bounding it on
 // another, at a different phase.
+//
+// The IDENTITY CAPTURE is the second phase of that same shape and was omitted
+// for the same reason it was easy to miss: it is not the harness's own code. It
+// is the blocking `ps` or PowerShell read `spawnManagedElectronChild` performs
+// after the spawn and before this file arms the deadline below, so a degraded
+// host spends its whole ceiling there with neither the display gate nor the
+// spawn budget containing it. Both uncontained phases are now terms here.
 export const BOOT_TEST_TIMEOUT_MS: number =
   DISPLAY_READY_TIMEOUT_MS +
+  IDENTITY_CAPTURE_CEILING_MS +
   SPAWN_TIMEOUT_MS +
   DIAGNOSTIC_COLLECTION_CEILING_MS +
   TERMINATION_GRACE_MS +
@@ -263,6 +271,7 @@ export const FORCED_STALL_SPAWN_TIMEOUT_MS = 2_000;
 // enclosure carries the same real display-readiness term the boot budget does.
 export const FORCED_STALL_TEST_TIMEOUT_MS: number =
   DISPLAY_READY_TIMEOUT_MS +
+  IDENTITY_CAPTURE_CEILING_MS +
   FORCED_STALL_SPAWN_TIMEOUT_MS +
   DIAGNOSTIC_COLLECTION_CEILING_MS +
   TERMINATION_GRACE_MS +

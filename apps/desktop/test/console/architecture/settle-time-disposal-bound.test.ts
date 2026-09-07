@@ -25,7 +25,6 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { cleanUpAfterChildAtSettleTime } from "../../helpers/electron-child-cleanup.js";
 import { spawnManagedElectronChild } from "../../helpers/electron-child.js";
 import { DISPOSAL_ATTEMPTS } from "../../helpers/managed-electron-child.js";
 import {
@@ -66,35 +65,31 @@ describe("settle-time disposal — one layer owns the attempt count", () => {
       // `DISPOSAL_ATTEMPTS` would be a retry that stopped early, which is the
       // opposite defect and the one the refusal ordering case next door covers.
       //
-      // TWO REGISTRARS, and the second is not tidiness. The spawn door arms a
-      // disposer of its own, and settling that one would add its asks to this
-      // count — so the door's registrar is held and only the cleanup's is
-      // settled, which leaves the count a statement about THIS loop.
-      const spawnRegistrar = new RecordingSettleRegistrar();
-      const cleanupRegistrar = new RecordingSettleRegistrar();
+      // ONE REGISTRAR, which is the shape rather than an economy. The spawn door
+      // now arms the ONLY settle-time disposer a spawned child has, and the
+      // release travels into it as `releaseAfterTermination` — so settling that
+      // one registrar settles the whole teardown and `requests.length` is a
+      // statement about every ask this child's settlement makes, not about one
+      // loop among two.
+      const registrar = new RecordingSettleRegistrar();
       const terminator = new ObservedTreeTerminator(REFUSALS_BEYOND_EVERY_BOUND);
+      let removals = 0;
       const managed = spawnManagedElectronChild({
         command: process.execPath,
         args: ["-e", NON_TERMINATING_PROGRAM],
         cwd: process.cwd(),
         env: process.env,
-        registerSettleTimeTermination: spawnRegistrar.register,
+        registerSettleTimeTermination: registrar.register,
         terminateProcessTree: terminator.terminate,
-      });
-      const childProcessId = managed.child.pid ?? 0;
-      let removals = 0;
-
-      cleanUpAfterChildAtSettleTime(
-        managed,
-        () => {
+        releaseAfterTermination: () => {
           removals += 1;
         },
-        cleanupRegistrar.register,
-        REFUSED_KILL_SETTLE_WAIT_MS,
-      );
+        terminationExitWaitMs: REFUSED_KILL_SETTLE_WAIT_MS,
+      });
+      const childProcessId = managed.child.pid ?? 0;
 
       try {
-        await cleanupRegistrar.settle();
+        await registrar.settle();
 
         expect(
           terminator.requests.length,
@@ -125,27 +120,22 @@ describe("settle-time disposal — one layer owns the attempt count", () => {
       // bound on a refusal" and "the loop always spends its bound", and the
       // second would put three kills and two waits on every ordinary teardown
       // this package performs — the cost the early return exists to avoid.
-      const spawnRegistrar = new RecordingSettleRegistrar();
-      const cleanupRegistrar = new RecordingSettleRegistrar();
+      const registrar = new RecordingSettleRegistrar();
       const terminator = new ObservedTreeTerminator();
       const managed = spawnManagedElectronChild({
         command: process.execPath,
         args: ["-e", NON_TERMINATING_PROGRAM],
         cwd: process.cwd(),
         env: process.env,
-        registerSettleTimeTermination: spawnRegistrar.register,
+        registerSettleTimeTermination: registrar.register,
         terminateProcessTree: terminator.terminate,
+        releaseAfterTermination: () => undefined,
+        terminationExitWaitMs: REFUSED_KILL_SETTLE_WAIT_MS,
       });
       const childProcessId = managed.child.pid ?? 0;
 
       try {
-        cleanUpAfterChildAtSettleTime(
-          managed,
-          () => undefined,
-          cleanupRegistrar.register,
-          REFUSED_KILL_SETTLE_WAIT_MS,
-        );
-        await cleanupRegistrar.settle();
+        await registrar.settle();
 
         expect(
           terminator.requests.length,
