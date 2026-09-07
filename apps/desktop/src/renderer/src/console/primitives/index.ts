@@ -121,7 +121,6 @@ export type {
   ReadingState,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   RefusalScope,
 } from "./partial-read.js";
 export {
@@ -315,3 +314,17 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatWireString,
 } from "./wire-figures.js";
+
+// The overlay shells, each registering what it mounts in the window's airspace
+// (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
+// overlay instance"): the anchored three register their popup, and the two modal
+// wrappers register the backdrop that covers the window beside it, through the one
+// helper that owns that difference (`overlay/modal-airspace.ts`). Neither the
+// registration hook nor that helper is on this door: their only callers are these
+// five, a consumer that could reach one could register an overlay by hand at a call
+// site, and 12.3's Never bullet forbids exactly that.
+export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
+export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";
+export { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
+export { OverlayMenuPopup } from "./overlay/OverlayMenuPopup.js";
+export { OverlaySelectPopup } from "./overlay/OverlaySelectPopup.js";

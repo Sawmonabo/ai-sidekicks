@@ -24,6 +24,7 @@ import {
   type ParsedRows,
 } from "../approvals/index.js";
 import { readActivityFromScenario } from "./fixture-activity.js";
+import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../scenarios/browser.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { FixturePendingInvites } from "./fixture-pending-invites.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
@@ -219,6 +220,42 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       await answerScriptedWrite(engine, "agent.configUpdate", "agentConfigUpdate", request),
     agentDetach: async (request) =>
       await answerScriptedWrite(engine, "agent.detach", "agentDetach", request),
+    // browser — the provenance the produced-object shelf joins the log against.
+    //
+    // Routed through the scripted-reply seam and answered with the EMPTY SET when a
+    // scenario names nothing, on the invite ledger's rule: a session whose browser has
+    // produced nothing is an ordinary session the shelf has to draw, and a refusal
+    // here would say the question was never asked. A scenario that publishes artifacts
+    // and scripts no reply is saying those artifacts came from somewhere else.
+    browserProducedArtifacts: async (request) =>
+      answerFromScriptedReply(
+        engine,
+        BROWSER_PRODUCED_ARTIFACTS_CALL,
+        "browserProducedArtifacts",
+        request,
+        () => ({ status: "served", value: { artifactIds: [] } }),
+      ),
+    // terminal lease — the two calls whose interesting answers are all refusals. Both
+    // route through the write seam rather than the read one: a take that nobody
+    // scripted has no honest served form, since taking the shell MOVES it and the
+    // pane's holder comes from the `pty.control_changed` beat rather than from this
+    // reply. A scenario that scripts a refusal reaches the caller's own `catch`
+    // exactly as a live rejection does, which is what makes the refusal renderings
+    // reachable at all.
+    terminalAcquireWriteLease: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "session.takeControl",
+        "terminalAcquireWriteLease",
+        request,
+      ),
+    terminalReleaseWriteLease: async (request) =>
+      await answerScriptedWrite(
+        engine,
+        "session.releaseControl",
+        "terminalReleaseWriteLease",
+        request,
+      ),
     orchestrationChildRunLinkRead: async (request) =>
       answerFromScriptedReply(
         engine,

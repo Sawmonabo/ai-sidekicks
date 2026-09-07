@@ -30,6 +30,7 @@ describe("useReportedNavigation — a subject that changes under the hook", () =
     isLoading: false,
     canGoBack: false,
     canGoForward: true,
+    loadProgress: null,
   };
 
   interface PaneStream {

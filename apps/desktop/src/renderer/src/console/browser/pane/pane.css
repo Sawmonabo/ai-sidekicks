@@ -1,19 +1,53 @@
 /*
  * Chapter 12.2's pane shell.
  *
- * One of the browser family's five sheets. The family's own discipline holds in
+ * One of the browser family's seven sheets. The family's own discipline holds in
  * every one of them: no literal colour, every value read back out of a Meridian
  * custom property, and the two hues spent only on their one meaning each
  * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
  * red where something failed). Grep any of these files for `amber` and `red` and
  * every hit is one of those.
  *
- * Every sheet here is imported from `console/browser/index.ts` and from nowhere
- * else, so the bundler sees exactly one edge into each however many surfaces this
+ * Every sheet here is imported from the family's one chunk root,
+ * `console/browser/pane/browser-pane-body.ts`, and from nowhere else, so the
+ * bundler sees exactly one edge into each however many surfaces this
  * family grows. It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a
  * `styles/` directory of its own: one sheet per sub-module directory, named for
  * that directory, so the shapes and the rules that draw them are read together and
- * a sixth sheet has one plausible home instead of two.
+ * a further sheet has one plausible home instead of two.
+ *
+ * WHAT IS HERE AND WHAT IS BESIDE IT. This file carried every rule the whole `pane/`
+ * subtree draws with — three directories over 458 lines — and the split is derived
+ * from WHICH COMPONENT DRAWS EACH ROOT rather than from how the file happened to
+ * read. `chrome/chrome.css` takes what `pane/chrome/` draws: the tab strip, the load
+ * hairline, the page picker, the overflow disclosure, and the chrome bar's own button
+ * override. `file/file.css` takes what `pane/file/` draws. Neither directory carries
+ * a door, so both sheets enter beside this one at `browser-pane-body.ts` — the
+ * door of the directory that owns them, now that this family's sheets enter at its
+ * chunk root rather than at the family barrel.
+ * `pane/handback/` gets NO sheet: the one class `HandbackReading.tsx` draws is
+ * `.meridian-browser-region__note`, a modifier of a root two directories draw, and a
+ * root two directories draw belongs to neither — which is `controls.css`'s rule
+ * applied one level down.
+ *
+ * WHAT STAYS: the pane box and its bands, the chrome bar and its address field, the
+ * resource-ceiling disclosure `BrowserPane.tsx` draws, and the region shapes
+ * `PaneOverflow.tsx` and `HandbackReading.tsx` draw between them. The ceiling and the
+ * overflow disclosure are near-twins and are deliberately NOT kept together: the pane
+ * draws one and the overflow draws the other, and following the drawer is what makes
+ * the split answerable by grep instead of by taste.
+ *
+ * THE CASCADE IS UNCHANGED, and that is stated rather than assumed. The chunk root
+ * imports `controls.css` first and then this sheet, `chrome/chrome.css`, and
+ * `file/file.css` in that order — the order the family door had them in before the
+ * sheets moved behind the chunk boundary, and the order these rules were already
+ * in. No selector text appears in two of the three sheets, and the one cross-sheet
+ * override —
+ * `.meridian-browser-chrome .meridian-browser-action` over `controls.css`'s
+ * `.meridian-browser-action` — wins on specificity (0,2,0 over 0,1,0) rather than on
+ * order, so it is order-free wherever it sits. The `> summary` rules the three sheets
+ * carry set disjoint properties at equal specificity, so nothing turns on their
+ * arrangement either.
  *
  * The pane in three bands: a chrome bar that cannot grow, a viewport that takes
  * whatever is left, and the resource ceiling of 12.10 folded away behind a
@@ -47,20 +81,6 @@
   border-block-end: 1px solid var(--meridian-edge);
 }
 
-/*
- * The shared action button carries `align-self: flex-start` for the card's stacked
- * context. A chrome bar is one centred row, so the container that owns the
- * alignment restates it here rather than the button growing a modifier for the
- * second place it is used.
- */
-.meridian-browser-chrome .meridian-browser-action {
-  align-self: center;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--meridian-space-1);
-  white-space: nowrap;
-}
-
 .meridian-browser-chrome__address {
   flex: 1 1 auto;
   min-inline-size: 0;
@@ -76,10 +96,6 @@
 .meridian-browser-chrome__address:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
-}
-
-.meridian-browser-pane__strip {
-  padding: var(--meridian-space-2) var(--meridian-space-2) 0;
 }
 
 /*
@@ -118,4 +134,43 @@
 .meridian-browser-pane__ceiling-body {
   padding: var(--meridian-space-2);
   overflow-x: auto;
+}
+
+/* ------------------------------------------------------- overflow regions */
+
+/* One region per group of controls the density rule pushed behind the disclosure.
+   Each names itself, because an unlabelled pile of every control the chrome did not
+   keep is not one click's worth of legibility however few clicks it took to reach. */
+
+.meridian-browser-region {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding-block: var(--meridian-space-2);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-browser-region:first-of-type {
+  border-block-start: 0;
+}
+
+.meridian-browser-region__head {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-browser-region__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-browser-region__note {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
 }

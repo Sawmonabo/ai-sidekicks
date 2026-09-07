@@ -33,7 +33,7 @@
 // travels on the settlement for the same reason: the diagnosis and the remedy are
 // properties of what the engine did, not of which surface asked.
 
-import type { WireErrorEnvelope } from "../../core/index.js";
+import type { ScenarioRefusalEnvelope } from "./scenario.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 
 /**
@@ -81,7 +81,7 @@ export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[num
 export type ScriptedReplySettlement =
   | { readonly status: "unscripted" }
   | { readonly status: "resolved"; readonly value: unknown }
-  | { readonly status: "refused"; readonly refusal: WireErrorEnvelope }
+  | { readonly status: "refused"; readonly refusal: ScenarioRefusalEnvelope }
   | {
       readonly status: "unanswered";
       readonly code: ScriptedReplyRefusalCode;

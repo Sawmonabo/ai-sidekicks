@@ -182,6 +182,19 @@ export class PushDrivenRead<TValue> {
     return this.#unsubscribe !== undefined;
   }
 
+  /**
+   * Whether {@link dispose} has run. The reading a resource holder needs.
+   *
+   * `dispose()` is terminal, so a disposed model answers `start()` and `refresh()`
+   * with nothing at all. A holder that re-mounts the same instance — React's second
+   * strict-mode mount, whose cleanup already disposed the first — has to be able to
+   * recognise that corpse and open a fresh model instead of committing it, and
+   * `isSubscribed` cannot tell it apart from a model nobody has started yet.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
   /** Subscribe to state changes. Returns an idempotent unsubscribe. */
   public onChange(listener: () => void): Unsubscribe {
     return this.#changes.subscribe(listener);

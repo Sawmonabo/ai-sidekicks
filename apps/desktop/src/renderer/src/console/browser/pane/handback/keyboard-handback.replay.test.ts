@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isConsoleRefusal } from "../../core/index.js";
+import { isConsoleRefusal } from "../../../core/index.js";
 import { CLOSE_TAB_CHORD } from "./chord-claim.js";
 import { KEYBOARD_HANDBACK_REFUSAL_ORIGIN } from "./keyboard-handback.js";
 import { attachedPaneRoot, chord, handbackOver } from "./keyboard-handback.test-support.js";
@@ -41,8 +41,8 @@ describe("KeyboardHandback.replay", () => {
     // The finding. Dispatching on `window` made the window the target, and a target's
     // propagation path does not include its descendants — so `BrowserPane`'s
     // `onKeyDownCapture` never saw the replay, and the one chord it handles there was
-    // silently swallowed: no `close-unregistered` refusal, no close, and a keystroke
-    // the mirror had just taken from the page.
+    // silently swallowed: no refusal, no close, and a keystroke the mirror had just
+    // taken from the page.
     const handback = handbackOver([CLOSE_TAB_CHORD]);
     const paneRoot = attachedPaneRoot();
     const seenAtPane: KeyboardEvent[] = [];

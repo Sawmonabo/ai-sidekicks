@@ -1,4 +1,6 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
+
+import { OverlayAlertDialogPopup } from "../../primitives/index.js";
 import {
   MEMBERSHIP_ACTION_NOTES,
   MEMBERSHIP_ROLE_NOTES,
@@ -30,28 +32,27 @@ export function RevokeConfirmation(props: {
       >
         {MEMBERSHIP_ACTION_NOTES.revoke.label}
       </AlertDialog.Trigger>
-      <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="meridian-members__dialog-backdrop" />
-        <AlertDialog.Popup className="meridian-members__dialog">
-          <AlertDialog.Title className="meridian-members__dialog-title">
-            Revoke this membership?
-          </AlertDialog.Title>
-          <AlertDialog.Description className="meridian-members__dialog-body">
-            {cost ?? "The membership ends. Nothing else about the session changes."}
-          </AlertDialog.Description>
-          <div className="meridian-members__dialog-acts">
-            <AlertDialog.Close className="meridian-members__dialog-cancel">
-              Keep it
-            </AlertDialog.Close>
-            <AlertDialog.Close
-              className="meridian-members__dialog-confirm"
-              onClick={props.onConfirm}
-            >
-              Revoke
-            </AlertDialog.Close>
-          </div>
-        </AlertDialog.Popup>
-      </AlertDialog.Portal>
+      {/* The popup shell is the primitive's, which is what puts this confirmation in
+          the window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to what is registered there, and a confirmation it
+          painted over is the one thing 12.3 forbids outright. */}
+      <OverlayAlertDialogPopup
+        backdropClassName="meridian-members__dialog-backdrop"
+        className="meridian-members__dialog"
+      >
+        <AlertDialog.Title className="meridian-members__dialog-title">
+          Revoke this membership?
+        </AlertDialog.Title>
+        <AlertDialog.Description className="meridian-members__dialog-body">
+          {cost ?? "The membership ends. Nothing else about the session changes."}
+        </AlertDialog.Description>
+        <div className="meridian-members__dialog-acts">
+          <AlertDialog.Close className="meridian-members__dialog-cancel">Keep it</AlertDialog.Close>
+          <AlertDialog.Close className="meridian-members__dialog-confirm" onClick={props.onConfirm}>
+            Revoke
+          </AlertDialog.Close>
+        </div>
+      </OverlayAlertDialogPopup>
     </AlertDialog.Root>
   );
 }

@@ -12,9 +12,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ManualClock, refuse } from "../../core/index.js";
+import { AirspaceRegistry, ManualClock, refuse } from "../../core/index.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
-import { PaneOcclusionRegistry } from "./occlusion-registry.js";
 import {
   PANE_VIEW_HOST_REFUSAL_ORIGIN,
   unavailablePaneViewHost,
@@ -26,10 +25,10 @@ describe("PaneGeometryPublisher", () => {
   function publisherOver(host: AttachedPaneViewHost): {
     readonly publisher: PaneGeometryPublisher;
     readonly clock: ManualClock;
-    readonly occlusion: PaneOcclusionRegistry;
+    readonly occlusion: AirspaceRegistry;
   } {
     const clock = new ManualClock();
-    const occlusion = new PaneOcclusionRegistry({ clock });
+    const occlusion = new AirspaceRegistry();
     return { publisher: new PaneGeometryPublisher({ host, clock, occlusion }), clock, occlusion };
   }
 
@@ -38,7 +37,7 @@ describe("PaneGeometryPublisher", () => {
     const publisher = new PaneGeometryPublisher({
       host: unavailablePaneViewHost("no host in this window"),
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     expect(publisher.armedSourceCount).toBe(0);
