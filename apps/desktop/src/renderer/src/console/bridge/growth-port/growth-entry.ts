@@ -31,6 +31,12 @@ export type GrowthOperationKind = "method" | "subscription";
  * behind because the console resolves it off the bridge it already holds rather than
  * calling for it. Filing one as a `type-member` would say it is a field on a reply
  * some daemon sends, which is the opposite of where its composition lives.
+ *
+ * What separates it from a growth OPERATION that also reads the shell — the OS
+ * notification-permission probe is one — is when the answer can change: a probe's
+ * answer moves at runtime, so it is asked through a port method each time, while a
+ * bridge member is fixed at window construction and read during render, so a method
+ * that "fetched" it would be a promise wrapped around a value already in hand.
  */
 export type GrowthPrerequisiteKind =
   | "pane-kind"
