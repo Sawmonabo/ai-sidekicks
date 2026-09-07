@@ -71,17 +71,6 @@ import { StylesheetReachIndex, eagerlyReachedModules } from "./stylesheet-static
 /** The module that registers the sidekicks settings page, and holds its loader. */
 const SIDEKICKS_PAGE_REGISTRATION = "sidekicks-settings-page.ts";
 
-/** Every console module the composition sites reach without crossing an `import()`. */
-function eagerlyReachedModules(index: StylesheetReachIndex): ReadonlySet<string> {
-  const reached = new Set<string>();
-  for (const root of compositionRoots()) {
-    for (const modulePath of index.reachableFrom(root)) {
-      reached.add(modulePath);
-    }
-  }
-  return reached;
-}
-
 /**
  * The directory a resolved tree path sits in, as a prefix a tree path starts with.
  *
