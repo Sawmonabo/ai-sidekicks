@@ -15,13 +15,13 @@ import { useEffect, useMemo } from "react";
 
 import type { SessionEventType, SessionId } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../bridge/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import {
   subscribeToSessionEventKinds,
   useWindowReadTriggers,
   type ReadTriggerTarget,
   type SessionStore,
-} from "../store/index.js";
+} from "../../store/index.js";
 import { requestNodeRosterRefresh } from "./node-roster-seam.js";
 
 /**

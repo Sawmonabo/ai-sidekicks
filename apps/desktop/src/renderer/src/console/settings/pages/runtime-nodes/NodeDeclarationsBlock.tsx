@@ -21,7 +21,7 @@
 // current. It is raised from here rather than from there because one raiser per page is
 // the rule that block already states, and the seam coalesces the reasons anyway.
 //
-// NOTHING HERE FIRES ON MOUNT, and `seats/node-roster-seam.ts` states why: the mount
+// NOTHING HERE FIRES ON MOUNT, and `seats/runtime-node/node-roster-seam.ts` states why: the mount
 // arm is the absorbed view's own initial read, and forwarding it would put a second
 // read on the wire for one mount.
 

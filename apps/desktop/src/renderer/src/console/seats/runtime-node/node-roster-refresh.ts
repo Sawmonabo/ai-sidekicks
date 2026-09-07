@@ -28,8 +28,8 @@
 // the terminal-`dispose()` discipline `store/scheduling.ts` states, applied at the
 // only boundary this seam has.
 
-import type { ConsoleClock } from "../core/index.js";
-import { RefreshScheduler, type RefreshReason } from "../store/index.js";
+import type { ConsoleClock } from "../../core/index.js";
+import { RefreshScheduler, type RefreshReason } from "../../store/index.js";
 
 /**
  * The re-read coordinator for one session's absorbed roster.

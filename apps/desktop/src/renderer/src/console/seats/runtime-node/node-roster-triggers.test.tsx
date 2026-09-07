@@ -17,14 +17,14 @@ import { describe, expect, it } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { unscriptedScenario } from "../bridge/fixture/fixture-bridge.test-support.js";
-import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
-import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
-import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../core/settle.test-support.js";
-import type { ConsoleSessionEvent, SessionStore } from "../store/index.js";
-import { eventOfKind } from "../store/session-event.test-support.js";
-import { initialisedStore } from "../store/session-store-registry.test-support.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { unscriptedScenario } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
+import type { ConsoleSessionEvent, SessionStore } from "../../store/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
+import { initialisedStore } from "../../store/session-store-registry.test-support.js";
 import { nodeRosterReadsFor } from "./node-roster-seam.js";
 import { useNodeRosterReReadTriggers } from "./node-roster-triggers.js";
 import { bridgeWithRoster, sessionIdOf } from "./node-roster.test-support.js";

@@ -14,10 +14,10 @@ import { describe, expect, it } from "vitest";
 
 import type { RuntimeNodeRosterResponse } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { unscriptedScenario } from "../bridge/fixture/fixture-bridge.test-support.js";
-import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
-import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { unscriptedScenario } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { SETTINGS_SCENARIO } from "../../bridge/scenarios/settings.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   nodeRosterReadsFor,
   useNodeRosterObservation,

@@ -448,17 +448,24 @@ export {
 
 // What the absorbed roster's own read answered, for a surface that renders beside it.
 //
-// The mount above is the only caller that needs the read SEAM, and it takes it by its
-// own specifier; what leaves this family is the OBSERVATION — a settings page renders a
-// node's declared capabilities and its version from the response that view already read,
-// rather than putting a second `runtimenode.roster` on the wire that could disagree with
-// what is on screen beside it.
-export { useNodeRosterObservation, type NodeRosterObservation } from "./node-roster-seam.js";
+// The mount above is the only caller that needs the read SEAM, and it takes it through
+// `runtime-node/index.ts`, that directory's own door; what leaves this family is the
+// OBSERVATION — a settings page renders a node's declared capabilities and its version
+// from the response that view already read, rather than putting a second
+// `runtimenode.roster` on the wire that could disagree with what is on screen beside it.
+//
+// FROM THE DECLARING MODULE AND NOT FROM THAT INNER DOOR: a family door re-exporting
+// through a sub-module door is the barrel chain `console-no-barrel-chain` fails, and
+// the name would be published twice with nothing saying which line a reader owes.
+export {
+  useNodeRosterObservation,
+  type NodeRosterObservation,
+} from "./runtime-node/node-roster-seam.js";
 
 // When that roster is asked to read again. Beside the observation because the settings
 // page takes both — it renders from the recorded read and owes that read the signals
 // the absorbed view's own presence channel does not carry.
-export { useNodeRosterReReadTriggers } from "./node-roster-triggers.js";
+export { useNodeRosterReReadTriggers } from "./runtime-node/node-roster-triggers.js";
 
 // The shared body every sidebar section draws with: the count, the group headings, and
 // the rows that open panes, plus the fold that splits a section's rows into groups.

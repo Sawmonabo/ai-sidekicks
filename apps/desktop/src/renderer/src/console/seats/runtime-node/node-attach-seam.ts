@@ -30,13 +30,13 @@
 // moment the mount renders. The row is what makes the live arm's absence readable as a
 // wire the shell owes rather than as a control somebody forgot to finish.
 
-import type { ConsoleBridge } from "../bridge/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import {
   attachReadsOverControlPlane,
   type ControlPlaneAttachCall,
   type RuntimeNodeAttachDraft,
   type RuntimeNodeAttachReads,
-} from "../../runtime-node-attach/index.js";
+} from "../../../runtime-node-attach/index.js";
 
 /**
  * The attach seam this bridge serves.

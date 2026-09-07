@@ -31,15 +31,15 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import type { RuntimeNodeRosterResponse, SessionId } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
-import { ConsoleRefusalError, type ConsoleRefusal } from "../core/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { ConsoleRefusalError, type ConsoleRefusal } from "../../core/index.js";
 import {
   GenerationLatch,
   type CurrentGenerationClaim,
   type RefreshReason,
-} from "../store/index.js";
+} from "../../store/index.js";
 import { NodeRosterRefresh } from "./node-roster-refresh.js";
-import type { NodeRosterReads } from "../../runtime-node-attach/index.js";
+import type { NodeRosterReads } from "../../../runtime-node-attach/index.js";
 
 /**
  * What the console knows about the roster read the absorbed view performed.

@@ -54,7 +54,7 @@
 // happened.
 //
 // THE NODE ROSTER IS NO LONGER ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
-// That view now takes an optional read seam and `seats/node-roster-seam.ts` builds one
+// That view now takes an optional read seam and `runtime-node/node-roster-seam.ts` builds one
 // from the bridge the console has already resolved, so it asks whichever bridge this
 // window is running on: the control plane under the preload, the scenario's own roster
 // frames under the fixture. There is no longer a window in which it could reach past the
@@ -74,8 +74,11 @@ import type { RuntimeNodeRosterEntry, SessionId } from "@ai-sidekicks/contracts"
 
 import type { ConsoleBridge, ConsoleBridgeSource } from "../bridge/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
-import { nodeAttachDraftFor, nodeAttachReadsFor } from "./node-attach-seam.js";
-import { nodeRosterReadsFor } from "./node-roster-seam.js";
+import {
+  nodeAttachDraftFor,
+  nodeAttachReadsFor,
+  nodeRosterReadsFor,
+} from "./runtime-node/index.js";
 import {
   AttachFlow,
   CapabilityDeclaration,
@@ -200,7 +203,7 @@ export function renderAbsorbedNodeRoster(
  * health, and what it can run — in the main process, off the node registry. A caller
  * that could pass a draft in would be a caller that could compose one, and a renderer
  * composing one is a renderer vouching for a machine on its own word. So the draft is
- * RESOLVED here and invented nowhere: `node-attach-seam.ts` asks the running scenario
+ * RESOLVED here and invented nowhere: `runtime-node/node-attach-seam.ts` asks the running scenario
  * under the fixture, and answers nothing under the live bridge, where no registered
  * read delivers such a declaration to this renderer yet.
  *
@@ -249,7 +252,7 @@ export function renderAbsorbedAttachFlow(
  * past the console's bridge, because it reaches for no bridge at all.
  *
  * The map arrives from the roster read the absorbed roster ALREADY performed, through
- * `node-roster-seam.ts`, so the capabilities on screen and the rows beside them are one
+ * `runtime-node/node-roster-seam.ts`, so the capabilities on screen and the rows beside them are one
  * answer rather than two that can disagree.
  */
 export function renderAbsorbedCapabilityDeclaration(
