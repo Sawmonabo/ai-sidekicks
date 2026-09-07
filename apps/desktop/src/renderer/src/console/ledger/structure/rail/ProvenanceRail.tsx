@@ -38,6 +38,12 @@
 // origin of every walk all read that one resolution, so the rail cannot announce
 // one thing and walk from another.
 //
+// THE DRAG IS ONE GESTURE AND THE CLICK AFTER IT IS PART OF IT. Press, scrub and
+// release live in `rail-scrub.ts`, which reports a mark only when the drag crosses
+// onto a new one and consumes the click the browser synthesizes on release — so a
+// scrub is one continuous movement through the ledger's single scroll writer rather
+// than a write per pointer event, and a press does not jump twice.
+//
 // The rail deliberately does NOT slide the selection onto a neighbouring mark when
 // the one a person chose is withheld by replay, dropped by a filter, or taken by
 // the cap. It says the mark is gone, which is information, and the next press then
@@ -53,10 +59,11 @@ import { Glyph } from "../../../primitives/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
 import { RAIL_HIT_STRIP_WIDTH_PX } from "../structure-bounds.js";
 import { clampRailViewportBand } from "./rail-bands.js";
+import { railKeyboardWalk } from "./rail-keyboard-walk.js";
 import { type ProvenanceRailModel, type RailTick } from "./rail-model.js";
-import { RAIL_TICK_KINDS, type RailTickKind } from "./rail-ticks.js";
 import { RailPainter, type RailActorHueLookup } from "./rail-painter.js";
 import { PreviewGrace, type RailPreview } from "./rail-preview.js";
+import { RailScrub } from "./rail-scrub.js";
 import { useRailSurfaceRevision } from "./rail-surface.js";
 
 export interface ProvenanceRailProps {
@@ -136,6 +143,12 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
     };
   }, [grace]);
 
+  // ONE GESTURE PER MOUNT, on the grace's terms: a drag is state that must not
+  // render, and a ref is how this component already holds such state.
+  const scrubRef = useRef<RailScrub | undefined>(undefined);
+  scrubRef.current ??= new RailScrub();
+  const scrub = scrubRef.current;
+
   const hueForActor = props.hueForActor;
   useEffect(() => {
     painter.paint(canvasRef.current, {
@@ -153,37 +166,6 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
     [railModel, focusedSequence],
   );
 
-  const handlePointerMove = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      // A zero-height strip is what a DOM shim reports; dividing by it would put
-      // `Infinity` into the paint transform.
-      const fraction = bounds.height === 0 ? 0 : (event.clientY - bounds.top) / bounds.height;
-      setPointerFraction(fraction);
-      const tick = model.tickNearest(fraction);
-      grace.open(tick, fraction, setPreview);
-    },
-    [model, grace],
-  );
-
-  const handlePointerLeave = useCallback(() => {
-    setPointerFraction(undefined);
-    grace.close(setPreview);
-  }, [grace]);
-
-  const handleClick = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      const fraction = bounds.height === 0 ? 0 : (event.clientY - bounds.top) / bounds.height;
-      const tick = model.tickNearest(fraction);
-      if (tick !== undefined) {
-        setFocusedSequence(tick.sequence);
-        onJumpToRow(tick.rowId);
-      }
-    },
-    [model, onJumpToRow],
-  );
-
   const walkTo = useCallback(
     (tick: RailTick | undefined) => {
       if (tick === undefined) {
@@ -195,48 +177,88 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
     [onJumpToRow],
   );
 
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const ticks = railModel.ticks;
-      // The RESOLVED tick, never the recorded sequence. A sequence whose mark the
-      // model has dropped is not a place on this rail, and walking from one skips
-      // every mark that is on it, or finds nothing and moves nowhere.
-      const from = focusedTick?.sequence ?? BEFORE_EVERY_TICK;
-      const walkKind = kindWalkedBy(event.code);
-      if (walkKind !== undefined) {
-        // Shift plus a digit walks one KIND — the previous tick of it, the digit
-        // alone the next — while the plain arrows walk every tick, because that is
-        // what a person reaches for first. The digit is read off the PHYSICAL key,
-        // for the reason `kindWalkedBy` states.
-        event.preventDefault();
-        walkTo(model.tickOfKind(walkKind, from, event.shiftKey ? "previous" : "next"));
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const fraction = strippedFraction(event);
+      setPointerFraction(fraction);
+      const tick = model.tickNearest(fraction);
+      grace.open(tick, fraction, setPreview);
+      // The scrub reports a mark only when the drag crosses onto a new one, so a
+      // held pointer moving through a mark's neighbourhood queues one write and not
+      // one per pointer event.
+      walkTo(scrub.crossedTo(tick));
+    },
+    [model, grace, scrub, walkTo],
+  );
+
+  const handlePointerLeave = useCallback(() => {
+    setPointerFraction(undefined);
+    grace.close(setPreview);
+  }, [grace]);
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      // The PRIMARY button only. A secondary or middle press opens a context menu or
+      // an auxiliary act on every platform, and adopting one would scrub the ledger
+      // out from under the menu the person is about to read.
+      if (event.button !== 0 || !scrub.begin(event.pointerId)) {
         return;
       }
-      switch (event.key) {
-        case "ArrowDown":
-          event.preventDefault();
-          walkTo(ticks.find((tick) => tick.sequence > from));
-          return;
-        case "ArrowUp": {
-          event.preventDefault();
-          // From no selection, Up reaches the rail's last mark — the mirror of
-          // Down reaching its first — which is what the unconditional arm is.
-          walkTo(
-            [...ticks].reverse().find((tick) => from === BEFORE_EVERY_TICK || tick.sequence < from),
-          );
-          return;
-        }
-        case "Home":
-          event.preventDefault();
-          walkTo(ticks[0]);
-          return;
-        case "End":
-          event.preventDefault();
-          walkTo(ticks[ticks.length - 1]);
-          return;
-        default:
-          return;
+      // CAPTURE, so the gesture survives the pointer leaving the 56px strip. Without
+      // it a scrub ends the moment the hand drifts sideways, which is most of them.
+      // Guarded because a DOM shim implements the pointer-capture pair as a throw.
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      walkTo(scrub.crossedTo(model.tickNearest(strippedFraction(event))));
+    },
+    [model, scrub, walkTo],
+  );
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      scrub.end(event.pointerId);
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    },
+    [scrub],
+  );
+
+  const handlePointerCancel = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      scrub.cancel(event.pointerId);
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    },
+    [scrub],
+  );
+
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // The click a completed press synthesizes is that gesture's second delivery of
+      // one mark, so it is consumed. A click with no press before it — synthetic, or
+      // an assistive tool's — still jumps.
+      if (scrub.takeSynthesizedClick()) {
+        return;
       }
+      walkTo(model.tickNearest(strippedFraction(event)));
+    },
+    [model, scrub, walkTo],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      // The RESOLVED tick's sequence, never the recorded one — see this file's
+      // header — handed to the walk next door, which owns the key table.
+      const walk = railKeyboardWalk(
+        { key: event.key, code: event.code, shiftKey: event.shiftKey },
+        railModel.ticks,
+        model,
+        focusedTick?.sequence,
+      );
+      if (!walk.claimed) {
+        return;
+      }
+      // Claimed and moved nowhere is still claimed: the page must not scroll under
+      // a walk that has reached the end of the rail.
+      event.preventDefault();
+      walkTo(walk.tick);
     },
     [railModel, focusedTick, model, walkTo],
   );
@@ -256,7 +278,10 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
         // `aria-valuetext` beside it is what actually says whether a mark is selected.
         aria-valuenow={focusedTick === undefined ? 0 : railModel.ticks.indexOf(focusedTick)}
         aria-valuetext={valueTextFor(focusedTick, railModel.ticks.length)}
+        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerLeave}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
@@ -298,43 +323,14 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
 }
 
 /**
- * The walk origin when nothing is selected.
+ * Where a pointer sits on the strip, as a fraction of its height.
  *
- * A sentinel rather than `undefined` so the two arrow walks read one comparison
- * each: wire sequences start at zero, so a value below zero is before every mark
- * the rail can hold and after none of them.
+ * One reader for the four handlers that need it. A zero-height strip is what a DOM
+ * shim reports; dividing by it would put `Infinity` into the paint transform.
  */
-const BEFORE_EVERY_TICK = -1;
-
-/**
- * The physical digit-row keys the kind walk binds.
- *
- * `Numpad1`–`Numpad9` are deliberately absent: with NumLock off those codes still
- * report while `key` reads `"End"` / `"Home"`, so binding them would hijack numpad
- * navigation away from the walk the arrows and the ends already offer.
- */
-const KIND_WALK_DIGIT_CODE = /^Digit([1-9])$/;
-
-/**
- * Which tick kind a keypress walks.
- *
- * Read from the event's `code` — the physical key — and never from its `key`,
- * because the previous-kind walk is Shift plus a digit and a shifted digit row
- * reports punctuation: Shift+1 is `"!"` on a US layout, and even unshifted the
- * digit row reports `"&"` on AZERTY. There is no `key` fallback, on purpose: it
- * would re-admit the `{ key: "1", shiftKey: true }` combination no browser
- * produces and leave the negative control below unable to discriminate.
- *
- * Digits 1 through 9 name the first nine kinds in declaration order. The mapping
- * is derived from `RAIL_TICK_KINDS` rather than written out, so a kind added to
- * that tuple is walkable without a second table being edited.
- */
-function kindWalkedBy(code: string): RailTickKind | undefined {
-  const digit = KIND_WALK_DIGIT_CODE.exec(code)?.[1];
-  if (digit === undefined) {
-    return undefined;
-  }
-  return RAIL_TICK_KINDS[Number(digit) - 1];
+function strippedFraction(event: React.MouseEvent<HTMLDivElement>): number {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  return bounds.height === 0 ? 0 : (event.clientY - bounds.top) / bounds.height;
 }
 
 /** What a screen reader hears at the rail's current position. */

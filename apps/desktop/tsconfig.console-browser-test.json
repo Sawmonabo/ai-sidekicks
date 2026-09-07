@@ -44,6 +44,10 @@
   "include": [
     "test/console/console-harness.tsx",
     "test/console/phase-graph-settled.ts",
+    // The visible-text monotonicity recorder: a console ROLE, so it sits in the flat
+    // files beside the tiers, and a DOM one — `MutationObserver`, `HTMLElement` — so
+    // it is typechecked here rather than in the Node config, which excludes it.
+    "test/console/visible-text-monotonicity.ts",
     // One glob rather than a line per family: `test/console/surfaces/` is the mount
     // helpers each view family's screenshot and accessibility suites drive, so a
     // per-file entry here is a line every family branch has to remember to add and

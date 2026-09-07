@@ -64,14 +64,27 @@
 // own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
 // follow seat in `ledger-actor-follow-seat.ts`.
 //
-// NEITHER STRUCTURAL CONTROL IS GIVEN AN `onLoadEarlier` HANDLER, and the omission
-// is the offer being absent rather than the boundary being denied. The two rows the
-// growth slate carries for this read — `timeline-epoch-attestation` and
-// `timeline-path-reference`, both Spec-013 — grow MEMBERS of a timeline read, and
-// neither is a backward-paging one; no slate row registers a read that returns rows
-// before the window's head, so there is nothing for a press to call. The clip
-// itself is passed truthfully, so the rail still draws its dotted segment and the
-// find result still carries its boundary over a window the cap has truncated.
+// NEITHER STRUCTURAL CONTROL IS GIVEN AN `onLoadEarlier` HANDLER, and the reason is
+// NOT the one this paragraph used to give. It said no registered read pages a
+// session's log backwards, and that is false: `packages/contracts/src/timeline/`
+// registers `timeline.read` with a `beforeCursor` member and a window response, and
+// the two growth-slate rows for this read — `timeline-epoch-attestation` and
+// `timeline-path-reference` — grow MEMBERS of it rather than the read itself. A
+// slate row claiming the read is unregistered would be false and the slate's own
+// suite would say so.
+//
+// THE REAL REASON IS WHAT THE CLIP MEASURES. `ledger-visible-window.ts` sets
+// `hasEarlierRows` exactly when the window CAP took rows — rows this store still
+// holds — and deliberately not when an unfetched extent exists, which nothing here
+// can observe. So the honest offer behind this clip re-admits rows already in
+// memory, which is a decision about the cap and the reading pin in
+// `ledger/frame/viewport/`, not a fetch; and a handler that issued a backward page
+// instead would ask the daemon for rows the console is holding and then have
+// nowhere to put them, since the store's log is `ConsoleSessionEvent` and that read
+// answers in `TimelineRow`. Neither is this file's to decide, so the offer stays
+// absent rather than wrong. The clip itself is passed truthfully, so the rail still
+// draws its dotted segment and the find result still carries its boundary over a
+// window the cap has truncated.
 
 import { useCallback, useEffect, useMemo } from "react";
 

@@ -64,6 +64,10 @@
     "src/renderer/**",
     "test/console/console-harness.tsx",
     "test/console/phase-graph-settled.ts",
+    // The visible-text monotonicity recorder, excluded for `console-harness.tsx`'
+    // reason: it watches a real `MutationObserver` over an `HTMLElement`, which this
+    // Node-lib config has no types for.
+    "test/console/visible-text-monotonicity.ts",
     // The architecture tier moved to `tsconfig.console-architecture-test.json` when
     // its wire-truth test started IMPORTING console source rather than reading it:
     // that pulls `store/hooks.ts` into the program, which reaches `window`. Same
