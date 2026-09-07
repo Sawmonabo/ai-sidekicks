@@ -40,15 +40,18 @@
 // and re-check outcomes would stay rendered — and stay pressable — beside a scope that
 // never produced them.
 //
-// THE THREE ACTS, and why there is no fourth. Sign-in hands the
-// participant to the provider's own first-party flow through the growth port — the
-// daemon spawns the unmodified login binary and this console reads nothing it writes.
-// A re-check probes ONE account and then re-reads, because the probe answers about an
-// account and the readiness derivation answers about a provider. And the read itself,
-// optionally scoped to one account for the post-refusal path. Registration and
-// choosing a default are MUTATING REGISTRY VERBS that belong to the account registry's
-// own page; this step renders the remedy for them as text, which is what the design
-// requires of a remedy in any case.
+// THE TWO ACTS, and why there is no third. A re-check probes ONE account and then
+// re-reads, because the probe answers about an account and the readiness derivation
+// answers about a provider. And the read itself, optionally scoped to one account for
+// the post-refusal path. EVERY remedy is rendered as text and none is dispatched:
+// registration and choosing a default are MUTATING REGISTRY VERBS that belong to the
+// account registry's own page, and a SIGN-IN is the provider's own first-party flow
+// that `Spec-026 §Provider Authentication (Group B)` requires this step to display and
+// never to run — `Spec-029 §Brokered interactive sign-in` excludes even the account
+// plane's own login verbs from the first-run flow, "so that a first run never depends
+// on a brokered process the operator did not ask for". This model used to dispatch one
+// through the growth port, which was a sixth onboarding mutation the corpus does not
+// have.
 //
 // AND THE RE-CHECK IS ITSELF A MUTATION, SO THE SUPERVISOR'S CONDITION CLOSES IT.
 // `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations while the
@@ -64,18 +67,18 @@
 // rides a round on a line addressed at the scope, so a newer read supersedes an older
 // one and a re-address or a retirement ENDS the line — which stops the call rather
 // than only ignoring its reply. An act carries a stamp instead, because a mutation is
-// never handed a signal; `provider-readiness-acts.ts` holds that register with the two
-// acts it belongs to, and both `addressAt` and `supersede` advance it.
+// never handed a signal; `provider-readiness-acts.ts` holds that register with the act
+// it belongs to, and both `addressAt` and `supersede` advance it.
 //
 // AND WHAT A SURFACE SUBSCRIBES TO IS ONE SNAPSHOT, on `onboarding-flow.ts`' rule next
-// door. The acts move without the projection — a hand-off publishes `handing-off` and
+// door. The act moves without the projection — a re-check publishes `rechecking` and
 // touches no reading — so a surface reading the projection alone compared a value
 // `Object.is` had no reason to call different: React suppressed the render, and a row
 // stayed pressable with its refusal off screen until a later read replaced the reading.
 //
 // The vocabulary those surfaces read is `provider-readiness-reading.ts` beside this
-// file, and the two mutations are `provider-readiness-acts.ts`; what is left here is
-// the reading — how it is kept current, and what a scope change costs it.
+// file, and the mutation is `provider-readiness-acts.ts`; what is left here is the
+// reading — how it is kept current, and what a scope change costs it.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
@@ -152,9 +155,9 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    */
   #readLine = new ReadScope();
   /**
-   * The two mutations a provider row dispatches, and the register that retires them.
+   * The mutation a provider row dispatches, and the register that retires it.
    *
-   * Composed rather than inherited, and holding the generation the acts alone need:
+   * Composed rather than inherited, and holding the generation the act alone needs:
    * `provider-readiness-acts.ts` states why the two halves separate.
    */
   readonly #acts: ProviderActs;
@@ -215,8 +218,8 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
    * later activation addresses this model somewhere else.
    *
    * A CHANGE OF SCOPE RETIRES WHAT THE PREVIOUS ONE PUT OUT, which is the other half,
-   * and it is two acts because the two halves are retired by two mechanisms. The
-   * per-provider acts are stamped, so the generation moves and a settlement about the
+   * and it takes two steps because the two halves are retired by two mechanisms. The
+   * per-provider act is stamped, so the generation moves and a settlement about the
    * previous account neither renders nor stays pressable beside a scope that never
    * produced it; the reads are on a LINE addressed at that account, so the line ends
    * and a fresh one carries what follows. Both account-scoped fields return to the
@@ -329,18 +332,6 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   }
 
   /**
-   * Hand the participant to one provider's own sign-in, and read again afterwards.
-   *
-   * The reading is resolved HERE and passed down, before the act's first await: the
-   * remedy this control was rendered from names the account whose credential home the
-   * invocation authenticates into, so what travels is the snapshot the person pressed
-   * rather than whatever this model has published by the time the call goes out.
-   */
-  public async handOffSignIn(providerName: string): Promise<void> {
-    await this.#acts.handOffSignIn(providerName, this.#snapshot.reading);
-  }
-
-  /**
    * Probe one account, then read the projection again.
    *
    * FAIL-CLOSED AT THE DISPATCH SITE, ahead of the in-flight publish and not only on
@@ -364,7 +355,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   /**
    * Record what this window has done about one provider.
    *
-   * The replaced map is what makes the act visible: a row moving idle → handing-off
+   * The replaced map is what makes the act visible: a row moving idle → rechecking
    * changes nothing about the projection. One entry per selected provider, so the
    * copy is of two.
    */

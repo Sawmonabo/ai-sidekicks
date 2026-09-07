@@ -1,16 +1,19 @@
 // The provider step reads the daemon's projection and composes none of its own.
 //
-// THREE CLAIMS. The readiness entries are carried VERBATIM from the reply — the
-// member is required precisely so no client re-derives it. A re-check probes ONE
-// account and then re-reads, because the probe answers about an account and the
-// derivation answers about a provider, and reading the probe's own reply as the row's
-// new state would be exactly that re-derivation. And a hand-off's SETTLEMENT is never
-// read as success: what the row reports afterwards is the projection re-read, because
-// the probe defines success and the sign-in process's exit does not.
+// TWO CLAIMS. The readiness entries are carried VERBATIM from the reply — the member
+// is required precisely so no client re-derives it. And a re-check probes ONE account
+// and then re-reads, because the probe answers about an account and the derivation
+// answers about a provider, and reading the probe's own reply as the row's new state
+// would be exactly that re-derivation.
 //
-// AND A FIFTH, ABOUT WHAT A SUBSCRIBER CAN SEE. This model publishes two facts that
+// WHAT THIS MODEL NEVER DISPATCHES is asserted next door in
+// `provider-readiness.no-sign-in.test.ts`, which also carries the probe's own refusal
+// arm — the two halves of a deleted sign-in act, split off when the pair took this
+// file past the package's ceiling.
+//
+// AND A THIRD, ABOUT WHAT A SUBSCRIBER CAN SEE. This model publishes two facts that
 // move independently, and the only one a surface could compare used to be the
-// projection — so a per-provider act emitted, `useSyncExternalStore` compared a
+// projection — so a per-provider act published, `useSyncExternalStore` compared a
 // reading that had not re-identified, and React rendered nothing. The snapshot suite
 // asserts on IDENTITY for that reason: an act that changes state and leaves the
 // comparable value alone is a change nothing downstream can act on.
@@ -25,45 +28,22 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../../bridge/index.js";
-import {
-  withDaemonCall,
-  type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-support.js";
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { accountsForProvider, providersNotReady } from "./provider-readiness-reading.js";
-import type { ProviderReadinessModel } from "./provider-readiness.js";
 import {
+  PROBE_CALL,
   READINESS_CALL,
   arrive,
   fixture,
   modelOver,
   providerAccountRecord,
+  readCount,
+  recordingModel,
 } from "./provider-readiness.test-support.js";
-
-/**
- * A model over a bridge that records what it was asked, answering from the scenario.
- *
- * The record is what every coalescing and disposal case below asserts on, and the
- * pass-through is why they can: each case still reads the scenario's own projection,
- * so an assertion about the number of calls sits beside one about what they answered
- * rather than replacing it.
- */
-function recordingModel(bridge: ConsoleBridge = fixture()): {
-  readonly model: ProviderReadinessModel;
-  readonly bridge: ConsoleBridge;
-  readonly calls: readonly RecordedDaemonCall[];
-} {
-  const held = withDaemonCall(bridge, async (_call, passThrough) => passThrough());
-  return { model: modelOver(held.bridge), bridge: held.bridge, calls: held.calls };
-}
-
-/** How many readiness reads actually left this window. */
-function readCount(calls: readonly RecordedDaemonCall[]): number {
-  return calls.filter((call) => call.method === READINESS_CALL).length;
-}
 
 /**
  * The same scenario with the readiness read scripted to REFUSE.
@@ -176,35 +156,6 @@ describe("the acts the step performs", () => {
     // so the row is unchanged — which is the point: the projection is what moved it.
     expect(model.actionFor("codex")).toStrictEqual({ kind: "idle" });
     expect(model.reading.kind).toBe("read");
-  });
-
-  it("reports a hand-off as started and never as signed in", async () => {
-    const model = modelOver(fixture());
-    await model.handOffSignIn("codex");
-    expect(model.actionFor("codex")).toStrictEqual({ kind: "handed-off" });
-    // And the projection was re-read, which is the only thing that could report a
-    // provider as ready.
-    expect(model.reading.kind).toBe("read");
-  });
-
-  it("renders a refused hand-off on the row that asked", async () => {
-    const base = fixture();
-    const refusing: ConsoleBridge = {
-      ...base,
-      growth: {
-        ...base.growth,
-        onboardingProviderSignInHandoff: async () =>
-          growthUnavailable("onboardingProviderSignInHandoff"),
-      },
-    };
-    const model = modelOver(refusing);
-    await model.handOffSignIn("codex");
-    const action = model.actionFor("codex");
-    expect(action.kind).toBe("refused");
-    if (action.kind !== "refused") {
-      return;
-    }
-    expect(action.refusal.code).toBe("wire-unregistered");
   });
 
   it("publishes nothing after the step was retired", async () => {
@@ -347,27 +298,31 @@ describe("what the completion summary is told", () => {
 
 describe("what a subscribed surface compares", () => {
   it("re-identifies the snapshot when a per-provider act moves and the projection does not", async () => {
-    // A hand-off that never settles, so the only thing that has happened is the
-    // `handing-off` publish — no re-read has replaced the reading object behind it.
-    const base = fixture();
+    // A probe that never settles, so the only thing that has happened is the
+    // `rechecking` publish — no re-read has replaced the reading object behind it.
     const neverSettles = new Promise<never>(() => undefined);
-    const hanging: ConsoleBridge = {
-      ...base,
-      growth: { ...base.growth, onboardingProviderSignInHandoff: () => neverSettles },
-    };
-    const model = modelOver(hanging);
+    const held = withDaemonCall(fixture(), async (call, passThrough) =>
+      call.method === PROBE_CALL ? neverSettles : passThrough(),
+    );
+    const model = modelOver(held.bridge);
     await arrive(model);
-    const beforeHandOff = model.snapshot;
-    expect(beforeHandOff.reading.kind).toBe("read");
+    const beforeProbe = model.snapshot;
+    if (beforeProbe.reading.kind !== "read") {
+      throw new Error("the fixture did not serve a readiness projection");
+    }
+    const accountId = beforeProbe.reading.entries[1]?.resolvedAccountId;
+    if (accountId === undefined) {
+      throw new Error("the fixture did not resolve an account for the signed-out provider");
+    }
 
-    void model.handOffSignIn("codex");
+    void model.recheck("codex", accountId);
     await crossMacrotaskBoundary();
 
-    expect(model.actionFor("codex")).toStrictEqual({ kind: "handing-off" });
+    expect(model.actionFor("codex")).toStrictEqual({ kind: "rechecking" });
     // The projection is untouched — which is exactly why the reading alone could not
     // carry this — and the snapshot has moved anyway.
-    expect(model.snapshot.reading).toBe(beforeHandOff.reading);
-    expect(model.snapshot).not.toBe(beforeHandOff);
+    expect(model.snapshot.reading).toBe(beforeProbe.reading);
+    expect(model.snapshot).not.toBe(beforeProbe);
   });
 
   it("re-identifies the snapshot when the projection moves", async () => {

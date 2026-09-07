@@ -38,7 +38,6 @@ function renderStep(
     <ProviderReadinessStep
       reading={reading}
       actionFor={() => ({ kind: "idle" })}
-      onSignIn={() => undefined}
       onRecheck={() => undefined}
       recheckBlock={undefined}
       onOpenAccountRegistry={onOpenAccountRegistry}
@@ -128,7 +127,13 @@ describe("the remedy", () => {
     expect(opened).toStrictEqual([undefined]);
   });
 
-  it("offers the sign-in control only where the daemon composed that remedy", () => {
+  it("displays a sign-in remedy and offers only the probe that decides it", () => {
+    // `Spec-026 §Provider Authentication (Group B)` hands the operator the provider's
+    // own flow "with the remedy named — which provider, which account, the invocation,
+    // and the home" and has this step display it rather than run it, and it makes the
+    // probe the definition of success. So the invocation and the home are on screen,
+    // the only control is **Check again**, and there is no control that performs the
+    // sign-in — which this step used to offer.
     const container = renderStep(
       readingWith([
         {
@@ -145,9 +150,12 @@ describe("the remedy", () => {
         },
       ]),
     );
+    const text = container.textContent ?? "";
+    expect(text).toContain("codex login");
+    expect(text).toContain("/homes/codex/personal");
     const labels = [...container.querySelectorAll("button")].map((one) => one.textContent);
-    expect(labels).toContain("Sign in to this provider");
     expect(labels).toContain("Check again");
+    expect(labels).not.toContain("Sign in to this provider");
   });
 
   it("offers no re-check where readiness resolved no account to probe", () => {

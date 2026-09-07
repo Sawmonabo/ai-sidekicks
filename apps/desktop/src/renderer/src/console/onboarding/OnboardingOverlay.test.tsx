@@ -1,57 +1,36 @@
-// The walkthrough's three openings, and the one condition it may not be closed under.
+// The walkthrough's three openings, and where it hands a person on.
 //
-// IT IS NOT A DESTINATION, so nothing here navigates: the two commands and the
-// activation signal are the whole of how it opens, and a mounted overlay with nothing
-// asked shows no dialog at all. That is the trigger discipline expressed as a test —
-// a walkthrough that appeared on mount would be the splash the corpus forbids.
+// IT IS NOT A DESTINATION, so nothing here navigates on its own: the two commands and
+// the activation signal are the whole of how it opens, and a mounted overlay with
+// nothing asked shows no dialog at all. That is the trigger discipline expressed as a
+// test — a walkthrough that appeared on mount would be the splash the corpus forbids.
 //
-// AND THE LOCK IS APPLIED ON THE ANSWERED ARM ALONE. A build whose onboarding wire is
-// unregistered refuses the read, and locking a person inside a dialog on the strength
-// of a read that failed would be a trap built out of an absence.
+// AND AN OPENING LEAVES WITHOUT FINISHING. A provider-only activation closes because
+// group B may not be locked, and it closes WITHOUT completing because group A may not
+// be finished around it. A walkthrough that closed by dispatching
+// `onboarding.complete` would answer the same two questions the lock refused to demand.
 //
-// AND ON THE ACTIVATION THAT ASKED FOR GROUP A ALONE. The relay reading is only half
-// of the condition: the two group-B openings are offered and never demanded, so an
-// unmade relay choice may not hold one of them shut. Both halves are cases below, and
-// they share one bridge — a state read reporting nothing done — so neither can pass
-// by being handed a world the other was not.
-//
-// AND THAT OPENING LEAVES WITHOUT FINISHING. The two rules meet on the provider-only
-// activation: the dialog closes because group B may not be locked, and it closes
-// WITHOUT completing because group A may not be finished around. A walkthrough that
-// closed by dispatching `onboarding.complete` would answer the same two questions the
-// lock refused to demand.
+// WHEN IT MAY BE CLOSED AT ALL is asserted next door in
+// `OnboardingOverlay.relay-lock.test.tsx` — the fail-closed relay lock and its three
+// readings, split off when the pair took this file past the package's ceiling.
 
-import { act, render } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
-import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
+import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { bridgeAnswering } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { consoleCommands } from "../palette/index.js";
 import { FrameStore } from "../store/index.js";
-import { onboardingActivation } from "./onboarding-activation.js";
 import { bridgeWithNoRelayChosen, bridgeWithStepsDone } from "./onboarding-state.test-support.js";
-import { OnboardingOverlay } from "./OnboardingOverlay.js";
+import {
+  activateAt,
+  mount,
+  unregisterOnboardingCommands,
+} from "./OnboardingOverlay.test-support.js";
 import type { ConsoleRoute } from "../routing/index.js";
-import type { ConsoleSurfaceContext } from "../seats/index.js";
-import { ONBOARDING_STEPS, RESUME_OPENING, type OnboardingOpening } from "./steps/step-model.js";
-
-/**
- * The window this overlay is mounted in, over a REAL frame store.
- *
- * A hand-shaped object carrying `navigate` alone was enough while this surface only
- * navigated; it publishes its open state now, so a stand-in would have to grow every
- * method the overlay reaches and would answer for none of them.
- */
-function contextOver(bridge: ConsoleBridge, frameStore: FrameStore): ConsoleSurfaceContext {
-  return {
-    route: { kind: "sessions" },
-    bridge,
-    frameStore,
-    sessionStore: undefined,
-  } as unknown as ConsoleSurfaceContext;
-}
+import { ONBOARDING_STEPS, RESUME_OPENING } from "./steps/step-model.js";
 
 /**
  * Every route this window is navigated to, off the store's own publishes.
@@ -70,35 +49,7 @@ function navigationsOf(frameStore: FrameStore): readonly ConsoleRoute[] {
   return routes;
 }
 
-/** Mount the overlay and let its opening reads settle. */
-async function mount(
-  bridge: ConsoleBridge,
-  frameStore: FrameStore = new FrameStore(),
-): Promise<void> {
-  render(<OnboardingOverlay context={contextOver(bridge, frameStore)} />);
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
-}
-
-/** Raise an activation and let the walkthrough's own opening reads settle. */
-async function activateAt(openAtStep: OnboardingOpening): Promise<void> {
-  await act(async () => {
-    onboardingActivation.request({ openAtStep, accountScope: undefined });
-    await crossMacrotaskBoundary();
-  });
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
-}
-
-afterEach(() => {
-  // The overlay unregisters on unmount; testing-library's own cleanup runs after
-  // this, so anything still registered here would be a leak rather than a leftover.
-  for (const id of ["onboarding.open", "onboarding.setUpProviders"]) {
-    consoleCommands.unregister(id);
-  }
-});
+afterEach(unregisterOnboardingCommands);
 
 describe("how the walkthrough opens", () => {
   it("shows nothing at all until something asks for it", async () => {
@@ -120,46 +71,6 @@ describe("how the walkthrough opens", () => {
     expect(text).toContain("Providers");
     // The step it opened at, rather than whichever step is first.
     expect(text).toContain("offered and never required");
-  });
-});
-
-describe("when it may be closed", () => {
-  it("refuses to close while the daemon says the relay choice is unresolved", async () => {
-    await mount(bridgeWithNoRelayChosen());
-    await activateAt("relay");
-    expect(document.body.textContent).toContain("Choose a relay to continue");
-  });
-
-  it("closes freely on a provider-only activation with no relay configured", async () => {
-    // The same node, the same unresolved relay choice, and the other opening. Group B
-    // is "offered and never demanded", and one of its two triggers is a run that has
-    // ALREADY been refused — so a person who asked to see which providers this node
-    // can run must be able to leave, whatever the relay choice says. Locking here
-    // would build a mandatory setup flow out of a rule written for the invite flow.
-    await mount(bridgeWithNoRelayChosen());
-    await activateAt("providers");
-    const text = document.body.textContent ?? "";
-    expect(text).toContain("Providers");
-    expect(text).toContain("Close");
-    expect(text).not.toContain("Choose a relay to continue");
-  });
-
-  it("stays closeable on a build whose onboarding wire is unregistered", async () => {
-    // The lock rests on an ANSWER. A refused read must not trap a person in a dialog
-    // over a state nothing established.
-    const base = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
-    const refusing: ConsoleBridge = {
-      ...base,
-      growth: {
-        ...base.growth,
-        onboardingStateRead: async () => growthUnavailable("onboardingStateRead"),
-      },
-    };
-    await mount(refusing);
-    await activateAt("relay");
-    const text = document.body.textContent ?? "";
-    expect(text).toContain("Close");
-    expect(text).not.toContain("Choose a relay to continue");
   });
 });
 

@@ -1,7 +1,7 @@
 // What the provider step READS, and the projections a surface takes over it.
 //
 // SPLIT FROM `provider-readiness.ts`, which owns the model. That module says what this
-// window DOES — the read, the two acts, the scope it is addressed at, and what the
+// window DOES — the read, the one act, the scope it is addressed at, and what the
 // supervisor's condition closes; this one says what a surface is handed and what it may
 // derive from it. The seam is the one `store/shell-state.ts` and its neighbour already
 // set: a vocabulary and the behaviour over it are two jobs with two readers, and
@@ -12,11 +12,7 @@
 // row, and `CompletionSummary.tsx` names which providers are not ready — three surfaces
 // over the daemon's own projection, composing nothing of their own.
 
-import type {
-  ProviderAccount,
-  ProviderAccountId,
-  ProviderReadiness,
-} from "@ai-sidekicks/contracts";
+import type { ProviderAccount, ProviderReadiness } from "@ai-sidekicks/contracts";
 
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { ShellMutationBlock } from "../../store/index.js";
@@ -31,11 +27,18 @@ export type ProviderReadinessReading =
     }
   | { readonly kind: "unreadable"; readonly refusal: ConsoleRefusal };
 
-/** What this window has done about ONE provider since the step opened. */
+/**
+ * What this window has done about ONE provider since the step opened.
+ *
+ * THREE ARMS AND NOT FIVE, because this step performs exactly one act against a
+ * provider. `Spec-026 §Provider Authentication (Group B)` has the sign-in step
+ * "**display** the invocation and never run it on the operator's behalf", and
+ * `Spec-029 §Brokered interactive sign-in` excludes even the account plane's own login
+ * verbs from this flow — so a sign-in is a remedy the row RENDERS and never an act it
+ * dispatches, and there is nothing for a `handing-off` or a `handed-off` arm to report.
+ */
 export type ProviderActionReading =
   | { readonly kind: "idle" }
-  | { readonly kind: "handing-off" }
-  | { readonly kind: "handed-off" }
   | { readonly kind: "rechecking" }
   | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
 
@@ -105,23 +108,11 @@ export function providersNotReady(entries: readonly ProviderReadiness[]): readon
   return entries.filter((entry) => entry.state !== "authenticated").map((entry) => entry.provider);
 }
 
-/**
- * The account one provider's sign-in remedy named, where the daemon composed one.
- *
- * OFF THE REMEDY RATHER THAN OFF `resolvedAccountId`, though the contract holds the
- * two equal on this arm: the remedy is what the control was rendered from, and its
- * `accountId` is the account the invocation and the credential home beside it belong
- * to. `undefined` where the reading has not answered, or where the provider's remedy is
- * a registry verb rather than a sign-in — there is no account to name, and naming one
- * anyway would be this console electing one.
+/*
+ * NO `signInAccountFor` HERE ANY MORE, and its absence is the fix rather than a
+ * simplification. It resolved which account a sign-in HAND-OFF should name, and there
+ * is no hand-off: the remedy names its own account, its own invocation, and its own
+ * credential home, and the row renders all three. A helper that picked one account out
+ * of a remedy so a caller could dispatch against it is precisely the surface
+ * `Spec-026 §Provider Authentication (Group B)` forbids.
  */
-export function signInAccountFor(
-  reading: ProviderReadinessReading,
-  providerName: string,
-): ProviderAccountId | undefined {
-  if (reading.kind !== "read") {
-    return undefined;
-  }
-  const remedy = reading.entries.find((entry) => entry.provider === providerName)?.remedy;
-  return remedy?.kind === "sign_in" ? remedy.accountId : undefined;
-}

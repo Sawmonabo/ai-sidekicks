@@ -34,15 +34,13 @@ import {
 import { FrameStore, type ShellConnection } from "../../store/index.js";
 import type { ProviderReadinessModel } from "./provider-readiness.js";
 import {
-  READINESS_CALL,
+  PROBE_CALL,
   arrive,
   fixture,
   modelOver,
+  readCount,
   reportShellConnection,
 } from "./provider-readiness.test-support.js";
-
-/** The probe the re-check dispatches. Counted, so "no call left" is measurable. */
-const PROBE_CALL = "providerAccount.probe";
 
 /**
  * Every supervisor condition that closes a mutating call.
@@ -80,11 +78,6 @@ function caseWith(connection: ShellConnection): {
 /** How many probes actually left this window. */
 function probeCount(calls: readonly RecordedDaemonCall[]): number {
   return calls.filter((call) => call.method === PROBE_CALL).length;
-}
-
-/** How many readiness reads actually left it. The per-method negative control. */
-function readCount(calls: readonly RecordedDaemonCall[]): number {
-  return calls.filter((call) => call.method === READINESS_CALL).length;
 }
 
 /** Arrive, and answer the account the scenario resolves for its signed-out provider. */

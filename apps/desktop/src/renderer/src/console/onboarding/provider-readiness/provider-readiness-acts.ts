@@ -1,38 +1,43 @@
-// The two acts this window performs AGAINST a provider, and the register that retires
-// them.
+// The one act this window performs AGAINST a provider, and the register that retires
+// it.
 //
-// SPLIT FROM THE MODEL BECAUSE THEY ARE A DIFFERENT JOB. `provider-readiness.ts` holds
-// a READING — what the daemon's registry says this node can run — and keeps it current
-// through one scheduler and one read line. What lives here is the other half: two
-// MUTATIONS a person dispatches from a row, each of which ends by asking that reading
-// to be taken again. The two halves share nothing but the snapshot they publish into,
-// which is why the model composes this rather than inheriting it, and why the seam is
-// a pair of collaborators rather than a reach back into private state.
+// SPLIT FROM THE MODEL BECAUSE IT IS A DIFFERENT JOB. `provider-readiness.ts` holds a
+// READING — what the daemon's registry says this node can run — and keeps it current
+// through one scheduler and one read line. What lives here is the other half: a
+// MUTATION a person dispatches from a row, which ends by asking that reading to be
+// taken again. The two halves share nothing but the snapshot they publish into, which
+// is why the model composes this rather than inheriting it, and why the seam is a
+// collaborator rather than a reach back into private state.
 //
-// AND THE GENERATION CAME WITH THEM, because it is theirs. It stamps an act at the
+// AND THE GENERATION CAME WITH IT, because it is the act's. It stamps the act at the
 // moment it is dispatched and refuses its settlement where the model has since been
-// retired or re-addressed — a hand-off's `handed-off` and a re-check's refusal are
-// both ABOUT the account that was on screen, so neither may land beside a scope that
-// never produced it. The READ has no use for it any more: the model's read line is
-// addressed at the scope, so a re-address abandons the line the old read is on and a
-// newer read supersedes an older one, which is the same claim expressed where it can
-// also STOP the call rather than only ignore its reply.
+// retired or re-addressed — a re-check's refusal is ABOUT the account that was on
+// screen, so it may not land beside a scope that never produced it. The READ has no
+// use for it any more: the model's read line is addressed at the scope, so a
+// re-address abandons the line the old read is on and a newer read supersedes an older
+// one, which is the same claim expressed where it can also STOP the call rather than
+// only ignore its reply.
 //
-// NEITHER ACT REPORTS ITS OWN SUCCESS. A sign-in process's exit is not the definition
-// of success and a probe's own reply is not the row's new state — the readiness
-// derivation is, per `Spec-029`, which is why both legs end at `readProjection` and
-// why nothing here composes a reading of its own.
+// WHY THERE IS NO SIGN-IN ACT HERE. There was one, and it was a defect: it dispatched
+// a growth operation that asked the daemon to start a provider's login.
+// `Spec-026 §Provider Authentication (Group B)` requires this step to **display** the
+// invocation and never run it on the operator's behalf, and holds the five
+// `onboarding.*` methods "unchanged in name, count, and shape"; `Spec-029 §Brokered
+// interactive sign-in` puts the brokered login on the provider-management surface and
+// says the first-run step's `providerAccount.*` calls exclude `providerAccount.login`
+// and `loginCancel`, "so that a first run never depends on a brokered process the
+// operator did not ask for". The remedy is rendered by `ProviderRow.tsx` out of the
+// readiness entry the daemon already composed, and nothing dispatches it.
+//
+// AND THE ACT DOES NOT REPORT ITS OWN SUCCESS. A probe's own reply is not the row's
+// new state — the readiness derivation is, per `Spec-029` — which is why this leg ends
+// at `readProjection` and why nothing here composes a reading of its own.
 
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
-import { callDaemon, settleGrowthRead, type ConsoleBridge } from "../../bridge/index.js";
+import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
 import type { MutatingDaemonMethod } from "../../store/index.js";
-import {
-  IDLE_PROVIDER_ACTION,
-  signInAccountFor,
-  type ProviderActionReading,
-  type ProviderReadinessReading,
-} from "./provider-readiness-reading.js";
+import { IDLE_PROVIDER_ACTION, type ProviderActionReading } from "./provider-readiness-reading.js";
 
 /**
  * The mutating verb a re-check dispatches, named once and bound to the closed set.
@@ -68,7 +73,7 @@ export interface ProviderActHost {
   readonly readProjection: () => Promise<void>;
 }
 
-/** The acts a provider row dispatches, and the register that decides what may land. */
+/** The act a provider row dispatches, and the register that decides what may land. */
 export class ProviderActs {
   readonly #bridge: ConsoleBridge;
   readonly #host: ProviderActHost;
@@ -90,45 +95,6 @@ export class ProviderActs {
    */
   public retireInFlight(): void {
     this.#generation += 1;
-  }
-
-  /**
-   * Hand the participant to one provider's own sign-in, and read again afterwards.
-   *
-   * THE ACCOUNT TRAVELS WITH THE PROVIDER. The remedy this control was rendered from
-   * names the account whose credential home the invocation authenticates into, and a
-   * provider with two registered accounts has two such homes — so a hand-off carrying
-   * only the provider name leaves the surface behind it to elect one, and the
-   * election it can afford is the provider default: a different account from the one
-   * whose remedy the person pressed. The reading is a PARAMETER for that reason: it
-   * is resolved from the snapshot the control was rendered against, before the first
-   * await, rather than read back off a model that may have published since.
-   *
-   * The re-read is the point: the sign-in process's exit is NOT the definition of
-   * success — the probe behind the readiness derivation is — so what this reports is
-   * whatever the projection says next, never that the hand-off "worked".
-   */
-  public async handOffSignIn(
-    providerName: string,
-    reading: ProviderReadinessReading,
-  ): Promise<void> {
-    const generation = this.#generation;
-    const providerAccountId = signInAccountFor(reading, providerName);
-    this.#host.publishAction(providerName, { kind: "handing-off" });
-    const settlement = await settleGrowthRead(
-      this.#bridge.growth.onboardingProviderSignInHandoff(
-        providerAccountId === undefined ? { providerName } : { providerName, providerAccountId },
-      ),
-    );
-    if (generation !== this.#generation) {
-      return;
-    }
-    if (settlement.status !== "served") {
-      this.#host.publishAction(providerName, { kind: "refused", refusal: settlement });
-      return;
-    }
-    this.#host.publishAction(providerName, { kind: "handed-off" });
-    await this.#host.readProjection();
   }
 
   /**

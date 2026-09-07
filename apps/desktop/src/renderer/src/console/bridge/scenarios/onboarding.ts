@@ -175,6 +175,5 @@ export const ONBOARDING_SCENARIO: ConsoleScenario = {
     { call: "growth:onboardingStepAdvance", result: null },
     { call: "growth:onboardingStepSkip", result: null },
     { call: "growth:onboardingComplete", result: null },
-    { call: "growth:onboardingProviderSignInHandoff", result: null },
   ],
 };
