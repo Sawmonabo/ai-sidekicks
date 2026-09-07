@@ -38,9 +38,9 @@ import {
 } from "../growth-port/index.js";
 import type { FixtureServedGrowthOperationId } from "./fixture-served-operations.js";
 import { fixtureWorkflowReads } from "./fixture-workflow-reads.js";
-// The routing key itself, from the scenario module that mints it — the workflow
-// enumeration's rule one file over: restated as a literal here, a rename would move
-// the constant and the reply and leave this handler answering a key nothing sends.
+// The routing keys themselves, from the scenario modules that mint them — the
+// workflow enumeration's rule one file over: restated as literals here, a rename would
+// move the constant and the reply and leave a handler answering a key nothing sends.
 import {
   REPOS_ARTIFACT_READ_CALL,
   REPOS_DIFF_ARTIFACT_CREATE_CALL,
