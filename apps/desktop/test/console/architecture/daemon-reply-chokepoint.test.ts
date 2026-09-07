@@ -118,12 +118,12 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * FIFTEEN, and PINNED rather than left as a floor. The count was zero when this gate
+ * SIXTEEN, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The fifteen, by module and by the family that bound it:
+ * It is no longer vacuous. The sixteen, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -144,7 +144,9 @@ function isBridgeFamilyModule(module: string): boolean {
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
- *  12. `console/workspace/new-session/new-session-draft.ts` — the new-session draft.
+ *  12. `console/workspace/new-session/new-session-send.ts` — the new-session send: the
+ *      draft module composes the request and imports the door nowhere, so the one
+ *      module here is the one that dispatches it.
  *  13. `console/ledger/cards/shell/shell-row-reads.ts` — the two calls the ledger's
  *      fixture shell rows make: the run-scoped reasoning-surface read a reasoning row
  *      offers, and the answer an input-ask row delivers. It dies with the shell, and
@@ -155,6 +157,11 @@ function isBridgeFamilyModule(module: string): boolean {
  *  15. `console/workspace/deck/take-the-floor.ts` — the deck's half of "Step in": the
  *      execution-root read that names which checkout a run created. The repos family
  *      reads that registry too, and is a sibling this one may not import.
+ *  16. `console/workspace/sidebar/bulk/bulk-acts.ts` — the sidebar's bulk act table. It
+ *      is the one module that names all three bulk verbs, and it names them as LITERALS
+ *      so each request keeps the type the method fixes — a table holding the method as
+ *      data would have to widen every request to `unknown`, which is the check the door
+ *      exists to make.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
  * none around it. The composer's half was six until its target chip stopped taking a
@@ -164,15 +171,9 @@ function isBridgeFamilyModule(module: string): boolean {
  * them.
  *
  * Two more modules NAME the door in prose and are deliberately not among them:
- * `workspace/new-session/NewSessionControl.tsx` and that draft's own test both
+ * `workspace/new-session/NewSessionControl.tsx` and the send module's own test both
  * describe what `callDaemon` answers, and the needle below separates an import clause
  * from a sentence.
- *
- * Thirteenth: `workspace/sidebar/bulk/bulk-acts.ts`, the sidebar's bulk act table. It
- * is the one module that names all three bulk verbs, and it names them as LITERALS so
- * each request keeps the type the method fixes — a table holding the method as data
- * would have to widen every request to `unknown`, which is the check the door exists
- * to make.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
@@ -182,7 +183,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 15;
+const CALL_DOOR_CONSUMER_COUNT = 16;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
