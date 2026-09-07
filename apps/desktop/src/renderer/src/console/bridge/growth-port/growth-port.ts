@@ -199,7 +199,6 @@ export function createRefusingGrowthPort(): GrowthPort {
     attentionProjectionRead: async () => growthUnavailable("attentionProjectionRead"),
     attentionPreferenceRead: async () => growthUnavailable("attentionPreferenceRead"),
     attentionPreferenceUpdate: async () => growthUnavailable("attentionPreferenceUpdate"),
-    attentionOsPermissionRead: async () => growthUnavailable("attentionOsPermissionRead"),
     // workflow
     workflowDefinitionList: async () => growthUnavailable("workflowDefinitionList"),
     workflowRunStart: async () => growthUnavailable("workflowRunStart"),

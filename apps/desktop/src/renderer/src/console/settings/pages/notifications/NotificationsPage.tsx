@@ -54,15 +54,13 @@
 
 import { type ReactNode } from "react";
 
+import { useOsNotificationPermission } from "../../../bridge/index.js";
 import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../../shared/shell-preferences/shell-preferences-holder.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 import { OsPermissionNotice } from "./OsPermissionNotice.js";
 import { StoredPreferences } from "./StoredPreferences.js";
-import {
-  useOsNotificationPermission,
-  useStoredAttentionPreferences,
-} from "./stored-attention-preferences.js";
+import { useStoredAttentionPreferences } from "./stored-attention-preferences.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-notifications";

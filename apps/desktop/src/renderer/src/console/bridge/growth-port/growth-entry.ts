@@ -163,7 +163,6 @@ export type GrowthOperationId =
   | "attentionProjectionRead"
   | "attentionPreferenceRead"
   | "attentionPreferenceUpdate"
-  | "attentionOsPermissionRead"
   // workflow — in the registered method registry's own order, so a reader comparing
   // the two reads them top to bottom. Each id is its wire method's tail with the
   // root folded in, which `growth-operations/index.test.ts` holds every entry to.

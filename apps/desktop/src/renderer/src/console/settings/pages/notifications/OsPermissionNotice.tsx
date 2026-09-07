@@ -7,8 +7,8 @@
 
 import { type ReactNode } from "react";
 
+import type { OsNotificationPermissionReading } from "../../../bridge/index.js";
 import { Nothing } from "../../../primitives/index.js";
-import type { OsNotificationPermissionReading } from "./os-notification-permission-read.js";
 
 /**
  * FOUR STATES AND ONE OF THEM IS SILENCE. A granted permission needs no notice — the
@@ -36,12 +36,12 @@ export function OsPermissionNotice(props: {
       />
     );
   }
-  if (reading.kind === "unread" || reading.status === "granted") {
+  if (reading.kind === "unread" || reading.state === "granted") {
     return null;
   }
   return (
     <p className="meridian-settings-page__aside">
-      {reading.status === "denied"
+      {reading.state === "denied"
         ? "This machine is not permitting desktop notifications, so none will be raised here whatever the switch above says. Everything waiting on you still reaches the rail and the notification center."
         : "This machine has not been asked yet whether it permits desktop notifications, so none will be raised until it is. Everything waiting on you still reaches the rail and the notification center."}
     </p>

@@ -355,8 +355,9 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "notification-permission-read",
     wire: "the shell's own reading of whether this machine will display an OS notification for this application. `native.showNotification` is on the preload contract and returns void, so the renderer cannot observe a denial through it, and no bridge member reports the permission",
     owningDocument:
-      "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects)",
-    consumingSurface: "notification centre (the OS-notifications-denied arm)",
+      "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects), §Required Behavior (which requires in-app attention to survive a denied permission, and never says how a surface learns of one)",
+    consumingSurface:
+      "notification centre (the OS-notifications-denied arm); notifications settings page (the permission notice)",
     wireRegistered: false,
   },
   "shell-status-signals": {
@@ -374,14 +375,6 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-023 §Preload Bridge Contract (which admits `onboarding` by name); Spec-026 §Desktop Surface",
     consumingSurface: "first-run onboarding (group A)",
-    wireRegistered: false,
-  },
-  "os-notification-permission": {
-    id: "os-notification-permission",
-    wire: "whether this machine's operating system permits the shell to raise a notification at all — a shell reading, registered on no bridge namespace and in no document",
-    owningDocument:
-      "Spec-023 §Preload Bridge Contract (the shell namespace a permission reading would join); Spec-019 §Required Behavior (which requires in-app attention to survive a denied OS permission, and never says how a surface learns of one)",
-    consumingSurface: "notifications settings page",
     wireRegistered: false,
   },
   "health-diagnostics-reads": {

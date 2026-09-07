@@ -147,7 +147,7 @@ export function SessionAttentionBinding(props: FrameBindingProps): React.JSX.Ele
   // phase but the answered one, so a window that cannot reach the projection shows no
   // badge rather than the last number it was given.
   useRailAttentionPublisher(frameStore, projection.reading);
-  const delivery = useOsNotificationDelivery(growth, bridge.transportReconnect);
+  const delivery = useOsNotificationDelivery(bridge);
   // The emission, on the window's lifetime rather than the sessions destination's.
   // What decides a banner is where the window was when the item arrived — never which
   // screen was open, which is the audience rule read backwards.

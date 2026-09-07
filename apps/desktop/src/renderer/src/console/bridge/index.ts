@@ -197,6 +197,18 @@ export type { ProviderQuotaReadout } from "./quotas/provider-quota-readout.js";
 export { remainingPercentOf } from "./quotas/provider-quota-fold.js";
 export type { ProviderQuotaReading } from "./quotas/provider-quota-fold.js";
 
+// This machine's OS notification permission: one read, one scheduler, one latch.
+//
+// Here for the quotas' reason and one more of its own. The answer is the MACHINE's, so
+// it is not a session's or a page's to hold; and its two consumers — the notification
+// centre and the notifications settings page — are view families, which may not import
+// each other. Each folds the three wire arms differently and both are right, so what
+// leaves this door is the reading and never a verdict.
+export {
+  useOsNotificationPermission,
+  type OsNotificationPermissionReading,
+} from "./os-notification-permission.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,

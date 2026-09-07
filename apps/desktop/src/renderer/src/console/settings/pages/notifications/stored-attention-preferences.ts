@@ -45,10 +45,6 @@ import {
 } from "./attention-preference-model.js";
 import { AttentionPreferenceRead } from "./attention-preference-read.js";
 import { CallerParticipantRead } from "./caller-participant-read.js";
-import {
-  OsNotificationPermissionRead,
-  type OsNotificationPermissionReading,
-} from "./os-notification-permission-read.js";
 import { NotificationPreferenceWriter } from "./notification-preference-writer.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
@@ -89,8 +85,8 @@ const CALLER_PARTICIPANT_READ_DISPOSAL: SubjectScopedDisposal<CallerParticipantR
  * the same either way, and holding one is what keeps a scheduler armed on a clock that
  * does not change underneath it.
  *
- * Written once because both hooks in this module need it, and two copies of a pin are
- * two places a page can come to run on two time bases.
+ * Both of this page's chained readings take it from here, so a page cannot come to run
+ * its identity read and its preference read on two time bases.
  */
 function usePinnedBridgeClock(bridge: ConsoleBridge): ConsoleClock {
   return useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge)).value;
@@ -271,47 +267,4 @@ function chainSentenceFor(
  */
 function sentenceFor(reading: AttentionPreferenceReading): string {
   return reading.kind === "unreadable" ? reading.refusal.detail : announcementFor(reading.outcome);
-}
-
-/** How a probe whose bridge moved is retired, declared once at module scope. */
-const OS_PERMISSION_READ_DISPOSAL: SubjectScopedDisposal<OsNotificationPermissionRead> = {
-  dispose: (read) => {
-    read.dispose();
-  },
-  isClosed: (read) => read.isDisposed,
-};
-
-/**
- * Whether this machine's operating system will let the shell raise a notification.
- *
- * Its own reading and its own hook, because it answers for the MACHINE rather than for
- * a participant: it re-reads on the window's own triggers — a person granting the
- * permission does so outside this application and comes back to it — and it is
- * addressed by no session and no participant.
- *
- * THE PROBES OVERLAP, WHICH IS WHY IT IS A CLASS. Granting the permission is a trip
- * out of the window and back, so the mount probe and the focus probe are in flight
- * together and their replies return in whatever order the host answers in. Both used
- * to publish unconditionally, so an older `denied` could overwrite a newer `granted`
- * and leave the notice stale. `OsNotificationPermissionRead` puts every trigger
- * through the console's one refresh chokepoint and admits only the live round's
- * settlement.
- */
-export function useOsNotificationPermission(
-  bridge: ConsoleBridge,
-): OsNotificationPermissionReading {
-  const clock = usePinnedBridgeClock(bridge);
-  const { value: read } = useSubjectScopedResource(
-    bridge,
-    undefined,
-    () => new OsNotificationPermissionRead({ bridge, clock }),
-    OS_PERMISSION_READ_DISPOSAL,
-  );
-  useWindowReadTriggers(read, bridge.transportReconnect);
-  const subscribeToRead = useCallback(
-    (onStoreChange: () => void) => read.subscribe(onStoreChange),
-    [read],
-  );
-  const takeReadSnapshot = useCallback(() => read.snapshot(), [read]);
-  return useSyncExternalStore(subscribeToRead, takeReadSnapshot, takeReadSnapshot);
 }

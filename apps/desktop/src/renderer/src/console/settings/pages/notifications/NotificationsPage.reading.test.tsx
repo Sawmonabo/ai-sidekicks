@@ -218,8 +218,10 @@ describe("the notifications page — what it draws from a record nobody named", 
 
 describe("the notifications page — what the operating system allows", () => {
   it("says the question could not be put, rather than that the answer was yes", async () => {
-    // No wire serves the permission on this build. Silence would read as "granted",
-    // which is the one thing this console must not claim on nobody's behalf.
+    // The fixture withholds the answer — no wire serves this permission and the
+    // scenario scripts no reply — so the read refuses. Silence would read as
+    // "granted", which is the one thing this console must not claim on nobody's
+    // behalf.
     const container = await renderSettledPage(bridgeWith({}));
     expect(container.textContent ?? "").toContain(
       "cannot see whether the operating system allows notifications",
@@ -229,8 +231,8 @@ describe("the notifications page — what the operating system allows", () => {
   it("names a denied permission and promises in-app attention survives it", async () => {
     const container = await renderSettledPage(
       bridgeWith({
-        attentionOsPermissionRead: async () =>
-          await Promise.resolve({ status: "served", value: { status: "denied" } } as const),
+        shellNotificationPermissionRead: async () =>
+          await Promise.resolve({ status: "served", value: { state: "denied" } } as const),
       }),
     );
     const text = container.textContent ?? "";
@@ -238,11 +240,28 @@ describe("the notifications page — what the operating system allows", () => {
     expect(text).toContain("still reaches the rail");
   });
 
+  it("tells a machine nobody has asked apart from one that said no", async () => {
+    // THE ARM THAT SURVIVES THE ONE WIRE. The notification centre folds
+    // `not-determined` onto `permitted`, because its question is whether an emission
+    // reaches anybody; this page's question is what the machine has answered, and
+    // "nobody has asked yet" is a third answer. Both surfaces read one reading, so
+    // this case is what keeps that reading from being folded at the door.
+    const container = await renderSettledPage(
+      bridgeWith({
+        shellNotificationPermissionRead: async () =>
+          await Promise.resolve({ status: "served", value: { state: "not-determined" } } as const),
+      }),
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("has not been asked yet");
+    expect(text).not.toContain("not permitting desktop notifications");
+  });
+
   it("negative control: a granted permission says nothing at all", async () => {
     const container = await renderSettledPage(
       bridgeWith({
-        attentionOsPermissionRead: async () =>
-          await Promise.resolve({ status: "served", value: { status: "granted" } } as const),
+        shellNotificationPermissionRead: async () =>
+          await Promise.resolve({ status: "served", value: { state: "granted" } } as const),
       }),
     );
     const text = container.textContent ?? "";
