@@ -17,7 +17,7 @@ import {
 } from "../../settings-page-mount.test-support.js";
 import { CostReceiptPage } from "./CostReceiptPage.js";
 import type { CostReceipt, CostReceiptOutcome } from "./cost-receipt-model.js";
-import { settle as settleReactWork } from "../../../core/settle.test-support.js";
+import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 
 export type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
 
@@ -112,9 +112,18 @@ export function bridgeServing(receipt: CostReceipt): ConsoleBridge {
   return bridgeAnswering({ status: "served", value: receipt }).bridge;
 }
 
-/** Let the one-shot read and the effects it schedules land. */
-export async function settle(): Promise<void> {
-  await settleReactWork();
+/**
+ * Let the scheduler's window elapse and the read that follows it settle.
+ *
+ * The page's read is armed on the fixture's FROZEN clock, because every console read
+ * goes through `store/scheduling.ts` — so a case that only drained React's queue
+ * would advance nothing and then report the absence of a read it never gave the
+ * scheduler a chance to perform. The bridge is a parameter because the clock is the
+ * bridge's: there is one frozen clock per scenario and a case driving two would
+ * otherwise advance whichever one this module happened to hold.
+ */
+export async function settle(bridge: ConsoleBridge): Promise<void> {
+  await settleScheduledRead(bridge);
 }
 
 /** Mount the cost page beside a recorder. See the family's shared harness. */
@@ -146,7 +155,7 @@ export async function renderSettledPage(
   retainedSessionId: string | undefined,
 ): Promise<HTMLElement> {
   const container = renderPage(bridge, retainedSessionId);
-  await settle();
+  await settle(bridge);
   return container;
 }
 

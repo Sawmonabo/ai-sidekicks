@@ -37,7 +37,7 @@
 
 import type { ProviderAccount, ProviderAccountUsageWindow } from "@ai-sidekicks/contracts";
 
-import { compareInstants, parseInstant } from "../../core/index.js";
+import { compareInstants, parseInstant, structuralKey } from "../../core/index.js";
 
 /** One provider account's quota in one limit window, as a surface renders it. */
 export interface ProviderQuotaReading {
@@ -265,9 +265,17 @@ function readingFor(
   };
 }
 
-/** The `(accountId, limitId)` pair, spelled once. */
+/**
+ * The `(accountId, limitId)` pair, spelled once.
+ *
+ * Through the console's one tuple encoder rather than a space join: `limitId` is the
+ * provider's own identifier and is free-form on the wire, so a separator it may contain
+ * would fold two limits of one account onto one reading and the survivor would depend
+ * on arrival order — the same defect the key exists to close on the WINDOW axis, one
+ * member along.
+ */
 function quotaKey(accountId: string, limitId: string): string {
-  return `${accountId} ${limitId}`;
+  return structuralKey([accountId, limitId]);
 }
 
 /**

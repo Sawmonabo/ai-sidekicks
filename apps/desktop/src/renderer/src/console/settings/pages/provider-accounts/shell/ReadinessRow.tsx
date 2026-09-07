@@ -1,6 +1,7 @@
 import type { ProviderReadiness } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
+import type { ConsoleRefusal } from "../../../../core/index.js";
 import { Chip, DerivedFigure, formatDateTime } from "../../../../primitives/index.js";
 import { RemedyLine } from "./RemedyLine.js";
 
@@ -23,13 +24,19 @@ import { RemedyLine } from "./RemedyLine.js";
  *
  * READINESS BLOCKS NOTHING. The spawn gate stays the daemon's live check, so this row
  * says what a run would find and never withholds a control anywhere else in the
- * console.
+ * console. The one thing that DOES gate this row's own control is the sign-in plane —
+ * one brokered flow at a time on this machine — and that gate disables the control with
+ * its reason rather than removing it.
  */
 export function ReadinessRow(props: {
   readonly readiness: ProviderReadiness;
   readonly onStartSignIn: (accountId: NonNullable<ProviderReadiness["resolvedAccountId"]>) => void;
+  /** Why this row's start may not be pressed right now, where it may not be. */
+  readonly startBlockedReason: string | undefined;
+  /** The last refusal this row's own start was answered with, where there is one. */
+  readonly startRefusal: ConsoleRefusal | undefined;
 }): ReactNode {
-  const { readiness, onStartSignIn } = props;
+  const { readiness, onStartSignIn, startBlockedReason, startRefusal } = props;
   const { remedy } = readiness;
   return (
     <li className="meridian-accounts__readiness">
@@ -57,7 +64,14 @@ export function ReadinessRow(props: {
           find out, and a run will validate the account for itself.
         </p>
       ) : null}
-      {remedy === undefined ? null : <RemedyLine remedy={remedy} onStartSignIn={onStartSignIn} />}
+      {remedy === undefined ? null : (
+        <RemedyLine
+          remedy={remedy}
+          onStartSignIn={onStartSignIn}
+          startBlockedReason={startBlockedReason}
+          startRefusal={startRefusal}
+        />
+      )}
     </li>
   );
 }

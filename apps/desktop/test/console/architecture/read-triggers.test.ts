@@ -66,6 +66,7 @@ const EXPECTED_READINGS: readonly string[] = [
   "ApprovalsReader",
   "ArtifactPaneReader",
   "BridgeCapabilityRead",
+  "CostReceiptRead",
   "NodeProviderQuotaReading",
   "ProposalGateReader",
   "RepoMountsReader",
