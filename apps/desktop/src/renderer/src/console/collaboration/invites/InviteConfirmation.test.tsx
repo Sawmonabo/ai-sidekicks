@@ -28,21 +28,19 @@ function renderCard(
   overrides: Partial<PendingInviteSnapshot> = {},
   acts: Partial<{
     open: boolean;
-    onOpenChange: (open: boolean) => void;
     onConfirm: () => void;
     onRetry: () => void;
-    onDiscard: () => void;
+    onDismiss: () => void;
     onAcknowledge: () => void;
   }> = {},
 ): HTMLElement {
   const { container } = render(
     <InviteConfirmation
       open={acts.open ?? true}
-      onOpenChange={acts.onOpenChange ?? (() => undefined)}
       snapshot={snapshot(overrides)}
       onConfirm={acts.onConfirm ?? (() => undefined)}
       onRetry={acts.onRetry ?? (() => undefined)}
-      onDiscard={acts.onDiscard ?? (() => undefined)}
+      onDismiss={acts.onDismiss ?? (() => undefined)}
       onAcknowledge={acts.onAcknowledge ?? (() => undefined)}
       overlayContainer={document.body}
     />,
@@ -132,7 +130,7 @@ describe("the confirmation — what it says about the invitation", () => {
   });
 });
 
-describe("the confirmation — the three acts before an answer", () => {
+describe("the confirmation — the two acts before an answer", () => {
   it("accepts on a press and on nothing else", () => {
     const onConfirm = vi.fn();
     const body = renderCard({}, { onConfirm });
@@ -152,42 +150,50 @@ describe("the confirmation — the three acts before an answer", () => {
     expect(control(renderCard(), "meridian-invite-confirmation__confirm").disabled).toBe(false);
   });
 
-  it("puts the card away without releasing the invitation", () => {
-    // **Not now** is a local hide. Nobody is told, and the invitation is still
-    // waiting — `Spec-002 §Required Behavior` mints no decline verb to send.
-    const onOpenChange = vi.fn();
-    const onDiscard = vi.fn();
-    const body = renderCard({}, { onOpenChange, onDiscard });
+  it("releases the reference from the control that puts the card away", () => {
+    // **Not now** is not a local hide. `Plan-023` T-023r-6-3 routes every dismissal
+    // to `invite.dismissPending`; a close that only hid the card would leave the
+    // reference queued in main and the notice would come straight back.
+    const onDismiss = vi.fn();
+    const body = renderCard({}, { onDismiss });
     control(body, "meridian-invite-confirmation__dismiss").click();
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(onDiscard).not.toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("releases the invitation only through the control that says so", () => {
-    const onDiscard = vi.fn();
-    const body = renderCard({}, { onDiscard });
-    control(body, "meridian-invite-confirmation__discard").click();
-    expect(onDiscard).toHaveBeenCalledTimes(1);
+  it("offers one dismissal and not two names for it", () => {
+    // A **Discard it** control used to sit beside **Not now**, doing the same act
+    // under a louder name. One act, one control.
+    const body = renderCard();
+    expect(body.querySelector(".meridian-invite-confirmation__discard")).toBeNull();
+    expect(body.querySelectorAll(".meridian-invite-confirmation__dismiss")).toHaveLength(1);
   });
 
-  it("closes on Escape", async () => {
+  it("closes the dismissal while an act on the same reference is unsettled", () => {
+    // The lifecycle refuses a dismissal under its own one-at-a-time latch, so an open
+    // control here would be a press that silently does nothing.
+    expect(
+      control(renderCard({ actInFlight: "confirm" }), "meridian-invite-confirmation__dismiss")
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("releases the reference on Escape", async () => {
     // The library's own dismissal, and the case exists because it is a CHOICE:
     // `AlertDialog` next door deliberately has none, and an invitation is the other
-    // kind of question — one a person may walk away from without answering.
-    const onOpenChange = vi.fn();
-    const body = renderCard({}, { onOpenChange });
+    // kind of question — one a person may walk away from without answering. What it
+    // reaches is the same act the control reaches, exactly once.
+    const onDismiss = vi.fn();
+    const body = renderCard({}, { onDismiss });
     await settle();
     fireEvent.keyDown(body.querySelector(".meridian-invite-confirmation") ?? body, {
       key: "Escape",
     });
-    // The first argument only: the dismissal carries the event and its reason after
-    // it, and asserting the whole call would be asserting the library's signature.
-    expect(onOpenChange.mock.calls.at(0)?.at(0)).toBe(false);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("closes on a press outside it", async () => {
-    const onOpenChange = vi.fn();
-    const body = renderCard({}, { onOpenChange });
+  it("releases the reference on a press outside it", async () => {
+    const onDismiss = vi.fn();
+    const body = renderCard({}, { onDismiss });
     await settle();
     const backdrop = body.querySelector(".meridian-invite-confirmation__backdrop");
     if (backdrop === null) {
@@ -196,14 +202,14 @@ describe("the confirmation — the three acts before an answer", () => {
     fireEvent.pointerDown(backdrop);
     fireEvent.mouseUp(backdrop);
     fireEvent.click(backdrop);
-    expect(onOpenChange.mock.calls.at(0)?.at(0)).toBe(false);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("negative control: a press INSIDE it closes nothing", async () => {
+  it("negative control: a press INSIDE it releases nothing", async () => {
     // Without this the case above would pass over a dialog that closed on any press
-    // at all, which would put the card away the moment a person read it.
-    const onOpenChange = vi.fn();
-    const body = renderCard({}, { onOpenChange });
+    // at all, which would spend the invitation the moment a person read it.
+    const onDismiss = vi.fn();
+    const body = renderCard({}, { onDismiss });
     await settle();
     const facts = body.querySelector(".meridian-invite-confirmation__facts");
     if (facts === null) {
@@ -212,7 +218,7 @@ describe("the confirmation — the three acts before an answer", () => {
     fireEvent.pointerDown(facts);
     fireEvent.mouseUp(facts);
     fireEvent.click(facts);
-    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 
   it("puts the dismissal under the initial focus, and never the acceptance", async () => {
@@ -252,6 +258,8 @@ describe("the confirmation — the four ways an attempt ends", () => {
     });
     const text = body.textContent ?? "";
     expect(text).toContain("You are in.");
+    // The navigation is the hosting lifecycle's, on the outcome EVENT — this reading
+    // offers no control of its own that would be a second way into the session.
     expect(text).toContain(MEMBERSHIP);
     expect(text).toContain("collaborator");
     expect(body.querySelector(".meridian-invite-outcome__retry")).toBeNull();
@@ -321,12 +329,36 @@ describe("the confirmation — the four ways an attempt ends", () => {
     expect(onAcknowledge).toHaveBeenCalledTimes(1);
   });
 
-  it("replaces the three acts once an answer has arrived", () => {
+  it("replaces both acts once an answer has arrived", () => {
     // One question at a time: an accepting control beside a settled result would
     // invite a second act on a reference that is already spent.
     const body = outcomeCard({ kind: "authentication-required", reference: REFERENCE });
     expect(body.querySelector(".meridian-invite-confirmation__confirm")).toBeNull();
-    expect(body.querySelector(".meridian-invite-confirmation__discard")).toBeNull();
+    expect(body.querySelector(".meridian-invite-confirmation__dismiss")).toBeNull();
+  });
+
+  it("acknowledges rather than dismisses once the reference is spent", async () => {
+    // A `dismissPending` here would be an act against a handle main no longer holds:
+    // the reference was consumed at acceptance, so what closing the card means after
+    // an answer is acknowledgement.
+    const onDismiss = vi.fn();
+    const onAcknowledge = vi.fn();
+    const body = outcomeCard(
+      {
+        kind: "joined",
+        reference: REFERENCE,
+        sessionId: INVITED_SESSION,
+        membershipId: MEMBERSHIP,
+        role: "collaborator",
+      },
+      { onDismiss, onAcknowledge },
+    );
+    await settle();
+    fireEvent.keyDown(body.querySelector(".meridian-invite-confirmation") ?? body, {
+      key: "Escape",
+    });
+    expect(onAcknowledge).toHaveBeenCalledTimes(1);
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 });
 

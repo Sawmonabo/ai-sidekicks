@@ -1,11 +1,14 @@
-// The membership ledger's controls: which it offers, which it withholds, and how an
-// invitation arriving on the deep link announces itself here.
+// The membership ledger's controls: which it offers, and which it withholds.
 //
 // A revoke control hidden from the last owner would replace an answer a person can
-// act on with a control they cannot find; a confirmation that opened itself would
-// take the screen from whatever was being done at the moment it arrived; and a
-// ledger that left every control shut after one change settled would be
-// indistinguishable from one that had broken.
+// act on with a control they cannot find, and a ledger that left every control shut
+// after one change settled would be indistinguishable from one that had broken.
+//
+// THE DEEP-LINK INVITATION IS NOT DRIVEN HERE ANY MORE. Its lifecycle is the window's
+// rather than this section's — an invitation is about a session this window is not in,
+// and the recipient most often has none open — so the cases that drove it moved with
+// it to `../invites/InviteLifecycleOverlay.test.tsx`. What is left here is the one
+// claim this file can still make about it: this section announces nothing.
 //
 // What a row SAYS is the sibling file, `Memberships.test.tsx`; the harness both
 // drive is `Memberships.test-support.tsx`.
@@ -15,6 +18,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
+import { scenarioWithArrivals } from "../invites/pending-invite.test-support.js";
 import {
   Memberships,
   OWNER_AND_COLLABORATOR,
@@ -22,6 +26,15 @@ import {
   contextFor,
   storeHolding,
 } from "./Memberships.test-support.js";
+
+/**
+ * A scenario that hands this window two invitations on the deep link.
+ *
+ * The invite suites' own scenario, re-addressed to the session this harness builds a
+ * store for: what is being asserted here is that the section stays silent while
+ * invitations really are waiting, which needs a bridge that really delivers them.
+ */
+const SCENARIO_WITH_INVITATION = { ...scenarioWithArrivals(), sessionId: SESSION_ID };
 
 describe("memberships — the control plane out of reach", () => {
   it("keeps every row and offers no control, under one line saying why", () => {
@@ -44,43 +57,11 @@ describe("memberships — the control plane out of reach", () => {
   });
 });
 
-describe("memberships — an invitation waiting on the deep link", () => {
-  type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-
-  /** A scenario that hands this window one pending invitation at the first tick. */
-  const SCENARIO_WITH_INVITATION: FixtureScenario = {
-    id: "collaboration-members-invitation",
-    label: "Memberships, with one invitation arriving",
-    purpose: "Drives the ledger's deep-link notice against a scripted arrival.",
-    sessionId: SESSION_ID,
-    participantIdsInJoinOrder: [],
-    beats: [],
-    replies: [],
-    startedAtIso: "2026-01-01T10:05:00.000Z",
-    pendingInvites: [
-      {
-        atMs: 0,
-        invite: {
-          reference: "pending-ref-members-test",
-          sessionId: "019b7913-0001-7000-8000-000000000001",
-          joinMode: "collaborator",
-          expiresAt: "2026-01-08T10:05:00.000Z",
-          sessionName: "Design review",
-          inviterDisplayName: "Priya Raman",
-        },
-        onConfirm: {
-          kind: "joined",
-          reference: "pending-ref-members-test",
-          sessionId: "019b7913-0001-7000-8000-000000000001",
-          membershipId: "019b7913-0002-7000-8000-000000000002",
-          role: "collaborator",
-        },
-      },
-    ],
-  };
-
-  /** The section, driven against a bridge whose scenario scripts the arrival. */
-  async function sectionWithInvitation(): Promise<HTMLElement> {
+describe("memberships — the deep link is not this section's", () => {
+  it("announces no invitation, whatever is waiting on the window", async () => {
+    // The notice and the confirmation are the window's now. A second announcement
+    // here would be a second place to answer one invitation, and it would be the one
+    // the reader happened not to be looking at.
     const bridge = createFixtureBridge({ scenario: SCENARIO_WITH_INVITATION });
     const { container } = render(
       <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), bridge)} />,
@@ -88,44 +69,20 @@ describe("memberships — an invitation waiting on the deep link", () => {
     await act(async () => {
       await crossMacrotaskBoundary();
     });
-    return container;
-  }
-
-  it("draws a notice and opens nothing by itself", async () => {
-    // An arrival is on somebody else's schedule. The notice is unmissable and
-    // persistent; the confirmation is one press later, and never a moment the
-    // person did not choose.
-    const container = await sectionWithInvitation();
-    expect(container.textContent ?? "").toContain("You have an invitation waiting.");
+    expect(container.querySelector(".meridian-invite-notice")).toBeNull();
     expect(container.ownerDocument.querySelector(".meridian-invite-confirmation")).toBeNull();
   });
 
-  it("keeps the section's own controls reachable while one waits", async () => {
-    const container = await sectionWithInvitation();
-    expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
-  });
-
-  it("opens the confirmation on the press, and not before", async () => {
-    const container = await sectionWithInvitation();
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".meridian-members__invitation-open")?.click();
-      await crossMacrotaskBoundary();
-    });
-    const popup = container.ownerDocument.querySelector(".meridian-invite-confirmation");
-    expect(popup).not.toBeNull();
-    expect(popup?.textContent ?? "").toContain("Design review");
-  });
-
-  it("negative control: a scenario that scripts no arrival draws no notice", async () => {
-    // Without this the cases above would pass over a section that announced an
-    // invitation whether or not one had come.
+  it("negative control: the section's own controls are reachable all the same", async () => {
+    // Without this the case above would pass over a section that had failed to render
+    // at all, which draws no notice for a reason that is not the one being claimed.
+    const bridge = createFixtureBridge({ scenario: SCENARIO_WITH_INVITATION });
     const { container } = render(
-      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), bridge)} />,
     );
     await act(async () => {
       await crossMacrotaskBoundary();
     });
-    expect(container.querySelector(".meridian-members__invitation")).toBeNull();
     expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
   });
 });

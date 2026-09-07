@@ -43,21 +43,22 @@
 // pressing Reactivate. Printed on every row that copy is noise a person stops
 // reading; printed in the confirmation it is the sentence they are agreeing to.
 //
-// AND WHY THE DEEP LINK'S CONFIRMATION IS ANNOUNCED HERE RATHER THAN OPENED
+// AND WHY THE DEEP LINK'S INVITATION IS NOT ANNOUNCED HERE AT ALL
 //
-// An invitation arriving on the operating-system deep link is a whole-screen
-// question, and it arrives on somebody else's schedule: mid-approval, mid-run,
-// mid-sentence. A dialog that opened itself would take the screen from whatever was
-// being done, which is the one thing every console surface is forbidden to do. So an
-// arrival draws a notice, unmissable and persistent, and the confirmation opens on a
-// press — one gesture later, and never a moment the person did not choose.
+// It used to be. An invitation arriving on the operating-system deep link is about a
+// session this window is NOT in, and the person it reaches most often has no session
+// open at all — so a lifecycle mounted under this section opened its two feeds only
+// while a session view happened to be on screen, and a first-time recipient following
+// a link into a fresh window saw nothing. `Plan-023` T-023r-6-3 puts that lifecycle at
+// the window instead, and it is hosted there now
+// (`../invites/InviteLifecycleOverlay.tsx`, seated through `seats/window-overlay-seat.ts`).
+// This section renders the sent-invite ledger and nothing about arrivals: two notices
+// for one invitation would be two places to answer it, and the second one would be
+// wherever the reader happened not to be looking.
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import { InlineRefusal } from "../../primitives/index.js";
-import { InviteConfirmation } from "../invites/InviteConfirmation.js";
-import { usePendingInvites } from "../invites/use-pending-invites.js";
 import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
@@ -90,8 +91,6 @@ export interface MembershipsProps {
 export function Memberships(props: MembershipsProps): React.JSX.Element {
   const { context, rows } = props;
   const { bridge, sessionStore } = context;
-  const { snapshot: pendingInvites, adapter } = usePendingInvites(bridge);
-  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
 
   const coordinator = useMemo(
     () =>
@@ -105,50 +104,6 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
 
   return (
     <section className="meridian-members" aria-label="Memberships">
-      {pendingInvites.invite === undefined ? null : (
-        <div className="meridian-members__invitation" role="status">
-          <p className="meridian-members__invitation-lede">
-            {pendingInvites.waitingBehind > 0
-              ? `You have ${String(pendingInvites.waitingBehind + 1)} invitations waiting.`
-              : "You have an invitation waiting."}
-          </p>
-          <button
-            type="button"
-            className="meridian-members__invitation-open"
-            onClick={() => {
-              setIsConfirmationOpen(true);
-            }}
-          >
-            Look at it
-          </button>
-        </div>
-      )}
-      {pendingInvites.feedRefusal === undefined ? null : (
-        <InlineRefusal
-          code={pendingInvites.feedRefusal.code}
-          detail={pendingInvites.feedRefusal.detail}
-        />
-      )}
-      <InviteConfirmation
-        open={isConfirmationOpen && pendingInvites.invite !== undefined}
-        onOpenChange={setIsConfirmationOpen}
-        snapshot={pendingInvites}
-        onConfirm={() => {
-          adapter.confirm();
-        }}
-        onRetry={() => {
-          adapter.retry();
-        }}
-        onDiscard={() => {
-          adapter.dismiss();
-          setIsConfirmationOpen(false);
-        }}
-        onAcknowledge={() => {
-          adapter.acknowledge();
-          setIsConfirmationOpen(false);
-        }}
-      />
-
       <header className="meridian-members__head">
         <h3 className="meridian-members__title">Memberships</h3>
         <p className="meridian-members__lede">

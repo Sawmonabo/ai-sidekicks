@@ -135,10 +135,9 @@
 .meridian-invite-reveal__copy,
 .meridian-invite-reveal__done,
 .meridian-invite-confirmation__confirm,
-.meridian-invite-confirmation__discard,
 .meridian-invite-outcome__retry,
 .meridian-invite-outcome__acknowledge,
-.meridian-members__invitation-open {
+.meridian-invite-notice__open {
   font: inherit;
   font-size: var(--meridian-text-xs);
   padding: var(--meridian-space-1) var(--meridian-space-3);
@@ -156,7 +155,7 @@
 .meridian-invite-reveal__copy:hover:enabled,
 .meridian-invite-confirmation__confirm:hover:enabled,
 .meridian-invite-outcome__retry:hover:enabled,
-.meridian-members__invitation-open:hover:enabled {
+.meridian-invite-notice__open:hover:enabled {
   border-color: var(--meridian-edge-strong);
 }
 
@@ -165,7 +164,7 @@
 .meridian-invites__row-action:disabled,
 .meridian-invite-create__send:disabled,
 .meridian-invite-confirmation__confirm:disabled,
-.meridian-invite-confirmation__discard:disabled,
+.meridian-invite-confirmation__dismiss:disabled,
 .meridian-invite-outcome__retry:disabled {
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text-faint);
@@ -185,8 +184,19 @@
 
 /* An invitation waiting on this window. A notice rather than a dialog that opens
  * itself: the arrival is on somebody else's schedule, and taking the screen from
- * whatever was being done is the one thing a console surface may not do. */
-.meridian-members__invitation {
+ * whatever was being done is the one thing a console surface may not do.
+ *
+ * FIXED, because the notice is the WINDOW's and no longer a block inside the members
+ * section — it has to be readable with no session open at all. `position: fixed` also
+ * keeps it out of the frame's own two-track grid, which an in-flow child of the frame
+ * root would take a column from. It needs no stacking order: the confirmation and the
+ * palette are portalled to the document body, which is later in the tree than the
+ * frame, so both already paint over it. */
+.meridian-invite-notice {
+  position: fixed;
+  inset-block-end: var(--meridian-space-4);
+  inset-inline-end: var(--meridian-space-4);
+  max-width: min(24rem, calc(100vw - var(--meridian-space-8)));
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -198,7 +208,7 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-members__invitation-lede {
+.meridian-invite-notice__lede {
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text);

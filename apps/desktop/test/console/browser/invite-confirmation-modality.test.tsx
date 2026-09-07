@@ -18,9 +18,9 @@
 // cannot be taken back.
 //
 // THE ESCAPE CASE IS HERE FOR THE SAME REASON AND NOT AS A DUPLICATE. The unit tier
-// asserts that Escape reaches `onOpenChange`; this asserts that a real browser's
-// keydown, dispatched at the document by a person rather than by `fireEvent` at the
-// popup, is what reaches it.
+// asserts that Escape reaches the dismissal that releases the reference; this asserts
+// that a real browser's keydown, dispatched at the document by a person rather than by
+// `fireEvent` at the popup, is what reaches it.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,11 +29,10 @@ import { pressKeys, renderSettled } from "../console-harness.js";
 import { InviteConfirmation } from "../../../src/renderer/src/console/collaboration/invites/InviteConfirmation.js";
 import { pendingInviteSnapshot } from "../../../src/renderer/src/console/collaboration/invites/pending-invite.test-support.js";
 
-/** The three controls the card offers before an answer, in tree order. */
+/** The two controls the card offers before an answer, in tree order. */
 const CARD_CONTROL_SELECTORS: readonly string[] = [
   ".meridian-invite-confirmation__dismiss",
   ".meridian-invite-confirmation__confirm",
-  ".meridian-invite-confirmation__discard",
 ];
 
 /** The class the planted control behind the card carries. Never inside the popup. */
@@ -47,7 +46,7 @@ const BEHIND_THE_CARD = "session-control-behind-the-card";
  * page this card opens over.
  */
 async function renderCardOverASessionControl(
-  onOpenChange: (open: boolean) => void = () => undefined,
+  onDismiss: () => void = () => undefined,
 ): Promise<void> {
   await renderSettled(
     <>
@@ -56,11 +55,10 @@ async function renderCardOverASessionControl(
       </button>
       <InviteConfirmation
         open
-        onOpenChange={onOpenChange}
         snapshot={pendingInviteSnapshot()}
         onConfirm={() => undefined}
         onRetry={() => undefined}
-        onDiscard={() => undefined}
+        onDismiss={onDismiss}
         onAcknowledge={() => undefined}
       />
     </>,
@@ -127,13 +125,16 @@ describe("the invite confirmation is modal in a real browser", () => {
     expect(matches(`.${BEHIND_THE_CARD}`)).toBe(true);
   });
 
-  it("puts the card away on a real Escape press", async () => {
-    let openState = true;
-    await renderCardOverASessionControl((open) => {
-      openState = open;
+  it("releases the reference on a real Escape press", async () => {
+    // Escape is one of the card's three dismissal entry points, not a local hide:
+    // `Plan-023` T-023r-6-3 routes escape, the backdrop, and the control alike to
+    // `invite.dismissPending`, so a real keydown has to reach the same act.
+    let dismissals = 0;
+    await renderCardOverASessionControl(() => {
+      dismissals += 1;
     });
     await pressKeys("{Escape}");
 
-    expect(openState).toBe(false);
+    expect(dismissals).toBe(1);
   });
 });
