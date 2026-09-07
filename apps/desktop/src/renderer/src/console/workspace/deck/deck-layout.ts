@@ -33,6 +33,7 @@ import {
   EPHEMERAL_PANE_KINDS,
   addressesMatch,
   applyPaneSizePercentages,
+  carveSplitFrom,
   distributeAdoptedBeneath,
   distributeEvenly,
   highestOrdinal,
@@ -89,6 +90,19 @@ export class DeckLayout {
    *
    * Returns the pane id either way, so a caller never has to ask which happened to
    * find the pane it asked for.
+   *
+   * TWO SEATINGS, AND THE ADDRESS DECIDES WHICH. An address naming no source pane is
+   * an open FROM A LIST — the sidebar, the palette, a rail destination — and lands at
+   * the end of the deck at an equal share, which is where a person's eye expects a
+   * pane they just opened. An address naming one is the SPLIT act
+   * (`Spec-023 §The surface set` offers open, close, focus, resize, reorder and split
+   * on the deck): the pane arrives immediately right of its source and takes half of
+   * THAT pane's width, so every other pane in the deck keeps the width the person gave
+   * it. `carveSplitFrom` holds the arithmetic and says why the two rules differ.
+   *
+   * A split of a pane too narrow to halve falls back to the list seating rather than
+   * refusing the open: the person asked for a pane and gets one, and the deck
+   * re-divides — the only outcome that leaves every pane wide enough to grab.
    */
   public open(address: DeckPaneAddress): string {
     const existing = this.#state.panes.find((pane) => addressesMatch(pane, address));
@@ -107,13 +121,18 @@ export class DeckLayout {
       sourcePaneId: address.sourcePaneId,
     };
 
-    // Right of its source, when it names one — the `browser` pane's placement rule.
-    // At the end otherwise, which is where a person's eye expects a pane they just
-    // opened from the sidebar.
     const sourcePosition =
       address.sourcePaneId === undefined
         ? -1
         : this.#state.panes.findIndex((candidate) => candidate.paneId === address.sourcePaneId);
+    if (sourcePosition >= 0) {
+      const split = carveSplitFrom(this.#state.panes, sourcePosition, pane);
+      if (split !== undefined) {
+        this.#commit({ panes: split, focusedPaneId: paneId });
+        return paneId;
+      }
+    }
+
     const panes = [...this.#state.panes];
     panes.splice(sourcePosition < 0 ? panes.length : sourcePosition + 1, 0, pane);
 

@@ -183,6 +183,20 @@ export {
   type ActorFollowRequest,
 } from "./actor-follow-seat.js";
 
+// The floor seat — the deck's half of "Step in", filled by the family that owns the
+// deck and called by the family that owns the run controls. The release call is on the
+// door and the composer seat's is not, because this handler closes over one live deck
+// and one live transport: the workspace withdraws it on unmount, where the composer's
+// body is registered once for the life of the window.
+export {
+  registerTakeTheFloorHandler,
+  takeTheFloor,
+  unregisterTakeTheFloorHandler,
+  type FloorWorktreeDisposition,
+  type TakeTheFloorHandler,
+  type TakeTheFloorOutcome,
+} from "./take-the-floor-seat.js";
+
 export {
   composerSeatRenderer,
   registerComposerSeat,

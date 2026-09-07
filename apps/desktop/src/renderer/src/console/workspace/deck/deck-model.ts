@@ -357,3 +357,44 @@ export function highestOrdinal(panes: readonly DeckPane[]): number {
   }
   return highest;
 }
+
+/**
+ * Seat an arriving pane by halving ONE pane's share, leaving every other alone.
+ *
+ * THE SPLIT ACT'S WIDTH RULE, and the whole difference between splitting a pane and
+ * opening one. {@link distributeEvenly} re-divides the deck, which is right for a pane
+ * that arrives at the end and wrong for one arriving INSIDE an arrangement a person
+ * made: splitting the third of four panes would resize the other three, and somebody
+ * who asked for a companion to one pane would get a deck they had to rebuild.
+ *
+ * So the arriving pane takes half the source's share and the source keeps the rest,
+ * remainder included — an odd share leaves the pane that was already there the wider
+ * of the two. The sum is preserved by construction rather than by a settling pass:
+ * one pane's number is divided and the two halves add back to it.
+ *
+ * A pane too narrow to halve cannot be split — a zero-width column is one the panel
+ * group has no way to grab — so this answers `undefined` and the caller applies its
+ * own fallback rather than being handed a silently equalised row.
+ */
+export function carveSplitFrom(
+  panes: readonly DeckPane[],
+  sourcePosition: number,
+  arriving: DeckPane,
+): readonly DeckPane[] | undefined {
+  const source = panes[sourcePosition];
+  if (source === undefined) {
+    return undefined;
+  }
+  const arrivingShare = Math.floor(source.sizePermille / 2);
+  if (arrivingShare < MINIMUM_NORMALISED_PERMILLE) {
+    return undefined;
+  }
+  const split = [...panes];
+  split.splice(
+    sourcePosition,
+    1,
+    { ...source, sizePermille: source.sizePermille - arrivingShare },
+    { ...arriving, sizePermille: arrivingShare },
+  );
+  return split;
+}

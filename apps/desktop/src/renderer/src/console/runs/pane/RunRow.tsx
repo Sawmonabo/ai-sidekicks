@@ -78,10 +78,11 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
   const detailId = useId();
   const elapsedMs = runElapsedMilliseconds(run);
 
-  // Taking the floor is the pane-local half of stepping in: the run's own detail
-  // opens so the person can read its history and steer it. The other half —
-  // addressing the composer at this run — belongs to the deck's focused-pane
-  // state, which no surface holds yet, so this row promises only what it can do.
+  // The pane-local half of stepping in: the run's own detail opens so the person can
+  // read its history beside the composer they are about to type into. The deck's two
+  // acts — putting the run's checkout on screen and addressing the composer at this
+  // run — are the workspace's and travel through the floor seat, which is why this
+  // row promises exactly the one it owns.
   const onTakeTheFloor = useCallback(() => {
     setDetailOpen(true);
   }, []);

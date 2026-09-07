@@ -61,6 +61,8 @@ import { CastBar } from "./cast-bar/CastBar.js";
 import { WorkspaceBannerRow } from "./banners/WorkspaceBannerRow.js";
 import { useAuxiliaryPanes } from "./auxiliary/auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
+import { registerDeckCommands } from "./deck/commands/deck-command-seat.js";
+import { useTakeTheFloorSeat } from "./deck/take-the-floor.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
 import type { DeckPane } from "./deck/deck-model.js";
 import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
@@ -83,6 +85,18 @@ import {
   workspaceBannerKey,
   type WorkspaceBanner,
 } from "./banners/workspace-banners.js";
+
+/**
+ * The deck's five palette rows, contributed the moment this module is evaluated.
+ *
+ * Composition time, for the reason stated below the sidebar's own call: a family's
+ * commands are in the palette from the first frame rather than arriving on the first
+ * navigation into a session. The rows claim no chord — the deck binds its own five
+ * keystrokes on its own element, where the wide editable-target guard is, and
+ * `deck/commands/deck-command-seat.ts` records why a window-table binding on the same
+ * keystrokes would take a listbox's arrow keys.
+ */
+registerDeckCommands(consoleCommandSurface);
 
 /**
  * The sidebar's two palette rows, contributed the moment this module is evaluated.
@@ -180,6 +194,10 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
 
   const auxiliaryPanes = useAuxiliaryPanes({ bridge: props.bridge, sessionId, onRefused: raise });
   const onFollow = useActorFollow({ layout, sessionStore, announce });
+  // The deck's half of Step in, filled for as long as this workspace is mounted. The
+  // run controls that press it live in another view family and reach this deck through
+  // the seat rather than through an import.
+  useTakeTheFloorSeat({ layout, bridge: props.bridge, sessionStore });
 
   const composer = composerSeatRenderer();
   const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
