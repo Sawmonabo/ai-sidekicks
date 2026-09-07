@@ -84,6 +84,7 @@ export {
 // a validator. Seven surfaces used to reach for the schema themselves, which is one
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
+  isLiveRunState,
   readChannelId,
   readQueueItemId,
   readRunId,
@@ -243,7 +244,10 @@ export { heldIdAsWireId } from "./daemon/wire-ids.js";
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable, growthUnavailableFromRejection } from "./growth-port/growth-port.js";
+export {
+  growthUnavailable,
+  growthUnavailableFromRejection,
+} from "./growth-port/growth-refusals.js";
 // `GrowthPortRefusalCode` stays OFF this door beside it. The closed code union is
 // what the port's own refusal arms are written in, and nothing outside
 // `growth-port/growth-outcome.ts` names it at all, so a door line for it would
@@ -276,6 +280,12 @@ export {
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
+// The window's one transport-reconnect signal, published as the CLASS rather than as
+// the floor's subscribe-only view: the observers that report into it — the frame's
+// session-event binder — reach the bridge through this door, and a door publishing
+// only `TransportReconnectObservable` would leave them able to subscribe and unable to
+// report. A reading takes the floor's view instead, off `core/index.js`.
+export { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 
 // The `invitesList` outcome and its served row. Published because TWO sibling view
 // families read that one operation — the sent ledger and the received shelf — and a
@@ -370,6 +380,32 @@ export {
 // names and neither was the port's.
 export { GROWTH_PORT_REFUSAL_ORIGIN } from "./growth-port/growth-outcome.js";
 export type { GrowthUnavailable } from "./growth-port/growth-outcome.js";
+// The diagnostics plane's shapes, from the module that DECLARES them rather than
+// through the inner values door — the barrel-chain rule the `GrowthSessionSummary`
+// line above states. The settings family renders every one of these: a health banner
+// keyed on the state, a stuck badge keyed on the signal, a recovery prompt whose
+// control set IS the action vocabulary, and a retention table keyed on the bucket. A
+// view family derives from the shape the wire declares or it drifts from it silently.
+//
+// ONE VALUE VOCABULARY LEAVES, AND THE OTHER TWO DELIBERATELY DO NOT.
+// `GROWTH_RECOVERY_ACTIONS` is here because the prompt's control set is built by
+// mapping it, so the page would otherwise re-spell a closed set the wire owns. The
+// state and bucket arrays are read by nothing outside this family: their members
+// reach the page through the union TYPES beside them, which is what a keyed lookup
+// needs, and a door line no production module imports is a dead export the barrel
+// census fails.
+export {
+  GROWTH_RECOVERY_ACTIONS,
+  type GrowthFailureDetail,
+  type GrowthHealthComponent,
+  type GrowthHealthState,
+  type GrowthHealthStatus,
+  type GrowthRecoveryAction,
+  type GrowthRecoveryReceipt,
+  type GrowthRedactionBucket,
+  type GrowthRedactionPolicy,
+  type GrowthStuckRunInspection,
+} from "./growth-values/diagnostics.js";
 
 // Which kind of nothing a growth refusal IS — the console never asked, or the asking
 // failed. Every surface that offers the node's sessions has to answer it before it
@@ -454,3 +490,25 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // out — and the terminal's host-presence fold is the production reader that makes the
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
+
+// The MCP governance plane's shapes, from the module that DECLARES them rather than
+// through the inner values door — the barrel-chain rule the `GrowthSessionSummary` line
+// above states. The settings family renders every one of these: an inventory row per
+// binding, the per-session legs behind it, the tool overrides pinned on it, and the
+// per-leg outcomes a mutation answers with. `GrowthMcpServerStatus` travels with them
+// because the page's status-to-tone table is a `Record` total over it, which is what
+// makes a sixth status a compile error at the page rather than a blank cell.
+//
+// The status ARRAY is deliberately absent, and so is every other vocabulary in that
+// module. Nothing above this family enumerates one — the surfaces render the value that
+// arrived and key a total record on the type — and a door line no production module
+// reaches is a dead export the barrel census fails rather than a convenience.
+export type {
+  GrowthMcpBindingRef,
+  GrowthMcpInventoryEntry,
+  GrowthMcpLiveApplicationResult,
+  GrowthMcpMutationResult,
+  GrowthMcpServerLegStatus,
+  GrowthMcpServerStatus,
+  GrowthMcpToolOverride,
+} from "./growth-values/mcp.js";

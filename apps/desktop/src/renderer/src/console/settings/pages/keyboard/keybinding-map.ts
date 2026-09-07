@@ -49,6 +49,20 @@ export interface KeybindingRow {
   /** Present when the host takes this chord before the console can. */
   readonly unavailableReason: string | undefined;
   /**
+   * The chord the console SHIPS for this command, or `undefined` where it ships
+   * none.
+   *
+   * Carried on the row so a reset control can name what it restores to rather than
+   * promising an unnamed "default": a person about to give up a chord they chose is
+   * entitled to know which one comes back, and a command the console ships no chord
+   * for restores to none — which is a different answer and has to read as one.
+   *
+   * It is the SHIPPED table's answer and never the effective one. The effective
+   * table is the shipped table with the overrides already composed onto it, so
+   * reading a default out of it would answer with the override the reset removes.
+   */
+  readonly shippedChord: string | undefined;
+  /**
    * True when this row's chord is a person's rather than the console's.
    *
    * Read from the override map rather than by comparing the chord against the
@@ -69,6 +83,14 @@ export interface KeybindingRow {
 export function composeKeybindingRows(options: {
   readonly commands: readonly ConsoleCommand[];
   readonly bindings: readonly KeyBinding[];
+  /**
+   * The table the console SHIPS, so each row can name the chord a reset restores.
+   *
+   * Required rather than optional: a row whose default is unknown would have to
+   * render a reset control that promises something it cannot name, and an omitted
+   * argument would produce exactly that silently.
+   */
+  readonly shippedBindings: readonly KeyBinding[];
   readonly overrides?: KeybindingOverrideMap;
   readonly platform?: ChordPlatform;
 }): readonly KeybindingRow[] {
@@ -92,6 +114,8 @@ export function composeKeybindingRows(options: {
         whenExpression: bound?.when,
         unavailableReason:
           bound === undefined ? undefined : reservedChordReason(bound.chord, platform),
+        shippedChord: options.shippedBindings.find((binding) => binding.commandId === command.id)
+          ?.chord,
         overridden: overrides[command.id] !== undefined,
       };
     });
@@ -154,9 +178,15 @@ export function composeStaleOverrideRows(options: {
  *
  * The console's one matcher, reached the way settings search reaches it
  * (`settings-page-registry.ts`) — imported, never re-implemented. A row offers its
- * title, its command id, and its group; the best of the three decides. An empty
- * query answers every row in composition order, which is what the page shows
- * before anyone has typed.
+ * title, its command id, its group, its CHORD, and its when-scope; the best of the
+ * five decides. An empty query answers every row in composition order, which is what
+ * the page shows before anyone has typed.
+ *
+ * THE CHORD AND THE SCOPE ARE CANDIDATES BECAUSE THE SECTION SAYS SO: "Filter the
+ * list by command, chord, or scope through the shared matcher". A row with no chord
+ * and a row with no scope each offer one candidate fewer rather than a placeholder —
+ * an absent chord is not the string `"none"`, and matching a person's query against
+ * a word this module invented would rank a row for text nothing on it says.
  */
 export function matchKeybindingRows(
   rows: readonly KeybindingRow[],
@@ -169,7 +199,7 @@ export function matchKeybindingRows(
   const scored: { readonly row: KeybindingRow; readonly score: number }[] = [];
   for (const row of rows) {
     let best: number | undefined;
-    for (const candidate of [row.title, row.commandId, row.group]) {
+    for (const candidate of matchCandidatesOf(row)) {
       const match = scoreSubsequence(candidate, trimmedQuery);
       if (match !== undefined && (best === undefined || match.score > best)) {
         best = match.score;
@@ -185,6 +215,24 @@ export function matchKeybindingRows(
 }
 
 /**
+ * The strings one row offers the scorer.
+ *
+ * Its own function so the candidate set is one list a test can drive rather than an
+ * array literal buried in a loop — and so the two OPTIONAL candidates are dropped
+ * where they are absent rather than becoming `undefined` inside a `string[]`.
+ */
+function matchCandidatesOf(row: KeybindingRow): readonly string[] {
+  const candidates = [row.title, row.commandId, row.group];
+  if (row.chord !== undefined) {
+    candidates.push(row.chord);
+  }
+  if (row.whenExpression !== undefined) {
+    candidates.push(row.whenExpression);
+  }
+  return candidates;
+}
+
+/**
  * What one keystroke means to a recorder that is listening for a chord.
  *
  * Four outcomes and each is an act a person performed, not a state the recorder is
@@ -196,7 +244,19 @@ export type ChordRecording =
   | { readonly outcome: "captured"; readonly chord: string }
   | { readonly outcome: "cancelled" }
   | { readonly outcome: "cleared" }
-  | { readonly outcome: "incomplete" };
+  | {
+      readonly outcome: "incomplete";
+      /**
+       * The modifiers held at this keystroke, in the order the console writes them.
+       *
+       * Carried rather than discarded because the section asks for "the keys held so
+       * far, and whether the chord is complete": a recorder that showed nothing until
+       * the chord settled left a person pressing `⌘⇧` with no evidence the console
+       * had received either key. Empty is a real answer — a bare key that is not a
+       * chord key yet, which is what a `code`-less synthetic press produces.
+       */
+      readonly heldModifiers: readonly string[];
+    };
 
 /**
  * Everything but "not yet" — what a recorder hands upward and stops recording on.
@@ -246,11 +306,11 @@ export function readChordFromEvent(
     return { outcome: "cleared" };
   }
   if (MODIFIER_KEYS.has(event.key)) {
-    return { outcome: "incomplete" };
+    return { outcome: "incomplete", heldModifiers: heldModifiers(event, platform) };
   }
   const keyToken = event.code === "" ? event.key : event.code;
   if (keyToken === "") {
-    return { outcome: "incomplete" };
+    return { outcome: "incomplete", heldModifiers: heldModifiers(event, platform) };
   }
   return { outcome: "captured", chord: [...heldModifiers(event, platform), keyToken].join("+") };
 }

@@ -16,6 +16,7 @@ import {
   type SettingsPageContext,
   type SettingsPageDescriptor,
 } from "./settings-page-registry.js";
+import { consoleTestUiStateStore } from "./settings-page-mount.test-support.js";
 
 function pageFor(
   section: (typeof SETTINGS_SECTION_IDS)[number],
@@ -89,6 +90,7 @@ describe("a settings page whose body another plan authors", () => {
     openSection: () => undefined,
     retainedSessionId: undefined,
     retainedSessionStore: undefined,
+    uiStateStore: consoleTestUiStateStore(),
   } satisfies SettingsPageContext;
 
   const RESERVED: OwnerSlotPage = {

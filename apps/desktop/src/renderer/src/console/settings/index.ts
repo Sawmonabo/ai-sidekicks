@@ -43,13 +43,13 @@ import type { ConsoleSurfaceRegistry } from "../seats/index.js";
  * Claim the settings surface slot.
  *
  * A LOADER AND NOT A `render`. Settings is reached by pressing a rail destination, so
- * nothing paints it before a person asks for it, and every page it composes — twelve
- * forms, their tables, the combobox stack two of them mount, and eight stylesheets —
+ * nothing paints it before a person asks for it, and every page it composes — thirteen
+ * forms, their tables, the combobox stack two of them mount, and fourteen stylesheets —
  * rides the chunk `settings-surface-body.ts` roots rather than the initial import
  * graph. `apps/desktop/AGENTS.md` states the rule beside the seat-board one.
  *
  * The page registry moved behind that boundary with them and is composed there, per
- * mount: composing it here would mean importing all twelve pages from this door, which
+ * mount: composing it here would mean importing all thirteen pages from this door, which
  * is the whole of what the boundary exists to defer.
  */
 export function registerSettingsSurface(registry: ConsoleSurfaceRegistry): void {

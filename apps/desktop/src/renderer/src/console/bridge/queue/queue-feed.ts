@@ -123,7 +123,7 @@ export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFee
   // subscription is what OPENS the reading — which takes its own first read. A
   // trigger set wired ahead of it would ask an unopened reading for a `subscribe`
   // read, and the open would then take a second one for the same arrival.
-  useWindowReadTriggers(readTrigger);
+  useWindowReadTriggers(readTrigger, bridge.transportReconnect);
 
   return feed;
 }

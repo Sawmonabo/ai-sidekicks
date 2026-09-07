@@ -24,6 +24,7 @@ export {
   BROAD_ALLOW_LIST_THRESHOLD,
   COMPOSING_NAMED_CAP,
   COMPOSING_RECEIVED_STALE_MS,
+  DAEMON_SHUTDOWN_FLUSH_BUDGET_MS,
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
@@ -33,6 +34,7 @@ export {
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
+  INTERRUPTED_RUN_IDS_NAMED_CAP,
   INTERVENTION_OUTCOME_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
@@ -69,10 +71,13 @@ export {
   SIDEBAR_DEFAULT_WIDTH_PX,
   SIDEBAR_MAX_WIDTH_PX,
   SIDEBAR_MIN_WIDTH_PX,
+  STUCK_RUN_ESCALATION_MS,
+  STUCK_RUN_NOTICE_MS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
   TOOL_ALLOWLIST_NAMED_CAP,
+  UTILIZATION_BAR_FULL_SCALE,
   WHEN_CLAUSE_MAX_DEPTH,
   WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
@@ -143,6 +148,12 @@ export {
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
 } from "./refusal-extensions.js";
+// The subscribe view of the console's one transport-reconnect signal. Declared at
+// the floor because its producer is `bridge/` and its consumer is `store/`, and the
+// DAG puts the consumer below the producer — so the floor is the only home both can
+// reach. The emitter itself stays in `bridge/`.
+export type { TransportReconnectObservable } from "./transport-reconnect.js";
+export { NO_TRANSPORT_RECONNECT } from "./transport-reconnect.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,

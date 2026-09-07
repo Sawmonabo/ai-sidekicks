@@ -141,6 +141,59 @@ describe("keyboard page — what it changes", () => {
     expect(recorderOf(container, "app.checkForUpdates").getAttribute("aria-pressed")).toBe("true");
     expect(politeText(container)).toBe("");
   });
+
+  it("draws the keys held so far while a chord is still incomplete", async () => {
+    // The section asks for "the keys held so far, and whether the chord is complete".
+    // Before this, a modifier press was read and discarded, so a person on the way to
+    // ⌥J saw nothing at all between arming the recorder and settling it.
+    const { container } = renderPage();
+    const recorder = recorderOf(container, "app.checkForUpdates");
+    fireEvent.click(recorder);
+    // Opening arm first: an armed recorder that had received nothing must say so
+    // rather than draw an empty holding hint.
+    expect(rowOf(container, "app.checkForUpdates").textContent ?? "").toContain("Nothing held yet");
+
+    await act(async () => {
+      fireEvent.keyDown(recorder, { key: "Alt", code: "AltLeft", altKey: true });
+      await crossMacrotaskBoundary();
+    });
+
+    const rowText = rowOf(container, "app.checkForUpdates").textContent ?? "";
+    expect(rowText).toContain("Holding");
+    expect(rowText).toContain("the chord is not complete");
+    // And nothing was bound: the hint is a reading of an unfinished press.
+    expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
+  });
+
+  it("names the chord a per-row reset restores, rather than promising a default", async () => {
+    const { container } = renderPage();
+    await recordOnto(container, "frame.goToSessions", RECORDED_PRESS);
+    await waitFor(() => {
+      expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
+    });
+
+    const reset = rowOf(container, "frame.goToSessions").querySelector(".meridian-keymap__reset");
+    expect(reset?.textContent ?? "").toContain("Reset to");
+    // The SHIPPED chord and never the effective one, which is the shipped table with
+    // this very override already composed onto it.
+    expect(reset?.getAttribute("aria-label") ?? "").toContain("$mod+1");
+    expect(reset?.getAttribute("aria-label") ?? "").not.toContain("Alt+KeyJ");
+  });
+
+  it("names each default the reset-all control restores, beside the control", async () => {
+    await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
+    await consoleKeybindingOverrides.bind("app.checkForUpdates", "Alt+KeyK");
+    const { container } = renderPage();
+
+    const block = container.querySelector(".meridian-keymap__reset-all-block");
+    const blockText = block?.textContent ?? "";
+    // One row ships a chord and the other ships none, so both promises are on screen
+    // and neither is the other's wording.
+    expect(blockText).toContain("back to");
+    expect(blockText).toContain("back to no chord");
+    expect(blockText).toContain("frame.goToSessions");
+    expect(blockText).toContain("app.checkForUpdates");
+  });
 });
 
 describe("keyboard page — a chord kept for a command this build does not have", () => {

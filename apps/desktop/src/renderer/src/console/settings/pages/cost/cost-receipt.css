@@ -94,3 +94,54 @@
   font-size: var(--meridian-text-xs);
   line-height: 1.4;
 }
+
+/* What the figure is made of: three figures the accountant sent, laid out as a
+   definition list so a screen reader pairs each label with its own amount. */
+.meridian-cost-receipt__provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-5);
+  margin: var(--meridian-space-3) 0 var(--meridian-space-2);
+  padding: 0 var(--meridian-space-4);
+}
+
+.meridian-cost-receipt__provenance dt {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-cost-receipt__provenance dd {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+/* The last figure served, under the notice that says it is not being confirmed. */
+.meridian-cost-receipt__retained-note {
+  margin: var(--meridian-space-3) 0 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}
+
+/* Each split is a disclosure, closed on arrival. The summary is the one line the
+   receipt collapses to, so it carries the split's name and how much is inside it. */
+.meridian-cost-receipt__split-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-2) 0;
+  cursor: default;
+}
+
+.meridian-cost-receipt__split-summary:focus-visible {
+  outline: var(--meridian-focus-ring);
+  outline-offset: var(--meridian-space-1);
+}
+
+.meridian-cost-receipt__split-count {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  font-variant-numeric: tabular-nums;
+}

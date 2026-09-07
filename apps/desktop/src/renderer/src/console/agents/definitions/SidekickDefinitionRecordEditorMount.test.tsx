@@ -130,8 +130,13 @@ describe("the sidekick editor's seat — what its contract may not do", () => {
   it("answers all three of the questions a seat exists to answer", () => {
     // A seat that cannot say who owns the body, what the mount owes it, and where
     // the shell dies has not decided what it is (`seats/owner-slot.ts`).
+    // The owner is read by SUBJECT rather than by length: these are runtime strings in
+    // a shipped module and this repository keeps governance identifiers in comments, so
+    // a length check would pass over the very phrasing the rule asks for. That the
+    // strings carry no identifier is swept for every seat in the tree at once by
+    // `test/console/architecture/owner-slot-contracts.test.ts`, and is not restated.
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
-    expect(contract.owningTask.length).toBeGreaterThan(0);
+    expect(contract.owningTask).toContain("sidekick-definitions and peer-invocation plan");
     expect(contract.mountObligation.length).toBeGreaterThan(0);
     expect(contract.deleteShellIn.length).toBeGreaterThan(0);
   });

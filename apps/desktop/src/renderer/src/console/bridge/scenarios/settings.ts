@@ -2,19 +2,28 @@
 //
 // The settings surface is the one destination whose content is almost entirely NOT
 // session state: it reads node health, shell preferences, provider accounts, and
-// server governance. Almost every one of those wires is unregistered today, so this
-// scenario scripts almost nothing on purpose. Its job is to put the console in a
-// state where the settings rail is reachable and every page whose wire is missing is
-// answering from the growth port's refusal rather than from scripted data — which is
-// exactly what the shipped build does, and therefore the state those pages must be
-// designed against.
+// server governance. Not one of those wires is bound on the preload bridge, so every
+// one of them is answered here — through the growth port, against a slate row that
+// names the document owning the registration.
 //
-// A scenario that filled those pages with plausible-looking rows would make the
-// fixture disagree with the application in the one direction that matters: the
-// screenshots would show a working settings surface that nobody can reach.
+// WHICH IS A DIFFERENT THING FROM FILLING A PAGE WITH PLAUSIBLE ROWS, and the
+// difference is where the shapes come from. Every reply below is typed against a
+// shape the corpus registers: the account plane's against `packages/contracts`, and
+// the governance plane's against this console's own transcription of the contract
+// document. A surface built against them is built against the wire it will be wired
+// to, and the day the namespace lands the scenario is what proves the two agree.
+// What the deck must never do is invent a shape nobody owns — that is the fixture
+// disagreeing with the application in the one direction that matters.
 //
-// THE ONE THING IT DOES SCRIPT IS NODE HEALTH, BECAUSE THAT ONE IS ON THE WIRE.
-// `runtime_node.*` is the exception: seven types are in the census and five of them
+// AND THE PLANES ARE SPLIT INTO FILES OF THEIR OWN. `settings-diagnostics-plane.ts`,
+// `settings-account-plane.ts`, and `settings-mcp-plane.ts` hold the three, because
+// they share a settings surface and share nothing else — one file holding all of
+// them would be three data tables that never reference each other.
+//
+// ITS NODE-HEALTH BEATS ARE SCRIPTABLE BECAUSE THAT ONE IS ON THE EVENT WIRE (the
+// run beats beside them, which the diagnostics plane needs, are on it for the same
+// reason).
+// `runtime_node.*` is where that holds most visibly: seven types are in the census and five of them
 // carry registered `SessionEventSchema` payload variants
 // (`packages/contracts/src/runtime-node.ts`), so a node coming up and a node falling
 // into the degraded band are both scriptable without inventing anything. Two nodes
@@ -56,11 +65,19 @@
 // state, and a page showing one health scalar would report it as either fine or
 
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
+import { SETTINGS_ACCOUNT_PLANE_REPLIES } from "./settings-account-plane.js";
+import {
+  SETTINGS_DIAGNOSTICS_REPLIES,
+  SETTINGS_DIAGNOSTICS_RUN_BEATS,
+} from "./settings-diagnostics-plane.js";
+import { SETTINGS_MCP_PLANE_REPLIES } from "./settings-mcp-plane.js";
 import {
   PARTICIPANT_YOU,
   RUNTIME_NODES,
   RUNTIME_NODE_ROSTER_FRAMES,
   SESSION_ID,
+  SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
+  SETTINGS_RUNTIME_NODE_ATTACH_REPLY,
   occurredAt,
   type SettingsRuntimeNode,
 } from "./settings-runtime-nodes.js";
@@ -71,7 +88,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   id: SETTINGS_SCENARIO_ID,
   label: "Settings, one node degraded",
   purpose:
-    "One quiet session so the rail is reachable, two runtime nodes of which one falls into the degraded band, and every settings page whose wire is unregistered answering from the growth port's refusal — the state the shipped build is in.",
+    "One quiet session so the rail is reachable, two runtime nodes of which one falls into the degraded band, and the three unbound settings planes answered through the growth port: node diagnostics, the provider-account registry with its sign-in handoff, and the MCP governance inventory.",
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [PARTICIPANT_YOU],
   // The only participant, and stated rather than inferred all the same: a
@@ -86,6 +103,24 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T08:00:00.000Z",
   runtimeNodeRoster: RUNTIME_NODE_ROSTER_FRAMES,
+  // The declaration the attach control reviews, supplied by the deck because
+  // `Spec-023 §Trust Stance` puts its composition off the renderer entirely. The
+  // roster above says which machines are already here; this says what a machine
+  // arriving would claim about itself, and the two are different subjects.
+  runtimeNodeAttachDraft: SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
+  // One transport outage, after the last roster frame has landed.
+  //
+  // The settings surface is where the reconnect signal is actually SPENT — the shell
+  // preference carrier and the mount inventory both re-read on it — so this is the
+  // deck's home for driving it, and it is scripted here rather than in a scenario of
+  // its own for the reason the roster frames are: a signal nobody can reach from the
+  // scenario selector is a signal nobody reviews.
+  //
+  // It opens at 400 rather than across an existing beat so the outage is legible on
+  // its own: every node transition and every roster frame has already settled by
+  // 320, and what advancing through 400 to 520 shows is one fact — the readings that
+  // were current before the gap being taken again on the far side of it.
+  transportOutages: [{ lostAtMs: 400, restoredAtMs: 520 }],
   beats: [
     {
       atMs: 0,
@@ -188,12 +223,16 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
         },
       },
     })),
+    ...SETTINGS_DIAGNOSTICS_RUN_BEATS,
   ],
   replies: [
     // No agent has been attached to this session, and the empty list is the honest
     // reading rather than an absent reply: the read succeeded and there is nothing
-    // in it. Every other settings read this console makes is unregistered on the
-    // wire, so nothing else is scripted and each of those pages renders the refusal.
+    // in it.
     { call: "agent.list", result: { agents: [] } },
+    SETTINGS_RUNTIME_NODE_ATTACH_REPLY,
+    ...SETTINGS_DIAGNOSTICS_REPLIES,
+    ...SETTINGS_ACCOUNT_PLANE_REPLIES,
+    ...SETTINGS_MCP_PLANE_REPLIES,
   ],
 };

@@ -640,6 +640,26 @@ export const RuntimeNodeRosterEntrySchema: z.ZodType<RuntimeNodeRosterEntry> = z
 
 export interface RuntimeNodeRosterResponse {
   nodes: RuntimeNodeRosterEntry[];
+  // SHARED-TERMINAL WRITE-LEASE HOLDER — session-level, not per row. One lease
+  // per session (`session_terminal_leases` is keyed on `session_id`), so the
+  // holder rides the RESPONSE beside the node set rather than repeating itself
+  // on every entry.
+  //
+  // `null` carries TWO readings that a client deliberately cannot tell apart:
+  // the lease is free, or a held lease is read-suppressed because its producing
+  // node is server-classified `offline`. Both render as no-advertised-holder —
+  // the fail-closed shape, since no client should offer write affordances
+  // against a holder the control plane cannot vouch live.
+  //
+  // The suppression is a READ-side predicate that writes nothing and derives no
+  // staleness of its own: it consumes the stored `runtime_node_presence.
+  // health_state` verdict the Plan-003 T3.6 sweep owns, and binds at `offline`
+  // and nothing weaker (`degraded` is the reversible hysteresis band). It is NOT
+  // the collapsed health scalar the entries forbid — the producing node's
+  // `healthState` / `lastHeartbeatAt` ride VERBATIM in this same response, so
+  // the payload never contradicts itself and the `offline` verdict behind a
+  // suppression stays visible on the node rows.
+  controlHolder: ParticipantId | null;
 }
 // Single-T `z.ZodType<T>` — non-input projection (see the entry schema above);
 // `z.array(...)` over a single-T element matches
@@ -653,6 +673,15 @@ export const RuntimeNodeRosterResponseSchema: z.ZodType<RuntimeNodeRosterRespons
     // changing session identity). An EMPTY array is valid (a session with no
     // attachments yet).
     nodes: z.array(RuntimeNodeRosterEntrySchema),
+    // KEY REQUIRED, VALUE NULLABLE — `.nullable()` and deliberately not
+    // `.optional()`. An omitted key would be indistinguishable from a producer
+    // that has not been taught to project the lease at all, and a client cannot
+    // tell "nobody holds it" from "nobody asked" out of an absent member; a
+    // present `null` says the projection ran and advertised no live holder.
+    // The value is the branded `ParticipantId`, so a corrupted stored holder
+    // fails closed at the read boundary rather than reaching a surface that
+    // would render it as an identity.
+    controlHolder: ParticipantIdSchema.nullable(),
   })
   .strict();
 

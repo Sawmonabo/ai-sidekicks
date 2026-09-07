@@ -5,8 +5,9 @@
 // switch SENDS is `NotificationsPage.writing.test.tsx`, over the one cast in
 // `notifications-page.test-support.tsx`.
 import type { ConsoleBridge } from "../../../bridge/index.js";
+import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { growthUnavailable } from "../../../bridge/index.js";
+import { ATTENTION_TRIGGERS, growthUnavailable } from "../../../bridge/index.js";
 import { politeText } from "../../../primitives/live-region.test-support.js";
 import { registerNotificationsPage } from "./NotificationsPage.js";
 import type { AttentionPreference } from "./attention-preference-model.js";
@@ -23,6 +24,11 @@ import {
   storedLabels,
   storedSwitches,
 } from "./notifications-page.test-support.js";
+
+/** Every row this console supplied rather than read, as the page tags them. */
+function defaultTags(container: HTMLElement): readonly Element[] {
+  return [...container.querySelectorAll(".meridian-attention-preferences__key .meridian-chip")];
+}
 
 describe("the notifications page — the machine-local mute", () => {
   it("promises that in-app attention survives a muted desktop", async () => {
@@ -134,11 +140,15 @@ describe("the notifications page — what it draws from a record nobody named", 
     });
   }
 
-  it("says the daemon holds nothing rather than drawing a default", async () => {
+  it("draws every trigger at its default when the daemon holds nothing", async () => {
+    // The empty store is the state a person ARRIVES in, so it is the one where a
+    // sentence and no controls is worst. Every registered trigger gets a switch, and
+    // every one of them is tagged as this console's default rather than a reading.
     const container = await renderSettledPage(bridgeServing([]));
-    expect(container.textContent ?? "").toContain("holds no preference for you yet");
-    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
-    expect(storedSwitches(container)).toHaveLength(0);
+    expect(storedSwitches(container)).toHaveLength(ATTENTION_TRIGGERS.length);
+    expect(defaultTags(container)).toHaveLength(ATTENTION_TRIGGERS.length);
+    expect(container.textContent ?? "").toContain("Nobody has stored a preference for this yet");
+    expect(container.textContent ?? "").not.toContain("holds no preference for you yet");
   });
 
   it("draws one switch per member, labelled with the member's own name", async () => {
@@ -146,22 +156,56 @@ describe("the notifications page — what it draws from a record nobody named", 
       bridgeServing([{ key: "attention", value: { mentions: true, runs: false } }]),
     );
     expect(container.textContent ?? "").toContain("attention");
-    expect(storedLabels(container)).toStrictEqual(["mentions", "runs"]);
+    // The stored record first and in the daemon's own order, then one default per
+    // trigger it did not mention — the defaults fill gaps in the SET and never inside
+    // a value, so the stored record's two members are still exactly its two.
+    expect(storedLabels(container).slice(0, 2)).toStrictEqual(["mentions", "runs"]);
     expect(
-      storedSwitches(container).map((control) => control.getAttribute("aria-checked")),
+      storedSwitches(container)
+        .slice(0, 2)
+        .map((control) => control.getAttribute("aria-checked")),
     ).toStrictEqual(["true", "false"]);
+    expect(defaultTags(container)).toHaveLength(ATTENTION_TRIGGERS.length);
   });
 
   it("negative control: a value that is not all booleans is shown read-only", async () => {
     // Drawing switches for the boolean members of a mixed record would offer control
-    // over a value the console cannot write back intact.
+    // over a value the console cannot write back intact. The defaults beside it are
+    // this console's own rows, so the count subtracts them rather than the case
+    // pretending they are not there.
     const container = await renderSettledPage(
       bridgeServing([{ key: "digest", value: { every: "monday", runs: true } }]),
     );
-    expect(storedSwitches(container)).toHaveLength(0);
+    expect(storedSwitches(container)).toHaveLength(ATTENTION_TRIGGERS.length);
     expect(container.querySelector(".meridian-attention-preferences__opaque")?.textContent).toBe(
       '{"every":"monday","runs":true}',
     );
+  });
+
+  it("holds the rows and locks them while the set is read again", async () => {
+    // The set is re-read when the window comes back. Blanking it first would read as
+    // the console forgetting what it had already told the person.
+    const container = await renderSettledPage(
+      bridgeServing([{ key: "attention", value: { mentions: true } }]),
+    );
+    const beforeFocus = storedLabels(container);
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(storedLabels(container)).toStrictEqual(beforeFocus);
+    expect(
+      container.querySelector('.meridian-attention-preferences[aria-busy="true"]'),
+    ).not.toBeNull();
+    await settle();
+    expect(container.querySelector('.meridian-attention-preferences[aria-busy="true"]')).toBeNull();
+  });
+
+  it("negative control: the default tag is absent from a record the daemon stores", async () => {
+    // Without this, the two cases above would pass over a page that tagged every row.
+    const container = await renderSettledPage(
+      bridgeServing([{ key: "mention", value: { mentions: true } }]),
+    );
+    expect(defaultTags(container)).toHaveLength(ATTENTION_TRIGGERS.length - 1);
   });
 
   it("announces the settlement once, politely, with what it read", async () => {
@@ -169,6 +213,41 @@ describe("the notifications page — what it draws from a record nobody named", 
       bridgeServing([{ key: "attention", value: { mentions: true } }]),
     );
     expect(politeText(container)).toBe("Your notification preferences were read. Stored: 1.");
+  });
+});
+
+describe("the notifications page — what the operating system allows", () => {
+  it("says the question could not be put, rather than that the answer was yes", async () => {
+    // No wire serves the permission on this build. Silence would read as "granted",
+    // which is the one thing this console must not claim on nobody's behalf.
+    const container = await renderSettledPage(bridgeWith({}));
+    expect(container.textContent ?? "").toContain(
+      "cannot see whether the operating system allows notifications",
+    );
+  });
+
+  it("names a denied permission and promises in-app attention survives it", async () => {
+    const container = await renderSettledPage(
+      bridgeWith({
+        attentionOsPermissionRead: async () =>
+          await Promise.resolve({ status: "served", value: { status: "denied" } } as const),
+      }),
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("not permitting desktop notifications");
+    expect(text).toContain("still reaches the rail");
+  });
+
+  it("negative control: a granted permission says nothing at all", async () => {
+    const container = await renderSettledPage(
+      bridgeWith({
+        attentionOsPermissionRead: async () =>
+          await Promise.resolve({ status: "served", value: { status: "granted" } } as const),
+      }),
+    );
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("not permitting desktop notifications");
+    expect(text).not.toContain("cannot see whether the operating system");
   });
 });
 

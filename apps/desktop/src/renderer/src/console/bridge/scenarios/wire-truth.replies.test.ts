@@ -11,8 +11,13 @@
 
 import { describe, expect, it } from "vitest";
 
+import { CONSOLE_DAEMON_METHODS } from "../daemon/index.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
+import {
+  CORPUS_CONTROL_PLANE_PROCEDURES,
+  CORPUS_DAEMON_METHODS_NOT_YET_BOUND,
+} from "./wire-truth/reply-walk.js";
 import type { ConsoleScenario, ScenarioReply } from "../scenario-runtime/scenario.js";
 
 /** A call the flagship scripts no answer for, so a case adds one rather than shadowing one. */
@@ -84,6 +89,41 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
     // daemon binding table, or a growth row's own expected wire method, which is what
     // admits `agent.list`.
     expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+  });
+
+  it("keeps both transcribed classes disjoint from the derived binding table", () => {
+    // The claim that makes a transcription safe to carry at all. A name in both places
+    // is admitted twice, and the copy here would then outlive the surface that put it
+    // in the binding table — so the transcription would go on serving a method the
+    // console has since stopped binding, with nothing reporting it. Neither list is
+    // allowed to shadow the registry it exists beside.
+    const bound = new Set<string>(CONSOLE_DAEMON_METHODS as readonly string[]);
+    const shadowed = [
+      ...CORPUS_DAEMON_METHODS_NOT_YET_BOUND,
+      ...CORPUS_CONTROL_PLANE_PROCEDURES,
+    ].filter((name) => bound.has(name));
+
+    expect(shadowed).toStrictEqual([]);
+  });
+
+  it("passes a control-plane procedure, which no surface can ever move into the table", () => {
+    // The permanent class doing its one job. `runtimenode.attach` is registered by the
+    // corpus and reached over the control-plane arm by the absorbed attach flow, so the
+    // daemon binding table could not hold it whatever calls it — and without the list a
+    // scenario scripting the attach reply would be reported as an invented name.
+    expect(findScenarioWireTruthDefects([scenarioAnswering("runtimenode.attach")])).toStrictEqual(
+      [],
+    );
+  });
+
+  it("negative control: a bound method is clean through the table, not the transient list", () => {
+    // Without this the case above would hold over a leg that admitted every string in
+    // reach. The transient class is EMPTY, so no scripted call is admitted by it today:
+    // `run.queueList` is clean because the console binds it, and the assertion beside
+    // the case is what says the transcription had no part in that.
+    expect(CORPUS_DAEMON_METHODS_NOT_YET_BOUND).toStrictEqual([]);
+    expect(CONSOLE_DAEMON_METHODS as readonly string[]).toContain("run.queueList");
+    expect(findScenarioWireTruthDefects([scenarioAnswering("run.queueList")])).toStrictEqual([]);
   });
 });
 

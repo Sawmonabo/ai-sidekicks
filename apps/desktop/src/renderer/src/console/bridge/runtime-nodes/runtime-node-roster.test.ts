@@ -77,7 +77,10 @@ describe("every shipped roster frame", () => {
     for (const scenario of CONSOLE_SCENARIOS) {
       for (const frame of scenario.runtimeNodeRoster ?? []) {
         expect(() =>
-          RuntimeNodeRosterResponseSchema.parse({ nodes: [...frame.nodes] }),
+          RuntimeNodeRosterResponseSchema.parse({
+            nodes: [...frame.nodes],
+            controlHolder: frame.controlHolder,
+          }),
         ).not.toThrow();
         framesChecked += 1;
       }
@@ -93,6 +96,7 @@ describe("every shipped roster frame", () => {
     expect(() =>
       RuntimeNodeRosterResponseSchema.parse({
         nodes: [...(frame?.nodes ?? [])],
+        controlHolder: frame?.controlHolder ?? null,
         health: "green",
       }),
     ).toThrow();

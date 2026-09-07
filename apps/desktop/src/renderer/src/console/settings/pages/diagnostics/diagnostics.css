@@ -1,0 +1,285 @@
+/* The diagnostics page's four readings.
+ *
+ * A sibling sheet rather than a block in `settings.css`: the health banner, the stall
+ * badge, the failure card and the retention table are this page's shapes and nothing
+ * else in the console draws them. It enters through `settings-surface-body.ts`, which
+ * is the root of the chunk this page arrives in.
+ *
+ * THE THREE STATE TONES COME FROM THE PALETTE AND ARE NEVER MIXED HERE. `healthy` is
+ * plain, `degraded` is amber, `blocked` is red, and each pairs its text token with the
+ * tinted ground the contrast floor was measured against — an amber sentence on
+ * `surface` is a pairing nothing checked.
+ */
+
+/* --- The health banner ---------------------------------------------------- */
+
+.meridian-health-banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-health-banner__verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-health-banner__verdict--reading {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-health-banner__verdict-text {
+  min-width: 0;
+}
+
+.meridian-health-banner__components {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-health-banner__component {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  min-height: 1.5rem;
+}
+
+.meridian-health-banner__component-name {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.meridian-health-banner__component-checked {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* No animation. A skeleton that pulsed would be motion on a surface whose whole
+   claim is that it does nothing on a timer. */
+.meridian-health-banner__skeleton {
+  display: block;
+  width: 60%;
+  height: 0.75rem;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+/* --- The stall badge ------------------------------------------------------ */
+
+.meridian-stuck-badge {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-stuck-badge--healthy {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-stuck-badge--noticed {
+  border-color: var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+}
+
+.meridian-stuck-badge--escalated {
+  border-color: var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-stuck-badge__headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-stuck-badge--noticed .meridian-stuck-badge__headline {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-stuck-badge--escalated .meridian-stuck-badge__headline {
+  color: var(--meridian-red-text);
+}
+
+.meridian-stuck-badge__interval,
+.meridian-stuck-badge__reason,
+.meridian-stuck-badge__suggestion {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* --- The failure card ----------------------------------------------------- */
+
+.meridian-failure-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-failure-card__class {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-2);
+  margin: 0;
+}
+
+.meridian-failure-card__when {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-failure-card__summary {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-failure-card__axes {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-failure-card__axes dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meridian-failure-card__technical > summary {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: default;
+}
+
+.meridian-failure-card__payload {
+  margin: var(--meridian-space-2) 0 0;
+  padding: var(--meridian-space-2);
+  max-height: var(--meridian-enumeration-max-height);
+  overflow: auto;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- The recovery prompt -------------------------------------------------- */
+
+.meridian-recovery-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin-top: var(--meridian-space-3);
+}
+
+.meridian-recovery-prompt__lede {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-recovery-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-recovery-prompt__outcome {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* --- The redaction read-out ----------------------------------------------- */
+
+.meridian-redaction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-redaction__override {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-amber-mark);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-redaction__outbound {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-redaction__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-redaction__table th,
+.meridian-redaction__table td {
+  padding: var(--meridian-space-2) var(--meridian-space-2) var(--meridian-space-2) 0;
+  border-bottom: 1px solid var(--meridian-edge);
+  text-align: left;
+  vertical-align: top;
+}
+
+.meridian-redaction__table thead th {
+  color: var(--meridian-text-faint);
+  font-weight: 400;
+}
+
+.meridian-redaction__table tbody th {
+  color: var(--meridian-text);
+  font-weight: 400;
+}
+
+.meridian-redaction__what {
+  display: block;
+  margin-top: var(--meridian-space-1);
+  color: var(--meridian-text-muted);
+}

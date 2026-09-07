@@ -8,7 +8,12 @@
 import { crossMacrotaskBoundary } from "../../../../core/macrotask-boundary.test-support.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { bridgeReporting, pressCheckNow, renderSettled } from "./updates-block.test-support.js";
+import {
+  answerRestartConfirmation,
+  bridgeReporting,
+  pressCheckNow,
+  renderSettled,
+} from "./updates-block.test-support.js";
 
 describe("the updates block — nothing restarts without a press", () => {
   it("offers the restart only once the download has finished", async () => {
@@ -29,19 +34,13 @@ describe("the updates block — nothing restarts without a press", () => {
     expect(labels).not.toContain("Restart to apply");
   });
 
-  it("restarts only when the control is pressed", async () => {
+  it("restarts only when the confirmation is answered", async () => {
     const requestRestart = vi.fn(() => Promise.resolve());
     const { block: container } = await renderSettled(
       bridgeReporting({ status: "ready" }, { requestRestart }),
     );
     expect(requestRestart).not.toHaveBeenCalled();
-    const restart = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Restart to apply",
-    );
-    await act(async () => {
-      restart?.click();
-      await crossMacrotaskBoundary();
-    });
+    await answerRestartConfirmation(container, "Restart");
     expect(requestRestart).toHaveBeenCalledTimes(1);
   });
 
@@ -137,14 +136,7 @@ describe("the updates block — a control fails onto one line, however it failed
         },
       ),
     );
-    const restart = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Restart to apply",
-    );
-    await act(async () => {
-      restart?.click();
-      await crossMacrotaskBoundary();
-      await crossMacrotaskBoundary();
-    });
+    await answerRestartConfirmation(container, "Restart");
     expect(container.textContent ?? "").toContain("the updater cannot restart this build");
   });
 

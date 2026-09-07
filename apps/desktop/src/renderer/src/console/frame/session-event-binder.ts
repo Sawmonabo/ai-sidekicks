@@ -63,14 +63,25 @@
 // `bridge/daemon/session-event-payload.ts`: this module owns WHICH sessions are bound and for how
 // long, that one owns WHAT a delivered payload has to look like. Neither can be
 // wrong in the other's way.
+//
+// AND THE FIXTURE HANDLE IS A THIRD JOB, in `session-diagnostics-handle.ts`. This class
+// composes what the endurance tier may read — the three reads below, closed over this
+// binder's own state — and that module owns the page property they are installed on,
+// the define that gates the installation, and the identity check that keeps a replaced
+// binder's teardown from deleting the live one's handle. Splitting them is what stops a
+// lifecycle file from also being the console's page-property registrar.
 
 import type { Unsubscribe } from "../core/index.js";
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
+import { lossyStringify, reportTripwire } from "../core/index.js";
 import {
   SESSION_EVENT_STREAM,
   readConsoleSessionEvent,
   type ConsoleBridge,
 } from "../bridge/index.js";
+import {
+  SessionDiagnosticsHandle,
+  type ConsoleSessionDiagnostics,
+} from "./session-diagnostics-handle.js";
 import type { SessionStoreRegistry } from "../store/index.js";
 
 /** The site every tripwire this module reports names. */
@@ -91,48 +102,6 @@ const SITE = "console/frame/session-event-binder.ts";
  */
 type SessionStreamSubscribe = (event: string, handler: (payload: unknown) => void) => Unsubscribe;
 
-/**
- * What a fixture build exposes to the endurance tier, and nothing more.
- *
- * Three reads, no writes and no handles: a tier driving a real window from outside
- * the renderer can ask what is open, what is bound, and how much has flowed, and
- * cannot open a session, close one, or apply an event.
- */
-export interface ConsoleSessionDiagnostics {
-  /** Sessions the registry currently holds a store for, in open order. */
-  openSessionIds: () => readonly string[];
-  /**
-   * Events this window has put through one session's apply chokepoint.
-   *
-   * Deliberately NOT the store's timeline length: a store admits nothing until a
-   * read gives it a base state, so a timeline reading is zero for every session
-   * whose read has not landed, and a diagnostic that reports the same number
-   * whether or not this binder exists is worse than no diagnostic at all. This
-   * counts admissions to the chokepoint: deliveries the registry accepted for a
-   * session's apply queue. It is zero — correctly, and beside `boundSessionIds()`
-   * reading empty — on a window whose registry can initialise no store, because
-   * that window takes no wire subscription in the first place.
-   *
-   * Retained after a session closes, so the count FREEZES rather than vanishing.
-   * A reading that disappeared on close could not be told apart from a session
-   * that never received anything.
-   */
-  appliedEventCountFor: (sessionId: string) => number;
-  /** Sessions this binder currently holds a wire subscription for. */
-  boundSessionIds: () => readonly string[];
-}
-
-/*
- * The property a fixture build hangs the session diagnostics on.
- *
- * Declared in `core/fixture-globals.ts` and re-exported here, so this installer
- * and the release-absence sweep that proves the handle absent read one string.
- * Re-exported rather than only imported because the tier that reads it reaches
- * this module by name, so a rename is a compile error there instead of a check
- * that silently starts reading `undefined` and reports nothing forever.
- */
-export { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL };
-
 export interface SessionEventBinderOptions {
   readonly registry: SessionStoreRegistry;
   readonly bridge: ConsoleBridge;
@@ -143,8 +112,8 @@ export class SessionEventBinder {
   readonly #bridge: ConsoleBridge;
   readonly #unsubscribeBySessionId = new Map<string, Unsubscribe>();
   readonly #appliedEventCountBySessionId = new Map<string, number>();
+  readonly #diagnosticsHandle = new SessionDiagnosticsHandle();
   #unsubscribeFromRegistry: Unsubscribe | undefined;
-  #installedDiagnostics: ConsoleSessionDiagnostics | undefined;
   #unreadableDeliveryCount = 0;
   #droppedAfterCloseCount = 0;
   #attached = false;
@@ -190,7 +159,7 @@ export class SessionEventBinder {
         this.#bindSession(sessionId);
       }
     }
-    this.#installFixtureDiagnostics();
+    this.#diagnosticsHandle.install(this.#buildFixtureDiagnostics());
   }
 
   /** Sessions this binder holds a wire subscription for, in bind order. */
@@ -251,20 +220,48 @@ export class SessionEventBinder {
       unsubscribe();
     }
     this.#unsubscribeBySessionId.clear();
-    this.#removeFixtureDiagnostics();
+    this.#diagnosticsHandle.remove();
   }
 
+  /**
+   * Open one session's stream, and report what that told us about the transport.
+   *
+   * THE TRY IS THE CONSOLE'S ONE LIVE READING OF ITS OWN CONNECTION. This class holds
+   * every `daemon.subscribe` the window takes, so whether the wire answered is
+   * observable here and nowhere else — which is why the transport-reconnect signal is
+   * reported into from this method rather than probed from a timer somewhere.
+   *
+   * A throw used to leave this method as itself, out of the registry callback that
+   * called it and into a mount effect, taking the window down for a transport that
+   * was merely away. It is now recorded: the signal is told the wire is unreachable,
+   * the tripwire says which session could not be bound, and no handle is stored — so
+   * the session stays unbound and the next `opened` change re-attempts it, which is
+   * the returning edge the signal exists to report.
+   */
   #bindSession(sessionId: string): void {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
       return;
     }
     const subscribe = this.#bridge.sidekicks.daemon.subscribe as SessionStreamSubscribe;
-    this.#unsubscribeBySessionId.set(
-      sessionId,
-      subscribe(SESSION_EVENT_STREAM, (payload) => {
+    let release: Unsubscribe;
+    try {
+      release = subscribe(SESSION_EVENT_STREAM, (payload) => {
         this.#deliver(sessionId, payload);
-      }),
-    );
+      });
+    } catch (subscriptionFailure: unknown) {
+      this.#bridge.transportReconnect.observe("unreachable");
+      reportTripwire(
+        "apply-chokepoint-bypass",
+        SITE,
+        `the event stream for session ${sessionId} could not be opened (${lossyStringify(subscriptionFailure)}); the binder holds no subscription for it and the transport is reported unreachable`,
+      );
+      return;
+    }
+    // Reported per bind rather than once per window, and the repetition is free: the
+    // signal emits on a CHANGE, so a window with four sessions open reports
+    // `reachable` four times for one transport and wakes no reading three of them.
+    this.#bridge.transportReconnect.observe("reachable");
+    this.#unsubscribeBySessionId.set(sessionId, release);
     // The read that gives the store its base state, asked for at the one moment
     // that knows a stream just started. `subscribe` is a registered refresh reason
     // and means precisely this. Without it a bound session buffers forever —
@@ -327,46 +324,5 @@ export class SessionEventBinder {
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),
       boundSessionIds: (): readonly string[] => this.boundSessionIds,
     });
-  }
-
-  /*
-   * Expose the reads to the page under the fixture define, and only there.
-   *
-   * The same guard, and for the same reason, as the tripwire registry's: the
-   * endurance tier drives a real window from outside the renderer, so the only way
-   * it can read this binder is through the page, and letting the tier treat an
-   * unreachable binder as "nothing to assert" would be a check that passes whether
-   * or not the thing it measures exists.
-   *
-   * `__SIDEKICKS_CONSOLE_FIXTURES__` is a literal at build time, so a release
-   * bundle contains neither the property nor the object it would have held.
-   */
-  #installFixtureDiagnostics(): void {
-    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      const diagnostics = this.#buildFixtureDiagnostics();
-      this.#installedDiagnostics = diagnostics;
-      (globalThis as Record<string, unknown>)[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL] = diagnostics;
-    }
-  }
-
-  /**
-   * Remove this binder's handle, and only this binder's.
-   *
-   * One property, one renderer process — the tripwire registry's posture — so a
-   * second console mounted in the same page replaces the first one's handle. The
-   * identity check is what keeps the teardown of the REPLACED binder from deleting
-   * the live one's.
-   */
-  #removeFixtureDiagnostics(): void {
-    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      const page = globalThis as Record<string, unknown>;
-      if (
-        this.#installedDiagnostics !== undefined &&
-        page[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL] === this.#installedDiagnostics
-      ) {
-        delete page[SESSION_DIAGNOSTICS_FIXTURE_GLOBAL];
-      }
-      this.#installedDiagnostics = undefined;
-    }
   }
 }

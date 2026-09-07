@@ -282,7 +282,7 @@ describe("memberships — one change at a time", () => {
       container.querySelectorAll<HTMLButtonElement>(".meridian-members__revoke")[rowIndex]?.click();
     });
     act(() => {
-      document.querySelector<HTMLButtonElement>(".meridian-members__dialog-confirm")?.click();
+      document.querySelector<HTMLButtonElement>(".meridian-confirm__confirm")?.click();
     });
   }
 

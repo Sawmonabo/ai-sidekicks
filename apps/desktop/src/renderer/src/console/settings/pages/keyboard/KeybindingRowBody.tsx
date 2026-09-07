@@ -8,7 +8,7 @@
 // makes about that keystroke comes back from `readChordFromEvent`, so the recorder's
 // grammar is tested as a pure function rather than through a DOM.
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { ConsoleRefusal } from "../../../core/index.js";
 import { ChordHint, InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
@@ -28,6 +28,17 @@ export interface KeybindingRowBodyProps {
 }
 
 /**
+ * What a reset control promises, in words, for one row.
+ *
+ * Exported because the page's reset-ALL control makes the same promise over a set and
+ * must make it in the same words: two spellings of "back to none" is two answers to
+ * one question, and only one of them can be the one a person reads twice.
+ */
+export function describeShippedChord(shippedChord: string | undefined): string {
+  return shippedChord === undefined ? "no chord" : shippedChord;
+}
+
+/**
  * One row: what runs, on what keys, in what scope, and how to change it.
  *
  * Both controls carry the command's own name in their accessible label, the way
@@ -38,6 +49,13 @@ export interface KeybindingRowBodyProps {
  */
 export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
   const { row, recording } = props;
+  // The keys held so far, for as long as this recorder is armed. Local because it is
+  // a fact about ONE press in ONE row's control and nothing above the row can act on
+  // it — and cleared by the page's own `recording` flag rather than by a second
+  // lifecycle here: when the row stops recording there are no keys held, whichever
+  // way the recording ended.
+  const [heldModifiers, setHeldModifiers] = useState<readonly string[]>([]);
+  const heldChord = heldModifiers.join("+");
   return (
     <>
       <div className="meridian-keymap__head">
@@ -62,9 +80,13 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
           className="meridian-keymap__record"
           aria-pressed={recording}
           aria-label={recording ? `Press a chord for ${row.title}` : `Rebind ${row.title}`}
-          onClick={props.onStartRecording}
+          onClick={() => {
+            setHeldModifiers([]);
+            props.onStartRecording();
+          }}
           onBlur={() => {
             if (recording) {
+              setHeldModifiers([]);
               props.onRecorded({ outcome: "cancelled" });
             }
           }}
@@ -77,9 +99,15 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
             event.preventDefault();
             event.stopPropagation();
             const read = readChordFromEvent(event.nativeEvent);
-            if (read.outcome !== "incomplete") {
-              props.onRecorded(read);
+            if (read.outcome === "incomplete") {
+              // A chord on its way, drawn rather than swallowed: the keys are held
+              // right now and the row says which, so a person can see the console
+              // received `⌘` before they press the key that completes it.
+              setHeldModifiers(read.heldModifiers);
+              return;
             }
+            setHeldModifiers([]);
+            props.onRecorded(read);
           }}
         >
           {recording ? "Press a chord" : "Rebind"}
@@ -88,15 +116,28 @@ export function KeybindingRowBody(props: KeybindingRowBodyProps): ReactNode {
           <button
             type="button"
             className="meridian-keymap__reset"
-            aria-label={`Reset ${row.title} to the chord the console ships`}
+            aria-label={`Reset ${row.title} to ${describeShippedChord(row.shippedChord)}, the chord the console ships`}
             onClick={props.onReset}
           >
-            Reset
+            {row.shippedChord === undefined ? (
+              "Reset to no chord"
+            ) : (
+              <>
+                Reset to <ChordHint chord={row.shippedChord} />
+              </>
+            )}
           </button>
         ) : null}
         {recording ? (
           <span className="meridian-keymap__recording-hint">
-            Escape leaves it alone; Backspace clears it.
+            {heldChord === "" ? (
+              "Nothing held yet. Escape leaves it alone; Backspace clears it."
+            ) : (
+              <>
+                Holding <ChordHint chord={heldChord} /> — the chord is not complete until a
+                non-modifier key lands. Escape leaves it alone; Backspace clears it.
+              </>
+            )}
           </span>
         ) : null}
       </div>

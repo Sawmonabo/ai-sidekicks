@@ -1,0 +1,42 @@
+/* The line under an account-plane refusal that names where it is answered.
+
+   Its own sheet beside the component that owns it, because the block is one
+   subject and the settings page chrome it sits inside knows nothing about it.
+
+   The action is a text button rather than a filled one: the refusal above it is
+   already the loud thing on the surface, and rule 5's two-hue budget is spent on
+   the refusal's own mark. A second emphatic control here would compete with the
+   sentence a person still has to read. */
+
+.meridian-account-handoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-2) 0 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-account-handoff__sentence {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+
+.meridian-account-handoff__action {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.meridian-account-handoff__action:focus-visible {
+  outline: var(--meridian-focus-ring);
+  outline-offset: var(--meridian-space-1);
+  border-radius: var(--meridian-radius-sm);
+}

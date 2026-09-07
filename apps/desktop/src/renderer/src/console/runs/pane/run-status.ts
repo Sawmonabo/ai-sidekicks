@@ -125,28 +125,12 @@ export const RUN_STATE_TONES: Readonly<Record<RunState, ChipTone>> = {
   failed: "failure",
 };
 
-/**
- * The states in which a run is still the daemon's to move.
- *
- * Used to decide which controls a row OFFERS, never whether the daemon will admit
- * one: eligibility is the daemon's and reaches the surface as a typed refusal —
- * `Spec-023 §Rules every console surface obeys`, "eligibility is never projected by
- * the renderer". What this answers is the narrower question of whether a control is
- * meaningful at all — a `completed` run has no turn to interrupt.
- */
-const LIVE_STATES: ReadonlySet<RunState> = new Set<RunState>([
-  "queued",
-  "starting",
-  "running",
-  "waiting_for_approval",
-  "waiting_for_input",
-  "paused",
-]);
-
-/** Whether a run is still moving, by the state the daemon last reported. */
-export function isLiveRunState(state: RunState): boolean {
-  return LIVE_STATES.has(state);
-}
+// THE LIVENESS PREDICATE IS NOT HERE ANY MORE. `isLiveRunState` began in this module
+// and its second reader — the settings surface's restart confirmation, which names the
+// runs a restart would interrupt — is a SIBLING view family that may not import it from
+// here. It now lives beside `readRunState` in `bridge/daemon/wire-identifiers.ts`, the
+// console's one home for reading the wire's run-state vocabulary, and this pane's own
+// controls take it through the bridge door like any other family.
 
 /** Whether the run is blocked on a person or an approval rather than working. */
 export function isBlockedRunState(state: RunState): boolean {

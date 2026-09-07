@@ -53,7 +53,12 @@ export type GrowthSlateRowId =
   | "sidekick-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
-  | "workflow-version-chain";
+  | "workflow-version-chain"
+  | "os-notification-permission"
+  | "health-diagnostics-reads"
+  | "provider-account-signin-and-token"
+  | "mcp-governance-plane"
+  | "node-self-declaration";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -381,6 +386,47 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  "os-notification-permission": {
+    id: "os-notification-permission",
+    wire: "whether this machine's operating system permits the shell to raise a notification at all — a shell reading, registered on no bridge namespace and in no document",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (the shell namespace a permission reading would join); Spec-019 §Required Behavior (which requires in-app attention to survive a denied OS permission, and never says how a surface learns of one)",
+    consumingSurface: "notifications settings page",
+    wireRegistered: false,
+  },
+  "health-diagnostics-reads": {
+    id: "health-diagnostics-reads",
+    wire: "the five `health.*` reads — the machine's status projection, one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The health SUBSCRIPTION is a separate row and a separate wire: this page is forbidden to consume one",
+    owningDocument:
+      "Spec-020 §Required Behavior (the health, failure-classification, stuck-run, recovery, and redaction-policy surfaces); api-payload-contracts.md §Plan-020 — Observability And Failure Recovery and §Health Method-Name Registry (the five method strings and their request/reply shapes, registered there and in no code package — `packages/contracts/src/health/health.ts` is named as their eventual home and does not exist)",
+    consumingSurface: "diagnostics settings page",
+    wireRegistered: false,
+  },
+  "provider-account-signin-and-token": {
+    id: "provider-account-signin-and-token",
+    wire: "the brokered sign-in, its cancel, and the registration that carries the one write-only non-interactive token member — the three account-plane verbs the registry read and its live tail do not cover",
+    owningDocument:
+      "Spec-029 §Node provider readiness and the sign-in handoff and §Non-interactive token registration; ADR-028 §Decision (D1 brokered sign-in, D2 bounded token custody); api-payload-contracts.md §Plan-029 (the three method strings, whose request and reply shapes `packages/contracts/src/provider-account.ts` already publishes and which no bridge namespace serves)",
+    consumingSurface:
+      "provider-accounts settings page (the sign-in card and the write-only token field)",
+    wireRegistered: false,
+  },
+  "mcp-governance-plane": {
+    id: "mcp-governance-plane",
+    wire: "the MCP governance namespace — the unified server inventory read and the enablement and trust mutations, with the binding identity, the redacted configuration read-back, the per-leg live status, the tool overrides, and the per-leg application outcomes they carry. Eight further operations are registered on the same namespace (upsert, remove, the two override verbs, OAuth login, reconnect, the per-binding get, and the live-status subscription) and are the owning plan's to call from the body it mounts",
+    owningDocument:
+      "Spec-028 §The operator surface and §Unified Inventory; api-payload-contracts.md §Plan-028 — MCP Governance Contract Surfaces (the eleven method strings and every shape above, registered there and in no code package)",
+    consumingSurface: "MCP servers settings page",
+    wireRegistered: false,
+  },
+  "node-self-declaration": {
+    id: "node-self-declaration",
+    wire: "a read delivering this node's own attach declaration — its identity, contract version, self-reported health, and capability set — to the renderer. Registered nowhere: the trust stance puts the declaration's composition in the main process and no bridge namespace carries it, so the attach control mounts against the fixture only",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (the shell namespace a node self-declaration would join, on the shell-config carrier's precedent); Spec-023 §Trust Stance (which puts the composition in main)",
+    consumingSurface: "settings runtime-nodes page (the attach control)",
     wireRegistered: false,
   },
 };

@@ -99,6 +99,20 @@
 //   Plan-023 Tier 8 wires the real IPC handler. The remaining gap is the
 //   bridge WIRING, not the contract.
 //
+// THE TRANSPORT IS SUBSTITUTABLE, and that is the one thing added to this view since
+// it shipped. `attach-request.ts` beside it declares `RuntimeNodeAttachReads`, the
+// seam this flow's single wire call goes through, and the optional `reads` prop below
+// hands one in. The DEFAULT is the arm this file has always used — the installed
+// preload bridge — so a caller that supplies nothing behaves exactly as before, which
+// is what makes this additive rather than a migration. What it buys is a host that
+// resolves its own transport: under a fixture build `window.sidekicks` is either
+// absent, and this view crashes into a surface boundary, or it is the live daemon
+// answering beside fixture data in the same window — so before the seam this flow
+// could not be rendered under any scenario at all. Mirrors `NodeRosterReads` on the
+// sibling roster, whose seam is required rather than optional for the same reason in
+// reverse: that one had a default and retired it, this one never had a second home
+// for its procedure name to drift into.
+//
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports ONLY:
 //   • `react` — the renderer's UI engine; explicitly allowed.
 //   • Type-only from `@ai-sidekicks/contracts` — the contracts package is
@@ -124,6 +138,7 @@ import {
   settleAttachRequest,
   type AttachViewState,
   type RuntimeNodeAttachDraft,
+  type RuntimeNodeAttachReads,
 } from "./attach-request.js";
 import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 
@@ -159,6 +174,16 @@ import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 export interface AttachFlowProps {
   sessionId: SessionId;
   attachDraft: RuntimeNodeAttachDraft;
+  /**
+   * The transport this flow attaches through, or the installed preload bridge.
+   *
+   * OPTIONAL, so every caller that predates the seam is unchanged. A host that
+   * resolved its own bridge holds a different object from the installed one and
+   * cannot otherwise stand in for it — which is precisely what made this view
+   * unrenderable under a fixture — so it supplies the pair rather than reaching for
+   * the global on this view's behalf.
+   */
+  reads?: RuntimeNodeAttachReads;
 }
 
 /**
@@ -173,7 +198,7 @@ export interface AttachFlowProps {
  * renderer consumers structurally consistent and fits the Tier-1 sync-throw
  * normalization, which needs an explicit `try/catch` around the bridge call.
  */
-export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.JSX.Element {
+export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): React.JSX.Element {
   const [attachViewState, setAttachViewState] = useState<AttachViewState>({ kind: "idle" });
 
   // Attachment-identity prop reset (React's "Adjusting some state when a prop
@@ -228,7 +253,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     // makes: pending on the way out, and whatever the request settled to on the way
     // back. `settleAttachRequest` settles on every path and rejects on none, so there
     // is deliberately no second failure route attached to this call.
-    void settleAttachRequest(sessionId, attachDraft).then(setAttachViewState);
+    void settleAttachRequest(sessionId, attachDraft, reads).then(setAttachViewState);
   };
 
   // The node's attach declaration, rendered on EVERY branch — the four

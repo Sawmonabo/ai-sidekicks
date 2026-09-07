@@ -18,8 +18,19 @@
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
 // and never reach the engine's teardown rules or its held-reply queue.
 
-import type { MembershipRole, RuntimeNodeRosterEntry } from "@ai-sidekicks/contracts";
+import type {
+  MembershipRole,
+  ParticipantId,
+  RuntimeNodeRosterEntry,
+  UpdateState,
+} from "@ai-sidekicks/contracts";
 
+// Type-only, and into a subtree the console ABSORBS rather than one that mounts into
+// it — `.dependency-cruiser.mjs`'s `console-not-plan-subtree` names the three absorbed
+// families as the deliberate exception. The alias is `RuntimeNodeAttachRequest` minus
+// its session id, derived from the shipped contract by construction, so restating its
+// shape here would be a second spelling of one wire fact.
+import type { RuntimeNodeAttachDraft } from "../../../runtime-node-attach/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
 
@@ -51,6 +62,22 @@ export interface ScenarioBeat {
 export interface ScenarioRuntimeNodeRosterFrame {
   readonly atMs: number;
   readonly nodes: readonly RuntimeNodeRosterEntry[];
+  /**
+   * Who holds the session's shared-terminal write lease at this tick.
+   *
+   * REQUIRED, and required for the same reason `nodes` is: a frame is a whole
+   * registered response, and the registered response carries this member on
+   * every reply. Optional here, an unstated holder would read as a free lease —
+   * a reading the scenario never made — and the deck would grow frames whose
+   * holder nobody decided.
+   *
+   * `null` is a reading rather than a gap, and it deliberately carries two of
+   * them at once: the lease is free, or a held lease is read-suppressed because
+   * its producing node is server-classified offline. A client cannot tell those
+   * apart and neither can a scenario, which is the fail-closed shape the wire
+   * has.
+   */
+  readonly controlHolder: ParticipantId | null;
 }
 
 /** What every canned reply carries, whichever way it settles. */
@@ -217,6 +244,61 @@ export interface ConsoleScenario {
    * whose ANSWER is a function of the clock.
    */
   readonly runtimeNodeRoster?: readonly ScenarioRuntimeNodeRosterFrame[];
+  /**
+   * The declaration a local runtime node would make about itself, where the scenario
+   * states one.
+   *
+   * OPTIONAL, and the absence is the honest answer rather than a gap: the attach
+   * declaration is a machine's claim about its own identity, contract version, health
+   * and capabilities, and `Spec-023 §Trust Stance` puts its composition in the main
+   * process, off the node registry — never in a renderer, which may not vouch for a
+   * machine on its own word. A scenario that names none leaves the attach control
+   * unmountable and the surface says so, which is exactly what a window with no such
+   * registry behind it should say.
+   *
+   * Here rather than in a `replies` row because a reply is what the daemon ANSWERS and
+   * this is what the caller SENDS — the reply table is keyed by call name and would
+   * have to hold a request under the name of a mutation.
+   */
+  readonly runtimeNodeAttachDraft?: RuntimeNodeAttachDraft;
+  /**
+   * What the shell's updater reports, where the scenario states one.
+   *
+   * OPTIONAL, and the default is the one the fixture answered before this member
+   * existed: a bare `idle` carrying no last-check instant. That default is load-
+   * bearing rather than incidental — `UpdateState`'s `idle` arm carries an optional
+   * `lastCheckedAt`, and a fixture that supplied one on every scenario would make
+   * the never-checked arm unreachable in the deck, which is the arm a fresh install
+   * is actually in.
+   *
+   * The updater is a SHELL surface rather than a daemon one, so it is a scenario
+   * member and not a `replies` row: the reply table is keyed by daemon method or
+   * control-plane procedure name, and `update.getState` is neither.
+   */
+  readonly updaterState?: UpdateState;
+  /**
+   * When this window's transport is lost and when it comes back, in scenario time.
+   *
+   * The fixture's half of the console's one transport-reconnect signal
+   * (`bridge/transport/transport-reconnect.ts`): a scenario that names an outage
+   * drives the signal through `unreachable` and back, and every reading wired to it
+   * re-reads on the returning edge. A scenario that names none never reports a
+   * reconnect, which is the honest reading of a window whose wire never went away.
+   */
+  readonly transportOutages?: readonly ScenarioTransportOutage[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
+}
+
+/**
+ * One scripted transport outage: when the wire went away, and when it returned.
+ *
+ * Both instants are measured from scenario start, as a beat's `atMs` is. They are
+ * required together because an outage with no end is not a reconnect and would be
+ * scripted by simply never restoring — a member carrying one without the other is
+ * the shape that reads as an outage and produces no edge.
+ */
+export interface ScenarioTransportOutage {
+  readonly lostAtMs: number;
+  readonly restoredAtMs: number;
 }

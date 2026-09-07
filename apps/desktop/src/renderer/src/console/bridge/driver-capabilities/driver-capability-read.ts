@@ -279,7 +279,7 @@ export function useDriverCapabilities(bridge: ConsoleBridge): DriverCapabilityRe
     [reading],
   );
   const readSnapshot = useCallback(() => reading.readout, [reading]);
-  useWindowReadTriggers(reading);
+  useWindowReadTriggers(reading, bridge.transportReconnect);
 
   return useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
 }

@@ -158,7 +158,7 @@ export function useAgentBindingReading(
   // All four reasons, from the one place the console wires them. What stood here was
   // an effect armed once per addressing, so a switch queued by a collaborator after
   // this composer mounted never reached the chip.
-  useReadTriggers(reading, sessionStore);
+  useReadTriggers(reading, sessionStore, bridge.transportReconnect);
   const readout = useSyncExternalStore(
     (onReadoutChanged) => reading.subscribe(onReadoutChanged),
     () => reading.readout,

@@ -188,6 +188,56 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
+// WHY ALL FIVE DIAGNOSTICS READS ARE SERVED, AND WHY THREE OF THEM SCRIPT-ONLY
+//
+// The diagnostics page is five regions and every one of them was drawn against its
+// own absence, because no operation existed to answer any of them. Serving the plane
+// is what makes the page's real states reachable at all — a degraded component, a run
+// the daemon suspects is stuck, a classified failure, a retention override in force —
+// and none of those could be reached from a scenario, a screenshot, or a test while
+// the whole plane refused.
+//
+// The two that answer under ANY scenario are the two whose empty form is a real
+// daemon answer. A machine with no components read is not a machine in trouble, and a
+// redaction policy with no bucket overrides is the default posture rather than a
+// missing reply; the page draws both. The other three are `FIXTURE_SCRIPT_ONLY`: a
+// failure detail and a stall reading are READS ADDRESSED BY A SUBJECT — each answers
+// with facts about one named run, so an empty form would assert the run exists and
+// has nothing wrong with it — and the recovery request is a WRITE, whose synthesized
+// receipt would tell the page the daemon moved a run no author ever declared.
+//
+// The live bridge keeps refusing all five, so nothing a release build renders moves.
+
+// WHY THE THREE ACCOUNT-PLANE WRITES ARE SERVED, AND ALL THREE SCRIPT-ONLY
+//
+// The accounts page reads the registry over the BOUND call door and follows its tail
+// over the bound subscription, so the read half of that surface needs nothing from
+// this port. What it could not reach at all was the handoff: a brokered sign-in card
+// with a verification URI and a deadline, its cancel, and the registration that
+// carries the one write-only token member. Every one of those states was unreachable
+// from any scenario while the three verbs refused, which means nobody had drawn them.
+//
+// All three are `FIXTURE_SCRIPT_ONLY` and none of them has an empty form. A sign-in
+// answers with a daemon-minted attempt and a URL the operator visits — synthesize one
+// and the page puts a link on screen that leads nowhere. A cancel answers what became
+// of a named attempt. A registration answers with the account it created, which mints
+// an identity every later registry read is keyed by.
+//
+// WHY THE MCP INVENTORY READ IS SERVED AND ITS TWO MUTATIONS ARE NOT
+//
+// The operator page is an inventory and the controls on its rows, and none of it was
+// reachable: no `mcp.*` wire is bound anywhere, so the whole page could only ever be
+// drawn against one refusal. The read answers the EMPTY inventory for a scenario that
+// scripts nothing, on the invite ledger's rule — a node governing no MCP servers is an
+// ordinary node and the page draws that state with its add action, while "the inventory
+// could not be read" is what a release build renders and is a different sentence.
+//
+// The two mutations are script-only for the reason that decides every write here, and
+// one more that is this plane's own: each answers with the row as it now stands plus
+// the per-leg outcomes of applying the change to live sessions, and a synthesized reply
+// would report that the daemon reconciled sessions no author ever declared — the
+// partial-outcome arm this page exists to render honestly.
+
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
 /**
@@ -223,6 +273,17 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "healthStatusRead",
+  "healthFailureDetailRead",
+  "healthStuckRunInspect",
+  "healthRecoveryActionRequest",
+  "healthRedactionPolicyRead",
+  "providerAccountLogin",
+  "providerAccountLoginCancel",
+  "providerAccountRegister",
+  "mcpList",
+  "mcpSetEnabled",
+  "mcpSetTrust",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -265,6 +326,23 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // diagnostics — the five reads the settings page is built from. Two answer under
+  // any scenario and three refuse without a script; see the header.
+  "healthStatusRead",
+  "healthFailureDetailRead",
+  "healthStuckRunInspect",
+  "healthRecoveryActionRequest",
+  "healthRedactionPolicyRead",
+  // provider accounts — the three verbs the bound registry read and its live tail do
+  // not cover. All three are script-only; see the header.
+  "providerAccountLogin",
+  "providerAccountLoginCancel",
+  "providerAccountRegister",
+  // MCP governance — the inventory read answers the empty inventory under any
+  // scenario, and the two mutations refuse without a script.
+  "mcpList",
+  "mcpSetEnabled",
+  "mcpSetTrust",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -298,4 +376,12 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "healthFailureDetailRead",
+  "healthStuckRunInspect",
+  "healthRecoveryActionRequest",
+  "providerAccountLogin",
+  "providerAccountLoginCancel",
+  "providerAccountRegister",
+  "mcpSetEnabled",
+  "mcpSetTrust",
 ];

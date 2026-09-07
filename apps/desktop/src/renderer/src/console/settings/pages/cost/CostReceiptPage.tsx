@@ -36,12 +36,22 @@
 // recomputed "for consistency" — so they are stated on the page with a test holding
 // them, which is what keeps the body inside a frame that forbids it.
 
-import { useEffect, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 
+import { consoleClockFor } from "../../../bridge/index.js";
 import { Chip, useAnnounce } from "../../../primitives/index.js";
 import { consoleRefusalFrom } from "../../../seats/index.js";
-import { useSubjectScopedState } from "../../../store/index.js";
-import { announcementFor, type CostReceiptReading } from "./cost-receipt-model.js";
+import {
+  NO_TRIGGERING_EVENT_KINDS,
+  useSubjectScopedState,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+} from "../../../store/index.js";
+import {
+  announcementFor,
+  type CostReceiptReading,
+  type RetainedReceipt,
+} from "./cost-receipt-model.js";
 import { DefinitionGrid } from "../../shared/DefinitionGrid.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 import { ReceiptBody } from "./ReceiptBody.js";
@@ -82,7 +92,12 @@ const RECEIPT_RULES: readonly string[] = [
 ];
 
 export function CostReceiptPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const { bridge, retainedSessionId } = props.context;
+  // Bound to the name the read itself uses. The page's context calls it
+  // `retainedSessionId` because a settings ADDRESS carries no session and the frame
+  // supplies the one this window last opened; inside the page it is simply the
+  // session being read, and naming it so is what lets the memo below state its
+  // dependency in the same word its request does.
+  const { bridge, retainedSessionId: sessionId } = props.context;
   const announce = useAnnounce();
   // HELD FOR THE SESSION IT WAS READ FOR, through the family's one holder. The
   // previous shape was a `useState` cell cleared at the top of the effect, and
@@ -93,42 +108,74 @@ export function CostReceiptPage(props: { readonly context: SettingsPageContext }
   // first sees a new session already reads that session's own seed.
   const { value: reading, publish: publishReading } = useSubjectScopedState<
     CostReceiptReading | undefined
-  >(bridge, retainedSessionId, () => undefined);
+  >(bridge, sessionId, () => undefined);
+  // The last figure this session was actually served, held beside the reading rather
+  // than inside it. Subject-scoped like the reading itself, so no other session's
+  // figure is ever the one retained under this session's name.
+  const { value: retained, publish: publishRetained } = useSubjectScopedState<
+    RetainedReceipt | undefined
+  >(bridge, sessionId, () => undefined);
+  // The scenario's frozen clock under the fixture, the real one otherwise, so a story
+  // stamps the retained figure with the same instant it stamps everything else.
+  //
+  // Resolved through the family's own holder rather than `useConsoleClock`, which
+  // reads the bridge PROVIDER: this page is mounted from a settings board that hands
+  // it a bridge directly, and reaching for the provider would make the clock a
+  // second, stricter requirement than the bridge the page already has. Pinned rather
+  // than read per call because the live arm of `consoleClockFor` MINTS — the reading
+  // it gives is the same either way, and holding one is what keeps the effect's
+  // dependency stable.
+  const { value: clock } = useSubjectScopedState(bridge, undefined, () => consoleClockFor(bridge));
 
-  useEffect(() => {
-    if (retainedSessionId === undefined) {
-      return undefined;
-    }
-    // The publisher guards the VALUE — captured during this render, it names the
-    // session that asked, so a settlement arriving after a re-address publishes
-    // nowhere. This flag guards the ANNOUNCEMENT, which the publisher cannot: the
-    // announcer is the window's, addressed by nothing, and speaking a figure for a
-    // session nobody is looking at is exactly what it must not do.
-    let isAttached = true;
-    void bridge.growth.orchestrationCostReceiptRead({ sessionId: retainedSessionId }).then(
-      (outcome) => {
-        publishReading({ kind: "answered", outcome });
-        if (isAttached) {
-          // Once per settled read, politely: nothing the room can do has moved.
-          announce(announcementFor(outcome));
+  const readTarget = useMemo<ReadTriggerTarget>(
+    () => ({
+      // Empty, and the emptiness is a claim about the FOLD rather than an omission:
+      // the receipt is emitted once per priced turn and its own timeline kinds are
+      // not on this window's session store, so nothing here learns from the tail.
+      triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
+      requestRead: () => {
+        if (sessionId === undefined) {
+          return;
         }
+        // The publisher guards the VALUE — captured during this render, it names the
+        // session that asked, so a settlement arriving after a re-address publishes
+        // nowhere. The announcement it cannot guard: the announcer is the window's,
+        // addressed by nothing, and speaking a figure for a session nobody is looking
+        // at is exactly what it must not do — which is why the publisher is what
+        // decides whether this settlement is still this page's at all.
+        void bridge.growth.orchestrationCostReceiptRead({ sessionId }).then(
+          (outcome) => {
+            publishReading({ kind: "answered", outcome });
+            if (outcome.status === "served") {
+              publishRetained({
+                receipt: outcome.value,
+                readAtIso: new Date(clock.now()).toISOString(),
+              });
+            }
+            // Once per settled read, politely: nothing the room can do has moved.
+            announce(announcementFor(outcome));
+          },
+          // The port's contract is that it resolves, and a rejection is off it — which
+          // is why this arm exists rather than being left to the window's unhandled
+          // handler. Without it the page renders "Reading this session's receipt" for
+          // the life of the window, reporting a read that failed as one still in flight.
+          (rejection: unknown) => {
+            const refusal = consoleRefusalFrom(rejection, COST_RECEIPT_ORIGIN);
+            publishReading({ kind: "unreadable", refusal });
+            announce(refusal.detail);
+          },
+        );
       },
-      // The port's contract is that it resolves, and a rejection is off it — which is
-      // why this arm exists rather than being left to the window's unhandled handler.
-      // Without it the page renders "Reading this session's receipt" for the life of
-      // the window, reporting a read that failed as one still in flight.
-      (rejection: unknown) => {
-        const refusal = consoleRefusalFrom(rejection, COST_RECEIPT_ORIGIN);
-        publishReading({ kind: "unreadable", refusal });
-        if (isAttached) {
-          announce(refusal.detail);
-        }
-      },
-    );
-    return () => {
-      isAttached = false;
-    };
-  }, [bridge, retainedSessionId, announce, publishReading]);
+    }),
+    [bridge, sessionId, announce, clock, publishReading, publishRetained],
+  );
+  // The mount, the window regaining focus, and the transport coming back. A receipt
+  // is a SESSION's, but the two session-scoped triggers are deliberately not wired:
+  // this page holds no session store to read a timeline or a repair edge from, and
+  // asking for one here would tie the figure to whichever store the settings address
+  // happened to resolve — which is also why the reconnect edge is taken from the
+  // bridge rather than from a session's own repair.
+  useWindowReadTriggers(readTarget, bridge.transportReconnect);
 
   return (
     <div className="meridian-settings-page">
@@ -144,7 +191,7 @@ export function CostReceiptPage(props: { readonly context: SettingsPageContext }
         <Chip tone="neutral" label="One session" glyph="sessions" />
       </div>
 
-      <ReceiptBody sessionId={retainedSessionId} reading={reading} />
+      <ReceiptBody sessionId={sessionId} reading={reading} retained={retained} />
 
       <section className="meridian-settings-page__block" aria-label="How the figure is split">
         <h3 className="meridian-settings-page__block-title">How the figure is split</h3>

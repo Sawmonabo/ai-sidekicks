@@ -805,3 +805,91 @@ export const PHASE_GRAPH_MIN_ZOOM = 0.35;
  * there is nothing on this surface to inspect at pixel scale.
  */
 export const PHASE_GRAPH_MAX_ZOOM = 1.5;
+
+// ── The shell's own shutdown budget ──────────────────────────────────────────
+
+/**
+ * How long the shell waits for the daemon to flush before terminating it, in
+ * milliseconds.
+ *
+ * `Spec-023 §Main Process Responsibilities` fixes it under App lifecycle: "Graceful
+ * shutdown on `before-quit` — signal the daemon to flush, wait up to a 10-second
+ * budget, then force-terminate. Relaunch on update apply."
+ *
+ * IT IS THE MAIN PROCESS'S BUDGET AND THE RENDERER ONLY QUOTES IT, which is why it
+ * is here rather than in `budgets.json`: that file holds the RAM, frame, and bundle
+ * budgets a test measures against, and nothing in this console measures this one. The
+ * console's stake is one sentence — the restart confirmation says what a person is
+ * agreeing to — and a figure written into that sentence as prose would be a second
+ * home for a value the shell owns, drifting the day the shell's own budget moves.
+ * When main grows the shutdown sequence, its constant and this one become one value
+ * with one home in `src/shared/`, and this declaration is what makes that a move
+ * rather than a search.
+ */
+export const DAEMON_SHUTDOWN_FLUSH_BUDGET_MS = 10_000;
+
+/**
+ * Run ids named in the restart confirmation before the rest is a count.
+ *
+ * A SIBLING OF `AWAITING_RUN_IDS_NAMED_CAP` AND NOT THAT CAP. Both bound the same
+ * job — ids enumerated in a sentence before the rest becomes a figure — and they are
+ * two constants because they bound two different surfaces: that one is a line under
+ * a pane that already holds up to two hundred rows, and this one is a paragraph
+ * inside a dialog that must be readable in one glance before a person presses a
+ * button they cannot take back. Sharing one number would tie the width of a
+ * consequence sentence to the width of a pane's footnote, and the day either moves
+ * the other would move with it for no reason anybody could state.
+ *
+ * Three rather than six for exactly that reason: past a few ids the enumeration
+ * stops being a lookup and becomes hex the reader skips, and what a person is
+ * deciding here is answered by the COUNT — which names every moving run, seated or
+ * not, so nothing disappears from the reading.
+ */
+export const INTERRUPTED_RUN_IDS_NAMED_CAP = 3;
+
+/**
+ * How long a run must have been making no progress before the console says so.
+ *
+ * The daemon decides whether a run is stuck — `health.stuckRunInspect` answers
+ * `stuck-suspected` or `healthy`, and this console composes neither. What this bound
+ * governs is the SENTENCE beside that answer: below it the quiet interval is not worth
+ * a figure on screen, because a run between two tool calls is ordinarily quiet for a
+ * few seconds and a surface that reported every one of them would report nothing.
+ *
+ * Sixty seconds because that is the threshold the design names for the badge
+ * appearing at all, and stating it once here is what keeps the console's reading of
+ * "quiet" from being one number in a component and another in its test.
+ */
+export const STUCK_RUN_NOTICE_MS = 60_000;
+
+/**
+ * How long that quiet has to last before the same badge escalates its presentation.
+ *
+ * Five minutes, and it changes the badge's TONE and its sentence — never its verdict,
+ * which stays the daemon's. A run quiet for six minutes and one quiet for seventy
+ * seconds are both `stuck-suspected` to the daemon and are not the same thing to a
+ * person deciding whether to interrupt, and this is the whole of the difference the
+ * console is allowed to draw between them.
+ *
+ * A SIBLING OF THE NOTICE BOUND AND NOT A MULTIPLE OF IT. The two are read from the
+ * same design sentence as two independent thresholds, and deriving one from the other
+ * would make the ratio the thing a later change has to preserve rather than the two
+ * durations a reader can check against the design.
+ */
+export const STUCK_RUN_ESCALATION_MS = 300_000;
+
+/**
+ * The full-scale value a utilization bar is drawn against, and the clamp on its fill.
+ *
+ * A quota reading can exceed its own limit — a provider that admitted a request over
+ * an allowance still reports what was spent — and an unclamped `<progress>` fill past
+ * its `max` renders as a full bar in one engine and an overflowing one in another. So
+ * the BAR is clamped and the FIGURE beside it is not: the bar answers "how full", which
+ * saturates, and the percentage answers "how much", which does not. Clamping both
+ * would hide an overage; clamping neither would draw one wrong.
+ *
+ * One rather than a hundred because the fraction is what `Intl` takes for a percent,
+ * so the same number serves the bar's scale and the figure's input and there is no
+ * second unit anywhere on the row to get backwards.
+ */
+export const UTILIZATION_BAR_FULL_SCALE = 1;

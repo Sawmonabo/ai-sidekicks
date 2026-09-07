@@ -22,4 +22,15 @@ export interface AttentionGrowthSignatures {
     request: GrowthAttentionPreference & { readonly participantId: string };
     value: { readonly updatedAt: string };
   };
+  /**
+   * Whether the operating system will let this machine raise a notification.
+   *
+   * Three states and not a boolean, because "nobody has been asked yet" is a real
+   * position on this question and is neither granted nor denied — the page says
+   * something different for each, and a boolean would collapse two of them.
+   */
+  attentionOsPermissionRead: {
+    request: Record<string, never>;
+    value: { readonly status: "granted" | "denied" | "not-determined" };
+  };
 }

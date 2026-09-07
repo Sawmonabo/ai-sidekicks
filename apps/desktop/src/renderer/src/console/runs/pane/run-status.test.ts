@@ -13,7 +13,6 @@ import {
   RUN_STATUS_SUBTYPES,
   RUN_TRIGGER_PHRASES,
   isBlockedRunState,
-  isLiveRunState,
   runStatusSubtypeFor,
   runStatusSubtypeTraits,
 } from "./run-status.js";
@@ -103,23 +102,6 @@ describe("what each subtype is drawn with", () => {
     for (const subtype of RUN_STATUS_SUBTYPES) {
       expect(runStatusSubtypeTraits(subtype).label).not.toBe(subtype);
     }
-  });
-});
-
-describe("liveness", () => {
-  it("treats every non-terminal state as live and every terminal as not", () => {
-    for (const state of ["queued", "starting", "running", "paused"] as const) {
-      expect(isLiveRunState(state)).toBe(true);
-    }
-    for (const state of ["completed", "interrupted", "failed"] as const) {
-      expect(isLiveRunState(state)).toBe(false);
-    }
-  });
-
-  it("counts the two waiting states as live", () => {
-    // A blocked run is still the daemon's to move, so its controls stay offered.
-    expect(isLiveRunState("waiting_for_approval")).toBe(true);
-    expect(isLiveRunState("waiting_for_input")).toBe(true);
   });
 });
 

@@ -75,7 +75,14 @@ export function readRuntimeNodeRosterFromScenario(
   // Copied out rather than handed over: `RuntimeNodeRosterResponse.nodes` is a
   // mutable array on the wire type, and a caller that sorted it in place would be
   // reordering the scenario itself for every later read in the window.
-  return { status: "served", value: { nodes: [...current.nodes] } };
+  //
+  // `controlHolder` rides through as the frame states it — no `?? null` default,
+  // because the frame carries the member required and a default here would be this
+  // module deciding a holder reading the scenario declined to make.
+  return {
+    status: "served",
+    value: { nodes: [...current.nodes], controlHolder: current.controlHolder },
+  };
 }
 
 /** The roster reading current at `elapsedMs`, or `undefined` before the first. */

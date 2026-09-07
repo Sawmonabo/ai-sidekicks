@@ -138,3 +138,37 @@
 .meridian-settings__page-body {
   min-width: 0;
 }
+
+/* --- The settle a search hit leaves behind -------------------------------- */
+
+/* One brief highlight, and no second state to clear: the animation's own end is
+   what removes the class, so nothing schedules a timer. The generated sheet's
+   reduced-motion rule collapses the duration to 1ms rather than removing the
+   animation, so `animationend` still fires and the class still comes off — a
+   reader who asked for no motion gets a page that settles instantly rather than a
+   page that stays highlighted for ever. */
+@keyframes meridian-settings-settle {
+  from {
+    background: color-mix(in oklch, var(--meridian-accent) 18%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.meridian-settings__page--settling {
+  animation: meridian-settings-settle var(--meridian-motion-thread) var(--meridian-ease-settle);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* The heading takes focus so the platform scrolls it into the pane. It is not a
+   control, so it carries no persistent focus ring — only the one the browser draws
+   while a keyboard is driving. */
+.meridian-settings__page-heading:focus {
+  outline: none;
+}
+
+.meridian-settings__page-heading:focus-visible {
+  outline: var(--meridian-focus-ring);
+  outline-offset: var(--meridian-space-1);
+}

@@ -22,6 +22,7 @@ import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
 import type { GrowthOperationId, GrowthPort } from "./growth-port/index.js";
 import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-nodes/index.js";
 import type { ScenarioEngine } from "./scenario-runtime/index.js";
+import type { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 
 /** Which bridge the console is running against. Rendered, never inferred. */
 export type ConsoleBridgeSource = "live" | "fixture";
@@ -83,6 +84,20 @@ export interface ConsoleBridge {
    * suppressed with 12.11's sentence, exactly as it is today.
    */
   readonly paneViewHostScript: ScriptedPaneViewHost | undefined;
+  /**
+   * The window's one transport-reconnect signal.
+   *
+   * Beside the growth port for the port's own reason: it is not a wire. The preload
+   * contract exposes no connection state, so a `SidekicksBridge` member for one
+   * would make the fixture shape-identical to something the preload does not have.
+   *
+   * BOTH HALVES, deliberately. The observers that report into it live above this
+   * family (the session-event binder, which owns every `daemon.subscribe` this window
+   * takes) and inside it (the fixture's scripted outages), and a bridge publishing
+   * only the subscribe view would leave them nothing to report to. Readings take the
+   * `TransportReconnectObservable` view declared at the floor, which is subscribe-only.
+   */
+  readonly transportReconnect: TransportReconnectSignal;
   readonly source: ConsoleBridgeSource;
   /** Present only under the fixture, so a surface can drive playback in a story. */
   readonly scenarioEngine: ScenarioEngine | undefined;

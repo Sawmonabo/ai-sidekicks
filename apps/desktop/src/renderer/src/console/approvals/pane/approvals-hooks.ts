@@ -84,7 +84,7 @@ export function useApprovalsReader(
   // here was those four written out — two effects, a repair watcher, and a cursor
   // over the timeline — and the readings beside this one each shipped with whichever
   // subset their author remembered.
-  useReadTriggers(reader, sessionStore);
+  useReadTriggers(reader, sessionStore, bridge.transportReconnect);
 
   const snapshot = useSyncExternalStore(
     (onStoreChange) => reader.subscribe(onStoreChange),

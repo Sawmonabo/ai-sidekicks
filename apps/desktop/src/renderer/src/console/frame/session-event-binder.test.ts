@@ -20,8 +20,11 @@ import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
 import { consoleTripwires } from "../core/tripwires.js";
 import { SessionStoreRegistry, type ConsoleSessionEvent } from "../store/index.js";
-import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, SessionEventBinder } from "./session-event-binder.js";
-import type { ConsoleSessionDiagnostics } from "./session-event-binder.js";
+import {
+  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
+  type ConsoleSessionDiagnostics,
+} from "./session-diagnostics-handle.js";
+import { SessionEventBinder } from "./session-event-binder.js";
 
 const SESSION_ID = FLAGSHIP_SCENARIO.sessionId;
 

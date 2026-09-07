@@ -52,29 +52,17 @@
 // every settings toggle shares (`shell-preferences-store.ts`). It is offered once, for this
 // machine.
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { type ReactNode } from "react";
 
-import { useAnnounce } from "../../../primitives/index.js";
-import { consoleRefusalFrom } from "../../../seats/index.js";
-import { useSubjectScopedState } from "../../../store/index.js";
-import {
-  announcementFor,
-  type AttentionPreferenceReading,
-  type CallerParticipantReading,
-} from "./attention-preference-model.js";
-import { NotificationPreferenceWriter } from "./notification-preference-writer.js";
 import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../../shared/shell-preferences/shell-preferences-holder.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
+import { OsPermissionNotice } from "./OsPermissionNotice.js";
 import { StoredPreferences } from "./StoredPreferences.js";
-import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
+import {
+  useOsNotificationPermission,
+  useStoredAttentionPreferences,
+} from "./stored-attention-preferences.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-notifications";
@@ -82,12 +70,10 @@ const OWNER = "collaboration-settings-notifications";
 /** The one key this page spends. Named once so the row and its note cannot drift. */
 const OS_TOAST_MUTE_KEY = "notifications.osToastsMuted";
 
-/** Names a read that produced no outcome at all, where the thrown value named none. */
-const ATTENTION_PREFERENCE_ORIGIN = "attention-preference";
-
 export function NotificationsPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const shellPreferences = useShellPreferences(props.context.bridge);
   const stored = useStoredAttentionPreferences(props.context);
+  const osPermission = useOsNotificationPermission(props.context.bridge);
   const isMuted = shellPreferences.isEnabled(OS_TOAST_MUTE_KEY);
   return (
     <div className="meridian-settings-page">
@@ -121,6 +107,7 @@ export function NotificationsPage(props: { readonly context: SettingsPageContext
           rail and its row in the notification center, whether this machine is allowed to raise a
           notification or not.
         </p>
+        <OsPermissionNotice reading={osPermission} />
       </section>
 
       <section className="meridian-settings-page__block" aria-label="What earns an interruption">
@@ -137,160 +124,6 @@ export function NotificationsPage(props: { readonly context: SettingsPageContext
       </section>
     </div>
   );
-}
-
-/**
- * The two reads, in order, and the writer that owns everything after them.
- *
- * A hook rather than a render body: it owns two effects and the staleness guards that
- * keep a reply from a session nobody is looking at any more from landing on this one.
- * Everything a switch does once the set is on screen — the write, the record's lock,
- * the queue behind it, the re-read — belongs to the writer this hook builds.
- */
-function useStoredAttentionPreferences(context: SettingsPageContext): StoredPreferenceBinding {
-  const { bridge, retainedSessionId } = context;
-  const announce = useAnnounce();
-  // BOTH READS ARE HELD FOR THE SUBJECT THEY WERE MADE FOR, through the family's one
-  // holder. Both were `useState` cells cleared at the top of an effect, and "cleared
-  // first" was first WITHIN THE EFFECT — one committed frame after the render that
-  // renamed the subject, so that frame painted one session's participant and one
-  // person's stored switches under another's name. The holder is addressed during the
-  // render, so the pass that first sees a new subject reads that subject's own seed.
-  //
-  // Two subjects and not one: the participant read is about the SESSION, and the
-  // preference read is about the PARTICIPANT that read resolved — a person reached
-  // through two sessions is the same person, and re-seeding their switches because
-  // the route moved would report a read nobody needed to make again.
-  const { value: participantReading, publish: publishParticipantReading } = useSubjectScopedState<
-    CallerParticipantReading | undefined
-  >(bridge, retainedSessionId, () => undefined);
-
-  const participantId =
-    participantReading?.kind === "answered" && participantReading.outcome.status === "served"
-      ? participantReading.outcome.value.participantId
-      : undefined;
-
-  const {
-    value: preferenceReading,
-    publish: publishPreferenceReading,
-    settle: settlePreferenceReading,
-  } = useSubjectScopedState<AttentionPreferenceReading | undefined>(
-    bridge,
-    participantId,
-    () => undefined,
-  );
-  // The chain settles once and says so once. Held in a ref rather than in state so
-  // announcing never causes the render that would announce again.
-  const hasAnnouncedRef = useRef(false);
-
-  useEffect(() => {
-    if (retainedSessionId === undefined) {
-      return undefined;
-    }
-    // The publisher guards the VALUE; this flag guards the ANNOUNCEMENT, which it
-    // cannot — the announcer is the window's and is addressed by nothing.
-    let isAttached = true;
-    hasAnnouncedRef.current = false;
-    void bridge.growth.callerParticipantRead({ sessionId: retainedSessionId }).then(
-      (outcome) => {
-        publishParticipantReading({ kind: "answered", outcome });
-        if (isAttached && outcome.status === "unavailable" && !hasAnnouncedRef.current) {
-          // The chain stopped here, so this refusal IS the settlement — said in the
-          // daemon's own words rather than in a sentence about a read never made.
-          hasAnnouncedRef.current = true;
-          announce(outcome.detail);
-        }
-      },
-      // The chain stops here too, and for a reason the port's own vocabulary has no
-      // arm for. Without this the page reports "Finding out who you are" for the life
-      // of the window over a call that already failed.
-      (rejection: unknown) => {
-        const refusal = consoleRefusalFrom(rejection, ATTENTION_PREFERENCE_ORIGIN);
-        publishParticipantReading({ kind: "unreadable", refusal });
-        if (isAttached && !hasAnnouncedRef.current) {
-          hasAnnouncedRef.current = true;
-          announce(refusal.detail);
-        }
-      },
-    );
-    return () => {
-      isAttached = false;
-    };
-  }, [bridge, retainedSessionId, announce, publishParticipantReading]);
-
-  useEffect(() => {
-    if (participantId === undefined) {
-      return undefined;
-    }
-    let isAttached = true;
-    void bridge.growth.attentionPreferenceRead({ participantId }).then(
-      (outcome) => {
-        publishPreferenceReading({ kind: "answered", outcome });
-        if (isAttached && !hasAnnouncedRef.current) {
-          hasAnnouncedRef.current = true;
-          announce(announcementFor(outcome));
-        }
-      },
-      (rejection: unknown) => {
-        const refusal = consoleRefusalFrom(rejection, ATTENTION_PREFERENCE_ORIGIN);
-        publishPreferenceReading({ kind: "unreadable", refusal });
-        if (isAttached && !hasAnnouncedRef.current) {
-          hasAnnouncedRef.current = true;
-          announce(refusal.detail);
-        }
-      },
-    );
-    return () => {
-      isAttached = false;
-    };
-  }, [bridge, participantId, announce, publishPreferenceReading]);
-
-  // Rebuilt when the participant changes, because everything it holds — the queue,
-  // the busy records, the refusals — belongs to one person's set. The old writer's
-  // in-flight replies are released with it, so a reply for a participant nobody is
-  // looking at any more lands nowhere.
-  const writer = useMemo(
-    () =>
-      new NotificationPreferenceWriter({
-        port: bridge.growth,
-        participantId,
-        // Replaced in place and never cleared first, so the re-read a served write
-        // triggers does not return the section to its loading shape.
-        //
-        // Through the holder's SETTLE moment rather than the render-time publisher:
-        // this writer is built once per participant and the publisher it would have
-        // closed over is re-captured whenever the addressing moves, so a writer built
-        // on one visit would keep writing through a publisher the holder has retired.
-        // `settle` names the visit on screen when it is CALLED, which is the visit a
-        // re-read is about.
-        onRecordsRead: (outcome) => {
-          settlePreferenceReading()({ kind: "answered", outcome });
-        },
-      }),
-    [bridge, participantId, settlePreferenceReading],
-  );
-  useEffect(
-    () => () => {
-      writer.releasePendingWrites();
-    },
-    [writer],
-  );
-  const subscribeToWrites = useCallback(
-    (onStoreChange: () => void) => writer.subscribe(onStoreChange),
-    [writer],
-  );
-  const readWrites = useCallback(() => writer.snapshot(), [writer]);
-  const writes = useSyncExternalStore(subscribeToWrites, readWrites, readWrites);
-
-  return {
-    participantReading,
-    preferenceReading,
-    isRecordBusy: (recordKey) => writes.busyRecordKeys.has(recordKey),
-    refusalFor: (memberKey) => writes.refusalByMemberKey.get(memberKey),
-    toggleMember: (row, member) => {
-      writer.toggle(row, member);
-    },
-  };
 }
 
 /** Claim the notifications section. See `RuntimeNodesPage.tsx` on the seam's shape. */

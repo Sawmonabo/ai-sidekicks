@@ -1,0 +1,107 @@
+/* The MCP shell's own styles: one card per binding, and the four lists inside it.
+ *
+ * A page-local sheet on the `pages/cost/cost-receipt.css` precedent — these rules serve
+ * one shell and a family-wide sheet is the file every page lane edits at once. It enters
+ * through this directory's own door and not through the settings chunk root: a directory
+ * that carries a door owns its sheets, and this one has to, because the shell it styles
+ * is a `__SIDEKICKS_CONSOLE_FIXTURES__` body and the chunk root is not gated.
+ *
+ * IT GOES WITH THE SHELL. The whole subtree is deleted by the owner's mounting PR, this
+ * file included, which is why nothing outside `meridian-mcp__` appears here — a rule
+ * this sheet added to a shared class would outlive the deletion.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale.
+ * Nothing here is sized in absolute units: each list is a wrapping row of chips and
+ * wire strings, and a fixed width would truncate exactly the identifiers a person
+ * reads this page to compare.
+ */
+
+.meridian-mcp__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-mcp__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-mcp__row-identity,
+.meridian-mcp__row-provenance,
+.meridian-mcp__config,
+.meridian-mcp__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mcp__row-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-mcp__row-block-title {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+/* Every enumeration on this card is bounded and scrolls inside its own box. A binding
+   with many legs, many overrides, or many declared names would otherwise push the
+   controls below it off the page, and the controls are what the page is for. */
+.meridian-mcp__legs,
+.meridian-mcp__overrides,
+.meridian-mcp__live-results,
+.meridian-mcp__name-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  max-height: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-mcp__name-list {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mcp__leg,
+.meridian-mcp__override,
+.meridian-mcp__live-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mcp__names {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mcp__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  border-left: var(--meridian-attribution-edge) solid var(--meridian-edge-strong);
+  background: var(--meridian-surface-sunken);
+}

@@ -47,34 +47,56 @@ import type { ConsoleScenario } from "../../scenario-runtime/scenario.js";
  */
 const GROWTH_REPLY_PREFIX = "growth:";
 
+// Wire names the CORPUS registers that this console binds no DAEMON shape for.
+//
+// Two hand-written lists, which is what everything else in this tier exists to avoid,
+// and they are written by hand here because there is nothing to derive them from:
+// `packages/contracts` publishes `METHOD_NAME_FORMAT` and no enumerable method union,
+// so the only complete record of a registered wire is a table in
+// `docs/architecture/contracts/api-payload-contracts.md`, which no renderer module can
+// read. Both are transcriptions, kept honest by being tiny and by each entry naming why
+// it is not in the binding table instead. What neither class admits is an invented
+// name, and that is the whole of the claim they serve.
+//
+// They are TWO constants rather than one because their admission rules differ and only
+// one of them expires. A single flat list can state neither: an entry in it reads as
+// transient or permanent only through the comment beside it, so the class an entry
+// belongs to is invisible to every reader and to every test. Splitting them makes the
+// transient list assertable — it is empty, and a case below says so, which is what
+// turns "no unbound daemon method is scripted today" from prose into a check.
+
 /**
- * Method strings the CORPUS registers that this console does not bind a shape for.
+ * The TRANSIENT class: a daemon method the corpus registers that no console surface
+ * calls yet.
  *
- * A hand-written list, which is what everything else in this tier exists to avoid,
- * and it is one here because there is nothing to derive it from: `packages/contracts`
- * publishes `METHOD_NAME_FORMAT` and no enumerable method union, so the only complete
- * record of a registered wire is a table in
- * `docs/architecture/contracts/api-payload-contracts.md`, which no renderer module can
- * read. The list is therefore a transcription, and it is kept honest by being tiny and
- * by each entry naming why it is not in the binding table instead.
+ * That is exactly the state which keeps a method out of `ConsoleDaemonMethodContract`,
+ * whose admission rule is a surface that calls it — so a scenario may script such a
+ * call ahead of its surface. An entry moves to a binding row on the day a surface calls
+ * it, because a bound method is validated in both directions and one listed here is
+ * served unchecked.
  *
- * A method belongs here when the corpus registers it and no console surface calls it
- * yet — which is exactly the state that keeps it OUT of
- * `ConsoleDaemonMethodContract`, whose admission rule is a surface that calls it. A
- * scenario may script such a call ahead of its surface; what it may not do is invent
- * one, and the difference between those two is the whole of this claim.
- *
- * The entry moves to a binding row, not to a second life here, on the day a surface
- * calls it: a bound method is validated in both directions and one listed here is
- * served to the fixture unchecked.
+ * Empty today, and empty is the state to return it to: every entry is a scripted call
+ * that nothing type-checks.
  */
-const CORPUS_METHODS_THE_CONSOLE_DOES_NOT_BIND: readonly string[] = [
-  // Empty, and that is a statement rather than a gap: every call the shipped
-  // scenarios script is admitted by one of the two derived registries below.
-  // `agent.list` was the sole entry and never needed to be — the agent roster's
-  // growth row declares it as that row's expected wire method, so the growth branch
-  // already admitted it, and a transcription beside a derivation is a second answer
-  // to one question that goes stale on its own.
+export const CORPUS_DAEMON_METHODS_NOT_YET_BOUND: readonly string[] = [];
+
+/**
+ * The PERMANENT class: a control-plane procedure, which no surface can ever move
+ * across.
+ *
+ * `ConsoleDaemonMethodContract` enumerates DAEMON methods, and the fixture's own
+ * contract assertion runs on the daemon arm alone for the same reason, so a procedure
+ * reached over the control-plane arm has no binding row to graduate to however many
+ * surfaces call it. An entry here is not waiting on anything.
+ */
+export const CORPUS_CONTROL_PLANE_PROCEDURES: readonly string[] = [
+  // The registered runtime-node attach mutation, reached over the CONTROL-PLANE arm by
+  // the absorbed attach flow the settings nodes page mounts
+  // (`runtime-node-attach/attach-request.ts` names it, and owns it as the one home for
+  // the string). Dual-transport in the corpus and control-plane-only in this renderer,
+  // so it is a procedure rather than a daemon method and the binding table — which is
+  // the daemon's — could not hold it whatever calls it.
+  "runtimenode.attach",
 ];
 
 /**
@@ -172,14 +194,17 @@ function describeLatencyDefect(afterMs: number | undefined): string | undefined 
  *
  * The registries are read rather than restated. `CONSOLE_DAEMON_METHODS` is the keys
  * of the frozen binding table, so a method added to the console's call set is
- * scriptable the same day; `GROWTH_OPERATIONS` is the slate itself. Only the
- * corpus-registered-but-unbound list above is written by hand, for the reason stated
- * there.
+ * scriptable the same day; `GROWTH_OPERATIONS` is the slate itself. Only the two
+ * corpus-registered-but-unbound lists above are written by hand, for the reason stated
+ * there, and they are unioned into the same admission because a caller cannot tell
+ * which class answered it — the classes differ in what becomes of an entry, not in
+ * what a scenario may script.
  */
 function describeCallDefect(call: string): string | undefined {
   if (
     (CONSOLE_DAEMON_METHODS as readonly string[]).includes(call) ||
-    CORPUS_METHODS_THE_CONSOLE_DOES_NOT_BIND.includes(call)
+    CORPUS_DAEMON_METHODS_NOT_YET_BOUND.includes(call) ||
+    CORPUS_CONTROL_PLANE_PROCEDURES.includes(call)
   ) {
     return undefined;
   }

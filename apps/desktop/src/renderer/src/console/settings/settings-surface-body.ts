@@ -7,13 +7,21 @@
 // the registrar's `body` loader, so what it imports is what a person pays for when they
 // open settings and never before.
 //
-// WHICH IS WHY THE TWELVE PAGES AND EVERY STYLESHEET ARE IMPORTED HERE. The pages are
-// the family's weight — a dozen forms, their tables, and the combobox stack two of them
-// mount — and none of it is reachable except through this surface. `apps/desktop`'s
-// stylesheet rule names this exact case: a directory carrying a lazily-loaded chunk has
-// an owner of its own, and importing its sheets from the family door would put the rules
-// for twelve settings pages on the initial document of every session that never opens
-// one.
+// WHICH IS WHY THE THIRTEEN PAGES AND THE SHEETS THIS CHUNK OWNS ARE IMPORTED HERE. The
+// pages are the family's weight — thirteen forms, their tables, and the combobox stack
+// two of them mount — and none of it is reachable except through this surface.
+// `apps/desktop`'s stylesheet rule names this exact case: a directory carrying a
+// lazily-loaded chunk has an owner of its own, and importing its sheets from the family
+// door would put the rules for thirteen settings pages on the initial document of every
+// session that never opens one.
+//
+// AND THE SAME RULE IS WHY TWO SHEETS ARE ABSENT FROM THE LIST BELOW. It reads from both
+// sides: a directory that carries a door of its own has an owner of its own, and this
+// chunk root may not reach into one. The two owner-slot fixture shells — the MCP servers
+// and provider-account subtrees — each carry a sub-module door, so each door pulls in its
+// own sheet. That is not bookkeeping: those shells are `__SIDEKICKS_CONSOLE_FIXTURES__`
+// bodies and this chunk root is not gated, so a sheet imported from here shipped in a
+// release renderer for a subtree that release renderer does not contain.
 //
 // The registry is composed PER MOUNT rather than at module scope, which keeps the
 // property the registrar had while it composed the pages itself: no second window
@@ -22,11 +30,14 @@
 import "./settings.css";
 import "./shared/settings-page.css";
 import "./shared/preference-toggle-row.css";
+import "./shared/account-plane-handoff/account-plane-handoff.css";
 import "./pages/appearance/appearance.css";
 import "./pages/cost/cost-receipt.css";
+import "./pages/diagnostics/diagnostics.css";
 import "./pages/keyboard/keyboard.css";
 import "./pages/mounts/mounts.css";
 import "./pages/notifications/notifications.css";
+import "./pages/runtime-nodes/runtime-nodes.css";
 
 import { createElement, useState } from "react";
 
@@ -41,6 +52,7 @@ import { registerMcpServersPage } from "./pages/mcp-servers/McpServersPage.js";
 import { registerNotificationsPage } from "./pages/notifications/NotificationsPage.js";
 import { registerProviderAccountsPage } from "./pages/provider-accounts/ProviderAccountsPage.js";
 import { registerRuntimeNodesPage } from "./pages/runtime-nodes/RuntimeNodesPage.js";
+import { registerBrowserSettingsPage } from "../browser-settings-page.js";
 import { registerSidekicksPage } from "../sidekicks-settings-page.js";
 import { registerWorkspaceMountsPage } from "./pages/mounts/WorkspaceMountsPage.js";
 import { SettingsPageRegistry } from "./settings-page-registry.js";
@@ -79,6 +91,8 @@ function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerProviderAccountsPage(registry);
   registerMcpServersPage(registry);
   registerCostReceiptPage(registry);
+  // The browser page: the console root's second one-line seam, the browser family's body.
+  registerBrowserSettingsPage(registry);
 }
 
 /**

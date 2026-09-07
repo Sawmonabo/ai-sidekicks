@@ -41,11 +41,17 @@
 // the eager graph. So moving the page moves the claim with it, and deleting the loader
 // fails the derivation rather than quietly asserting nothing.
 //
-// ROOTED AT THE COMPOSITION SITES, which is the one entry list this tree can be trusted to
-// hold. `console-root-is-composition-only` in `.dependency-cruiser.mjs` fails any other
-// module directly under `console/` that imports into the console, and
-// `COMPOSITION_ROOT_FILES` beside it is the enumeration that rule is written against, so
-// these roots are that same closed set rather than a second reading of it.
+// ROOTED AT THE COMPOSITION SITES, READ OFF THE TREE RATHER THAN LISTED HERE.
+// `console-root-is-composition-only` in `.dependency-cruiser.mjs` fails any module directly
+// under `console/` that imports into the console and is not enumerated in
+// `COMPOSITION_ROOT_FILES`, so every root that can contribute to the eager graph is a
+// module directly under `console/` — and the walk this tier already performs knows which
+// those are. A hand-written copy of that enumeration was what this held first, and it went
+// stale the moment a family landed a root registrar of its own: the copy still named three,
+// the console held four, and the understated closure would have reported an empty finding
+// as a clean tree. Reading the tree cannot go stale, and it is strictly the safer side of
+// the difference — a root the enumeration has not admitted yet is one this walk follows
+// anyway, while one it admits and this walk skipped is a hole.
 
 import { describe, expect, it } from "vitest";
 
@@ -54,17 +60,17 @@ import { dynamicImportSpecifiers } from "./stylesheet-specifiers.js";
 import { StylesheetReachIndex } from "./stylesheet-static-reach.js";
 
 /**
- * The console's composition sites, as `COMPOSITION_ROOT_FILES` enumerates them.
+ * The console's composition sites: every module the tree holds directly under `console/`.
  *
- * Tree-relative, because that is how the tree is keyed. They are the only modules directly
- * under `console/` permitted to import into it, so the eager graph is their static closure
- * and a fourth entry cannot appear without `console-root-is-composition-only` failing.
+ * Tree-relative, because that is how the tree is keyed, and derived rather than declared
+ * for the reason the header gives. The walk behind `modulePaths` has already dropped
+ * declaration files, co-located tests, and their support modules, so what a path with no
+ * separator in it names is a root module that ships — which is exactly the set
+ * `COMPOSITION_ROOT_FILES` enumerates, arrived at without restating it.
  */
-const COMPOSITION_ROOTS: readonly string[] = [
-  "families.ts",
-  "collaboration-family.ts",
-  "sidekicks-settings-page.ts",
-];
+function compositionRoots(): readonly string[] {
+  return CONSOLE_STYLESHEET_TREE.modulePaths.filter((modulePath) => !modulePath.includes("/"));
+}
 
 /** The module that registers the sidekicks settings page, and holds its loader. */
 const SIDEKICKS_PAGE_REGISTRATION = "sidekicks-settings-page.ts";
@@ -72,7 +78,7 @@ const SIDEKICKS_PAGE_REGISTRATION = "sidekicks-settings-page.ts";
 /** Every console module the composition sites reach without crossing an `import()`. */
 function eagerlyReachedModules(index: StylesheetReachIndex): ReadonlySet<string> {
   const reached = new Set<string>();
-  for (const root of COMPOSITION_ROOTS) {
+  for (const root of compositionRoots()) {
     for (const modulePath of index.reachableFrom(root)) {
       reached.add(modulePath);
     }

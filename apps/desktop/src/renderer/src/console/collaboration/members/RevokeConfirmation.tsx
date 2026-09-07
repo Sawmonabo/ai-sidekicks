@@ -1,4 +1,4 @@
-import { AlertDialog } from "@base-ui/react/alert-dialog";
+import { ConfirmationDialog } from "../../primitives/index.js";
 import {
   MEMBERSHIP_ACTION_NOTES,
   MEMBERSHIP_ROLE_NOTES,
@@ -12,6 +12,14 @@ import {
  * dismissal on outside press, and its description is the consequence sentence for
  * THIS row's role. A role whose revocation the contract gives no named cost gets
  * the plain sentence rather than an invented one.
+ *
+ * THE PARTS ARE `primitives/ConfirmationDialog.tsx`'S AND THE WORDS ARE THIS FILE'S.
+ * The settings family was composing the same eight Base UI parts for its own
+ * confirming acts and neither family could import the other's — view families are
+ * siblings — so the composition moved down to the layer both already import. What is
+ * left here is what is genuinely this row's: which role's cost the sentence names,
+ * that the trigger is a members row-action rather than a page action, and that
+ * revoking is a destructive act.
  */
 export function RevokeConfirmation(props: {
   readonly row: MembershipRow;
@@ -22,36 +30,17 @@ export function RevokeConfirmation(props: {
   const cost =
     props.row.role === undefined ? undefined : MEMBERSHIP_ROLE_NOTES[props.row.role].revocationCost;
   return (
-    <AlertDialog.Root>
-      <AlertDialog.Trigger
-        className="meridian-members__revoke"
-        disabled={props.isAnyPending}
-        aria-label={`Revoke the membership of ${props.row.participantId}`}
-      >
-        {MEMBERSHIP_ACTION_NOTES.revoke.label}
-      </AlertDialog.Trigger>
-      <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="meridian-members__dialog-backdrop" />
-        <AlertDialog.Popup className="meridian-members__dialog">
-          <AlertDialog.Title className="meridian-members__dialog-title">
-            Revoke this membership?
-          </AlertDialog.Title>
-          <AlertDialog.Description className="meridian-members__dialog-body">
-            {cost ?? "The membership ends. Nothing else about the session changes."}
-          </AlertDialog.Description>
-          <div className="meridian-members__dialog-acts">
-            <AlertDialog.Close className="meridian-members__dialog-cancel">
-              Keep it
-            </AlertDialog.Close>
-            <AlertDialog.Close
-              className="meridian-members__dialog-confirm"
-              onClick={props.onConfirm}
-            >
-              Revoke
-            </AlertDialog.Close>
-          </div>
-        </AlertDialog.Popup>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
+    <ConfirmationDialog
+      triggerLabel={MEMBERSHIP_ACTION_NOTES.revoke.label}
+      triggerAriaLabel={`Revoke the membership of ${props.row.participantId}`}
+      triggerClassName="meridian-members__revoke"
+      isDisabled={props.isAnyPending}
+      title="Revoke this membership?"
+      description={cost ?? "The membership ends. Nothing else about the session changes."}
+      keepLabel="Keep it"
+      confirmLabel="Revoke"
+      tone="destructive"
+      onConfirm={props.onConfirm}
+    />
   );
 }

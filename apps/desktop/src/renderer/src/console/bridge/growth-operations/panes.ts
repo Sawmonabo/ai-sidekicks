@@ -70,6 +70,30 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "method",
     "return a browser tool call's result to the daemon",
   ),
+  browserPolicyRead: op(
+    "browserPolicyRead",
+    "browser-pane-namespace",
+    "method",
+    "the two node-wide browser switches — the file boundary and the page-tool grant",
+  ),
+  browserPolicyWrite: op(
+    "browserPolicyWrite",
+    "browser-pane-namespace",
+    "method",
+    "flip one node-wide browser switch",
+  ),
+  browserSiteDataList: op(
+    "browserSiteDataList",
+    "browser-pane-namespace",
+    "method",
+    "the per-session site-data partitions this node holds, with the bytes each one stores",
+  ),
+  browserSiteDataClear: op(
+    "browserSiteDataClear",
+    "browser-pane-namespace",
+    "method",
+    "clear one session's stored site data, after its browser panes have been closed",
+  ),
   terminalSubscribeOutput: op(
     "terminalSubscribeOutput",
     "terminal-pane",

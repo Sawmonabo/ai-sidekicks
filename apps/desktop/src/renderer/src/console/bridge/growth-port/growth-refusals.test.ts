@@ -1,4 +1,8 @@
-// What the port's three refusal builders put on a refusal, and what they never drop.
+// What the port's refusal builders put on a refusal, and what they never drop.
+//
+// THREE OF THE MODULE'S FOUR. `growthUnscriptedReply` is driven where its one caller
+// is, in the fixture's own suites, because what is interesting about it is which arm
+// the fixture reaches for rather than what it spreads.
 //
 // Two of them answer for a wire nobody asked and one for a call that REJECTED, and the
 // difference between those is the whole subject here: the rejecting one is handed a
@@ -21,7 +25,7 @@ import {
   growthScriptedReplyUnavailable,
   growthUnavailable,
   growthUnavailableFromRejection,
-} from "./growth-port.js";
+} from "./growth-refusals.js";
 
 /** The dotted code a JSON-RPC envelope carries at `data.type`. */
 const DAEMON_REFUSAL_CODE = "session.list_unavailable";

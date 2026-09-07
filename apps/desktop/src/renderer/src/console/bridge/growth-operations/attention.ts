@@ -41,4 +41,13 @@ export const ATTENTION_GROWTH_OPERATIONS: Readonly<
     "set one global notification preference, over the control-plane transport",
     "attention.preferenceUpdate",
   ),
+  // A SHELL reading rather than a daemon one, so it names no expected wire method:
+  // the row it cites owes a preload-bridge member, not a JSON-RPC verb, and a method
+  // string invented here would claim otherwise.
+  attentionOsPermissionRead: op(
+    "attentionOsPermissionRead",
+    "os-notification-permission",
+    "method",
+    "whether this machine's operating system permits the shell to raise a notification",
+  ),
 };

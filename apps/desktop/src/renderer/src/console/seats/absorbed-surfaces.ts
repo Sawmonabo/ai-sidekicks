@@ -47,11 +47,11 @@
 // happened.
 //
 // THE NODE ROSTER IS NO LONGER ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
-// That view now takes an optional read seam and this module builds one from the bridge
-// the console has already resolved, so it asks whichever bridge this window is running
-// on: the control plane under the preload, the scenario's own roster frames under the
-// fixture. There is no longer a window in which it could reach past the console's
-// bridge, so the condition the guard tested does not arise for it — and every fixture
+// That view now takes an optional read seam and `seats/node-roster-seam.ts` builds one
+// from the bridge the console has already resolved, so it asks whichever bridge this
+// window is running on: the control plane under the preload, the scenario's own roster
+// frames under the fixture. There is no longer a window in which it could reach past the
+// console's bridge, so the condition the guard tested does not arise for it — and every fixture
 // build that used to render "the question was not put" where the roster belongs now
 // renders the roster.
 //
@@ -62,12 +62,18 @@
 
 import { createElement, type ReactNode } from "react";
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { RuntimeNodeRosterEntry, SessionId } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge, ConsoleBridgeSource } from "../bridge/index.js";
-import { ConsoleRefusalError } from "../core/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
-import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
+import { nodeAttachDraftFor, nodeAttachReadsFor } from "./node-attach-seam.js";
+import { nodeRosterReadsFor } from "./node-roster-seam.js";
+import {
+  AttachFlow,
+  CapabilityDeclaration,
+  MixedVersionStatus,
+  NodeRoster,
+} from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // Deep, because `session-members/` ships no barrel. The other two are reached
 // through theirs. Adding one is that family's own diff, not the console's — the
@@ -144,87 +150,92 @@ export function renderAbsorbedNodeRoster(
   }
   return createElement(NodeRoster, {
     sessionId: resolvedSessionId,
-    reads: nodeRosterReadSeams.forBridge(bridge),
+    reads: nodeRosterReadsFor(bridge),
   });
 }
 
 /**
- * One read seam per bridge, held for as long as that bridge is reachable.
+ * The attach flow, mounted wherever a node declaration is actually available.
  *
- * WHY THE IDENTITY IS THE POINT. `SidekicksBridgeProvider` replaces its resolution
- * as STATE without remounting anything below it — when the `bridge` prop or the
- * scenario changes, and again when its own engine has been disposed and a second
- * mount must take a fresh one. So "same session, different transport" is a state
- * this console genuinely reaches, and the roster's effect has to notice it. It can
- * only notice by depending on the seam, and depending on a pair rebuilt on every
- * render would make the dependency fire on renders where nothing changed. Caching
- * by bridge gives the effect exactly one signal: a different seam means a different
- * bridge, and nothing else does.
+ * TAKES THE BRIDGE AND NEVER A DRAFT, which is the whole trust decision made once, in
+ * the module that can make it. `Spec-023 §Trust Stance` puts the declaration a machine
+ * makes about itself — its identity, the contract version it speaks, its self-reported
+ * health, and what it can run — in the main process, off the node registry. A caller
+ * that could pass a draft in would be a caller that could compose one, and a renderer
+ * composing one is a renderer vouching for a machine on its own word. So the draft is
+ * RESOLVED here and invented nowhere: `node-attach-seam.ts` asks the running scenario
+ * under the fixture, and answers nothing under the live bridge, where no registered
+ * read delivers such a declaration to this renderer yet.
  *
- * A `WeakMap` rather than a `Map` because the key is the whole lifetime: a
- * superseded bridge is unreachable the moment the provider drops it, and its seam
- * goes with it rather than accumulating one entry per scenario swap for the life of
- * the window.
- *
- * A class with a private field rather than a module-level `Map`, on the
- * `palette/keybinding-override-store.ts` precedent — module scope is window scope here,
- * since an auxiliary window is its own renderer process and no channel joins two
- * windows' module graphs.
+ * The absence it renders is therefore a statement about THIS window rather than about
+ * attaching: a machine attaches itself, and no reading here claims otherwise.
  */
-class NodeRosterReadSeams {
-  readonly #seamsByBridge = new WeakMap<ConsoleBridge, NodeRosterReads>();
-
-  public forBridge(bridge: ConsoleBridge): NodeRosterReads {
-    const existingSeam = this.#seamsByBridge.get(bridge);
-    if (existingSeam !== undefined) {
-      return existingSeam;
-    }
-    const seam = nodeRosterReadsFrom(bridge);
-    this.#seamsByBridge.set(bridge, seam);
-    return seam;
+export function renderAbsorbedAttachFlow(
+  bridge: ConsoleBridge | undefined,
+  sessionId: string | undefined,
+): ReactNode {
+  if (bridge === undefined) {
+    return centredAbsence({
+      kind: "not-checked",
+      title: "This surface was not handed a bridge to attach through.",
+      detail:
+        "An attach is one call against a session, and this mount resolved nothing to perform it with. Nothing was asked.",
+    });
   }
+  const resolvedSessionId = brandedSessionId(sessionId);
+  if (resolvedSessionId === undefined) {
+    return noSessionAbsence();
+  }
+  const attachDraft = nodeAttachDraftFor(bridge);
+  if (attachDraft === undefined) {
+    return centredAbsence({
+      kind: "not-checked",
+      title: "A machine attaches itself, and this window is not that machine.",
+      detail:
+        "Attaching carries the declaration a node makes about itself — its identity, the contract version it speaks, its own health reading, and what it can run. That declaration is composed where the node registry lives and never in a renderer, which may not vouch for a machine on its own word. Nothing was asked here, and nothing was assumed.",
+    });
+  }
+  return createElement(AttachFlow, {
+    sessionId: resolvedSessionId,
+    attachDraft,
+    reads: nodeAttachReadsFor(bridge),
+  });
 }
 
-/** This window's seams. Not exported: the helper above is the only way in. */
-const nodeRosterReadSeams = new NodeRosterReadSeams();
+/**
+ * One node's declared capability set, as the shipped view renders it.
+ *
+ * NO BRIDGE GUARD, AND THAT IS NOT AN EXEMPTION — the guard three mounts above carry
+ * exists because those components read `window.sidekicks` themselves, so the console's
+ * fixture cannot stand in for a preload they never ask it for. This one reads nothing:
+ * it takes the map as a prop and formats it. There is no window in which it could reach
+ * past the console's bridge, because it reaches for no bridge at all.
+ *
+ * The map arrives from the roster read the absorbed roster ALREADY performed, through
+ * `node-roster-seam.ts`, so the capabilities on screen and the rows beside them are one
+ * answer rather than two that can disagree.
+ */
+export function renderAbsorbedCapabilityDeclaration(
+  capabilities: Record<string, unknown>,
+): ReactNode {
+  return createElement(CapabilityDeclaration, { capabilities });
+}
 
 /**
- * The roster's two reads, as the console's own bridge answers them.
+ * One node's mixed-version access verdict, as the shipped view renders it.
  *
- * BOTH ARMS CONVERT A RETURNED REFUSAL INTO A THROWN ONE, and the conversion is
- * the whole adapter. The bridge answers outcomes because a surface that renders a
- * refusal wants a value; this view renders a refusal from its own error arm, which
- * is reached by a rejection. `ConsoleRefusalError` is the console's one shape for a
- * refusal that has to travel as an exception, so the code, the sentence, and the
- * origin all survive the trip — the view renders `ConsoleRefusalError` followed by
- * `<origin>: <code>: <detail>`, which is the refuser's own code verbatim rather
- * than a paraphrase.
+ * `writeAttemptRejection` is ALWAYS `null` from here, and the constant is the claim
+ * rather than a stub: this console performs no version-sensitive write against a node,
+ * so there is no refused write for it to surface and the view's own "none" arm is the
+ * true reading. A caller that one day makes such a write hands its rejection in; nothing
+ * here invents one.
  *
- * The SUBSCRIBE arm throws for a second reason beyond symmetry. Handing back a
- * no-op unsubscribe would leave the roster believing it is live: it would never
- * re-read and would go quietly stale, which is the one failure a live roster exists
- * to prevent. The view's own subscribe arm catches a synchronous throw, renders it,
- * and deliberately SKIPS the initial read rather than painting a snapshot with no
- * channel behind it — so a refusal here reads as a roster that is not live, which
- * is what it is.
+ * Presentational like the mount above, so it carries no bridge guard for the same
+ * reason. The verdict it renders is the server-resolved `readOnly` on the entry — this
+ * console derives no floor of its own, which is what the view's own header forbids.
  */
-function nodeRosterReadsFrom(bridge: ConsoleBridge): NodeRosterReads {
-  return {
-    readRoster: async (request) => {
-      const outcome = await bridge.runtimeNodeRosterRead(request);
-      if (outcome.status === "refused") {
-        throw new ConsoleRefusalError(outcome);
-      }
-      return outcome.value;
-    },
-    subscribePresence: (sessionId, onPresenceChange) => {
-      const subscription = bridge.runtimeNodePresenceSubscribe(sessionId, onPresenceChange);
-      if (subscription.status === "refused") {
-        throw new ConsoleRefusalError(subscription);
-      }
-      return subscription.unsubscribe;
-    },
-  };
+export function renderAbsorbedMixedVersionStatus(rosterEntry: RuntimeNodeRosterEntry): ReactNode {
+  return createElement(MixedVersionStatus, { rosterEntry, writeAttemptRejection: null });
 }
 
 /**

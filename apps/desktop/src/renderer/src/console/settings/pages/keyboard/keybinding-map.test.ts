@@ -50,19 +50,34 @@ describe("composing rows", () => {
   ];
 
   it("carries each command's chord and the scope of that chord", () => {
-    const rows = composeKeybindingRows({ commands, bindings, platform: "darwin" });
+    const rows = composeKeybindingRows({
+      commands,
+      bindings,
+      shippedBindings: bindings,
+      platform: "darwin",
+    });
     const workspace = rows.find((row) => row.commandId === "frame.goToWorkflows");
     expect(workspace?.chord).toBe("$mod+2");
     expect(workspace?.whenExpression).toBe("sessionActive");
   });
 
   it("leaves a command with no binding without a chord rather than inventing one", () => {
-    const rows = composeKeybindingRows({ commands, bindings, platform: "darwin" });
+    const rows = composeKeybindingRows({
+      commands,
+      bindings,
+      shippedBindings: bindings,
+      platform: "darwin",
+    });
     expect(rows.find((row) => row.commandId === "app.checkForUpdates")?.chord).toBeUndefined();
   });
 
   it("orders by category and then by name, so the list matches the palette", () => {
-    const rows = composeKeybindingRows({ commands, bindings, platform: "darwin" });
+    const rows = composeKeybindingRows({
+      commands,
+      bindings,
+      shippedBindings: bindings,
+      platform: "darwin",
+    });
     expect(rows.map((row) => row.commandId)).toStrictEqual([
       "app.checkForUpdates",
       "frame.goToSessions",
@@ -74,6 +89,7 @@ describe("composing rows", () => {
     const rows = composeKeybindingRows({
       commands,
       bindings: [{ chord: "$mod+Space", commandId: "frame.goToSessions" }, ...bindings.slice(1)],
+      shippedBindings: bindings,
       platform: "darwin",
     });
     expect(rows.find((row) => row.commandId === "frame.goToSessions")?.unavailableReason).toContain(
@@ -90,6 +106,7 @@ describe("composing rows", () => {
     const rows = composeKeybindingRows({
       commands,
       bindings,
+      shippedBindings: bindings,
       overrides: { "frame.goToSessions": "$mod+1", "app.checkForUpdates": null },
       platform: "darwin",
     });
@@ -97,10 +114,44 @@ describe("composing rows", () => {
     expect(changed).toStrictEqual(["app.checkForUpdates", "frame.goToSessions"]);
   });
 
+  it("carries the chord the console ships, so a reset can name what it restores", () => {
+    // Composed against a CHANGED effective table: the shipped chord has to survive
+    // being overridden, which is the one case a reset control exists for.
+    const rows = composeKeybindingRows({
+      commands,
+      bindings: [{ chord: "$mod+9", commandId: "frame.goToSessions" }, ...bindings.slice(1)],
+      shippedBindings: bindings,
+      overrides: { "frame.goToSessions": "$mod+9" },
+      platform: "darwin",
+    });
+    const changed = rows.find((row) => row.commandId === "frame.goToSessions");
+    expect(changed?.chord).toBe("$mod+9");
+    expect(changed?.shippedChord).toBe("$mod+1");
+  });
+
+  it("leaves a command the console ships no chord for without a default to restore", () => {
+    // "back to no chord" and "back to some chord" are different promises, and only
+    // an absent `shippedChord` can carry the first one honestly.
+    const rows = composeKeybindingRows({
+      commands,
+      bindings,
+      shippedBindings: bindings,
+      platform: "darwin",
+    });
+    expect(
+      rows.find((row) => row.commandId === "app.checkForUpdates")?.shippedChord,
+    ).toBeUndefined();
+  });
+
   it("negative control: with no overrides, no row claims to have been changed", () => {
     // Without this the case above would pass over a composer that marked every row,
     // and the page would offer a reset on rows with nothing to reset.
-    const rows = composeKeybindingRows({ commands, bindings, platform: "darwin" });
+    const rows = composeKeybindingRows({
+      commands,
+      bindings,
+      shippedBindings: bindings,
+      platform: "darwin",
+    });
     expect(rows.some((row) => row.overridden)).toBe(false);
   });
 });
@@ -130,12 +181,15 @@ describe("reading a keystroke as a chord", () => {
   it("does not complete on a modifier held on its own", () => {
     // A person on the way to ⌘⇧K passes through ⌘ and ⌘⇧; settling on either would
     // bind the wrong chord every time.
-    expect(readChordFromEvent(press({ key: "Meta", code: "MetaLeft", metaKey: true }))).toEqual({
-      outcome: "incomplete",
-    });
     expect(
-      readChordFromEvent(press({ key: "Shift", code: "ShiftLeft", metaKey: true, shiftKey: true })),
-    ).toEqual({ outcome: "incomplete" });
+      readChordFromEvent(press({ key: "Meta", code: "MetaLeft", metaKey: true }), "darwin"),
+    ).toEqual({ outcome: "incomplete", heldModifiers: ["$mod"] });
+    expect(
+      readChordFromEvent(
+        press({ key: "Shift", code: "ShiftLeft", metaKey: true, shiftKey: true }),
+        "darwin",
+      ),
+    ).toEqual({ outcome: "incomplete", heldModifiers: ["$mod", "Shift"] });
   });
 
   it("cancels on Escape and clears on Backspace or Delete, pressed alone", () => {
@@ -170,12 +224,16 @@ describe("reading a keystroke as a chord", () => {
 });
 
 describe("filtering rows", () => {
+  const bindings: readonly KeyBinding[] = [
+    { chord: "$mod+1", commandId: "frame.goToSessions", when: "sessionActive" },
+  ];
   const rows = composeKeybindingRows({
     commands: [
       command("frame.goToSessions", "Go to sessions"),
       command("app.checkForUpdates", "Check for updates", "Application"),
     ],
-    bindings: [],
+    bindings,
+    shippedBindings: bindings,
     platform: "darwin",
   });
 
@@ -189,6 +247,15 @@ describe("filtering rows", () => {
     ]);
     expect(matchKeybindingRows(rows, "app.check").map((row) => row.commandId)).toStrictEqual([
       "app.checkForUpdates",
+    ]);
+  });
+
+  it("narrows on the chord and on the when-scope, the section's other two axes", () => {
+    expect(matchKeybindingRows(rows, "$mod+1").map((row) => row.commandId)).toStrictEqual([
+      "frame.goToSessions",
+    ]);
+    expect(matchKeybindingRows(rows, "sessionActive").map((row) => row.commandId)).toStrictEqual([
+      "frame.goToSessions",
     ]);
   });
 
