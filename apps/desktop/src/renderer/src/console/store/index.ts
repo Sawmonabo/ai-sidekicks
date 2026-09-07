@@ -83,28 +83,32 @@ export { useModalSurfaceLifetime } from "./modal-surface-lifetime.js";
 // vocabulary published there would be one neither could reach. This family owns the
 // store the value lives in, which makes it the lowest family that can own the words.
 export {
-  MUTATING_DAEMON_METHODS,
   SHELL_DETAIL_DESTINATION,
   UNREPORTED_SHELL_NOTICE,
   UNREPORTED_SHELL_STATE,
   describeShellConnection,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
-  isMutatingDaemonMethod,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
-  shellBlockForMethod,
-  shellMutationBlock,
   shellReportsAreEqual,
 } from "./shell-state.js";
 export type {
-  MutatingDaemonMethod,
   ShellConnection,
   ShellKeystoreState,
-  ShellMutationBlock,
   ShellNegotiation,
   ShellReport,
   ShellState,
   ShellTransport,
 } from "./shell-state.js";
+// What that condition COSTS, from the module that derives it. Beside the vocabulary
+// rather than inside it: a block is derived from a state and a method name, and the
+// two halves have different readers — see `shell-mutation-block.ts`'s own header.
+export {
+  MUTATING_DAEMON_METHODS,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
+  isMutatingDaemonMethod,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
+  shellBlockForMethod,
+  shellMutationBlock,
+} from "./shell-mutation-block.js";
+export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell-mutation-block.js";
 export { useRailAttentionCount, useShellState } from "./hooks.js";
 // Every open session's projection as one signal, and the one fold the frame takes
 // over it. Published because the two callers sit on opposite sides of the console

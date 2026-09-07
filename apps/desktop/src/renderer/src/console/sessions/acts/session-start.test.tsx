@@ -12,30 +12,17 @@
 // window this suite drives is the one where a start press reaches a wire, and
 // `window.sidekicks` is the surface it reaches it through.
 
-import { act } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-import type { SidekicksBridge } from "@ai-sidekicks/contracts";
+import { describe, expect, it, vi, afterEach } from "vitest";
 
 import { contextWith, renderSurface, settle } from "../session-surface.test-support.js";
+import {
+  CREATED_SESSION_ID,
+  installProbeBridge,
+  pressStart,
+  uninstallProbeBridge,
+} from "./probe-bridge.test-support.js";
 import { settleFirstSendAutoPin } from "../../seats/index.js";
 import type { ConsoleSurfaceContext } from "../../seats/index.js";
-
-/** The session the daemon mints for these cases. */
-const CREATED_SESSION_ID = "7f3c1a2b-4d5e-4f60-8a71-9c2d3e4f5061";
-
-/**
- * The installed bridge the probe reads, answering `session.create` as the case says.
- *
- * `window.sidekicks` and not the console's own bridge, deliberately: the probe is a
- * shipped Tier-1 component that reads the preload directly, which is the whole reason
- * the console guards its mount on the bridge SOURCE rather than handing it one.
- */
-function installProbeBridge(call: (method: string, params: unknown) => Promise<unknown>): void {
-  (window as unknown as { sidekicks: SidekicksBridge }).sidekicks = {
-    daemon: { call },
-  } as unknown as SidekicksBridge;
-}
 
 /** A create that settles with a session, and the calls it recorded. */
 function creatingBridge(): ReturnType<typeof vi.fn> {
@@ -49,17 +36,6 @@ function creatingBridge(): ReturnType<typeof vi.fn> {
   return call;
 }
 
-/** Press Start, the way a person does. */
-function pressStart(container: HTMLElement): void {
-  const start = container.querySelector<HTMLButtonElement>(".meridian-sessions__start");
-  if (start === null) {
-    throw new Error("the destination rendered no start control");
-  }
-  act(() => {
-    start.click();
-  });
-}
-
 /** Mount the destination, press Start, and let the create settle. */
 async function startASession(context: ConsoleSurfaceContext): Promise<HTMLElement> {
   const { container } = renderSurface(context);
@@ -71,7 +47,7 @@ async function startASession(context: ConsoleSurfaceContext): Promise<HTMLElemen
 
 describe("a settled start — what the console does with the session it just made", () => {
   afterEach(() => {
-    delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
+    uninstallProbeBridge();
     vi.clearAllMocks();
   });
 

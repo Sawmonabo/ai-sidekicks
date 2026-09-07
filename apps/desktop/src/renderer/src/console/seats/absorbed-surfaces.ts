@@ -76,6 +76,34 @@ import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
 
 /**
+ * What a caller hears back from the session probe, and when.
+ *
+ * TWO CALLBACKS BECAUSE THERE ARE TWO FACTS. `onCreated` names the session a press
+ * produced and is told on that arm alone; `onSettled` says the call is no longer in
+ * flight and is told on both. A caller that single-flights the start act needs the
+ * second one — a slot released only where a session appeared would stay held for the
+ * life of the surface the first time a create refused.
+ */
+export interface AbsorbedSessionProbeSettlement {
+  readonly onCreated: (created: SessionBootstrapCreated) => void;
+  readonly onSettled: () => void;
+}
+
+/**
+ * Whether a mount guarded on the installed bridge puts its call in THIS window.
+ *
+ * ONE HOME FOR THE GUARD'S CONDITION, read from two sides. {@link mountAbsorbedSurface}
+ * reads it to decide what to render; a caller that single-flights the act one of these
+ * mounts performs reads it to decide whether there is an act to single-flight at all.
+ * Without it that caller would take a slot in a window where nothing is ever
+ * dispatched and nothing will ever settle to give the slot back — a control that goes
+ * inert on its first press, under the fixture, for a call that was never put.
+ */
+export function absorbedSurfaceAsks(bridgeSource: ConsoleBridgeSource): boolean {
+  return bridgeSource === "live";
+}
+
+/**
  * The session probe, built on the participant's own act.
  *
  * Exported as a BUILDER rather than registered as a mount, because the probe creates
@@ -93,14 +121,19 @@ import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
  * another plan owns — the probe still creates, still renders its own three arms, and
  * the console becomes the party that hears the result.
  *
- * The callback is optional at BOTH ends. A caller with nothing to do with a settled
+ * The settlement is optional at BOTH ends. A caller with nothing to do with a settled
  * create passes none, and the component's behaviour is then exactly what it was.
  */
 export function renderAbsorbedSessionProbe(
   bridgeSource: ConsoleBridgeSource,
-  onCreated?: (created: SessionBootstrapCreated) => void,
+  settlement?: AbsorbedSessionProbeSettlement,
 ): ReactNode {
-  return mountAbsorbedSurface(bridgeSource, () => createElement(SessionBootstrap, { onCreated }));
+  return mountAbsorbedSurface(bridgeSource, () =>
+    createElement(SessionBootstrap, {
+      onCreated: settlement?.onCreated,
+      onSettled: settlement?.onSettled,
+    }),
+  );
 }
 
 /**
@@ -270,7 +303,7 @@ function mountAbsorbedSurface(
   bridgeSource: ConsoleBridgeSource,
   build: () => ReactNode,
 ): ReactNode {
-  if (bridgeSource !== "live") {
+  if (!absorbedSurfaceAsks(bridgeSource)) {
     return centredAbsence({
       kind: "not-checked",
       title: "This surface reads the installed bridge, and this window is running on the fixture.",

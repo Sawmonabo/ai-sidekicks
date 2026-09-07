@@ -38,6 +38,17 @@ export interface SessionActsProps {
   readonly onJoined: (sessionId: string) => void;
   /** Why creating and joining are refused right now, or `undefined` where they are not. */
   readonly blockedReason?: string | undefined;
+  /**
+   * Why STARTING alone is refused, where the other two acts are still open.
+   *
+   * A SECOND PROP AND NOT A WIDER FIRST ONE, because the two causes have different
+   * audiences. `blockedReason` is a fact about the window — it cannot reach the
+   * runtime, or it is reading stale state — and it closes every act on this bar.
+   * This one is a fact about the START act itself, and the only act it may close: a
+   * create already running is no reason at all to refuse a join, and folding the two
+   * would disable a form for a call it has nothing to do with.
+   */
+  readonly startBlockedReason?: string | undefined;
 }
 
 /** Which secondary act is disclosed. One at a time — two open forms is two primaries. */
@@ -46,6 +57,9 @@ type DisclosedAct = "none" | "join" | "import";
 export function SessionActs(props: SessionActsProps): React.JSX.Element {
   const { bridge, preferences, onStart, onJoined, blockedReason } = props;
   const [disclosed, setDisclosed] = useState<DisclosedAct>("none");
+  // The window's cause first, because it is the stronger fact and the one that says
+  // what a person can do next; the start act's own only where nothing else stands.
+  const startBlockedReason = blockedReason ?? props.startBlockedReason;
 
   return (
     <div className="meridian-session-acts">
@@ -53,8 +67,8 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
         <button
           type="button"
           className="meridian-sessions__start"
-          disabled={blockedReason !== undefined}
-          title={blockedReason}
+          disabled={startBlockedReason !== undefined}
+          title={startBlockedReason}
           onClick={onStart}
         >
           Start a session
@@ -93,8 +107,11 @@ export function SessionActs(props: SessionActsProps): React.JSX.Element {
         </Menu.Root>
       </div>
 
-      {blockedReason === undefined ? null : (
-        <p className="meridian-session-acts__blocked">{blockedReason}</p>
+      {/* The strongest cause standing on this bar, which is the start act's, since it
+          already folds the window's. A control that is disabled with its sentence off
+          screen is a control that has quietly stopped working. */}
+      {startBlockedReason === undefined ? null : (
+        <p className="meridian-session-acts__blocked">{startBlockedReason}</p>
       )}
 
       {disclosed === "join" ? (

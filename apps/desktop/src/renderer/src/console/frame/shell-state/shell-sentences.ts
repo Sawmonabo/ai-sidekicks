@@ -155,7 +155,7 @@ export function describeSupportedProtocols(negotiation: ShellNegotiation): Shell
 /**
  * What each blocked method does, in a person's words.
  *
- * A TOTAL record over the six, so a seventh mutating registration is a compile error
+ * A TOTAL record over the tuple, so an added mutating registration is a compile error
  * here rather than a control that quietly disappears from the read-only line while
  * still being disabled on screen.
  */
@@ -166,6 +166,7 @@ const MUTATING_METHOD_LABELS: Record<MutatingDaemonMethod, string> = {
   "driver.applyIntervention": "steering, rewinding, and the other run controls",
   "driver.respondToRequest": "answering a provider's question",
   "driver.compactContext": "compacting a session's context",
+  "providerAccount.probe": "checking a provider account again",
 };
 
 /**

@@ -66,6 +66,22 @@ export interface SessionBootstrapProps {
    * callback carrying an empty id would be a name for something that does not exist.
    */
   readonly onCreated?: ((created: SessionBootstrapCreated) => void) | undefined;
+  /**
+   * Told once, when the call stops being in flight — created OR refused.
+   *
+   * A DIFFERENT FACT FROM {@link SessionBootstrapProps.onCreated}, which is why it is
+   * a second callback rather than a second argument on the first. `onCreated` answers
+   * "which session is this"; a refused create has no answer to that and must still be
+   * heard, because the caller that single-flights the act is holding a slot until
+   * something says the act is over. Heard only on the created arm, that slot would
+   * never come back after a refusal and the control that took it would be dead for the
+   * life of the surface — with the reason nowhere on screen.
+   *
+   * Told AFTER the state is set, on both arms, and at most once per mount: the
+   * `cancelled` guard below is what makes it once, so strict mode's discarded first
+   * effect settles silently exactly as it does for `onCreated`.
+   */
+  readonly onSettled?: (() => void) | undefined;
 }
 
 export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Element {
@@ -80,8 +96,10 @@ export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Elemen
   // answer a settlement with a callback the parent has since replaced. The ref is
   // refreshed on every commit and read at settlement time, which is neither.
   const notifyCreated = useRef(props.onCreated);
+  const notifySettled = useRef(props.onSettled);
   useEffect(() => {
     notifyCreated.current = props.onCreated;
+    notifySettled.current = props.onSettled;
   });
 
   useEffect(() => {
@@ -132,6 +150,7 @@ export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Elemen
         // The `cancelled` guard above is what makes it once — strict mode's discarded
         // first effect resolves with the flag set and tells nobody.
         notifyCreated.current?.({ sessionId: created.sessionId });
+        notifySettled.current?.();
       } catch (bridgeError: unknown) {
         if (cancelled) return;
         // Tier 1 production branch: every Tier-1 bridge method throws
@@ -145,6 +164,10 @@ export function SessionBootstrap(props: SessionBootstrapProps): React.JSX.Elemen
         const normalised =
           bridgeError instanceof Error ? bridgeError : new Error(String(bridgeError));
         setState({ kind: "rejected", error: normalised });
+        // The refused arm's half of the settlement. `onCreated` is deliberately not
+        // told here — there is no session to name — but the act is over, and the
+        // caller holding a single-flight slot has to hear that on this arm too.
+        notifySettled.current?.();
       }
     })();
 
