@@ -45,7 +45,6 @@
 
 import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerComposerFamily } from "../shell/index.js";
-import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import { registerConsolePanes } from "./panes/index.js";
@@ -55,14 +54,15 @@ import type {
   ConsolePaneRegistry,
   ConsoleSurfaceRegistry,
   InlineCardSeatRegistry,
+  PinnedPaneRegionRegistry,
   SidebarSectionRegistry,
 } from "./seats/index.js";
 import { registerWorkflowSurfaces } from "./workflows/index.js";
 
 /**
- * Register every shipped view family against the five boards a composition owns.
+ * Register every shipped view family against the six boards a composition owns.
  *
- * ALL FIVE ARE PARAMETERS, and each one after the first is this signature's history. The surface registry was passed in from the start so a test could compose
+ * ALL SIX ARE PARAMETERS, and each one after the first is this signature's history. The surface registry was passed in from the start so a test could compose
  * into a registry it owns and an auxiliary window could compose a subset; the pane
  * board beside it reached for the module-scope singleton, so a caller composing its
  * own family set still registered panes into the production one. That is inert only
@@ -90,9 +90,18 @@ import { registerWorkflowSurfaces } from "./workflows/index.js";
  * they have not happened yet. Taking them as parameters now is what gives the first
  * family that fills a section or a card something to be handed instead.
  *
+ * The pinned-region board is the sixth, and it is the first board a family fills for a
+ * pane it does not own. A pane's chrome draws a block between its head and its body,
+ * and the first thing pinned there is channel-scoped workflow progress on a
+ * channel-scoped `timeline` pane — one family's fold above another family's pane,
+ * which a sibling import cannot express and a prop on the chrome would have made every
+ * host courier. It is a parameter on the terms the two boards above it are: the board
+ * ships a module-scope registrar, and a family reaching for that one writes into the
+ * running console whatever this composition was handed.
+ *
  * Required rather than defaulted to the singletons, because a default is the same
  * hard-coding one parameter along: a caller that forgets it still writes into
- * production. Naming all five at the one composition site is what makes a composition
+ * production. Naming all six at the one composition site is what makes a composition
  * legible as a whole.
  */
 export function registerConsoleFamilies(
@@ -101,14 +110,18 @@ export function registerConsoleFamilies(
   projectors: ConsoleEntityProjectorRegistry,
   sidebarSections: SidebarSectionRegistry,
   inlineCardSeats: InlineCardSeatRegistry,
+  pinnedRegions: PinnedPaneRegionRegistry,
 ): void {
-  // The three shipped Tier-1 families come first, because they were mounted
-  // before any of the seats below existed. A family filling a seat that one of
-  // them currently holds REPLACES it — delete that line, do not add beside it.
-  // The registry refuses a second owner on one slot rather than letting import
-  // order decide which surface mounts, so a seat added without the deletion is a
-  // conflict the composition test names by slot rather than a silent swap.
-  registerLegacySurfaces(surfaces);
+  // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Three of them are
+  // absorbed by the console surfaces that mount them, through the helpers
+  // `seats/absorbed-surfaces.ts` publishes, so they reach the screen inside a
+  // console-authored surface rather than beside one. The fourth — the shipped
+  // participant roster — was the last slot claimant, and it is retired rather than
+  // re-homed: it rendered presence a second time in one application, and the
+  // collaboration family renders presence from the bridge the console resolved.
+  // The `workspace` slot is therefore RESERVED, which is what the frame renders for
+  // a slot no family has claimed, and it is the deck's to claim when it lands.
+  //
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
   // whole console, and it takes the pane registry this function was HANDED —
@@ -137,9 +150,10 @@ export function registerConsoleFamilies(
   // The seat line itself stays in its reserved shape, which is the shape it would
   // take either way — a seat is a seat filled or not, and the board counts it. Said
   // HERE rather than beside that line, because the census below admits seats only.
-  // Each seat below receives the boards it writes into, out of the five this
+  // Each seat below receives the boards it writes into, out of the six this
   // composition was handed. A family claims a surface slot, a pane kind, the event
-  // kinds whose fold it owns, a sidebar section, and an inline-card body — through
+  // kinds whose fold it owns, a sidebar section, an inline-card body, and the region
+  // one pane kind pins above its body — through
   // its own `register<Family>` entry point, never by editing a shared spine and
   // never through a board's module-scope registrar, which writes into production
   // whatever the caller composed into.
@@ -157,9 +171,9 @@ export function registerConsoleFamilies(
   // reads the block as a census and refuses anything that is not a seat.
   // T-023p-1C-2 ledger
   registerComposerFamily(projectors, sidebarSections); // T-023p-1C-3 composer
-  registerCollaborationFamily(surfaces, sidebarSections); // T-023p-1C-4 collaboration
+  registerCollaborationFamily(surfaces, sidebarSections, projectors); // T-023p-1C-4 collaboration
   registerRepos(sidebarSections, inlineCardSeats); // T-023p-1C-5 repos
-  registerWorkflowSurfaces(surfaces); // T-023p-1C-6 workflows
+  registerWorkflowSurfaces(surfaces, pinnedRegions); // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery
 }

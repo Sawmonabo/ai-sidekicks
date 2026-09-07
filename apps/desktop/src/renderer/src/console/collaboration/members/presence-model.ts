@@ -21,13 +21,17 @@
 // here — off the read's order, which is the daemon's — would give a person a
 // different colour in this list than in the log beside it.
 //
-// THE SHIPPED TIER-1 ROSTER IS NOT THIS. `session-members/participant-roster.tsx`
-// reads `window.sidekicks` directly, so the console's fixture cannot stand in for
-// it and the frame mounts it behind a live-bridge guard. This model reaches the
-// bridge the console resolved, which is what lets a scenario drive it, and it
-// routes its refresh through the scheduler rather than through a hand-rolled
-// sequence counter. Retiring that component from the `workspace` slot is the
-// workspace family's own diff, not this one's.
+// THIS IS THE ONLY PLACE THE APPLICATION DRAWS PRESENCE, and it became that here.
+// `session-members/participant-roster.tsx` drew it too, mounted at the `workspace`
+// slot behind a live-bridge guard, so one window read one session's presence twice
+// over two reads free to disagree — and the shipped one could not be the survivor:
+// it reads `window.sidekicks` directly, so no scenario can drive it, and it carries
+// no seam for the role, the terminal-lease holder, or the per-device fan-out the
+// rows beside this model render — so beside a roster that draws all three it has no
+// fact left to contribute. That slot claim is retired. This model reaches the bridge
+// the console resolved, which is
+// what lets a scenario drive it, and it routes its refresh through the scheduler
+// rather than through a hand-rolled sequence counter.
 
 import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 
@@ -44,7 +48,16 @@ import type { SessionStore } from "../../store/index.js";
 import { PushDrivenRead, servedValueOrRaise, subscribeDaemonEvent } from "../../seats/index.js";
 
 const PRESENCE_READ_METHOD = "presence.read";
-const PRESENCE_SUBSCRIBE_EVENT = "presence.subscribe";
+/**
+ * The registered Awareness change signal, declared once for both of its readers.
+ *
+ * The roster below and `collaboration/activity-feed.ts` answer the same push with
+ * two different reads — who is present, and what they are doing — and one seam
+ * spelled twice is the drift `apps/desktop/AGENTS.md §Shared code` forbids: a name
+ * corrected in one module and not the other leaves the second subscribed to a
+ * string the daemon does not serve, which reads exactly like a quiet session.
+ */
+export const PRESENCE_SUBSCRIBE_EVENT = "presence.subscribe";
 
 /** The refusal origin every roster-read failure carries. */
 export const PRESENCE_ROSTER_ORIGIN = "presence-roster";

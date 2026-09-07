@@ -31,6 +31,17 @@
 /** The session every fact in this fixture belongs to. The scenario's own id, once. */
 export const WORKFLOWS_SESSION_ID = "019b7a10-0280-75e5-8510-ada11a5a3333";
 
+/**
+ * The channel the parked run was started from, so a channel-scoped surface has a run
+ * to find and a second channel has none.
+ *
+ * One run in this table carries it and the other three do not, which is what makes the
+ * pinned-progress card's absence arm reachable from the same scenario as its present
+ * arm: a channel that started a workflow and a channel that did not are both in this
+ * fixture, and neither is a second scenario away.
+ */
+export const WORKFLOWS_CHANNEL_ID = "019b7a10-0280-7c41-8510-cf1a11e10001";
+
 /** The person this window is, and the actor on every beat a person caused. */
 export const WORKFLOWS_PARTICIPANT_YOU = "019b7a10-0280-79a4-8110-cca0117a0110";
 

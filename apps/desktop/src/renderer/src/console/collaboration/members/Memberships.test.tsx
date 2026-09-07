@@ -1,93 +1,23 @@
-// The membership ledger: which facts it prints, which controls it offers, and the
-// one screen it gives up entirely for a confirmation.
+// The membership ledger: which facts it prints, and what a refused enrichment
+// costs it.
 //
 // The properties worth the most are the ones that would be WRONG rather than
-// missing. A row that showed a role no event stated would be a fabricated fact; a
-// revoke control hidden from the last owner would replace an answer a person can
-// act on with a control they cannot find; and a ledger that rendered its own
-// controls behind a pending confirmation would offer two jobs on one screen at
-// the moment the person has to concentrate on one.
+// missing. A row that showed a role no event stated would be a fabricated fact,
+// and a ledger that dropped its rows when the identifier read refused would
+// answer "this session has no members" to a question about identifiers.
+//
+// What a person can DO to a row is the sibling file, `Memberships.acts.test.tsx`;
+// the harness both drive is `Memberships.test-support.tsx`.
 
-import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { SessionStore } from "../../store/index.js";
-import type { SidebarSectionContext } from "../../seats/index.js";
-import { Memberships } from "./Memberships.js";
-import type { PendingInviteConfirmation } from "../invites/InviteConfirmation.js";
-
-type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-
-const SESSION_ID = "session-collaboration";
-
-const EMPTY_SCENARIO: FixtureScenario = {
-  id: "collaboration-members-test",
-  label: "Memberships, with nothing scripted",
-  purpose: "Drives the membership ledger against a bridge that scripts no reply.",
-  sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [],
-  beats: [],
-  replies: [],
-  startedAtIso: "2026-01-01T10:05:00.000Z",
-};
-
-interface ProjectedMembership {
-  readonly participantId: string;
-  readonly role?: string;
-  readonly membershipId?: string;
-  readonly state?: string;
-}
-
-/**
- * A store holding exactly the memberships a case is about.
- *
- * The REAL store, initialised from a snapshot — not a stand-in for it. What the
- * section derives from a projection is the thing under test, so the projection
- * has to be the real one.
- */
-function storeHolding(memberships: readonly ProjectedMembership[]): SessionStore {
-  const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({
-    cursor: 0,
-    participantJoinLog: memberships.map((membership) => membership.participantId),
-    entities: memberships.map((membership) => ({
-      kind: "participant" as const,
-      id: membership.participantId,
-      ...(membership.state === undefined ? {} : { state: membership.state }),
-      body: {
-        ...(membership.role === undefined ? {} : { role: membership.role }),
-        ...(membership.membershipId === undefined ? {} : { membershipId: membership.membershipId }),
-      },
-    })),
-  });
-  return store;
-}
-
-function contextFor(store: SessionStore, bridge?: ConsoleBridge): SidebarSectionContext {
-  return {
-    sessionStore: store,
-    bridge: bridge ?? createFixtureBridge({ scenario: EMPTY_SCENARIO }),
-    openPane: () => undefined,
-    isOpen: true,
-  };
-}
-
-const OWNER_AND_COLLABORATOR: readonly ProjectedMembership[] = [
-  {
-    participantId: "participant-you",
-    role: "owner",
-    membershipId: "019b7912-0001-7000-8000-000000000001",
-    state: "active",
-  },
-  {
-    participantId: "participant-priya",
-    role: "collaborator",
-    membershipId: "019b7912-0001-7000-8000-000000000002",
-    state: "suspended",
-  },
-];
+import {
+  Memberships,
+  OWNER_AND_COLLABORATOR,
+  contextFor,
+  storeHolding,
+} from "./Memberships.test-support.js";
 
 describe("memberships — the facts on a row", () => {
   it("prints the role and the membership state as wire figures", () => {
@@ -208,12 +138,13 @@ describe("memberships — a row with no membership id", () => {
   });
 });
 
-describe("memberships — nothing projected", () => {
-  it("says nobody asked rather than that the session is empty", () => {
+describe("memberships — nothing read", () => {
+  it("names both sources rather than saying the session is empty", () => {
     const { container } = render(<Memberships context={contextFor(storeHolding([]))} />);
     const text = container.textContent ?? "";
     expect(text).toContain("No membership has been read");
-    expect(text).toContain("nobody asked");
+    expect(text).toContain("event log and from the membership roster read");
+    expect(text).toContain("not an empty session");
   });
 
   it("negative control: a projected membership renders a count instead", () => {
@@ -225,126 +156,31 @@ describe("memberships — nothing projected", () => {
   });
 });
 
-describe("memberships — a pending confirmation takes the whole surface", () => {
-  const PENDING: PendingInviteConfirmation = {
-    token: "v4.local.opaque-token",
-    sessionId: SESSION_ID,
-  };
-
-  it("renders the confirmation and none of the section's own controls", () => {
+describe("memberships — what the two reads cost when one of them refuses", () => {
+  it("says the roster read refused beside the rows rather than instead of them", () => {
     const { container } = render(
       <Memberships
         context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))}
-        pendingInvite={PENDING}
+        rosterRefusal={{
+          origin: "membership-roster",
+          code: "growth.wire_unregistered",
+          detail: "membershipRosterRead has no wire.",
+        }}
       />,
     );
-    expect(container.querySelector(".meridian-invite-confirmation")).not.toBeNull();
-    expect(container.querySelector(".meridian-members__manage")).toBeNull();
-    expect(container.querySelector(".meridian-invites")).toBeNull();
+    const text = container.textContent ?? "";
+    // The rows are still there. That is the whole claim: a refused enrichment costs
+    // the ledger its identifiers, never its memberships.
+    expect(container.querySelectorAll(".meridian-members__row")).toHaveLength(2);
+    expect(text).toContain("growth.wire_unregistered");
+    expect(text).toContain("these memberships");
   });
 
-  it("returns the section once the confirmation is put away", () => {
-    const { container } = render(
-      <Memberships
-        context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))}
-        pendingInvite={PENDING}
-      />,
-    );
-    act(() => {
-      container.querySelector<HTMLButtonElement>(".meridian-invite-confirmation__dismiss")?.click();
-    });
-    expect(container.querySelector(".meridian-invite-confirmation")).toBeNull();
-    expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
-  });
-
-  it("negative control: with no pending invitation the section renders straight away", () => {
+  it("negative control: a served read leaves no notice at all", () => {
     const { container } = render(
       <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
     );
-    expect(container.querySelector(".meridian-invite-confirmation")).toBeNull();
-    expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
-  });
-});
-
-describe("memberships — one change at a time", () => {
-  /** Every row's manage trigger and revoke trigger, read fresh after each render. */
-  function rowControls(container: HTMLElement): readonly HTMLButtonElement[] {
-    return [
-      ...container.querySelectorAll<HTMLButtonElement>(
-        ".meridian-members__manage, .meridian-members__revoke",
-      ),
-    ];
-  }
-
-  /** Open one row's revoke confirmation and press through it. */
-  function confirmRevoke(container: HTMLElement, rowIndex: number): void {
-    act(() => {
-      container.querySelectorAll<HTMLButtonElement>(".meridian-members__revoke")[rowIndex]?.click();
-    });
-    act(() => {
-      document.querySelector<HTMLButtonElement>(".meridian-members__dialog-confirm")?.click();
-    });
-  }
-
-  it("closes every row's controls while one row's change is unsettled", () => {
-    const { container } = render(
-      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
-    );
-    expect(rowControls(container).every((control) => !control.disabled)).toBe(true);
-
-    // Synchronous acts on purpose: the coordinator publishes its pending key
-    // before the call it awaits settles, so this reads the tree at exactly the
-    // moment one membership change is in flight.
-    confirmRevoke(container, 0);
-
-    const controls = rowControls(container);
-    expect(controls).toHaveLength(4);
-    expect(controls.every((control) => control.disabled)).toBe(true);
-    // The row that was pressed says what it is doing; its neighbour is only shut.
-    const manageLabels = [...container.querySelectorAll(".meridian-members__manage")].map(
-      (control) => control.textContent ?? "",
-    );
-    expect(manageLabels).toStrictEqual(["Applying…", "Manage"]);
-  });
-
-  it("negative control: every control opens again once that change settles", async () => {
-    // Without this, the case above would pass over a ledger that disabled every
-    // control permanently.
-    const { container } = render(
-      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
-    );
-
-    confirmRevoke(container, 0);
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-
-    // The scenario scripts no `membership.update` reply, so the fixture refuses —
-    // and the refusal renders in place rather than leaving the surface shut. Its
-    // words are the DOOR's: the coordinator installs a refusal verbatim and adds no
-    // prefix of its own, so what a person reads names the call that had no answer.
-    expect(container.textContent ?? "").toContain("membership.update");
-    expect(container.textContent ?? "").toContain("reply-unscripted");
-    expect(rowControls(container).every((control) => !control.disabled)).toBe(true);
-  });
-});
-
-describe("memberships — what a person reads", () => {
-  it("names no governance work anywhere", () => {
-    const { container } = render(
-      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
-    );
-    expect(container.textContent ?? "").not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
-  });
-
-  it("labels every control it draws", () => {
-    const { container } = render(
-      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
-    );
-    const unlabelled = [...container.querySelectorAll("button")].filter(
-      (button) =>
-        (button.textContent ?? "").trim() === "" && button.getAttribute("aria-label") === null,
-    );
-    expect(unlabelled).toStrictEqual([]);
+    expect(container.textContent ?? "").not.toContain("growth.wire_unregistered");
+    expect(container.querySelector(".meridian-reading-notice")).toBeNull();
   });
 });

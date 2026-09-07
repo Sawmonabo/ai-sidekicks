@@ -276,6 +276,19 @@ export {
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
+// The served shape of a growth SUBSCRIPTION, published beside the outcome for the
+// same reason: the deep-link path's owner drains one, and a view family that had to
+// name the shape itself would be declaring a second reading of what this port
+// promises.
+export type { GrowthStream } from "./growth-port/growth-outcome.js";
+
+// The per-operation request and value table. Published for exactly one reader: the
+// collaboration family's mutation coordinator, which binds a growth WRITE the way it
+// already binds a daemon method — reading both halves off the registry rather than
+// declaring them at the call site, so a surface naming an operation the slate does not
+// carry, or sending it the wrong payload, does not compile. It travels as a type and
+// carries no port with it, so nothing gains a way to CALL an operation through it.
+export type { GrowthOperationSignatures } from "./growth-signatures/signature-table.js";
 
 // The `invitesList` outcome and its served row. Published because TWO sibling view
 // families read that one operation — the sent ledger and the received shelf — and a
@@ -286,6 +299,36 @@ export type {
   InvitesListRefusal,
   ServedInvite,
 } from "./growth-port/invites-outcome.js";
+
+// The channel plane's shapes, published because the collaboration family RENDERS
+// them: an audience badge, a pair-labelled row, a create form whose every field is one
+// member of `GrowthChannelConfig`, and the receipts the four lifecycle writes answer
+// with. They leave through the module that DECLARES them rather than through
+// `growth-values/index.js`, on the `console-no-barrel-chain` rule — and the three
+// vocabularies are here rather than on that inner door because their only readers are
+// outside this family, which is exactly what a sub-module door does not publish.
+export {
+  GROWTH_CHANNEL_AUDIENCES,
+  GROWTH_CHANNEL_KINDS,
+  GROWTH_CHANNEL_TURN_POLICIES,
+  type GrowthChannelAudience,
+  type GrowthChannelConfig,
+  type GrowthChannelCreateReceipt,
+  type GrowthChannelKind,
+  type GrowthChannelLifecycleReceipt,
+  type GrowthChannelRosterEntry,
+  type GrowthChannelTurnPolicy,
+} from "./growth-values/channels.js";
+
+// The membership plane's two, on the same rule: the ledger renders the identifier its
+// controls are keyed by, and the roster's detail card renders the devices behind one
+// person's aggregate. The device ROW inside that fan-out is deliberately not a third
+// line — the card maps over `GrowthPresenceDetail["devices"]` and names the row type
+// nowhere, and a door is never widened for symmetry.
+export type {
+  GrowthMembershipRosterEntry,
+  GrowthPresenceDetail,
+} from "./growth-values/memberships.js";
 
 // The saved definition the registry serves. Published because the definition picker
 // in the agent console projects one onto its own row shape, and a projection cannot
@@ -454,3 +497,25 @@ export { membershipRoleOf, stampedExecutionPostureOf } from "./daemon/entity-bod
 // out — and the terminal's host-presence fold is the production reader that makes the
 // line a door line rather than a claim.
 export { readNodeState } from "./daemon/node-state-read.js";
+
+// The two Awareness activity fields' readings, through the door because the
+// collaboration family folds a snapshot of them into its indicator registry and a
+// view family may not reach past a barrel into this one. They leave through
+// `growth-values/presence.js`, the module that DECLARES them, on the rule the
+// `GrowthArtifactSummary` line above states.
+export type {
+  GrowthActivitySnapshot,
+  GrowthAgentActivityReading,
+  GrowthComposingReading,
+} from "./growth-values/presence.js";
+
+// The pending confirmation and the four arms one attempt on it can end in. Through
+// the door and from their declaring module for the same reason: the confirmation
+// surface is the collaboration family's, and every arm it renders is one of these.
+export type { GrowthInviteOutcome, GrowthPendingInvite } from "./growth-values/invites.js";
+
+// The composer's own composing publisher. It lives in this family because it is a
+// write adapter over the growth port — the `quotas/` reads' mirror image — and it
+// leaves through this door because its one production reader is the composer, which
+// sits outside the console entirely and reaches every console family through a door.
+export { ComposingPublisher } from "./presence/composing-publisher.js";

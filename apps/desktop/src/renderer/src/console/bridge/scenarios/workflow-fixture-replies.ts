@@ -41,6 +41,7 @@ import {
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
 } from "./workflow-fixture-phase-outputs.js";
 import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
+import { WORKFLOWS_CHANNEL_ID } from "./workflow-fixture-ids.js";
 import { workflowSubjectNotFound } from "../fixture/fixture-workflow-scope.js";
 import { readUnknownStringMember } from "../scenario-runtime/index.js";
 import type {
@@ -81,6 +82,22 @@ const DEFINITION_NAME_BY_RUN_VERSION: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The channel each run was started from, for the runs that were started from one.
+ *
+ * Exactly one row, and that is the fixture's claim rather than an omission: the
+ * provenance rides a chat-borne start (`Spec-017 §Chat-start surface (SA-38)`) and the
+ * other three runs in this table were not started from a conversation. A table where
+ * every run carried a channel would leave the "this channel started nothing" arm — the
+ * one a pinned region draws as no element at all — unreachable from this scenario.
+ *
+ * The PARKED run carries it on purpose: it is the run whose progress a channel most
+ * needs pinned, and it is the one run in the table with a park a card can read.
+ */
+const CHANNEL_BY_RUN: Readonly<Record<string, string>> = {
+  [WORKFLOWS_PARKED_RUN.workflowRunId]: WORKFLOWS_CHANNEL_ID,
+};
+
+/**
  * The definition a run's name resolves to, most-specific-first as the daemon would.
  *
  * Two definitions share each of two names in this fixture, which is what makes the
@@ -109,10 +126,16 @@ export function runListEntries(): readonly WorkflowRunListEntry[] {
       throw new Error(`the workflows fixture pairs no definition with run ${run.workflowRunId}`);
     }
     const definition = resolvedDefinitionNamed(definitionName);
+    const channelId = CHANNEL_BY_RUN[run.workflowRunId];
     return {
       ...run,
       definitionName: definition.name,
       definitionLatestWorkflowVersionId: definition.latestWorkflowVersionId,
+      // Spread conditionally rather than as `channelId: undefined`, because
+      // `exactOptionalPropertyTypes` makes "the key is absent" and "the key holds
+      // undefined" different types — and absent is what a run started outside a
+      // channel actually sends.
+      ...(channelId === undefined ? {} : { channelId }),
     };
   });
 }

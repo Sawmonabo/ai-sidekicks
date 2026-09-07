@@ -156,7 +156,40 @@ export type GrowthOperationId =
   // the hydrated event read, and the session cost plane's two reads
   | "hydratedEventRead"
   | "orchestrationCostReceiptRead"
-  | "orchestrationBudgetRead";
+  | "orchestrationBudgetRead"
+  // channel plane — the four lifecycle verbs in the registry's own order, then the
+  // roster read. Each id is its wire method's tail with the root folded in, which
+  // `growth-operations/index.test.ts` holds every entry to.
+  | "channelCreate"
+  | "channelMute"
+  | "channelUnmute"
+  | "channelArchive"
+  | "channelRosterRead"
+  // The membership roster read, which folds to no wire method: `membership.update` is
+  // keyed by an identifier every registered carrier answers only from a join or a
+  // write, so the read that would supply one is registered nowhere and has no tail to
+  // fold. The per-device presence fan-out beside it does have one.
+  | "membershipRosterRead"
+  | "participantPresenceDetailRead"
+  // The session's terminal-control holder, which folds to no wire method either: the
+  // holder is a MEMBER of the runtime-node roster reply rather than a read of its
+  // own, and the shipped strict schema does not carry it.
+  | "terminalControlHolderRead"
+  // presence — the two Awareness activity fields, read for everyone else and
+  // published for this participant. Neither field is a method anywhere in the
+  // corpus, so no id here folds a wire method: see `growth-operations/presence.ts`.
+  | "presenceActivityRead"
+  | "presenceComposingSet"
+  | "presenceComposingClear"
+  // invite — the pending-invite namespace `Spec-023 §Preload Bridge Contract` writes
+  // out verbatim, each id its named method's tail with the root folded in, plus the
+  // control-plane host a shareable link is composed from, which folds to no method.
+  | "invitePendingSubscribe"
+  | "inviteOutcomeSubscribe"
+  | "inviteConfirmPending"
+  | "inviteRetryPending"
+  | "inviteDismissPending"
+  | "controlPlaneHostRead";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

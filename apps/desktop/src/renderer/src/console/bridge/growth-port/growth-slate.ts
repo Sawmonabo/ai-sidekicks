@@ -53,7 +53,15 @@ export type GrowthSlateRowId =
   | "sidekick-definition-registry"
   | "hydrated-event-read"
   | "cost-receipt-read"
-  | "workflow-version-chain";
+  | "workflow-version-chain"
+  | "channel-lifecycle-verbs"
+  | "channel-roster-read"
+  | "membership-roster-read"
+  | "participant-presence-detail"
+  | "terminal-control-holder"
+  | "presence-activity-fields"
+  | "control-plane-host"
+  | "pending-invite-namespace";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -329,10 +337,11 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "workflow-run-enumeration": {
     id: "workflow-run-enumeration",
-    wire: "a read of the workflow runs a session holds. Registered nowhere, and not one of the thirteen rows the row above draws on: every registered run operation addresses ONE run by an id the caller must already hold, so a surface that lists runs has no wire to ask and no id to ask it with",
+    wire: "a read of the workflow runs a session holds, each entry carrying back the channel a chat-borne start named (`channelId`) — provenance `workflowRunStart` takes as an input and no registered read returns, so a channel-scoped surface has no way to ask which of a session's runs belongs to it. Registered nowhere, and not one of the thirteen rows the row above draws on: every registered run operation addresses ONE run by an id the caller must already hold, so a surface that lists runs has no wire to ask and no id to ask it with",
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the run operations, none of which enumerates); Plan-017 (the shared-contracts and client-SDK registration an enumeration would join)",
-    consumingSurface: "workflows destination (the runs it holds)",
+    consumingSurface:
+      "workflows destination (the runs it holds), channel timeline pane (the pinned progress card)",
     wireRegistered: false,
   },
   "caller-participant-identity": {
@@ -381,6 +390,75 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition and version operations, none of which resolves a version id); Plan-017 (the shared-contracts and client-SDK registration a chain read would join)",
     consumingSurface: "workflow-run pane (the resume control's re-pin picker)",
+    wireRegistered: false,
+  },
+  "channel-lifecycle-verbs": {
+    id: "channel-lifecycle-verbs",
+    wire: "channel.create / channel.mute / channel.unmute / channel.archive — the four channel lifecycle verbs, with their request and reply shapes and the channel.* refusal codes they raise",
+    owningDocument:
+      "Spec-016 §Interfaces And Contracts (the create-time-immutable ChannelConfig and the two-value kind domain); api-payload-contracts.md §Plan-016 (the four method strings and their payload shapes, registered there and in no code package)",
+    consumingSurface: "channel list (mute / unmute / archive), create-a-channel form",
+    wireRegistered: false,
+  },
+  "channel-roster-read": {
+    id: "channel-roster-read",
+    wire: "channel.rosterRead — the daemon-native channel roster carrying each channel's kind, a direct channel's memberPair, and the ChannelConfig whose audience says whether this session's agents read it",
+    owningDocument:
+      "Spec-016 §Interfaces And Contracts (D-016-21: the kind discriminator, the immutable member pair, and the audience the daemon forces on a direct channel); api-payload-contracts.md §Plan-016 (ChannelRosterReadRequest / ChannelRosterReadResponse, registered there and in no code package)",
+    consumingSurface: "channel list (the audience badge and the direct-pair label)",
+    wireRegistered: false,
+  },
+  "membership-roster-read": {
+    id: "membership-roster-read",
+    wire: "a read returning a membershipId beside each of a session's participants — the identifier membership.update is keyed by, which every registered carrier answers only from a join or a write",
+    owningDocument:
+      "Spec-002 §Interfaces And Contracts (MembershipUpdate is keyed by membershipId and no read returns one); api-payload-contracts.md §Tier 2: Plan-002 (the five shapes that carry one, all of them a join or a write)",
+    consumingSurface: "membership ledger (the four membership.update controls)",
+    wireRegistered: false,
+  },
+  "participant-presence-detail": {
+    id: "participant-presence-detail",
+    wire: "participant.presenceDetail — the owner/operator-only per-device presence fan-out behind the aggregated summary every role may read",
+    owningDocument:
+      "Spec-018 §Interfaces And Contracts (D-018-5 / I-018-6: the aggregated summary is the unauthorized-default projection); api-payload-contracts.md §Participant Method-Name Registry (Tier 5) (PresenceDetailReadRequest / PresenceDetailReadResponse, registered there and in no code package)",
+    consumingSurface: "roster (the per-device detail behind a row)",
+    wireRegistered: false,
+  },
+  "terminal-control-holder": {
+    id: "terminal-control-holder",
+    wire: "the session's shared-terminal write-lease holder, registered as RuntimeNodeRosterResponse.controlHolder and carried by no shipped schema: RuntimeNodeRosterResponseSchema is strict and declares nodes alone, so the transport that reads the roster today refuses a reply that carries the member at all",
+    owningDocument:
+      "Spec-003 §Required Behavior (one shared terminal per session, one holder at a time); api-payload-contracts.md §Session Terminal-Control Method Registry (controlHolder, and the null it resolves to when the holding node reads offline)",
+    consumingSurface: "roster (the holder mark on the holding participant's row)",
+    wireRegistered: false,
+  },
+  // The two Awareness activity fields, on ONE row rather than two. They are a single
+  // publication surface with two mechanisms — the composer scalar is timed and the
+  // run-keyed map is edge-triggered — and every operation this row serves reads or
+  // writes both halves through the same daemon presence handler. Two rows would put
+  // one wire's registration under two owners with nothing to say which lands first.
+  "presence-activity-fields": {
+    id: "presence-activity-fields",
+    wire: "the two Awareness activity fields `activity.typing` and `activity.runs` — a read of the session's live activity state, and the composer's own set and clear emit for the human field",
+    owningDocument:
+      "Spec-002 §Default Behavior (both fields and the membership-restricted-channel suppression); Plan-002 T3.5 (the daemon presence handler surface the composer emits through); Spec-023 §Preload Bridge Contract (no presence namespace is on the shipped bridge)",
+    consumingSurface: "typing and agent-activity indicators (channel rows, roster rows)",
+    wireRegistered: false,
+  },
+  "control-plane-host": {
+    id: "control-plane-host",
+    wire: "the node's control-plane host, which an invitation's shareable link is composed from",
+    owningDocument:
+      "Spec-002 §Invite Delivery (the link's form); Spec-023 §Preload Bridge Contract (no shell read carries the host)",
+    consumingSurface: "invites surface (the one-time link reveal)",
+    wireRegistered: false,
+  },
+  "pending-invite-namespace": {
+    id: "pending-invite-namespace",
+    wire: "the five-method pending-invite bridge namespace, through which the main-confined result of the registered `invite.preview` mutation reaches the renderer as an opaque, single-use, TTL-bounded reference",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (the namespace is named there and is on no shipped bridge); Spec-002 §Interfaces And Contracts (the anonymous non-consuming invite preview main issues behind it)",
+    consumingSurface: "invite confirmation (the deep-link surface)",
     wireRegistered: false,
   },
 };

@@ -10,15 +10,17 @@
 import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "../core/keyed-registry.js";
-import { type ConsolePaneAddress } from "./pane-address.js";
+import {
+  type ConsolePaneAddress,
+  type ConsolePaneLink,
+  type ConsolePaneOpener,
+} from "./pane-address.js";
 import { PANE_KINDS, isDetachablePaneKind } from "./pane-kinds.js";
 import {
   ConsolePaneRegistry,
   consolePaneRegistry,
   registeredPaneKinds,
   type ConsolePaneDescriptor,
-  type ConsolePaneLink,
-  type ConsolePaneOpener,
 } from "./pane-registry.js";
 
 /** A descriptor whose render is never called: these cases are about the table. */

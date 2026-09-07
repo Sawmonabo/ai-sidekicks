@@ -55,8 +55,10 @@ export interface PaneGrowthSignatures {
    *
    * `controlHolder` is carried because the reply carries it, and is deliberately
    * NOT what moves the holder line: `Spec-023 §Console Design (Meridian)` 8.8
-   * forbids deriving the holder from the last observed claim, so the surface folds
-   * the `pty.control_changed` transition and reads this only as the reply it was.
+   * forbids deriving the holder from the last observed claim and says what the
+   * holder is instead — a wire field — so this reply is read as the settlement of
+   * one claim and `terminalControlHolderRead` below is what any surface asks when
+   * it needs to know who holds the lease.
    */
   terminalAcquireWriteLease: {
     request: { readonly sessionId: string };
@@ -66,6 +68,22 @@ export interface PaneGrowthSignatures {
   terminalReleaseWriteLease: {
     request: { readonly sessionId: string };
     value: { readonly controlHolder: null };
+  };
+  /**
+   * Who holds this session's one shared-terminal write lease.
+   *
+   * SESSION-SCOPED, because the lease is: V1 has exactly one shared terminal per
+   * session, so a request naming a pane or a node would be naming something the
+   * lease is not keyed by.
+   *
+   * `null` is a REAL answer and not an absence — the registered member resolves to
+   * null both when nobody holds the lease and when the holding node reads offline,
+   * and a surface that rendered those as "not read yet" would be hiding the one
+   * state 8.8 requires it to draw distinctly.
+   */
+  terminalControlHolderRead: {
+    request: { readonly sessionId: string };
+    value: { readonly controlHolder: string | null };
   };
   devServerProbe: { request: { readonly port: number }; value: { readonly listening: boolean } };
   windowDetachPane: { request: { readonly paneId: string }; value: { readonly windowId: string } };

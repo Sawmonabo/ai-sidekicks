@@ -7,16 +7,20 @@
 // been asked and has not arrived. Presence is deliberately not read again here —
 // one reader per read, and the section already holds it.
 //
-// TWO FACTS, AND ONE OF THEM HAS NO READ
+// TWO SOURCES, AND THE ROWS ARE DERIVED FROM BOTH BEFORE THEY REACH HERE
 //
-//   • ROLE AND MEMBERSHIP STATE come from the session store's projected
-//     participants — the ledger's own account of who joined and as what. Where an
-//     event has not stated a role, the row says so instead of inventing one.
-//   • A MEMBERSHIP ID has no read at all. `presence.read` does not carry one,
-//     `SessionReadResponse` carries no memberships, and `MembershipSummary` — the
-//     only shape with all three facts — is returned by `session.create` alone. So
-//     a row that has no membership id cannot be the subject of `membership.update`
-//     and says which read would let it be.
+//   • THE LOG. The session store's projected participants — who joined and as what,
+//     folded from the one `membership.*` beat that carries a payload the contract
+//     declares. Where no beat stated a fact, the row says so instead of inventing it.
+//   • THE MEMBERSHIP ROSTER READ, on the growth port, which is where a membership id
+//     comes from for everyone the log did not see admitted — including the session's
+//     own opener, who has no admission beat at all. It refuses on a live build, and
+//     its refusal is one line beside the rows rather than instead of them: the
+//     log-derived rows are still the best reading there is.
+//
+// The merge is `members-model.ts`'s and the derivation is the section body's, so this
+// component renders rows and never composes them. A row that still has no membership
+// id after both sources cannot be the subject of `membership.update` and says so.
 //
 // ELIGIBILITY IS THE DAEMON'S, NOT THIS SECTION'S
 //
@@ -38,15 +42,23 @@
 // ends read access after a thirty-second grace window. Neither is undone by
 // pressing Reactivate. Printed on every row that copy is noise a person stops
 // reading; printed in the confirmation it is the sentence they are agreeing to.
+//
+// AND WHY THE DEEP LINK'S CONFIRMATION IS ANNOUNCED HERE RATHER THAN OPENED
+//
+// An invitation arriving on the operating-system deep link is a whole-screen
+// question, and it arrives on somebody else's schedule: mid-approval, mid-run,
+// mid-sentence. A dialog that opened itself would take the screen from whatever was
+// being done, which is the one thing every console surface is forbidden to do. So an
+// arrival draws a notice, unmissable and persistent, and the confirmation opens on a
+// press — one gesture later, and never a moment the person did not choose.
 
 import { useMemo, useState } from "react";
-import { useSessionPartition } from "../../store/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import {
-  InviteConfirmation,
-  type PendingInviteConfirmation,
-} from "../invites/InviteConfirmation.js";
-import { deriveMembershipRows } from "./members-model.js";
+import { InlineRefusal } from "../../primitives/index.js";
+import { InviteConfirmation } from "../invites/InviteConfirmation.js";
+import { usePendingInvites } from "../invites/use-pending-invites.js";
+import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
@@ -60,25 +72,26 @@ const MEMBERSHIP_UPDATE_METHOD = "membership.update";
 
 export interface MembershipsProps {
   readonly context: SidebarSectionContext;
+  /** The merged rows, derived once by the section body and read by two surfaces. */
+  readonly rows: readonly MembershipRow[];
+  /** Why the membership roster read did not answer, where it did not. */
+  readonly rosterRefusal: ConsoleRefusal | undefined;
   /**
-   * An invitation waiting on this person's confirmation.
+   * True when the collaboration channel has dropped.
    *
-   * Always absent today, and the absence is the wire's rather than a default: the
-   * deep-link pending-invite subscription, its preview, and its confirm / retry /
-   * dismiss verbs are on no bridge namespace and on no growth-slate row, so
-   * nothing in this console can produce one. It is a prop rather than a read for
-   * exactly that reason — a reader supplies it when one exists, and until then the
-   * confirmation renders nothing at all.
+   * The four controls close under it, because none of them can reach the control
+   * plane while it holds — a control offered here would be a control whose press
+   * cannot leave the machine. This is a fact about the console's own transport and
+   * never a fact about what the caller may do, which stays the daemon's to answer.
    */
-  readonly pendingInvite?: PendingInviteConfirmation | undefined;
+  readonly isLastKnown: boolean;
 }
 
 export function Memberships(props: MembershipsProps): React.JSX.Element {
-  const { context } = props;
+  const { context, rows } = props;
   const { bridge, sessionStore } = context;
-  const participantEntities = useSessionPartition(sessionStore, "participant");
-  const rows = useMemo(() => deriveMembershipRows(participantEntities), [participantEntities]);
-  const [isConfirmationDismissed, setIsConfirmationDismissed] = useState(false);
+  const { snapshot: pendingInvites, adapter } = usePendingInvites(bridge);
+  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
 
   const coordinator = useMemo(
     () =>
@@ -90,24 +103,52 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
   );
   const mutation = useWireMutation(coordinator);
 
-  const pendingInvite = isConfirmationDismissed ? undefined : props.pendingInvite;
-  if (pendingInvite !== undefined) {
-    // One screen, one job. Nothing else this body renders survives a pending
-    // confirmation — an early return rather than a conditional wrapper, so there is
-    // no branch in which the ledger's own controls are reachable behind the dialog.
-    return (
-      <InviteConfirmation
-        pending={pendingInvite}
-        bridgeSource={bridge.source}
-        onDismiss={() => {
-          setIsConfirmationDismissed(true);
-        }}
-      />
-    );
-  }
-
   return (
     <section className="meridian-members" aria-label="Memberships">
+      {pendingInvites.invite === undefined ? null : (
+        <div className="meridian-members__invitation" role="status">
+          <p className="meridian-members__invitation-lede">
+            {pendingInvites.waitingBehind > 0
+              ? `You have ${String(pendingInvites.waitingBehind + 1)} invitations waiting.`
+              : "You have an invitation waiting."}
+          </p>
+          <button
+            type="button"
+            className="meridian-members__invitation-open"
+            onClick={() => {
+              setIsConfirmationOpen(true);
+            }}
+          >
+            Look at it
+          </button>
+        </div>
+      )}
+      {pendingInvites.feedRefusal === undefined ? null : (
+        <InlineRefusal
+          code={pendingInvites.feedRefusal.code}
+          detail={pendingInvites.feedRefusal.detail}
+        />
+      )}
+      <InviteConfirmation
+        open={isConfirmationOpen && pendingInvites.invite !== undefined}
+        onOpenChange={setIsConfirmationOpen}
+        snapshot={pendingInvites}
+        onConfirm={() => {
+          adapter.confirm();
+        }}
+        onRetry={() => {
+          adapter.retry();
+        }}
+        onDiscard={() => {
+          adapter.dismiss();
+          setIsConfirmationOpen(false);
+        }}
+        onAcknowledge={() => {
+          adapter.acknowledge();
+          setIsConfirmationOpen(false);
+        }}
+      />
+
       <header className="meridian-members__head">
         <h3 className="meridian-members__title">Memberships</h3>
         <p className="meridian-members__lede">
@@ -118,6 +159,8 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
 
       <MembershipLedger
         rows={rows}
+        rosterRefusal={props.rosterRefusal}
+        isReadOnly={props.isLastKnown}
         mutation={mutation}
         onApply={(row, update) => {
           if (row.membershipId === undefined) {

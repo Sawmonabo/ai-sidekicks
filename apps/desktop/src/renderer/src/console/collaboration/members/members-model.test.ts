@@ -147,6 +147,101 @@ describe("members model — the rows it derives", () => {
   });
 });
 
+describe("members model — the two sources, and which one wins", () => {
+  const ENTRY = {
+    participantId: "participant-you",
+    membershipId: "membership-read",
+    role: "collaborator",
+    state: "suspended",
+  } as const;
+
+  it("takes the role and the state from the read, over the log's own", () => {
+    // Not a preference for reads over the ledger: of the five `membership.*` kinds
+    // only `membership.created` carries a payload the contract declares, so the log's
+    // role is the ADMISSION role however many times it changes afterwards. The read is
+    // a statement about now.
+    const rows = deriveMembershipRows(
+      {
+        "participant-you": participant(
+          "participant-you",
+          { role: "owner", membershipId: "membership-log" },
+          "active",
+        ),
+      },
+      new Map([["participant-you", ENTRY]]),
+    );
+    expect(rows).toStrictEqual([
+      {
+        participantId: "participant-you",
+        membershipId: "membership-read",
+        role: "collaborator",
+        state: "suspended",
+      },
+    ]);
+  });
+
+  it("keeps the log's facts where the entry states none", () => {
+    const rows = deriveMembershipRows(
+      {
+        "participant-you": participant(
+          "participant-you",
+          { role: "owner", membershipId: "membership-log" },
+          "active",
+        ),
+      },
+      new Map([["participant-you", { participantId: "participant-you", membershipId: "m" }]]),
+    );
+    expect(rows[0]?.role).toBe("owner");
+    expect(rows[0]?.state).toBe("active");
+    expect(rows[0]?.membershipId).toBe("m");
+  });
+
+  it("drops a role or state the wire union does not contain, from either source", () => {
+    const rows = deriveMembershipRows(
+      { "participant-you": participant("participant-you", { role: "owner" }, "active") },
+      new Map([
+        [
+          "participant-you",
+          { participantId: "participant-you", membershipId: "m", role: "observer", state: "gone" },
+        ],
+      ]),
+    );
+    expect(rows[0]?.role).toBe("owner");
+    expect(rows[0]?.state).toBe("active");
+  });
+
+  it("keeps a row the read named and the log never saw", () => {
+    // The read is the membership list; the partition is what this window happened to
+    // project. The session's own opener is exactly this case — admitted by
+    // `session.created`, with no membership beat anywhere in the log.
+    const rows = deriveMembershipRows(
+      { "participant-you": participant("participant-you", { role: "owner" }, "active") },
+      new Map([
+        ["participant-you", { participantId: "participant-you", membershipId: "m1" }],
+        [
+          "participant-opener",
+          { participantId: "participant-opener", membershipId: "m2", role: "owner" },
+        ],
+      ]),
+    );
+    expect(rows.map((each) => each.participantId)).toStrictEqual([
+      "participant-you",
+      "participant-opener",
+    ]);
+    expect(rows[1]?.membershipId).toBe("m2");
+    expect(rows[1]?.state).toBeUndefined();
+  });
+
+  it("negative control: with no entries the rows are exactly the log's", () => {
+    const projected = {
+      "participant-you": participant("participant-you", { role: "owner" }, "active"),
+    };
+    expect(deriveMembershipRows(projected, new Map())).toStrictEqual(
+      deriveMembershipRows(projected),
+    );
+  });
+});
+
 describe("members model — the last remaining owner", () => {
   it("names the sole owner and nobody else", () => {
     const rows = [row(), row({ participantId: "participant-priya", role: "collaborator" })];

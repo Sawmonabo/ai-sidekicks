@@ -3,10 +3,11 @@
 // A READ SURFACE AND NOTHING ELSE. There is no control here: role changes and
 // invites are the members surface's, and a roster that carried either would be a
 // second place to perform them. What it offers is legibility — one line per person,
-// their hue, their presence, and whether they are composing right now. The one
-// control it does carry acts on the READ rather than on the session: a refused
-// presence stream is otherwise terminal for the life of the window, and a column
-// that can only say it failed is a column a person has no way out of.
+// their hue, their presence, their role, whether they hold the shared terminal, and
+// whether they are composing right now. The two controls it does carry act on READS
+// rather than on the session: a refused presence stream is otherwise terminal for the
+// life of the window, and a device fan-out nobody opened is a read nobody should have
+// paid for.
 //
 // EVERY ROW STAYS. An offline participant is dimmed and marked, never dropped: the
 // question this surface answers is "who is in this session", and someone who
@@ -22,14 +23,29 @@
 // walked in join-log order by the store's own allocator, so the same person is the
 // same colour here, in the log, and on a pane's focus ring. A participant the wheel
 // has not admitted renders unattributed rather than borrowing a neighbour's colour.
+//
+// AND EVERY REFUSAL ON THIS READ KEEPS ITS CARD AND ITS RETRY. The authorization
+// answer that is not a failure — the unauthorized default that serves the aggregated
+// summary — belongs to the PER-DEVICE read, which is a different gateway and a
+// different surface: `PresenceDeviceDetail.tsx` renders it there, through the
+// predicate `presence-detail.ts` publishes so no surface spells the code itself. A
+// second arm here read that code off the ROSTER's own read and answered a rows-less
+// surface with a sentence saying the summary was being shown instead — while showing
+// no summary, because a failed read has no rows to show. Saying a projection is on
+// screen where none is is worse than naming the refusal, so this read names it.
 
 import { memo } from "react";
+
+import type { MembershipRole } from "@ai-sidekicks/contracts";
 
 import { DerivedFigure, Nothing, RefusalCard } from "../../primitives/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
+import type { PresenceDetailReading } from "./presence-detail.js";
 import type { PresenceReading, RosterRow } from "./presence-model.js";
 import { RosterListRow } from "./RosterListRow.js";
+import { TerminalControlLine } from "./TerminalControlLine.js";
+import type { TerminalControlHolding } from "./terminal-control-holder.js";
 
 export interface RosterProps {
   readonly state: PushDrivenReadState<PresenceReading>;
@@ -40,6 +56,15 @@ export interface RosterProps {
   readonly labels: ChannelActivityLabels;
   /** Which channel each participant is composing in, or `undefined`. */
   readonly composingChannelFor: (participantId: string) => string | undefined;
+  /** Each participant's role, from the membership rows the section derives once. */
+  readonly roleFor: (participantId: string) => MembershipRole | undefined;
+  /** What the holder read said about the session's one write lease. */
+  readonly holding: TerminalControlHolding;
+  /** The participant whose device fan-out is open, or `undefined` for none. */
+  readonly openDetailParticipantId: string | undefined;
+  /** The open row's detail answer. */
+  readonly detailReading: PresenceDetailReading | undefined;
+  readonly onToggleDetail: (participantId: string) => void;
   /**
    * True when the collaboration channel has dropped.
    *
@@ -123,10 +148,25 @@ export const Roster: React.MemoExoticComponent<(props: RosterProps) => React.JSX
                 nowMilliseconds={nowMilliseconds}
                 label={labels.participantLabel(row.participant.participantId)}
                 composingChannelId={composingChannelFor(row.participant.participantId)}
+                role={props.roleFor(row.participant.participantId)}
+                holdsTerminalControl={
+                  props.holding.kind === "held" &&
+                  props.holding.participantId === row.participant.participantId
+                }
+                isDetailOpen={props.openDetailParticipantId === row.participant.participantId}
+                detailReading={
+                  props.openDetailParticipantId === row.participant.participantId
+                    ? props.detailReading
+                    : undefined
+                }
+                onToggleDetail={() => {
+                  props.onToggleDetail(row.participant.participantId);
+                }}
               />
             ))}
           </ul>
         )}
+        <TerminalControlLine holding={props.holding} labels={labels} />
       </div>
     );
   },

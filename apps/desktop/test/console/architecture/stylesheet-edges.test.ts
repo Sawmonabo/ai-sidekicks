@@ -394,16 +394,26 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
         join("workflows", "index.ts"),
         readConsoleFile(join("workflows", "index.ts")),
       ),
-      // The family door's one remaining sheet. Its own chrome moved to the three chunk
-      // roots when the last of its bodies went behind a loader; what stays is the run
-      // list's sheet, whose cascade position is shared with the runs family.
-    ).toStrictEqual(["./runs/run-list.css"]);
+      // The family door's three remaining sheets, in file order. Its own chrome moved to
+      // the three chunk roots when the last of its bodies went behind a loader; what
+      // stays is the run list's sheet, whose cascade position is shared with the runs
+      // family, and the two the door's pinned region draws against on the first paint.
+    ).toStrictEqual([
+      "./runs/run-list.css",
+      "./parks/park-badge.css",
+      "./channel-progress/channel-progress.css",
+    ]);
     expect(
       stylesheetAtImports(
         join("workflows", "workflows.css"),
         readConsoleFile(join("workflows", "workflows.css")),
       ),
-    ).toStrictEqual(["./parks/park-badge.css"]);
+      // Nothing, and that is the claim rather than an absence of one: this document was
+      // the entry point for the sheets its directory owns, and the last two left when the
+      // door took the pinned region. The at-import reader's bite against literal sources
+      // is `stylesheet-edge-graph.test.ts`', which drives this same function over a real
+      // `@import`, an `@import url()`, a media-qualified one, and a commented-out one.
+    ).toStrictEqual([]);
     // And the door this family's destination now enters on, so the pattern is shown to
     // match a module edge one directory down as well as the family's own.
     expect(

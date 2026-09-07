@@ -23,7 +23,9 @@
 
 export type {
   ConsoleScenario,
+  ScenarioActivityFrame,
   ScenarioBeat,
+  ScenarioPendingInviteFrame,
   ScenarioReply,
   ScenarioRuntimeNodeRosterFrame,
 } from "./scenario.js";

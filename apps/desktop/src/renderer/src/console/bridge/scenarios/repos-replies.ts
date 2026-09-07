@@ -27,6 +27,7 @@
 // gap. A fixture that served the git answer for both would have drawn four execution
 // modes on a mount that can host one.
 
+import { answerFor } from "./scripted-request.js";
 import {
   WorktreeStatusReadResponseSchema,
   type WorktreeStatusReadResponse,
@@ -150,26 +151,6 @@ const CAPABILITIES_BY_WORKSPACE_ID: Readonly<Record<string, unknown>> = {
     },
   },
 };
-
-/**
- * The answer this table holds for the entity one request names, or `undefined`.
- *
- * The request reaches a computed reply as `unknown` and is read rather than cast: a
- * fixture that trusted the shape would throw from inside the settlement seam on a
- * malformed call, where the fixture's own "scripts no reply" refusal is the answer a
- * surface can act on. `undefined` reaches the caller as exactly that refusal.
- */
-function answerFor(
-  answersByEntityId: Readonly<Record<string, unknown>>,
-  entityIdMember: string,
-  request: unknown,
-): unknown {
-  if (typeof request !== "object" || request === null) {
-    return undefined;
-  }
-  const requestedEntityId = (request as Readonly<Record<string, unknown>>)[entityIdMember];
-  return typeof requestedEntityId === "string" ? answersByEntityId[requestedEntityId] : undefined;
-}
 
 /**
  * What `gitflow.branchContextRead` answers, per execution root.

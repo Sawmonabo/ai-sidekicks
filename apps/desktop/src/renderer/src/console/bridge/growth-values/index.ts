@@ -78,6 +78,16 @@ export type {
 
 export type { GrowthAttentionPreference } from "./attention.js";
 
+// The two Awareness activity fields' readings.
+export type {
+  GrowthActivitySnapshot,
+  GrowthAgentActivityReading,
+  GrowthComposingReading,
+} from "./presence.js";
+
+// The pending confirmation and its four outcomes.
+export type { GrowthInviteOutcome, GrowthPendingInvite } from "./invites.js";
+
 export {
   GROWTH_PR_PREPARATION_STATES,
   type GrowthBranchContext,
@@ -92,3 +102,23 @@ export {
 // reply type the port already publishes — so the claim could never be retired by the
 // task it named. A door line with no reader is deleted rather than re-dated.
 export type { GrowthBudgetState, GrowthCostReceipt } from "./cost-receipts.js";
+
+// What the channel plane's and the membership plane's SIGNATURES take, and nothing
+// else. Every one of these is a shape `Spec-016` / `Spec-002` register and
+// `packages/contracts` does not carry, which is what puts them here rather than behind
+// a contracts import.
+//
+// The vocabularies those shapes are built from — the audience, kind, and turn-policy
+// tuples, and the per-device reading — are deliberately ABSENT from this door: their
+// only readers are the surfaces that render them, which are outside this family, and a
+// door publishes what a SIBLING takes. They leave through `bridge/index.ts` from the
+// module that declares them, which is the rule for a symbol a view family reads.
+export type {
+  GrowthChannelConfig,
+  GrowthChannelCreateReceipt,
+  GrowthChannelKind,
+  GrowthChannelLifecycleReceipt,
+  GrowthChannelRosterEntry,
+} from "./channels.js";
+
+export type { GrowthMembershipRosterEntry, GrowthPresenceDetail } from "./memberships.js";

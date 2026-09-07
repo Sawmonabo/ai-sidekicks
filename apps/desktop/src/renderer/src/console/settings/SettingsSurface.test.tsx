@@ -23,11 +23,11 @@ import { SettingsSurface } from "./SettingsSurface.js";
 import { registerSettingsSurface } from "./index.js";
 import { SettingsPageRegistry } from "./settings-page-registry.js";
 import { SETTINGS_SECTION_IDS } from "./settings-sections.js";
-import {
-  ConsoleSurfaceRegistry,
-  type ConsoleSurfaceContext,
-  type ConsoleSurfaceDescriptor,
-} from "../seats/index.js";
+import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
+// The descriptor type by its own specifier: no production module names it, so the
+// seats door publishes no line for it and the barrel census would fail one written
+// for this suite alone.
+import type { ConsoleSurfaceDescriptor } from "../seats/surface-registry.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar itself.

@@ -48,7 +48,7 @@ export const OTHER_ARTIFACT_ENTITY = { kind: "artifact", id: "artifact-attachmen
 /**
  * A pane context on the address the case is about.
  *
- * `legacy-surfaces.test.ts`'s cast, for its reason: the assertions are about what the
+ * `RouteSurface.test.tsx`'s cast, for its reason: the assertions are about what the
  * address renders as. The ADDRESS half is not cast — the entity parameter is the arm's
  * own, so a case handing this pane a subject an artifact pane is never opened over
  * fails to compile here.

@@ -53,37 +53,9 @@
 // intra-family specifiers, so `bridge/index.ts` remains the single door the rest of
 // the console comes through.
 
-import type { AgentGrowthSignatures } from "./agents.js";
-import type { ApprovalGrowthSignatures } from "./approvals.js";
-import type { ArtifactGrowthSignatures } from "./artifacts.js";
-import type { AttentionGrowthSignatures } from "./attention.js";
-import type { GitflowGrowthSignatures } from "./gitflow.js";
-import type { IdentityGrowthSignatures } from "./identity.js";
-import type { LedgerGrowthSignatures } from "./ledger.js";
-import type { PaneGrowthSignatures } from "./panes.js";
-import type { SessionGrowthSignatures } from "./sessions.js";
-import type { SidekickGrowthSignatures } from "./sidekicks.js";
-import type { WorkflowGrowthSignatures } from "./workflows.js";
-
-/**
- * Every growth operation's request and value, as one interface.
- *
- * Extension rather than intersection, and rather than a union of the plane types:
- * an interface that extends them all is a single named type whose `keyof` is the
- * whole id set, which is what `growth-port.ts` maps over. A member declared twice
- * with two different shapes is a compile error here rather than a silent override,
- * so the planes cannot quietly disagree about one operation.
- */
-export interface GrowthOperationSignatures
-  extends
-    PaneGrowthSignatures,
-    SessionGrowthSignatures,
-    GitflowGrowthSignatures,
-    ArtifactGrowthSignatures,
-    AttentionGrowthSignatures,
-    WorkflowGrowthSignatures,
-    IdentityGrowthSignatures,
-    AgentGrowthSignatures,
-    ApprovalGrowthSignatures,
-    SidekickGrowthSignatures,
-    LedgerGrowthSignatures {}
+// THE COMPOSED TABLE ITSELF is declared in `signature-table.ts` beside this door and
+// re-exported here, because `bridge/index.ts` publishes it to the collaboration family
+// and a family door reaching a second `index.ts` is a barrel chain the layering gate
+// fails. Siblings inside this family come through this door; the family door comes
+// through the declaring module.
+export type { GrowthOperationSignatures } from "./signature-table.js";

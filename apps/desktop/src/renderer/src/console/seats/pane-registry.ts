@@ -40,41 +40,8 @@ import { createElement } from "react";
 import { KeyedRegistry } from "../core/index.js";
 import { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body.js";
 import { PendingPaneBody } from "./PendingPaneBody.js";
-import { type ConsolePaneAddress } from "./pane-address.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
-
-// Consumed by T-023p-1C-2, T-023p-1C-3
-/**
- * How a pane names itself as the pane another was opened FROM.
- *
- * A parameter object rather than a bare second string, so the caller writes what
- * the identifier means at the call site: `openPane(address, { linkedSourcePaneId })`
- * reads as a link and a positional `openPane(address, paneId)` reads as anything at
- * all. `linkedSourcePaneId` is required here — the whole value is optional on the
- * opener, so an absent link is an absent argument rather than a present object
- * carrying `undefined`, and there is exactly one way to say "no link".
- */
-export interface ConsolePaneLink {
-  readonly linkedSourcePaneId: string;
-}
-
-// Consumed by T-023p-1C-2, T-023p-1C-3
-/**
- * The call the sidebar and the palette make to open a pane.
- *
- * A callback handed down by whoever owns the deck, rather than a module-scope
- * function, because an auxiliary window's deck is a different deck: a section
- * rendered in the timeline window must open its panes there and not in the main
- * window that happens to have loaded the same module.
- *
- * The optional `link` is how a pane that opens another says which pane it is: the
- * deck copies it onto the new pane's `ConsolePaneContext.linkedSourcePaneId`.
- * Optional because most opens have no source pane at all — the sidebar and the
- * palette open from a list, not from a pane — and a required member would have both
- * of those inventing a value to pass.
- */
-export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePaneLink) => void;
 
 // Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**

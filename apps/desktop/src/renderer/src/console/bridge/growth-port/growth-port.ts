@@ -386,5 +386,24 @@ export function createRefusingGrowthPort(): GrowthPort {
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
+    channelCreate: async () => growthUnavailable("channelCreate"),
+    channelMute: async () => growthUnavailable("channelMute"),
+    channelUnmute: async () => growthUnavailable("channelUnmute"),
+    channelArchive: async () => growthUnavailable("channelArchive"),
+    channelRosterRead: async () => growthUnavailable("channelRosterRead"),
+    membershipRosterRead: async () => growthUnavailable("membershipRosterRead"),
+    participantPresenceDetailRead: async () => growthUnavailable("participantPresenceDetailRead"),
+    terminalControlHolderRead: async () => growthUnavailable("terminalControlHolderRead"),
+    // presence — the two Awareness activity fields
+    presenceActivityRead: async () => growthUnavailable("presenceActivityRead"),
+    presenceComposingSet: async () => growthUnavailable("presenceComposingSet"),
+    presenceComposingClear: async () => growthUnavailable("presenceComposingClear"),
+    // invite — the pending namespace, and the host a link is written on
+    invitePendingSubscribe: async () => growthUnavailable("invitePendingSubscribe"),
+    inviteOutcomeSubscribe: async () => growthUnavailable("inviteOutcomeSubscribe"),
+    inviteConfirmPending: async () => growthUnavailable("inviteConfirmPending"),
+    inviteRetryPending: async () => growthUnavailable("inviteRetryPending"),
+    inviteDismissPending: async () => growthUnavailable("inviteDismissPending"),
+    controlPlaneHostRead: async () => growthUnavailable("controlPlaneHostRead"),
   };
 }

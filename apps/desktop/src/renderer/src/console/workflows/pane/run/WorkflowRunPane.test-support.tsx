@@ -54,7 +54,7 @@ export const MISADDRESSED: ConsoleEntityRef = {
 /**
  * The fields the pane and its chrome read, and nothing else.
  *
- * Cast rather than constructed, the idiom `frame/legacy-surfaces.test.ts`
+ * Cast rather than constructed, the idiom `frame/RouteSurface.test.tsx`
  * established: a real pane context carries three stores, one of which opens a
  * database on construction, and building all of that to hand four fields to a
  * component that reads four fields would make the setup the subject. The bridge is

@@ -100,6 +100,18 @@ export const PANE_GROWTH_OPERATIONS: Readonly<Record<PaneOperationId, GrowthOper
     "method",
     "give the write lease back",
   ),
+  // The holder READ, which is neither of the two lease verbs above and is not the
+  // pane's at all: it is what every surface that renders presence needs in order to
+  // mark the holder without opening the terminal. It names no wire method because the
+  // holder is a member of the runtime-node roster reply rather than a method, and the
+  // shipped strict schema drops it — so a caller reading the roster today gets every
+  // node and no holder.
+  terminalControlHolderRead: op(
+    "terminalControlHolderRead",
+    "terminal-control-holder",
+    "method",
+    "read which participant holds this session's one shared-terminal write lease, so the holder can be marked wherever presence renders rather than only inside the pane",
+  ),
   devServerProbe: op(
     "devServerProbe",
     "dev-server-probe",

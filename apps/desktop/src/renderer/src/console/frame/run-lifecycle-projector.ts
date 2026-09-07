@@ -192,8 +192,8 @@ const RUN_LIFECYCLE_PROJECTOR_OWNER = "frame";
 /**
  * The frame's own claim on the run-lifecycle kinds.
  *
- * Called from the seat board beside `registerLegacySurfaces` and
- * `registerConsolePanes`, and for their reason: a composition names every board it
+ * Called from the seat board beside `registerConsolePanes` and
+ * `registerPaneHarnessSurface`, and for their reason: a composition names every board it
  * writes into at one site. The frame is a family here like any other — it happens to
  * be the family that has a projector today, and the registry has no notion of a
  * privileged one.

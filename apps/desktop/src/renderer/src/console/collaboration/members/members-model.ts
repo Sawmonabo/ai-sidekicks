@@ -20,18 +20,32 @@
 // confirmation that says "are you sure" and not WHAT HAPPENS is a dialog that
 // trains people to press through it.
 //
-// WHY A ROW'S MEMBERSHIP ID IS OPTIONAL
+// WHY A ROW'S MEMBERSHIP ID IS STILL OPTIONAL
 //
 // `membership.update` is keyed by `membershipId`, and NO registered read returns
 // one: `presence.read` answers `{participantId, state, lastSeen}` with no role and
 // no membership id, and `SessionReadResponse` carries a snapshot and cursors and
 // no memberships at all. `MembershipSummary` — the shape that has all three — is
-// returned only by `session.create`. So a row whose membership id is absent
-// renders its facts and says the controls need an identifier nothing hands it,
-// which is the honest state, and a row that HAS one offers all four actions.
+// returned only by `session.create`. Two sources now answer that between them and
+// neither closes it: the `membership.created` fold, which reaches every admission
+// this window watched and no earlier one, and the membership roster read on the
+// growth port, which refuses on a live build until its wire lands. So a row whose
+// membership id is absent still renders its facts and says the controls need an
+// identifier nothing hands it, and a row that HAS one offers all four actions.
+//
+// WHICH SOURCE WINS WHERE THEY BOTH SPEAK
+//
+// The READ, for role and state; the log fills what the read did not carry. Of the
+// five `membership.*` kinds only `membership.created` has a registered payload
+// variant, so a role change, a suspension, a revocation, and a reactivation all
+// reach the timeline carrying nothing a fold can read — the log's role is the
+// ADMISSION role however many times it changes afterwards, and the read is a
+// statement about now. The identifier itself is immutable, so the two can only
+// agree about it.
 
 import type { MembershipRole, MembershipState, MembershipUpdate } from "@ai-sidekicks/contracts";
 
+import type { GrowthMembershipRosterEntry } from "../../bridge/index.js";
 import type { ConsoleEntity } from "../../store/index.js";
 
 /** What the console has to say about one role, beyond its name. */
@@ -198,25 +212,69 @@ export function isLastRemainingOwner(row: MembershipRow, rows: readonly Membersh
 }
 
 /**
- * Rows from the session store's projected participants.
+ * Rows from the session store's projected participants, and from the roster read.
  *
- * The store is the console's ledger-derived view, so a role or a membership id
- * appears here exactly when an event carried one — never filled in, never
- * defaulted. `undefined` is the honest value for a fact no event has stated, and
- * the row renders it as an absence rather than as a role somebody has.
+ * Neither source is filled in from the other and nothing is defaulted: `undefined`
+ * is the honest value for a fact neither an event nor a read has stated, and the row
+ * renders it as an absence rather than as a role somebody has. A value the read
+ * carried but the console cannot recognise — a fifth role, a fifth state — is
+ * treated as unstated for the same reason, because a chip drawn from an unrecognised
+ * string is the console asserting a vocabulary it does not have.
+ *
+ * The ORDER is the store's, then whoever the read named and the store did not. A
+ * person the read names and the log never saw is a membership like any other, and
+ * dropping them would hide exactly the rows this read exists to reach.
  */
 export function deriveMembershipRows(
   participantEntities: Readonly<Record<string, ConsoleEntity>>,
+  rosterEntries: ReadonlyMap<string, GrowthMembershipRosterEntry> = new Map(),
 ): readonly MembershipRow[] {
-  return Object.values(participantEntities).map((entity) => {
-    const body = entity.body;
-    const membershipId = body?.["membershipId"];
-    const role = body?.["role"];
-    return {
-      participantId: entity.id,
-      membershipId: typeof membershipId === "string" ? membershipId : undefined,
-      role: isMembershipRole(role) ? role : undefined,
-      state: isMembershipState(entity.state) ? entity.state : undefined,
-    };
-  });
+  const projected = Object.values(participantEntities).map((entity) =>
+    mergeMembershipRow(rowFromEntity(entity), rosterEntries.get(entity.id)),
+  );
+  const projectedIds = new Set(projected.map((row) => row.participantId));
+  const readOnly = [...rosterEntries.values()]
+    .filter((entry) => !projectedIds.has(entry.participantId))
+    .map((entry) => mergeMembershipRow(unprojectedRow(entry.participantId), entry));
+  return [...projected, ...readOnly];
+}
+
+/** What the log alone says about one participant. */
+function rowFromEntity(entity: ConsoleEntity): MembershipRow {
+  const body = entity.body;
+  const membershipId = body?.["membershipId"];
+  const role = body?.["role"];
+  return {
+    participantId: entity.id,
+    membershipId: typeof membershipId === "string" ? membershipId : undefined,
+    role: isMembershipRole(role) ? role : undefined,
+    state: isMembershipState(entity.state) ? entity.state : undefined,
+  };
+}
+
+/**
+ * One row's two sources, resolved by the rule the header states.
+ *
+ * Written as one function rather than three coalescing expressions at the call site
+ * so the precedence is stated once: an entry that carried nothing leaves the log's
+ * row exactly as it was, which is what makes a refused read cost the ledger nothing.
+ */
+function mergeMembershipRow(
+  logged: MembershipRow,
+  entry: GrowthMembershipRosterEntry | undefined,
+): MembershipRow {
+  if (entry === undefined) {
+    return logged;
+  }
+  return {
+    participantId: logged.participantId,
+    membershipId: entry.membershipId,
+    role: isMembershipRole(entry.role) ? entry.role : logged.role,
+    state: isMembershipState(entry.state) ? entry.state : logged.state,
+  };
+}
+
+/** A row the log never projected: the participant, and three facts it cannot state. */
+function unprojectedRow(participantId: string): MembershipRow {
+  return { participantId, membershipId: undefined, role: undefined, state: undefined };
 }

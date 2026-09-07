@@ -10,7 +10,11 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SessionStore } from "../store/index.js";
 import { CollaborationSessionModelHolder, useSessionModels } from "./session-models.js";
-import { LeaseProbe, countedFixtureBridge } from "./session-models.test-support.js";
+import {
+  LeaseProbe,
+  SUBSCRIPTIONS_PER_MODEL_SET,
+  countedFixtureBridge,
+} from "./session-models.test-support.js";
 import type { FramePairing } from "./session-models.test-support.js";
 
 describe("the sidebar's models — a set is handed out only under its own session", () => {
@@ -156,14 +160,14 @@ describe("the sidebar's models — the exact bridge and store they answer for", 
     const retiredBridge = countedFixtureBridge("session-id-only-a");
     const replacementBridge = countedFixtureBridge("session-id-only-b");
     const retiredLease = holder.acquire(retiredBridge.bridge, sessionStore);
-    expect(retiredBridge.liveSubscriptionCount()).toBe(1);
+    expect(retiredBridge.liveSubscriptionCount()).toBe(SUBSCRIPTIONS_PER_MODEL_SET);
 
     const rejoined = holder.acquire(replacementBridge.bridge, sessionStore);
 
     expect(rejoined.models.subject.bridge).toBe(replacementBridge.bridge);
     expect(rejoined.models).not.toBe(retiredLease.models);
     expect(retiredBridge.liveSubscriptionCount()).toBe(0);
-    expect(replacementBridge.liveSubscriptionCount()).toBe(1);
+    expect(replacementBridge.liveSubscriptionCount()).toBe(SUBSCRIPTIONS_PER_MODEL_SET);
     rejoined.release();
     expect(replacementBridge.liveSubscriptionCount()).toBe(0);
   });

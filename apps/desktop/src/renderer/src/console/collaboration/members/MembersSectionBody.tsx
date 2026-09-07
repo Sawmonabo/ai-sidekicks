@@ -1,10 +1,18 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { usePushDrivenRead, type SidebarSectionContext } from "../../seats/index.js";
 import { useComposingLookup } from "../activity-model.js";
-import { useDeadlineWake, useSessionDegraded } from "../../store/index.js";
+import { useDeadlineWake, useSessionDegraded, useSessionPartition } from "../../store/index.js";
 import { Memberships } from "./Memberships.js";
+import { deriveMembershipRows } from "./members-model.js";
+import {
+  membershipEntriesByParticipantId,
+  membershipRosterRefusal,
+  useMembershipRoster,
+} from "./membership-roster.js";
+import { usePresenceDetail } from "./presence-detail.js";
 import { ageBoundariesOf, rosterRowsFrom } from "./presence-model.js";
 import { Roster } from "./Roster.js";
+import { terminalControlHolding, useTerminalControlHolder } from "./terminal-control-holder.js";
 import { type CollaborationSessionModels } from "../session-models.js";
 
 /**
@@ -12,6 +20,12 @@ import { type CollaborationSessionModels } from "../session-models.js";
  *
  * A separate component for `ChannelsSection`'s reason: the presence read has to be
  * subscribed to through a hook, and a hook cannot be called conditionally.
+ *
+ * IT IS ALSO WHERE THE MEMBERSHIP ROWS ARE DERIVED, ONCE. The roster above and the
+ * ledger below need the same three facts about the same people — the role, the
+ * membership state, and the identifier the four controls are keyed by — and deriving
+ * them in each surface would put two answers to one question on one screen the moment
+ * the read and the log disagreed. One derivation here, two readers.
  */
 export function MembersSectionBody(props: {
   readonly context: SidebarSectionContext;
@@ -19,6 +33,7 @@ export function MembersSectionBody(props: {
   readonly selfParticipantId: string | undefined;
 }): React.JSX.Element {
   const { context, models, selfParticipantId } = props;
+  const { bridge, sessionStore } = context;
   const state = usePushDrivenRead(models.presenceRoster);
   const reading = state.kind === "loaded" ? state.value : undefined;
   const hueAllocator = context.sessionStore.hueAllocator;
@@ -26,6 +41,47 @@ export function MembersSectionBody(props: {
   // subscribes only to its presence read, so a degraded transition that settles no
   // read would move the flag and re-render nothing.
   const isLastKnown = useSessionDegraded(context.sessionStore);
+
+  // The two sources of a membership fact, and the one merge of them. The store's
+  // partition is what the log projected; the roster read is what the wire would say
+  // if it had the read. `members-model.ts` owns which one wins where they both speak.
+  const participantEntities = useSessionPartition(sessionStore, "participant");
+  const membershipRosterReading = useMembershipRoster(bridge, sessionStore.sessionId);
+  const membershipEntries = useMemo(
+    () => membershipEntriesByParticipantId(membershipRosterReading),
+    [membershipRosterReading],
+  );
+  const membershipRows = useMemo(
+    () => deriveMembershipRows(participantEntities, membershipEntries),
+    [participantEntities, membershipEntries],
+  );
+  const roleByParticipantId = useMemo(
+    () => new Map(membershipRows.map((row) => [row.participantId, row.role])),
+    [membershipRows],
+  );
+  // A bound lookup rather than the map itself, so the roster's memo compares one
+  // stable identity instead of re-deriving a row's chips whenever the section
+  // re-renders for a reason that has nothing to do with roles.
+  const roleFor = useCallback(
+    (participantId: string) => roleByParticipantId.get(participantId),
+    [roleByParticipantId],
+  );
+
+  // The session's one write lease, read once. A mark on a row and a line under the
+  // list, never a control: claiming and releasing are the terminal pane's.
+  const holderReading = useTerminalControlHolder(bridge, sessionStore.sessionId);
+  const holding = useMemo(() => terminalControlHolding(holderReading), [holderReading]);
+
+  // The device fan-out is asked for ONE row at a time, and only once somebody opens
+  // one. Reading it for every row would put an owner-only question about every person
+  // in the session behind a panel nobody had looked at.
+  const [openDetailParticipantId, setOpenDetailParticipantId] = useState<string | undefined>(
+    undefined,
+  );
+  const detailReading = usePresenceDetail(bridge, sessionStore.sessionId, openDetailParticipantId);
+  const toggleDetail = useCallback((participantId: string) => {
+    setOpenDetailParticipantId((open) => (open === participantId ? undefined : participantId));
+  }, []);
 
   // Every instant at which some row's rendered age changes, derived from the read's
   // own `lastSeen` stamps. Memoized on the reading rather than on the array, so a
@@ -84,10 +140,20 @@ export function MembersSectionBody(props: {
         nowMilliseconds={nowMilliseconds}
         labels={models.labels}
         composingChannelFor={composingChannelFor}
+        roleFor={roleFor}
+        holding={holding}
+        openDetailParticipantId={openDetailParticipantId}
+        detailReading={detailReading}
+        onToggleDetail={toggleDetail}
         isLastKnown={isLastKnown}
         onReopen={reopenRoster}
       />
-      <Memberships context={context} />
+      <Memberships
+        context={context}
+        rows={membershipRows}
+        rosterRefusal={membershipRosterRefusal(membershipRosterReading)}
+        isLastKnown={isLastKnown}
+      />
     </>
   );
 }
