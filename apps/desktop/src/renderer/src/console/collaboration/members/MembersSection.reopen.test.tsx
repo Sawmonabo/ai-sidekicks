@@ -20,7 +20,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonSubscribe } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 import { type SidebarSectionContext } from "../../seats/index.js";
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { sectionsRegisteredForTest } from "../sections.test-support.js";
 
 /** Branded UUID, because the call door parses the request before it sends. */
@@ -104,6 +104,7 @@ describe("the members section — a presence stream that refused to open", () =>
     const context: SidebarSectionContext = {
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       bridge: seam.bridge,
+      frameStore: new FrameStore(),
       openPane: () => undefined,
       isOpen: true,
     };
@@ -142,6 +143,7 @@ describe("the members section — a presence stream that refused to open", () =>
     const context: SidebarSectionContext = {
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       bridge: seam.bridge,
+      frameStore: new FrameStore(),
       openPane: () => undefined,
       isOpen: true,
     };

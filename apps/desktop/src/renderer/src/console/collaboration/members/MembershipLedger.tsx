@@ -1,6 +1,13 @@
 import type { MembershipUpdate } from "@ai-sidekicks/contracts";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { DerivedFigure, Nothing, PartialRead, formatCount } from "../../primitives/index.js";
+import {
+  DerivedFigure,
+  InlineRefusal,
+  Nothing,
+  PartialRead,
+  formatCount,
+} from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 import { isLastRemainingOwner, type MembershipRow } from "./members-model.js";
 import { type WireMutationSnapshot } from "../mutation-coordinator.js";
 import { MembershipLedgerRow } from "./MembershipLedgerRow.js";
@@ -9,8 +16,21 @@ export function MembershipLedger(props: {
   readonly rows: readonly MembershipRow[];
   /** Why the membership roster read did not answer, where it did not. */
   readonly rosterRefusal: ConsoleRefusal | undefined;
-  /** True while the control plane is unreachable: the rows render, the controls do not. */
-  readonly isReadOnly: boolean;
+  /**
+   * True while this session's projection is behind: the rows are last-known.
+   *
+   * A line above the list and nothing more. What a person may DO to a membership is
+   * the block below, which is a different fact from a different owner.
+   */
+  readonly isLastKnown: boolean;
+  /**
+   * Why a membership cannot be changed from this window right now, or `undefined`.
+   *
+   * The shell's own answer for `membership.update`, rendered as the refusal it is —
+   * a code and a sentence — rather than paraphrased into a line of this surface's own
+   * words. Absent is the ordinary state, including before anything has reported.
+   */
+  readonly mutationBlock: ShellMutationBlock | undefined;
   readonly mutation: WireMutationSnapshot;
   readonly onApply: (row: MembershipRow, update: MembershipUpdate) => void;
   readonly onDismissRefusal: (membershipId: string) => void;
@@ -44,18 +64,21 @@ export function MembershipLedger(props: {
           ? "One membership."
           : `${formatCount(props.rows.length)} memberships.`}
       </p>
-      {props.isReadOnly ? (
+      {props.isLastKnown ? (
         <p className="meridian-members__read-only" role="status">
-          <DerivedFigure text="The control plane is unreachable, so these rows are last-known and no membership can be changed from here." />
+          <DerivedFigure text="This session's projection is behind, so these rows are the last state this window was sent." />
         </p>
       ) : null}
+      {props.mutationBlock === undefined ? null : (
+        <InlineRefusal code={props.mutationBlock.code} detail={props.mutationBlock.detail} />
+      )}
       <ul className="meridian-members__rows">
         {props.rows.map((row) => (
           <li key={row.participantId}>
             <MembershipLedgerRow
               row={row}
               isLastOwner={isLastRemainingOwner(row, props.rows)}
-              isReadOnly={props.isReadOnly}
+              isReadOnly={props.mutationBlock !== undefined}
               isPending={
                 row.membershipId !== undefined && props.mutation.pendingKey === row.membershipId
               }

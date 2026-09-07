@@ -24,6 +24,7 @@ import {
   OWNER_AND_COLLABORATOR,
   SESSION_ID,
   contextFor,
+  offlineFrameStore,
   storeHolding,
 } from "./Memberships.test-support.js";
 
@@ -36,24 +37,57 @@ import {
  */
 const SCENARIO_WITH_INVITATION = { ...scenarioWithArrivals(), sessionId: SESSION_ID };
 
-describe("memberships — the control plane out of reach", () => {
-  it("keeps every row and offers no control, under one line saying why", () => {
+describe("memberships — a shell that cannot send", () => {
+  it("keeps every row and offers no control, naming the shell's own refusal", () => {
     const { container } = render(
-      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} isLastKnown />,
+      <Memberships
+        context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), undefined, offlineFrameStore())}
+      />,
     );
     expect(container.querySelectorAll(".meridian-members__row")).toHaveLength(2);
-    expect(container.querySelectorAll(".meridian-members__read-only")).toHaveLength(1);
-    expect(container.textContent ?? "").toContain("no membership can be changed from here");
+    expect(container.textContent ?? "").toContain("shell-offline");
     expect(container.querySelector(".meridian-members__manage")).toBeNull();
     expect(container.querySelector(".meridian-members__revoke")).toBeNull();
   });
 
-  it("negative control: with the control plane reachable the controls are offered", () => {
+  it("negative control: with nothing reported the controls are offered", () => {
+    // Silence is not an outage. A fresh window has heard nothing from its supervisor,
+    // and a ledger that read that as an outage would disable every control in a
+    // console that works.
     const { container } = render(
       <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
     );
-    expect(container.querySelector(".meridian-members__read-only")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("shell-offline");
     expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
+  });
+});
+
+describe("memberships — a projection that is behind", () => {
+  it("says the rows are last-known and leaves every control offered", () => {
+    // The defect this case is the control for: the four controls were gated on the
+    // session store's degraded flag, so a window that missed one event in the stream
+    // lost every membership control it had — permanently, on a flag only a completed
+    // re-pull clears — while `membership.update` stayed perfectly reachable.
+    const { container } = render(
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} isLastKnown />,
+    );
+    expect(container.querySelectorAll(".meridian-members__read-only")).toHaveLength(1);
+    expect(container.textContent ?? "").toContain("the last state this window was sent");
+    expect(container.querySelector(".meridian-members__manage")).not.toBeNull();
+  });
+
+  it("shows the last-known reading beside the shell's refusal when both hold", () => {
+    // Two facts with two owners, and neither stands in for the other: the rows are
+    // stale AND nothing can be sent, and a person is told both.
+    const { container } = render(
+      <Memberships
+        context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), undefined, offlineFrameStore())}
+        isLastKnown
+      />,
+    );
+    expect(container.querySelectorAll(".meridian-members__read-only")).toHaveLength(1);
+    expect(container.textContent ?? "").toContain("shell-offline");
+    expect(container.querySelector(".meridian-members__manage")).toBeNull();
   });
 });
 

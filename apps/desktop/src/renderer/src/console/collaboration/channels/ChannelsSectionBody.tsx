@@ -9,6 +9,7 @@ import {
   type CallerParticipantReader,
 } from "../../store/index.js";
 import { ChannelList } from "./ChannelList.js";
+import { liveMembershipParticipantIds } from "../members/members-model.js";
 import { type CollaborationSessionModels } from "../session-models.js";
 
 /**
@@ -37,7 +38,17 @@ export function ChannelsSectionBody(props: {
   // state without that read settling moved the flag and re-rendered nothing.
   const isCatchingUp = useSessionDegraded(context.sessionStore);
   const participantEntities = useSessionPartition(sessionStore, "participant");
-  const participantIds = useMemo(() => Object.keys(participantEntities), [participantEntities]);
+  // WHO IS STILL IN THIS SESSION, not who has ever been projected into it. The
+  // partition's keys are every participant the log has named, including the ones whose
+  // membership the log has since said ended — and a direct channel opened against one
+  // of those can only be refused, so the picker would be offering an act with a known
+  // answer. The membership fold is what makes the difference readable and
+  // `members/members-model.ts` owns the predicate, so the two collaboration surfaces
+  // that ask who is in the session take one answer rather than each deriving their own.
+  const participantIds = useMemo(
+    () => liveMembershipParticipantIds(participantEntities),
+    [participantEntities],
+  );
   // WHICH PARTICIPANT THIS WINDOW IS, through the console's one reader of that
   // question rather than a second implementation of it. The identity read lives on
   // the growth port, which is a family ABOVE `store/`, so the reader is composed here

@@ -10,16 +10,18 @@
 // window that joined an old session projects only the events still in its window.
 // So the fold is the log's answer and this is the wire's, and the ledger needs both.
 //
-// WHICH SOURCE WINS, AND WHY IT IS NOT THE LOG
+// WHICH SOURCE WINS, AND WHY IT IS THE LOG
 //
-// The READ wins for role and state; the log fills what the read did not carry.
-// That looks backwards for a console whose ledger is the event log, and it is not:
-// of the five `membership.*` kinds, exactly one — `membership.created` — has a
-// registered payload variant, so a role change, a suspension, a revocation, and a
-// reactivation all reach the timeline carrying nothing the fold can read. The log's
-// role is therefore the ADMISSION role and stays that way however many times it
-// changes afterwards, while the read is a statement about now. The identifier itself
-// is immutable, so the two can only agree about it.
+// The LOG wins for a role or a state it has stated; this read fills every fact the
+// log did not. That is the reverse of the rule this module was written under, and the
+// reason is that the fold beside it changed: it claimed only `membership.created`, so
+// the log could state no state at all and its role was the ADMISSION role however many
+// times it changed afterwards. It now folds all five `membership.*` kinds off the
+// tolerant carrier's payloads and off the kinds' own names, and this read is answered
+// exactly ONCE, on mount — so a revocation arriving afterwards is the newer statement,
+// and a read that outranked it would report an ended membership as a live one for the
+// rest of the visit. `members-model.ts` holds the merge; this module is one of its two
+// inputs. The identifier itself is immutable, so the two can only agree about it.
 //
 // AND A ROW THE LOG NEVER SAW IS STILL A ROW. The read is the membership list; the
 // participant partition is what this window happened to project. A person the read

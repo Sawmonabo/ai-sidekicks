@@ -9,9 +9,10 @@
 //
 // TWO SOURCES, AND THE ROWS ARE DERIVED FROM BOTH BEFORE THEY REACH HERE
 //
-//   • THE LOG. The session store's projected participants — who joined and as what,
-//     folded from the one `membership.*` beat that carries a payload the contract
-//     declares. Where no beat stated a fact, the row says so instead of inventing it.
+//   • THE LOG. The session store's projected participants — who joined, as what, and
+//     whether the membership has since been suspended, revoked, or restored, folded
+//     from all five `membership.*` beats. Where no beat stated a fact, the row says so
+//     instead of inventing it.
 //   • THE MEMBERSHIP ROSTER READ, on the growth port, which is where a membership id
 //     comes from for everyone the log did not see admitted — including the session's
 //     own opener, who has no admission beat at all. It refuses on a live build, and
@@ -21,6 +22,20 @@
 // The merge is `members-model.ts`'s and the derivation is the section body's, so this
 // component renders rows and never composes them. A row that still has no membership
 // id after both sources cannot be the subject of `membership.update` and says so.
+//
+// AND WHAT CLOSES THE CONTROLS IS THE TRANSPORT, NEVER THE PROJECTION
+//
+// Those are two different facts and this section used to run them together: the four
+// controls were gated on the session store's degraded flag, which is raised by a
+// sequence gap, a projection failure, a closed subscription, or a failed read — none
+// of which says anything about whether `membership.update` can be sent. A window that
+// missed one event in the stream lost every membership control it had, permanently,
+// on a flag only a completed re-pull clears. So the two facts are now rendered
+// separately: a degraded projection says the rows are LAST-KNOWN and leaves the
+// controls alone, and the shell's own condition — `store/shell-mutation-block.ts`, the
+// console's one answer to "may I send this" — is what closes them. Where the shell has
+// said nothing, nothing closes: silence is not an outage, and the daemon's refusal is
+// the answer a person is entitled to rather than a control that was never offered.
 //
 // ELIGIBILITY IS THE DAEMON'S, NOT THIS SECTION'S
 //
@@ -59,6 +74,7 @@
 import { useMemo } from "react";
 import type { ConsoleRefusal } from "../../core/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
+import { shellBlockForMethod, useShellState } from "../../store/index.js";
 import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
@@ -78,12 +94,12 @@ export interface MembershipsProps {
   /** Why the membership roster read did not answer, where it did not. */
   readonly rosterRefusal: ConsoleRefusal | undefined;
   /**
-   * True when the collaboration channel has dropped.
+   * True when this session's projection is behind — a gap, a failed apply, a wire
+   * that stopped.
    *
-   * The four controls close under it, because none of them can reach the control
-   * plane while it holds — a control offered here would be a control whose press
-   * cannot leave the machine. This is a fact about the console's own transport and
-   * never a fact about what the caller may do, which stays the daemon's to answer.
+   * The rows are LAST-KNOWN under it and the ledger says so, and that is all it does.
+   * It closes no control: a projection that is behind is a fact about what this window
+   * has been told, and `membership.update` is a call this window makes.
    */
   readonly isLastKnown: boolean;
 }
@@ -101,6 +117,15 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
     [bridge],
   );
   const mutation = useWireMutation(coordinator);
+  // Whether this window can send the one method these controls call. SUBSCRIBED, so a
+  // supervisor going down or coming back moves the controls without waiting for some
+  // other read to settle — and asked per METHOD through the one seam that knows which
+  // calls an outage closes, rather than read off the connection here, where a second
+  // reading of that rule would be free to disagree with the banner above it.
+  const mutationBlock = shellBlockForMethod(
+    useShellState(context.frameStore),
+    MEMBERSHIP_UPDATE_METHOD,
+  );
 
   return (
     <section className="meridian-members" aria-label="Memberships">
@@ -115,7 +140,8 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
       <MembershipLedger
         rows={rows}
         rosterRefusal={props.rosterRefusal}
-        isReadOnly={props.isLastKnown}
+        isLastKnown={props.isLastKnown}
+        mutationBlock={mutationBlock}
         mutation={mutation}
         onApply={(row, update) => {
           if (row.membershipId === undefined) {

@@ -19,7 +19,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { type SidebarSectionContext, type SidebarSectionId } from "../../seats/index.js";
 import { sectionsRegisteredForTest } from "../sections.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
@@ -71,6 +71,7 @@ function renderSection(id: SidebarSectionId): MountedSection {
   const context: SidebarSectionContext = {
     sessionStore,
     bridge,
+    frameStore: new FrameStore(),
     openPane: () => undefined,
     isOpen: true,
   };
@@ -228,6 +229,7 @@ describe("a roster age with nothing else moving", () => {
     const context: SidebarSectionContext = {
       sessionStore,
       bridge,
+      frameStore: new FrameStore(),
       openPane: () => undefined,
       isOpen: true,
     };

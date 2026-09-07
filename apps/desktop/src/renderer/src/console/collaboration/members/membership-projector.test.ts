@@ -12,10 +12,14 @@
 import { describe, expect, it } from "vitest";
 
 import { eventOfKind } from "../../store/session-event.test-support.js";
+import type { ConsoleEntity, EntityMutation } from "../../store/index.js";
 import {
   COLLABORATION_PROJECTORS,
   MEMBERSHIP_CREATED_EVENT_KIND,
+  MEMBERSHIP_ROLE_CHANGED_EVENT_KIND,
   projectMembershipCreated,
+  projectMembershipLifecycle,
+  projectMembershipRoleChanged,
 } from "./membership-projector.js";
 
 const SESSION_ID = "session-collaboration";
@@ -107,9 +111,127 @@ describe("membership fold — what an admission states", () => {
     ).toStrictEqual([]);
   });
 
-  it("claims exactly the one kind whose payload the contract declares", () => {
-    // The other four `membership.*` kinds are registered in the taxonomy with no
-    // payload variant at all, so a fold for them could only guess at what changed.
-    expect(Object.keys(COLLABORATION_PROJECTORS)).toStrictEqual([MEMBERSHIP_CREATED_EVENT_KIND]);
+  it("claims all five `membership.*` kinds, and the three transitions share one fold", () => {
+    // The set is the claim: a kind this family does not register is a kind nothing
+    // folds, and the four beyond the admission are exactly the ones that decide
+    // whether a membership is still one a session can address.
+    expect(Object.keys(COLLABORATION_PROJECTORS)).toStrictEqual([
+      MEMBERSHIP_CREATED_EVENT_KIND,
+      MEMBERSHIP_ROLE_CHANGED_EVENT_KIND,
+      "membership.suspended",
+      "membership.revoked",
+      "membership.reactivated",
+    ]);
+    expect(COLLABORATION_PROJECTORS["membership.revoked"]).toBe(projectMembershipLifecycle);
+    expect(COLLABORATION_PROJECTORS["membership.reactivated"]).toBe(projectMembershipLifecycle);
+  });
+});
+
+describe("membership fold — what a lifecycle transition states", () => {
+  /** The one upsert a fold answered with, refused loudly where it answered otherwise. */
+  function upsertOf(mutations: readonly EntityMutation[]): ConsoleEntity {
+    expect(mutations).toHaveLength(1);
+    const mutation = mutations[0];
+    if (mutation?.operation !== "upsert") {
+      throw new Error("the fold answered with something other than an upsert");
+    }
+    return mutation.entity;
+  }
+
+  it("writes the state the kind names, and writes no body with it", () => {
+    // The state is read off the KIND rather than off the payload, because the kind is
+    // the wire's own statement of the transition. The body stays absent so the merge
+    // one level up keeps the handle, the identifier, and the role the admission wrote.
+    const revoked = upsertOf(
+      projectMembershipLifecycle(
+        eventOfKind(SESSION_ID, "membership.revoked", 10, {
+          participantId: "participant-priya",
+          actor: "participant-you",
+        }),
+      ),
+    );
+    expect(revoked.id).toBe("participant-priya");
+    expect(revoked.state).toBe("revoked");
+    expect(revoked.body).toBeUndefined();
+
+    expect(
+      upsertOf(
+        projectMembershipLifecycle(
+          eventOfKind(SESSION_ID, "membership.suspended", 11, {
+            participantId: "participant-priya",
+          }),
+        ),
+      ).state,
+    ).toBe("suspended");
+    expect(
+      upsertOf(
+        projectMembershipLifecycle(
+          eventOfKind(SESSION_ID, "membership.reactivated", 12, {
+            participantId: "participant-priya",
+          }),
+        ),
+      ).state,
+    ).toBe("active");
+  });
+
+  it("negative control: a kind the table does not name yields nothing", () => {
+    // One projector serves three keys, so it is handed its own `kind` to read. Without
+    // this the cases above would pass over a fold that wrote a state for anything it
+    // was given — including `membership.created`, whose whole rule is that it does not.
+    expect(
+      projectMembershipLifecycle(
+        eventOfKind(SESSION_ID, MEMBERSHIP_CREATED_EVENT_KIND, 13, {
+          participantId: "participant-priya",
+        }),
+      ),
+    ).toStrictEqual([]);
+  });
+
+  it("answers with no mutation for a transition it cannot key on", () => {
+    expect(
+      projectMembershipLifecycle(
+        eventOfKind(SESSION_ID, "membership.revoked", 14, { actor: "participant-you" }),
+      ),
+    ).toStrictEqual([]);
+  });
+});
+
+describe("membership fold — what a role change states", () => {
+  it("writes the new role and states no membership state with it", () => {
+    // A role move says nothing about whether the membership is active, so a state
+    // written here would reactivate a suspended row on the strength of an unrelated
+    // fact — which is the same rule the admission fold obeys, read from the other end.
+    const mutations = projectMembershipRoleChanged(
+      eventOfKind(SESSION_ID, MEMBERSHIP_ROLE_CHANGED_EVENT_KIND, 20, {
+        participantId: "participant-priya",
+        previousRole: "collaborator",
+        newRole: "owner",
+      }),
+    );
+    if (mutations[0]?.operation !== "upsert") {
+      throw new Error("the fold answered with something other than an upsert");
+    }
+    expect(mutations[0].entity.body).toStrictEqual({ role: "owner" });
+    expect(mutations[0].entity.state).toBeUndefined();
+  });
+
+  it("carries no body where the change states no readable role", () => {
+    const mutations = projectMembershipRoleChanged(
+      eventOfKind(SESSION_ID, MEMBERSHIP_ROLE_CHANGED_EVENT_KIND, 21, {
+        participantId: "participant-priya",
+      }),
+    );
+    if (mutations[0]?.operation !== "upsert") {
+      throw new Error("the fold answered with something other than an upsert");
+    }
+    expect(mutations[0].entity.body).toBeUndefined();
+  });
+
+  it("answers with no mutation for a change it cannot key on", () => {
+    expect(
+      projectMembershipRoleChanged(
+        eventOfKind(SESSION_ID, MEMBERSHIP_ROLE_CHANGED_EVENT_KIND, 22, { newRole: "owner" }),
+      ),
+    ).toStrictEqual([]);
   });
 });
