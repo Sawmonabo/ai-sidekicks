@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { ManualClock, refuse } from "../../core/index.js";
+import { AirspaceRegistry, ManualClock, refuse } from "../../core/index.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
-import { PaneOcclusionRegistry } from "./occlusion-registry.js";
 import { PANE_VIEW_HOST_REFUSAL_ORIGIN, unavailablePaneViewHost } from "./view-host.js";
 import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
 
@@ -32,7 +31,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -51,7 +50,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     clock.runFrame();
@@ -77,7 +76,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -95,7 +94,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host: unavailablePaneViewHost("no host in this window"),
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -117,7 +116,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     const sinkFailure = new Error("the outcome sink refused the rejection");
     publisher.subscribeToOutcomes(() => {
@@ -151,7 +150,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -174,7 +173,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry({ clock }),
+      occlusion: new AirspaceRegistry(),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));

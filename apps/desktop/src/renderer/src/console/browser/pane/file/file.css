@@ -1,0 +1,90 @@
+/*
+ * Chapter 12.4's local file control: the form that opens a path, the boundary sentence
+ * a refusal explains itself with, and the admitted roots beneath it.
+ *
+ * One of the browser family's seven sheets. The family's own discipline holds in
+ * every one of them: no literal colour, every value read back out of a Meridian
+ * custom property, and the two hues spent only on their one meaning each
+ * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
+ * red where something failed). Grep any of these files for `amber` and `red` and
+ * every hit is one of those — the boundary sentence below is the amber one, and it is
+ * amber because a person is what unblocks it.
+ *
+ * SPLIT OUT OF `../pane.css` BY WHO DRAWS WHAT. `.meridian-browser-file*` is drawn by
+ * `FileControl.tsx` and `AdmittedRoots.tsx`, both in this directory and nowhere else,
+ * so the whole namespace moves as one and no selector text is shared with the two
+ * sheets it left. This directory carries no `index.ts`, so the door above it owns
+ * it — `../browser-pane-body.ts`, this family's one chunk root — and this sheet
+ * enters there.
+ *
+ * ORDER: imported after `../pane.css` and `chrome/chrome.css`, which is the order
+ * these rules were already in. Nothing here is overridden by, or overrides, a rule in
+ * either.
+ */
+
+/* --------------------------------------------------------- local file open */
+
+.meridian-browser-file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-browser-file__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-browser-file__label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  flex: 1 1 16rem;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-file__field {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-browser-file__field:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The boundary sentence is a refusal's explanation and reads as one. It sits beside
+   the daemon's own message rather than instead of it: the banner says what the daemon
+   said, and this says which rule that answer came from. */
+.meridian-browser-file__boundary {
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border-inline-start: 2px solid var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-browser-file__roots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-browser-file__roots-lead,
+.meridian-browser-file__roots-note {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

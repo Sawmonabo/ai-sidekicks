@@ -23,13 +23,15 @@
 //   • the provider-bound path with the run `waiting_for_input`, which is where the
 //     composer scenario ends and the one state the design calls "steer".
 //
-// THE RUN PARTITION IS THE REAL ONE. The store is fed the scenario's own beats
-// through `RUN_LIFECYCLE_PROJECTORS` — the registry the window's composition root
-// registers — so the run these surfaces resolve against is the run the fixture
-// actually plays, and a change to the projector reaches these tiers rather than
-// passing them. The agent partition has no projector on this branch, so the target
-// chip renders the binding it could not read as an absence; that is the family's
-// own wire-true state and not a gap in this mount.
+// EVERY PARTITION IS THE REAL ONE, because every store here opens with the fold the
+// window composes — {@link COMPOSED_CONSOLE_PROJECTORS}, and never a registrar this
+// file picked. A mount that named its own would be deciding which partitions its
+// surface can read, and the approvals mount did exactly that: it registered the
+// approval-flow fold alone, so the run partition was empty and the pane's Execution
+// boundary section rendered "unknown" over a scenario that stamps a posture on its own
+// `run.running` beat. A partition no family projects — the agent binding today — still
+// renders as an absence, and that is now the family's wire-true state rather than a
+// property of this file's import list.
 //
 // AND EVERY SURFACE HERE READS, SO EVERY SURFACE HERE SETTLES ITS READS —
 // {@link mountSurfaceSettled} is the one seam that does it, rather than each mount
@@ -53,10 +55,6 @@ import {
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/readings/scheduled-read.test-support.js";
-// Deep-imported rather than taken off the frame barrel, which does not publish it:
-// it is the registry the window's own composition root registers, and a test that
-// built its own would be projecting the run partition a second way.
-import { RUN_LIFECYCLE_PROJECTORS } from "../../../src/renderer/src/console/frame/run-lifecycle-projector.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
@@ -64,13 +62,10 @@ import {
   FrameStore,
   SessionStore,
   type ConsoleSessionEvent,
-  type EntityProjectorRegistry,
 } from "../../../src/renderer/src/console/store/index.js";
 import { MessageComposer } from "../../../src/renderer/src/shell/MessageComposer.js";
 import { registerApprovalsPane } from "../../../src/renderer/src/console/approvals/index.js";
-import { registerApprovalFlowProjectors } from "../../../src/renderer/src/console/bridge/index.js";
 import { registerRunsPane } from "../../../src/renderer/src/console/runs/index.js";
-import { ConsoleEntityProjectorRegistry } from "../../../src/renderer/src/console/store/index.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneAddress,
@@ -78,6 +73,7 @@ import {
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
 import { resolvedPaneBody } from "./pane-body-resolution.js";
+import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedFamilySurface {
@@ -112,7 +108,7 @@ function composerAgentId(): string {
 function composerSessionStore(throughKind: string): SessionStore {
   const store = new SessionStore({
     sessionId: COMPOSER_SCENARIO.sessionId,
-    projectors: RUN_LIFECYCLE_PROJECTORS,
+    projectors: COMPOSED_CONSOLE_PROJECTORS,
   });
   store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
   const lastIndex = COMPOSER_SCENARIO.beats.findLastIndex(
@@ -187,6 +183,7 @@ async function mountComposerAt(options: {
       sessionStore={composerSessionStore(options.throughKind)}
       bridge={bridge}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
+      frameStore={new FrameStore()}
       route={{ kind: "workspace", sessionId: COMPOSER_SCENARIO.sessionId }}
       focusedPane={options.focusedPane}
     />,
@@ -245,12 +242,17 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedFamily
  * zero: the store admits the batch as the continuation of what it opened at, and a
  * scenario whose log starts at a higher sequence would otherwise be applying beats the
  * store believes it has already seen.
+ *
+ * THE FOLD IS NOT A PARAMETER, which is the point of it being here at all. It was one,
+ * and each caller chose — so the runs pane got the run-lifecycle table and the
+ * approvals pane got the approval-flow one, and neither got what a window opens a
+ * store with. A caller cannot pick a partition set it is not offered.
  */
-function scenarioSeededStore(
-  scenario: ConsoleScenario,
-  projectors: EntityProjectorRegistry,
-): SessionStore {
-  const store = new SessionStore({ sessionId: scenario.sessionId, projectors });
+function scenarioSeededStore(scenario: ConsoleScenario): SessionStore {
+  const store = new SessionStore({
+    sessionId: scenario.sessionId,
+    projectors: COMPOSED_CONSOLE_PROJECTORS,
+  });
   const sequences = scenario.beats.map((beat) => beat.event.sequence);
   store.initialise({
     cursor: Math.min(...sequences) - 1,
@@ -279,7 +281,7 @@ export async function mountRunsPane(): Promise<MountedFamilySurface> {
       paneId="pane-runs-surface"
       linkedSourcePaneId={undefined}
       bridge={bridge}
-      sessionStore={scenarioSeededStore(RUNS_SCENARIO, RUN_LIFECYCLE_PROJECTORS)}
+      sessionStore={scenarioSeededStore(RUNS_SCENARIO)}
       frameStore={new FrameStore()}
       uiStateStore={UiStateStore.opening()}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
@@ -298,19 +300,19 @@ export async function mountRunsPane(): Promise<MountedFamilySurface> {
 }
 
 /**
- * The approvals pane, over a store opened with the fold the composer family claims.
+ * The approvals pane, over a store opened with the fold a window composes.
  *
- * THE APPROVAL PARTITION IS THE REAL ONE, for the reason the run partition above is:
- * the store is fed the scenario's own beats through `APPROVAL_FLOW_PROJECTORS` — the
- * table `registerComposerFamily` registers — so the provider-ask framing these tiers
- * capture is the one a person would see, and a change to the projector reaches them
- * rather than passing them.
+ * TWO PARTITIONS, AND THE PANE READS BOTH. The approval-flow fold is what carries the
+ * provider-ask framing, and the run-lifecycle fold is what carries the boundary each
+ * pending decision was raised under — `ApprovalsPaneBody` joins the two by the `runId`
+ * every approval record spells. Registering only the first left the Execution boundary
+ * section reading an empty `run` partition and rendering the chip's absent arm, which
+ * is the reading reserved for a run that never reached `running`: a picture of the
+ * wrong state, minted as a reference and audited as a surface.
  */
 export async function mountApprovalsPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
-  const projectorRegistry = new ConsoleEntityProjectorRegistry();
-  registerApprovalFlowProjectors(projectorRegistry);
-  const sessionStore = scenarioSeededStore(APPROVALS_SCENARIO, projectorRegistry.snapshot());
+  const sessionStore = scenarioSeededStore(APPROVALS_SCENARIO);
   const ApprovalsPaneBody = await paneBodyComponent("approvals", registerApprovalsPane);
   const container = await mountSurfaceSettled(
     bridge,

@@ -28,7 +28,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { SessionStore } from "../../../store/index.js";
-import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
+import {
+  InlineRefusal,
+  Nothing,
+  OverlayDialogPopup,
+  WireFigure,
+} from "../../../primitives/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { RefusalRecovery } from "../RefusalRecovery.js";
 import { useAttachController, type AttachReading } from "./attach-controller.js";
@@ -107,58 +112,62 @@ export function AttachRepositoryDialog(props: AttachRepositoryDialogProps): Reac
   return (
     <Dialog.Root onOpenChange={openChanged}>
       <Dialog.Trigger className="meridian-repo-attach__trigger">Attach a repository</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="meridian-repo-attach__backdrop" />
-        <Dialog.Popup className="meridian-repo-attach__dialog">
-          <Dialog.Title className="meridian-repo-attach__title">Attach a repository</Dialog.Title>
-          <Dialog.Description className="meridian-repo-attach__body">
-            The path is resolved on the node that holds it. Attaching mints one read-only workspace;
-            choosing an execution mode is a separate step on the workspace itself.
-          </Dialog.Description>
+      {/* The popup shell is the primitive's, which is also what puts this dialog in the
+          window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to whatever is registered there, and a form that
+          mounted its own portal would be a dialog the view paints over. */}
+      <OverlayDialogPopup
+        backdropClassName="meridian-repo-attach__backdrop"
+        className="meridian-repo-attach__dialog"
+      >
+        <Dialog.Title className="meridian-repo-attach__title">Attach a repository</Dialog.Title>
+        <Dialog.Description className="meridian-repo-attach__body">
+          The path is resolved on the node that holds it. Attaching mints one read-only workspace;
+          choosing an execution mode is a separate step on the workspace itself.
+        </Dialog.Description>
 
-          <label className="meridian-repo-attach__path">
-            <span className="meridian-repo-attach__legend">Path</span>
-            <input
-              type="text"
-              className="meridian-repo-attach__path-input"
-              value={form.localPath}
-              spellCheck={false}
-              autoComplete="off"
-              onChange={(event) => {
-                // WHAT WAS TYPED, UNCHANGED. A leading or trailing space is a legal
-                // POSIX filename character, so trimming here would attach a different
-                // directory from the one that was named.
-                setForm((current) => ({ ...current, localPath: event.target.value }));
-              }}
-            />
-          </label>
+        <label className="meridian-repo-attach__path">
+          <span className="meridian-repo-attach__legend">Path</span>
+          <input
+            type="text"
+            className="meridian-repo-attach__path-input"
+            value={form.localPath}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(event) => {
+              // WHAT WAS TYPED, UNCHANGED. A leading or trailing space is a legal
+              // POSIX filename character, so trimming here would attach a different
+              // directory from the one that was named.
+              setForm((current) => ({ ...current, localPath: event.target.value }));
+            }}
+          />
+        </label>
 
-          {renderRoster(reading, selectedNodeId, selectNode, retryRoster)}
-          {renderSettlement(reading)}
+        {renderRoster(reading, selectedNodeId, selectNode, retryRoster)}
+        {renderSettlement(reading)}
 
-          <div className="meridian-repo-attach__acts">
-            <Dialog.Close className="meridian-repo-attach__cancel">Cancel</Dialog.Close>
-            <button
-              type="button"
-              className="meridian-repo-attach__confirm"
-              disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
-              onClick={submit}
-            >
-              Attach
-            </button>
-          </div>
-          {/*
+        <div className="meridian-repo-attach__acts">
+          <Dialog.Close className="meridian-repo-attach__cancel">Cancel</Dialog.Close>
+          <button
+            type="button"
+            className="meridian-repo-attach__confirm"
+            disabled={verdict.status !== "sendable" || reading.act.status === "sending"}
+            onClick={submit}
+          >
+            Attach
+          </button>
+        </div>
+        {/*
             THE REASON THE CONTROL IS CLOSED, ALWAYS SAID. Rule 8 forbids a silent
             refusal, and a greyed button with nothing beside it is one: this line names
             the one thing missing, in the order a person fills the form in.
           */}
-          {verdict.status === "incomplete" ? (
-            <p className="meridian-repo-attach__blocked" role="status">
-              {verdict.because}
-            </p>
-          ) : null}
-        </Dialog.Popup>
-      </Dialog.Portal>
+        {verdict.status === "incomplete" ? (
+          <p className="meridian-repo-attach__blocked" role="status">
+            {verdict.because}
+          </p>
+        ) : null}
+      </OverlayDialogPopup>
     </Dialog.Root>
   );
 }

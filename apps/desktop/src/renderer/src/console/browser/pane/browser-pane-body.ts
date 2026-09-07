@@ -20,12 +20,13 @@
 // `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
 // outside itself. The family door imports this module by name instead.
 
-// THE THREE STYLESHEETS ONLY THIS CHUNK PAINTS WITH ENTER HERE. The door registers
-// exactly one kind and registers it as a loader, so nothing on the initial graph can
-// render the pane, its cards, or its bounds table — which makes this module the way in
-// to the code those rules dress, and the placement rule then puts the rules on the same
-// edge. Imported one by one rather than through an `@import` chain, so every edge into
-// this family's CSS is visible at one site and "imported here and nowhere else" stays
+// FIVE OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the place those five surfaces
+// enter the graph at all. The door registers exactly one kind and registers it as a
+// loader, so nothing on the initial graph can render the pane, its chrome, its file
+// control, its cards, or its bounds table — which makes this module the way in to the
+// code those rules dress, and the placement rule then puts the rules on the same edge.
+// Imported one by one rather than through an `@import` chain, so every edge into this
+// family's CSS is visible at one site and "imported here and nowhere else" stays
 // checkable.
 //
 // THE OTHER TWO ARE AT THE FAMILY DOOR, and the split is read off the graph rather than
@@ -43,8 +44,23 @@
 // why the reading is a subtraction rather than a per-sheet question: that restatement
 // names a class the settings page also names, and it is not the sheet that owed those
 // rules — `controls.css` was, and it has moved.
+//
+// AND TWO OF THE FIVE ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN.
+// `pane.css` had grown to 458 lines over three directories, so it is split by WHICH
+// COMPONENT DRAWS EACH ROOT: `chrome/chrome.css` for the tab strip, the load hairline,
+// the page picker, and the overflow disclosure; `file/file.css` for the local file
+// control and its admitted roots. `handback/` gets no sheet — the one class it draws is
+// a modifier of a root two directories draw, which belongs to neither.
+//
+// THOSE TWO ENTER HERE AND NOT LOWER, which is the ownership rule rather than a
+// shortcut: neither `chrome/` nor `file/` carries an `index.ts`, so each sheet enters
+// at the door of the directory that owns it — and the directory that owns those two is
+// the chunk this module roots. The order below is the order the door had them in, so
+// the split changes no cascade.
 import "../cards/cards.css";
 import "./pane.css";
+import "./chrome/chrome.css";
+import "./file/file.css";
 import "../bounds/bounds.css";
 
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";

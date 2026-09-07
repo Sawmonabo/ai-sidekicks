@@ -47,7 +47,7 @@
 
 import { useCallback } from "react";
 
-import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, type ExtendedConsoleRefusal } from "../../core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../store/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 
@@ -67,7 +67,15 @@ const TERMINAL_LEASE_REFUSAL_ORIGIN = "terminal-lease";
 /** What the claim control knows: whether a call is out, and what refused it. */
 export interface TerminalLeaseClaim {
   readonly isInFlight: boolean;
-  readonly refusal: ConsoleRefusal | undefined;
+  /**
+   * What refused the last dispatch, with whatever registered members it carried.
+   *
+   * The EXTENDED refusal rather than the bare one, because 8.8's naming rule is met
+   * from a member the wire sent — `holderParticipantId`, registered in
+   * `core/refusal-extensions.ts` — and a surface handed the narrow type would have to
+   * re-read it off an unvalidated value the normalizer has already read once.
+   */
+  readonly refusal: ExtendedConsoleRefusal | undefined;
   readonly acquire: () => void;
   readonly release: () => void;
 }
@@ -83,7 +91,7 @@ export interface TerminalLeaseClaim {
  */
 interface TerminalLeaseClaimReading {
   readonly isInFlight: boolean;
-  readonly refusal: ConsoleRefusal | undefined;
+  readonly refusal: ExtendedConsoleRefusal | undefined;
 }
 
 /**

@@ -12,6 +12,14 @@
 // the effect either way; what separates them is the COMMIT IN BETWEEN. So the probe
 // below records the viewport on every commit and the assertions read the whole
 // sequence — an assertion taken after the tree has settled passes over the defect.
+//
+// AND THE COMMIT AFTER A SWAP NOW CARRIES NO VIEWPORT AT ALL, which is the pane asking
+// the NEW window for a view before it renders a body over it (`view-binding.ts`). That
+// makes the negative half of this case stronger and the positive half unassertable in
+// the same place: nothing from the retired window can be shown by a body that is not
+// mounted, and the new window's own sentence arrives a commit later than the probe can
+// see, because the probe re-renders with its PARENT and the pane settles on its own. So
+// the sequence carries the prohibition and the settled read carries the sentence.
 
 import { useLayoutEffect } from "react";
 
@@ -83,13 +91,17 @@ describe("browser pane rebound to another bridge", () => {
 
     const commitsAfterSwap = commits.slice(commitsBeforeSwap);
     expect(commitsAfterSwap.length).toBeGreaterThan(0);
-    // The negative control lives inside this assertion rather than beside it: on the
-    // binding that recorded the pane alone, the first of these carried the retired
-    // host's accepted rectangle and this line is the one that goes red.
+    // The negative control, and the whole of this case's claim: on the binding that
+    // recorded the pane alone, the first of these carried the retired host's accepted
+    // rectangle and this line is the one that goes red.
     for (const viewportText of commitsAfterSwap) {
-      expect(viewportText).toContain(NO_HOST_SENTENCE);
       expect(viewportText).not.toContain(HOST_TOOK_IT_SENTENCE);
     }
+    // And the pane does arrive at the new window's own sentence, which is what keeps
+    // the loop above from passing over a pane that never rendered a viewport again.
+    await waitFor(() => {
+      expect(browserPaneRegion().textContent).toContain(NO_HOST_SENTENCE);
+    });
   });
 
   it("detaches the publisher it is retiring before the successor attaches", async () => {

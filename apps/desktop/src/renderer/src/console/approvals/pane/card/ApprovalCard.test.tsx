@@ -2,32 +2,20 @@
 // verbatim or explicitly absent, a remember opt-in that sends nothing until it is
 // engaged, and an action row a keyboard can walk.
 //
+// The fifth claim — that a refusal SETTLING the request withdraws both answers, and
+// withdraws the pane's palette rows with them — is `ApprovalCard.settled.test.tsx`
+// beside this file. It is a different subject (one offer reading, two surfaces)
+// and it is what took this file past the length the package splits at.
+//
 // The payload assertions drive the REAL `onResolve` the component calls, so what is
 // checked is the request that would go on the wire rather than a re-derivation of
 // it beside the component.
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ApprovalCard } from "./ApprovalCard.js";
 import { ACCENT_FILL_CLASS } from "../../../primitives/index.js";
-import { type ApprovalRecord } from "../../../bridge/index.js";
-import { type ApprovalResolveRequest } from "../approvals-wire.js";
-
-function pendingRecord(overrides: Partial<ApprovalRecord> = {}): ApprovalRecord {
-  return {
-    approvalRequestId: "approval-01",
-    runId: "run-01",
-    category: "file_write",
-    state: "pending",
-    requestedBy: "agent-implementer",
-    requestedScope: "session",
-    resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
-    createdAt: "2026-01-01T13:30:00.900Z",
-    updatedAt: "2026-01-01T13:30:00.900Z",
-    ...overrides,
-  };
-}
+import { pendingRecord, renderCard } from "./approval-card.test-support.js";
 
 /**
  * Engage the remember opt-in the way a person does — by clicking its label.
@@ -61,19 +49,6 @@ function namesAMatchingSyntax(copy: string): boolean {
   return ["glob", "wildcard", "regex", "prefix", "*", "://"].some((token) =>
     copy.toLowerCase().includes(token),
   );
-}
-
-function renderCard(record: ApprovalRecord, isResolving = false): ApprovalResolveRequest[] {
-  const requests: ApprovalResolveRequest[] = [];
-  render(
-    <ApprovalCard
-      record={record}
-      isResolving={isResolving}
-      refusal={undefined}
-      onResolve={(request) => requests.push(request)}
-    />,
-  );
-  return requests;
 }
 
 describe("the two answers", () => {

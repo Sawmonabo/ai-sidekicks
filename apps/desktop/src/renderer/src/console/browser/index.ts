@@ -30,7 +30,9 @@
 //     door below registers (`pane/browser-pane-body.ts`, loaded as its own chunk).
 //   • `geometry/` — the rect the main-process view host is positioned by, and every
 //     reading that makes it honest: the publisher, the motion and animation samplers,
-//     the ancestry watch, the occlusion registry, and the host resolution. It renders
+//     the ancestry watch, the overlay observation this pane registers as airspace,
+//     and the host resolution. The registry those observations land in is `core/`'s,
+//     because every overlay primitive registers into the same one. It renders
 //     nothing, which is why it carries no sheet.
 //   • `settings/` — chapter 13.16's page: the policy rows and their switches, the
 //     partition table with its rows, and the clear control with its arming rounds.
@@ -43,7 +45,7 @@
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 
-// TWO OF THIS FAMILY'S FIVE STYLESHEETS ENTER HERE, and which two is a fact about the
+// TWO OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, and which two is a fact about the
 // GRAPH rather than about the directory. The settings section below leaves this door and
 // is mounted by `console/browser-settings-page.ts`, which the settings route reaches
 // statically — so every module that renders it is on the initial import graph, and the
@@ -53,11 +55,12 @@
 // among them. Deferring either behind the pane's chunk left Settings → Browser painting
 // undressed until an unrelated pane was opened, and then silently working.
 //
-// THE OTHER THREE ARE NOT HERE, and importing them would be the cost this door is
-// written to avoid. `pane/pane.css`, `cards/cards.css` and `bounds/bounds.css` dress
-// surfaces nothing on the initial graph can render — the pane opens from the sidebar or
-// the palette — so they enter at `pane/browser-pane-body.ts`, the one chunk root this
-// family has, and that module's header carries the other half of this split.
+// THE OTHER FIVE ARE NOT HERE, and importing them would be the cost this door is
+// written to avoid. `pane/pane.css`, `pane/chrome/chrome.css`, `pane/file/file.css`,
+// `cards/cards.css` and `bounds/bounds.css` dress surfaces nothing on the initial graph
+// can render — the pane opens from the sidebar or the palette — so they enter at
+// `pane/browser-pane-body.ts`, the one chunk root this family has, and that module's
+// header carries the other half of this split.
 //
 // BOTH HALVES ARE CHECKED, IN BOTH DIRECTIONS.
 // `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails a sheet held
@@ -70,23 +73,30 @@
 // declares: two families declaring one class at equal specificity are resolved by LOAD
 // ORDER, so deferring such a sheet silently restyles the other family's surface. That is
 // not hypothetical — `runs/index.ts` carries the measurement of it happening. None of
-// this family's five sheets declares a class any other family declares, and
+// this family's seven sheets declares a class any other family declares, and
 // `test/console/architecture/stylesheet-selector-owners.test.ts` is the census that
 // says so and fails if that stops being true.
 
 import "./settings/settings.css";
 import "./controls.css";
 
-import type { ConsolePaneRegistry } from "../seats/index.js";
+import { registerComposerAttachMenuEntry, type ConsolePaneRegistry } from "../seats/index.js";
+import { browserAttachMenuEntry } from "./pane/attach-entry.js";
 
 /**
- * Claim the browser family's pane kinds.
+ * Claim the browser family's seats.
  *
  * Takes the registry rather than reaching for the module-scope singleton, for
  * `registerConsolePanes`' reason: a test composes into a registry it owns, and an
  * auxiliary window composes a different subset without a second code path.
+ *
+ * THE ATTACH ENTRY IS CLAIMED HERE TOO, and deliberately in the same call rather than
+ * in a second exported function: a family that had two registration entry points would
+ * make "is this family composed in?" a question with two answers, and a composition
+ * root that called one of them would compose a family missing half its seats.
  */
 export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
+  registerComposerAttachMenuEntry(browserAttachMenuEntry);
   registry.register({
     kind: "browser",
     owner: "browser",

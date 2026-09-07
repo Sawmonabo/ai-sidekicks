@@ -19,6 +19,7 @@ import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-suppo
 import { useSessionGoalMutation } from "../approvals-hooks.js";
 import { SECOND_SESSION_ID, SESSION_ID } from "../approvals-hooks.test-support.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
+import { FrameStore } from "../../../store/index.js";
 
 describe("the goal mutation is keyed to the session it mutates", () => {
   /**
@@ -72,9 +73,10 @@ describe("the goal mutation is keyed to the session it mutates", () => {
   function GoalHarness(props: {
     readonly bridge: ConsoleBridge;
     readonly sessionId: string;
+    readonly frameStore: FrameStore;
     readonly onMutation: (mutation: GoalMutation) => void;
   }): React.JSX.Element | null {
-    const mutation = useSessionGoalMutation(props.bridge, props.sessionId);
+    const mutation = useSessionGoalMutation(props.bridge, props.sessionId, props.frameStore);
     props.onMutation(mutation);
     return null;
   }
@@ -83,13 +85,20 @@ describe("the goal mutation is keyed to the session it mutates", () => {
   function mountGoalCard(bridge: ConsoleBridge): {
     readonly latest: () => GoalMutation;
     readonly rebindTo: (sessionId: string) => void;
+    readonly frameStore: FrameStore;
   } {
     let latest: GoalMutation | undefined;
     const onMutation = (mutation: GoalMutation): void => {
       latest = mutation;
     };
+    const frameStore = new FrameStore();
     const view = render(
-      <GoalHarness bridge={bridge} sessionId={SESSION_ID} onMutation={onMutation} />,
+      <GoalHarness
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        frameStore={frameStore}
+        onMutation={onMutation}
+      />,
     );
     return {
       latest: () => {
@@ -101,10 +110,16 @@ describe("the goal mutation is keyed to the session it mutates", () => {
       rebindTo: (sessionId) => {
         act(() => {
           view.rerender(
-            <GoalHarness bridge={bridge} sessionId={sessionId} onMutation={onMutation} />,
+            <GoalHarness
+              bridge={bridge}
+              sessionId={sessionId}
+              frameStore={frameStore}
+              onMutation={onMutation}
+            />,
           );
         });
       },
+      frameStore,
     };
   }
 

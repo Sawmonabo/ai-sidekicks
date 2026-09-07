@@ -1,7 +1,7 @@
 /*
  * Chapter 13.16's settings page: the policy rows and the partition table.
  *
- * One of the browser family's five sheets. The family's own discipline holds in
+ * One of the browser family's seven sheets. The family's own discipline holds in
  * every one of them: no literal colour, every value read back out of a Meridian
  * custom property, and the two hues spent only on their one meaning each
  * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
@@ -10,13 +10,13 @@
  *
  * This sheet enters at the family door, `console/browser/index.ts`, because a
  * surface the settings route reaches STATICALLY renders against it. The split
- * between the two sheets at that door and the three at the family's chunk root is
+ * between the two sheets at that door and the five at the family's chunk root is
  * read off the module graph rather than off the directory, and both halves of it
  * are stated at the two modules that carry the edges.
  *
  * It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a `styles/` directory
  * of its own: one sheet per sub-module directory, named for that directory, so the
- * shapes and the rules that draw them are read together and a sixth sheet has one
+ * shapes and the rules that draw them are read together and a further sheet has one
  * plausible home instead of two.
  *
  * Two shapes, and they are here together because 13.16 puts them on one page:

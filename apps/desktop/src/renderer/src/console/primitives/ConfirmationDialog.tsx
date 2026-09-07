@@ -1,6 +1,8 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import type { ReactNode } from "react";
 
+import { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
+
 /**
  * The tone a confirming act wears, closed at three.
  *
@@ -47,6 +49,14 @@ const CONFIRM_TONE_CLASSES: Readonly<Record<ConfirmationTone, string>> = {
  * THE DESCRIPTION IS PHRASING CONTENT. Base UI renders `AlertDialog.Description` as a
  * `<p>`, so a caller passes spans and text — never a paragraph or a list, which the
  * document would reject and the browser would silently re-parent.
+ *
+ * THE POPUP SHELL IS `overlay/OverlayAlertDialogPopup.tsx`'S, and that is what puts
+ * every confirming act in the window's airspace (`Spec-023 §Console Design (Meridian)`
+ * 12.3): a native browser-pane view yields to what is registered there, and a
+ * confirmation it painted over is the one thing 12.3 forbids outright. Composing the
+ * portal, the backdrop and the popup here instead would register nothing, and the
+ * three callers below would each lose the yield without a line of theirs changing —
+ * which is why the shell is taken rather than restated.
  */
 export function ConfirmationDialog(props: {
   /** The words on the button that opens this dialog. */
@@ -76,26 +86,23 @@ export function ConfirmationDialog(props: {
       >
         {props.triggerLabel}
       </AlertDialog.Trigger>
-      <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="meridian-confirm__backdrop" />
-        <AlertDialog.Popup className="meridian-confirm">
-          <AlertDialog.Title className="meridian-confirm__title">{props.title}</AlertDialog.Title>
-          <AlertDialog.Description className="meridian-confirm__body">
-            {props.description}
-          </AlertDialog.Description>
-          <div className="meridian-confirm__acts">
-            <AlertDialog.Close className="meridian-confirm__keep">
-              {props.keepLabel}
-            </AlertDialog.Close>
-            <AlertDialog.Close
-              className={CONFIRM_TONE_CLASSES[props.tone]}
-              onClick={props.onConfirm}
-            >
-              {props.confirmLabel}
-            </AlertDialog.Close>
-          </div>
-        </AlertDialog.Popup>
-      </AlertDialog.Portal>
+      <OverlayAlertDialogPopup
+        backdropClassName="meridian-confirm__backdrop"
+        className="meridian-confirm"
+      >
+        <AlertDialog.Title className="meridian-confirm__title">{props.title}</AlertDialog.Title>
+        <AlertDialog.Description className="meridian-confirm__body">
+          {props.description}
+        </AlertDialog.Description>
+        <div className="meridian-confirm__acts">
+          <AlertDialog.Close className="meridian-confirm__keep">
+            {props.keepLabel}
+          </AlertDialog.Close>
+          <AlertDialog.Close className={CONFIRM_TONE_CLASSES[props.tone]} onClick={props.onConfirm}>
+            {props.confirmLabel}
+          </AlertDialog.Close>
+        </div>
+      </OverlayAlertDialogPopup>
     </AlertDialog.Root>
   );
 }

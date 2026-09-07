@@ -37,11 +37,12 @@ import {
   ACCENT_FILL_CLASS,
   Chip,
   DerivedFigure,
-  InlineRefusal,
+  RemediedRefusal,
   WireFigure,
   formatClockTime,
 } from "../../../primitives/index.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
+import { isApprovalAnswerable } from "../approval-offer.js";
 import { ApprovalResource } from "./ApprovalResource.js";
 import { isResolvedState, type ApprovalRecord } from "../../../bridge/index.js";
 import {
@@ -137,7 +138,11 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
   const state = asApprovalState(record.state);
   const category = asApprovalCategory(record.category);
-  const isPending = state === "pending";
+  // The one offer reading, shared with this pane's palette rows: a refusal that
+  // SETTLED this request takes the two actions off the card rather than leaving them
+  // pressable, and takes the same two rows out of the palette in the same breath.
+  // See `approvals/pane/approval-offer.ts` for why it is one function and not two.
+  const answerable = isApprovalAnswerable(record, props.refusal);
 
   const answer = useCallback(
     (decision: "approved" | "rejected") => {
@@ -247,7 +252,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
       {isResolvedRecord(record) ? <ResolvedQuad record={record} /> : null}
 
-      {isPending ? (
+      {answerable ? (
         <>
           <RememberDecision intent={rememberedGrantIntent} onChange={setRememberedGrantIntent} />
 
@@ -276,7 +281,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         </>
       ) : null}
 
-      {props.refusal === undefined ? null : <InlineRefusal {...props.refusal} />}
+      {props.refusal === undefined ? null : <RemediedRefusal refusal={props.refusal} />}
     </article>
   );
 }

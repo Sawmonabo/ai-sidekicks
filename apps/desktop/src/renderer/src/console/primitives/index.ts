@@ -39,6 +39,8 @@ import "./partial-read.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
 import "./confirmation-dialog.css";
+import "./posture/posture.css";
+import "./restore/restore.css";
 
 // The sheet's one filled-accent face, named where TypeScript can see it. Two
 // surfaces outside this family wear it, so the name is declared once rather than
@@ -110,6 +112,14 @@ export { LiveAnnouncer } from "./live-announcer.js";
 // the rule is the whole reason this hook exists rather than a bare call.
 export { useSettlementAnnouncement } from "./settlement-announcement.js";
 
+// The latest-committed-value ref every long-lived callback in the tree reads through.
+// On this door because its readers are VIEW families — the approvals pane's palette
+// rows and the runs pane's — which are siblings of one another and may reach nothing
+// in each other, so the lowest family that owns the concern publishes it once. The
+// alternative is what it replaced: each surface writing its own ref in a render body,
+// which is the one place React says a ref must not be written.
+export { useLatestRef } from "./latest-ref.js";
+
 export { Nothing } from "./Nothing.js";
 
 // The confirming dialog, and the tone its confirming act wears. Through the door
@@ -130,7 +140,6 @@ export type {
   ReadingState,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ReadingStateKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   RefusalScope,
 } from "./partial-read.js";
 export {
@@ -212,6 +221,11 @@ export {
 export { InlineRefusal } from "./InlineRefusal.js";
 export { RefusalBanner } from "./RefusalBanner.js";
 export { RefusalCard } from "./RefusalCard.js";
+// The join between a refusal and the console's own next move for it. On this door
+// because the composer, the runs pane, and the approvals pane all render daemon
+// refusals whose codes the remedy table answers for, and three surfaces looking a
+// code up themselves is three chances to answer one code differently.
+export { RemediedRefusal } from "./RemediedRefusal.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -325,3 +339,33 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatWireString,
 } from "./wire-figures.js";
+
+// The stamped execution boundary, and the disclosure of what a rewind did to the
+// working tree. Both are in this family for the same reason and it is the layering
+// rule rather than a judgement about where they read best: the runs pane and the
+// approvals pane both render a posture, and the runs pane's intervention history
+// and the repos family's artifact record both render a restore — and in each pair
+// the two homes are VIEW families, which may not import one another. The lowest
+// family that owns their inputs is this one, so this is where they live and this
+// door is how both callers reach them.
+export { ExecutionPostureChip } from "./posture/ExecutionPostureChip.js";
+// The absent-posture sentence, for the ONE surface outside this family that says
+// it in its own words: the composer's posture chip renders no facts and so cannot
+// mount the chip above, but a second sentence for one fact is the copy this
+// family owns being written twice.
+export { POSTURE_ABSENT_DETAIL } from "./posture/posture-copy.js";
+export { FileRestoreDisclosure } from "./restore/FileRestoreDisclosure.js";
+
+// The overlay shells, each registering what it mounts in the window's airspace
+// (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
+// overlay instance"): the anchored three register their popup, and the two modal
+// wrappers register the backdrop that covers the window beside it, through the one
+// helper that owns that difference (`overlay/modal-airspace.ts`). Neither the
+// registration hook nor that helper is on this door: their only callers are these
+// five, a consumer that could reach one could register an overlay by hand at a call
+// site, and 12.3's Never bullet forbids exactly that.
+export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
+export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";
+export { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
+export { OverlayMenuPopup } from "./overlay/OverlayMenuPopup.js";
+export { OverlaySelectPopup } from "./overlay/OverlaySelectPopup.js";

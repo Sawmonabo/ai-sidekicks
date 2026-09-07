@@ -19,19 +19,28 @@
 
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_SCENARIO, BROWSER_SCENARIO_ID } from "../bridge/scenarios/browser.js";
+import {
+  BROWSER_PRODUCED_ARTIFACTS_CALL,
+  BROWSER_SCENARIO,
+  BROWSER_SCENARIO_ID,
+} from "../bridge/scenarios/browser.js";
 import { ConsolePaneRegistry } from "../seats/index.js";
 import { registerBrowserPanes } from "./index.js";
 
 /**
- * The daemon methods this fixture is allowed to call.
+ * The call names this fixture is allowed to answer under, and what each one is.
  *
- * `agent.list` is a registered read `first-run.ts` already scripts. The browser
- * namespace is on `Plan-023 §Console growth slate` and is deliberately absent, which
- * is what this list exists to hold the fixture to: a scenario answering `browser.act`
- * would read as scripted behaviour and be a promise the wire has not made.
+ * `agent.list` is a registered daemon read `first-run.ts` already scripts. The second
+ * is manifestly NOT a method: the browser namespace is on `Plan-023 §Console growth
+ * slate` and registers none, so the provenance read is keyed on its growth operation
+ * id under the `growth:` prefix no daemon method can wear — the discipline
+ * `scenarios/workflows.ts` states for the two workflow reads that register no method
+ * either. That is what this list exists to hold the fixture to: a scenario answering
+ * `browser.act` would read as scripted behaviour and be a promise the wire has not
+ * made, whereas a `growth:` key promises nothing and re-points itself the day the
+ * daemon names the read.
  */
-const REGISTERED_CALL_NAMES: readonly string[] = ["agent.list"];
+const REGISTERED_CALL_NAMES: readonly string[] = ["agent.list", BROWSER_PRODUCED_ARTIFACTS_CALL];
 
 describe("browser family — claiming the deck's browser pane", () => {
   it("claims the browser kind on terms the deck can hold it by", () => {

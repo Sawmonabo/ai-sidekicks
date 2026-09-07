@@ -84,6 +84,36 @@ export type GrowthOperationId =
   | "browserSubscribeNavigation"
   | "browserSubscribeToolCalls"
   | "browserRespondToToolCall"
+  // The rest of the human half of the pane's chrome. The navigation verbs above landed
+  // first because the address field needed them; these are the page-lifecycle acts the
+  // strip and the picker dispatch — select, reorder, show, hide, create, close, and
+  // developer tools — the page reading both of them draw from, and the acts that are
+  // not page actions at all: capture, pick element, and the file open that runs the
+  // mount-envelope check. The site-data reset the pane's overflow dispatches is
+  // `browserSiteDataClear` below, beside the settings page's reads of the same
+  // partitions — one act, one row, whichever surface sends it. `browserPaneAttach` /
+  // `browserPaneDetach` open and tear down the pane's view, `browserRevealPageFile`
+  // hands a page's own local file to the file manager, and the chord mirror and the
+  // accelerator stream are the keyboard handback's two halves. Every one of them
+  // serves the same slate row the verbs above do, because they are one namespace and
+  // it is registered nowhere yet.
+  | "browserSelect"
+  | "browserReorder"
+  | "browserShow"
+  | "browserHide"
+  | "browserCreate"
+  | "browserClose"
+  | "browserDevtools"
+  | "browserSubscribePages"
+  | "browserCapture"
+  | "browserProducedArtifacts"
+  | "browserPickElement"
+  | "browserOpenFile"
+  | "browserRevealPageFile"
+  | "browserPaneAttach"
+  | "browserPaneDetach"
+  | "browserPublishChordMirror"
+  | "browserSubscribeAccelerators"
   | "browserPolicyRead"
   | "browserPolicyWrite"
   | "browserSiteDataList"

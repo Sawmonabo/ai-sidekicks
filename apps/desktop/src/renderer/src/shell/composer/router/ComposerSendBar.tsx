@@ -29,9 +29,10 @@
 // draft is WHEN the store's restart disclosure is taken on, which the store documents
 // as the first focus of a composer.
 
-import { useCallback, useId } from "react";
-import { InlineRefusal, RefusalCard } from "../../../console/primitives/index.js";
-import { type ComposerSeatProps } from "../../../console/seats/index.js";
+import { useCallback, useEffect, useId, useRef } from "react";
+import { RefusalCard, RemediedRefusal } from "../../../console/primitives/index.js";
+import { subscribeToComposerFocus, type ComposerSeatProps } from "../../../console/seats/index.js";
+import { useRefusalBannerEscalation } from "../../../console/store/index.js";
 import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";
@@ -63,6 +64,13 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     // published comes from the addressed run's own binding and not from a sibling
     // binding the same agent happens to hold.
     target: address.target,
+    // The accelerators' own inputs. The zone reaches no wire of its own for the
+    // recogniser or the enumeration; these are for the one command that starts work.
+    // The composer's LINE is not among them: the palette entry that types a directive
+    // and the candidate list that completes one are the discovery seat's, and this bar
+    // holds only the handler that runs a line already typed.
+    growth: props.bridge.growth,
+    sessionId: props.sessionStore.sessionId,
   });
   const controller = useSendController({
     bridge: props.bridge,
@@ -72,6 +80,14 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     commandExecutor: commandZone.commandExecutor,
     recognizeProviderCommand: commandZone.recognizeProviderCommand,
   });
+  // A SEND THAT LEARNED THE SESSION IS GONE IS NOT THIS BAR'S NEWS ALONE. The refusal
+  // still renders below, beside the control that produced it — that is where a person
+  // pressing Send looks — but the remedy table calls `session.not_found` a workspace
+  // banner, and until this handover the composer was the one surface that could learn
+  // it and never told the frame: every pane went on drawing a session that had left
+  // the node. The hook decides which codes qualify and raises each condition once, so
+  // nothing here reads the table and a dismissed banner stays dismissed.
+  useRefusalBannerEscalation(props.frameStore, controller.refusal);
   const pathLabelId = useId();
   const isSending = controller.status === "sending";
   const isProviderBound = address.target.path === "provider-bound";
@@ -122,9 +138,24 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
     isProviderBound ? address.target.providerFailureDetail : undefined,
   );
 
+  // The seat's other direction. A surface elsewhere in the window — the runs pane's
+  // empty state is the first — tells a person to send a message; this is what makes
+  // that sentence actionable from where they are standing. The ask carries nothing,
+  // so what focusing means stays this component's decision, and an ask that arrives
+  // while no composer is mounted reaches nobody rather than queueing.
+  const lineRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(
+    () =>
+      subscribeToComposerFocus(() => {
+        lineRef.current?.focus();
+      }),
+    [],
+  );
+
   return (
     <div className="meridian-composer__send">
       <textarea
+        ref={lineRef}
         className="meridian-composer__line"
         aria-label="Message"
         aria-describedby={controller.pathLabel === undefined ? undefined : pathLabelId}
@@ -189,7 +220,11 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         </button>
       </div>
       {controller.refusal === undefined ? null : (
-        <InlineRefusal code={controller.refusal.code} detail={controller.refusal.detail} />
+        // Through the remedy join rather than straight to the inline shape: the
+        // send router reaches `intervention.idempotency_conflict`,
+        // `run.version_conflict`, and `session.not_found`, and each of those has a
+        // next move the daemon's own sentence does not carry.
+        <RemediedRefusal refusal={controller.refusal} />
       )}
       {neutralization === undefined ? null : (
         <RefusalCard

@@ -26,7 +26,7 @@ import { pressKeys, renderSettled } from "../console-harness.js";
 import { DiffFileList } from "../../../src/renderer/src/console/repos/diff-pane/DiffFileList.js";
 import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.test-support.js";
 import { SMALL_DIFF_SHAPE } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.test-support.js";
-import { WindowedRestorePathList } from "../../../src/renderer/src/console/repos/restore/WindowedRestorePathList.js";
+import { WindowedRestorePathList } from "../../../src/renderer/src/console/primitives/restore/WindowedRestorePathList.js";
 
 /** The attribute a row writes on whichever element holds its tab stop. */
 const ROW_TARGET_SELECTOR = "[data-row-target]";

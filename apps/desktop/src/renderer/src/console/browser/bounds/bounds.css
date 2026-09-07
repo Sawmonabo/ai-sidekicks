@@ -1,7 +1,7 @@
 /*
  * Chapter 12.10's bounds table.
  *
- * One of the browser family's five sheets. The family's own discipline holds in
+ * One of the browser family's seven sheets. The family's own discipline holds in
  * every one of them: no literal colour, every value read back out of a Meridian
  * custom property, and the two hues spent only on their one meaning each
  * (`Spec-023 §Console Design (Meridian)` rule 3 — amber where a person is needed,
@@ -10,13 +10,13 @@
  *
  * This sheet enters at `console/browser/pane/browser-pane-body.ts`, the family's
  * one chunk root, because nothing on the initial import graph can render the
- * surface it dresses. The split between the three sheets there and the two at the
+ * surface it dresses. The split between the five sheets there and the two at the
  * family door is read off the module graph rather than off the directory, and both
  * halves of it are stated at the two modules that carry the edges.
  *
  * It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a `styles/` directory
  * of its own: one sheet per sub-module directory, named for that directory, so the
- * shapes and the rules that draw them are read together and a sixth sheet has one
+ * shapes and the rules that draw them are read together and a further sheet has one
  * plausible home instead of two.
  *
  * The ledger the resource ceiling renders as: twenty-odd rows a reviewer scans

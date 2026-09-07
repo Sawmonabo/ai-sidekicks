@@ -133,17 +133,21 @@ function isBridgeFamilyModule(module: string): boolean {
  *      dispatch.
  *   3. `shell/composer/commands/provider-command-read.ts` — the provider-command read.
  *   4. `console/runs/pane/controls/run-control-dispatch.ts` — the runs pane's
- *      run-control dispatch.
- *   5. `console/runs/pane/controls/StepIn.tsx` — its step-in control.
- *   6. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
- *   7. `console/collaboration/channels/channel-model.ts` — the channel model.
- *   8. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
- *   9. `console/collaboration/members/presence-model.ts` — the presence model.
- *  10. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
- *  11. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
+ *      run-control dispatch, for all six controls and BOTH of their entry points.
+ *   5. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
+ *   6. `console/collaboration/channels/channel-model.ts` — the channel model.
+ *   7. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
+ *   8. `console/collaboration/members/presence-model.ts` — the presence model.
+ *   9. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
+ *  10. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
+ *  11. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
+ *      read. The pane's file control has to say which roots a local file may come
+ *      from before a person picks one, and the trust envelope is the daemon's: a
+ *      renderer that answered from anything else would be deriving the eligibility
+ *      the refusal it renders exists to report.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
  * none around it. TWICE now the number has come DOWN because a surface stopped taking
@@ -154,6 +158,16 @@ function isBridgeFamilyModule(module: string): boolean {
  * `provider-account-quota.ts` already reads it once per window behind the one
  * `providerAccount.subscribe` this console opens, so a second reader was a second
  * snapshot of one node's accounts with nothing on screen saying the two disagreed.
+ *
+ * The runs half was two until `console/runs/pane/controls/StepIn.tsx` stopped sending
+ * its own `run.pause`. It held a second single-flight latch beside the surface's, so
+ * the button and the palette's row for the same control each admitted while the other
+ * was settling — two idempotency keys against one run version, which the wire reads as
+ * two distinct mutations rather than replays of one. It now dispatches through
+ * `RunControlSurface`, which is entry #4, so this number FALLING is what that fix looks
+ * like from here. It reads eleven again rather than ten because entry #11 landed in the
+ * same window — two independent moves that happen to cancel, which is exactly why the
+ * pin is re-derived by counting the enumeration above and never carried forward.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
