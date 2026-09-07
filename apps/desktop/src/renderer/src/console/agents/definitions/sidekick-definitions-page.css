@@ -196,21 +196,40 @@
 }
 
 .meridian-sidekick-row__actions,
-.meridian-sidekick-row__confirm {
+.meridian-sidekick-row__confirm,
+.meridian-sidekick-row__handoff {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--meridian-space-2);
 }
 
+/* A standing offer reads as a promise this row is holding, so it takes the leading
+ * edge the pending treatments elsewhere in this family take — set off from the row's
+ * own ground without being decorated as a caution, which it is not. */
+.meridian-sidekick-row__handoff {
+  border-inline-start: 2px solid var(--meridian-accent);
+  padding-inline-start: var(--meridian-space-3);
+}
+
 /* The question sits with the two answers rather than above them, and takes the whole
  * first line so a person reads what they are about to delete before the control they
  * would press to do it. */
-.meridian-sidekick-row__question {
+.meridian-sidekick-row__question,
+.meridian-sidekick-row__handoff-note {
   flex-basis: 100%;
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
+  max-width: 68ch;
+}
+
+/* Written once above the rows rather than on each of them: it is a fact about this
+ * window, and a row repeating it would read as a fault in the definition. */
+.meridian-sidekicks__attach-note {
+  margin: 0 0 var(--meridian-space-2);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
   max-width: 68ch;
 }
 

@@ -1,9 +1,30 @@
+// One saved sidekick, and the three things that can be done to it.
+//
+// ATTACH FROM HERE IS AN OFFER AND NOT A NAVIGATION. Pressing it hands this
+// definition to the session this window is working in, through the window's own
+// attach handoff; the session's attach form claims it and opens on it. Nothing
+// navigates, because this row does not know whether that session's agent console is
+// open and a control that moved somebody to a surface it had not opened would be
+// claiming an act it did not perform. What the row does instead is SAY where the
+// offer is waiting, and offer to take it back.
+//
+// THE CONTROL IS ABSENT WITHOUT A SESSION, never disabled. An agent joins a session,
+// so with none open there is nothing to attach into and no act to offer — and a
+// disabled control would assert that the act exists and is momentarily unavailable,
+// which is the claim `Spec-023 §Console Design (Meridian)`'s eight rules refuse. The
+// column above says once why it is missing, rather than every row saying it.
+//
+// THE OFFER CARRIES THE ID AND THE NAME TRAVELS FOR DISPLAY ONLY. `definitionId` is
+// what the attach form resolves against its own read; the name is the word this row
+// showed at the moment of the press, so the sentence reads as one.
+
 import type { ConsoleRefusal } from "../../core/index.js";
 import { DerivedFigure, InlineRefusal, WireFigure } from "../../primitives/index.js";
+import type { AttachHandoffControl } from "../attach/attach-handoff/index.js";
 import { type SidekickRegistryView } from "./definition-registry-view.js";
 import { describeDeletionQuestion, type SidekickDefinitionRow } from "./definition-rows.js";
 
-/** One saved sidekick: what it is, and the two things that can be done to it. */
+/** One saved sidekick: what it is, and the three things that can be done to it. */
 export function SavedSidekickRow(props: {
   readonly row: SidekickDefinitionRow;
   readonly isArmed: boolean;
@@ -22,8 +43,14 @@ export function SavedSidekickRow(props: {
   readonly isOpenInEditor: boolean;
   readonly refusal: ConsoleRefusal | undefined;
   readonly view: SidekickRegistryView;
+  /** This window's one attach handoff: what a press offers into, and reads back. */
+  readonly handoff: AttachHandoffControl;
+  /** The session an offer is made for, or `undefined` where this window holds none. */
+  readonly attachTargetSessionId: string | undefined;
 }): React.JSX.Element {
   const { row, isArmed, isDeleting, isAnyDeleteInFlight, isOpenInEditor, refusal, view } = props;
+  const { handoff, attachTargetSessionId } = props;
+  const isOfferedForAttach = handoff.standingOffer?.definitionId === row.definitionId;
   return (
     <article
       className={
@@ -100,8 +127,42 @@ export function SavedSidekickRow(props: {
           >
             {isDeleting ? "Deleting…" : "Delete"}
           </button>
+          {attachTargetSessionId === undefined || isOfferedForAttach ? null : (
+            <button
+              type="button"
+              className="meridian-sidekick-row__action"
+              onClick={() => {
+                handoff.offer({
+                  sessionId: attachTargetSessionId,
+                  definitionId: row.definitionId,
+                  definitionName: row.name,
+                });
+              }}
+              aria-label={`Attach ${row.name} from here`}
+            >
+              Attach from here
+            </button>
+          )}
         </div>
       )}
+      {isOfferedForAttach ? (
+        <div className="meridian-sidekick-row__handoff" role="group">
+          <p className="meridian-sidekick-row__handoff-note">
+            Waiting in <WireFigure value={attachTargetSessionId ?? ""} />. That session&rsquo;s
+            attach form opens on this sidekick.
+          </p>
+          <button
+            type="button"
+            className="meridian-sidekick-row__action"
+            onClick={() => {
+              handoff.withdraw();
+            }}
+            aria-label={`Stop attaching ${row.name}`}
+          >
+            Not now
+          </button>
+        </div>
+      ) : null}
       {refusal === undefined ? null : (
         <InlineRefusal
           code={refusal.code}

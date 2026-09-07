@@ -76,6 +76,16 @@ export interface AgentConsoleBodyProps {
   readonly bridge?: ConsoleBridge | undefined;
   /** Absent on a bare route, which both mount contexts admit. */
   readonly sessionStore?: SessionStore | undefined;
+  /**
+   * Open the page where saved definitions are kept, where this mount can navigate.
+   *
+   * The DECK's mount composes one, because the settings rail is the main window's.
+   * The auxiliary window's mount composes none: it draws its own frame, carries no
+   * rail, and routes to no settings address, so the attach form there draws no link
+   * rather than one that would go nowhere. `undefined` is that answer and not an
+   * omission, which is why it is threaded rather than resolved inside the form.
+   */
+  readonly onOpenDefinitions?: (() => void) | undefined;
 }
 
 export function AgentConsoleBody(props: AgentConsoleBodyProps): React.JSX.Element {
@@ -94,7 +104,11 @@ export function AgentConsoleBody(props: AgentConsoleBodyProps): React.JSX.Elemen
               detail="The roster, the binding, and the attach form are all scoped to one session, so nothing was asked of the daemon."
             />
           ) : (
-            <AgentBindingColumn models={models} agentId={props.agentId} />
+            <AgentBindingColumn
+              models={models}
+              agentId={props.agentId}
+              onOpenDefinitions={props.onOpenDefinitions}
+            />
           )}
         </div>
 

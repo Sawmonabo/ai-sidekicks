@@ -265,6 +265,39 @@
   font-size: var(--meridian-text-sm);
 }
 
+/* An account row carries two readings — the operator's own label and the opaque
+   handle the wire takes — so the row is a column and the label leads it. */
+.meridian-axis-field__option-label {
+  display: block;
+  font-family: var(--meridian-font-sans);
+  color: var(--meridian-text);
+}
+
+.meridian-axis-field__advisories {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-axis-field__clear {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+}
+
+.meridian-axis-field__clear:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
 .meridian-axis-field__option[data-highlighted] {
   background: var(--meridian-surface-sunken);
 }
@@ -336,6 +369,26 @@
 .meridian-attach__incomplete {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
+}
+
+/* The way to where definitions are kept reads as a link and not as a second action:
+   the arm's own controls choose a definition, and this one leaves for another
+   surface, so it takes no button treatment that would make the two look alike. */
+.meridian-attach__definitions-link {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-accent-text);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+  align-self: start;
+}
+
+.meridian-attach__definitions-link:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }
 
 .meridian-attach__confirmation {

@@ -38,6 +38,12 @@ import type { ConsoleSurfaceContext } from "../../seats/index.js";
  * detached from itself.
  */
 export function Body(context: ConsoleSurfaceContext): React.ReactNode {
+  // NO `onOpenDefinitions`, and the omission is the answer rather than a gap. This
+  // window draws its own frame, carries no settings rail, and routes to no settings
+  // address, so there is nowhere for the attach form's picker to send anybody — and
+  // the picker draws no link at all rather than one that would go nowhere. The deck's
+  // root beside this one composes the navigation, because the rail is the main
+  // window's.
   return createElement(AgentConsoleWindow, {
     sessionId: routeSessionId(context.route),
     agentId:

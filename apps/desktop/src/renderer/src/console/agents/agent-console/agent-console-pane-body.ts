@@ -25,7 +25,9 @@ import "../run-console/run-console.css";
 import { createElement } from "react";
 
 import { AgentConsoleBody } from "./AgentConsoleBody.js";
+import { settingsRoute } from "../../routing/index.js";
 import { ConsolePaneChrome, paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
+import { SIDEKICK_DEFINITIONS_SECTION } from "../sidekick-definitions-section.js";
 
 /**
  * The agent console, wearing the console's chrome, at an address the deck resolved.
@@ -56,6 +58,18 @@ export const Body: (context: ConsolePaneContext) => React.ReactNode = paneBodyFo
         agentId: context.entity?.id,
         bridge: context.bridge,
         sessionStore: context.sessionStore,
+        // THE ONE MOUNT THAT CAN NAVIGATE. The deck lays this pane out inside the
+        // main window's frame, so the settings rail is reachable from it and the
+        // attach form's picker may offer the way to where definitions are kept. The
+        // route is composed through the routing family's own constructor — the one
+        // place the omit-versus-set-to-`undefined` rule that keeps an address
+        // round-tripping is decided — and the section comes from the agents family's
+        // own leaf constant, so this link and the registration that files the claim
+        // read one string. The auxiliary window's root beside this one composes
+        // none: it has no rail to reach.
+        onOpenDefinitions: () => {
+          context.frameStore.navigate(settingsRoute(SIDEKICK_DEFINITIONS_SECTION, undefined));
+        },
       }),
     }),
 );

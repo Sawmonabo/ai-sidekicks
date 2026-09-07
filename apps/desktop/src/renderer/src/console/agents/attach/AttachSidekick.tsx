@@ -16,6 +16,10 @@
 // MEMBERSHIP; authentication is settled at spawn by a live probe. A form that
 // refused on readiness would refuse an account that is about to work, and one that
 // silently fell back to a provider default would change who pays without saying so.
+// The axis itself is `account-axis/`, which reads the node's one registry reading and
+// renders the stored observation beside the chosen account — it was an untyped text
+// input beside a standing sentence, which is the one shape that can never be wrong
+// here and is always wrong at the daemon.
 //
 // EFFORT IS PER MODEL AND NEVER HARDCODED. The vocabulary comes from the selected
 // model's own `effortLevels` on the catalog read, and a model that publishes no
@@ -37,10 +41,11 @@ import {
   modelsFor,
   type DriverCatalogReading,
 } from "../driver-catalog.js";
-import type { AgentAttachReading } from "../../bridge/index.js";
+import type { AgentAttachReading, ConsoleBridge } from "../../bridge/index.js";
 import type { SidekickDefinitionListReading } from "../agent-wire.js";
 import { DefinitionPicker } from "./DefinitionPicker.js";
 import { AttachConfirmation } from "./AttachConfirmation.js";
+import { AccountAxisField } from "./account-axis/AccountAxisField.js";
 
 export interface AttachSidekickProps {
   readonly open: boolean;
@@ -48,6 +53,17 @@ export interface AttachSidekickProps {
   readonly form: AttachSidekickForm;
   /** The session the agent joins. Required by both arms of the registered request. */
   readonly sessionId: string;
+  /**
+   * This window's bridge, for the one axis that reads a wire of its own.
+   *
+   * The account axis is the node's provider-account registry, which is neither of the
+   * two streams this form is handed: it is node-scoped rather than session-scoped, it
+   * has exactly one reader per window already, and it is opened by whichever surface
+   * is watching. Handing the bridge down lets that axis be that watcher for as long as
+   * this dialog is open and no longer — the read a column above held would be held for
+   * every agent console, most of which never draw this form.
+   */
+  readonly bridge: ConsoleBridge;
   readonly catalog: PushDrivenReadState<DriverCatalogReading>;
   readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
   /**
@@ -59,6 +75,14 @@ export interface AttachSidekickProps {
    */
   readonly onCatalogReopen?: (() => void) | undefined;
   readonly onDefinitionsReopen?: (() => void) | undefined;
+  /**
+   * Open the page where definitions are kept, from the mount that can navigate.
+   *
+   * Passed through to the picker untouched. `undefined` in a window with no settings
+   * rail — the auxiliary console window — which draws no link at all rather than one
+   * that goes nowhere.
+   */
+  readonly onOpenDefinitions?: (() => void) | undefined;
   readonly onSubmit: () => void;
   /**
    * Whether the caller has an attach outstanding.
@@ -145,6 +169,7 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
             form={form}
             definitions={definitions}
             onReopen={props.onDefinitionsReopen}
+            onOpenDefinitions={props.onOpenDefinitions}
           />
         ) : null}
 
@@ -203,25 +228,16 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
           overlayContainer={props.overlayContainer}
         />
 
-        <label className="meridian-axis-field">
-          <span className="meridian-axis-field__label">
-            Provider account
-            {form.isOverridden("providerAccountId") ? (
-              <span className="meridian-axis-field__overridden"> overridden</span>
-            ) : null}
-          </span>
-          <input
-            className="meridian-axis-field__text"
-            value={form.effectiveValue("providerAccountId") ?? ""}
-            onChange={(event) =>
-              form.setField("providerAccountId", event.target.value, catalogValue)
-            }
-          />
-          <span className="meridian-axis-field__advisory">
-            An account&rsquo;s stored readiness is advisory here and never a gate — a pinned account
-            that has left the registry refuses rather than falling back to a default.
-          </span>
-        </label>
+        <AccountAxisField
+          bridge={props.bridge}
+          driverName={driverName}
+          value={form.effectiveValue("providerAccountId")}
+          onValueChange={(next) => {
+            form.setField("providerAccountId", next ?? "", catalogValue);
+          }}
+          isOverridden={form.isOverridden("providerAccountId")}
+          overlayContainer={props.overlayContainer}
+        />
 
         <p className="meridian-attach__snapshot">
           The agent takes a <strong>snapshot</strong> of what this resolves to. Editing or deleting
