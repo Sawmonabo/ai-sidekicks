@@ -148,9 +148,9 @@ describe("assets — the generated token sheet", () => {
     const rootBlock = css.slice(0, css.indexOf("@media"));
     const definedInRoot = definedTokenVariables(rootBlock);
 
-    const missing = [...SCHEME_COLOR_TOKENS.keys()]
-      .map((tokenName) => tokenVariableName(tokenName))
-      .filter((variableName) => !definedInRoot.has(variableName));
+    const missing = SCHEME_COLOR_TOKENS.map(([tokenName]) => tokenVariableName(tokenName)).filter(
+      (variableName) => !definedInRoot.has(variableName),
+    );
     expect(missing).toStrictEqual([]);
   });
 
@@ -159,7 +159,7 @@ describe("assets — the generated token sheet", () => {
     // rules for a reason (an explicit light choice must beat a dark system), so a
     // token present in one and absent from the other is a half-applied theme.
     const css = generateMeridianCss();
-    for (const tokenName of SCHEME_COLOR_TOKENS.keys()) {
+    for (const [tokenName] of SCHEME_COLOR_TOKENS) {
       const variableName = tokenVariableName(tokenName);
       const occurrences = [...css.matchAll(new RegExp(`${variableName}\\s*:`, "g"))].length;
       expect(occurrences, `${variableName} should be declared in all three layers`).toBe(3);

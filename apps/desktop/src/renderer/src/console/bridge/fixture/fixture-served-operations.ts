@@ -181,6 +181,21 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE WORKSPACE EXECUTION-CONTEXT READ IS SERVED, AND ONLY FROM A SCRIPT
+//
+// It is served so the repos scenario can drive the workspace card's three-path
+// disclosure and its fallback badge, neither of which any registered reply can reach:
+// the normalized checkout root is a column on a daemon table and the fallback marker is
+// no field at all, so under a refusing port both were unreachable in every scenario,
+// screenshot, and bridge-driven test.
+//
+// AND IT IS SCRIPT-ONLY, which is the `workflowRunRead` disposition and not the invite
+// ledger's. This read is ADDRESSED BY A SUBJECT — it answers facts about one named
+// workspace — so an empty form would assert that the workspace exists and is bound to
+// no root at all, which for a workspace no author declared is an invention rather than
+// an absence. A scenario that scripts nothing for a workspace therefore gets the
+// unscripted refusal, and the disclosure draws the "not checked" it is owed.
+//
 // The two session-goal operations are on neither list and refuse under both bridges.
 // No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
 // `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
@@ -223,6 +238,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  "workspaceExecutionContextRead",
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -265,6 +281,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
+  // repos — the workspace's own execution context, answered from a scenario that
+  // scripts one and refused for one that does not. See the header.
+  "workspaceExecutionContextRead",
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -298,4 +317,5 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "workspaceExecutionContextRead",
 ];

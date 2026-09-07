@@ -66,6 +66,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { ReadScope } from "../../store/index.js";
 import { callDaemon } from "../daemon/daemon-reply.js";
 import { QUEUE_SUBSCRIBE_STREAM, subscribeDaemon } from "../daemon/daemon-streams.js";
 import {
@@ -129,10 +130,18 @@ export class SessionQueueSubscription {
    * a no-op rather than an unscoped call.
    */
   #scopedSessionId: ScopedSessionId | undefined = undefined;
-  // Identifies the read attempt a reply belongs to. A reply whose ordinal has moved
-  // on was abandoned by a newer read and seats nothing — without it the abandoned
-  // snapshot could land after the fresh one and undo it.
-  #readOrdinal = 0;
+  /**
+   * The line every snapshot read is on, whichever trigger asked for it.
+   *
+   * OWNED HERE BECAUSE THE READS ARE, and it replaces the ordinal that used to stand
+   * in for half of it. The open takes its own read and the scheduler's fires take the
+   * rest, so no per-fire round covers both; one line does, and a round is the ordering
+   * claim and the signal as one value — so a superseded snapshot now STOPS rather than
+   * being awaited, parsed against `run.queueList`'s registered shape, and then
+   * discarded. Closing abandons the line, which is what a pane that unmounted
+   * mid-read never had.
+   */
+  readonly #readLine = new ReadScope();
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
 
   public constructor(bridge: ConsoleBridge, sessionId: string, onChanged: () => void) {
@@ -257,16 +266,28 @@ export class SessionQueueSubscription {
    * tail may have missed something. A read that arrives before the stream opened, or
    * after it closed, seats nothing: the list it would describe is not this reading's
    * any more.
+   *
+   * Every one of those requests opens a round on this reading's line, so a newer
+   * snapshot both supersedes and STOPS the one it replaced, and closing the tail ends
+   * the outstanding read instead of leaving it to be parsed for nobody.
    */
   public async readSnapshot(): Promise<void> {
     const sessionId = this.#scopedSessionId;
     if (!this.#lifecycle.isOpen || sessionId === undefined) {
       return;
     }
-    this.#readOrdinal += 1;
-    const readOrdinal = this.#readOrdinal;
-    await callDaemon(this.#bridge, "run.queueList", { sessionId }).then((reply) => {
-      if (!this.#lifecycle.isOpen || this.#readOrdinal !== readOrdinal) {
+    const round = this.#readLine.openRound();
+    const reply = await callDaemon(
+      this.#bridge,
+      "run.queueList",
+      { sessionId },
+      { signal: round.signal },
+    );
+    // `settle` is the one act for both endings: a superseded round and an abandoned
+    // line each seat nothing, and neither publishes the door's `read-abandoned` as
+    // this reading's `readRefusal` — a departure is not a list that could not be read.
+    round.settle(() => {
+      if (!this.#lifecycle.isOpen) {
         return;
       }
       // One branch: the door has already collapsed an unsendable request, a
@@ -296,6 +317,9 @@ export class SessionQueueSubscription {
    */
   public close(): void {
     this.#lifecycle.markClosed();
+    // And the read line with it: an outstanding snapshot is dropped where it stands
+    // rather than awaited and parsed for a reading that has been closed.
+    this.#readLine.abandon();
     this.#closeStream?.();
     this.#closeStream = undefined;
   }

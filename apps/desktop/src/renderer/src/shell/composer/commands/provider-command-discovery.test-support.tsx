@@ -160,7 +160,17 @@ export async function scenarioBindingGroups(): Promise<readonly ProviderCommandB
   if (agentId === undefined) {
     throw new Error("the composer scenario attaches no agent");
   }
-  const state = await settleEnumeration(bridge, COMPOSER_SCENARIO.sessionId, agentId);
+  // A bare controller nothing ever aborts, which is the line this helper wants: it
+  // awaits the read to completion and has no owner who could leave. A `ReadScope`
+  // here would put a second module inside a helper whose whole job is to hand the
+  // suites the scenario's own groups.
+  const liveLine = new AbortController();
+  const state = await settleEnumeration(
+    bridge,
+    COMPOSER_SCENARIO.sessionId,
+    agentId,
+    liveLine.signal,
+  );
   if (state.phase !== "served") {
     throw new Error(`the composer scenario scripts no enumeration reply: ${state.phase}`);
   }

@@ -5,13 +5,19 @@
 // declares (the predicate beside it answers that, and the negative controls below
 // prove the predicate is looking), that the branch context the file scripts is
 // SERVED rather than scripted into a port that ignores it, and that the four facts
-// the repos family is drawn against — two mounts, a root per agent, a proposal
-// waiting at the gate, three payloads standing in three different places — are each
-// reachable from the scenario rather than from a component fixture.
+// the repos family is drawn against — three mounts carrying one health verdict each,
+// a root per agent, a proposal waiting at the gate, three payloads standing in three
+// different places — are each reachable from the scenario rather than from a
+// component fixture.
+//
+// THE COUNTS BELOW ARE DERIVED FROM THE FIXTURE, NEVER RESTATED BESIDE IT. The mount
+// count is read off the workspace roster the section learns its mounts from and the
+// verdict set is read off the served mount reads, so a fourth mount or a fourth
+// verdict fails a case here rather than leaving a sentence in a header stale.
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonMethod } from "@ai-sidekicks/contracts";
+import type { DaemonMethod, RepoMountHealth } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge } from "../fixture/fixture-bridge.js";
 import {
@@ -22,6 +28,7 @@ import {
 } from "./repos.js";
 import { REPOS_SCENARIO_STARTED_AT_ISO, scenarioInstant } from "./repos-beats.js";
 import {
+  DRIFTED_MOUNT_ID,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
@@ -40,6 +47,28 @@ function beatsOfKind(kind: string): readonly ConsoleScenario["beats"][number]["e
 /** One payload member, read as the wire would read it. */
 function payloadMember(event: ConsoleScenario["beats"][number]["event"], member: string): unknown {
   return event.payload?.[member];
+}
+
+/**
+ * The mounts this scenario states, as the SECTION learns them.
+ *
+ * From the workspace roster and not from the attach beats, because that is the only
+ * place a mount becomes visible: there is no `repo.mountList` on the wire, so
+ * `repo.workspaceList` names every mount (`workspaces.repo_mount_id` is NOT NULL and
+ * attach always mints a default workspace) and a beat is not what puts a card on the
+ * screen. Two of this scenario's three mounts also carry an attach beat and the third
+ * does not, so a count taken from the beats would report one fewer mount than the
+ * fixture serves.
+ */
+function rosterMountIds(): readonly string[] {
+  const roster = REPOS_SCENARIO.replies.find((reply) => reply.call === "repo.workspaceList");
+  if (roster === undefined) {
+    throw new Error("the repos scenario scripts no workspace roster");
+  }
+  const { workspaces } = (
+    roster as { readonly result: { readonly workspaces: readonly { repoMountId: string }[] } }
+  ).result;
+  return [...new Set(workspaces.map((workspace) => workspace.repoMountId))];
 }
 
 describe("the repos scenario — every beat is a wire the daemon can emit", () => {
@@ -112,12 +141,19 @@ describe("the repos scenario — every beat is a wire the daemon can emit", () =
 });
 
 describe("the repos scenario — the facts the repos family is drawn against", () => {
-  it("attaches two mounts, so the section is a list even before it has to be", () => {
-    const attached = beatsOfKind("repo.attached");
-    const mountIds = new Set(attached.map((event) => payloadMember(event, "repoMountId")));
+  it("states three mounts, so the section is a list with degraded rows in it", () => {
+    const attachedInWindow = beatsOfKind("repo.attached").map((event) =>
+      payloadMember(event, "repoMountId"),
+    );
+    const rosterIds = rosterMountIds();
 
-    expect(attached).toHaveLength(2);
-    expect(mountIds.size).toBe(2);
+    expect(rosterIds).toHaveLength(3);
+    // And no beat names a mount the roster does not hold — the direction that would
+    // put a card on screen for a mount no read can answer for.
+    expect(attachedInWindow.length).toBeGreaterThan(0);
+    for (const mountId of attachedInWindow) {
+      expect(rosterIds).toContain(mountId);
+    }
   });
 
   it("gives every agent its own execution root, and hangs none off a plain directory", () => {
@@ -252,12 +288,31 @@ describe("the repos scenario — the growth reads it answers", () => {
 const MOUNT_READ_CALL = "repo.mountRead" as DaemonMethod;
 const CAPABILITIES_READ_CALL = "repo.executionModeCapabilitiesRead" as DaemonMethod;
 
+/**
+ * Every verdict `RepoMountHealth` ships, TOTAL over the contract's own union.
+ *
+ * A record keyed by the wire union rather than a tuple restated here: a fourth
+ * `RepoMountHealth["status"]` member fails to compile in this file until somebody
+ * decides which mount serves it, which is what stops the scenario from quietly
+ * leaving an arm of the card's health table undrawable again.
+ */
+const EVERY_HEALTH_VERDICT: Readonly<Record<RepoMountHealth["status"], true>> = {
+  healthy: true,
+  unreachable: true,
+  identity_mismatch: true,
+};
+
+/** One mount read's health verdict, read the way the wire would read it. */
+function healthVerdictOf(mountRead: unknown): unknown {
+  return (mountRead as { readonly health?: { readonly status?: unknown } }).health?.status;
+}
+
 describe("the repos scenario — the two entity-scoped reads answer per entity", () => {
   it("answers each mount read with the mount that read named", async () => {
-    // The two mounts the section is a LIST for. Until the reply was computed from the
-    // request, both reads returned the git mount, so the plain-directory mount never
-    // reached a card and the degraded health verdict — which only this read carries —
-    // was unreachable from any scenario at all.
+    // The three mounts the section is a LIST for. Until the reply was computed from the
+    // request, every read returned the git mount, so neither degraded mount reached a
+    // card and two of the three health verdicts — which only this read carries — were
+    // unreachable from any scenario at all.
     const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
 
     const git = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
@@ -266,13 +321,32 @@ describe("the repos scenario — the two entity-scoped reads answer per entity",
     const plain = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
       repoMountId: PLAIN_MOUNT_ID,
     });
+    const drifted = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+      repoMountId: DRIFTED_MOUNT_ID,
+    });
 
     expect(git).toMatchObject({ id: GIT_MOUNT_ID, vcsType: "git" });
     expect(plain).toMatchObject({ id: PLAIN_MOUNT_ID, vcsType: "none" });
-    // The two health verdicts the contract ships, one each, so the healthy card and
-    // the degraded card are both drawn from this one session.
-    expect(git).toMatchObject({ health: { status: "healthy" } });
-    expect(plain).toMatchObject({ health: { status: "unreachable" } });
+    // A git checkout that is STILL `attached` and can never bind again: the lifecycle
+    // axis and the health axis are separate facts, and a fixture that detached this row
+    // instead could not reach the pairing the mount card refuses to collapse.
+    expect(drifted).toMatchObject({ id: DRIFTED_MOUNT_ID, vcsType: "git", state: "attached" });
+  });
+
+  it("serves every health verdict the contract ships, one per mount", async () => {
+    // The healthy card, the unreachable card, and the permanently-refusing card are all
+    // drawn from this one session. Both sides are derived — the mounts from the roster
+    // the section reads them through, the verdicts from what the reads actually served —
+    // so a fourth mount, a mount left healthy, or a fourth wire verdict fails here.
+    const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
+
+    const servedVerdicts = await Promise.all(
+      rosterMountIds().map(async (repoMountId) =>
+        healthVerdictOf(await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, { repoMountId })),
+      ),
+    );
+
+    expect([...servedVerdicts].sort()).toStrictEqual(Object.keys(EVERY_HEALTH_VERDICT).sort());
   });
 
   it("answers each capabilities read with what that workspace may actually do", async () => {

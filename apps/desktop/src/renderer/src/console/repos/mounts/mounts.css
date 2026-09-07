@@ -1,5 +1,5 @@
 /*
- * The mount half of the repos section: the cards, their roots, and the mode picker.
+ * The mount half of the repos section: the section, and the mount and workspace cards.
  *
  * SPLIT OUT OF `repos.css` BY DIRECTORY, on `apps/desktop/AGENTS.md`'s size rule: the
  * family sheet had grown past the point where a reader could find the rules for one
@@ -8,17 +8,37 @@
  *
  * IMPORTED FROM `repos/index.ts` AND NOWHERE ELSE, like every sheet this family ships.
  * A sheet imported from the directory it styles would arrive only on the paths that
- * reach that directory's barrel, which is the exact defect the stylesheet-edges gate
- * was written to catch.
+ * reach that directory's barrel, which is the exact defect the stylesheet-edges gate was
+ * written to catch. NO LITERAL VALUES either, on the family sheet's rule: every length
+ * is on the space scale, every size on the type scale, every colour a custom property.
  *
- * NO LITERAL VALUES, on the family sheet's rule: every length is on the space scale,
- * every size on the type scale, and every colour is read out of a custom property.
+ * IT SPLIT WHEN THE DIRECTORY DID, which is the condition the paragraph this replaces
+ * set. `mounts/` now carries `attach/`, `bind/` and `roots/`, and each of those styles
+ * its own surfaces in its own sheet; the shape all three share is in `mount-acts.css`
+ * beside this file, because a rule reaching three sibling directories belongs to the
+ * parent they share rather than to whichever of them it was written in first.
  *
- * PAST THE 400-LINE BOUND AND DELIBERATELY NOT SPLIT, on the same reading as
- * `diff-pane/diff.css`: the size rule splits a sheet by directory and `repos/mounts/`
- * is one directory, so a second sheet here would buy nothing but a cascade whose order
- * depends on two adjacent import lines. The six section banners below carry the
- * navigation the bound is really asking for. It splits when the directory does.
+ * AND IT SPLIT AGAIN WHEN IT PASSED THE ~400-LINE RULE ANYWAY. The paragraph this
+ * replaces argued a sheet is split by DIRECTORY and these components are one directory,
+ * so the bound bought nothing here. That was wrong twice: the rule is about a file doing
+ * two jobs and says nothing about directories, and each block that left was a whole
+ * surface under a banner of its own. `mode-picker.css` (10 rule blocks) and
+ * `root-cards.css` (8) are siblings in THIS directory because ownership follows the
+ * components — all four they dress live here; their headers say why neither went into
+ * `bind/` or `roots/`.
+ *
+ * WHAT IS LEFT IS 42 RULE BLOCKS IN 399 LINES — the section and its count, the mount and
+ * workspace cards, the shared refusal recovery, and the three-root disclosure. The seven
+ * sheets this directory ships hold 95 between them, which is what `repos.css` handed
+ * `mounts.css` before any of this: 42 + 10 + 8 + 17 (`mount-acts.css`) + 2 (`attach/`) +
+ * 4 (`bind/`) + 12 (`roots/`).
+ *
+ * THE CASCADE IS `repos.css` → THIS SHEET → `mode-picker.css` → `root-cards.css` →
+ * `mount-acts.css` → `attach.css` → `roots.css` → `bind.css`, set by the import order in
+ * `repos/index.ts` and nowhere else. The two new sheets sit directly after this one so
+ * the four act sheets keep the order they had, and neither block's selectors appear in
+ * any other sheet in the family — so the only relative move is against what stayed here,
+ * and nothing either way can win or lose a declaration because of it.
  */
 
 /* --------------------------------------------------------- sidebar section */
@@ -267,159 +287,113 @@
   overflow-wrap: anywhere;
 }
 
-/* ----------------------------------------------------------- mode picker */
-
-.meridian-mode-picker {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-}
+/* --------------------------------------------------- repo section, count */
 
 /*
- * All rows at once, each with its reason — the reason is the point, and a menu would
- * hide exactly the reasons a restricted mount exists to show.
+ * The mount count beside the section heading. A rule of its own here rather than a
+ * resident of a neighbouring banner: it sat under `mode picker` only because that is
+ * where it was appended, and the picker has since left for `mode-picker.css`.
  */
-.meridian-mode-picker__group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.meridian-mode-picker__legend {
-  padding: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
-}
-
-.meridian-mode-picker__row {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  gap: var(--meridian-space-1) var(--meridian-space-2);
-}
-
-.meridian-mode-picker__row--restricted {
-  color: var(--meridian-text-faint);
-}
-
-.meridian-mode-picker__input:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
-.meridian-mode-picker__label {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-mode-picker__tag {
-  color: var(--meridian-text-faint);
-}
-
-.meridian-mode-picker__reason {
-  grid-column: 2;
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* The switch this picker is held for. Reads as progress rather than as a failure,
-   which is why it takes the muted text colour and not the refusal card's. */
-.meridian-mode-picker__pending {
-  margin: var(--meridian-space-1) 0 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
 .meridian-repo-section__count {
   font-family: var(--meridian-font-mono);
   color: var(--meridian-text-muted);
 }
 
-/* ------------------------------------------------- execution-root cards */
+/* --------------------------------------------- refusal recovery, shared */
 
 /*
- * One card per worktree or clone row. Both record kinds share this shape
- * and differ only in which columns they fill, which is `RepoSection.tsx`'s two lists
- * with different columns read as one rhythm rather than two visual languages: an
- * operator scanning for what is safe to reclaim reads the same three lines in the
- * same three places in either list.
+ * The next move under a refusal, in the slot the three refusal shapes reserve for it.
+ *
+ * IT READS AS PART OF THE REFUSAL AND NOT AS A SECOND NOTICE: no border, no ground of
+ * its own, one step of leading. A boxed remedy beside a boxed refusal would present
+ * one fact as two, which is exactly what putting it in the shape's own `action` slot
+ * was meant to avoid.
  */
-.meridian-root-card {
+.meridian-mount-recovery {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface);
-}
-
-.meridian-root-card__head {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-}
-
-/*
- * The branch name is the card's title and a wire string, so it is mono and it
- * truncates at the measure rather than in the string — the full value stays
- * reachable, and two branches differing only in their tail never render alike.
- */
-.meridian-root-card__title {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  overflow: hidden;
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.meridian-root-card__meaning,
-.meridian-root-card__disposition {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  margin: 0;
+  gap: var(--meridian-space-1);
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
 
+.meridian-mount-recovery__move {
+  margin: 0;
+}
+
 /*
- * The sub-state line reads louder than the state's own sentence, because it is the
- * one that answers "is this disk free" — the question `worktree-model.ts` says the
- * surface exists to answer and the one a plain `retired` chip gets wrong.
+ * The three-way distinctions one code carries. A list because the cases are exclusive
+ * and a person picks between them; run together as prose they read as three steps.
  */
-.meridian-root-card__disposition {
+.meridian-mount-recovery__cases {
+  margin: 0;
+  padding-inline-start: var(--meridian-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* ------------------------------------------- workspace execution context */
+
+.meridian-execution-context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * The fallback badge sits OUTSIDE the disclosure, so it is on screen without an open.
+ * `Spec-010 §Fallback Behavior` requires a substituted mode marked distinctly from a
+ * chosen one, and a marker behind a summary line is not marked.
+ */
+.meridian-execution-context__fallback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-execution-context__fallback-sentence {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
   color: var(--meridian-amber-text);
 }
 
-.meridian-root-card__summary,
-.meridian-root-card__detail-list {
+.meridian-execution-context__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+/* The one line a summary has room for, set apart from the label before it. */
+.meridian-execution-context__line {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-execution-context__list {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: var(--meridian-space-1) var(--meridian-space-3);
   margin: 0;
+  padding-block-start: var(--meridian-space-2);
   font-size: var(--meridian-text-xs);
 }
 
-/* A filesystem root is long and its TAIL is the part that identifies it. */
-.meridian-root-card__path {
-  direction: rtl;
-  overflow: hidden;
-  text-align: start;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.meridian-execution-context__label {
+  color: var(--meridian-text-muted);
 }
 
-.meridian-root-card__detail-list {
-  padding-block-start: var(--meridian-space-2);
+.meridian-execution-context__value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  min-width: 0;
+}
+
+.meridian-execution-context__meaning,
+.meridian-execution-context__same {
+  color: var(--meridian-text-faint);
 }

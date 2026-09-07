@@ -206,7 +206,14 @@ export { createFixtureBridge } from "./fixture/fixture-bridge.js";
 // registry, the bindings, or the schemas behind them: a surface names a method and
 // renders a served value or a refusal, and a surface that could reach a schema
 // would be a surface that could parse a second time, differently.
+// The abandoned-read refusal travels beside the call itself, for the COMPOSED read
+// only: one that calls the door more than once has `await` boundaries the door cannot
+// see, and an abort landing in one of those gaps has to stop the fold under the code
+// the door already answers with rather than under a second name for one settlement.
+// `settings/pages/mounts/mount-inventory.ts` is that read — a workspace list followed
+// by a per-mount fan-out.
 export {
+  abandonedReadRefusal,
   callDaemon,
   // Consumed by T-023p-1C-2
   DAEMON_REPLY_REFUSAL_ORIGIN,

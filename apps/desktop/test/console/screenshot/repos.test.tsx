@@ -12,11 +12,13 @@
 // and where a person meets it, and the artifact pane on each of the three states its
 // payload disclosure has. Each is a different composition rather than a state of one:
 //
-//   • the repos SECTION with a DEGRADED MOUNT — the scenario states two mounts and
-//     one of them answers `unreachable`, and the section's design claim is that a
-//     mount whose health is bad reads as bad at a glance and still offers what it
-//     can. That is a claim about what is drawn, which is what an image holds and
-//     what a DOM assertion reads one attribute of;
+//   • the repos SECTION with its DEGRADED MOUNTS — the scenario states three mounts
+//     and two of them answer on the failing health verdicts, `unreachable` and
+//     `identity_mismatch`, and the section's design claim is that a mount whose
+//     health is bad reads as bad at a glance and still offers what it can, which on
+//     the second of those verdicts means the re-attach that recovers it. That is a
+//     claim about what is drawn, which is what an image holds and what a DOM
+//     assertion reads one attribute of;
 //   • the DIFF PANE over a parsed change set: the attribution badge and the compared
 //     states in the header, the changed-file list, and the rows with their gutter
 //     marks — the diff pane's whole surface, and the one place the intraline highlight is

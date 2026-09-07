@@ -215,7 +215,7 @@ const PREPARED_BRANCH_CONTEXT: BranchContextReading = {
  * plausible. `offeredProposalActions` withholds the remote act until the proposal says
  * a person may send it, so a `draft` fixture offers two acts instead of three, prints
  * the not-sendable sentence in place of the third, and — because a refusal is looked
- * up only for an act that IS offered — renders `PUSH_REFUSAL` nowhere at all. Every
+ * up only for an act that IS offered — renders `pushRefusal` nowhere at all. Every
  * subject drawn from this value was therefore pinning a surface with a missing row and
  * a dead prop, under comments claiming the opposite, and an image would have looked
  * identical if the gate had stopped rendering refusals entirely.
@@ -253,13 +253,19 @@ export const PREPARED_GATE_STATE: ProposalGateState = {
  * refusal up per offered act, so this map is queried for `push` if and only if `push`
  * is on screen — which is why the state and this value are one claim and not two.
  */
-export const PUSH_REFUSAL: ReadonlyMap<ProposalAction, ConsoleRefusal> = new Map([
-  [
-    "push" satisfies ProposalAction,
-    refuse(
-      "gitflow.gitActionExecute",
-      "wire-unregistered",
-      "Not checked — the git action is not registered yet.",
-    ),
-  ],
-]);
+export function pushRefusal(): ReadonlyMap<ProposalAction, ConsoleRefusal> {
+  // A FUNCTION AND NOT AN EXPORTED MAP. `ReadonlyMap` hides the mutators from a reader
+  // and from nothing at runtime, so a single exported one is an object every surface
+  // that renders this fixture shares and any of them can grow — a mutation one tier
+  // made would reach the next tier's capture. Each caller composes its own.
+  return new Map([
+    [
+      "push" satisfies ProposalAction,
+      refuse(
+        "gitflow.gitActionExecute",
+        "wire-unregistered",
+        "Not checked — the git action is not registered yet.",
+      ),
+    ],
+  ]);
+}

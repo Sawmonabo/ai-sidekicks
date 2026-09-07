@@ -10,62 +10,66 @@
 // Asserted through the growth port rather than through the outcome text, because what
 // the defect looks like is a call that never happens — an executor holding the first
 // render's handlers refuses locally and asks the daemon nothing at all.
+//
+// THE ROOT IS REGISTERED HERE BECAUSE THE ZONE DOES NOT REGISTER IT. The console
+// command that carries this id is registered by `useWorkflowStartPrefill`, which the
+// discovery seat mounts and this zone does not — and the executor refuses a name the
+// surface does not list before any handler is reached. Registering it is therefore
+// scaffolding for the claim rather than part of it, and it is the same registration
+// the sibling `client-command-executor.test.ts` performs for its own zone cases.
 
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../console/core/index.js";
-import { DraftStore } from "../../../console/persistence/index.js";
-import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import type { GrowthPort } from "../../../console/bridge/index.js";
+import { consoleCommands } from "../../../console/palette/index.js";
+import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { CommandExecutor } from "../router/command-executor.js";
 import { useComposerCommandZone } from "./client-command-executor.js";
 import { ProviderCommandEnumeration } from "./provider-command-holder.js";
 import {
-  WORKFLOW_START_COMMAND_ID,
+  WORKFLOW_COMMAND_ROOT,
   WORKFLOW_START_DIRECTIVE_PREFILL,
-} from "./workflow-start-accelerator.js";
-
-const SECOND_SESSION_ID = "d1e2f304-5061-4172-8394-a5b6c7d8e9f0";
+} from "./workflow-start/grammar.js";
+import {
+  fixtureGrowthPort,
+  recordedWorkflowCalls,
+  WORKFLOW_TEST_SESSION_ID,
+  type WorkflowPortCalls,
+} from "./workflow-start/workflow-start.test-support.js";
 
 /** A composer addressed at a channel, which is the zone's ordinary shape. */
 const CHANNEL_TARGET: ComposerTarget = {
   path: "channel-message",
-  sessionId: SECOND_SESSION_ID,
+  sessionId: WORKFLOW_TEST_SESSION_ID,
   channelId: undefined,
   workspaceId: undefined,
   channelLabel: undefined,
 };
 
-/** A store at the console's own live-draft ceiling; no case here writes a draft. */
-function draftStoreAtCeiling(): DraftStore {
-  return new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
+/**
+ * The accelerator suite's own port, recording which session each read named.
+ *
+ * Its default enumeration is empty, so a start settles as a local refusal about the
+ * typed name and nothing is started — which is what this case wants, because the
+ * question here is which session id reached the wire at all rather than what came
+ * back. Built through the fixture rather than cast into the port's shape, so an
+ * operation this path did not mean to call refuses loudly instead of being undefined.
+ */
+function portRecording(calls: WorkflowPortCalls): GrowthPort {
+  return fixtureGrowthPort({ calls });
 }
 
-/**
- * A port that records which session each definition read named.
- *
- * Recording only, and deliberately not the accelerator suite's `portServing`: that
- * one serves definitions and refusals so dispatch claims can be asserted, while the
- * question here is which session id reached the wire at all. It answers with an empty
- * definition list, so the command settles as a local refusal about the typed name and
- * nothing is started.
- */
-function recordingGrowthPort(readSessionIds: string[]): GrowthPort {
-  return {
-    workflowDefinitionList: async (request: { readonly sessionId: string }) => {
-      readSessionIds.push(request.sessionId);
-      return { status: "served", value: { definitions: [] } };
-    },
-  } as unknown as GrowthPort;
+/** Which session each definition read named, in call order. */
+function readSessionIds(calls: WorkflowPortCalls): (string | undefined)[] {
+  return calls.listed.map((request) => request.sessionId);
 }
 
 /** The zone under a composer whose addressed session can change between renders. */
 function ComposerCommandZoneHost(props: {
   readonly sessionId: string | undefined;
   readonly growth: GrowthPort;
-  readonly draftStore: DraftStore;
   readonly commandEnumeration: ProviderCommandEnumeration;
   readonly executor: { current: CommandExecutor | undefined };
 }): React.JSX.Element {
@@ -75,25 +79,42 @@ function ComposerCommandZoneHost(props: {
     target: CHANNEL_TARGET,
     growth: props.growth,
     sessionId: props.sessionId,
-    draftStore: props.draftStore,
-    draftKey: "composer-latest-handlers",
   });
   props.executor.current = zone.commandExecutor;
   return <span />;
 }
 
+/** The line a person types to start a workflow by name. */
+const START_LINE = {
+  commandName: WORKFLOW_COMMAND_ROOT,
+  text: `${WORKFLOW_START_DIRECTIVE_PREFILL}nightly-review`,
+} as const;
+
 describe("the composer command zone reads the committed render's handlers", () => {
+  afterEach(() => {
+    consoleCommands.unregister(WORKFLOW_COMMAND_ROOT);
+  });
+
+  /** Put the root on the surface the recogniser reads, as the prefill seat does. */
+  function registerWorkflowRoot(): void {
+    consoleCommands.register({
+      id: WORKFLOW_COMMAND_ROOT,
+      title: "Start a workflow",
+      group: "Workflows",
+      run: () => {},
+    });
+  }
+
   it("runs the accelerator against the session the composer is addressed at now", async () => {
-    const readSessionIds: string[] = [];
-    const growth = recordingGrowthPort(readSessionIds);
+    registerWorkflowRoot();
+    const calls = recordedWorkflowCalls();
+    const growth = portRecording(calls);
     const commandEnumeration = new ProviderCommandEnumeration();
-    const draftStore = draftStoreAtCeiling();
     const executor: { current: CommandExecutor | undefined } = { current: undefined };
     const { rerender } = render(
       <ComposerCommandZoneHost
         sessionId={undefined}
         growth={growth}
-        draftStore={draftStore}
         commandEnumeration={commandEnumeration}
         executor={executor}
       />,
@@ -103,21 +124,17 @@ describe("the composer command zone reads the committed render's handlers", () =
     const builtInFirstRender = executor.current;
     rerender(
       <ComposerCommandZoneHost
-        sessionId={SECOND_SESSION_ID}
+        sessionId={WORKFLOW_TEST_SESSION_ID}
         growth={growth}
-        draftStore={draftStore}
         commandEnumeration={commandEnumeration}
         executor={executor}
       />,
     );
     expect(executor.current).toBe(builtInFirstRender);
 
-    await executor.current?.({
-      commandName: WORKFLOW_START_COMMAND_ID,
-      text: `${WORKFLOW_START_DIRECTIVE_PREFILL}nightly-review`,
-    });
+    await executor.current?.(START_LINE);
 
-    expect(readSessionIds).toStrictEqual([SECOND_SESSION_ID]);
+    expect(readSessionIds(calls)).toStrictEqual([WORKFLOW_TEST_SESSION_ID]);
   });
 
   it("negative control: the first render's handlers reach no wire at all", async () => {
@@ -125,25 +142,21 @@ describe("the composer command zone reads the committed render's handlers", () =
     // by luck of ordering. A stale handler carries `sessionId: undefined`, which the
     // accelerator refuses locally — so the port records nothing and the failure is a
     // silent absence rather than a wrong id.
-    const readSessionIds: string[] = [];
-    const growth = recordingGrowthPort(readSessionIds);
+    registerWorkflowRoot();
+    const calls = recordedWorkflowCalls();
     const executor: { current: CommandExecutor | undefined } = { current: undefined };
     render(
       <ComposerCommandZoneHost
         sessionId={undefined}
-        growth={growth}
-        draftStore={draftStoreAtCeiling()}
+        growth={portRecording(calls)}
         commandEnumeration={new ProviderCommandEnumeration()}
         executor={executor}
       />,
     );
 
-    const outcome = await executor.current?.({
-      commandName: WORKFLOW_START_COMMAND_ID,
-      text: `${WORKFLOW_START_DIRECTIVE_PREFILL}nightly-review`,
-    });
+    const outcome = await executor.current?.(START_LINE);
 
     expect(outcome?.status).toBe("refused");
-    expect(readSessionIds).toStrictEqual([]);
+    expect(readSessionIds(calls)).toStrictEqual([]);
   });
 });
