@@ -110,7 +110,11 @@ describe("ExecutionRootPrepareController — the reuse check", () => {
 });
 
 describe("ExecutionRootPrepareController — the prepare", () => {
-  it("publishes the root the daemon put on disk", async () => {
+  it("publishes the root the daemon put on disk, settled the only way a prepare settles", async () => {
+    // `ready` AND NOT `provisioning`, which is a claim about the producer rather than
+    // about the fixture: the execution-root service awaits the reprovision completion
+    // before it answers and every path that does not reach it throws, so a settlement
+    // this surface renders as "prepared / provisioning" is a pair no daemon can send.
     const { controller, clock } = open();
     controller.checkReuse("feat/fresh-root");
     await settleCheck(controller, clock);
@@ -118,6 +122,7 @@ describe("ExecutionRootPrepareController — the prepare", () => {
     const { act } = controller.snapshot;
     expect(act.status).toBe("prepared");
     expect(act.status === "prepared" && act.executionRoot.length).toBeGreaterThan(0);
+    expect(act.status === "prepared" && act.state).toBe("ready");
   });
 
   it("publishes the branch-collision refusal rather than swallowing it", async () => {
@@ -133,6 +138,9 @@ describe("ExecutionRootPrepareController — the prepare", () => {
     await controller.prepareClone("feat/clone-root");
     const { act, prerequisite } = controller.snapshot;
     expect(act.status).toBe("prepared");
+    // The clone service narrows its own reply's state to `ready` and throws on every
+    // path that did not reach it, so `creating` is a row state and never a settlement.
+    expect(act.status === "prepared" && act.state).toBe("ready");
     // A clone is minted per run and nothing is reused, so the check is never made.
     expect(prerequisite.status).toBe("not-read");
   });

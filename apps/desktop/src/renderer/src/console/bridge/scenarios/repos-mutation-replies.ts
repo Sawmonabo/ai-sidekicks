@@ -36,6 +36,8 @@ import {
   ATTACHED_MOUNT_ID,
   ATTACHED_WORKSPACE_ID,
   GIT_MOUNT_ID,
+  GIT_WORKSPACE_BOUND_ROOT,
+  GIT_WORKSPACE_CHECKOUT_ROOT,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
   PREPARED_BRANCH_CONTEXT_ID,
@@ -189,6 +191,15 @@ function bindResultFor(request: unknown): unknown {
  * The served arm carries `worktreeId` and `branchContextId` and no `ephemeralCloneId`:
  * the three ids are mode-discriminated, and a prepare that returned two of them would be
  * a shape no producer can emit.
+ *
+ * AND IT SETTLES `ready`, WHICH IS THE ONLY STATE A SUCCESSFUL PREPARE HAS. The live
+ * service awaits the reprovision completion before it answers and returns `ready`
+ * unconditionally on that path; every way of not reaching it throws instead, so
+ * `provisioning` — which this entry used to answer — is a settlement no producer can
+ * emit and a surface pinned against it was drawing a state that will never arrive.
+ * In-flight provisioning is real and reaches the console by another road: the workspace
+ * lifecycle, where `repo.executionModeSelect` answers `provisioning` and the roster row
+ * follows the transition. A mutation's own reply is not that road.
  */
 function executionRootPrepareResultFor(request: unknown): unknown {
   const branchName = requestedString(request, "branchName");
@@ -203,7 +214,7 @@ function executionRootPrepareResultFor(request: unknown): unknown {
   }
   return {
     executionRoot: `${WORKTREE_PARENT}/${branchName.replaceAll("/", "-")}`,
-    state: "provisioning",
+    state: "ready",
     worktreeId: PREPARED_WORKTREE_ID,
     branchContextId: PREPARED_BRANCH_CONTEXT_ID,
   };
@@ -290,10 +301,19 @@ function disposeResultFor(request: unknown): unknown {
  * What the workspace execution-context read answers, per workspace.
  *
  * THE GIT WORKSPACE IS THE INTERESTING ONE, and it is the only binding in which the
- * three roots genuinely differ: it is bound `branch`, so its execution root is the
- * mount's own checkout while the snapshot service operates on a normalized checkout root
- * of its own. A disclosure drawn only against `worktree`-mode workspaces would show
- * three copies of one string and prove nothing.
+ * three roots genuinely differ. It is bound `branch`, which under
+ * `Spec-010 §Turn-Boundary Snapshots` means the execution root is the participant's own
+ * live working tree — here a linked worktree rather than the checkout the mount resolved
+ * to — and it is bound at a SUBDIRECTORY of that tree, which the same rule normalizes to
+ * the enclosing working-tree top level. So the bound root is nested inside the
+ * normalized checkout root, and both differ from the mount's canonical root: three
+ * facts about one binding rather than one path written three ways.
+ *
+ * THE NESTING IS THE CLAIM, AND THE FIXTURE USED TO STATE A TYPO INSTEAD. This entry
+ * once answered `boundRoot` and the same directory suffixed `/.`, which the disclosure
+ * reports as "the roots differ" because it compares bytes — a true reading of a fixture
+ * that was saying nothing, and a surface pinned against a spelling discrepancy rather
+ * than against the case it exists to draw.
  *
  * IT ALSO CARRIES THE FALLBACK MARKER, naming the mode it was substituted away FROM.
  * `Spec-010 §Fallback Behavior` requires a substituted mode to be marked distinctly from
@@ -316,8 +336,8 @@ function executionContextResultFor(request: unknown): unknown {
   if (workspaceId === GIT_WORKSPACE_ID) {
     return {
       workspaceId,
-      boundRoot: GIT_CANONICAL_ROOT,
-      checkoutRoot: `${GIT_CANONICAL_ROOT}/.`,
+      boundRoot: GIT_WORKSPACE_BOUND_ROOT,
+      checkoutRoot: GIT_WORKSPACE_CHECKOUT_ROOT,
       fallbackFromMode: "worktree",
     };
   }
@@ -344,11 +364,16 @@ export const REPOS_MUTATION_REPLIES: ConsoleScenario["replies"] = [
     // code this table would only be restating. What it does state is the EFFECTIVE
     // cleanup policy, which the daemon applies and echoes back, and a deadline ahead of
     // the scenario's own instant so the prepared clone's countdown is drawable.
+    //
+    // `ready` FOR THE PREPARE ABOVE'S REASON, on the same rule: the clone service's own
+    // return type narrows this member to `ready` and documents that a prepare which did
+    // not reach it throws, so `creating` — which this entry used to answer — is a state
+    // the row passes through and the reply never carries.
     call: "repo.ephemeralClonePrepare",
     result: {
       cloneId: PREPARED_CLONE_ID,
       cloneRoot: "/Users/dev/code/ai-sidekicks-clones/telemetry-probe",
-      state: "creating",
+      state: "ready",
       cleanupPolicy: "on_run_complete",
       branchName: "probe/telemetry",
       expiresAt: scenarioInstant(45 * 60_000),

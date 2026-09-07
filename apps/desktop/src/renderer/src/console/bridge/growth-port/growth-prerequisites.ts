@@ -21,7 +21,7 @@ import type {
   GrowthPrerequisiteId,
   GrowthPrerequisiteKind,
 } from "./growth-entry.js";
-import type { GrowthSlateRowId } from "./growth-slate.js";
+import type { GrowthSlateRowId } from "./growth-slate-row.js";
 
 /** Every non-callable prerequisite, keyed by id. Never a port method. */
 export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthPrerequisiteEntry>> =
@@ -139,6 +139,19 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "provider-session-import",
       "governing-document",
       "the spec that will govern provider-session import",
+    ),
+    // The one entry whose row is unmet on the PRODUCING side rather than the
+    // declaring one. The mount-health union carries all three verdicts today and the
+    // console projects all three fail-closed; what does not exist is a daemon that can
+    // report the third, or a handler that would carry any of them to a client. So the
+    // row is not callable from here even in principle — there is no growth operation
+    // to write, since the console reaches mount reads through the daemon method
+    // registry and a second route would be a second source of truth for one read.
+    mountHealthIdentityProjection: prerequisite(
+      "mountHealthIdentityProjection",
+      "mount-health-identity-verdict",
+      "daemon-producer",
+      "the daemon-side mount-health projection that derives the identity verdict, and the handler namespace that would carry a mount read to a client",
     ),
   };
 

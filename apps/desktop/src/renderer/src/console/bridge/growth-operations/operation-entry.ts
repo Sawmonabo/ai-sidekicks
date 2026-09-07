@@ -15,7 +15,7 @@ import type {
   GrowthOperationId,
   GrowthOperationKind,
 } from "../growth-port/growth-entry.js";
-import type { GrowthSlateRowId } from "../growth-port/growth-slate.js";
+import type { GrowthSlateRowId } from "../growth-port/growth-slate-row.js";
 
 /**
  * One ledger row.

@@ -37,6 +37,7 @@ import {
   EPHEMERAL_CLONE_ID,
   RECLAIMED_CLONE_ID,
   GIT_MOUNT_ID,
+  GIT_WORKSPACE_BOUND_ROOT,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_BRANCH_CONTEXT_ID,
   IMPLEMENTER_WORKTREE_ID,
@@ -215,7 +216,11 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
           repoMountId: GIT_MOUNT_ID,
           executionMode: "branch",
           state: "ready",
-          fsRoot: "/Users/dev/code/ai-sidekicks",
+          // The BOUND root, which for a `branch` binding is the execution root — and
+          // the same value the execution-context read below reports, from the one
+          // constant, because a roster row and a context read disagreeing about where
+          // a workspace runs is the drift the three-path disclosure would then draw.
+          fsRoot: GIT_WORKSPACE_BOUND_ROOT,
         },
         {
           id: PLAIN_WORKSPACE_ID,
