@@ -24,7 +24,6 @@ export {
   BROAD_ALLOW_LIST_THRESHOLD,
   COMPOSING_NAMED_CAP,
   COMPOSING_RECEIVED_STALE_MS,
-  DAEMON_SHUTDOWN_FLUSH_BUDGET_MS,
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
@@ -180,3 +179,9 @@ export { readWireNumber, readWireString } from "./wire-strings.js";
 // it, so two view families reached five directories up past `core/` to the declaration
 // and the layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";
+// The shell's shutdown budget, on the same rule and for the same reason. It is
+// DECLARED in `src/shared/shutdown-budget.ts` because `src/main/sidecar-lifecycle.ts`
+// races the quit drain against it, and a value main reads cannot live in a console
+// file. The console's stake is one sentence, so it takes the figure through the floor
+// rather than reaching past the DAG to the cross-process leaf that holds it.
+export { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../../../../shared/shutdown-budget.js";

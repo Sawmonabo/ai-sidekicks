@@ -11,9 +11,11 @@
 // to it from both directions: nothing dropped, nothing silently added under cover of
 // a refactor that was supposed to move text and nothing else.
 //
-// TWO READINGS, BECAUSE ONE CANNOT SEE THE OTHER. A runtime `import *` sees the five
-// value exports and no type, since types are erased before this file runs; the
-// barrel's own source text carries all of them. The census is read off the source and
+// TWO READINGS, BECAUSE ONE CANNOT SEE THE OTHER. A runtime `import *` sees the value
+// exports and no type, since types are erased before this file runs; the barrel's own
+// source text carries all of them. Which values those are is `VALUE_EXPORTS` and not a
+// figure written here — this sentence said "the five" while the list held two, four of
+// the original five having been retired with nothing reporting that the prose moved. The census is read off the source and
 // the value half is then checked against the real module object, so a barrel whose
 // text and whose runtime disagree fails rather than passing on the text alone.
 
@@ -111,6 +113,14 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthMcpBindingRef",
   "GrowthMcpInventoryEntry",
   "GrowthMcpMutationResult",
+  // And the key those bindings are compared by, added with the fixture ledger that
+  // serves the inventory read past a governance mutation. The one FUNCTION on this
+  // list, and it is here on the same sibling test the shapes above pass: the ledger
+  // lives in `fixture/` and keys its register by it, while the page that renders the
+  // grid takes it from the family door. Two readers on two sides of the family, one
+  // encoder — a second derivation of the same key is how the ledger and the page come
+  // to disagree about which row a mutation named.
+  "mcpBindingKeyOf",
 ];
 
 /**
@@ -159,8 +169,12 @@ const CURRENT_EXPORTS: readonly string[] = PRE_SPLIT_EXPORTS.filter(
 /** The tail of the gitflow re-export clause, which the negative control cuts out. */
 const GITFLOW_CLAUSE_TAIL = '} from "./gitflow.js";';
 
-/** The two names that survive erasure, so the runtime module object carries them. */
-const VALUE_EXPORTS: readonly string[] = ["GROWTH_ARTIFACT_TYPES", "GROWTH_PR_PREPARATION_STATES"];
+/** The names that survive erasure, so the runtime module object carries them. */
+const VALUE_EXPORTS: readonly string[] = [
+  "GROWTH_ARTIFACT_TYPES",
+  "GROWTH_PR_PREPARATION_STATES",
+  "mcpBindingKeyOf",
+];
 
 /**
  * The names the barrel's export clauses actually list.

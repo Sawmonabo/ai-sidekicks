@@ -47,8 +47,14 @@ describe("the restart confirmation — what it says before it is answered", () =
   it("names the flush budget the shell actually waits", async () => {
     const { block } = await renderSettled(bridgeReporting({ status: "ready" }));
     await openRestartConfirmation(block);
-    // Read from the constant rather than written out, so a sentence promising ten
-    // seconds over a shell that waits five is a red test rather than a lie on screen.
+    // Read from the constant rather than written out — and the constant it reads is
+    // now the SHELL's, declared in `src/shared/shutdown-budget.ts` and taken through
+    // `core/`. That is what makes this case say what it always claimed to: while the
+    // console held a copy of its own, a sentence promising ten seconds over a shell
+    // that waited five satisfied it exactly, because both halves of the comparison
+    // came from the same renderer file and main's cap was on neither side of it.
+    // `test/console/architecture/shutdown-budget-single-home.test.ts` is what keeps
+    // the two from separating again; this asserts the figure a person actually reads.
     expect(restartDialog()?.textContent ?? "").toContain(
       formatDuration(DAEMON_SHUTDOWN_FLUSH_BUDGET_MS),
     );
