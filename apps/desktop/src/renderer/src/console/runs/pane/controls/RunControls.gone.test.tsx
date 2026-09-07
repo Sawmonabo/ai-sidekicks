@@ -42,7 +42,6 @@ function refusedWith(code: string): RunControlRecord {
     recordId: "one",
     runId: RUN_ID,
     control: "pause",
-    composite: false,
     outcome: { kind: "refused", control: "pause", refusal: refuse("run-control", code, "…") },
   };
 }

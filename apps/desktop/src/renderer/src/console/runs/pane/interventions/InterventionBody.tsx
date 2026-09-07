@@ -7,11 +7,11 @@
 
 import { WireFigure } from "../../../primitives/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
+import { compositeGuardReading } from "../controls/rollback/composite-guard.js";
 import {
-  compositeGuardReading,
   readAppliedRollback,
   readDegradedRollback,
-} from "../controls/rollback-result.js";
+} from "../controls/rollback/disposition-reading.js";
 import { RollbackDisclosure } from "../controls/RollbackDisclosure.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
 
@@ -34,16 +34,13 @@ export function InterventionBody(props: {
     );
   }
   const { response } = outcome;
-  // The composite reading is offered ONLY where the request was a composite. The
-  // four guards it names are the edit-and-resend's own, and the answer echoes the
-  // replacement nowhere, so the record's own flag is the only thing that can tell
-  // the two dispatches apart — and a bare rewind whose reason happens to contain a
-  // guard's name would otherwise be answered with a remedy about a correction it
-  // never carried.
-  const guard =
-    !props.record.composite || response.rejectionReason === undefined
-      ? undefined
-      : compositeGuardReading(response.rejectionReason);
+  // The daemon's own typed answer, and nothing inferred. `rejectionGuard` is
+  // producer-obligated on the rollback `rejected` arm and absent on every other
+  // refusal family, so its presence IS the discriminator — the record's own
+  // `composite` flag would be a second answer to a question the wire already
+  // settles, and reading the guard out of `rejectionReason` was a match against a
+  // vocabulary no contract publishes.
+  const guard = compositeGuardReading(response.rejectionGuard);
   return (
     <>
       <p className="meridian-interventions__detail">
