@@ -10,7 +10,9 @@
 // The third is the one a naive implementation gets wrong in the other direction: a
 // channel that BREAKS rather than ending rejects the drain's own promise, which is
 // discarded — so the defect is invisible to the store and visible only to the runner's
-// unhandled-rejection report and to the subscription nobody closed.
+// unhandled-rejection report and to the subscription nobody closed. It has two arms
+// and they are two cases here, because one guard covers only the first: the ITERATOR
+// rejecting once a stream exists, and the SUBSCRIBE rejecting before one does.
 //
 // The retry that shares this module has its own suite beside this one: it is a second
 // subject — one act rather than one lifetime — and both files read the same two
@@ -40,6 +42,25 @@ function bridgeServing(stream: GrowthStream<ShellReport>): ConsoleBridge {
     growth: {
       ...createRefusingGrowthPort(),
       shellStatusSubscribe: async () => await Promise.resolve({ status: "served", value: stream }),
+    },
+  };
+}
+
+/**
+ * The same fixture whose report subscription REJECTS instead of answering an outcome.
+ *
+ * The acquisition arm the served and refusing fixtures above cannot reach: the port is
+ * TYPED to resolve, so the only way to drive a transport that went away while the
+ * subscription was being set up is to reject the promise it returns.
+ */
+function bridgeFailingToSubscribe(): ConsoleBridge {
+  return {
+    ...createFixtureBridge({ scenario: SHELL_SCENARIO }),
+    growth: {
+      ...createRefusingGrowthPort(),
+      shellStatusSubscribe: async () => {
+        throw new Error("the shell transport went away while the report stream was opening");
+      },
     },
   };
 }
@@ -127,6 +148,43 @@ describe("useShellStateBinding", () => {
     // And the subscription is let go of rather than left open behind a reader that
     // has stopped reading it.
     expect(stream.closeCount).toBe(1);
+    expect(store.getState().shellState.connection.kind).toBe("unreported");
+  });
+
+  it("settles a subscribe that REJECTED as a channel loss, and lets nothing escape", async () => {
+    // THE ACQUISITION HALF, which the iterator's own guard cannot cover. Awaited above
+    // the `try`, a `shellStatusSubscribe` that rejected escaped the discarded drain as
+    // an unhandled rejection and left the attempt neither closed nor settled — so a
+    // window addressed at a bridge whose transport went away mid-subscribe kept the
+    // previous supervisor's report with nothing on the path able to clear it.
+    const stream = new DrivenGrowthStream<ShellReport>();
+    const store = new FrameStore({ initialRoute: { kind: "sessions" } });
+    const registry = emptyRegistry();
+    const { rerender } = render(
+      <SidekicksBridgeProvider bridge={bridgeServing(stream)}>
+        <Harness store={store} registry={registry} />
+      </SidekicksBridgeProvider>,
+    );
+    await act(async () => {
+      stream.emit(CONNECTED_SHELL_REPORT);
+      await crossMacrotaskBoundary();
+    });
+    await waitFor(() => {
+      expect(store.getState().shellState.connection.kind).toBe("connected");
+    });
+
+    const escaped = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        rerender(
+          <SidekicksBridgeProvider bridge={bridgeFailingToSubscribe()}>
+            <Harness store={store} registry={registry} />
+          </SidekicksBridgeProvider>,
+        );
+        await crossMacrotaskBoundary();
+      });
+    });
+
+    expect(escaped).toStrictEqual([]);
     expect(store.getState().shellState.connection.kind).toBe("unreported");
   });
 

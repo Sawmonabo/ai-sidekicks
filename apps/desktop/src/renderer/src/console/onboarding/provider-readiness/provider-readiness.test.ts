@@ -35,7 +35,13 @@ import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { accountsForProvider, providersNotReady } from "./provider-readiness-reading.js";
 import type { ProviderReadinessModel } from "./provider-readiness.js";
-import { READINESS_CALL, arrive, fixture, modelOver } from "./provider-readiness.test-support.js";
+import {
+  READINESS_CALL,
+  arrive,
+  fixture,
+  modelOver,
+  providerAccountRecord,
+} from "./provider-readiness.test-support.js";
 
 /**
  * A model over a bridge that records what it was asked, answering from the scenario.
@@ -84,6 +90,46 @@ function refusingFixture(): ConsoleBridge {
       ],
     },
   });
+}
+
+/**
+ * The account id the stale reply below resolves, named once so both halves agree.
+ *
+ * A plain string, on the test-support module's rule: it is only ever written INTO a
+ * scripted reply, which is untyped by design, and read back off the projection the
+ * daemon door parsed.
+ */
+const STALE_ACCOUNT_ID = "acct-codex-superseded";
+
+/**
+ * A registry projection distinguishable from the fixture's, for an OLDER read.
+ *
+ * One readiness entry against the fixture's two, so the two replies cannot be
+ * confused for one another by a case that only counts calls: whichever of them
+ * published last is legible from the states alone. A whole reply and not a patch of
+ * the shipped one, on `refusingFixture`'s shape — it is schema-parsed on the way back
+ * through the daemon door, so it is held to the registered contract exactly as the
+ * fixture's own is.
+ */
+function staleReadinessReply(): unknown {
+  return {
+    accounts: [
+      providerAccountRecord({
+        accountId: STALE_ACCOUNT_ID,
+        displayLabel: "Personal",
+        isDefault: true,
+      }),
+    ],
+    usageWindows: [],
+    readiness: [
+      {
+        provider: "codex",
+        state: "authenticated",
+        resolvedAccountId: STALE_ACCOUNT_ID,
+        observedAt: "2026-01-01T08:00:00.000Z",
+      },
+    ],
+  };
 }
 
 describe("reading which providers this node can run", () => {
@@ -222,6 +268,51 @@ describe("the trigger contract — what an arrival, a focus, and a retirement co
     await settleScheduledRead(bridge);
 
     expect(readCount(calls)).toBe(2);
+  });
+
+  it("drops an older read whose reply lands after a newer one", async () => {
+    // THE DEFECT THIS PINS. The generation this model stamps a call with moves only
+    // when the account SCOPE moves, so an arrival read and a focus-triggered refresh
+    // of the same scope carried the same stamp — and the older of the two passed the
+    // check on the way back, installing a projection the daemon had already replaced.
+    let readinessReads = 0;
+    let releaseOlderRead: (() => void) | undefined;
+    const held = withDaemonCall(fixture(), async (call, passThrough) => {
+      if (call.method !== READINESS_CALL) {
+        return passThrough();
+      }
+      readinessReads += 1;
+      if (readinessReads > 1) {
+        return passThrough();
+      }
+      // The arrival read, held open until the refresh behind it has already landed.
+      await new Promise<void>((resolve) => {
+        releaseOlderRead = resolve;
+      });
+      return staleReadinessReply();
+    });
+    const model = modelOver(held.bridge);
+
+    model.requestRead("subscribe");
+    await crossMacrotaskBoundary();
+    model.requestRead("window-focus");
+    await settleScheduledRead(held.bridge);
+
+    const afterNewerRead = model.reading;
+    if (afterNewerRead.kind !== "read") {
+      throw new Error("the refresh did not settle a readiness projection");
+    }
+    expect(afterNewerRead.entries.map((entry) => entry.state)).toStrictEqual([
+      "authenticated",
+      "reauth_required",
+    ]);
+
+    releaseOlderRead?.();
+    await crossMacrotaskBoundary();
+
+    // Identity and not only shape: an older reply that published would replace the
+    // snapshot's reading object even where the states it carried happened to match.
+    expect(model.reading).toBe(afterNewerRead);
   });
 
   it("disposes the scheduler on supersede, so a later trigger performs nothing", async () => {

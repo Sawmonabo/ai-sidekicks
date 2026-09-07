@@ -97,7 +97,9 @@ export function useShellStateBinding(
  *
  * AND ALL FOUR ARE ORDINARY, THE THROW INCLUDED. A subscription that is torn down
  * mid-flight, or a frame that will not decode, REJECTS the iterator rather than ending
- * it — and this drain's promise is discarded, so an escaping rejection is not a
+ * it — and the SUBSCRIBE itself rejects the same way where the transport goes away
+ * before a stream exists at all, which is why acquisition is inside the guard and not
+ * above it. This drain's promise is discarded, so an escaping rejection is not a
  * failure anybody sees but an unhandled rejection in the renderer. It is caught here
  * and settled as what it actually is: the channel going away, which is the same
  * reading a clean end publishes, because a report is a claim about right now either
@@ -132,19 +134,29 @@ function useShellReportSubscription(frameStore: FrameStore, growth: GrowthPort):
     };
 
     const drain = async (): Promise<void> => {
-      const outcome = await growth.shellStatusSubscribe({});
-      if (outcome.status !== "served") {
-        // The build does not carry the wire. The reset above already said so, so
-        // there is nothing left to write: the chip renders the absence and no
-        // control is disabled on the strength of it.
-        return;
-      }
-      if (!drainClaim.isCurrent) {
-        outcome.value.close();
-        return;
-      }
-      stream = outcome.value;
       try {
+        // ACQUISITION IS INSIDE THE GUARD, NOT AHEAD OF IT, and through the console's
+        // one settler rather than a bare `await`. Awaited above the `try`, a subscribe
+        // that REJECTED — the transport going away while the subscription is being set
+        // up — escaped this discarded drain as an unhandled rejection, with nothing
+        // left to close the attempt or settle it: the iterator's own guard covers the
+        // frames and covers none of the acquisition. Settled, that rejection arrives
+        // as the same non-served outcome a build with no wire answers with, so one arm
+        // reads both, and any throw the loop or the handle raises still lands on the
+        // channel-loss reading below rather than on the host's rejection sink.
+        const outcome = await settleGrowthRead(growth.shellStatusSubscribe({}));
+        if (outcome.status !== "served") {
+          // The build does not carry the wire, or the channel went away before it
+          // could be read. The reset above already said so, and the `finally` below
+          // says it again through the claim: the chip renders the absence and no
+          // control is disabled on the strength of it.
+          return;
+        }
+        if (!drainClaim.isCurrent) {
+          outcome.value.close();
+          return;
+        }
+        stream = outcome.value;
         for await (const report of outcome.value.events) {
           if (!drainClaim.settle(() => frameStore.publishShellReport(report))) {
             return;
