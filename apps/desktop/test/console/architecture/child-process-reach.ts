@@ -38,6 +38,17 @@
 // nobody registered. So an export declaration carrying a module specifier is read
 // by the same three arms as an import clause.
 //
+// AND ONE LOADER IS NOT AN EXPRESSION AT ALL. TypeScript's own CommonJS binding
+// form, `import childProcess = require("node:child_process")`, spells `require`
+// as SYNTAX: the parser builds an `ImportEqualsDeclaration` whose specifier
+// hangs off an external module reference, so there is no import CLAUSE for the
+// clause arm to read and no call expression for the loader arm to read, and a
+// helper written this way was reported clean while it spawned. It is a
+// WHOLE-MODULE reach like the namespace and default bindings beside it — the
+// binding IS the module object — so it joins them rather than needing a member
+// walk of its own, and the `export import …` spelling is the same node kind
+// wearing a modifier, which is why one arm answers for both.
+//
 // A BUILTIN IS ALSO REACHED WITH NO LOADER NAME OF ITS OWN. Node 22 serves
 // `process.getBuiltinModule("node:child_process")`, a whole-module load written
 // with no `import`, no `require`, and no specifier any import arm ever sees — its
@@ -55,8 +66,8 @@
 // module actually writes.
 //
 // So the reach is read out of the PARSE, through this tier's one parse home. A
-// namespace, a default binding, a dynamic import, a `require` and a builtin
-// loader are each a WHOLE-MODULE reach: they put every export of
+// namespace, a default binding, an import-equals binding, a dynamic import, a
+// `require` and a builtin loader are each a WHOLE-MODULE reach: they put every export of
 // `node:child_process` in the module's hands under a name no scan can enumerate,
 // and `spawn` is one of them. Reporting them is the same posture
 // `source-walk-census.ts` already takes for a namespace import of `node:fs`, and
@@ -89,8 +100,25 @@ const ASYNCHRONOUS_SPAWN = "spawn";
  */
 const WHOLE_MODULE_CALLEES: readonly string[] = ["require", "createRequire", "getBuiltinModule"];
 
-function isChildProcessSpecifier(text: string): boolean {
-  return CHILD_PROCESS_SPECIFIERS.includes(text);
+/**
+ * Whether a module specifier NAMES `node:child_process`.
+ *
+ * The specifier rule written once, for every syntax below, so a declaration
+ * shape added to the walk inherits both spellings rather than restating either
+ * — and so an absent specifier (an export declaration re-exporting a local
+ * binding) and a computed one are refused in one place rather than four.
+ *
+ * `isStringLiteralLike` rather than `isStringLiteral` because the quoted form is
+ * not the only literal one: a no-substitution template is a specifier a
+ * `require` call can carry, and reading it as anything else would leave a
+ * spelling open for the sake of a narrower predicate.
+ */
+function namesChildProcessModule(specifier: ts.Expression | undefined): boolean {
+  return (
+    specifier !== undefined &&
+    ts.isStringLiteralLike(specifier) &&
+    CHILD_PROCESS_SPECIFIERS.includes(specifier.text)
+  );
 }
 
 /**
@@ -123,6 +151,32 @@ function importClauseReachesSpawn(clause: ts.ImportClause): boolean {
 }
 
 /**
+ * Whether an import-equals declaration puts `spawn` in the module's hands.
+ *
+ * TypeScript's own CommonJS binding form, and a WHOLE-MODULE reach by
+ * construction: `import childProcess = require("node:child_process")` binds the
+ * module object under one name, exactly as a namespace import does, so there is
+ * no member list to walk and this arm asks no name-by-name question. It is not
+ * reachable from either arm beside it — the `require` here is syntax rather than
+ * a call, and the specifier hangs off an external module reference no import
+ * clause carries.
+ *
+ * Two shapes are refused. A type-only binding starts no process, for the reason
+ * every type-only arm here is refused. And a module reference that is an ENTITY
+ * NAME (`import childProcess = NodeJS.ChildProcessNamespace`) is an alias for a
+ * local namespace rather than a load: it names no module, so there is no
+ * specifier for the rule above to key on, and resolving what the alias points at
+ * is the binding resolution this module's header refuses to do.
+ */
+function importEqualsDeclarationReachesSpawn(node: ts.ImportEqualsDeclaration): boolean {
+  if (node.isTypeOnly) {
+    return false;
+  }
+  const reference = node.moduleReference;
+  return ts.isExternalModuleReference(reference) && namesChildProcessModule(reference.expression);
+}
+
+/**
  * Whether an export declaration hands `spawn` on out of `node:child_process`.
  *
  * `export * from` and `export * as ns from` are the module whole; a named list is a
@@ -134,11 +188,9 @@ function exportDeclarationReachesSpawn(node: ts.ExportDeclaration): boolean {
   if (node.isTypeOnly) {
     return false;
   }
-  const specifier = node.moduleSpecifier;
-  if (specifier === undefined || !ts.isStringLiteralLike(specifier)) {
+  if (!namesChildProcessModule(node.moduleSpecifier)) {
     return false;
   }
-  if (!isChildProcessSpecifier(specifier.text)) return false;
   const clause = node.exportClause;
   if (clause === undefined || ts.isNamespaceExport(clause)) {
     return true;
@@ -174,11 +226,7 @@ function isWholeModuleLoader(callee: ts.Expression): boolean {
  * others would name it as the way around itself.
  */
 function callLoadsChildProcess(node: ts.CallExpression): boolean {
-  const specifier = node.arguments[0];
-  if (specifier === undefined || !ts.isStringLiteralLike(specifier)) {
-    return false;
-  }
-  if (!isChildProcessSpecifier(specifier.text)) {
+  if (!namesChildProcessModule(node.arguments[0])) {
     return false;
   }
   const callee = node.expression;
@@ -210,11 +258,14 @@ export function reachesAsynchronousSpawn(source: string, fileName: string): bool
     }
     if (
       ts.isImportDeclaration(node) &&
-      ts.isStringLiteral(node.moduleSpecifier) &&
-      isChildProcessSpecifier(node.moduleSpecifier.text) &&
+      namesChildProcessModule(node.moduleSpecifier) &&
       node.importClause !== undefined &&
       importClauseReachesSpawn(node.importClause)
     ) {
+      reaches = true;
+      return;
+    }
+    if (ts.isImportEqualsDeclaration(node) && importEqualsDeclarationReachesSpawn(node)) {
       reaches = true;
       return;
     }

@@ -206,7 +206,7 @@ export class ManagedElectronChild {
    * ONCE `close` HAS FIRED THIS SIGNALS NOTHING, and that is not caution — it
    * is the only correct answer. Two of this package's harnesses call `dispose`
    * from the child's OWN `close` handler (`electron-probe.ts`'s single settle
-   * path, `lifecycle.gc.test.ts`'s cleanup), and by then the child has been
+   * path, `gc-probe.ts`'s cleanup), and by then the child has been
    * reaped and its pid is the operating system's to reissue. Asking for a kill
    * there does not re-signal a dead process: on POSIX it delivers SIGKILL to
    * `-pid` and `pid`, either of which may by then name a group or a process

@@ -59,7 +59,7 @@ const SPAWN_AND_RELEASE_DOOR = path.join("helpers", "electron-child-cleanup.ts")
 /** The two spawners held to it, relative to `test/`. */
 const PROFILE_HOLDING_SPAWNERS: readonly string[] = [
   path.join("helpers", "electron-probe.ts"),
-  "lifecycle.gc.test.ts",
+  path.join("helpers", "gc-probe.ts"),
 ];
 
 /** The call a spawner makes, and the one it must no longer make itself. */

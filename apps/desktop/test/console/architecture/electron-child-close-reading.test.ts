@@ -11,7 +11,7 @@
 //      fails against the open handle and the directory outlives the run.
 //   2. Disposal signals the child's tree. Doing that after `close` signals a
 //      pid the operating system has already reaped and may already have
-//      reissued — and `electron-probe.ts` and `lifecycle.gc.test.ts` both call
+//      reissued — and `electron-probe.ts` and `gc-probe.ts` both call
 //      `dispose` from the child's own `close` handler, so this is the ordinary
 //      path rather than a corner of one.
 //

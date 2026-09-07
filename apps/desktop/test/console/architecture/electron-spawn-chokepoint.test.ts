@@ -119,23 +119,37 @@ function fileReachesSpawn(relativePath: string): boolean {
 /**
  * The reaches the named-import reader could not see, each one a real spelling.
  *
- * The first is the ordinary CommonJS-interop idiom; the second is what a module
- * writes when it needs the loader inside a function; the third is the same
- * module under the prefix-less specifier; the fourth defers the load; the fifth
- * is the escape a rule that knew only `require` would leave open; the sixth is
- * Node 22's builtin loader, reached through a property access rather than a name
- * of its own; the last five are the export keyword doing an import's work.
+ * Each entry carries its own reason rather than a positional roster above the
+ * list, because a roster that numbers its members is a claim that goes stale the
+ * next time a spelling is inserted in the middle — which is what happened here:
+ * the sentence this replaced still called the sixth entry the builtin loader
+ * after the default-binding arm had been added ahead of it.
  */
 const REACHES_INVISIBLE_TO_THE_REGEX: readonly string[] = [
+  // The ordinary CommonJS-interop idiom.
   'import * as childProcess from "node:child_process";\nchildProcess.spawn("electron");',
+  // What a module writes when it needs the loader inside a function.
   'const { spawn } = require("node:child_process");',
+  // The same module under the prefix-less specifier.
   'import { spawn } from "child_process";',
+  // The deferred load.
   'const childProcess = await import("node:child_process");',
+  // The escape a rule that knew only `require` would leave open.
   'const childProcess = createRequire(import.meta.url)("node:child_process");',
+  // A default binding of a CommonJS module is the module object under interop.
   'import childProcess from "node:child_process";',
   // The builtin-loader arm: no `import`, no `require`, and a property-access
   // callee that the identifier arms alone reported clean while it spawned.
   'const childProcess = process.getBuiltinModule("node:child_process");',
+  // The import-equals arm: TypeScript's own CommonJS binding form, whose
+  // `require` is SYNTAX rather than a call — so neither the import-clause arm
+  // nor the call arm saw it, and a helper written this way spawned under a
+  // green check. `.cts` is where a module writes it by default, and the planted
+  // walk below drives both extensions.
+  'import childProcess = require("node:child_process");\nchildProcess.spawn("electron");',
+  // The same declaration wearing the export keyword, which re-exports the
+  // binding as well as taking it — one node kind, so one arm covers both.
+  'export import childProcess = require("child_process");',
   // The re-export arm: none writes `import`, so the superseded reader saw nothing.
   'export { spawn } from "node:child_process";',
   'export { spawn as launch } from "node:child_process";',
@@ -158,10 +172,27 @@ const REACHES_THAT_ARE_NOT_ONE: readonly string[] = [
   // The builtin loader still keys on the SPECIFIER, so another module is not one.
   'const buffer = process.getBuiltinModule("node:buffer");',
   'const advice = "import { spawn } from \\"node:child_process\\"";',
+  // The import-equals arms that reach no module: a type-only one starts no
+  // process, and an entity-name reference is an alias for a local namespace
+  // rather than a load — it carries no specifier for the rule to key on.
+  'import type childProcess = require("node:child_process");',
+  "import childProcess = NodeJS.ChildProcessNamespace;",
+  'import buffer = require("node:buffer");',
 ];
 
 /** A module whose only job is to reach the asynchronous spawn, for the planted walk. */
 const PLANTED_SPAWNER_SOURCE = 'import { spawn } from "node:child_process";\nspawn("electron");\n';
+
+/**
+ * The same spawner written in TypeScript's import-equals form.
+ *
+ * Planted under two extensions below because the parse home derives its script
+ * kind from the file NAME, so "the reader answers the same for a `.cts` helper"
+ * is a property of that derivation rather than a restatement of the case above.
+ * `.cts` is the extension a module writing this form ordinarily carries.
+ */
+const PLANTED_IMPORT_EQUALS_SPAWNER_SOURCE =
+  'import childProcess = require("node:child_process");\nchildProcess.spawn("electron");\n';
 
 describe("every Electron spawn under test/ goes through one owner", () => {
   const files = typeScriptModulesUnder(TEST_ROOT);
@@ -273,6 +304,48 @@ describe("every Electron spawn under test/ goes through one owner", () => {
           SUPERSEDED_EXTENSION_TEST.test(name),
           `${name} was already inside the walk, so this control proves nothing`,
         ).toBe(false);
+      }
+    } finally {
+      rmSync(plantedRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reads the import-equals binding under both extensions a module writes it in", () => {
+    // THE FINDING this case was added for, driven over a planted tree rather
+    // than asserted about a node kind. `import childProcess = require(...)` is
+    // neither an import CLAUSE nor a CALL — its `require` is syntax, and the
+    // specifier hangs off an external module reference the other two arms never
+    // look at — so a helper written this way was collected by the walk, read by
+    // the reader, and reported clean while it spawned Electron.
+    //
+    // Both extensions are planted because the parse home derives its script kind
+    // from the file name: a `.cts` helper is where this form is ordinarily
+    // written, and a reader that answered only for `.ts` would leave the
+    // idiomatic spelling of the hole open.
+    const plantedRoot = mkdtempSync(path.join(tmpdir(), "sidekicks-import-equals-"));
+    try {
+      const plantedNames: readonly string[] = ["planted-loader.ts", "planted-loader.cts"];
+      mkdirSync(path.join(plantedRoot, "helpers"));
+      for (const name of plantedNames) {
+        writeFileSync(
+          path.join(plantedRoot, "helpers", name),
+          PLANTED_IMPORT_EQUALS_SPAWNER_SOURCE,
+          "utf8",
+        );
+      }
+
+      expect([...typeScriptModulesUnder(plantedRoot)].sort()).toStrictEqual(
+        [...plantedNames].map((name) => path.join("helpers", name)).sort(),
+      );
+      for (const name of plantedNames) {
+        expect(
+          reachesAsynchronousSpawn(PLANTED_IMPORT_EQUALS_SPAWNER_SOURCE, name),
+          `${name} reaches \`spawn\` through TypeScript's import-equals binding and read clean`,
+        ).toBe(true);
+        // The other half of the same control: the superseded reader saw nothing
+        // here either, so this spelling is closed by the walk rather than by the
+        // planted text happening to contain a braced import clause.
+        expect(supersededNamedImportReader(PLANTED_IMPORT_EQUALS_SPAWNER_SOURCE), name).toBe(false);
       }
     } finally {
       rmSync(plantedRoot, { recursive: true, force: true });

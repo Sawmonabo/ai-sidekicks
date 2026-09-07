@@ -15,7 +15,7 @@
 // nothing in it binds the REMOVAL, which is why `cleanUpAfterChildAtSettleTime`
 // exists and why a harness that does not call it accumulates one profile per
 // overrun. Both of this package's Electron spawners now call it —
-// `helpers/electron-probe.ts` for the smoke probe and `test/lifecycle.gc.test.ts`
+// `helpers/electron-probe.ts` for the smoke probe and `helpers/gc-probe.ts`
 // for the GC probe — and the cases below are what makes that a property rather
 // than a convention.
 //

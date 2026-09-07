@@ -39,7 +39,12 @@ const __dirname = path.dirname(__filename);
 // Package root — `apps/desktop/`. This module lives at
 // `apps/desktop/test/helpers/electron-probe.ts`; `../..` lands on the package
 // root, which every path below is resolved against.
-const PACKAGE_ROOT = path.resolve(__dirname, "../..");
+//
+// Exported for the same reason the three entry paths below it are: the sibling
+// GC harness spawns with it as its `cwd`, and a second `path.resolve(__dirname,
+// "../..")` beside this one would be two derivations of one root that drift the
+// moment either module moves.
+export const PACKAGE_ROOT: string = path.resolve(__dirname, "../..");
 
 // The `electron-vite build` output paths (per `apps/desktop/electron.vite.
 // config.ts`'s per-target `outDir`). At Plan-023 Phase 1 T-023p-1-7 the
@@ -137,7 +142,7 @@ export const WINDOW_BUDGET_MS = 5_000;
 // itself as "~30x the measured cost". Against the CI numbers it is 1.15x the
 // observed worst case — a margin thin enough that runner variance alone
 // re-creates the original symptom. 30 s is ~2.3x that worst case and matches
-// the budget `lifecycle.gc.test.ts` already uses for the same kind of spawn.
+// the budget `gc-probe.ts` already uses for the same kind of spawn.
 //
 // This is NOT the flake fix and does not stand in for one. The contention was
 // fixed at two levels: intra-project, where this file and `lifecycle.gc.test.ts`
@@ -691,7 +696,7 @@ export function spawnElectron(): Promise<SpawnResult> {
   // nothing at all (the lock owner is notified over the singleton socket
   // and the loser exits silently). A private profile makes the lock
   // per-spawn, so the collision is unreachable rather than merely unlikely.
-  // The sibling `lifecycle.gc.test.ts` isolates its profile for exactly
+  // The sibling `gc-probe.ts` isolates its profile for exactly
   // this reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-smoke-test-"));
 
@@ -786,7 +791,7 @@ export function spawnElectron(): Promise<SpawnResult> {
           // `SIDEKICKS_SMOKE_PROBE=1` exported in their shell would otherwise
           // have it inherited through the spread, the app would emit a real probe
           // line, and the stalled-boot control would quietly stop testing a
-          // stall. Same guard, and same reason, as `lifecycle.gc.test.ts`'s
+          // stall. Same guard, and same reason, as `gc-probe.ts`'s
           // `envWithoutSmoke`.
           ...spawnBaseEnv,
           // Pinned rather than inherited so the child cannot fall back to the
