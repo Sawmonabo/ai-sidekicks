@@ -118,7 +118,7 @@ export type {
 // The MCP governance plane's shapes. Through this door because a SIBLING takes them:
 // `growth-signatures/mcp.ts` composes the inventory entry, the binding identity, and
 // the mutation result into its request and value members, and `scenarios/
-// settings-mcp-plane.ts` composes all four into the answer it computes per requested
+// settings/mcp-plane.ts` composes all four into the answer it computes per requested
 // binding — the per-leg outcome among them, since a mutation's reply carries what
 // applying it did to each live session. The vocabularies and the row shapes only the
 // operator page renders leave through `bridge/index.ts` from the module that declares

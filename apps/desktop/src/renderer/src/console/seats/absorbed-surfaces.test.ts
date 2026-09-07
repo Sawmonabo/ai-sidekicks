@@ -32,7 +32,7 @@ import { ConsoleRefusalError } from "../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../core/settle.test-support.js";
 import { SurfaceAbsence } from "../primitives/index.js";
 import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
-import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../bridge/scenarios/settings-runtime-nodes.js";
+import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../bridge/scenarios/settings/runtime-nodes.js";
 import { AttachFlow, NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import {

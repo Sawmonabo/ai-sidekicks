@@ -29,7 +29,7 @@ import {
   type StreamUnderTest,
 } from "../../../../bridge/fixture/fixture-bridge.test-support.js";
 import { settleScriptedRead } from "../../../../bridge/readings/scheduled-read.test-support.js";
-import { SETTINGS_PROVIDER_ACCOUNT_LIST } from "../../../../bridge/scenarios/settings-account-plane.js";
+import { SETTINGS_PROVIDER_ACCOUNT_LIST } from "../../../../bridge/scenarios/settings/account-plane.js";
 import { SETTINGS_SCENARIO } from "../../../../bridge/scenarios/settings.js";
 import { LiveAnnouncerProvider } from "../../../../primitives/index.js";
 import { AccountsShell } from "./AccountsShell.js";

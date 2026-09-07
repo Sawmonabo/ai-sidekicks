@@ -1,7 +1,7 @@
 // The provider-account plane the settings scenario answers: the registry, its quota
 // rows, its readiness projection, and the three sign-in verbs.
 //
-// Split out of `settings.ts` on `settings-runtime-nodes.ts`' rule — that module says
+// Split out of `settings.ts` on `runtime-nodes.ts`' rule — that module says
 // what a person does and in what order, and this says what the daemon answers while
 // they do it. A data table sitting between a scenario's identity and its beats is what
 // made that file unreadable from either end.
@@ -29,7 +29,7 @@ import type {
   ProviderAccountRegisterResponse,
 } from "@ai-sidekicks/contracts";
 
-import type { ScenarioReply } from "../scenario-runtime/index.js";
+import type { ScenarioReply } from "../../scenario-runtime/index.js";
 
 /** The Claude account a run is admitted against today. */
 const CLAUDE_DEFAULT_ACCOUNT = "acct-claude-team" as ProviderAccountId;

@@ -20,13 +20,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { mcpBindingKeyOf } from "../growth-values/index.js";
-import type { GrowthMcpBindingRef, GrowthMcpInventoryEntry } from "../growth-values/index.js";
-import { SETTINGS_MCP_INVENTORY } from "./settings-mcp-plane.js";
-import {
-  settingsMcpAnswerFor,
-  settingsMcpMutationResult,
-} from "./settings-mcp-plane.test-support.js";
+import { mcpBindingKeyOf } from "../../growth-values/index.js";
+import type { GrowthMcpBindingRef, GrowthMcpInventoryEntry } from "../../growth-values/index.js";
+import { SETTINGS_MCP_INVENTORY } from "./mcp-plane.js";
+import { settingsMcpAnswerFor, settingsMcpMutationResult } from "./mcp-plane.test-support.js";
 
 /**
  * The three bindings this suite presses, as a REQUEST names them.

@@ -18,7 +18,7 @@ import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
 import {
   PARTICIPANT_YOU,
   SETTINGS_RUNTIME_NODE_ATTACH_DRAFT,
-} from "../../../bridge/scenarios/settings-runtime-nodes.js";
+} from "../../../bridge/scenarios/settings/runtime-nodes.js";
 import { consoleTestUiStateStore } from "../../settings-page-mount.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { UNREPORTED_SHELL_STATE } from "../../../store/index.js";

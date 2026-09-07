@@ -18,8 +18,11 @@ import type {
   RuntimeNodeRosterEntry,
 } from "@ai-sidekicks/contracts";
 
-import type { RuntimeNodeAttachDraft } from "../../../runtime-node-attach/index.js";
-import type { ScenarioReply, ScenarioRuntimeNodeRosterFrame } from "../scenario-runtime/index.js";
+import type { RuntimeNodeAttachDraft } from "../../../../runtime-node-attach/index.js";
+import type {
+  ScenarioReply,
+  ScenarioRuntimeNodeRosterFrame,
+} from "../../scenario-runtime/index.js";
 
 // Wire identifiers, spelled as the wire spells them — UUID v7 values whose leading
 // bytes are this scenario's own start instant, so a rendered id still tells one

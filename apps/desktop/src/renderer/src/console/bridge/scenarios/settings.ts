@@ -15,10 +15,18 @@
 // What the deck must never do is invent a shape nobody owns — that is the fixture
 // disagreeing with the application in the one direction that matters.
 //
-// AND THE PLANES ARE SPLIT INTO FILES OF THEIR OWN. `settings-diagnostics-plane.ts`,
-// `settings-account-plane.ts`, and `settings-mcp-plane.ts` hold the three, because
+// AND THE PLANES ARE SPLIT INTO FILES OF THEIR OWN, IN A DIRECTORY OF THEIR OWN.
+// `settings/diagnostics-plane.ts`, `settings/account-plane.ts`, and
+// `settings/mcp-plane.ts` hold the three beside `settings/runtime-nodes.ts`, because
 // they share a settings surface and share nothing else — one file holding all of
-// them would be three data tables that never reference each other.
+// them would be four data tables that never reference each other.
+//
+// THE DIRECTORY IS WHY THIS FILE STAYS AT THE TOP LEVEL, on `wire-truth.ts`' rule: the
+// scenario is what the manifest imports and what a reader opens first, and its parts
+// sit under a directory named for it. The parts moved there when a fourth plane landed
+// and `scenarios/` crossed the module ceiling `console-directory-shape.test.ts` holds
+// every console directory to — a ceiling whose remedy is a seam, never a larger number,
+// and the settings planes are the seam this directory grew.
 //
 // ITS NODE-HEALTH BEATS ARE SCRIPTABLE BECAUSE THAT ONE IS ON THE EVENT WIRE (the
 // run beats beside them, which the diagnostics plane needs, are on it for the same
@@ -65,12 +73,12 @@
 // state, and a page showing one health scalar would report it as either fine or
 
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
-import { SETTINGS_ACCOUNT_PLANE_REPLIES } from "./settings-account-plane.js";
+import { SETTINGS_ACCOUNT_PLANE_REPLIES } from "./settings/account-plane.js";
 import {
   SETTINGS_DIAGNOSTICS_REPLIES,
   SETTINGS_DIAGNOSTICS_RUN_BEATS,
-} from "./settings-diagnostics-plane.js";
-import { SETTINGS_MCP_PLANE_REPLIES } from "./settings-mcp-plane.js";
+} from "./settings/diagnostics-plane.js";
+import { SETTINGS_MCP_PLANE_REPLIES } from "./settings/mcp-plane.js";
 import {
   PARTICIPANT_YOU,
   RUNTIME_NODES,
@@ -80,7 +88,7 @@ import {
   SETTINGS_RUNTIME_NODE_ATTACH_REPLY,
   occurredAt,
   type SettingsRuntimeNode,
-} from "./settings-runtime-nodes.js";
+} from "./settings/runtime-nodes.js";
 
 export const SETTINGS_SCENARIO_ID = "settings";
 

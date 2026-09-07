@@ -1,6 +1,6 @@
 // The settings deck's governance answers, read the way the fixture reads them.
 //
-// One home for a reader two suites take. `settings-mcp-plane.test.ts` asserts WHICH
+// One home for a reader two suites take. `mcp-plane.test.ts` asserts WHICH
 // binding each press answers for, and `fixture/fixture-mcp-inventory.test.ts` needs one
 // of those answers to drive the inventory ledger with — and a second copy would drift on
 // exactly the half that matters, whether the reply is read through its computed arm or
@@ -12,8 +12,8 @@
 // reply table what it would answer, which is the question a suite about the SCENARIO
 // has. A suite about the wiring drives the real port instead.
 
-import type { GrowthMcpMutationResult } from "../growth-values/index.js";
-import { SETTINGS_MCP_PLANE_REPLIES } from "./settings-mcp-plane.js";
+import type { GrowthMcpMutationResult } from "../../growth-values/index.js";
+import { SETTINGS_MCP_PLANE_REPLIES } from "./mcp-plane.js";
 
 /**
  * What the scenario answers one call with, through whichever arm its entry carries.

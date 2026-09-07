@@ -1,7 +1,7 @@
 // The MCP governance plane the settings scenario answers: the unified inventory and
 // the two mutations the operator page sends.
 //
-// Split out of `settings.ts` beside `settings-account-plane.ts`, for that module's
+// Split out of `settings.ts` beside `account-plane.ts`, for that module's
 // reason and one more: these two planes share a settings surface and share nothing
 // else, so one file holding both would be two data tables that never reference each
 // other.
@@ -40,15 +40,15 @@
 // exactly the requests the daemon would and serves the rest. Those refusals are also
 // the only way this deck reaches the page's own refused-outcome rendering at all.
 
-import type { ScenarioReply } from "../scenario-runtime/index.js";
-import { isWireRecord } from "../../core/index.js";
-import type { WireErrorEnvelope } from "../../core/index.js";
+import type { ScenarioReply } from "../../scenario-runtime/index.js";
+import { isWireRecord } from "../../../core/index.js";
+import type { WireErrorEnvelope } from "../../../core/index.js";
 import type {
   GrowthMcpBindingRef,
   GrowthMcpInventoryEntry,
   GrowthMcpLiveApplicationResult,
   GrowthMcpMutationResult,
-} from "../growth-values/index.js";
+} from "../../growth-values/index.js";
 
 /**
  * The instant every live leg below was last observed.

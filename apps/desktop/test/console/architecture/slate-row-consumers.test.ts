@@ -136,8 +136,13 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // covers the row.
   "approval-remembered-rule": "approvals lane — the approvals pane",
   "approval-amendment-arm": "approvals lane — the approvals pane",
-  // shell lane — the window controls the workspace deck and auxiliary windows take.
+  // shell lane — the window controls the workspace deck and auxiliary windows take,
+  // and the node's own attach declaration, whose console consumer is built and whose
+  // CARRIER is not: the declaration is a member on the bridge the attach control
+  // already holds rather than a call, so the operation-derived check below cannot
+  // reach it either way.
   "window-control-namespace": "shell lane — the workspace deck and auxiliary windows",
+  "node-self-declaration": "shell lane — the settings runtime-nodes page's attach control",
 };
 
 describe("growth slate — every row's consuming surface resolves to a module", () => {
@@ -256,6 +261,7 @@ const ROWS_WITH_NO_LEDGER_OPERATION: readonly GrowthSlateRowId[] = [
   "approval-remembered-rule",
   "approval-amendment-arm",
   "mount-health-identity-verdict",
+  "node-self-declaration",
 ] as GrowthSlateRowId[];
 
 /** A row id no ledger operation and no module can match. The negative control's. */

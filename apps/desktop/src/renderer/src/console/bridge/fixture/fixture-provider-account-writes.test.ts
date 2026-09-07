@@ -23,7 +23,7 @@ import {
   SETTINGS_PROVIDER_ACCOUNT_LOGIN,
   SETTINGS_PROVIDER_ACCOUNT_LOGIN_CANCEL,
   SETTINGS_PROVIDER_ACCOUNT_REGISTER,
-} from "../scenarios/settings-account-plane.js";
+} from "../scenarios/settings/account-plane.js";
 import { SETTINGS_SCENARIO } from "../scenarios/settings.js";
 
 /** The scripted latency on the sign-in and the registration. */

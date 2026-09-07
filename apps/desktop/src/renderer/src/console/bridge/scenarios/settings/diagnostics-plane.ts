@@ -1,13 +1,13 @@
 // The diagnostics page's half of the settings scenario: the two runs it addresses,
 // and the five health reads it answers.
 //
-// Split out of `settings.ts` on `settings-runtime-nodes.ts`' rule — that module says
+// Split out of `settings.ts` on `runtime-nodes.ts`' rule — that module says
 // what a person does and in what order, and this says what the daemon answers while
 // they do it. Two data tables and a beat builder are what pushed that file past the
 // point where either end of it could be read.
 
-import type { ScenarioBeat, ScenarioReply } from "../scenario-runtime/index.js";
-import { SESSION_ID, occurredAt } from "./settings-runtime-nodes.js";
+import type { ScenarioBeat, ScenarioReply } from "../../scenario-runtime/index.js";
+import { SESSION_ID, occurredAt } from "./runtime-nodes.js";
 
 /**
  * The two runs the diagnostics page addresses, and why there are two.

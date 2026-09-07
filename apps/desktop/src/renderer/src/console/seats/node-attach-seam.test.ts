@@ -14,7 +14,7 @@ import type { RuntimeNodeAttachRequest, SessionId } from "@ai-sidekicks/contract
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../bridge/scenarios/settings.js";
-import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../bridge/scenarios/settings-runtime-nodes.js";
+import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../bridge/scenarios/settings/runtime-nodes.js";
 import { COLLABORATION_SCENARIO } from "../bridge/scenarios/collaboration.js";
 import { nodeAttachDraftFor, nodeAttachReadsFor } from "./node-attach-seam.js";
 

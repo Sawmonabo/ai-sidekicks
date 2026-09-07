@@ -30,7 +30,7 @@ import {
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/settings.js";
-import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../../../src/renderer/src/console/bridge/scenarios/settings-runtime-nodes.js";
+import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../../../src/renderer/src/console/bridge/scenarios/settings/runtime-nodes.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { consoleTestUiStateStore } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";

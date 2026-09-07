@@ -22,7 +22,7 @@ import { createFixture } from "./fixture-bridge.test-support.js";
 import { servedValueOf } from "./fixture-growth-port.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { SCRIPT_ABSENT_REFUSAL_CODE } from "../scenario-runtime/index.js";
-import { FAILED_RUN_ID, STALLED_RUN_ID } from "../scenarios/settings-diagnostics-plane.js";
+import { FAILED_RUN_ID, STALLED_RUN_ID } from "../scenarios/settings/diagnostics-plane.js";
 import { SETTINGS_SCENARIO } from "../scenarios/settings.js";
 
 /** The scripted latency on every diagnostics read but the recovery request. */

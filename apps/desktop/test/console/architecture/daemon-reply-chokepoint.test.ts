@@ -49,7 +49,7 @@
 //     would fire on a change this console has no standing to refuse.
 //   • Nothing. The `shell/` subtree IS scanned — the package's own structure rules
 //     place it beside the console as a `console-unit` resident, and three of the
-//     twelve modules that consume the call door live in it.
+//     fourteen modules that consume the call door live in it.
 
 import { describe, expect, it, vi } from "vitest";
 
