@@ -25,6 +25,12 @@ import { InterruptedRunsNote } from "./InterruptedRunsNote.js";
  * process's own shutdown budget; this sentence reads it so the figure on screen and
  * the figure the shell waits cannot drift, and it renders as a DERIVED figure because
  * it is a bound this application chose rather than a value the daemon sent.
+ *
+ * They DID drift, which is why the value now lives in `src/shared/shutdown-budget.ts`
+ * and no longer beside the console's own caps: main raced the quit drain against a
+ * five-second cap of its own while this sentence promised ten, so a person was told
+ * the daemon had twice the time it was actually given. The figure arrives through
+ * `core/`, which re-publishes the cross-process declaration both sides read.
  */
 export function RestartConfirmation(props: {
   /** The retained session's store, or `undefined` where this window has none open. */

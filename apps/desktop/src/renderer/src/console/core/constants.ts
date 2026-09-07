@@ -807,26 +807,13 @@ export const PHASE_GRAPH_MIN_ZOOM = 0.35;
 export const PHASE_GRAPH_MAX_ZOOM = 1.5;
 
 // ── The shell's own shutdown budget ──────────────────────────────────────────
-
-/**
- * How long the shell waits for the daemon to flush before terminating it, in
- * milliseconds.
- *
- * `Spec-023 §Main Process Responsibilities` fixes it under App lifecycle: "Graceful
- * shutdown on `before-quit` — signal the daemon to flush, wait up to a 10-second
- * budget, then force-terminate. Relaunch on update apply."
- *
- * IT IS THE MAIN PROCESS'S BUDGET AND THE RENDERER ONLY QUOTES IT, which is why it
- * is here rather than in `budgets.json`: that file holds the RAM, frame, and bundle
- * budgets a test measures against, and nothing in this console measures this one. The
- * console's stake is one sentence — the restart confirmation says what a person is
- * agreeing to — and a figure written into that sentence as prose would be a second
- * home for a value the shell owns, drifting the day the shell's own budget moves.
- * When main grows the shutdown sequence, its constant and this one become one value
- * with one home in `src/shared/`, and this declaration is what makes that a move
- * rather than a search.
- */
-export const DAEMON_SHUTDOWN_FLUSH_BUDGET_MS = 10_000;
+//
+// It is not here. `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS` is declared in
+// `src/shared/shutdown-budget.ts`, because main races the quit drain against the same
+// figure the console's restart confirmation quotes, and `src/shared/` is the only home
+// both processes can reach. This file's rule — caps live here — governs the console's
+// own bounds, and the shell's budget stopped being one the day main became its other
+// reader. The door re-publishes it, so a console reader still takes it from `core/`.
 
 /**
  * Run ids named in the restart confirmation before the rest is a count.
