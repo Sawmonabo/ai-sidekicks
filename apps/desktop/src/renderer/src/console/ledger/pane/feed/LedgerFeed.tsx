@@ -98,6 +98,8 @@ import { type TimelineRowRenderer } from "../../../seats/index.js";
 import { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
 import { useLedgerStructureActs } from "./ledger-feed-acts.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
+import { useFoldedSupersededBands, useSupersededBandDisclosure } from "./ledger-superseded-fold.js";
+import { useChildRunDisclosure } from "../../structure/child-runs/index.js";
 import {
   useLedgerFindAndJump,
   useReplayDockConcealOnFocusLeaving,
@@ -147,6 +149,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
   const chapterDisclosure = useChapterDisclosure(props.sessionStore.sessionId);
+  // Held beside the chapter's, at the same scope and for the same reason: a mount
+  // that followed a navigation would otherwise carry one session's expansions into
+  // the next one's rows.
+  const childRunDisclosure = useChildRunDisclosure(props.sessionStore.sessionId);
+  // And beside both, at the same scope: which rewound bands this reader has folded
+  // away. It starts empty on purpose — a band is dimmed and present until somebody
+  // asks for it to be folded, which is the rule `superseded-bands.ts` states.
+  const supersededBandDisclosure = useSupersededBandDisclosure(props.sessionStore.sessionId);
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
   const unfurledWindow = useLedgerProjection(props.sessionStore, props.channelId);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
@@ -173,7 +183,17 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     chapterDisclosure.openedTerminalRunIds,
     props.sessionStore.sessionId,
   );
-  const ledgerWindow = fold.window;
+  // AND THE BAND FOLD RUNS AFTER THE CHAPTER'S, so a folded chapter has already
+  // reduced itself to a header and a receipt and there is nothing left in it for this
+  // pass to hide a second time. It reports what it removed for the same reason every
+  // stage above it does: the four counts beside the find field are made of exactly
+  // these separations, and re-deriving one downstream would re-walk the projection.
+  const bandFold = useFoldedSupersededBands(
+    fold.window,
+    supersededBandDisclosure.foldedBandKeys,
+    props.sessionStore.sessionId,
+  );
+  const ledgerWindow = bandFold.window;
   const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
@@ -222,6 +242,8 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     foldedWindow: ledgerWindow,
     filteredAwayRows: narrowing.removedRows,
     foldedAwayRows: fold.removedRows,
+    bandFoldedAwayRows: bandFold.removedRows,
+    openSupersededBandOfRow: supersededBandDisclosure.openBandKey,
     visible,
     openedTerminalRunIds: chapterDisclosure.openedTerminalRunIds,
     toggleChapter: chapterDisclosure.toggle,
@@ -264,6 +286,8 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     toggleChapter,
     rowLease,
     renderTimelineRow,
+    childRunDisclosure,
+    supersededBandDisclosure,
   });
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);

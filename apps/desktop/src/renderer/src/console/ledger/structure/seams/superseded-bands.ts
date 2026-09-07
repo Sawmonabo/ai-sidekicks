@@ -47,6 +47,8 @@ export class SupersededIndex {
   readonly #rows: readonly TimelineRow[];
   #bands: readonly SupersededBand[] | undefined;
   #supersededRowIds: ReadonlySet<string> | undefined;
+  #bandByHeaderKey: ReadonlyMap<string, SupersededBand> | undefined;
+  #bandKeyByRowId: ReadonlyMap<string, string> | undefined;
 
   public constructor(rows: readonly TimelineRow[]) {
     this.#rows = rows;
@@ -63,6 +65,42 @@ export class SupersededIndex {
     this.#bands ??= deriveSupersededBands(this.#rows);
     return this.#bands;
   }
+
+  /**
+   * Every band, keyed by the header key the feed dispatches a band header on.
+   *
+   * The same shape `LedgerChapterIndex` publishes for chapters, and for the same
+   * reason: the feed's row dispatch is a map read on `row.key`, so a band that wants
+   * a header of its own has to be findable by that key and by nothing else.
+   */
+  public bandByHeaderKey(): ReadonlyMap<string, SupersededBand> {
+    this.#bandByHeaderKey ??= new Map(
+      this.bands().map((band) => [supersededBandKey(band), band] as const),
+    );
+    return this.#bandByHeaderKey;
+  }
+
+  /** Which band a row belongs to, or nothing where no rollback ranked it past a cutoff. */
+  public bandKeyByRowId(): ReadonlyMap<string, string> {
+    this.#bandKeyByRowId ??= new Map(
+      this.bands().flatMap((band) =>
+        band.rowIds.map((rowId) => [rowId, supersededBandKey(band)] as const),
+      ),
+    );
+    return this.#bandKeyByRowId;
+  }
+}
+
+/**
+ * One band's identity, as one string.
+ *
+ * PREFIXED, because this key shares a namespace with the chapter header's — which is
+ * a bare run id — and with every row id, in the one map the feed's dispatch reads. A
+ * band is identified by the three members that define it, so two rollbacks to
+ * different cutoffs inside one epoch are two bands and stay two headers.
+ */
+export function supersededBandKey(band: SupersededBand): string {
+  return `superseded ${band.runId} ${String(band.epoch)} ${String(band.targetPosition)}`;
 }
 
 /** A rankable row: the two arms that carry a position and an epoch. */

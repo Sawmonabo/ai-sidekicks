@@ -1,0 +1,134 @@
+/* `ledger/structure/child-runs/`'s styles — the child-run summary row and the
+ * handoff row, the two treatments that keep delegated work visible in the parent's
+ * own ledger.
+ *
+ * ONE SHEET PER DIRECTORY, imported from this directory's own door and nowhere else.
+ */
+
+/* --- The child-run summary row ------------------------------------------- */
+
+/*
+ * One line, for `seams.css`' reason: a summary is a glyph and a handful of wire
+ * members laid across the row, and `flex-wrap` reflows them on a narrow pane rather
+ * than clipping one away.
+ */
+
+.meridian-child-run-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-child-run-row__state,
+.meridian-child-run-row__count,
+.meridian-child-run-row__node {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The disclosure is the row's only control, and it wears the console's text-button
+ * face rather than a filled one: rule 7 keeps a row's secondary controls quiet, and
+ * an expand offered on every child run would otherwise be the loudest thing in a
+ * chapter full of them.
+ */
+
+.meridian-child-run-row__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-child-run-row__disclosure:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.meridian-child-run-row__expansion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  margin: var(--meridian-space-1) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* --- The handoff row ------------------------------------------------------ */
+
+.meridian-handoff-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-handoff-row__actor,
+.meridian-handoff-row__reason,
+.meridian-handoff-row__channel {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * THE HANDOFF THREAD. A line that grows down the row's leading edge toward the child
+ * run's chapter, in the row's own hue. It is drawn on the row rather than between two
+ * elements because the two ends are separately virtualized — see `HandoffRow.tsx`.
+ *
+ * The growth is a transform on a pseudo-element, so it composites and never lays out.
+ */
+
+.meridian-handoff-row--threaded {
+  position: relative;
+}
+
+.meridian-handoff-row--threaded::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(var(--meridian-space-2) * -1);
+  inset-block-start: 0;
+  inline-size: 2px;
+  block-size: 100%;
+  background: var(--meridian-row-hue, var(--meridian-edge-strong));
+  transform-origin: top;
+  animation: meridian-handoff-thread-grow 240ms ease-out both;
+}
+
+@keyframes meridian-handoff-thread-grow {
+  from {
+    transform: scaleY(0);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/*
+ * Rule: motion is a reading aid and never a requirement. A reader who has asked for
+ * less motion gets the thread at its full length with no growth at all — the line
+ * still says the handoff opened that chapter, which is the information the animation
+ * was carrying.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  .meridian-handoff-row--threaded::before {
+    animation: none;
+  }
+}

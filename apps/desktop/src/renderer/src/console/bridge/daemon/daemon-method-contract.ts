@@ -9,6 +9,8 @@
 // there names a method's shape.
 
 import type {
+  ChildRunExpandRequest,
+  ChildRunExpandResponse,
   ProviderCommandListResult,
   ListProviderCommandsRequest,
   ListModelsResult,
@@ -164,6 +166,15 @@ export interface ConsoleDaemonMethodContract {
   readonly "invite.revoke": {
     readonly request: InviteRevoke;
     readonly response: InviteRevokeResponse;
+  };
+
+  // timeline — the child-run expansion. The read window and the live stream beside
+  // it are the store's own subscription rather than calls, so neither is here; this
+  // is the one timeline method a surface invokes, from the child-run summary row's
+  // disclosure.
+  readonly "timeline.childRunExpand": {
+    readonly request: ChildRunExpandRequest;
+    readonly response: ChildRunExpandResponse;
   };
 
   // providerAccount — the node-local registry read. The subscription beside it is a

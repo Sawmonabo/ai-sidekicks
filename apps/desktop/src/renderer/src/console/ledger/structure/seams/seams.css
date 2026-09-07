@@ -65,3 +65,57 @@
   align-items: baseline;
   gap: var(--meridian-space-1);
 }
+
+/* --- Structure: the superseded band header -------------------------------- */
+
+/*
+ * The band header is a SEPARATOR rather than a row: it stands between the log's
+ * ordinary rows and the ones a rewind put behind them, so it wears the seam row's
+ * muted tone and a rule above it rather than the attribution edge every content row
+ * carries. Rule 3 keeps hue for attribution, and a band has no author — a rollback
+ * is a fact about the run, not about a participant.
+ */
+
+.meridian-superseded-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding-block: var(--meridian-space-1);
+  border-block-start: 1px solid var(--meridian-border-subtle);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-superseded-band__label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text);
+}
+
+.meridian-superseded-band__count {
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The disclosure sits at the end of the line and carries its own word, so the
+ * control is named by text rather than by the chevron alone — an icon-only control
+ * would have to name itself through a glyph title, and this one has room to say it.
+ */
+
+.meridian-superseded-band__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin-inline-start: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-superseded-band__disclosure:hover {
+  color: var(--meridian-text);
+}

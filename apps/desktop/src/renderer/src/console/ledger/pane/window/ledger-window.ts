@@ -58,12 +58,16 @@ import { projectFixtureShellRows } from "../../cards/index.js";
 import { type LedgerViewportRow } from "../../frame/index.js";
 import { LedgerRowRetention } from "./ledger-row-retention.js";
 import {
+  ChildRunIndex,
   LedgerChapterIndex,
   LedgerSeamIndex,
   SupersededIndex,
   scopeLedgerRowsToChannel,
+  type ChildRunEntry,
+  type HandoffEntry,
   type LedgerChapter,
   type LedgerSeam,
+  type SupersededBand,
 } from "../../structure/index.js";
 import { useSessionScopedState } from "../../../seats/index.js";
 import {
@@ -109,6 +113,16 @@ export interface LedgerWindowModel {
   readonly rowsByKey: ReadonlyMap<string, TimelineRow>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
+  /**
+   * The rewound band behind each band header row, keyed by the band key the header IS.
+   *
+   * Every band in the window has an entry, folded or open, for the chapter header's
+   * reason: the control that folds a band back is on its own header, so a header
+   * whose band is open still has to render.
+   */
+  readonly supersededBandByHeaderKey: ReadonlyMap<string, SupersededBand>;
+  /** Which band each superseded row belongs to — the fold's per-row question. */
+  readonly supersededBandKeyByRowId: ReadonlyMap<string, string>;
   /** Which rows are collapsed, under rule 7's terminal-chapter fold. */
   readonly collapsedRowIds: ReadonlySet<string>;
   /**
@@ -130,6 +144,16 @@ export interface LedgerWindowModel {
    * the row a person reads are one classification rather than two.
    */
   readonly seamByRowId: ReadonlyMap<string, LedgerSeam>;
+  /**
+   * The child-run summary behind each row that carries one — the second lookup the
+   * feed's row renderer consults before it delegates to the timeline row seat.
+   *
+   * Anchored: a child re-summarized as it progresses has ONE entry, at the row that
+   * first named it, so its card stays where a reader left it.
+   */
+  readonly childRunEntryByRowId: ReadonlyMap<string, ChildRunEntry>;
+  /** The handoff behind each row that is one, on the same dispatch. */
+  readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
   /** The rows in log order, for find, the chapter fold, and the replay scrub. */
   readonly rows: readonly TimelineRow[];
   /** Events the registered census carries no category for. Rendered, never hidden. */
@@ -215,6 +239,8 @@ export function deriveLedgerWindow(
   // is on screen.
   const seamIndex = new LedgerSeamIndex();
   const seams = seamIndex.seams(rows);
+  // Child runs and handoffs, over the same scoped window every other index reads.
+  const childRunIndex = new ChildRunIndex(rows);
   const rowsByKey = new Map<string, TimelineRow>();
   const viewportRows: LedgerViewportRow[] = [];
   const supersededRowIds = new Set<string>();
@@ -229,12 +255,16 @@ export function deriveLedgerWindow(
     viewportRows,
     rowsByKey,
     supersededRowIds,
+    supersededBandByHeaderKey: supersededIndex.bandByHeaderKey(),
+    supersededBandKeyByRowId: supersededIndex.bandKeyByRowId(),
     collapsedRowIds: collapsedRowIdsOf(chapterIndex),
     chapterByHeaderKey: new Map(
       chapterIndex.terminalChapters().map((chapter) => [chapter.runId, chapter]),
     ),
     seams,
     seamByRowId: new Map(seams.map((seam) => [seam.rowId, seam])),
+    childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
+    handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),
     rows,
     unprojectableEventCount: projection.unprojectableEventCount,
     hasUnreceivedEntries,

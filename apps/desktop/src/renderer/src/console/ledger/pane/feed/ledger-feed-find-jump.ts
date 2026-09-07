@@ -14,7 +14,7 @@
 // to reach each other over one ledger — which acts exist, and what each of them does
 // to this window — so nothing here decides anything twice.
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -65,11 +65,21 @@ export function useLedgerFindAndJump(inputs: {
   readonly foldedWindow: LedgerWindowModel;
   /** What the narrowing stage reported removing, for the count beside the field. */
   readonly filteredAwayRows: readonly TimelineRow[];
-  /** What the fold stage reported withholding, for the count beside the field. */
+  /** What the chapter fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TimelineRow[];
+  /**
+   * What the superseded-band fold reported withholding.
+   *
+   * Counted in the SAME bucket as the chapter fold's, because it is the same answer
+   * to the person asking: a fold is holding this row, and the act that reaches it
+   * opens one. Two buckets would be two counts for one exit.
+   */
+  readonly bandFoldedAwayRows: readonly TimelineRow[];
   readonly visible: VisibleLedgerWindow;
   readonly openedTerminalRunIds: ReadonlySet<string>;
   readonly toggleChapter: (chapter: LedgerChapter) => void;
+  /** Open the rewound band holding a row, so a jump into a folded one can land. */
+  readonly openSupersededBandOfRow: (bandKey: string) => void;
   readonly setFilter: (filter: LedgerFilter) => void;
   readonly endReplay: () => void;
   /** The ledger's ONE scroll writer. Nothing here touches an element. */
@@ -82,9 +92,11 @@ export function useLedgerFindAndJump(inputs: {
     foldedWindow,
     filteredAwayRows,
     foldedAwayRows,
+    bandFoldedAwayRows,
     visible,
     openedTerminalRunIds,
     toggleChapter,
+    openSupersededBandOfRow,
     setFilter,
     endReplay,
     jumpToRow,
@@ -95,7 +107,16 @@ export function useLedgerFindAndJump(inputs: {
   // under the name of the narrowing holding it, and two of the four narrowings are
   // upstream of the visible window — each reported by the stage that performed it
   // rather than re-derived here from a pair of windows.
-  const find = useLedgerFind({ visible, filteredAwayRows, foldedAwayRows });
+  // Held rather than spread at the call, so the memo below does not move on every
+  // render. Nothing is folded by default on either stage, and both report the same
+  // shared empty array when they withheld nothing, so the common case allocates once
+  // and compares equal.
+  const allFoldedAwayRows = useMemo(
+    () =>
+      bandFoldedAwayRows.length === 0 ? foldedAwayRows : [...foldedAwayRows, ...bandFoldedAwayRows],
+    [foldedAwayRows, bandFoldedAwayRows],
+  );
+  const find = useLedgerFind({ visible, filteredAwayRows, foldedAwayRows: allFoldedAwayRows });
   // Classified against every stage between the log and the screen rather than
   // against the rows on it, so an id the fold, the replay or the cap took is not
   // reported as one the filter is hiding.
@@ -122,8 +143,18 @@ export function useLedgerFindAndJump(inputs: {
   const clearFilter = useCallback(() => {
     setFilter(UNFILTERED_LEDGER);
   }, [setFilter]);
+  // WHICHEVER FOLD IS HOLDING THE ROW, which is why this does two things rather than
+  // one: a row can be inside a shut chapter, inside a folded rewind band, or inside
+  // both, and an act that opened only the chapter would leave the ledger scrolled to
+  // a row still folded away. Both acts are idempotent in the opening direction — the
+  // chapter arm is offered only while the chapter is shut, and the band arm opens
+  // rather than toggles — so performing both is never a fold.
   const openChapterOfRow = useCallback(
     (row: TimelineRow) => {
+      const bandKey = foldedWindow.supersededBandKeyByRowId.get(row.id);
+      if (bandKey !== undefined) {
+        openSupersededBandOfRow(bandKey);
+      }
       const chapterRunId = chapterRunIdInWindow(row, foldedWindow);
       const chapter =
         chapterRunId === undefined ? undefined : foldedWindow.chapterByHeaderKey.get(chapterRunId);
@@ -134,7 +165,7 @@ export function useLedgerFindAndJump(inputs: {
         toggleChapter(chapter);
       }
     },
-    [foldedWindow, toggleChapter],
+    [foldedWindow, toggleChapter, openSupersededBandOfRow],
   );
   const reach = useLedgerJumpReach({
     outcome,
