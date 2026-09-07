@@ -28,7 +28,7 @@ import { createRefusingGrowthPort, growthUnavailable } from "./growth-port/growt
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS, type GrowthSlateRow } from "./growth-port/growth-slate.js";
 import {
-  CONSOLE_SCENARIO_MANIFEST,
+  consoleScenarioManifest,
   findOrphanedLedgerRowIds,
   mapSlateRowCoverage,
   type ConsoleScenarioManifest,
@@ -96,8 +96,8 @@ describe("failure matrix — a growth-slate row lands and the port still claims 
 
   it("agrees with the slate: every entry is fixture-only while its row is unregistered", () => {
     for (const entry of [
-      ...CONSOLE_SCENARIO_MANIFEST.growthOperations,
-      ...CONSOLE_SCENARIO_MANIFEST.prerequisites,
+      ...consoleScenarioManifest().growthOperations,
+      ...consoleScenarioManifest().prerequisites,
     ]) {
       expect(entry.liveStatus).toBe("fixture-only");
     }
@@ -110,9 +110,10 @@ describe("failure matrix — a growth-slate row lands and the port still claims 
     // The day a wire lands, its row leaves the slate. This drives that day: a
     // manifest whose slate no longer carries a row its entries still name must be
     // caught, not quietly tolerated.
+    const manifest = consoleScenarioManifest();
     const withoutBrowserRow: ConsoleScenarioManifest = {
-      ...CONSOLE_SCENARIO_MANIFEST,
-      slateRows: CONSOLE_SCENARIO_MANIFEST.slateRows.filter(
+      ...manifest,
+      slateRows: manifest.slateRows.filter(
         (row: GrowthSlateRow) => row.id !== "browser-pane-namespace",
       ),
     };

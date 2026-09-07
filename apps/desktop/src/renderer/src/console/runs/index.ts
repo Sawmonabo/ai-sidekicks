@@ -17,21 +17,34 @@
 // refuses a second owner on one kind, and a refusal that named a whole family would
 // leave a reader hunting three directories for which body is already there.
 
-// THE STYLESHEET IS IMPORTED HERE, and here only. This is the subtree's door —
-// every runs surface is reached through the body this file registers — so the
-// bundler sees one edge into the sheet rather than one per component, and a runs
-// surface can no more arrive without its CSS than a primitive can. `seats/index.ts`
-// records the same reasoning for the frame every pane wears.
+// THE PANE IS LOADER-BACKED AND ITS SHEETS ARE STILL IMPORTED HERE, which is the one
+// place this family departs from the rule the other loader-backed panes follow, and
+// the departure is measured rather than cautious.
+//
+// `pane/runs.css` declares `.meridian-run-row__failure`, and so does
+// `workflows/runs/run-list.css` — two families, two different components, one class
+// name. While both sheets are on the document the later one decides how the WORKFLOWS
+// run list draws a failed run's line, and which is later is a property of the import
+// graph rather than of either sheet. Moving these sheets onto the chunk root would take
+// this one off the document for any session that never opens a runs pane, which is the
+// whole point of the boundary — and it would silently change a surface belonging to
+// another family, with nothing in the diff naming either sheet.
+//
+// The `.meridian-run-controls` half of that coupling is GONE: the workflows run pane's
+// block carries its family's prefix now, so this sheet's `flex-direction: column` styles
+// this family's controls and nothing else. What is left is the run-row pair, and it is
+// enough to hold the sheets here — the fix is the same fix, a rename with the committed
+// references regenerated on the baseline host, and it belongs to a change that does that
+// rather than to one that moves bundle boundaries.
+// `test/console/architecture/stylesheet-selector-owners.test.ts` holds the collision
+// census so a NEW one cannot land unnoticed.
 
-import { createElement } from "react";
-
-import { paneBodyForKind, type ConsolePaneRegistry } from "../seats/index.js";
-import { RunsPane } from "./pane/RunsPane.js";
+import { type ConsolePaneRegistry } from "../seats/index.js";
 
 import "./pane/runs.css";
 // The intervention surfaces carry their own sheet beside the pane's, split at the
 // same seam their components are; rules addressing selectors in both sheets stay
-// in `runs.css` as a single declaration.
+// in `runs.css` as a single declaration, so the two travel together.
 import "./pane/interventions/run-interventions.css";
 
 /**
@@ -45,10 +58,10 @@ export function registerRunsPane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "runs",
     owner: "runs-pane",
-    // Narrowed to this kind's own address arm before the body sees it, so the body
-    // reads the entity its kind admits and nothing else. `createElement` rather than
-    // JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a single
-    // PascalCase component per file.
-    render: paneBodyForKind("runs", (context) => createElement(RunsPane, context)),
+    // A LOADER AND NOT A `render`: this pane is not on the flagship first paint, so
+    // its body, its readers, and its sheets ride the chunk the specifier below names
+    // rather than the initial import graph. `apps/desktop/AGENTS.md` states the rule
+    // beside the seat-board one.
+    body: () => import("./pane/runs-pane-body.js"),
   });
 }

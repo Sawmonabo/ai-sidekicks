@@ -170,9 +170,9 @@ describe("workflow run pane — the arms and what each offers", () => {
     // refusal — if there is one — is the port's, after the press.
     const section = renderPane(paneContext(PARKED, answeringBridge()));
     await waitFor(() => {
-      expect(section.querySelectorAll(".meridian-run-controls__control")).toHaveLength(2);
+      expect(section.querySelectorAll(".meridian-workflow-run-controls__control")).toHaveLength(2);
     });
-    const controls = section.querySelector(".meridian-run-controls");
+    const controls = section.querySelector(".meridian-workflow-run-controls");
     if (controls === null) {
       throw new Error("the run pane rendered no run controls");
     }
@@ -180,7 +180,7 @@ describe("workflow run pane — the arms and what each offers", () => {
     // in the cluster is a refusal, and both buttons can be pressed.
     expect(controls.querySelector(".meridian-refusal")).toBeNull();
     const actions = [
-      ...controls.querySelectorAll<HTMLButtonElement>(".meridian-run-controls__action"),
+      ...controls.querySelectorAll<HTMLButtonElement>(".meridian-workflow-run-controls__action"),
     ];
     expect(actions.map((action) => action.textContent)).toStrictEqual([
       "Cancel this run",

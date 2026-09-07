@@ -48,10 +48,10 @@ import type { ProposalGateState } from "../../../src/renderer/src/console/repos/
 import { FrameStore, SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import { registerReposPanes } from "../../../src/renderer/src/console/repos/index.js";
 import {
-  ConsolePaneRegistry,
   type ConsolePaneContext,
   type PaneKind,
 } from "../../../src/renderer/src/console/seats/index.js";
+import { resolvedPaneBody } from "./pane-body-resolution.js";
 
 /** A bridge and a store both drawn from the repos scenario, which is the family's own. */
 export function scenarioCollaborators(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
@@ -76,31 +76,16 @@ export type ConsolePaneBinding = Omit<
 >;
 
 /**
- * A registry carrying exactly this family's two pane claims.
+ * The repos pane body the deck holds for a kind, loaded.
  *
- * Built per call rather than shared: the registry is owner-scoped state, and two
- * tiers holding one instance would make the second tier's mount depend on whether
- * the first had run.
+ * The resolution — build a family-scoped registry, preload, read the descriptor, throw
+ * by name — lives once in `test/console/surfaces/pane-body-resolution.ts`; what stays here is
+ * which registrar this family's mounts compose against.
  */
-function familyPaneRegistry(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
-  registerReposPanes(registry);
-  return registry;
-}
-
-/**
- * The pane body the deck holds for a kind, as a component, or a throw.
- *
- * A throw rather than an optional return, so a family that stopped registering its
- * kind fails here — where the message names the kind — instead of rendering nothing
- * and letting a tier compare an empty box against a baseline.
- */
-export function paneBodyComponent(kind: PaneKind): (context: ConsolePaneContext) => ReactNode {
-  const descriptor = familyPaneRegistry().descriptorFor(kind);
-  if (descriptor === undefined) {
-    throw new Error(`no console pane is registered for the \`${kind}\` kind`);
-  }
-  return descriptor.render;
+export async function paneBodyComponent(
+  kind: PaneKind,
+): Promise<(context: ConsolePaneContext) => ReactNode> {
+  return await resolvedPaneBody(kind, registerReposPanes);
 }
 
 /** The deck bindings a pane is mounted with, minus the address each caller states. */

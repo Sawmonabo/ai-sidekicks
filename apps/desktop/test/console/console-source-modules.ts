@@ -46,7 +46,7 @@
 // count it got back rather than trusting the walk.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -147,6 +147,27 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
   );
 }
 
+/**
+ * A path re-spelled with POSIX separators, whatever host produced it.
+ *
+ * ONE SPELLING FOR THE WHOLE TIER, and it is this one. `relative` answers in the host's
+ * separator, while every path comparison the console gates make is written with `/` — a
+ * display path, a barrel's `…/index.ts` suffix, a chunk root's directory prefix, a
+ * specifier resolved with `path.posix`. A gate holding both spellings at once is green
+ * on this machine and red on Windows, which is a defect no host running the tier here
+ * can observe: `lazy-chunk-isolation.test.ts` looked for the last `/` in a path that
+ * carried none, took the empty string as the chunk's directory, and quantified its claim
+ * over the whole console instead of over one directory.
+ *
+ * SPLIT ON THE LITERAL WINDOWS SEPARATOR rather than on `sep`, so the conversion is a
+ * property of the text and never of the machine. That is what lets a control drive it
+ * with a `path.win32` spelling on any host, which is the only way the Windows arm is
+ * reachable from a suite that never runs there.
+ */
+export function toPosixSeparators(hostSeparatedPath: string): string {
+  return hostSeparatedPath.split(win32.sep).join(posix.sep);
+}
+
 /** The walk both entry points share: the roots, the recursion, and the display path. */
 function walkRoots(
   roots: readonly string[],
@@ -157,7 +178,7 @@ function walkRoots(
     if (!existsSync(directory)) {
       continue;
     }
-    const rootName = relative(displayBaseFor(directory), directory).split("\\").join("/");
+    const rootName = toPosixSeparators(relative(displayBaseFor(directory), directory));
     for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
       const absolutePath = join(entry.parentPath, entry.name);
       const relativePath = relative(directory, absolutePath);
@@ -167,7 +188,7 @@ function walkRoots(
       found.push({
         directory,
         relativePath,
-        displayPath: `${rootName}/${relativePath.split("\\").join("/")}`,
+        displayPath: `${rootName}/${toPosixSeparators(relativePath)}`,
         absolutePath,
       });
     }
@@ -356,7 +377,7 @@ function isTestModulePath(entry: string): boolean {
  * thing. A mixed-root scan wants `displayPath` and not this.
  */
 export function consoleRelativePaths(modules: readonly ConsoleSourceModule[]): readonly string[] {
-  const consolePrefix = `${relative(RENDERER_SOURCE_ROOT, CONSOLE_DIRECTORY).split("\\").join("/")}/`;
+  const consolePrefix = `${toPosixSeparators(relative(RENDERER_SOURCE_ROOT, CONSOLE_DIRECTORY))}/`;
   return modules.map((module) =>
     module.displayPath.startsWith(consolePrefix)
       ? module.displayPath.slice(consolePrefix.length)

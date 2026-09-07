@@ -35,11 +35,13 @@
 // detached, and closed on its own, because the only thing it has of its source is a
 // string, and a string cannot be dereferenced into a body.
 
+import { createElement } from "react";
+
 import { KeyedRegistry } from "../core/index.js";
-import { type ConsoleBridge } from "../bridge/index.js";
-import { type FrameStore, type SessionStore } from "../store/index.js";
-import { type DraftStore, type UiStateStore } from "../persistence/index.js";
+import { LoadedLazyBody, type LazyBodyLoader } from "./lazy-body.js";
+import { PendingPaneBody } from "./PendingPaneBody.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
+import { type ConsolePaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 
 // Consumed by T-023p-1C-2, T-023p-1C-3
@@ -76,59 +78,6 @@ export type ConsolePaneOpener = (address: ConsolePaneAddress, link?: ConsolePane
 
 // Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
- * Everything a pane body is handed. Nothing here is global; all of it is per pane,
- * in the window the pane is mounted in.
- *
- * An intersection rather than an interface extending the address, because the
- * address is a discriminated union over `kind` and an interface can only extend
- * an object type. The intersection distributes over that union, so narrowing a
- * context on its `kind` narrows its `entity` with it — the property the union
- * exists for, carried through to every registered body.
- */
-export type ConsolePaneContext = ConsolePaneAddress & ConsolePaneBinding;
-
-/** What a pane is bound to, beside the address it was opened at. */
-interface ConsolePaneBinding {
-  /** This pane's identity in the deck, stable across a layout restore. */
-  readonly paneId: string;
-  readonly bridge: ConsoleBridge;
-  readonly frameStore: FrameStore;
-  /** The session store for the pane's session, or `undefined` on a bare route. */
-  readonly sessionStore: SessionStore | undefined;
-  readonly uiStateStore: UiStateStore;
-  readonly draftStore: DraftStore;
-  /**
-   * The pane this one was opened FROM, when the deck linked the two — a value
-   * passed in and never a handle held, so a linked pane stays independently
-   * movable, detachable, and closable.
-   *
-   * A required member carrying `undefined` when unlinked, on `sessionStore`'s
-   * precedent: an optional member would read identically whether the deck decided
-   * there was no source pane or forgot to pass one, and only one of those is a
-   * deliberate answer.
-   *
-   * WHETHER A RESTORED LAYOUT RESTORES THE LINK IS THE DECK'S CALL, AND IT IS
-   * ALREADY EXPRESSIBLE. `persistence/value-classes.ts`'s `layout` class admits a
-   * per-pane record whose members are numbers, booleans, and identifier-shaped
-   * strings, and a pane id is identifier-shaped — so a deck that writes the link
-   * into its layout entry gets it back on restore, through the closed value-class
-   * set exactly as it stands. No class is widened here, and nothing on this
-   * substrate writes such a member: until the deck that owns the layout writes one,
-   * a restored pane comes back unlinked.
-   */
-  readonly linkedSourcePaneId: string | undefined;
-  /**
-   * The focus ring's colour, as a `var()` reference produced by
-   * `tokens/tokenReference` — `Spec-023 §Console Design (Meridian)` rule 2: "the
-   * hue answers 'who' everywhere — … pane focus rings". `undefined` where the deck
-   * has no actor to attribute the pane to, which is the fail-closed answer: an
-   * unattributed pane takes the neutral boundary rather than someone else's hue.
-   */
-  readonly focusHue: string | undefined;
-}
-
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
-/**
  * What a family registers to claim a pane kind.
  *
  * IT CARRIES NO DETACH MEMBER, deliberately. Whether a kind may be torn off into
@@ -145,6 +94,39 @@ export interface ConsolePaneDescriptor {
   readonly render: (context: ConsolePaneContext) => React.ReactNode;
 }
 
+/** What every registration carries, whichever form it takes. */
+interface ConsolePaneRegistrationBase {
+  readonly kind: PaneKind;
+  readonly owner: string;
+}
+
+// Consumed by T-023p-1C-2, T-023p-1C-3
+/**
+ * What a family hands `register`, in one of exactly two forms.
+ *
+ * THE COMPONENT FORM is the original: a `render` the registrar already holds, for a
+ * body that is on the flagship first paint and therefore belongs in the entry graph.
+ *
+ * THE LOADER FORM is `body: () => import("./pane/XBody.js")`, for a body that is not.
+ * The distinction is a product fact rather than a size threshold — what decides it is
+ * whether the surface is painted before a person acts — and `apps/desktop/AGENTS.md`
+ * states the rule beside the pane-board one.
+ *
+ * A UNION AND NOT TWO OPTIONAL MEMBERS. `render?` and `body?` beside each other would
+ * make "both" and "neither" representable, and both would have to be answered at run
+ * time by a registry that cannot know which the family meant. The `never` arms are what
+ * make the compiler refuse a registration carrying both.
+ */
+export type ConsolePaneRegistration =
+  | (ConsolePaneRegistrationBase & {
+      readonly render: (context: ConsolePaneContext) => React.ReactNode;
+      readonly body?: never;
+    })
+  | (ConsolePaneRegistrationBase & {
+      readonly body: LazyBodyLoader<ConsolePaneContext>;
+      readonly render?: never;
+    });
+
 export class ConsolePaneRegistry {
   // `"owner-scoped"`, for `surface-registry.ts`'s reason: re-registering
   // under the same owner replaces (a hot reload re-runs a family's module), and a
@@ -157,13 +139,89 @@ export class ConsolePaneRegistry {
     duplicateHint: "the deck mounts one body per pane kind, through a single door",
   });
 
-  /** Claim a pane kind. A second claim by a different owner is an error, not a swap. */
-  public register(descriptor: ConsolePaneDescriptor): void {
-    this.#descriptorsByKind.register(descriptor.kind, descriptor);
+  /**
+   * The loader-backed bodies, so `preload` has something to resolve.
+   *
+   * A second table rather than a member on the descriptor, because the descriptor is
+   * what every MOUNT site reads and none of them has any business knowing whether the
+   * body it is about to render arrived as a chunk. Keeping the two apart is what lets
+   * both registration forms produce one resolved descriptor shape.
+   */
+  readonly #loadedBodiesByKind = new Map<PaneKind, LoadedLazyBody<ConsolePaneContext>>();
+
+  /**
+   * Claim a pane kind. A second claim by a different owner is an error, not a swap.
+   *
+   * A loader-form registration is normalised here: the registry builds the one
+   * `LoadedLazyBody` for it — one memoised promise and one stable lazy component — and
+   * stores the descriptor whose `render` mounts it. So `descriptorFor` answers the same
+   * shape for both forms, and nothing downstream branches on how a body was registered.
+   */
+  public register(registration: ConsolePaneRegistration): void {
+    if (registration.body === undefined) {
+      // REGISTERED FIRST, THEN THE LOADER TABLE IS TRIMMED, which is the loader arm's
+      // ordering read from the other side. Deleting first meant a refused registration —
+      // a different owner claiming a taken kind — threw AFTER dropping the loader that
+      // belongs to the descriptor still admitted, and the surviving pane then reported
+      // nothing to `preload` or `unloadedKeys`: warmable one moment and silently not the
+      // next, with no error anywhere naming why. The refusal throws past this line.
+      this.#descriptorsByKind.register(registration.kind, {
+        kind: registration.kind,
+        owner: registration.owner,
+        render: registration.render,
+      });
+      this.#loadedBodiesByKind.delete(registration.kind);
+      return;
+    }
+    // The fallback is the pane's own empty chrome, supplied here rather than by the
+    // generic machinery: what a pane reserves while it loads is a pane-shaped question.
+    const loadedBody = new LoadedLazyBody(registration.body, (context: ConsolePaneContext) =>
+      createElement(PendingPaneBody, { context }),
+    );
+    // Registered BEFORE the descriptor, so a `register` the keyed registry refuses —
+    // a different owner claiming a taken kind — cannot leave a loader behind for a
+    // body that is not the one mounting. The refusal throws past this line.
+    this.#descriptorsByKind.register(registration.kind, {
+      kind: registration.kind,
+      owner: registration.owner,
+      render: loadedBody.render,
+    });
+    this.#loadedBodiesByKind.set(registration.kind, loadedBody);
   }
 
   public unregister(kind: PaneKind): void {
     this.#descriptorsByKind.unregister(kind);
+    this.#loadedBodiesByKind.delete(kind);
+  }
+
+  /**
+   * Start this kind's body loading, without opening it.
+   *
+   * The three callers are the palette's highlighted entry, an address about to open
+   * before the route commits, and the idle warm — all of which know a pane is LIKELY
+   * before it is certain, which is exactly the moment a loader can be paid for off the
+   * critical path.
+   *
+   * Idempotent by construction: the promise is memoised on the registration, so calling
+   * this on every arrow-key press costs one fetch. A component-form kind and an
+   * unregistered kind both settle immediately with nothing to do — a caller preloading
+   * an address it has not opened yet must not have to ask first whether the kind is
+   * loader-backed, or every call site would carry a copy of that question.
+   */
+  public async preload(kind: PaneKind): Promise<void> {
+    await this.#loadedBodiesByKind.get(kind)?.load();
+  }
+
+  /**
+   * Which registered kinds have a body still to load, in declaration order.
+   *
+   * `registeredPaneKinds`' ordering rule, for its reason: the warm walk's order is
+   * observable in what lands first, and registration order would make it depend on which
+   * family's module evaluated first. Already-resolved kinds are filtered out so a second
+   * walk over a warmed board does nothing rather than re-entering every memo.
+   */
+  public unloadedKeys(): readonly PaneKind[] {
+    return PANE_KINDS.filter((kind) => this.#loadedBodiesByKind.get(kind)?.isResolved === false);
   }
 
   public descriptorFor(kind: PaneKind): ConsolePaneDescriptor | undefined {
