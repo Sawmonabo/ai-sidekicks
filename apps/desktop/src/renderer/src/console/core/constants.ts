@@ -644,6 +644,24 @@ export const ANSI_SPAN_RENDER_CAP = 4096;
 export const LEDGER_WINDOW_ROW_CAP = 400;
 
 /**
+ * Rows one backward read of a session's log asks the daemon for.
+ *
+ * The read is registered with its own ceiling — `TIMELINE_READ_LIMIT_MAX`, 256 rows —
+ * and this is deliberately well under it, because the two numbers bound different
+ * things. That one is the largest window a producer may answer with; this is the
+ * largest window a PERSON asked for by pressing a control once, and it lands in a
+ * viewport whose own retention is {@link LEDGER_WINDOW_ROW_CAP}. Asking for the wire's
+ * ceiling would spend most of a press filling rows the reader then has to scroll past
+ * to reach the ones they wanted, and would put three presses over that retention with
+ * the prune suppressed underneath them.
+ *
+ * Fifty is about a screenful and a half at the ledger's density, so one press moves the
+ * head far enough to be worth the round trip and near enough that the rows it brought
+ * are reachable without a second scroll.
+ */
+export const LEDGER_EARLIER_PAGE_ROWS = 50;
+
+/**
  * Chromium's maximum element height, in CSS pixels.
  *
  * The reason the window is a cap and not an optimisation: past this a virtual

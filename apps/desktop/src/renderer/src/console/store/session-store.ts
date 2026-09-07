@@ -38,6 +38,13 @@
 //   • **A re-entrant apply is queued, drained, and reported.** A subscriber that
 //     writes during notification is a defect; losing its event would be a second
 //     one, so the event is kept and the tripwire fires.
+//   • **The log grows at the head through one door, and only backwards.** A session's
+//     stream replays from the position this participant was last acknowledged at, so
+//     the rows below `windowHeadCursor` exist and were never delivered here.
+//     `prependEarlierEvents` is where a read of them lands, and it is not a second
+//     apply chokepoint: it admits no row at or above the log's head, moves no cursor,
+//     runs no projector, and clears no degraded flag. `earlier-window.ts` owns the
+//     fold and says why each of those is a property rather than an omission.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -45,6 +52,7 @@ import type { StoreApi } from "zustand/vanilla";
 import { reportTripwire } from "../core/index.js";
 import { ParticipantHueAllocator } from "../tokens/index.js";
 import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
+import { mergeEarlierWindow, type EarlierWindowMerge } from "./earlier-window.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
 import { EntityProjectionRunner } from "./entity-projection.js";
 import { PreInitialisationBuffer } from "./pre-initialisation-buffer.js";
@@ -59,6 +67,7 @@ import {
   capTimeline,
   establishedState,
   uninitialisedState,
+  type TimelineRetainedEnd,
 } from "./session-state.js";
 import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
@@ -71,6 +80,7 @@ import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 export type { SessionDegradedCause } from "./degradation.js";
 export type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 export { selectEntity, selectPartition } from "./selectors.js";
+export type { EarlierWindowMerge } from "./earlier-window.js";
 
 /** Construction inputs. */
 export interface SessionStoreOptions {
@@ -93,6 +103,15 @@ export class SessionStore {
   readonly #projectionRunner: EntityProjectionRunner;
   readonly #reentrantQueue: ConsoleSessionEvent[] = [];
   #applying = false;
+  /**
+   * Rows this store holds that arrived from behind its window's head.
+   *
+   * Held as a count rather than as a flag because it is the reading a surface wants —
+   * how much history has been re-admitted — and because zero is the same fact as "no
+   * backward page has landed". It resets on `initialise`, which is the one act that
+   * re-establishes where the window starts.
+   */
+  #earlierEventCount = 0;
 
   public constructor(options: SessionStoreOptions) {
     this.#sessionId = options.sessionId;
@@ -138,6 +157,23 @@ export class SessionStore {
     return this.#reconciler.retainedSequenceCount;
   }
 
+  /** Rows admitted from behind this window's head since the last read established it. */
+  public get earlierEventCount(): number {
+    return this.#earlierEventCount;
+  }
+
+  /**
+   * Which end of an over-cap log survives, right now.
+   *
+   * A backward page moves it, and that is the whole of the rule: a reader who asked
+   * for the rows before the window's head has moved to the head, so the cap cuts the
+   * end they left rather than the end they went to. Cutting the other way would
+   * discard the page as it landed, and every press after it.
+   */
+  get #retainedEnd(): TimelineRetainedEnd {
+    return this.#earlierEventCount > 0 ? "oldest" : "newest";
+  }
+
   /**
    * Establish the base state from a read response and drain anything that arrived
    * first.
@@ -155,6 +191,11 @@ export class SessionStore {
       this.#hueAllocator.admit(participantId);
     }
 
+    // A completed read re-establishes where the window STARTS, so whatever a backward
+    // walk had re-admitted below the previous head is no longer a fact about this
+    // window: the rows are re-delivered by the read itself or they are once again
+    // outside it, and either way the count that decides the retained end is stale.
+    this.#earlierEventCount = 0;
     const timeline = orderBatchBySequence(snapshot.timeline ?? []);
     this.#reconciler.rebaseTo(
       snapshot.cursor,
@@ -230,6 +271,56 @@ export class SessionStore {
   /** One-event convenience over `applyBatch`. Not a second chokepoint. */
   public apply(event: ConsoleSessionEvent): ApplyOutcome {
     return this.applyBatch([event]);
+  }
+
+  /**
+   * Grow the log at its head with a page read from behind
+   * {@link SessionStoreState.windowHeadCursor}.
+   *
+   * NOT A SECOND APPLY CHOKEPOINT, and every difference from `applyBatch` is a
+   * property rather than a shortcut. It reconciles no sequence — every row is below
+   * the cursor by construction, so the reconciler would classify each one as a
+   * duplicate or a divergence and refuse the page wholesale. It runs no projector —
+   * a partition holds the NEWEST state of an entity, and an older event's projector
+   * would replace a run's current state with the one it was in before this window
+   * opened. It moves no cursor, records no gap, and neither sets nor clears the
+   * degraded flag: nothing about what this window is missing at the TAIL is decided
+   * by a page from its head.
+   *
+   * A foreign session is refused here as it is there, and for the same reason: two
+   * sessions never share a store, and a page routed to the wrong one would put
+   * another session's rows under this session's ids.
+   *
+   * Answers what the merge did, so a caller can tell an exhausted walk (nothing
+   * admitted, nothing overlapping) from a page asked for at the wrong position
+   * (nothing admitted, every row refused as not-earlier).
+   */
+  public prependEarlierEvents(events: readonly ConsoleSessionEvent[]): EarlierWindowMerge {
+    const current = this.#store.getState();
+    const admissible = orderBatchBySequence(
+      events.filter(
+        (event) => event.sessionId === this.#sessionId && isReconcilableSequence(event.sequence),
+      ),
+    );
+    const merge = mergeEarlierWindow(current.timeline, admissible);
+    if (merge.admitted === 0) {
+      return merge;
+    }
+    // Counted BEFORE the cap runs, because the count is what decides which end the
+    // cap keeps: reading it back off the capped array would let the cap answer its
+    // own question and cut the rows that just arrived.
+    this.#earlierEventCount += merge.admitted;
+    for (const event of admissible) {
+      if (event.actorId !== undefined) {
+        this.#hueAllocator.admit(event.actorId);
+      }
+    }
+    this.#store.setState({
+      ...current,
+      timeline: capTimeline(merge.timeline, this.#timelineCap, this.#retainedEnd),
+      revision: current.revision + 1,
+    });
+    return merge;
   }
 
   #applyBatchInner(events: readonly ConsoleSessionEvent[]): ApplyOutcome {
@@ -321,7 +412,9 @@ export class SessionStore {
       ...current,
       partitions,
       timeline:
-        appended === undefined ? current.timeline : capTimeline(appended, this.#timelineCap),
+        appended === undefined
+          ? current.timeline
+          : capTimeline(appended, this.#timelineCap, this.#retainedEnd),
       cursor: this.#reconciler.cursor,
       // A drop at the cap is a known-incomplete projection for the same reason a
       // skipped sequence is, so it takes the same cause. The sequences it cost are

@@ -64,25 +64,20 @@
 // own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
 // follow seat in `ledger-actor-follow-seat.ts`.
 //
-// NEITHER STRUCTURAL CONTROL IS GIVEN AN `onLoadEarlier` HANDLER, and the reason is
-// NOT the one this paragraph used to give. It said no registered read pages a
-// session's log backwards, and that is false: `packages/contracts/src/timeline/`
-// registers `timeline.read` with a `beforeCursor` member and a window response, and
-// the two growth-slate rows for this read — `timeline-epoch-attestation` and
-// `timeline-path-reference` — grow MEMBERS of it rather than the read itself. A
-// slate row claiming the read is unregistered would be false and the slate's own
-// suite would say so.
+// AND ONE WALK THIS MOUNT OWNS, which is the OTHER end of the log. The store's window
+// begins wherever this participant's stream was last acknowledged, and everything
+// below that head was never delivered — so the ledger reaches it by asking rather than
+// by scrolling. `useLedgerEarlierPaging` is that walk, minted here because this is the
+// mount holding the session store, and handed to the viewport, where the head control
+// is placed beside the tail's.
 //
-// THE REAL REASON IS WHAT THE CLIP MEASURES. `ledger-visible-window.ts` sets
+// THE TWO STRUCTURAL CONTROLS STILL TAKE NO `onLoadEarlier` HANDLER, and the reason is
+// that they are about a different absence. `ledger-visible-window.ts` sets
 // `hasEarlierRows` exactly when the window CAP took rows — rows this store still
-// holds — and deliberately not when an unfetched extent exists, which nothing here
-// can observe. So the honest offer behind this clip re-admits rows already in
-// memory, which is a decision about the cap and the reading pin in
-// `ledger/frame/viewport/`, not a fetch; and a handler that issued a backward page
-// instead would ask the daemon for rows the console is holding and then have
-// nowhere to put them, since the store's log is `ConsoleSessionEvent` and that read
-// answers in `TimelineRow`. Neither is this file's to decide, so the offer stays
-// absent rather than wrong. The clip itself is passed truthfully, so the rail still
+// HOLDS — so the offer behind that clip would re-admit rows already in memory, which
+// is a decision about the cap and the reading pin in `ledger/frame/viewport/` and not
+// a fetch. Wiring the backward read to it would send the daemon after rows the console
+// is already holding. The clip is passed truthfully either way, so the rail still
 // draws its dotted segment and the find result still carries its boundary over a
 // window the cap has truncated.
 
@@ -93,6 +88,7 @@ import {
   LedgerRowLeaseProvider,
   LedgerRowRevealProvider,
   LedgerViewport,
+  useLedgerEarlierPaging,
   useLedgerFrameCoordinator,
   useLedgerReveal,
   useLedgerViewport,
@@ -235,6 +231,10 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     hasActiveTurn: ledgerWindow.hasActiveTurn,
     isRevealDraining: reveal.isDraining,
   });
+  // The walk back past the window's head. Read against the STORE rather than against
+  // any of the windows above, because what it can reach is a property of the log this
+  // console was given and not of whichever narrowing this pane happens to be applying.
+  const earlierPaging = useLedgerEarlierPaging(props.sessionStore);
 
   // A lane whose row this window no longer holds, or holds only inside a chapter that
   // has reached its terminal, is a turn that is over: the engine drops it so a
@@ -370,6 +370,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
               peerInvocationEnabled={peerInvocation.enabled}
               firstReadSettled={firstReadSettled}
               hasActiveTurn={ledgerWindow.hasActiveTurn}
+              earlierPaging={earlierPaging}
             />
           </LedgerRowRevealProvider>
         </LedgerRowLeaseProvider>

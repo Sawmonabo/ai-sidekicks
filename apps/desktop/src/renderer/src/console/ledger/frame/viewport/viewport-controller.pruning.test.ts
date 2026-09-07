@@ -88,7 +88,7 @@ describe("the viewport controller — pruning under a reader", () => {
 
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
 
-    controller.commitPendingTailGlide();
+    controller.commitPendingPositionHold();
     expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
     expect(controller.scroll.writeCount("prune-compensation")).toBe(0);
     expect(controller.scroll.writeCount("follow-tail")).toBeGreaterThan(0);

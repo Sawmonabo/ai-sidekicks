@@ -322,6 +322,8 @@ export class OpenSessionEntry {
       // resume cycle and it is what a surface has to say. What the recovering read
       // acknowledged is carried forward as the next position, and nothing else.
       this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
+      // The recovering read submitted nothing, so the window it established opens at
+      // the beginning of the log and there is no position before it to name.
       this.store.initialise(snapshot);
       return;
     }
@@ -338,7 +340,19 @@ export class OpenSessionEntry {
     // A completed re-pull is the ONE thing that clears the sticky degraded
     // flag — `initialise` does that — which is why the read lands here and
     // not on a caller that might forget.
-    this.store.initialise(snapshot);
+    //
+    // AND THE POSITION THIS READ WAS PERFORMED FROM TRAVELS WITH IT, because this
+    // object is the only one that knows it: a session's stream replays from the
+    // submitted cursor, so that cursor is where the window this read establishes
+    // BEGINS, and the reply carries no member naming its oldest row. Without it the
+    // ledger has no position to ask the log's earlier rows for and would have to
+    // invent one out of an opaque cursor's bytes, which `timeline-resume.ts` refuses
+    // for the whole console. Omitted rather than passed as `undefined` where none was
+    // submitted: the member is optional and this package forbids the explicit-
+    // undefined form.
+    this.store.initialise(
+      submitted === undefined ? snapshot : { ...snapshot, readFromCursor: submitted },
+    );
   }
 
   /** Hold the newest decision and tell the registry it moved. */

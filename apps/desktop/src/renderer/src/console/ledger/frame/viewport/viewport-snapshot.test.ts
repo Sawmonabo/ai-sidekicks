@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   compensatesForGrowth,
   countAppendedAfter,
+  countInsertedBefore,
   type LedgerViewportRow,
 } from "./viewport-snapshot.js";
 
@@ -46,6 +47,30 @@ describe("counting rows appended after the previous tail", () => {
     // produces — would announce the whole window as newly arrived on the first
     // reconcile after a prune.
     expect(countAppendedAfter(RETAINED_ROWS, "pruned-away")).toBe(0);
+  });
+});
+
+describe("counting rows inserted before the previous head", () => {
+  it("counts every row that arrived in front of the row that used to be first", () => {
+    expect(countInsertedBefore(RETAINED_ROWS, "c")).toBe(2);
+    expect(countInsertedBefore(RETAINED_ROWS, "b")).toBe(1);
+  });
+
+  it("counts nothing when the previous head is still the head", () => {
+    expect(countInsertedBefore(RETAINED_ROWS, "a")).toBe(0);
+  });
+
+  it("counts nothing when there was no previous window", () => {
+    expect(countInsertedBefore(RETAINED_ROWS, undefined)).toBe(0);
+    expect(countInsertedBefore([], undefined)).toBe(0);
+  });
+
+  it("counts nothing when the previous head is no longer in the set", () => {
+    // The mirror of the pruned-tail arm, and it matters for the same reason: the row
+    // the key named is gone, so there is no shift to describe and nothing to hold
+    // against. Answering `rows.length` here would arm a head hold on every reconcile
+    // that dropped the first row.
+    expect(countInsertedBefore(RETAINED_ROWS, "pruned-away")).toBe(0);
   });
 });
 

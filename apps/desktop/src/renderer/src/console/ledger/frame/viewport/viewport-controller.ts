@@ -1,12 +1,11 @@
 // What holds the ledger frame's four objects together, and the hook a view reads it
 // through.
 //
-// The scroll chokepoint, the reading anchor, the measurement ledger, and the window
-// cap are each one idea and each testable alone. They are also useless alone: the
-// anchor decides where the reader is and only the chokepoint can hold them there;
-// the virtualizer knows every row's offset and the anchor is the only thing that
-// knows which offset matters. This class is that wiring and nothing else — every
-// rule it obeys lives in one of the four, or in the library.
+// The scroll chokepoint, the reading anchor, the measurement ledger, and the window cap
+// are each one idea and each testable alone. They are also useless alone: the anchor
+// decides where the reader is and only the chokepoint can hold them there; the
+// virtualizer knows every row's offset and the anchor is the only thing that knows
+// which offset matters. This class is that wiring and nothing else.
 //
 // WHAT THE LIBRARY OWNS AND WHAT THIS CLASS OWNS.
 // `Spec-023 §Console Libraries` adopts `@tanstack/react-virtual` "under our own
@@ -16,22 +15,26 @@
 // asked anything, and what the tree is told afterwards.
 //
 // THE ONE PROPERTY THIS FILE STILL OWNS. **The anchor is captured from the
-// virtualizer, never from the DOM.** The row a reader is looking at and its offset
-// both fall out of measurements the library already holds, so holding a reading
-// position costs no element read at all — which is what lets
-// `scroll-chokepoint.ts`'s "no hit test per scroll event while following" hold
-// without a special case for the anchor.
+// virtualizer, never from the DOM.** The row a reader is looking at and its offset both
+// fall out of measurements the library already holds, so holding a reading position
+// costs no element read at all — which is what lets `scroll-chokepoint.ts`'s "no hit
+// test per scroll event while following" hold without a special case for the anchor.
 //
-// WHAT IT NO LONGER DECLARES, in three directions, each stating why its cut is
-// there: the value vocabulary a render speaks and the two pure rules over it are
-// `viewport-snapshot.ts`'; applying the window cap and deciding whether a refusal
-// has lifted are `viewport-prune-cycle.ts`'; holding the published snapshot and
-// deciding whether a rebuild is worth a notification are `viewport-publication.ts`'.
-// This file holds the objects and the order they are asked in.
+// WHAT IT NO LONGER DECLARES, in five directions, each stating why its cut is there:
+// the value vocabulary a render speaks and the two pure rules over it are
+// `viewport-snapshot.ts`'; applying the window cap and deciding whether a refusal has
+// lifted are `viewport-prune-cycle.ts`'; holding the published snapshot and deciding
+// whether a rebuild is worth a notification are `viewport-publication.ts`'; which
+// position work waits for the committed height, and what it does when it runs, are
+// `viewport-deferred-hold.ts`'; and whether a set grew at the FRONT of the window is
+// `viewport-head-growth.ts`'. This file holds the objects and the order they are asked
+// in.
 
 import { type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
 import { ReadingAnchor, RowMeasurementLedger, type LedgerGeometry } from "../measurement/index.js";
 import { LedgerScrollController, type LedgerScrollSurface } from "../scroll/index.js";
+import { LedgerDeferredHold } from "./viewport-deferred-hold.js";
+import { LedgerHeadGrowth } from "./viewport-head-growth.js";
 import { LedgerPruneCycle } from "./viewport-prune-cycle.js";
 import { LedgerViewportPublication } from "./viewport-publication.js";
 import {
@@ -60,13 +63,16 @@ export class LedgerViewportController {
   readonly #pruneCycle: LedgerPruneCycle;
   /** The one place this frame tells a render that something changed. */
   readonly #publication: LedgerViewportPublication;
+  /** The position work a reconcile arms and the binding's layout effect performs. */
+  readonly #deferredHold: LedgerDeferredHold;
+  /** Whether each incoming set grew at the front, and where it would be cut. */
+  readonly #headGrowth = new LedgerHeadGrowth();
   readonly #teardown: Unsubscribe[] = [];
 
   #virtualizer: LedgerRowVirtualizer | undefined;
   #virtualKeys: readonly string[] = [];
   #rows: readonly LedgerViewportRow[] = [];
   #rowKeys: readonly string[] = [];
-  #tailGlidePending = false;
   #disposed = false;
 
   public constructor(options: LedgerViewportControllerOptions) {
@@ -89,6 +95,15 @@ export class LedgerViewportController {
     this.#publication = new LedgerViewportPublication({
       clock: options.clock,
       build: () => this.#buildSnapshot(),
+    });
+    this.#deferredHold = new LedgerDeferredHold({
+      anchor: this.anchor,
+      scroll: this.scroll,
+      rowKeys: () => this.#rowKeys,
+      offsetOfIndex: (index) => this.#offsetOfIndex(index),
+      holdReadingPosition: () => {
+        this.holdReadingPosition();
+      },
     });
     this.#teardown.push(
       // No publication here: a scroll sample changes nothing this snapshot carries.
@@ -164,7 +179,21 @@ export class LedgerViewportController {
    * anchor capture against keys the window no longer has.
    */
   public reconcile(conditions: LedgerViewportConditions): void {
+    const previousHeadKey = this.#rowKeys[0];
     const previousTailKey = this.#rowKeys[this.#rowKeys.length - 1];
+    const scrollTopPx = this.scroll.geometry?.scrollTop ?? 0;
+    // READ BEFORE THE CAP RUNS, because the pin has to be up when the pass happens: a
+    // backward page lands over the row cap by its own length and the cap prunes
+    // oldest-first, so an unpinned pass would take the rows that had just arrived and
+    // every press would answer with nothing.
+    const headGrowth = this.#headGrowth.read(conditions.rows);
+    if (headGrowth.headRootCursor !== undefined) {
+      // The anchor's own third rule — "pinning suppresses prune, and holds survive
+      // it" — with its first production caller. It clears when the reader reaches
+      // the tail again, by the pill or by scrolling there, which is the same act
+      // that says they are done with history.
+      this.anchor.pin(headGrowth.headRootCursor);
+    }
     const { prunedHeightPx, readingFloorRowKey } = this.#pruneCycle.run(conditions);
     const retained = this.window.rows();
     const appendedCount = countAppendedAfter(retained, previousTailKey);
@@ -178,57 +207,29 @@ export class LedgerViewportController {
       readingFloorRowKey !== undefined &&
       this.#pruneCycle.compensateForPrunedHeight(prunedHeightPx);
     if (!compensated) {
-      this.#holdReadingPositionAfterReconcile();
+      this.#deferredHold.armAfterReconcile({
+        headInsertedCount: headGrowth.insertedCount,
+        previousHeadKey,
+        scrollTopPx,
+      });
     }
     this.#publication.publish();
   }
 
   /**
-   * Hold the position across a reconcile — the tail arm ARMED rather than performed.
+   * Perform whatever the last reconcile armed, now that the new height is committed.
    *
-   * The anchor arm runs here as it always has: its index lookup is deliberately in
-   * the pre-render offset space, which is the space the anchored row's offset was
-   * measured in.
-   *
-   * The FOLLOWING arm cannot be, and that is the defect this split closes. The rows
-   * this reconcile took have not rendered yet, so the sizer still carries the
-   * previous total size and `glideToTail()` would read the old `scrollHeight` — it
-   * would scroll to the bottom of the log as it was BEFORE the append. Nothing
-   * corrects it afterwards: the next render grows the sizer and nothing glides again,
-   * because the container did not resize and no further row arrived. The reader is
-   * left short of the new entry with the state still reporting `following`. So the
-   * glide is armed here and performed by `commitPendingTailGlide`, which the React
-   * binding calls in a layout effect that runs AFTER the virtualizer has written the
-   * new height.
+   * The binding calls this from a layout effect declared after `useVirtualizer`, so
+   * the library has already written the container's height under `directDomUpdates`
+   * and both arms read the space they were computed for. `viewport-deferred-hold.ts`
+   * owns which arm is owed and what each one does; this is the disposal check and the
+   * delegation.
    */
-  #holdReadingPositionAfterReconcile(): void {
-    if (this.anchor.state.mode === "following") {
-      this.#tailGlidePending = true;
+  public commitPendingPositionHold(): void {
+    if (this.#disposed) {
       return;
     }
-    this.holdReadingPosition();
-  }
-
-  /**
-   * Perform the tail glide a reconcile armed, now that the new height is committed.
-   *
-   * Re-checks the reading mode rather than trusting the arming: a reader who scrolled
-   * away between the reconcile and this commit is no longer following, and dragging
-   * them to the tail is the one thing the anchor exists to prevent. The flag is
-   * cleared either way, so a stale arming never fires against a later render.
-   *
-   * Idempotent and cheap when nothing is armed, because the binding calls it after
-   * every render rather than only after the ones that appended.
-   */
-  public commitPendingTailGlide(): void {
-    if (!this.#tailGlidePending || this.#disposed) {
-      return;
-    }
-    this.#tailGlidePending = false;
-    if (this.anchor.state.mode !== "following") {
-      return;
-    }
-    this.scroll.glideToTail("follow-tail");
+    this.#deferredHold.commit();
   }
 
   /**
@@ -278,10 +279,10 @@ export class LedgerViewportController {
    * Called from `reconcile`'s own arm only where no prune compensation ran: its index
    * lookup reads a virtualizer still in the PRE-prune offset space until React
    * re-renders, so after a prune it would name the wrong row. That arm defers the
-   * FOLLOWING case to `commitPendingTailGlide` — see
-   * `#holdReadingPositionAfterReconcile`. Called directly, as the overflow pass does,
-   * both arms run now: a container that has already resized carries a current
-   * `scrollHeight`, so there is nothing to wait for.
+   * FOLLOWING and head-insert cases to `commitPendingPositionHold` — see
+   * `viewport-deferred-hold.ts`. Called directly, as the overflow pass does, both arms
+   * run now: a container that has already resized carries a current `scrollHeight`, so
+   * there is nothing to wait for.
    */
   public holdReadingPosition(): void {
     const reading = this.anchor.state;
@@ -313,7 +314,7 @@ export class LedgerViewportController {
 
   /** Terminal. Every subscription this controller opened is closed here. */
   public dispose(): void {
-    this.#tailGlidePending = false;
+    this.#deferredHold.disarm();
     // The retry's hold on the last row set goes with the subscriptions: a disposed
     // controller that kept it would hold a whole window's identity list alive for
     // as long as anything still referenced the corpse.

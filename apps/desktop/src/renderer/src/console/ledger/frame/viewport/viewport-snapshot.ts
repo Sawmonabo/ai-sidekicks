@@ -78,6 +78,31 @@ export function countAppendedAfter(
 }
 
 /**
+ * How many rows arrived before the row that used to be first.
+ *
+ * The mirror of {@link countAppendedAfter}, and the two answer different questions
+ * about the same array on purpose: rows appended at the tail arrive UNDER a reader and
+ * are counted so the tail pill can offer them, while rows inserted at the head arrive
+ * ABOVE one and are counted so the frame can undo the shift they cause. A log grows at
+ * both ends and only one of those is something a person asked for.
+ *
+ * `undefined` for the head key is zero for {@link countAppendedAfter}'s reason: there
+ * was no previous window, so nothing was inserted into one. A head key the incoming
+ * set no longer carries is likewise zero — the row it named is gone, so the count that
+ * would follow it has no origin and no shift to describe.
+ */
+export function countInsertedBefore(
+  rows: readonly LedgerViewportRow[],
+  previousHeadKey: string | undefined,
+): number {
+  if (previousHeadKey === undefined) {
+    return 0;
+  }
+  const previousHeadIndex = rows.findIndex((row) => row.key === previousHeadKey);
+  return previousHeadIndex < 0 ? 0 : previousHeadIndex;
+}
+
+/**
  * Whether the virtualizer may subtract a measurement's delta from the offset.
  *
  * Two conjuncts, and BOTH are load-bearing:

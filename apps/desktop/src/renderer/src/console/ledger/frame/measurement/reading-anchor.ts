@@ -107,6 +107,13 @@ export class ReadingAnchor {
    * point: the viewport captures a fresh one as it scrolls, and dropping the last
    * known point here would leave a frame with nothing to restore.
    *
+   * ARRIVING ALSO CLEARS THE PIN, for the same reason {@link resumeFollowing} does:
+   * pinning is what a reader paging back into history raises, and being at the tail is
+   * what says they are done with it. Reaching the tail by scrolling and reaching it by
+   * the pill are one act with two gestures, and a pin only the pill released would
+   * survive the other one forever — with prune refused underneath it, which is a
+   * window that grows without bound for as long as the session does.
+   *
    * The two arms are deliberately asymmetric. ARRIVING at the tail is arriving
    * however the sample was produced — a shorter log or a taller pane both put the
    * reader at the bottom, and they are at the bottom. LEAVING it takes a `"scroll"`
@@ -116,6 +123,10 @@ export class ReadingAnchor {
    */
   public observeGeometry(geometry: LedgerGeometry): void {
     if (geometry.isAtTail) {
+      // Through `unpin` rather than by assignment, so a sample that releases a pin
+      // without moving the mode still notifies: the pin is on the published state, and
+      // the window's prune refusal lifts on exactly that field.
+      this.unpin();
       this.#transition("following", 0);
       return;
     }

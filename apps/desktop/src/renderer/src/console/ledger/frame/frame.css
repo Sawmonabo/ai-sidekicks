@@ -98,6 +98,44 @@
   pointer-events: none;
 }
 
+/*
+ * The head affordance, floating over the top of the feed.
+ *
+ * Positioned exactly as the tail's is and for the same reason: a control inserted
+ * into the flow would change the content height, and the reading position this act
+ * exists to preserve is measured against that height. The two are one piece of
+ * geometry at two ends of one box.
+ */
+.meridian-ledger-viewport__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--meridian-space-2);
+  position: absolute;
+  inset-inline: 0;
+  top: var(--meridian-space-3);
+  pointer-events: none;
+}
+
+.meridian-ledger-viewport__load-earlier {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.meridian-ledger-viewport__load-earlier:disabled {
+  cursor: default;
+  color: var(--meridian-text-faint);
+}
+
 .meridian-ledger-viewport__pin {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border-radius: var(--meridian-radius-sm);

@@ -118,12 +118,12 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * SIXTEEN, and PINNED rather than left as a floor. The count was zero when this gate
+ * SEVENTEEN, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The sixteen, by module and by the family that bound it:
+ * It is no longer vacuous. The seventeen, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -162,6 +162,11 @@ function isBridgeFamilyModule(module: string): boolean {
  *      so each request keeps the type the method fixes — a table holding the method as
  *      data would have to widen every request to `unknown`, which is the check the door
  *      exists to make.
+ *  17. `console/ledger/frame/paging/earlier-window-reader.ts` — the backward walk into
+ *      the rows below the window's head. The only read here that grows the log at the
+ *      END the stream does not append to, and the one place `timeline.read` is sent
+ *      from: the store owns where the page lands and this owns where the next one
+ *      starts.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
  * none around it. The composer's half was six until its target chip stopped taking a
@@ -183,7 +188,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 16;
+const CALL_DOOR_CONSUMER_COUNT = 17;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

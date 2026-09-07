@@ -170,6 +170,24 @@ export const LEDGER_SCENARIO: ConsoleScenario = {
         timelineCursors: { latest: "ledger-cursor-33", acknowledged: "ledger-cursor-30" },
       },
     },
+    // The backward window, ANSWERED AND EMPTY, which is the true answer here.
+    //
+    // The reply above acknowledges `ledger-cursor-30`, so the ledger offers its head
+    // control: a window opened at an acknowledged position has rows below it as far as
+    // any client can tell. This session's rows are the beats, and the beats ARE the
+    // whole log — they start at the first sequence — so there is nothing before the
+    // window and the terminal arm says exactly that. Scripting a page of invented
+    // earlier rows would put entries under sequences this script already spends, and
+    // the store refuses anything at or above its head sequence on purpose.
+    //
+    // It is here rather than absent because an unscripted call refuses, and a refusal
+    // is what the fixture would then be teaching this control to render. The settle
+    // path — pressed once, answered, offered no more — is reachable with this row and
+    // with nothing else.
+    {
+      call: "timeline.read",
+      result: { entries: [], hasMore: false },
+    },
     {
       call: "agent.list",
       result: {

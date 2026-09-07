@@ -174,3 +174,46 @@ describe("the reading anchor — the anchor point", () => {
     expect(anchor.state.anchorPoint?.rowKey).toBe("row-7");
   });
 });
+
+describe("the reading anchor — returning to the tail", () => {
+  it("releases the pin, so prune resumes once the reader is done with history", () => {
+    // Pinning is what paging back raises and being at the tail is what says the reader
+    // is finished with it. Reaching the tail by scrolling and reaching it by the pill
+    // are one act with two gestures — and a pin only the pill released would survive
+    // the other one forever, with prune refused underneath it.
+    const anchor = new ReadingAnchor();
+    anchor.pin("cursor-earlier");
+    expect(anchor.suppressesPrune()).toBe(true);
+
+    anchor.observeGeometry(geometry(4500, true));
+
+    expect(anchor.suppressesPrune()).toBe(false);
+    expect(anchor.state.pinnedRootCursor).toBeUndefined();
+    expect(anchor.state.mode).toBe("following");
+  });
+
+  it("negative control: a sample short of the tail leaves the pin standing", () => {
+    const anchor = new ReadingAnchor();
+    anchor.pin("cursor-earlier");
+
+    anchor.observeGeometry(geometry(1200, false));
+
+    expect(anchor.suppressesPrune()).toBe(true);
+  });
+
+  it("notifies on the release, so the window hears the refusal lift", () => {
+    // The refusal is read off the published state, so a release nobody was told about
+    // is a window that keeps deferring until something else happens to notify.
+    const anchor = new ReadingAnchor();
+    anchor.pin("cursor-earlier");
+    anchor.observeGeometry(geometry(1200, false));
+    const seen: (string | undefined)[] = [];
+    anchor.subscribe((state) => seen.push(state.pinnedRootCursor));
+
+    anchor.observeGeometry(geometry(4500, true));
+
+    expect(seen[0]).toBe("cursor-earlier");
+    expect(seen.length).toBeGreaterThan(1);
+    expect(seen.slice(1).every((pinnedRootCursor) => pinnedRootCursor === undefined)).toBe(true);
+  });
+});
