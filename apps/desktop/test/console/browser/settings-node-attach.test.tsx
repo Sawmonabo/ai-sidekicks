@@ -33,7 +33,7 @@ import { SETTINGS_SCENARIO } from "../../../src/renderer/src/console/bridge/scen
 import { SETTINGS_RUNTIME_NODE_ATTACH_DRAFT } from "../../../src/renderer/src/console/bridge/scenarios/settings/runtime-nodes.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
-import { consoleTestUiStateStore } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";
+import { settingsPageContextWith } from "../../../src/renderer/src/console/settings/settings-page-mount.test-support.js";
 
 /** Both machines online, one axis apart — the tick the page's own suite renders at. */
 const BOTH_MACHINES_ONLINE_MS = 200;
@@ -51,13 +51,7 @@ function bridgeWithRoster(): ConsoleBridge {
 }
 
 function contextFor(bridge: ConsoleBridge): SettingsPageContext {
-  return {
-    bridge,
-    openSection: () => undefined,
-    retainedSessionId: SETTINGS_SCENARIO.sessionId,
-    retainedSessionStore: undefined,
-    uiStateStore: consoleTestUiStateStore(),
-  };
+  return settingsPageContextWith(bridge, SETTINGS_SCENARIO.sessionId);
 }
 
 /** The attach control's current branch, or a failure naming that it drew none. */
