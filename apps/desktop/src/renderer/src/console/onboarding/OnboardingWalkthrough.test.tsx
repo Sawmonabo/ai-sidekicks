@@ -52,15 +52,29 @@ import { OnboardingFlow } from "./onboarding-flow.js";
 import {
   bridgeWithGroupAAnswered,
   bridgeWithNoRelayChosen,
+  bridgeWithStepsDone,
 } from "./onboarding-state.test-support.js";
 import { OnboardingWalkthrough } from "./OnboardingWalkthrough.js";
 import { ProviderReadinessModel } from "./provider-readiness/provider-readiness.js";
 import { RELAY_METHOD_OPTIONS_IN_ORDER } from "./relay/relay-choice.js";
-import { ONBOARDING_STEPS, type OnboardingStepId } from "./steps/step-model.js";
+import { ONBOARDING_STEPS, RESUME_OPENING, type OnboardingOpening } from "./steps/step-model.js";
+
+/**
+ * What the surface holding this walkthrough offers as a way out.
+ *
+ * A WRAPPER RATHER THAN A BARE PARAMETER, because the value under test in one case is
+ * `undefined` itself — a dialog that refuses to close — and a default parameter is
+ * applied to an explicitly passed `undefined`, so the case would have been handed the
+ * default and asserted nothing.
+ */
+interface DismissalUnderTest {
+  readonly handler: (() => void) | undefined;
+}
 
 async function mountAt(
-  openAtStep: OnboardingStepId,
+  openAtStep: OnboardingOpening,
   bridge: ConsoleBridge = createFixtureBridge({ scenario: ONBOARDING_SCENARIO }),
+  dismissal: DismissalUnderTest = { handler: () => undefined },
 ): Promise<HTMLElement> {
   const rendered = render(
     <OnboardingWalkthrough
@@ -69,6 +83,7 @@ async function mountAt(
       openAtStep={openAtStep}
       accountScope={undefined}
       onOpenAccountRegistry={() => undefined}
+      onDismiss={dismissal.handler}
     />,
   );
   await act(async () => {
@@ -80,15 +95,76 @@ async function mountAt(
   return rendered.container;
 }
 
-/** The footer's one act, whatever holds it. */
-function finishControl(container: HTMLElement): HTMLButtonElement {
-  const control = [...container.querySelectorAll("button")].find(
+/** The one control that puts a step away without answering it, whatever it reads. */
+function dismissControl(container: HTMLElement): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find((one) => one.textContent === "Not now");
+}
+
+/** A bridge over the given one that counts every write this family can perform. */
+function countingWrites(base: ConsoleBridge): {
+  readonly bridge: ConsoleBridge;
+  writes: () => number;
+} {
+  let writes = 0;
+  const count = <Request, Value>(
+    operation: (request: Request) => Promise<Value>,
+  ): ((request: Request) => Promise<Value>) => {
+    return async (request) => {
+      writes += 1;
+      return operation(request);
+    };
+  };
+  return {
+    bridge: {
+      ...base,
+      growth: {
+        ...base.growth,
+        onboardingStepAdvance: count(base.growth.onboardingStepAdvance),
+        onboardingStepSkip: count(base.growth.onboardingStepSkip),
+        onboardingComplete: count(base.growth.onboardingComplete),
+      },
+    },
+    writes: () => writes,
+  };
+}
+
+/** The footer's one act, where the footer is offering one at all. */
+function findFinishControl(container: HTMLElement): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find(
     (one) => one.textContent === "Finish setting up",
   );
+}
+
+/** The footer's one act, whatever holds it. */
+function finishControl(container: HTMLElement): HTMLButtonElement {
+  const control = findFinishControl(container);
   if (control === undefined) {
     throw new Error("the footer offers no finish action");
   }
   return control;
+}
+
+/**
+ * A node nobody has onboarded, over the fixture's OWN ledger.
+ *
+ * `bridgeWithNoRelayChosen` replaces the state read outright, so a step this window
+ * records never appears in it — which is right for the cases that are about an
+ * unsettled node and wrong for the one case that is about a node MOVING. The scenario
+ * variant keeps the fixture's fold, so recording the relay step changes what the next
+ * read answers, which is the whole of what that case observes.
+ */
+function freshNodeBridge(): ConsoleBridge {
+  return createFixtureBridge({
+    scenario: {
+      ...ONBOARDING_SCENARIO,
+      id: `${ONBOARDING_SCENARIO.id}-fresh-node`,
+      replies: ONBOARDING_SCENARIO.replies.map((reply) =>
+        reply.call === "growth:onboardingStateRead"
+          ? { call: reply.call, result: { completedStepIds: [], isComplete: false } }
+          : reply,
+      ),
+    },
+  });
 }
 
 /** A bridge over the given one that counts what reached `onboarding.complete`. */
@@ -370,6 +446,7 @@ describe("the window trigger set", () => {
         openAtStep="providers"
         accountScope={undefined}
         onOpenAccountRegistry={() => undefined}
+        onDismiss={() => undefined}
       />,
     );
     await act(async () => {
@@ -388,5 +465,169 @@ describe("the window trigger set", () => {
 
     expect(stateReadCount).toBe(2);
     expect(readinessReadCount()).toBe(2);
+  });
+});
+
+describe("leaving the provider step", () => {
+  it("puts it away without telling the daemon anything", async () => {
+    // `Spec-026 §Provider Authentication (Group B)` has that group persist "no config
+    // key, no partial-state entry, no keystore entry, and no event". The control here
+    // used to dispatch `onboarding.stepSkip`, which wrote the provider step into the
+    // daemon's own completed set — a second record of a step whose truth lives in the
+    // account registry, and one that stayed true after every account was signed out.
+    // What is asserted is every write this family can perform, rather than the one
+    // method the defect happened to use.
+    const counted = countingWrites(createFixtureBridge({ scenario: ONBOARDING_SCENARIO }));
+    let dismissals = 0;
+    const container = await mountAt("providers", counted.bridge, {
+      handler: () => {
+        dismissals += 1;
+      },
+    });
+
+    const dismiss = dismissControl(container);
+    expect(dismiss).toBeDefined();
+    await act(async () => {
+      dismiss?.click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(counted.writes()).toBe(0);
+    // And it did the one thing it is for: the activation is put away locally.
+    expect(dismissals).toBe(1);
+  });
+
+  it("says what pressing it does and does not do", async () => {
+    const container = await mountAt("providers");
+    expect(container.textContent ?? "").toContain("Not now simply puts this away");
+  });
+
+  it("offers no way out where the surface holding it refuses to close", async () => {
+    // The lock is the overlay's, and this is the walkthrough honouring it: a control
+    // offered over a dialog that will not close is a control that does nothing.
+    const container = await mountAt("providers", undefined, { handler: undefined });
+    expect(dismissControl(container)).toBeUndefined();
+  });
+
+  it("offers it on no step the model holds to an answer", async () => {
+    for (const step of ["relay", "telemetry"] as const) {
+      const container = await mountAt(step);
+      expect(dismissControl(container), step).toBeUndefined();
+    }
+  });
+});
+
+describe("where a resume activation opens", () => {
+  it("opens at the first step the daemon says is unresolved, not at the first step", async () => {
+    // The regression itself. The collaboration command fires before this window has
+    // necessarily read anything, so a step chosen at press time was chosen from a
+    // snapshot reporting nothing done — `relay`, on a node that had settled it.
+    const container = await mountAt(RESUME_OPENING, bridgeWithStepsDone("relay"));
+    const title = container.querySelector(".meridian-onboarding__title");
+    expect(title?.textContent).toBe(ONBOARDING_STEPS.telemetry.label);
+  });
+
+  it("opens at the first step where the daemon says nothing is done", async () => {
+    // The other end of the same reading, so the case above is not passing on a
+    // constant: a node nobody has set up still opens where it always did.
+    const container = await mountAt(RESUME_OPENING, bridgeWithNoRelayChosen());
+    const title = container.querySelector(".meridian-onboarding__title");
+    expect(title?.textContent).toBe(ONBOARDING_STEPS.relay.label);
+  });
+
+  it("leaves a named opening exactly where it was asked to open", async () => {
+    // The negative control for the pair above: only `resume` reads the completed set,
+    // so the two group-B openings land on their own step whatever the node has settled.
+    const container = await mountAt("providers", bridgeWithStepsDone("relay"));
+    const title = container.querySelector(".meridian-onboarding__title");
+    expect(title?.textContent).toBe(ONBOARDING_STEPS.providers.label);
+  });
+
+  it("stays on the step a person is looking at when their own act settles it", async () => {
+    // Resolved ONCE. This node has nothing recorded, so the walkthrough opens at the
+    // relay step; choosing a relay records that step and re-reads, and a pane that
+    // re-derived its opening on every read would move to telemetry mid-confirmation —
+    // taking the answer the person just gave off screen.
+    const container = await mountAt(RESUME_OPENING, freshNodeBridge());
+    const choose = [...container.querySelectorAll("button")].find(
+      (one) => one.textContent === "Choose where this node relays",
+    );
+    expect(choose).toBeDefined();
+    await act(async () => {
+      choose?.click();
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+
+    const title = container.querySelector(".meridian-onboarding__title");
+    expect(title?.textContent).toBe(ONBOARDING_STEPS.relay.label);
+    // And the confirmation it stayed for is on screen.
+    expect(container.textContent ?? "").toContain(
+      "A credential for this relay is held by the host process",
+    );
+  });
+});
+
+describe("a node the daemon reports as set up", () => {
+  it("renders a terminal and offers the act no more", async () => {
+    // What used to happen: `onboardingComplete` answered, the in-flight flag cleared,
+    // and the same button came back live — so a second press dispatched the same act
+    // again over a node already recorded as set up. The control retires on the READ.
+    const container = await mountAt("providers", bridgeWithGroupAAnswered());
+    expect(finishControl(container).disabled).toBe(false);
+
+    await act(async () => {
+      finishControl(container).click();
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+
+    expect(findFinishControl(container)).toBeUndefined();
+    expect(container.textContent ?? "").toContain("This node is set up");
+  });
+
+  it("keeps saying which providers are not ready", async () => {
+    // `Spec-026`'s completion posture: what a person leaves with is the standing, and
+    // it is as true after finishing as it was before.
+    const container = await mountAt("providers", bridgeWithGroupAAnswered());
+    await act(async () => {
+      finishControl(container).click();
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+    expect(container.textContent ?? "").toContain("These providers are not ready");
+  });
+
+  it("still offers the act where the read has not said so — the negative control", async () => {
+    // Without this the pair above would pass over a footer that simply never offers
+    // the act. The same node, the same press, and a state read that keeps reporting
+    // this node unfinished: the control comes back.
+    const counted = countingCompletions(bridgeWithGroupAAnswered());
+    const unfoldedBridge: ConsoleBridge = {
+      ...counted.bridge,
+      growth: {
+        ...counted.bridge.growth,
+        onboardingStateRead: async () => ({
+          status: "served",
+          value: { completedStepIds: ["relay", "telemetry"], isComplete: false },
+        }),
+      },
+    };
+    const container = await mountAt("providers", unfoldedBridge);
+    await act(async () => {
+      finishControl(container).click();
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+    expect(counted.completions()).toBe(1);
+    expect(findFinishControl(container)?.disabled).toBe(false);
   });
 });

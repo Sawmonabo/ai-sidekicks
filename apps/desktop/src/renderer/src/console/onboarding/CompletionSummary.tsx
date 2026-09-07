@@ -18,50 +18,68 @@
 // takes an explicit answer with no silent default. This footer is on every step, so
 // it was the one control that could dispatch `onboarding.complete` from a step nobody
 // had answered, and a daemon that accepted it would record this node as set up over
-// two questions never put. `blockedReason` is the whole of that fact — one value
-// decides both the disabled control and the missing handler, on the telemetry step's
+// two questions never put. `standing` is the whole of that fact — one value decides
+// both the disabled control and the missing handler, on the telemetry step's
 // precedent — and it is composed in the step model, which is where the split lives.
+//
+// AND AN ACT THAT HAS HAPPENED IS NOT OFFERED AGAIN. The same value carries the other
+// end: once the daemon's own read reports this node set up, the footer renders a
+// terminal and no control. The summary above it stays, because what a person leaves
+// with is which providers are not ready — that is the whole of `Spec-026`'s completion
+// posture, and it is as true after finishing as it was before.
 
 import { WireFigure } from "../primitives/index.js";
 import { ZERO_ACCOUNTS_NOTE } from "./provider-readiness/provider-readiness-copy.js";
 import type { ProviderReadinessReading } from "./provider-readiness/provider-readiness.js";
 import { providersNotReady } from "./provider-readiness/provider-readiness.js";
+import type { OnboardingCompletionStanding } from "./steps/step-model.js";
 
 export interface CompletionSummaryProps {
   readonly reading: ProviderReadinessReading;
   /**
-   * Why this node may not be recorded as set up yet, or `undefined` when it may.
+   * Where the completion act stands, as one closed value.
    *
-   * Present, it takes the control away as well as explaining it: no handler is wired
-   * at all, so nothing here reaches `onboarding.complete` however the press arrives.
-   * The reason is rendered as text beside the control rather than as a `title`,
-   * because a disabled control takes no focus and a tooltip is the one place a
-   * keyboard reader will not find it.
+   * ON THE HELD ARM the control is taken away as well as explained: no handler is
+   * wired at all, so nothing here reaches `onboarding.complete` however the press
+   * arrives. The reason is rendered as text beside the control rather than as a
+   * `title`, because a disabled control takes no focus and a tooltip is the one place
+   * a keyboard reader will not find it.
+   *
+   * ON THE SETTLED ARM there is no control at all — this node is already recorded as
+   * set up, and an act that has happened is not one to offer again. What stays on
+   * screen is the provider standing, which is what `Spec-026 §Provider Authentication
+   * (Group B)` requires a person to leave the flow knowing.
    */
-  readonly blockedReason: string | undefined;
+  readonly standing: OnboardingCompletionStanding;
   readonly isFinishing: boolean;
   readonly onFinish: () => void;
 }
 
 export function CompletionSummary(props: CompletionSummaryProps): React.JSX.Element {
-  const { blockedReason } = props;
-  const isBlocked = blockedReason !== undefined;
+  const { standing } = props;
   return (
     <section className="meridian-onboarding__step" aria-label="Finish setting up">
       {renderProviderStanding(props.reading)}
-      {blockedReason === undefined ? null : (
+      {standing.kind === "held" ? (
         <p className="meridian-onboarding__note meridian-onboarding__note--quiet">
-          {blockedReason}
+          {standing.reason}
         </p>
+      ) : null}
+      {standing.kind === "settled" ? (
+        <p className="meridian-onboarding__note">
+          This node is set up. Nothing here is outstanding — the standing above is what it is
+          running with, and every part of it can be changed later from settings.
+        </p>
+      ) : (
+        <button
+          type="button"
+          className="meridian-onboarding__act"
+          onClick={standing.kind === "held" ? undefined : props.onFinish}
+          disabled={standing.kind === "held" || props.isFinishing}
+        >
+          Finish setting up
+        </button>
       )}
-      <button
-        type="button"
-        className="meridian-onboarding__act"
-        onClick={isBlocked ? undefined : props.onFinish}
-        disabled={isBlocked || props.isFinishing}
-      >
-        Finish setting up
-      </button>
     </section>
   );
 }

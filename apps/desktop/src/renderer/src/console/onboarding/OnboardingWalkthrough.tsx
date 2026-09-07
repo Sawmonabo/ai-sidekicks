@@ -12,9 +12,22 @@
 // REACHABLE IS NOT THE SAME AS PRESSABLE, THOUGH. Group B is what "never demanded"
 // is about; group A is demanded, and a footer on every step was the one control that
 // could dispatch `onboarding.complete` from a step nobody had answered. So the act is
-// held until both group-A answers are recorded — composed by `completionBlockedReason`
+// held until both group-A answers are recorded — composed by `completionStanding`
 // from the same completed set the rail reads, and withdrawn rather than merely
 // disabled, on the telemetry step's precedent.
+//
+// AND IT RETIRES ON THE READ RATHER THAN ON ITS OWN REPLY. The same `completionStanding`
+// answers the other end: once the daemon's state read says this node IS set up, the
+// footer renders a terminal and offers no act at all. It used to clear only an
+// in-flight flag, so a finished walkthrough sat there with a live "Finish setting up"
+// button and a second press dispatched `onboarding.complete` again. What retires it is
+// the authoritative reading and never the mutation's own settlement — the mutation
+// answering is the daemon accepting the act, and the read is what says the node moved.
+//
+// WHERE IT OPENS IS THE ACTIVATION'S, AND `resume` IS ONE OF THE ANSWERS. Two openings
+// name a step and the third means "wherever this node got to", which cannot be resolved
+// until the read answers — so `useOpeningStep` resolves it here, once, against the
+// reading this component already holds.
 //
 // TWO READS ON OPEN AND NO MORE. The flow's own state read says where this node is,
 // and the readiness read says which providers it can run. The second is issued here
@@ -60,11 +73,13 @@ import type {
   ProviderReadinessReading,
 } from "./provider-readiness/provider-readiness.js";
 import { RelayChoiceStep } from "./relay/RelayChoiceStep.js";
+import { useOpeningStep } from "./steps/opening-step.js";
 import { StepRail } from "./steps/StepRail.js";
 import {
-  completionBlockedReason,
+  completionStanding,
   ONBOARDING_STEPS,
   stepBlockedReason,
+  type OnboardingOpening,
   type OnboardingStepId,
 } from "./steps/step-model.js";
 import { TelemetryStep } from "./steps/TelemetryStep.js";
@@ -72,17 +87,25 @@ import { TelemetryStep } from "./steps/TelemetryStep.js";
 export interface OnboardingWalkthroughProps {
   readonly flow: OnboardingFlow;
   readonly readiness: ProviderReadinessModel;
-  /** Which step this activation opens at. */
-  readonly openAtStep: OnboardingStepId;
+  /** Which step this activation opens at, or `resume` for wherever this node got to. */
+  readonly openAtStep: OnboardingOpening;
   /** Scopes the readiness read; present only on the post-refusal activation. */
   readonly accountScope: ProviderAccountId | undefined;
   /** Open the account registry, scoped to a provider where a row named one. */
   readonly onOpenAccountRegistry: (providerName: string | undefined) => void;
+  /**
+   * Put this activation away, where the surface holding it admits being closed.
+   *
+   * `undefined` while it does not — the overlay's own lock is the one place that is
+   * decided — and the provider step's **Not now** is offered only where a way out
+   * exists. A control offered over a dialog that refuses to close is a control that
+   * does nothing when pressed.
+   */
+  readonly onDismiss: (() => void) | undefined;
 }
 
 export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.JSX.Element {
   const { flow, readiness } = props;
-  const [chosenStepId, setChosenStepId] = useState<OnboardingStepId>(props.openAtStep);
   const [isFinishing, setIsFinishing] = useState(false);
 
   const subscribeToFlow = useCallback((listener: () => void) => flow.subscribe(listener), [flow]);
@@ -113,19 +136,27 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
   useWindowReadTriggers(readiness);
 
   const { completedSteps, reading } = snapshot;
+  // Where the pane opens, and the one cell a rail press moves. A `resume` opening is
+  // resolved against the completed set below and settled on the first answered read;
+  // a named one is that step from the first frame.
+  const { openStepId, chooseStep } = useOpeningStep(
+    props.openAtStep,
+    completedSteps,
+    reading.kind === "read",
+  );
 
   return (
     <div className="meridian-onboarding">
-      <StepRail completed={completedSteps} openStepId={chosenStepId} onOpenStep={setChosenStepId} />
+      <StepRail completed={completedSteps} openStepId={openStepId} onOpenStep={chooseStep} />
       <div className="meridian-onboarding__pane">
-        <h3 className="meridian-onboarding__title">{ONBOARDING_STEPS[chosenStepId].label}</h3>
+        <h3 className="meridian-onboarding__title">{ONBOARDING_STEPS[openStepId].label}</h3>
         {reading.kind === "unreadable" ? (
           // Where this node is could not be read. A block above the step rather than
           // a line beside a control, because no control asked — the walkthrough's own
           // arrival did — and the step below still renders whatever it can.
           <RefusalCard code={reading.refusal.code} detail={reading.refusal.detail} />
         ) : null}
-        {renderStep(chosenStepId, props, {
+        {renderStep(openStepId, props, {
           snapshot,
           readinessReading: readinessSnapshot.reading,
           isRelayResolved: completedSteps.has("relay"),
@@ -133,15 +164,21 @@ export function OnboardingWalkthrough(props: OnboardingWalkthroughProps): React.
           // the rail reads. The rail keeps a held step from being opened; this is
           // what an activation that opened AT one renders, and neither is the other's
           // fallback — both ask the step model.
-          blockedReason: stepBlockedReason(chosenStepId, completedSteps),
+          blockedReason: stepBlockedReason(openStepId, completedSteps),
         })}
       </div>
       <footer className="meridian-onboarding__footer">
         <CompletionSummary
           reading={readinessSnapshot.reading}
-          // Group A is demanded, so the act is withdrawn until both of its answers are
-          // recorded. Composed from the step model, which is where the split lives.
-          blockedReason={completionBlockedReason(completedSteps)}
+          // One closed value for all three states, from the step model and the
+          // authoritative reading: settled where the daemon says this node is set up,
+          // held until both group-A answers are recorded, offered otherwise. An
+          // unanswered read reports neither — `isComplete` is a fact this console
+          // never assumes.
+          standing={completionStanding(
+            completedSteps,
+            reading.kind === "read" && reading.isComplete,
+          )}
           isFinishing={isFinishing}
           onFinish={() => {
             setIsFinishing(true);
@@ -204,17 +241,14 @@ function renderStep(
             void readiness.recheck(providerName, accountId);
           }}
           onOpenAccountRegistry={props.onOpenAccountRegistry}
-          // From the rail's model rather than from this arm: `Spec-026` makes exactly
-          // one step skippable, `step-model.ts` records which, and a handler written
-          // unconditionally here would be a second answer to that question living
-          // beside the first.
-          onSkip={
-            ONBOARDING_STEPS[stepId].isSkippable
-              ? () => {
-                  void flow.skip(stepId);
-                }
-              : undefined
-          }
+          // A LOCAL EXIT AND NOT A RECORDED SKIP. `Spec-026` makes exactly one step
+          // leavable, `step-model.ts` records which, and the way out is the overlay's
+          // own dismissal — so nothing reaches the daemon, which is what "Group B
+          // persists nothing" means when a person presses it. Both conditions are read
+          // rather than restated: a handler written unconditionally here would be a
+          // second answer to the first question, and one that closed the dialog
+          // regardless would be a second answer to the second.
+          onDismiss={ONBOARDING_STEPS[stepId].mayBeLeftUnanswered ? props.onDismiss : undefined}
         />
       );
   }

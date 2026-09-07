@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   completedStepsFrom,
-  completionBlockedReason,
+  completionStanding,
   firstUnresolvedStep,
   MANDATORY_STEP_GROUP,
   ONBOARDING_STEP_IDS,
@@ -61,26 +61,34 @@ describe("the steps as data", () => {
     }
   });
 
-  it("makes the provider step the one step that can be skipped", () => {
+  it("makes the provider step the one step that may be left unanswered", () => {
     // Stated as the positive set rather than its complement, because that is the set
     // `Spec-026` closes: group B is offered and never demanded, and BOTH group-A
     // steps refuse to be left unanswered — the relay choice by being non-dismissible
     // and telemetry by admitting no silent default.
-    const skippable = ONBOARDING_STEPS_IN_ORDER.filter((step) => step.isSkippable);
-    expect(skippable.map((step) => step.id)).toStrictEqual(["providers"]);
+    const leavable = ONBOARDING_STEPS_IN_ORDER.filter((step) => step.mayBeLeftUnanswered);
+    expect(leavable.map((step) => step.id)).toStrictEqual(["providers"]);
   });
 });
 
 describe("what holds the completion action", () => {
+  /** The held arm's own sentence, so a case asserting about it says which arm it read. */
+  function heldReason(...completedStepIds: readonly string[]): string {
+    const standing = completionStanding(completedStepsFrom(completedStepIds), false);
+    if (standing.kind !== "held") {
+      throw new Error(`expected the act to be held, and it was ${standing.kind}`);
+    }
+    return standing.reason;
+  }
+
   it("names both group-A steps while neither is answered", () => {
-    const reason = completionBlockedReason(completedStepsFrom([]));
-    expect(reason).toBeDefined();
+    const reason = heldReason();
     expect(reason).toContain(ONBOARDING_STEPS.relay.label);
     expect(reason).toContain(ONBOARDING_STEPS.telemetry.label);
   });
 
   it("names only the one still outstanding once the other is answered", () => {
-    const reason = completionBlockedReason(completedStepsFrom(["relay"]));
+    const reason = heldReason("relay");
     expect(reason).toContain(ONBOARDING_STEPS.telemetry.label);
     expect(reason).not.toContain(ONBOARDING_STEPS.relay.label);
   });
@@ -88,19 +96,46 @@ describe("what holds the completion action", () => {
   it("holds nothing once both group-A answers are recorded", () => {
     // With the provider step deliberately absent: group B is offered and never
     // demanded, so onboarding completes over a node with no account registered.
-    expect(completionBlockedReason(completedStepsFrom(["relay", "telemetry"]))).toBeUndefined();
+    expect(completionStanding(completedStepsFrom(["relay", "telemetry"]), false)).toStrictEqual({
+      kind: "offered",
+    });
   });
 
   it("is asked of the group the dismissal lock is asked of, and of no second field", () => {
     // The claim the sentence above rests on: what "mandatory" means here is a step's
     // GROUP, and the steps outside that group hold nothing. A second rule keyed on
-    // skippability would agree today and drift the first time the two diverge.
+    // whether a step may be left would agree today and drift the first time the two
+    // diverge.
     const mandatory = ONBOARDING_STEPS_IN_ORDER.filter(
       (step) => step.group === MANDATORY_STEP_GROUP,
     );
     expect(mandatory.map((step) => step.id)).toStrictEqual(["relay", "telemetry"]);
-    expect(completionBlockedReason(completedStepsFrom(["providers"]))).toBe(
-      completionBlockedReason(completedStepsFrom([])),
+    expect(heldReason("providers")).toBe(heldReason());
+  });
+});
+
+describe("what retires the completion action", () => {
+  it("settles once the daemon's own read reports this node set up", () => {
+    // The arm nothing used to read. `onboarding.complete` answering is the daemon
+    // accepting the act; THIS is the node having moved, and only it retires the
+    // control — which is why the footer cannot offer the act a second time.
+    expect(completionStanding(completedStepsFrom(["relay", "telemetry"]), true)).toStrictEqual({
+      kind: "settled",
+    });
+  });
+
+  it("settles over an outstanding group-A step, because the daemon is the authority", () => {
+    // The console never re-derives completion from the step set: a node the daemon
+    // reports complete is complete, whatever this build makes of the ids it was sent.
+    expect(completionStanding(completedStepsFrom([]), true)).toStrictEqual({ kind: "settled" });
+  });
+
+  it("offers the act again where the reading has not said so", () => {
+    // The negative control for the pair above: `isRecordedComplete` is the only input
+    // that reaches the settled arm, so an unanswered read leaves the act exactly where
+    // the group-A condition puts it.
+    expect(completionStanding(completedStepsFrom(["relay", "telemetry"]), false).kind).toBe(
+      "offered",
     );
   });
 });

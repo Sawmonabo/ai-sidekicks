@@ -30,7 +30,8 @@ import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js
 import {
   MANDATORY_STEP_GROUP,
   ONBOARDING_STEPS,
-  type OnboardingStepId,
+  RESUME_OPENING,
+  type OnboardingOpening,
 } from "./steps/step-model.js";
 
 /**
@@ -67,7 +68,18 @@ export const ACCOUNT_PLANE_RUN_REFUSAL_CODES: readonly string[] = [
 
 /** One request to open the walkthrough, and where it opens. */
 export interface OnboardingActivation {
-  readonly openAtStep: OnboardingStepId;
+  /**
+   * Which step this activation opens at, or `RESUME_OPENING` for wherever this node
+   * has got to.
+   *
+   * THE TWO GROUP-B OPENINGS NAME THEIR STEP and the collaboration one does not, and
+   * that asymmetry is the point: the first two are about the provider step whatever
+   * the node has settled, and the third is about the node. Resolving the third into a
+   * step HERE would resolve it against whatever the flow's snapshot happened to hold
+   * at press time — which, before any state read has answered, is a node with nothing
+   * done, so every such press opened at `relay` however far along the node was.
+   */
+  readonly openAtStep: OnboardingOpening;
   /**
    * Scopes the readiness read to one account rather than the provider's default.
    *
@@ -110,6 +122,12 @@ export const onboardingActivation: OnboardingActivationSignal = new OnboardingAc
  * second field would be a fact with two homes that disagree the first time one of
  * them is edited.
  *
+ * A RESUME OPENING IS GROUP A'S, and that is a reading of the same fact rather than
+ * an exception to it: the collaboration entry point is the only opening that resumes,
+ * and it is the one `Spec-026 §Desktop Surface` writes the non-dismissible rule for.
+ * Deciding it here rather than after the read is what keeps the lock answerable on
+ * the frame the dialog opens on.
+ *
  * WHY IT IS ASKED AT ALL. `Spec-026 §Desktop Surface` makes the walkthrough
  * non-dismissible until the relay choice is made, and that rule is about the flow an
  * outbound invite triggers. Two of the three openings are group B's — the _Set up
@@ -120,7 +138,10 @@ export const onboardingActivation: OnboardingActivationSignal = new OnboardingAc
  * flow nobody asked for, with no way out of the dialog.
  */
 export function activationRequiresRelayChoice(activation: OnboardingActivation): boolean {
-  return ONBOARDING_STEPS[activation.openAtStep].group === MANDATORY_STEP_GROUP;
+  const { openAtStep } = activation;
+  return openAtStep === RESUME_OPENING
+    ? true
+    : ONBOARDING_STEPS[openAtStep].group === MANDATORY_STEP_GROUP;
 }
 
 /**

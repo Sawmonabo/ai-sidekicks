@@ -41,7 +41,7 @@ function renderStep(
       onSignIn={() => undefined}
       onRecheck={() => undefined}
       onOpenAccountRegistry={onOpenAccountRegistry}
-      onSkip={() => undefined}
+      onDismiss={() => undefined}
     />,
   );
   return container;

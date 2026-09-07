@@ -12,8 +12,12 @@
 // is written from and no console route serves either verb anyway. Each of those arms
 // still gets an action, and it is the way to the surface that owns the verb: the row
 // deep-links to the account registry opened FOR its provider, and this step keeps the
-// unscoped way there beside the skip. One handler serves both — `ProviderRow.tsx`
+// unscoped way there beside **Not now**. One handler serves both — `ProviderRow.tsx`
 // says why — and the provider is what tells them apart.
+//
+// AND LEAVING THIS STEP TELLS THE DAEMON NOTHING. Group B "persists nothing: no config
+// key, no partial-state entry, no keystore entry, and no event", so the way out of it
+// is a local hide and not a recorded skip — see `onDismiss` below.
 //
 // NO STALENESS BADGE. `observedAt` is rendered as the wire value it is. The contract
 // carries no read-path age test and no stale arm, so a badge here would be this
@@ -53,14 +57,24 @@ export interface ProviderReadinessStepProps {
    */
   readonly onOpenAccountRegistry: (providerName: string | undefined) => void;
   /**
-   * Skip this step, where the rail's model says it may be skipped.
+   * **Not now** — put this step away, where there is a way out to put it away into.
    *
-   * OPTIONAL, AND THAT IS THE SINGLE SOURCE. `step-model.ts` decides which steps a
-   * person may leave unanswered; the walkthrough hands this in from that decision and
-   * withholds it otherwise. A boolean prop beside a mandatory handler would be a
-   * second place the same rule was written, and the two would eventually disagree.
+   * A LOCAL EXIT AND NEVER A RECORDED SKIP. `Spec-026 §Provider Authentication (Group
+   * B)` has this group persist "no config key, no partial-state entry, no keystore
+   * entry, and no event", so leaving the step tells the daemon nothing: this handler
+   * closes the walkthrough and writes nowhere, on the invitation shelf's **Not now**
+   * precedent. It used to dispatch `onboarding.stepSkip`, which recorded the provider
+   * step in the daemon's own completed set — a second record of a step whose truth
+   * lives in the account registry, and one that stayed true after every account was
+   * signed out.
+   *
+   * OPTIONAL, AND THAT IS THE SINGLE SOURCE — twice over. `step-model.ts` decides
+   * which steps a person may leave unanswered, and the overlay decides whether this
+   * activation may be closed at all; the walkthrough hands this in only where both
+   * say yes and withholds it otherwise. A boolean prop beside a mandatory handler
+   * would be a second place either rule was written.
    */
-  readonly onSkip: (() => void) | undefined;
+  readonly onDismiss: (() => void) | undefined;
 }
 
 export function ProviderReadinessStep(props: ProviderReadinessStepProps): React.JSX.Element {
@@ -81,16 +95,22 @@ export function ProviderReadinessStep(props: ProviderReadinessStepProps): React.
         >
           Open the account registry
         </button>
-        {props.onSkip === undefined ? null : (
+        {props.onDismiss === undefined ? null : (
           <button
             type="button"
             className="meridian-onboarding__act meridian-onboarding__act--secondary"
-            onClick={props.onSkip}
+            onClick={props.onDismiss}
           >
-            Skip this step
+            Not now
           </button>
         )}
       </div>
+      {props.onDismiss === undefined ? null : (
+        <p className="meridian-onboarding__note meridian-onboarding__note--quiet">
+          Not now simply puts this away. Nothing is recorded — which providers this node can run
+          lives in the account registry, and a run re-reads it when it starts.
+        </p>
+      )}
     </section>
   );
 }

@@ -29,38 +29,60 @@ import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.
 import { bridgeAnswering } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { consoleCommands } from "../palette/index.js";
+import { FrameStore } from "../store/index.js";
 import { onboardingActivation } from "./onboarding-activation.js";
-import { bridgeWithNoRelayChosen } from "./onboarding-state.test-support.js";
+import { bridgeWithNoRelayChosen, bridgeWithStepsDone } from "./onboarding-state.test-support.js";
 import { OnboardingOverlay } from "./OnboardingOverlay.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import type { ConsoleSurfaceContext } from "../seats/index.js";
-import type { OnboardingStepId } from "./steps/step-model.js";
+import { ONBOARDING_STEPS, RESUME_OPENING, type OnboardingOpening } from "./steps/step-model.js";
 
-function contextOver(
-  bridge: ConsoleBridge,
-  navigate: (route: ConsoleRoute) => void,
-): ConsoleSurfaceContext {
+/**
+ * The window this overlay is mounted in, over a REAL frame store.
+ *
+ * A hand-shaped object carrying `navigate` alone was enough while this surface only
+ * navigated; it publishes its open state now, so a stand-in would have to grow every
+ * method the overlay reaches and would answer for none of them.
+ */
+function contextOver(bridge: ConsoleBridge, frameStore: FrameStore): ConsoleSurfaceContext {
   return {
     route: { kind: "sessions" },
     bridge,
-    frameStore: { navigate },
+    frameStore,
     sessionStore: undefined,
   } as unknown as ConsoleSurfaceContext;
+}
+
+/**
+ * Every route this window is navigated to, off the store's own publishes.
+ *
+ * Filtered on the route having MOVED, because the same store carries the modal-surface
+ * cell this overlay also writes — an unfiltered recorder would report a route per
+ * publish and count the dialog opening as a navigation.
+ */
+function navigationsOf(frameStore: FrameStore): readonly ConsoleRoute[] {
+  const routes: ConsoleRoute[] = [];
+  frameStore.readable.subscribe((state, previous) => {
+    if (state.route !== previous.route) {
+      routes.push(state.route);
+    }
+  });
+  return routes;
 }
 
 /** Mount the overlay and let its opening reads settle. */
 async function mount(
   bridge: ConsoleBridge,
-  navigate: (route: ConsoleRoute) => void = () => undefined,
+  frameStore: FrameStore = new FrameStore(),
 ): Promise<void> {
-  render(<OnboardingOverlay context={contextOver(bridge, navigate)} />);
+  render(<OnboardingOverlay context={contextOver(bridge, frameStore)} />);
   await act(async () => {
     await crossMacrotaskBoundary();
   });
 }
 
 /** Raise an activation and let the walkthrough's own opening reads settle. */
-async function activateAt(openAtStep: OnboardingStepId): Promise<void> {
+async function activateAt(openAtStep: OnboardingOpening): Promise<void> {
   await act(async () => {
     onboardingActivation.request({ openAtStep, accountScope: undefined });
     await crossMacrotaskBoundary();
@@ -223,10 +245,9 @@ describe("the way out to the account registry", () => {
     // `#/settings` with no page renders the rail's "Choose a section" and nothing
     // else, so a control promising the registry would land a person one search short
     // of it. The route names the section the provider-accounts page registers under.
-    const routes: ConsoleRoute[] = [];
-    await mount(createFixtureBridge({ scenario: ONBOARDING_SCENARIO }), (route) => {
-      routes.push(route);
-    });
+    const frameStore = new FrameStore();
+    const routes = navigationsOf(frameStore);
+    await mount(createFixtureBridge({ scenario: ONBOARDING_SCENARIO }), frameStore);
     await activateAt("providers");
 
     const openRegistry = [...document.querySelectorAll("button")].find(
@@ -247,10 +268,9 @@ describe("the way out to the account registry", () => {
     // so the page can say what registering it is for and what the first run does
     // without it. A handler that dropped the argument would land on the identical
     // page as the case above and this is what reports it.
-    const routes: ConsoleRoute[] = [];
-    await mount(bridgeWhereCodexHoldsNoAccount(), (route) => {
-      routes.push(route);
-    });
+    const frameStore = new FrameStore();
+    const routes = navigationsOf(frameStore);
+    await mount(bridgeWhereCodexHoldsNoAccount(), frameStore);
     await activateAt("providers");
 
     const openForCodex = [...document.querySelectorAll("button")].find(
@@ -263,5 +283,95 @@ describe("the way out to the account registry", () => {
     });
 
     expect(routes).toStrictEqual([{ kind: "settings", page: "accounts", selection: "codex" }]);
+  });
+});
+
+describe("the window behind an open walkthrough", () => {
+  it("publishes that a modal surface has the window, and clears it on close", async () => {
+    // `modal="trap-focus"` traps focus and leaves inerting the app root to the shell,
+    // and `console-view-family-isolation` keeps the frame from naming this family — so
+    // without this publish the rail and the whole route surface stayed reachable to
+    // anyone moving through the document behind an open walkthrough.
+    const frameStore = new FrameStore();
+    await mount(createFixtureBridge({ scenario: ONBOARDING_SCENARIO }), frameStore);
+    expect(frameStore.getState().isModalSurfaceOpen).toBe(false);
+
+    await activateAt("providers");
+    expect(frameStore.getState().isModalSurfaceOpen).toBe(true);
+
+    const close = [...document.querySelectorAll("button")].find(
+      (control) => control.textContent === "Close",
+    );
+    await act(async () => {
+      close?.click();
+      await crossMacrotaskBoundary();
+    });
+    expect(frameStore.getState().isModalSurfaceOpen).toBe(false);
+  });
+});
+
+describe("the collaboration entry point", () => {
+  it("resumes at the step the daemon says is unresolved rather than at the first", async () => {
+    // The command's `run` fires before this window has necessarily read anything —
+    // the flow's window triggers mount inside the walkthrough — so a step chosen there
+    // came from a snapshot reporting nothing done, and every press opened at `relay`
+    // however far along the node was. It raises the INTENT now.
+    await mount(bridgeWithStepsDone("relay"));
+    const open = consoleCommands.get("onboarding.open");
+    expect(open).toBeDefined();
+    await act(async () => {
+      open?.run();
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+
+    const title = document.querySelector(".meridian-onboarding__title");
+    expect(title?.textContent).toBe(ONBOARDING_STEPS.telemetry.label);
+  });
+
+  it("is still the group-A opening, so an unmade relay choice holds it shut", async () => {
+    // The lock reads which group an activation opens, and a resume opening is the
+    // collaboration one — the flow `Spec-026 §Desktop Surface` writes the
+    // non-dismissible rule for. Deciding it from the sentinel rather than after the
+    // read is what keeps the lock answerable on the frame the dialog opens on.
+    await mount(bridgeWithNoRelayChosen());
+    await activateAt(RESUME_OPENING);
+    expect(document.body.textContent).toContain("Choose a relay to continue");
+  });
+});
+
+describe("Not now, on the provider step", () => {
+  it("closes the activation and records nothing", async () => {
+    // `Spec-026 §Provider Authentication (Group B)` has that group persist nothing.
+    // The control used to dispatch `onboarding.stepSkip`, which wrote the provider
+    // step into the daemon's own completed set.
+    const base = createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
+    let skipsRecorded = 0;
+    const counted: ConsoleBridge = {
+      ...base,
+      growth: {
+        ...base.growth,
+        onboardingStepSkip: async (request) => {
+          skipsRecorded += 1;
+          return base.growth.onboardingStepSkip(request);
+        },
+      },
+    };
+    await mount(counted);
+    await activateAt("providers");
+
+    const dismiss = [...document.querySelectorAll("button")].find(
+      (control) => control.textContent === "Not now",
+    );
+    expect(dismiss).toBeDefined();
+    await act(async () => {
+      dismiss?.click();
+      await crossMacrotaskBoundary();
+    });
+
+    expect(skipsRecorded).toBe(0);
+    expect(document.body.textContent).not.toContain("Set up this node");
   });
 });
