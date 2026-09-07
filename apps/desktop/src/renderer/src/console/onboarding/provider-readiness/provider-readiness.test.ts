@@ -27,20 +27,11 @@ import { settleScheduledRead } from "../../bridge/readings/scheduled-read.test-s
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
-  ProviderReadinessModel,
   accountsForProvider,
   providersNotReady,
+  type ProviderReadinessModel,
 } from "./provider-readiness.js";
-
-const READINESS_CALL = "providerAccount.list";
-
-function modelOver(bridge: ConsoleBridge): ProviderReadinessModel {
-  return new ProviderReadinessModel(bridge);
-}
-
-function fixture(): ConsoleBridge {
-  return createFixtureBridge({ scenario: ONBOARDING_SCENARIO });
-}
+import { READINESS_CALL, arrive, fixture, modelOver } from "./provider-readiness.test-support.js";
 
 /**
  * A model over a bridge that records what it was asked, answering from the scenario.
@@ -62,18 +53,6 @@ function recordingModel(bridge: ConsoleBridge = fixture()): {
 /** How many readiness reads actually left this window. */
 function readCount(calls: readonly RecordedDaemonCall[]): number {
   return calls.filter((call) => call.method === READINESS_CALL).length;
-}
-
-/**
- * The arrival, driven through the entry the walkthrough drives.
- *
- * `subscribe` is the one reason this model performs immediately rather than behind
- * the scheduler's window, on `onboarding-flow.ts`' rule, so crossing a macrotask
- * boundary is the whole of the wait.
- */
-async function arrive(model: ProviderReadinessModel): Promise<void> {
-  model.requestRead("subscribe");
-  await crossMacrotaskBoundary();
 }
 
 /**

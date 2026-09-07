@@ -33,6 +33,13 @@
 // provider default. A public read beside a routed one is what let the arrival bypass
 // the scheduler in the first place, so there is no longer one to reach for.
 //
+// AND A CHANGE OF SCOPE RETIRES WHAT THE PREVIOUS ONE PUT ON SCREEN. Everything this
+// model holds is ABOUT the account it was addressed at, so a scope that moves while a
+// call is out has to move the generation with it: the previous account's reply would
+// otherwise pass the generation check and install its projection over the new
+// account's, and the previous account's hand-off and re-check outcomes would stay
+// rendered — and stay pressable — beside a scope that never produced them.
+//
 // THE THREE ACTS THIS MODEL PERFORMS, and why there is no fourth. Sign-in hands the
 // participant to the provider's own first-party flow through the growth port — the
 // daemon spawns the unmodified login binary and this console reads nothing it writes.
@@ -87,6 +94,16 @@ export type ProviderActionReading =
 /** The idle reading, shared rather than rebuilt, so an untouched row is one object. */
 const IDLE: ProviderActionReading = { kind: "idle" };
 
+/**
+ * The zero state, shared for `IDLE`'s reason and for one more.
+ *
+ * Two positions hold it — where the model starts and where a re-addressing resets it
+ * — and a rebuilt object at the second would notify every subscriber of a value equal
+ * to the one it already had. One object makes the reset legible as the same state the
+ * model opens in rather than as a second spelling of it.
+ */
+const ZERO_STATE_READING: ProviderReadinessReading = { kind: "reading" };
+
 export class ProviderReadinessModel implements ReadTriggerTarget {
   /**
    * Nothing in any session's timeline says this node's provider accounts changed.
@@ -106,7 +123,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   readonly #refresh: RefreshScheduler;
   readonly #changes = new Emitter<void>("provider readiness");
   readonly #actionsByProvider = new Map<string, ProviderActionReading>();
-  #reading: ProviderReadinessReading = { kind: "reading" };
+  #reading: ProviderReadinessReading = ZERO_STATE_READING;
   /**
    * The scope this model is addressed at. Read by every reason, written by one verb.
    *
@@ -140,14 +157,31 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   /**
    * Address this model at one account, or at the provider default.
    *
-   * SETS AND READS NOTHING, which is the whole of its job: the scope is a property of
-   * the ACTIVATION and the read is the trigger set's, so folding them into one call
+   * READS NOTHING, which is half of its job: the scope is a property of the
+   * ACTIVATION and the read is the trigger set's, so folding them into one call
    * would put a second read beside the routed one and make which of the two answered
    * a question of ordering. Called before the trigger set opens, and again whenever a
    * later activation addresses this model somewhere else.
+   *
+   * A CHANGE OF SCOPE IS A NEW GENERATION, which is the other half. The reading and
+   * the per-provider actions are both ABOUT the account that was addressed, so a
+   * scope moved while a call is out retires that call exactly as a retirement does —
+   * without it the previous account's reply passes the generation check and overwrites
+   * the new account's reading — and the two account-scoped fields return to the zero
+   * state, so the previous account's hand-off and re-check outcomes are neither
+   * rendered nor pressable against a scope that never produced them. Re-addressing at
+   * the SAME scope is not a change: it retires nothing and publishes nothing, so an
+   * activation restating where this model already points costs no read and no render.
    */
   public addressAt(accountScope: ProviderAccountId | undefined): void {
+    if (accountScope === this.#accountScope) {
+      return;
+    }
     this.#accountScope = accountScope;
+    this.#retireInFlight();
+    this.#reading = ZERO_STATE_READING;
+    this.#actionsByProvider.clear();
+    this.#changes.emit();
   }
 
   /**
@@ -178,8 +212,21 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
 
   /** Drop this model's claim on anything unsettled. Nothing published after this. */
   public supersede(): void {
-    this.#generation += 1;
+    this.#retireInFlight();
     this.#refresh.dispose();
+  }
+
+  /**
+   * Advance the generation, so nothing already in flight publishes.
+   *
+   * ONE HOME FOR THE RETIREMENT, because two callers perform it and they differ only
+   * in what they do next: a retired step also disposes its scheduler, and a
+   * re-addressed one keeps the scheduler and resets what the previous scope left on
+   * screen. The place copies of a guard drift is the guard itself, and this one is
+   * three words long, which is exactly how a second copy comes to be written.
+   */
+  #retireInFlight(): void {
+    this.#generation += 1;
   }
 
   /**
@@ -210,15 +257,26 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
   /**
    * Hand the participant to one provider's own sign-in, and read again afterwards.
    *
+   * THE ACCOUNT TRAVELS WITH THE PROVIDER. The remedy this control was rendered from
+   * names the account whose credential home the invocation authenticates into, and a
+   * provider with two registered accounts has two such homes — so a hand-off carrying
+   * only the provider name leaves the surface behind it to elect one, and the
+   * election it can afford is the provider default: a different account from the one
+   * whose remedy the person pressed. Resolved BEFORE the first await, so what travels
+   * is the reading the control was rendered against.
+   *
    * The re-read is the point: the sign-in process's exit is NOT the definition of
    * success — the probe behind the readiness derivation is — so what this reports is
    * whatever the projection says next, never that the hand-off "worked".
    */
   public async handOffSignIn(providerName: string): Promise<void> {
     const generation = this.#generation;
+    const providerAccountId = this.#signInAccountFor(providerName);
     this.#publishAction(providerName, { kind: "handing-off" });
     const settlement = await settleGrowthRead(
-      this.#bridge.growth.onboardingProviderSignInHandoff({ providerName }),
+      this.#bridge.growth.onboardingProviderSignInHandoff(
+        providerAccountId === undefined ? { providerName } : { providerName, providerAccountId },
+      ),
     );
     if (generation !== this.#generation) {
       return;
@@ -253,6 +311,25 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
     }
     this.#publishAction(providerName, IDLE);
     await this.#read();
+  }
+
+  /**
+   * The account one provider's sign-in remedy named, where the daemon composed one.
+   *
+   * OFF THE REMEDY RATHER THAN OFF `resolvedAccountId`, though the contract holds the
+   * two equal on this arm: the remedy is what the control was rendered from, and its
+   * `accountId` is the account the invocation and the credential home beside it
+   * belong to. `undefined` where the reading has not answered, or where the
+   * provider's remedy is a registry verb rather than a sign-in — there is no account
+   * to name, and naming one anyway would be this console electing one.
+   */
+  #signInAccountFor(providerName: string): ProviderAccountId | undefined {
+    const reading = this.#reading;
+    if (reading.kind !== "read") {
+      return undefined;
+    }
+    const remedy = reading.entries.find((entry) => entry.provider === providerName)?.remedy;
+    return remedy?.kind === "sign_in" ? remedy.accountId : undefined;
   }
 
   #publishAction(providerName: string, reading: ProviderActionReading): void {
