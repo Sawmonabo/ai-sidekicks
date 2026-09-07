@@ -46,6 +46,11 @@
 // close against the slice and SIGKILLs the process tree when it loses, so the
 // profile is still removed and the original failure still reaches the reader.
 //
+// And the slice is TWO phases wide, because that SIGKILL is the second one:
+// `CLEANUP_PHASES` below has the derivation, and reserving one phase of it was
+// the same defect a third time — the verdict and the removal ran past what the
+// tier waits for, so vitest took both.
+//
 // THE BODY IS A SLICE TOO, AND THE TIER TIMEOUT IS THEIR SUM
 //
 // A launch is not the whole of what runs inside a tier's `testTimeout`. Between
@@ -70,6 +75,44 @@ import {
 } from "./launch-budgets.js";
 
 /**
+ * How many times ONE cleanup can spend `CLEANUP_BUDGET_MS`.
+ *
+ * Two, and they are two PHASES rather than a retry of one. `bounded-cleanup.ts`
+ * races `application.close()` against the registered figure; a close it had to
+ * ABANDON is then followed by a termination loop that restarts that same figure
+ * at its own first attempt. The loop cannot draw on what the close left, and its
+ * own header says why: on the path it exists for the close left nothing, so
+ * refusing the first kill there would trade a bounded overrun for a live
+ * Electron still holding its profile.
+ *
+ * WHICH MADE THE TIER TIMEOUT WRONG RATHER THAN THE LOOP. The slice below
+ * reserved the figure ONCE and left the 2 000 ms settlement residual after it,
+ * so a hung close followed by a refused kill ran past what the tier waits for —
+ * vitest killed the test before the `unterminable` verdict existed and before
+ * the profile came off disk, which is the inversion this whole module opens by
+ * describing. The phases are real, so the reservation covers both of them.
+ *
+ * A COUNT AND NOT A SECOND DURATION, so `budgets.json` keeps one row for one
+ * bound and this file states how many times a cleanup may spend it. What holds
+ * the two in step is a measurement rather than a constant: the whole-cleanup
+ * spend is driven against an injected clock in
+ * `architecture/cleanup-slice-derivation.test.ts`, so a third phase — or a loop
+ * that stopped restarting — fails there rather than silently re-opening the gap.
+ */
+export const CLEANUP_PHASES = 2;
+
+/**
+ * The whole slice a launch reserves for closing, in milliseconds.
+ *
+ * The close and the termination that a close it abandoned still owes, which is
+ * what `BoundedCleanup` can actually cost end to end. Every reserve below is
+ * drawn from this rather than from `CLEANUP_BUDGET_MS` — a reserve that covers
+ * one phase of a two-phase act is the defect above, and one home for the figure
+ * is what keeps it from being fixed in three places and missed in a fourth.
+ */
+export const CLEANUP_SLICE_MS: number = CLEANUP_BUDGET_MS * CLEANUP_PHASES;
+
+/**
  * The most a single `launchConsole()` can cost before it has thrown.
  *
  * Derived, never chosen: the readiness ladder plus the two reserved slices. A
@@ -79,7 +122,7 @@ import {
  * safe to compare against a tier timeout.
  */
 export const LAUNCH_BUDGET_MS: number =
-  READINESS_BUDGET_MS + FRAME_WITNESS_TIMEOUT_MS + CLEANUP_BUDGET_MS;
+  READINESS_BUDGET_MS + FRAME_WITNESS_TIMEOUT_MS + CLEANUP_SLICE_MS;
 
 /**
  * What every readiness wait holds back, in milliseconds.
@@ -88,7 +131,7 @@ export const LAUNCH_BUDGET_MS: number =
  * up at four call sites — a reserve that is right in three places and wrong in
  * the fourth is the shape of defect this whole module exists to remove.
  */
-export const POST_READINESS_RESERVE_MS: number = FRAME_WITNESS_TIMEOUT_MS + CLEANUP_BUDGET_MS;
+export const POST_READINESS_RESERVE_MS: number = FRAME_WITNESS_TIMEOUT_MS + CLEANUP_SLICE_MS;
 
 /**
  * What a tier must still have after the last slice, in milliseconds.
@@ -177,7 +220,8 @@ export class LaunchDeadline {
    *
    * Takes the same reserve `remainingMs` does, and for a reason that was a live
    * defect rather than symmetry for its own sake. A readiness phase draws
-   * `remainingMs(POST_READINESS_RESERVE_MS)`, so it runs out of time 25 000 ms
+   * `remainingMs(POST_READINESS_RESERVE_MS)`, so it runs out of time a whole
+   * witness-and-cleanup reserve
    * BEFORE the launch deadline expires — and a caller asking the unreserved
    * question at that moment is told the budget is fine. `readinessFailure` asked
    * exactly that, so the one case it exists for, a ladder that used its whole
@@ -310,7 +354,8 @@ export function readinessFailure(deadline: LaunchDeadline, error: unknown): unkn
   // error, which carries no mark of this deadline, and the reading is then the only
   // signal there is. Asked WITH the reserve, because the readiness ladder ran out of
   // time when its own allowance was gone, not when the whole launch deadline expires
-  // — those are 25 000 ms apart, and asking the unreserved question meant this
+  // — those are a whole witness-and-cleanup reserve apart, and asking the
+  // unreserved question meant this
   // returned the raw phase timeout in precisely the case it was written for.
   if (!deadline.raisedExpiry(error) && !deadline.expired(POST_READINESS_RESERVE_MS)) {
     return error;

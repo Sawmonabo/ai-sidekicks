@@ -181,6 +181,20 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
+// WHY THE SHELL'S NOTIFICATION-PERMISSION READ IS SERVED FROM THE SCRIPT
+//
+// `native.showNotification` returns `void`, so the emission path reports nothing: a
+// machine that will not display a notification is indistinguishable, from inside the
+// renderer, from one that just did. The notification centre has an arm for exactly
+// that state — it is the only surface these items reach a person on, and it says so —
+// and no bridge member carries the fact, so the read is the growth port's.
+//
+// It is served here so a scenario can put the centre in that arm, and it REFUSES for
+// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
+// rather than the invite ledger's: a permission has no empty form. "Nobody asked"
+// is a true statement about a script that has not said, and answering `granted`
+// would be the fixture promising a notification nothing in the console can deliver.
+//
 // WHY THE TWO LEASE OPERATIONS ARE SERVED, AND WHY THAT IS ABOUT REFUSALS
 //
 // The terminal's write lease is the one surface in the console whose interesting
@@ -237,6 +251,8 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
+import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "./fixture-onboarding-answers.js";
+import { FIXTURE_SERVED_SHELL_OPERATION_IDS } from "./fixture-shell-answers.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
 /**
@@ -249,8 +265,10 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.
  *
  * Written as an annotated tuple rather than `as const`, on the
  * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
- * carrying a spread, so the workflow ids reach the annotation as
- * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`. They are named in one place and
+ * carrying a spread, so each plane that owns its own module reaches the annotation as
+ * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`,
+ * `...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS` and
+ * `...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS`. Each is named in one place and
  * spread in the other, and the compiler holds the two to each other.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
@@ -276,6 +294,10 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  ...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -328,6 +350,36 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // repos — the workspace's own execution context, answered from a scenario that
   // scripts one and refused for one that does not. See the header.
   "workspaceExecutionContextRead",
+  // provider-session import — the opening call and the progress subscription it
+  // mints a subject for, both answered from a scenario that scripts the import and
+  // refused by one that does not.
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  // shell — the whole six-operation plane, taken from the module that implements it so
+  // the ids and the handlers cannot disagree. Whether this machine will display an OS
+  // notification comes from a scenario that says so and is refused by one that does
+  // not. The shell's own condition is the first FEED this fixture serves, answered
+  // from the frames a scenario declares against the frozen clock: it is script-only
+  // for the reason the write operations are, since there is no such thing as "the
+  // shell reported and said nothing", and a served stream that never yielded would
+  // read on screen exactly like a shell that has not reported — one of which is a
+  // scripting gap and the other the console's ordinary state. The three daemon
+  // controls and the status read answer from the same channel the feed is answered
+  // from, so a stop moves what the feed says rather than resolving into a shell
+  // nothing reports, and all four refuse under a scenario that scripts no shell
+  // condition for the same reason the feed does.
+  ...FIXTURE_SERVED_SHELL_OPERATION_IDS,
+  // onboarding — the whole six-operation surface, taken from the module that
+  // implements it so the ids and the handlers cannot disagree. The split between them
+  // is this module's own rule rather than a preference. The state read has an honest
+  // answer for a scenario that scripts nothing: a node nobody has onboarded has no
+  // completed steps and is not complete, which is a real state the walkthrough draws
+  // and the state a fresh install is genuinely in. The other five are WRITES or
+  // main-process dialogs — there is no such thing as "the step that was recorded and
+  // recorded nothing", and a synthesized relay choice would tell the walkthrough a
+  // person answered a question nobody was asked — so each of them refuses by name
+  // under a scenario that does not script it.
+  ...FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -354,6 +406,11 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  * separates them is whether an empty answer would be a lie.
  */
 export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGrowthOperationId[] = [
+  "shellStatusSubscribe",
+  "daemonStatusRead",
+  "daemonStop",
+  "daemonRestart",
+  "daemonStart",
   "agentAttach",
   "agentConfigUpdate",
   "agentDetach",
@@ -364,4 +421,12 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
+  "shellNotificationPermissionRead",
+  "providerSessionImportBegin",
+  "providerSessionImportSubscribe",
+  "onboardingStepAdvance",
+  "onboardingStepSkip",
+  "onboardingComplete",
+  "onboardingPresentChoice",
+  "onboardingTelemetryPrompt",
 ];

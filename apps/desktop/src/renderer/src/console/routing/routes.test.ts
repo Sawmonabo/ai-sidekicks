@@ -3,8 +3,7 @@
 // `failure-modes.test.ts` already drives the malformed-input arms — an unknown
 // window route, too many segments, a bare auxiliary route, an escaped session id,
 // a malformed percent-escape, an empty path segment, an empty hash. This file
-// covers what that one does not: the round trip for the main-window grammar, and
-// the four readers a surface asks about a route it already holds.
+// covers what that one does not: the round trip for the main-window grammar.
 //
 // The round trip is the load-bearing case. `parseRoute` and `formatRoute` are two
 // hand-written grammars over one shape, and nothing in the compiler makes them
@@ -19,41 +18,9 @@
 // `railDestinationFor`, and `routesAreEqual` are predicates over.
 
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_ROUTE,
-  RAIL_DESTINATIONS,
-  formatRoute,
-  isAuxiliaryRoute,
-  needsContextPicker,
-  parseRoute,
-  railDestinationFor,
-  routesAreEqual,
-  type ConsoleRoute,
-} from "./routes.js";
 
-/** Main-window routes, including the arms that carry an optional segment. */
-const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
-  { kind: "sessions" },
-  { kind: "workspace", sessionId: "session-1" },
-  { kind: "workflows" },
-  { kind: "settings", page: undefined },
-  { kind: "settings", page: "providers" },
-  // The fixture-only arm. `parseRoute` produces it exactly where
-  // `__SIDEKICKS_CONSOLE_FIXTURES__` is true, which the `console-unit` project
-  // substitutes as it does for every console tier — so the round-trip below is
-  // testing the same build the fixture console runs.
-  { kind: "pane-harness", paneKind: "terminal", sessionId: "session-1" },
-  { kind: "not-found", attempted: "#/nowhere" },
-];
-
-/** Auxiliary routes as values, for the predicates. Never parsed from a hash here. */
-const AUXILIARY_ROUTES: readonly ConsoleRoute[] = [
-  { kind: "auxiliary", route: "timeline" },
-  { kind: "auxiliary", route: "timeline", sessionId: "session-1" },
-  { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-1" },
-];
-
-const EVERY_KIND: readonly ConsoleRoute[] = [...MAIN_WINDOW_ROUTES, ...AUXILIARY_ROUTES];
+import { DEFAULT_ROUTE, formatRoute, parseRoute, type ConsoleRoute } from "./routes.js";
+import { MAIN_WINDOW_ROUTES } from "./route-samples.test-support.js";
 
 describe("routes — every main-window route renders to a hash that parses back to it", () => {
   for (const route of MAIN_WINDOW_ROUTES) {
@@ -95,7 +62,33 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     });
     expect(parseRoute("#/session/one/two").kind).toBe("not-found");
     expect(parseRoute("#/workflows/extra").kind).toBe("not-found");
-    expect(parseRoute("#/settings/one/two").kind).toBe("not-found");
+    // Three segments and not two: `#/settings/<page>/<selection>` is grammar now, so
+    // what over-runs the settings arm is one segment further along.
+    expect(parseRoute("#/settings/one/two/three").kind).toBe("not-found");
+  });
+
+  it("round-trips a settings address carrying its page's own selection", () => {
+    // The pair the grammar exists to keep exact: a row that deep-links to the accounts
+    // page for one provider hands the frame store an address, and a parser reading the
+    // second segment differently would open that page for another provider or none.
+    expect(parseRoute("#/settings/accounts/codex")).toStrictEqual({
+      kind: "settings",
+      page: "accounts",
+      selection: "codex",
+    });
+    expect(formatRoute(parseRoute("#/settings/accounts/codex"))).toBe("#/settings/accounts/codex");
+    // The selection is a wire value, so it escapes like every other segment.
+    const escaped = "#/settings/accounts/one%2Ftwo";
+    expect(parseRoute(escaped)).toStrictEqual({
+      kind: "settings",
+      page: "accounts",
+      selection: "one/two",
+    });
+    expect(formatRoute(parseRoute(escaped))).toBe(escaped);
+  });
+
+  it("refuses a settings selection whose escapes are malformed", () => {
+    expect(parseRoute("#/settings/accounts/%zz").kind).toBe("not-found");
   });
 
   it("names no address of its own for the session workspace's rail destination", () => {
@@ -189,133 +182,5 @@ describe("routes — the auxiliary arm is the shared grammar, not a second copy"
       agentId: "agent two",
     });
     expect(formatRoute(route)).toBe(hash);
-  });
-});
-
-describe("railDestinationFor — which rail icon is current", () => {
-  it("names a destination for each main-window route", () => {
-    expect(railDestinationFor({ kind: "sessions" })).toBe("sessions");
-    expect(railDestinationFor({ kind: "workflows" })).toBe("workflows");
-    expect(railDestinationFor({ kind: "settings", page: undefined })).toBe("settings");
-  });
-
-  it("keeps a session workspace under the sessions destination", () => {
-    // The workspace is reached FROM the sessions destination, so the rail
-    // highlights that one while a person is inside a session. The alternative —
-    // a `workspace` destination of its own — names an icon the rail does not
-    // render, which reads as the highlight going out on the busiest surface in
-    // the console.
-    expect(railDestinationFor({ kind: "workspace", sessionId: "session-1" })).toBe("sessions");
-  });
-
-  it("negative control: the workspace is not itself a rail destination", () => {
-    // Without this, the case above would pass over a `RAIL_DESTINATIONS` that
-    // still carried `workspace` beside the mapping, which is the exact state this
-    // pair was in: three destinations declared, and the spec's second one absent.
-    expect([...RAIL_DESTINATIONS]).not.toContain("workspace");
-    expect([...RAIL_DESTINATIONS]).toStrictEqual(["sessions", "workflows", "settings"]);
-  });
-
-  it("reaches every destination the rail declares, so no icon is unreachable", () => {
-    // Walked from the tuple rather than retyped. A destination the rail renders and
-    // no route resolves to is an icon a person can press into nothing.
-    const reachable = new Set(
-      MAIN_WINDOW_ROUTES.map((route) => railDestinationFor(route)).filter(
-        (destination) => destination !== undefined,
-      ),
-    );
-    expect([...reachable].sort()).toStrictEqual([...RAIL_DESTINATIONS].sort());
-  });
-
-  it("names none in a window that has no rail", () => {
-    // Absent, not disabled: an auxiliary window renders no rail at all, so there is
-    // no current destination to highlight rather than a highlighted nothing.
-    for (const route of AUXILIARY_ROUTES) {
-      expect(railDestinationFor(route)).toBeUndefined();
-    }
-    expect(railDestinationFor({ kind: "not-found", attempted: "#/nowhere" })).toBeUndefined();
-  });
-});
-
-describe("isAuxiliaryRoute — which chrome the window renders", () => {
-  it("is true for every auxiliary route", () => {
-    for (const route of AUXILIARY_ROUTES) {
-      expect(isAuxiliaryRoute(route)).toBe(true);
-    }
-  });
-
-  it("negative control: it is false for every main-window route", () => {
-    // Without this, a predicate that returned true unconditionally would pass the
-    // case above and every window would drop its chrome.
-    for (const route of MAIN_WINDOW_ROUTES) {
-      expect(isAuxiliaryRoute(route), route.kind).toBe(false);
-    }
-  });
-});
-
-describe("needsContextPicker — an auxiliary window that has no subject yet", () => {
-  it("is true for an auxiliary route that names no session", () => {
-    // Not an error and not an empty state: the window works, it just does not know
-    // what to show, and the picker is what that case renders.
-    expect(needsContextPicker({ kind: "auxiliary", route: "timeline" })).toBe(true);
-  });
-
-  it("is false once the route names a session", () => {
-    expect(
-      needsContextPicker({ kind: "auxiliary", route: "timeline", sessionId: "session-1" }),
-    ).toBe(false);
-  });
-
-  it("negative control: it is false for a main-window route with no session either", () => {
-    // The predicate is about an auxiliary window awaiting a subject, not about the
-    // absence of a session id — a sessions list has none and needs no picker.
-    for (const route of MAIN_WINDOW_ROUTES) {
-      expect(needsContextPicker(route), route.kind).toBe(false);
-    }
-  });
-});
-
-describe("routesAreEqual — an unchanged hash costs no transition", () => {
-  it("holds for a route compared with itself", () => {
-    for (const route of EVERY_KIND) {
-      expect(routesAreEqual(route, route)).toBe(true);
-    }
-  });
-
-  it("distinguishes routes that differ only in one field", () => {
-    expect(
-      routesAreEqual(
-        { kind: "workspace", sessionId: "session-1" },
-        { kind: "workspace", sessionId: "session-2" },
-      ),
-    ).toBe(false);
-    expect(
-      routesAreEqual(
-        { kind: "settings", page: undefined },
-        { kind: "settings", page: "providers" },
-      ),
-    ).toBe(false);
-    expect(
-      routesAreEqual(
-        { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-1" },
-        { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-2" },
-      ),
-    ).toBe(false);
-    expect(
-      routesAreEqual(
-        { kind: "auxiliary", route: "timeline" },
-        { kind: "auxiliary", route: "agent-console" },
-      ),
-    ).toBe(false);
-    expect(
-      routesAreEqual(
-        { kind: "not-found", attempted: "#/one" },
-        { kind: "not-found", attempted: "#/two" },
-      ),
-    ).toBe(false);
-  });
-
-  it("distinguishes routes of different kinds", () => {
-    expect(routesAreEqual({ kind: "sessions" }, { kind: "settings", page: undefined })).toBe(false);
   });
 });

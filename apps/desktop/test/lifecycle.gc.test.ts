@@ -37,29 +37,10 @@
 //   It does NOT prove that user-side retention is causally load-bearing
 //   in the current fix-state.
 //
-// Mechanism:
-//   The main entrypoint exposes a second compile-time-gated probe path
-//   (`SIDEKICKS_GC_PROBE=1`) that does NOT exit immediately. Instead it
-//   schedules `runGcProbe` on a fresh event-loop tick (so the `.then(...)`
-//   arrow's locals can unwind first) and the probe iterates K=20 cycles of:
-//     1. Two bare `globalThis.gc()` calls (precise major collection — see
-//        ADR-024 §Antithesis for why `gc(true)` is rejected: that signature
-//        is a MINOR scavenge per V8's `gc-extension.cc`, leaving old-
-//        generation objects intact).
-//     2. An 8 MB Uint8Array allocation to pressure old-generation promotion
-//        of the throwaway buffer + reclaim of the prior iteration's buffer.
-//     3. Two more `globalThis.gc()` calls.
-//     4. A 50 ms wait so any C++ destructor task posted by a V8 weak
-//        callback can run.
-//     5. A `v8.queryObjects(BrowserWindow, { format: "count" })` sample.
-//   The branch also registers a probe-scoped `window-all-closed` listener
-//   that toggles a module-scope flag — the listener fires before the
-//   pre-existing `app.quit()` handler (EventEmitter listener order is
-//   registration order), so the flag captures the event even if the probe's
-//   `console.log` would otherwise lose the race against process exit. On
-//   completion the probe emits a single `[SIDEKICKS_GC_PROBE]` JSON line
-//   to stdout (including `allClosedFired` from the flag) and calls
-//   `app.exit(0)`.
+// How a reading is obtained — the probe branch in the main entrypoint, the
+// three activation gates it is behind, the spawn, and the Linux display
+// handling — belongs to `helpers/gc-probe.ts` and is documented there. This
+// file decides only whether a reading is acceptable.
 //
 // Failure shapes:
 //   • Shape A — Heap-count drift or a missing per-window delta: some
@@ -82,196 +63,18 @@
 //     `$DISPLAY`, smoke bundle not built, `--js-flags=--expose-gc` not
 //     forwarded). Diagnostic surfaces captured stdout / stderr / exit
 //     code so a CI failure is debuggable without re-running.
-//
-// Activation requirements (the production-safety multi-gate):
-//   1. Bundle built with `electron-vite build --mode=smoke` (sets
-//      `__SIDEKICKS_SMOKE_BUILD__` to `true` via Vite `define`). A release
-//      bundle has the entire probe body tree-shaken out — running this
-//      test against a release bundle would silently time out.
-//   2. Spawn environment carries `SIDEKICKS_GC_PROBE=1` AND does NOT
-//      carry `SIDEKICKS_SMOKE_PROBE=1` (the smoke branch is checked first
-//      in the if/else if cascade in `apps/desktop/src/main/index.ts`).
-//   3. Electron started with `--js-flags=--expose-gc` so `globalThis.gc()`
-//      is wired. Without this flag the probe's GC-pressure loop is a
-//      no-op (V8 will collect on its own schedule) and the test becomes
-//      non-deterministic — see the `globalGcAvailable` setup-correctness
-//      assertion below for the explicit gate.
-//
-// Linux CI handling — same posture as the smoke test. CI now stands up ONE
-// Xvfb for the whole job and exports `$DISPLAY` before any test runs (see
-// `.github/workflows/ci.yml`), so `needsXvfb()` is false there and this spawns
-// the binary directly. The `xvfb-run -a` arm below remains the fallback for a
-// Linux contributor running with no display server of their own.
 
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { UNOBTRUSIVE_WINDOWS_ENV } from "../src/main/window-reveal.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Package root — `apps/desktop/`. The test file lives at
-// `apps/desktop/test/lifecycle.gc.test.ts`; `..` lands on the package root.
-const PACKAGE_ROOT = path.resolve(__dirname, "..");
-
-const MAIN_ENTRY = path.join(PACKAGE_ROOT, "out/main/index.js");
-const PRELOAD_ENTRY = path.join(PACKAGE_ROOT, "out/preload/index.cjs");
-const ELECTRON_BIN = path.join(PACKAGE_ROOT, "node_modules/.bin/electron");
-
-const GC_PROBE_TAG = "[SIDEKICKS_GC_PROBE]";
-
-// K=20 iterations × ~150 ms each ≈ 3 s probe runtime. Plus Electron boot
-// (typically 1-2 s on Linux runners). 30 s is a generous backstop.
-const SPAWN_TIMEOUT_MS = 30_000;
-
-interface GcProbe {
-  readonly ok: boolean;
-  readonly queryObjectsAvailable: boolean;
-  readonly globalGcAvailable: boolean;
-  readonly iterations: number;
-  readonly counts: readonly number[];
-  readonly min: number;
-  readonly max: number;
-  /** Windows open when the loop ended; the per-window delta's denominator. */
-  readonly windowsOpened: number;
-  /** The loop's last sample, taken with every window still open. */
-  readonly openCount: number;
-  /** One sample after every window closed, the close unwound, and a collection. */
-  readonly closedCount: number;
-  readonly allClosedFired: boolean;
-}
-
-interface SpawnResult {
-  readonly probe: GcProbe | null;
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly exitCode: number | null;
-  readonly signal: NodeJS.Signals | null;
-  readonly elapsedMs: number;
-}
-
-function needsXvfb(): boolean {
-  return process.platform === "linux" && !process.env["DISPLAY"];
-}
-
-function spawnElectronGcProbe(): Promise<SpawnResult> {
-  const startedAt = Date.now();
-
-  // Per-spawn userData dir isolates this test's Electron instance from every
-  // other Electron running on the default profile — a sibling suite in a
-  // parallel vitest worker, a second checkout, a developer's unrelated
-  // Electron app, an orphan from an earlier terminated run. They would
-  // otherwise race on `~/Library/Application Support/Electron/SingletonLock`
-  // (or its $XDG_CONFIG_HOME equivalent on Linux): whichever starts
-  // second sees `gotTheLock === false`, calls `app.quit()`, and exits
-  // with code 0 before the probe runs — a Shape-C failure that has nothing
-  // to do with BrowserWindow GC reachability.
-  // `mkdtempSync` returns a unique path; the close handler removes it.
-  // `launch.smoke.test.ts` isolates its own profile the same way, for the
-  // same reason.
-  const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
-
-  // `--js-flags=--expose-gc` MUST precede the entry script so Electron
-  // forwards it to the underlying Chromium/V8 child. The probe's GC-pressure
-  // loop is a no-op without it; the test asserts `globalGcAvailable === true`
-  // to fail loudly rather than silently produce non-deterministic results.
-  const electronArgs = ["--js-flags=--expose-gc", `--user-data-dir=${userDataDir}`, MAIN_ENTRY];
-  const spawnCommand = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
-  const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
-
-  // Strip SIDEKICKS_SMOKE_PROBE from the spawn env so the smoke branch
-  // (checked first in the if/else if cascade in the main entrypoint) does
-  // NOT fire ahead of the GC probe. This guards against a developer's
-  // shell having SIDEKICKS_SMOKE_PROBE exported, or a future CI matrix
-  // that runs both probes back-to-back.
-  const { SIDEKICKS_SMOKE_PROBE: _drop, ...envWithoutSmoke } = process.env;
-
-  return new Promise<SpawnResult>((resolve) => {
-    const child = spawn(spawnCommand, spawnArguments, {
-      cwd: PACKAGE_ROOT,
-      env: {
-        ...envWithoutSmoke,
-        SIDEKICKS_GC_PROBE: "1",
-        // No focus steal on the operator's machine; see `src/main/window-reveal.ts`.
-        [UNOBTRUSIVE_WINDOWS_ENV]: "1",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let probe: GcProbe | null = null;
-    let pending = "";
-
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-    }, SPAWN_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      stdout += text;
-      pending += text;
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      for (const line of lines) {
-        const probeTagIndex = line.indexOf(GC_PROBE_TAG);
-        if (probeTagIndex < 0) continue;
-        const payload = line.slice(probeTagIndex + GC_PROBE_TAG.length).trim();
-        if (!payload.startsWith("{")) continue;
-        try {
-          probe = JSON.parse(payload) as GcProbe;
-        } catch {
-          // Tagged but malformed — keep scanning subsequent lines.
-        }
-      }
-    });
-
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-
-    const cleanup = (): void => {
-      try {
-        rmSync(userDataDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup. A leftover temp dir is harmless;
-        // surfacing the cleanup error would mask the actual test result.
-      }
-    };
-
-    child.on("error", (err: Error) => {
-      clearTimeout(timeout);
-      cleanup();
-      resolve({
-        probe: null,
-        stdout,
-        stderr: stderr + `\n[spawn error] ${err.message}`,
-        exitCode: null,
-        signal: null,
-        elapsedMs: Date.now() - startedAt,
-      });
-    });
-
-    child.on("close", (exitCode, signal) => {
-      clearTimeout(timeout);
-      cleanup();
-      resolve({
-        probe,
-        stdout,
-        stderr,
-        exitCode,
-        signal,
-        elapsedMs: Date.now() - startedAt,
-      });
-    });
-  });
-}
+import { ELECTRON_BIN, MAIN_ENTRY, PRELOAD_ENTRY } from "./helpers/electron-probe.js";
+import {
+  GC_PROBE_TAG,
+  GC_TEST_TIMEOUT_MS,
+  SPAWN_TIMEOUT_MS,
+  spawnElectronGcProbe,
+} from "./helpers/gc-probe.js";
 
 // Governing docs for this suite (Plan-023, ADR-024 §Antithesis) are named in
 // the file header and the per-assertion comments — never in test titles.
@@ -376,6 +179,6 @@ describe("BrowserWindow lifecycle reachability", () => {
       expect(result.exitCode).toBe(0);
       expect(result.signal).toBe(null);
     },
-    SPAWN_TIMEOUT_MS + 5_000,
+    GC_TEST_TIMEOUT_MS,
   );
 });

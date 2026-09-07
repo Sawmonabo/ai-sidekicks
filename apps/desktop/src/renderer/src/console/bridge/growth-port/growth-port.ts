@@ -336,6 +336,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     daemonStatusRead: async () => growthUnavailable("daemonStatusRead"),
     daemonStop: async () => growthUnavailable("daemonStop"),
     daemonRestart: async () => growthUnavailable("daemonRestart"),
+    daemonStart: async () => growthUnavailable("daemonStart"),
     approvalProjectionRead: async () => growthUnavailable("approvalProjectionRead"),
     approvalResolve: async () => growthUnavailable("approvalResolve"),
     approvalRuleList: async () => growthUnavailable("approvalRuleList"),
@@ -346,8 +347,8 @@ export function createRefusingGrowthPort(): GrowthPort {
     onboardingStepAdvance: async () => growthUnavailable("onboardingStepAdvance"),
     onboardingStepSkip: async () => growthUnavailable("onboardingStepSkip"),
     onboardingComplete: async () => growthUnavailable("onboardingComplete"),
-    onboardingProviderSignInHandoff: async () =>
-      growthUnavailable("onboardingProviderSignInHandoff"),
+    onboardingPresentChoice: async () => growthUnavailable("onboardingPresentChoice"),
+    onboardingTelemetryPrompt: async () => growthUnavailable("onboardingTelemetryPrompt"),
     shellConfigRead: async () => growthUnavailable("shellConfigRead"),
     shellConfigWrite: async () => growthUnavailable("shellConfigWrite"),
     invitesList: async () => growthUnavailable("invitesList"),
@@ -405,5 +406,12 @@ export function createRefusingGrowthPort(): GrowthPort {
     hydratedEventRead: async () => growthUnavailable("hydratedEventRead"),
     orchestrationCostReceiptRead: async () => growthUnavailable("orchestrationCostReceiptRead"),
     orchestrationBudgetRead: async () => growthUnavailable("orchestrationBudgetRead"),
+    // the shell
+    shellNotificationPermissionRead: async () =>
+      growthUnavailable("shellNotificationPermissionRead"),
+    // the shell's own condition — the one operation here whose eventual producer is
+    // the main process rather than the daemon, and which refuses exactly as the rest
+    // do until a bridge namespace carries it.
+    shellStatusSubscribe: async () => growthUnavailable("shellStatusSubscribe"),
   };
 }

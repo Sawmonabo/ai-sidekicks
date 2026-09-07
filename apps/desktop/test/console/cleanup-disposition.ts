@@ -21,7 +21,7 @@ import {
   type CleanupOutcome,
   type CleanupSettlement,
   type ClosableApplication,
-} from "./bounded-cleanup.js";
+} from "./cleanup-contract.js";
 import { type ProfileRemovalFailure } from "./launch-profile.js";
 
 /**

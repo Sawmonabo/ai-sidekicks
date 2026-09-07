@@ -31,8 +31,17 @@ function readingOf(
   items: readonly AttentionItem[],
   refusedSessions: readonly RefusedAttentionSession[] = [],
 ): AttentionReading {
-  return { phase: "read", plane: new AttentionPlane(items), droppedCount: 0, refusedSessions };
+  return {
+    phase: "read",
+    plane: new AttentionPlane(items),
+    droppedCount: 0,
+    refusedSessions,
+    addressedSessionIds: ADDRESSED_SESSION_IDS,
+  };
 }
+
+/** The sessions this panel's fan-out asked about. The panel renders none of them. */
+const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 
 /** One session the fan-out never got an answer for, refused the way the port refuses. */
 function refusedSession(sessionId: string): RefusedAttentionSession {
@@ -144,6 +153,7 @@ describe("members the boundary refused", () => {
           plane: new AttentionPlane([item()]),
           droppedCount: 2,
           refusedSessions: [],
+          addressedSessionIds: ADDRESSED_SESSION_IDS,
         }}
       />,
     );
@@ -168,6 +178,7 @@ describe("members the boundary refused", () => {
           plane: new AttentionPlane([]),
           droppedCount: 2,
           refusedSessions: [],
+          addressedSessionIds: ADDRESSED_SESSION_IDS,
         }}
       />,
     );
@@ -246,6 +257,7 @@ describe("a read that did not cover every session", () => {
           plane: new AttentionPlane([]),
           droppedCount: 1,
           refusedSessions: [refusedSession("session-b")],
+          addressedSessionIds: ADDRESSED_SESSION_IDS,
         }}
       />,
     );

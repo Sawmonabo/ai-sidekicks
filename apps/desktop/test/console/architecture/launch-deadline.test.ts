@@ -199,8 +199,8 @@ describe("launch deadline — one clock, drawn from", () => {
 
   it("reports readiness spent when ITS allowance is gone, not the launch's", () => {
     // The reserve is what separates the two questions, and conflating them was a
-    // live defect: a ladder that used its full 30 000 ms still has the 25 000 ms
-    // witness-and-cleanup reserve in front of it, so the unreserved question
+    // live defect: a ladder that used its full readiness allowance still has the
+    // whole witness-and-cleanup reserve in front of it, so the unreserved question
     // answers "plenty of time" at exactly the moment readiness has none.
     const clock = stoppedClock(1_000);
     const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS, clock.now);

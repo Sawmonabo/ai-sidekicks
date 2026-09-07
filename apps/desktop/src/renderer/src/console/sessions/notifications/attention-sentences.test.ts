@@ -50,6 +50,9 @@ function answered(options: {
     plane: new AttentionPlane(narrowAttentionProjection(options.items ?? []).items),
     droppedCount: options.droppedCount ?? 0,
     refusedSessions: options.refusedSessions ?? [],
+    // The sentence is composed from what the read FOUND and from how much of it went
+    // unanswered, so the address set names the sessions and decides nothing here.
+    addressedSessionIds: ["s-1", "s-2"],
   };
 }
 

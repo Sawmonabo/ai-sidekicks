@@ -149,7 +149,16 @@ export default defineConfig({
           // joins the set because that subtree is imported by BOTH processes
           // (see `src/shared/auxiliary-routes.ts`), and a shared module no test
           // project reaches would be a subtree with no home for its own units.
-          include: ["src/main/**/*.test.ts", "src/shared/**/*.test.ts", "build/**/*.test.ts"],
+          // `build/**` and `scripts/**` are the package's two executable trees,
+          // and their units are co-located beside the executable exactly as
+          // `src/main/**`'s are; both are spawned as commands from a node
+          // environment, which is this project's.
+          include: [
+            "src/main/**/*.test.ts",
+            "src/shared/**/*.test.ts",
+            "build/**/*.test.ts",
+            "scripts/**/*.test.ts",
+          ],
         },
       },
       {

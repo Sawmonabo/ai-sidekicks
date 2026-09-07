@@ -13,13 +13,28 @@
 // a gate and not a review note.
 //
 // WHAT A READING IS, mechanically. A class that BOTH publishes what a surface reads
-// off it — a member named `snapshot` or `readout`, the two names this console uses
-// for that — AND holds a `ConsoleBridge`. The conjunction is the whole definition:
-// `session-store.ts` and `sidebar-model.ts` publish snapshots and hold no bridge, so
-// they are not readings and this gate says nothing about them; the `RefreshScheduler`
-// that `open-session-entry.ts` holds is driven by the store registry's own scheduling
-// and publishes no snapshot of its own, so it is out of scope by the definition
-// rather than by an exemption.
+// off it — a member named `snapshot`, `readout`, or `reading`, the three names this
+// console uses for that — AND holds a `ConsoleBridge`. The conjunction is the whole
+// definition: `session-store.ts` and `sidebar-model.ts` publish snapshots and hold no
+// bridge, so they are not readings and this gate says nothing about them; the
+// `RefreshScheduler` that `open-session-entry.ts` holds is driven by the store
+// registry's own scheduling and publishes no snapshot of its own, so it is out of
+// scope by the definition rather than by an exemption.
+//
+// AND THE THIRD NAME IS HERE BECAUSE THE GATE WAS KEYED ON A WORD. `reading` was
+// missing, so `ProviderReadinessModel` — a bridge-holding class taking two one-shot
+// daemon reads and publishing what they answered — was invisible to every claim
+// below for no reason but what its accessor happened to be called. That is the defect
+// this gate exists to catch wearing a different spelling, so the name set is the set
+// of names, and the planted control at the bottom is an otherwise-identical reader
+// with its accessor renamed.
+//
+// HOLDING IS A FIELD OR A CONSTRUCTOR PARAMETER, never a method parameter. Three
+// per-bridge caches in `bridge/` expose `reading(bridge, …)` — they RESOLVE a reading
+// for a bridge handed to them and hold none of their own — and counting a method
+// parameter would have admitted all three as readings the moment `reading` joined the
+// names above. What makes a class capable of asking the daemon on its own account is
+// keeping the connection, which is spelled in a field or taken at construction.
 //
 // THE BRIDGE AND NOT THE CALL. Holding the bridge is what makes a class capable of
 // asking the daemon, and it is spelled one way; the ASKING is spelled several — the
@@ -76,13 +91,28 @@ const EXPECTED_READINGS: readonly string[] = [
   "BridgeCapabilityRead",
   "ExecutionRootPrepareController",
   "NodeProviderQuotaReading",
+  "OnboardingFlow",
   "ProposalGateReader",
+  "ProviderReadinessModel",
   "RepoMountsReader",
   "SessionQueueReading",
   "ShellPreferenceStore",
   "SidekickRegistryView",
   "WorkspaceExecutionContextReader",
 ];
+
+/**
+ * The one class the definition reaches that a READING owns rather than a surface.
+ *
+ * `SessionQueueSubscription` publishes a `reading` and holds the bridge, and it is the
+ * interior of `SessionQueueReading`, which is censused itself and carries the scheduler
+ * and the trigger contract on its behalf. A live subscription is out of scope in any
+ * case: what it publishes is kept current by its own tail, which is precisely what a
+ * one-shot read has not got. PINNED BY NAME beside the census above, on the same rule:
+ * an exemption that grew silently would be the accessor-name accident with a list
+ * instead of a word.
+ */
+const OWNED_INTERIOR_READINGS: ReadonlySet<string> = new Set(["SessionQueueSubscription"]);
 
 /**
  * The walk and the parse, done ONCE for all three claims.
@@ -112,7 +142,7 @@ const CONSOLE_READINGS: readonly ReadingClassCensus[] = CONSOLE_MODULE_TEXTS.fla
     censusClasses(entry.displayPath, entry.source).map((census) =>
       withInheritance(census, CONSOLE_MODULE_INDEX),
     ),
-  ),
+  ).filter((reading) => !OWNED_INTERIOR_READINGS.has(reading.className)),
 );
 
 describe("every published wire reading is refreshable", () => {
@@ -229,6 +259,38 @@ export class AttachController extends ActSurfaceController {
 }
 `;
 
+// The same one-shot reader as `READ_ONCE_AT_OPEN`, differing in ONE thing: what its
+// accessor is called. This is the shape that was invisible here — a bridge-holding
+// class reading the daemon straight from its own entry point and publishing what came
+// back — and it stayed invisible only because the word above it was not on a list.
+const READ_ONCE_UNDER_A_DIFFERENT_ACCESSOR_NAME = `
+import type { ConsoleBridge } from "../bridge/index.js";
+class ProviderReadinessModel {
+  readonly #bridge: ConsoleBridge;
+  public get reading() {
+    return this.held;
+  }
+  async read() {
+    const reply = await callDaemon(this.#bridge, "providerAccount.list", {});
+    this.held = reply;
+  }
+}
+`;
+
+// A per-bridge cache: it RESOLVES a reading for a connection its caller holds and
+// keeps none of its own. Three of these ship in `bridge/`, and counting a method
+// parameter as holding would have admitted every one of them as a reading. It carries
+// the bridge import, so what excludes it is the holding rule and not the binding one.
+const RESOLVES_A_READING_FOR_A_BRIDGE_IT_IS_HANDED = `
+import type { ConsoleBridge } from "../bridge/index.js";
+class SessionQueueReadings {
+  readonly #bySession = new WeakMap();
+  public reading(bridge: ConsoleBridge, sessionId: string) {
+    return this.#bySession.get(bridge)?.get(sessionId);
+  }
+}
+`;
+
 /** The fixture pair, indexed the way the real walk indexes the tree. */
 const PLANTED_INDEX: ReadonlyMap<string, ConsoleModuleText> = new Map([
   [
@@ -287,6 +349,31 @@ describe("the gate bites", () => {
     expect(folded.publishesReading).toBe(true);
     expect(folded.holdsScheduler).toBe(true);
     expect(folded.declaresTriggerContract).toBe(true);
+  });
+
+  it("catches a one-shot reader whose accessor is named something else", () => {
+    // The accessor-name accident, planted. Before `reading` joined the names above,
+    // this class was not a reading as far as any claim here was concerned — so the
+    // gate reported a clean tree over exactly the defect it was built for.
+    const readings = readingsIn(
+      censusClasses(
+        "console/settings/provider-readiness.ts",
+        READ_ONCE_UNDER_A_DIFFERENT_ACCESSOR_NAME,
+      ),
+    );
+    expect(readings.map((reading) => reading.className)).toStrictEqual(["ProviderReadinessModel"]);
+    expect(readings.every((reading) => reading.holdsScheduler)).toBe(false);
+    expect(readings.every((reading) => reading.declaresTriggerContract)).toBe(false);
+  });
+
+  it("says nothing about a cache that resolves a reading for a bridge it is handed", () => {
+    // The cost of the name above, paid on the other side: holding is a field or a
+    // constructor parameter, so a `reading(bridge)` resolver is not a reading.
+    expect(
+      readingsIn(
+        censusClasses("console/ledger/queue-feed.ts", RESOLVES_A_READING_FOR_A_BRIDGE_IT_IS_HANDED),
+      ),
+    ).toStrictEqual([]);
   });
 
   it("negative control: a base reached by name rather than by import is not followed", () => {

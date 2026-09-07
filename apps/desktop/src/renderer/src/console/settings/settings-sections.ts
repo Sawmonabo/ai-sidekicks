@@ -18,17 +18,17 @@
 /**
  * Every settings section, in rail order.
  *
- * The twelve the design enumerates, in its order, plus `sidekicks`. The rail a
- * person reads is this tuple, and the union is derived from it for the reason
+ * The twelve the design enumerates, in its order, plus `sidekicks` and `daemon`. The
+ * rail a person reads is this tuple, and the union is derived from it for the reason
  * `seats/surface-registry.ts` gives about its own slots: a union written beside a
  * hand-repeated array is two closed sets that agree until one of them is widened.
  *
- * `sidekicks` is the one id that is this console's own rather than the design's.
- * The design puts the saved-sidekick page IN settings and reaches it from the
- * in-session attach picker, but its section enumeration names no id for it, so a
- * page that exists and a rail that cannot reach it was the alternative. An id
+ * `sidekicks` and `daemon` are the two ids that are this console's own rather than
+ * the design's. The design puts the saved-sidekick page IN settings and reaches it
+ * from the in-session attach picker, but its section enumeration names no id for it,
+ * so a page that exists and a rail that cannot reach it was the alternative. An id
  * carries no wire and asserts nothing about the daemon, which is why it can be
- * decided here; a PAGE with no body still could not be, and this one has one.
+ * decided here; a PAGE with no body still could not be, and both of these have one.
  */
 export const SETTINGS_SECTION_IDS = [
   "accounts",
@@ -44,6 +44,13 @@ export const SETTINGS_SECTION_IDS = [
   "data",
   "application",
   "browser",
+  // The local runtime's own page, which is §Tray and daemon lifecycle's "one click
+  // away": the supervisor detail, its attempt count and last heartbeat, and the stop
+  // and restart controls. Like `sidekicks` it is not one of the design's section ids
+  // — the design puts this detail one click behind the frame's chip and names no
+  // section for it — and the alternative was a chip that claims a detail view nothing
+  // can reach.
+  "daemon",
 ] as const;
 
 /** One settings section. Derived from the enumeration, never restated. */
@@ -52,7 +59,7 @@ export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 /**
  * The rail's label for each section, in one place.
  *
- * A TOTAL record, so a fourteenth section is a compile error here until its label
+ * A TOTAL record, so a fifteenth section is a compile error here until its label
  * is decided — the label cannot silently default to the id, which is how a rail
  * grows an entry reading `mcp-servers`.
  */
@@ -70,4 +77,5 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsSectionId, string>
   data: "Data",
   application: "Application",
   browser: "Browser",
+  daemon: "Local runtime",
 };

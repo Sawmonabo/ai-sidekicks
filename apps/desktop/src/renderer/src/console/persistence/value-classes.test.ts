@@ -23,7 +23,7 @@ import {
 
 /**
  * A value no class admits: not an object, not an array, not a scheme name. Every
- * one of the seven shapes must reject it, which is what makes "the name reached a
+ * every one of the class shapes must reject it, which is what makes "the name reached a
  * validator" observable.
  */
 const ADMITTED_BY_NOTHING = 42;

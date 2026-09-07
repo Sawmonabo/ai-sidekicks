@@ -6,7 +6,7 @@ import {
   type SessionPinTier,
 } from "./rows/session-rows.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
-import { TierToggle } from "./TierToggle.js";
+import { SessionRowMenu } from "./SessionRowMenu.js";
 
 export interface SessionRowProps {
   readonly row: PlacedSessionRow;
@@ -51,7 +51,7 @@ export const SessionRow: MemoExoticComponent<(props: SessionRowProps) => React.J
         {/* An audit stub gets no controls at all. It is a retention record rather
           than work, and the retention read-out is another surface's. */}
         {isAuditStub ? null : (
-          <TierToggle sessionId={row.sessionId} tier={row.tier} onSetTier={props.onSetTier} />
+          <SessionRowMenu sessionId={row.sessionId} tier={row.tier} onSetTier={props.onSetTier} />
         )}
       </div>
     );

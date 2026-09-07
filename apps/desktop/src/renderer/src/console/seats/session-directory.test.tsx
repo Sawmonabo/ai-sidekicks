@@ -24,17 +24,18 @@
 // own: `session-directory.frames.test.tsx` measures which frames a port swap paints,
 // which no assertion on a settled state can see. Every case here reads states.
 
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
+import { useSettledGrowthRead, createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { settle as settleReactWork } from "../core/settle.test-support.js";
 import { useSubjectScopedState } from "../store/index.js";
 import {
   offeredSessionIds,
+  requestSessionDirectoryRead,
   useSessionDirectory,
   type SessionDirectoryState,
 } from "./session-directory.js";
@@ -105,6 +106,82 @@ function useSessionDirectoryWithoutRejectionArm(growth: GrowthPort): SessionDire
   return state;
 }
 
+/**
+ * The shipped hook with exactly the read revision removed, kept runnable.
+ *
+ * One change from the shipped shape and no others — the same holder key, the same
+ * request, the same projection — so what the negative control below reads is the
+ * revision and not a second difference. This is the read the console shipped before
+ * the frame-lifetime binding was written, and it is the whole defect: an effect keyed
+ * on the port alone runs once per window, so a node that gains a session afterwards is
+ * reported by nobody.
+ */
+function useSessionDirectoryWithoutReadRevision(growth: GrowthPort): SessionDirectoryState {
+  const { value } = useSettledGrowthRead<
+    Awaited<ReturnType<GrowthPort["sessionList"]>>,
+    SessionDirectoryState
+  >(growth, undefined, () => growth.sessionList({}), {
+    unsettled: () => ({ status: "reading" }),
+    settled: (settlement) =>
+      settlement.status === "served"
+        ? { status: "served", sessions: settlement.value }
+        : { status: "unavailable", refusal: settlement },
+  });
+  return value;
+}
+
+/** How many reads a port has been asked for, beside the port that counts them. */
+interface CountedDirectoryPort {
+  readonly port: GrowthPort;
+  /** Reads asked for so far. Read after a settle, never during one. */
+  readCount(): number;
+}
+
+/**
+ * A real fixture port that counts its directory reads and answers a GROWING list.
+ *
+ * The growth is the claim: a second read that returned the first read's rows could
+ * not tell a re-read apart from a cached answer, and what the binding lost was
+ * precisely the ability to see a session the node gained after the window opened. Each
+ * read appends one more row, so the rendered list says which read it came from.
+ */
+function countedDirectoryPort(): CountedDirectoryPort {
+  const served = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }).growth;
+  let readCount = 0;
+  return {
+    readCount: () => readCount,
+    port: {
+      ...served,
+      sessionList: async (request) => {
+        readCount += 1;
+        const outcome = await served.sessionList(request);
+        return outcome.status === "served"
+          ? {
+              ...outcome,
+              value: [
+                ...outcome.value,
+                { sessionId: `session-read-${String(readCount)}`, state: "active" },
+              ],
+            }
+          : outcome;
+      },
+    },
+  };
+}
+
+/** The session ids a settled directory carries, or `undefined` where it settled otherwise. */
+function servedSessionIds(state: SessionDirectoryState): readonly string[] | undefined {
+  return state.status === "served" ? state.sessions.map((session) => session.sessionId) : undefined;
+}
+
+/** Regain the window's focus, the way a person switching back to it does. */
+async function regainWindowFocus(): Promise<void> {
+  act(() => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await settleReactWork();
+}
+
 function DirectoryProbe(props: {
   readonly growth: GrowthPort;
   readonly onObserve: (state: SessionDirectoryState) => void;
@@ -119,6 +196,15 @@ function PreChangeDirectoryProbe(props: {
   readonly onObserve: (state: SessionDirectoryState) => void;
 }): React.JSX.Element {
   props.onObserve(useSessionDirectoryWithoutRejectionArm(props.growth));
+  return <></>;
+}
+
+/** The same probe over the pre-revision hook, so both are driven the same way. */
+function PreRevisionDirectoryProbe(props: {
+  readonly growth: GrowthPort;
+  readonly onObserve: (state: SessionDirectoryState) => void;
+}): React.JSX.Element {
+  props.onObserve(useSessionDirectoryWithoutReadRevision(props.growth));
   return <></>;
 }
 
@@ -290,6 +376,128 @@ describe("useSessionDirectory — one read, three answers", () => {
 
     expect(readCount).toBe(1);
     expect(lastState(observed).status).toBe("served");
+  });
+});
+
+describe("useSessionDirectory — the node's list moves, and so does the read", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("re-reads when the window regains focus, and renders what the node answers now", async () => {
+    // The frame-lifetime case, stated as a person meets it: a session created on this
+    // node by another window after this one mounted. Nothing in this window's own
+    // stream says so, and the window coming back to the front is the moment
+    // `store/read-triggers.ts` names for a node-scoped reading.
+    const counted = countedDirectoryPort();
+    const observed = observeDirectory(counted.port);
+    await settleReactWork();
+    expect(counted.readCount()).toBe(1);
+    expect(servedSessionIds(lastState(observed))).toContain("session-read-1");
+
+    await regainWindowFocus();
+
+    expect(counted.readCount()).toBe(2);
+    expect(servedSessionIds(lastState(observed))).toContain("session-read-2");
+  });
+
+  it("re-reads when a settled act declares the node's directory stale", async () => {
+    const counted = countedDirectoryPort();
+    const observed = observeDirectory(counted.port);
+    await settleReactWork();
+    expect(counted.readCount()).toBe(1);
+
+    act(() => {
+      requestSessionDirectoryRead(counted.port);
+    });
+    await settleReactWork();
+
+    expect(counted.readCount()).toBe(2);
+    expect(servedSessionIds(lastState(observed))).toContain("session-read-2");
+  });
+
+  it("keeps the answer already on screen while the re-read is in flight", async () => {
+    // The reason a stale directory advances a generation instead of re-addressing the
+    // holder: re-addressing re-seeds to `reading`, which would blank the all-sessions
+    // list on every focus. Rule 8's `not-loaded` promises an answer that is still
+    // coming, and here one is already on screen.
+    const counted = countedDirectoryPort();
+    const observed = observeDirectory(counted.port);
+    await settleReactWork();
+    const settledCount = observed.length;
+
+    act(() => {
+      requestSessionDirectoryRead(counted.port);
+    });
+
+    expect(observed.slice(settledCount).every((state) => state.status === "served")).toBe(true);
+    await settleReactWork();
+    expect(lastState(observed).status).toBe("served");
+  });
+
+  it("reaches every surface reading the same port, not only the one that asked", async () => {
+    // Three families read this directory and only one of them settles an act. A
+    // generation held per caller would leave the other two rendering the list from
+    // before the act that changed it.
+    const counted = countedDirectoryPort();
+    const first: SessionDirectoryState[] = [];
+    const second: SessionDirectoryState[] = [];
+    render(
+      <>
+        <DirectoryProbe
+          growth={counted.port}
+          onObserve={(state) => {
+            first.push(state);
+          }}
+        />
+        <DirectoryProbe
+          growth={counted.port}
+          onObserve={(state) => {
+            second.push(state);
+          }}
+        />
+      </>,
+    );
+    await settleReactWork();
+
+    act(() => {
+      requestSessionDirectoryRead(counted.port);
+    });
+    await settleReactWork();
+
+    // Two mounted surfaces, two reads on the first pass and two more on the bump.
+    // WHICH of the two later reads each surface holds is React's effect order and not
+    // this claim: what is asserted is that NEITHER is still rendering a first-pass
+    // answer, which is the thing a per-caller revision would have got wrong.
+    expect(counted.readCount()).toBe(4);
+    for (const observed of [first, second]) {
+      const rendered = servedSessionIds(lastState(observed));
+      expect(rendered).not.toContain("session-read-1");
+      expect(rendered).not.toContain("session-read-2");
+    }
+  });
+
+  it("negative control: the pre-revision read answers a focus with nothing at all", async () => {
+    // The control drives the real defect rather than describing it. With the effect
+    // keyed on the port alone, the window regaining focus puts no call, and the list
+    // still names only what the node held when the window opened — which is what a
+    // frame-lifetime mount made permanent.
+    const counted = countedDirectoryPort();
+    const observed: SessionDirectoryState[] = [];
+    render(
+      <PreRevisionDirectoryProbe
+        growth={counted.port}
+        onObserve={(state) => {
+          observed.push(state);
+        }}
+      />,
+    );
+    await settleReactWork();
+
+    await regainWindowFocus();
+
+    expect(counted.readCount()).toBe(1);
+    expect(servedSessionIds(lastState(observed))).not.toContain("session-read-2");
   });
 });
 
