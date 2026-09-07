@@ -12,7 +12,24 @@ import { refuse } from "../../core/index.js";
 import { BrowserCaptureCard, type BrowserCaptureCardProps } from "./CaptureCard.js";
 
 const BASE: BrowserCaptureCardProps = {
+  artifactId: "artifact-4f21",
   captureName: "staging build, checkout step",
+  state: "published",
+  scope: "viewport",
+  mediaType: "image/png",
+  ingest: { status: "stored", artifactId: "artifact-4f21", byteLength: 262144 },
+};
+
+/**
+ * The card a producer that answered with no name mints — which is every capture today.
+ *
+ * Written out rather than spread from `BASE` with the name deleted: the member is
+ * optional, and a fixture that removed it would still typecheck if the card grew a
+ * default for it, which is the failure this file is here to catch.
+ */
+const UNNAMED: BrowserCaptureCardProps = {
+  artifactId: "artifact-4f21",
+  state: "published",
   scope: "viewport",
   mediaType: "image/png",
   ingest: { status: "stored", artifactId: "artifact-4f21", byteLength: 262144 },
@@ -44,11 +61,54 @@ describe("capture card — the produced object, collapsed to a line", () => {
     expect(monoText).toContain("artifact-4f21");
   });
 
+  it("says which lifecycle state the log has this object in", () => {
+    expect(renderCapture({ ...BASE, state: "superseded" }).textContent).toContain("Superseded");
+    expect(renderCapture({ ...BASE, state: "pending" }).textContent).toContain("Ingest in flight");
+  });
+
   it("renders the stored size through the console's one byte formatter", () => {
     // A non-breaking space joins a figure to its unit, and whole hundreds drop the
     // fraction digit — both are the chokepoint's rules, asserted as it writes them
     // rather than as they look.
     expect(renderCapture(BASE).textContent).toContain("256\u00A0KiB");
+  });
+});
+
+// The name slot, and the locator that must never sit in it.
+//
+// `browserCapture` answers with an artifact id and no name, so a card that promoted
+// the id into `captureName` rendered an opaque wire value in the plain body face on
+// every capture this window took — indistinguishable, to a reader, from a name
+// somebody chose. The cases below pin both halves: an unnamed card renders its
+// identity as a wire figure and says the manifest is unread, and a named one still
+// renders the name as a name.
+describe("capture card — an unnamed capture is an identity, not a name", () => {
+  function nameSlotText(card: HTMLElement): string {
+    return card.querySelector(".meridian-browser-card__name")?.textContent ?? "";
+  }
+
+  it("renders the artifact id through the wire-figure chokepoint", () => {
+    const card = renderCapture(UNNAMED);
+    const wireFigures = [...card.querySelectorAll(".meridian-figure--wire")].map(
+      (node) => node.textContent ?? "",
+    );
+    expect(wireFigures).toContain("artifact-4f21");
+  });
+
+  it("puts no bare id in the human-name slot", () => {
+    const card = renderCapture(UNNAMED);
+    expect(nameSlotText(card)).toBe("");
+    expect(card.textContent).toContain("Manifest not read");
+  });
+
+  it("stays addressable by assistive technology through the id", () => {
+    expect(renderCapture(UNNAMED).getAttribute("aria-label")).toBe("Capture artifact-4f21");
+  });
+
+  it("negative control: a real name is still rendered as a name", () => {
+    const card = renderCapture(BASE);
+    expect(nameSlotText(card)).toBe("staging build, checkout step");
+    expect(card.textContent).not.toContain("Manifest not read");
   });
 });
 

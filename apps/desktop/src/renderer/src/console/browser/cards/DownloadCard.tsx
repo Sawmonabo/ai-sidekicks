@@ -38,6 +38,10 @@
 import { ingestRemedySentence, type BrowserIngestState } from "./artifact-ingest.js";
 import { BrowserIngestMeter } from "./IngestMeter.js";
 import {
+  PRODUCED_ARTIFACT_STATE_LABELS,
+  type ProducedArtifactState,
+} from "./produced-artifact-state.js";
+import {
   Chip,
   InlineRefusal,
   Nothing,
@@ -73,12 +77,19 @@ export interface BrowserDownloadCardProps {
    * The SHELF's key, and not a display value: `ProducedObjects.tsx` looks a card up by
    * the artifact id the log's own fold carries, so a card whose identity reader
    * answered anything else would never be found and would always render as the
-   * identity-only row. The capture arm is accidentally correct without this member
-   * because its register assigns the artifact id into the name it renders; this arm
-   * had no such coincidence, and a proposed file name is a page's suggestion rather
-   * than an identity at all.
+   * identity-only row. Both card shapes carry it under this one name — the capture arm
+   * used to be accidentally correct by assigning the id into the name it rendered, and
+   * that coincidence is what put a locator in a name's place.
    */
   readonly artifactId: string;
+  /**
+   * Where this object stands in the artifact lifecycle, as the LOG says.
+   *
+   * Required for the capture card's reason, stated there: the producing act cannot
+   * answer with a state it has not reached, so the shelf joins it on and a card that
+   * held its own would hold a staler one.
+   */
+  readonly state: ProducedArtifactState;
   /**
    * The name the page proposed. Rendered as text and used as a locator by nothing —
    * the browser writes no file to a path a page chose.
@@ -114,6 +125,7 @@ export function BrowserDownloadCard(props: BrowserDownloadCardProps): React.JSX.
       <div className="meridian-browser-card__head">
         <span className="meridian-browser-card__name">{props.proposedFileName}</span>
         <div className="meridian-browser-card__meta">
+          <Chip label={PRODUCED_ARTIFACT_STATE_LABELS[props.state]} glyph="artifact" />
           <Chip label={props.sourcePageLabel} glyph="browser" />
           {props.ingestCeilingByteLength === undefined ? null : (
             <span className="meridian-browser-card__ceiling">

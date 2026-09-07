@@ -22,7 +22,11 @@
 //   • An IDENTITY ROW otherwise, carrying what the log actually said. It is not a
 //     degraded card and it does not leave a name-shaped hole: it says which object,
 //     what state it reached, and which run made it, which is the whole of what is
-//     known.
+//     known. "Otherwise" is the shelf being TOTAL over its own props rather than a
+//     state the pane reaches today — the pane's register is both the provenance and
+//     the card store, so an id it names it also has a card for. A shelf that answered
+//     an unbacked id with nothing would be a row silently missing from a list whose
+//     density rule is one row per produced object.
 //
 // A row is never a card with invented fields. Rendering the artifact id where a name
 // belongs would put a locator in a name's place on every row, and a person would
@@ -33,6 +37,13 @@
 // loading state — an ingest in flight — `published` is the settled row, and
 // `superseded` is a retaken capture's predecessor kept as history rather than
 // deleted. A shelf that collapsed any two of them would hide the retake.
+//
+// AND THEY RENDER ON BOTH ROW SHAPES, which is why the state is joined on HERE rather
+// than carried in the register. A card used to win outright over the state-aware
+// identity row, so an object this window captured and the log later superseded went on
+// rendering as an ordinary capture: the richer row was the one that could not say the
+// one thing that had changed. The card keeps its richer content and takes the state as
+// a prop, so neither row shape is the degraded one.
 
 import { Nothing } from "../../primitives/index.js";
 import { BrowserCaptureCard } from "./CaptureCard.js";
@@ -55,7 +66,12 @@ export function ProducedObjects(props: ProducedObjectsProps): React.JSX.Element 
         kind="empty"
         placement="inline"
         title="Nothing produced yet"
-        detail="This session's browser has not produced a capture, a download, or an asset bundle."
+        // Scoped to this window rather than to the session, because that is the whole
+        // extent of what the console can know: the artifact events name no producer,
+        // so an object another window's browser made is indistinguishable on the log
+        // from a repository attachment, and claiming the session produced nothing
+        // would be a claim about surfaces this one cannot see.
+        detail="This window's browser has not produced a capture, a download, or an asset bundle."
       />
     );
   }
@@ -68,9 +84,9 @@ export function ProducedObjects(props: ProducedObjectsProps): React.JSX.Element 
           return <ProducedObjectRow key={artifact.artifactId} artifact={artifact} />;
         }
         return card.kind === "capture" ? (
-          <BrowserCaptureCard key={artifact.artifactId} {...card.props} />
+          <BrowserCaptureCard key={artifact.artifactId} {...card.props} state={artifact.state} />
         ) : (
-          <BrowserDownloadCard key={artifact.artifactId} {...card.props} />
+          <BrowserDownloadCard key={artifact.artifactId} {...card.props} state={artifact.state} />
         );
       })}
     </div>
