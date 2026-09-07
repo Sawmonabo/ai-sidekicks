@@ -6,20 +6,33 @@
 // real page rather than a stand-in this file drew, and — since the body grew a
 // required prop — that this registration actually hands it the bridge it reads
 // through.
+//
+// THE BODY IS AWAITED THROUGH THE REGISTRY'S OWN LOADER, never by settling generously.
+// This registration is loader-backed — the page is a chunk of its own, which is what
+// keeps it off every launch's initial graph — so a descriptor rendered straight after
+// registration draws the reserved region and nothing else. `preload` is the registration's
+// memoised loader, so awaiting it is exact: `test/console/surfaces/pane-body-resolution.ts`
+// states the same rule for the two boards in `seats/`, and the reason a wait must not be
+// a wider settle is there — a dynamic import needs more than the one macrotask a render
+// settle crosses, so a case that settled twice and passed would be a case that raced.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { registerSidekicksPage } from "./sidekicks-settings-page.js";
 import {
-  SETTINGS_SECTION_IDS,
   SettingsPageRegistry,
   matchSettingsEntries,
   type SettingsPageContext,
 } from "./settings/settings-page-registry.js";
+import { SETTINGS_SECTION_IDS } from "./settings/settings-sections.js";
 import { createFixtureBridge } from "./bridge/index.js";
 import { ManualClock } from "./core/index.js";
 import { LiveAnnouncerProvider } from "./primitives/index.js";
+// The pending marker's reader by its own leaf specifier, on `RouteSurface.test.tsx`'s
+// reason: the seats door publishes the ATTRIBUTE, which a producer needs, and not this
+// reader, whose consumers outside that directory are tests.
+import { pendingPaneBodiesIn } from "./seats/pending-pane-body.js";
 
 /**
  * A real context, because the body now reads through the bridge on it.
@@ -58,6 +71,19 @@ function registeredRegistry(): SettingsPageRegistry {
   return registry;
 }
 
+/**
+ * The registry with this page's chunk already resolved, for the cases that mount it.
+ *
+ * A scoped registry per case rather than one shared instance, for the registrar's own
+ * reason: the table is owner-scoped state, so two cases sharing one would make the second
+ * depend on whether the first had run.
+ */
+async function registryWithBodyLoaded(): Promise<SettingsPageRegistry> {
+  const registry = registeredRegistry();
+  await registry.preload("sidekicks");
+  return registry;
+}
+
 describe("the sidekicks settings page", () => {
   it("claims a section the rail actually renders", () => {
     // Both halves matter: a descriptor under an id outside the tuple would register
@@ -66,14 +92,27 @@ describe("the sidekicks settings page", () => {
     expect(registeredRegistry().registeredSections()).toStrictEqual(["sidekicks"]);
   });
 
-  it("renders the agents family's page and not a local stand-in", () => {
+  it("renders the agents family's page and not a local stand-in", async () => {
     // The page's own heading and its first standing fact, which only the real body
     // carries. A shell drawn here would pass an "it rendered something" assertion.
-    const descriptor = registeredRegistry().descriptorFor("sidekicks");
+    const descriptor = (await registryWithBodyLoaded()).descriptorFor("sidekicks");
     expect(descriptor).toBeDefined();
     const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
     expect(container.querySelector(".meridian-sidekicks__title")?.textContent).toBe("Sidekicks");
     expect(container.textContent ?? "").toContain("Where they live");
+  });
+
+  it("reserves the region rather than the page while its chunk is still arriving", () => {
+    // The other side of the loader form, and the negative control for the wait above: an
+    // unpreloaded descriptor draws the reservation, so the case above is asserting on a
+    // body that landed rather than on one that was there all along. It is also the frame a
+    // person sees, and it must carry the pending marker — the screenshot tier refuses to
+    // photograph a tree holding one, and a settings page mid-load is exactly what that
+    // refusal exists for.
+    const descriptor = registeredRegistry().descriptorFor("sidekicks");
+    const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
+    expect(container.querySelector(".meridian-sidekicks__title")).toBeNull();
+    expect(pendingPaneBodiesIn(container).length).toBe(1);
   });
 
   it("hands the page the bridge it reads through", async () => {
@@ -81,7 +120,7 @@ describe("the sidekicks settings page", () => {
     // props would fail to compile, but one that passed a DIFFERENT bridge would
     // not — so the check is that the page put a read in flight at all, which only
     // the context's own bridge can answer.
-    const descriptor = registeredRegistry().descriptorFor("sidekicks");
+    const descriptor = (await registryWithBodyLoaded()).descriptorFor("sidekicks");
     const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
   });

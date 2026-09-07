@@ -20,6 +20,14 @@
 // deadline and a walk that ignored it would do exactly what an idle callback exists to
 // avoid: hold the main thread through a frame the person is looking at. Re-arming per
 // kind lets the browser put the rest of the walk after whatever it would rather do.
+//
+// AND ONE CALLBACK PER KEY, which is the half the board cannot supply. `unloadedKeys` is
+// re-read between steps, and a board releases a key's memo when its load REJECTS — so a
+// chunk that will not fetch is offered back to the walk, and with two of them the walk
+// alternates between the two forever, one background refetch per idle callback, for a
+// surface nobody has opened. The attempted set below is what bounds it: a walk asks for
+// each key once and then ends, and the retry a failed chunk gets is the one a person
+// asks for by opening the surface.
 
 import type { LazyBodyBoard } from "./lazy-body.js";
 
@@ -92,6 +100,13 @@ export function idleWarmScheduler(host: IdleCallbackHost = globalThis): IdleWarm
 export class LazyBodyIdleWarm<TKey> {
   readonly #board: LazyBodyBoard<TKey>;
   readonly #scheduler: IdleWarmScheduler;
+  /**
+   * Every key this walk has armed a step for, so none is armed twice.
+   *
+   * Bounded by the board's own closed key set — pane kinds, surface slots, settings
+   * sections — and released with the walk, which is the effect's lifetime.
+   */
+  readonly #attemptedKeys = new Set<TKey>();
   #scheduledHandle: number | undefined;
   #hasStarted = false;
   #isCancelled = false;
@@ -138,11 +153,22 @@ export class LazyBodyIdleWarm<TKey> {
     // registered late, and a kind a person opened mid-walk, both change what is left to
     // do — and a snapshot would go on requesting a body that is already resolved while
     // missing one that is not.
-    const [nextKey] = this.#board.unloadedKeys();
+    //
+    // Skipping what this walk has already asked for is the other half of that: the board
+    // is the right source for what is unloaded and cannot know which of those this walk
+    // has had a turn at, since a key whose load rejected is unloaded again and looks
+    // exactly like one that has never been asked for.
+    const nextKey = this.#board
+      .unloadedKeys()
+      .find((candidateKey) => !this.#attemptedKeys.has(candidateKey));
     if (nextKey === undefined) {
       this.#scheduledHandle = undefined;
       return;
     }
+    // Marked at ARM time rather than after the preload, so a key is never armed twice —
+    // the walk re-arms synchronously beside the fetch it just started, and a mark that
+    // waited for the load to settle would be written after the step that reads it.
+    this.#attemptedKeys.add(nextKey);
     this.#scheduledHandle = this.#scheduler.schedule(() => {
       this.#scheduledHandle = undefined;
       this.#warmThenContinue(nextKey);
@@ -162,8 +188,9 @@ export class LazyBodyIdleWarm<TKey> {
     void this.#board.preload(key).catch(() => undefined);
     // Armed immediately rather than after the load settles: the fetch is the browser's
     // to schedule, and waiting for it would serialise the walk behind the slowest chunk.
-    // `unloadedKeys` reads the memo, which is set synchronously by `preload`, so the next
-    // step never re-selects this key.
+    // What stops the next step re-selecting this key is the attempted set and not the
+    // board's memo: the memo is written synchronously by `preload` and released again if
+    // that load rejects, so it answers "in flight or loaded" and not "already asked for".
     this.#armNextStep();
   }
 }

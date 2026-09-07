@@ -21,27 +21,30 @@
 // and made every one of the body's reaches into this family a cross-family import that
 // had to cross this door.
 //
-// ONE STYLESHEET IS IMPORTED HERE, and the split is along what this door actually
-// publishes rather than along the directory tree. `SidekickDefinitionsPage` leaves this
-// family through the re-export below, so the settings surface that mounts it reaches
-// the component through the initial graph and its sheet has to be there too.
+// NO STYLESHEET IS IMPORTED HERE, and the reason is what this door is REACHED BY.
+// `collaboration-family.ts` imports it eagerly for the agent console's surface
+// registration, so every module and every sheet this door reaches statically is on the
+// initial graph of every launch. All five of this family's sheets therefore enter at a
+// chunk root instead.
 //
-// THE OTHER FOUR ENTER AT THE AGENT CONSOLE'S TWO CHUNK ROOTS. Both agent-console
-// mounts are loaders, and the console's own components are the only readers of those
-// four sheets' selectors — measured, not assumed: no module in the static graph names
-// a class any of them declares. Leaving them here charged every session the rules for
-// a surface it reaches only by opening the pane or the auxiliary window. They are
-// imported from BOTH roots rather than one, because either mount can be the first to
-// render the body and neither may render it undressed; the bundler emits one shared
+// FOUR OF THEM AT THE AGENT CONSOLE'S TWO ROOTS. Both agent-console mounts are loaders,
+// and the console's own components are the only readers of those four sheets' selectors —
+// measured, not assumed: no module in the static graph names a class any of them declares.
+// They are imported from BOTH roots rather than one, because either mount can be the first
+// to render the body and neither may render it undressed; the bundler emits one shared
 // asset for the pair rather than two copies.
+//
+// THE FIFTH AT `definitions/sidekick-definitions-page-body.ts`, which is a root of its own
+// because the page it dresses is a SETTINGS section rather than a mount of this family's.
+// It sat here, imported beside a re-export of the page, while the settings registration
+// could take only a component — and the two together put a page nobody had opened, and the
+// rules for it, on every launch. The registration takes a loader now, so both leave.
 //
 // The admitting rule is the collision census, not the directory: a sheet may cross a
 // chunk boundary only when no other family declares a class it declares, because load
 // order decides equal-specificity conflicts and deferring such a sheet restyles the
-// other family (`runs/index.ts` records that happening). None of these four does, per
+// other family (`runs/index.ts` records that happening). None of these five does, per
 // `test/console/architecture/stylesheet-selector-owners.test.ts`.
-
-import "./definitions/sidekick-definitions-page.css";
 
 // --- WHAT LEAVES THIS FAMILY -------------------------------------------
 //
@@ -49,12 +52,14 @@ import "./definitions/sidekick-definitions-page.css";
 // reading shapes, the catalog selectors, the settlement projection, and the agent
 // console's own components are this family's own and are reached deeply from inside
 // it — a barrel entry for one of them would be an export nothing outside can name.
-
-// The sidekicks page, which the settings surface mounts. It is a page rather than a
-// pane because the design puts a saved sidekick's configuration in settings and
-// reaches it from the in-session attach picker, and it crosses a family boundary, so
-// it leaves this family through the door rather than by a deep import.
-export { SidekickDefinitionsPage } from "./definitions/SidekickDefinitionsPage.js";
+//
+// THE SIDEKICKS PAGE IS NOT AMONG THEM, and its absence is load-bearing rather than an
+// omission. It is mounted from settings, and it left through this door until the
+// measurement above: a door another family imports eagerly may not statically reach a
+// body that only a settings section mounts, or the boundary that defers it is one the
+// bundler resolves into the entry chunk. The page leaves as a CHUNK ROOT instead —
+// `definitions/sidekick-definitions-page-body.ts`, named by the loader in
+// `console/sidekicks-settings-page.ts` — which is a specifier and not a door line.
 
 // The agent console's two mounts — the deck's pane kind, wearing the shared chrome, and
 // the auxiliary window's surface slot, wearing its own heading. Straight from the module
