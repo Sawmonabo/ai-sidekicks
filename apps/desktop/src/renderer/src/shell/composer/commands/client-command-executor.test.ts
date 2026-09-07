@@ -18,10 +18,7 @@ import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import { createClientCommandExecutor, useComposerCommandZone } from "./client-command-executor.js";
 import { clientCommandRefusal } from "./client-command-recognizer.js";
-import {
-  NO_DIRECTIVE_LINE_HANDLERS,
-  type DirectiveLineHandlers,
-} from "./directive-line-handlers.js";
+import { type DirectiveLineHandlers, noDirectiveLineHandlers } from "./directive-line-handlers.js";
 import { composerCommandSurface } from "./console-command-surface.js";
 import { ProviderCommandEnumeration } from "./provider-command-holder.js";
 import { FIRST_AGENT, targetForAgent } from "./provider-command-holder.test-support.js";
@@ -53,7 +50,7 @@ function registerCommand(command: {
   registeredIds.push(command.id);
 }
 
-function executorOverConsoleRegistry(handlers: DirectiveLineHandlers = NO_DIRECTIVE_LINE_HANDLERS) {
+function executorOverConsoleRegistry(handlers: DirectiveLineHandlers = noDirectiveLineHandlers()) {
   return createClientCommandExecutor({
     readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
     readDirectiveHandlers: () => handlers,

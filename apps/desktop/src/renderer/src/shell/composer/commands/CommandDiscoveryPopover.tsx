@@ -20,7 +20,7 @@ import { InlineRefusal, Nothing } from "../../../console/primitives/index.js";
 import type { CommandOutcome } from "../router/command-executor.js";
 import { CatalogRow } from "./CatalogRow.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
-import { NO_DIRECTIVE_LINE_HANDLERS } from "./directive-line-handlers.js";
+import { noDirectiveLineHandlers } from "./directive-line-handlers.js";
 import { type ComposerCommandSurface } from "./console-command-surface.js";
 import {
   composeCatalog,
@@ -119,7 +119,7 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
     () =>
       createClientCommandExecutor({
         readSurface,
-        readDirectiveHandlers: () => NO_DIRECTIVE_LINE_HANDLERS,
+        readDirectiveHandlers: noDirectiveLineHandlers,
       }),
     [readSurface],
   );

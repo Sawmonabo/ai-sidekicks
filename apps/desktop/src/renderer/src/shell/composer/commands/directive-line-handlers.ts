@@ -35,7 +35,11 @@ export type DirectiveLineHandlers = ReadonlyMap<
  * The discovery popover runs a command a person PICKED out of a list, and a picked
  * entry carries no typed argument — so an argument-reading command reached from there
  * takes its palette act, which is the same act the palette entry itself performs.
- * Declared once rather than composed at each such site, so no caller mints a second
- * empty map and none of them can accidentally mint a non-empty one.
+ * Built here rather than composed at each such site, so no caller writes its own
+ * `new Map()` and none of them can accidentally mint a non-empty one. A function and
+ * not an exported constant: an exported collection is one runtime object every
+ * importer shares, whatever its annotation hides, and each executor reads its own.
  */
-export const NO_DIRECTIVE_LINE_HANDLERS: DirectiveLineHandlers = new Map();
+export function noDirectiveLineHandlers(): DirectiveLineHandlers {
+  return new Map();
+}
