@@ -92,9 +92,15 @@ describe("absorbed surfaces — the families a console surface mounts", () => {
     // mounted it could count presses and could not name the session one produced —
     // which is why the start path opened no store and navigated nowhere.
     const settlements: string[] = [];
+    const endings: string[] = [];
     const element = renderedElement(
-      renderAbsorbedSessionProbe("live", (created) => {
-        settlements.push(created.sessionId);
+      renderAbsorbedSessionProbe("live", {
+        onCreated: (created) => {
+          settlements.push(created.sessionId);
+        },
+        onSettled: () => {
+          endings.push("settled");
+        },
       }),
     );
 
@@ -102,7 +108,12 @@ describe("absorbed surfaces — the families a console surface mounts", () => {
     (element.props["onCreated"] as (created: { sessionId: string }) => void)({
       sessionId: "session-7",
     });
+    // The second callback is a different fact and travels separately: a create that
+    // refused names no session and still ends the act, which is what a caller holding
+    // a single-flight slot is waiting to hear.
+    (element.props["onSettled"] as () => void)();
     expect(settlements).toStrictEqual(["session-7"]);
+    expect(endings).toStrictEqual(["settled"]);
   });
 
   it("hands the node roster the session its caller resolved", () => {

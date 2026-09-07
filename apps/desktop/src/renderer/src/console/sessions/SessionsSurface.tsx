@@ -89,7 +89,11 @@ import type { ConsoleSurfaceContext } from "../seats/index.js";
 import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/index.js";
 import { NotificationCenter, useAttentionSettlementAnnouncement } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
-import { renderAbsorbedSessionProbe, requestSessionDirectoryRead } from "../seats/index.js";
+import {
+  absorbedSurfaceAsks,
+  renderAbsorbedSessionProbe,
+  requestSessionDirectoryRead,
+} from "../seats/index.js";
 import { shellMutationBlock, useOpenSessionIds, useShellState } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionProjection } from "./rows/open-session-rows.js";
@@ -97,6 +101,10 @@ import { useSessionPreferences } from "./rows/session-preferences.js";
 import { sessionListDegradation } from "./session-list-degradation.js";
 import { SessionActs } from "./acts/SessionActs.js";
 import { settleSessionStart } from "./acts/session-start.js";
+import {
+  SESSION_CREATE_OUTSTANDING_SENTENCE,
+  useSessionStartFlight,
+} from "./acts/session-start-flight.js";
 import { useSessionAttention } from "./SessionAttentionBinding.js";
 import { useSessionPins } from "./rows/session-pins.js";
 import { SessionRowsView } from "./SessionRowsView.js";
@@ -166,9 +174,19 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // whose permission it cannot read. The EMISSION is the binding's — a banner exists
   // for someone who is looking elsewhere, so mounting the emitter on this destination
   // meant the one surface it could never reach was every other screen.
-  // Counts presses rather than recording a boolean, so the built node can be keyed
-  // on it: a second press remounts and therefore starts a second session.
+  // Counts ADMITTED presses rather than every press, so the built node can be keyed
+  // on it: a second admitted press remounts and therefore starts a second session,
+  // and the flight below is what decides which presses are admitted at all.
   const [startRequestCount, setStartRequestCount] = useState(0);
+  // One create at a time. `acts/session-start-flight.ts` says why the press count
+  // could not carry that on its own — a second press while the first create was
+  // running remounted the probe, suppressed its settlement, and left a durable session
+  // nothing could name. The predicate is the seat's own: under the fixture the probe
+  // dispatches nothing and settles never, so there is no act to single-flight.
+  const startFlight = useSessionStartFlight(
+    context.bridge,
+    absorbedSurfaceAsks(context.bridge.source),
+  );
 
   // The invites read is scoped to one session on the wire and this destination is
   // not, so it fans out over THE SAME session set the attention read asks about —
@@ -219,6 +237,17 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // fact is the one a person needs in order to know what to do next.
   const blockedActSentence = shellBlock?.detail ?? degradation.blockedActSentence;
 
+  // Why the START control in particular may not be pressed right now.
+  //
+  // THE SHELL'S AND THE LIST'S CAUSES STILL OUTRANK IT. A window that cannot reach the
+  // runtime cannot put the act at all; an outstanding create is a window that CAN and
+  // already has. So the whole-destination sentence is asked first and this is the
+  // sentence a start control carries when nothing else closes it — the join form and
+  // the import are not on this rule, because neither is the act that is running.
+  const startBlockedSentence =
+    blockedActSentence ??
+    (startFlight.isOutstanding ? SESSION_CREATE_OUTSTANDING_SENTENCE : undefined);
+
   const startControl = (
     <SessionActs
       bridge={context.bridge}
@@ -230,6 +259,13 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         // reached here anyway must still put nothing, because what it mounts creates a
         // session from its own mount effect.
         if (blockedActSentence !== undefined) {
+          return;
+        }
+        // And the same rule for the act that is already running, decided by taking the
+        // key rather than by reading the flag this render was built from: two presses
+        // in one frame both find `isOutstanding` false, and only the register can tell
+        // them apart.
+        if (!startFlight.admit()) {
           return;
         }
         setStartRequestCount((previous) => previous + 1);
@@ -246,6 +282,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         openSession(sessionId);
       }}
       blockedReason={blockedActSentence}
+      startBlockedReason={startBlockedSentence}
     />
   );
 
@@ -294,19 +331,25 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
 
       {startRequestCount === 0 ? null : (
         <div className="meridian-sessions__started" key={startRequestCount}>
-          {renderAbsorbedSessionProbe(context.bridge.source, (created) => {
-            // A SETTLED create and never the press, on the settled join's own terms
-            // one screen up. The probe is the only `session.create` caller in this
-            // renderer and it now hands the session out, so this destination stops
-            // counting presses and starts acting on the session a press produced.
-            settleSessionStart({
-              bridge: context.bridge,
-              sessionStoreRegistry: context.sessionStoreRegistry,
-              pins,
-              preferences,
-              openSession,
-              sessionId: created.sessionId,
-            });
+          {renderAbsorbedSessionProbe(context.bridge.source, {
+            onCreated: (created) => {
+              // A SETTLED create and never the press, on the settled join's own terms
+              // one screen up. The probe is the only `session.create` caller in this
+              // renderer and it now hands the session out, so this destination stops
+              // counting presses and starts acting on the session a press produced.
+              settleSessionStart({
+                bridge: context.bridge,
+                sessionStoreRegistry: context.sessionStoreRegistry,
+                pins,
+                preferences,
+                openSession,
+                sessionId: created.sessionId,
+              });
+            },
+            // The act is over, whichever way it went. Released here rather than beside
+            // the create above, because a refused create ends the act just as
+            // completely and a slot that only a success gives back leaves Start dead.
+            onSettled: startFlight.settle,
           })}
         </div>
       )}
