@@ -268,28 +268,6 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     result: REPOS_WORKTREE_STATUS_REPLY,
   },
   {
-    // The worktree plane's one mutation, so the sidebar's bulk retire has a served
-    // arm to settle on. `WorktreeRetireResponse.state` is the ratified literal
-    // `"retired"` — the retire path has exactly one success state — so the reply
-    // confirms the REQUEST and states nothing else, and the row's own state changes
-    // when a `worktree.retired` beat says the daemon changed it.
-    //
-    // Answered per ROOT for `repo.mountRead`'s reason: a method-only reply is one
-    // answer for every call, so a bulk retire of two roots would have been confirmed
-    // twice about the same one. A request naming a root this scenario does not hold
-    // returns `undefined` and the fixture refuses, which is the honest answer and the
-    // one that makes the per-item refusal arm reachable in the fixture at all.
-    call: "repo.worktreeRetire",
-    afterMs: 120,
-    resultFor: (request) => {
-      const worktreeId = readRequestedWorktreeId(request);
-      if (worktreeId === undefined) {
-        return undefined;
-      }
-      return { worktreeId, state: "retired" };
-    },
-  },
-  {
     // The first growth read this fixture answers from a SCRIPT rather than from a
     // derivation. `createFixtureGrowthPort` routes `gitflowBranchContextRead`
     // through `answerFromScriptedReply`, so the reply below is served verbatim on
@@ -313,23 +291,8 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     resultFor: (request) => branchContextFor(request),
   },
   // The acts. Spread rather than written here, so this module's subject stays "what a
-  // READ answers" and the mutations' two-armed scripting has one home.
+  // READ answers" and the mutations' two-armed scripting has one home — `repo.worktreeRetire`
+  // among them, answered there per root with the implementer's `worktree.retire_conflict`
+  // refusal the bulk confirm's consequence needs.
   ...REPOS_MUTATION_REPLIES,
 ];
-
-/**
- * Which root a retire named, or nothing when it named one this scenario does not hold.
- *
- * The two ids are read off the scenario's own worktree table rather than restated, so
- * a fixture that renames a root cannot leave this answering about the old one.
- */
-function readRequestedWorktreeId(request: unknown): string | undefined {
-  if (typeof request !== "object" || request === null) {
-    return undefined;
-  }
-  const requested: unknown = (request as { readonly worktreeId?: unknown }).worktreeId;
-  if (requested !== IMPLEMENTER_WORKTREE_ID && requested !== REVIEWER_WORKTREE_ID) {
-    return undefined;
-  }
-  return requested;
-}
