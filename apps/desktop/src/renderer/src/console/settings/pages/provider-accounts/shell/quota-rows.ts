@@ -13,8 +13,8 @@
 
 import type {
   ProviderAccount,
-  ProviderAccountListResponse,
   ProviderAccountUsageWindow,
+  ProviderReadiness,
 } from "@ai-sidekicks/contracts";
 
 import { MILLISECONDS_PER_DAY, compareInstants, parseInstant } from "../../../../core/index.js";
@@ -149,16 +149,21 @@ export function observationAgeInDays(
 }
 
 /**
- * The readiness entry for one provider, or `undefined` where the reply carried none.
+ * The readiness entry for one provider, or `undefined` where the read carried none.
  *
  * The reply is required to carry exactly one entry per provider it selected, so an
  * absence here is a reply that did not do what the contract says. It is answered with
  * `undefined` rather than a fabricated `indeterminate`, because a state this console
  * invented would be indistinguishable on screen from one the daemon computed.
+ *
+ * It takes the PROJECTION rather than the whole reply, because the console holds one
+ * reader of the account plane and what that reader publishes is the registry folded —
+ * accounts, quota rows, and this list as three members rather than a reply object. A
+ * signature naming the reply would have made a caller reassemble one to ask.
  */
 export function readinessForProvider(
-  reply: ProviderAccountListResponse,
+  readiness: readonly ProviderReadiness[],
   provider: ProviderAccount["provider"],
-): ProviderAccountListResponse["readiness"][number] | undefined {
-  return reply.readiness.find((entry) => entry.provider === provider);
+): ProviderReadiness | undefined {
+  return readiness.find((entry) => entry.provider === provider);
 }

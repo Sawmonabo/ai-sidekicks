@@ -18,11 +18,11 @@ import {
   drain,
   UPDATED_AT,
   writerFor,
+  type AttentionPreferenceStore,
   type UpdateOutcome,
 } from "./notification-preference-writer.test-support.js";
 import {
   NotificationPreferenceWriter,
-  type AttentionPreferencePort,
   type TogglePreferenceRow,
 } from "./notification-preference-writer.js";
 
@@ -46,7 +46,7 @@ interface RecordedUpdate {
  * bytes, and only a store that moved can tell them apart.
  */
 function heldPreferenceStore(initial: readonly AttentionPreference[]): {
-  readonly port: AttentionPreferencePort;
+  readonly port: AttentionPreferenceStore;
   readonly updates: readonly RecordedUpdate[];
   readonly acceptWrite: () => void;
   readonly refuseWrite: () => void;
@@ -307,7 +307,7 @@ describe("the preference writer — what it will not do", () => {
     const writer = new NotificationPreferenceWriter({
       port: store.port,
       participantId: undefined,
-      onRecordsRead: () => undefined,
+      reReadSet: async () => await store.port.attentionPreferenceRead({ participantId: "nobody" }),
     });
     const { record, mentions } = twoSwitchRecord();
 

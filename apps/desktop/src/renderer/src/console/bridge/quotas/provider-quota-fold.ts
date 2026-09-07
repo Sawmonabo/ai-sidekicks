@@ -223,6 +223,35 @@ export class ProviderQuotaFold {
   }
 
   /**
+   * Every account the registry carries, whole, in the order it was first seen.
+   *
+   * BESIDE {@link accountLabels} RATHER THAN INSTEAD OF IT, because the two answer
+   * different questions: a chip joining a paying-account handle to a word needs the
+   * label and nothing else, and a surface that LISTS the registry needs the rows —
+   * `billingMode`, the stored health reading, the generation, the timestamps. Both are
+   * derived from the same seating, so there is no second copy to keep in step.
+   *
+   * ORDER IS ARRIVAL ORDER AND NOT A SORT. The registry reply's own order is the
+   * daemon's, a re-seated account keeps the position it had, and a new one appends —
+   * so a row does not move under a person's cursor because a probe landed.
+   */
+  public accounts(): readonly ProviderAccount[] {
+    return [...this.#accountsById.values()];
+  }
+
+  /**
+   * Every quota reading currently held, one per `(accountId, limitId)`.
+   *
+   * The SUPERSEDED set rather than everything ever seen: this is what the fold has
+   * decided is current, so a surface folding it again by limit gets the same answer it
+   * would from the readings, and one that renders a window's own members reads the
+   * wire row it came from rather than a projection of it.
+   */
+  public usageWindows(): readonly ProviderAccountUsageWindow[] {
+    return [...this.#windowsByKey.values()].map((held) => held.usageWindow);
+  }
+
+  /**
    * Every account the registry carries, by the id the daemon minted for it.
    *
    * OFF THE SAME SEATING AS THE READINGS, and that is the whole point of publishing

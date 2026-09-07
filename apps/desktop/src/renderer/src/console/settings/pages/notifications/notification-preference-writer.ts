@@ -31,27 +31,22 @@
 // and the refusal renders on every switch it was carrying — the one that was sent
 // and the ones that never were.
 //
-// AND THE RE-READ IS A WHOLE-SET READ, SO IT IS ORDERED GLOBALLY
+// AND THE RE-READ IS A WHOLE-SET READ, SO THIS WRITER DOES NOT OWN IT
 //
-// The queue is per record, so toggling two records runs two of these loops at once.
-// Each one re-reads the WHOLE set, which is what the page publishes — so two reads
-// taken at different moments and answered in the other order would replace the page
-// with the older snapshot and make the newer record's accepted toggle look reverted
-// for the rest of the visit.
+// The queue is per record, so toggling two records runs two of these loops at once,
+// and each one re-reads the WHOLE set. Two reads taken at different moments and
+// answered in the other order would replace the page with the older snapshot and make
+// the newer record's accepted toggle look reverted for the rest of the visit — and
+// the same is true of a re-read racing the window-focus read the section takes
+// anyway, which no rule written HERE could have ordered.
 //
-// The reads are DISCARDED BY GENERATION rather than serialised through a queue of
-// their own. Serialising would make one record's toggle wait on an unrelated
-// record's re-read before its own write could even be sent, which is latency added
-// to fix an ordering problem — and it would still need this rule, because the loops
-// that queue behind it are exactly the ones already in flight. Reads are taken
-// monotonically, so the later-taken read is the later state; a reply from an earlier
-// one is answering a question the page has already asked again.
-//
-// The re-read is still CONSUMED locally by the loop that took it: this record is
-// busy for the whole loop, so no second write to it can be in flight, and its own
-// value in its own re-read is authoritative for it whatever another record did
-// meanwhile. What goes stale is the whole-set PUBLICATION, and that is what the
-// generation guards.
+// So the re-read goes through `attention-preference-read.ts`, which is the one call
+// site for this set: it takes the generation, decides whether the reply may publish,
+// and hands the outcome back. The writer asks for it because it needs the value —
+// this record is busy for the whole loop, so no second write to it can be in flight,
+// and the record's own value in that reply is authoritative for it whatever another
+// record did meanwhile. What goes stale is the whole-set PUBLICATION, and deciding
+// that is not this writer's job.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../../core/index.js";
@@ -71,16 +66,24 @@ import {
 export type { TogglePreferenceRow } from "./notification-preference-reading.js";
 
 /**
- * The two operations this writer reaches.
+ * The one operation this writer reaches.
  *
  * Narrowed off the port rather than the whole growth surface: it writes one record
- * and reads the set back, and a writer holding a handle to fifty other operations
- * would be a writer nothing stops from calling one.
+ * and nothing else, and a writer holding a handle to fifty other operations would be
+ * a writer nothing stops from calling one. The read that follows a served write is
+ * deliberately absent — it belongs to the reading, and a writer that could take it
+ * itself is a writer that could publish one.
  */
-export type AttentionPreferencePort = Pick<
-  ConsoleBridge["growth"],
-  "attentionPreferenceRead" | "attentionPreferenceUpdate"
->;
+export type AttentionPreferencePort = Pick<ConsoleBridge["growth"], "attentionPreferenceUpdate">;
+
+/**
+ * Re-read the whole set, and answer with what the store holds.
+ *
+ * What the writer is given in place of a read of its own: whether the reply reaches
+ * the screen is the reading's decision, and the outcome comes back here only because
+ * a queued flip has to be composed against the value the daemon actually stored.
+ */
+export type AttentionSetReReader = () => Promise<AttentionPreferenceReadOutcome>;
 
 /** What the page renders one record's switches from. */
 export interface PreferenceWriteSnapshot {
@@ -113,9 +116,6 @@ interface QueuedFlip {
  */
 const WRITE_ROUND_KEY = "write-round";
 
-/** The key the whole-set re-read is taken under, which every loop shares and races on. */
-const SET_READ_KEY = "set-read";
-
 /**
  * One participant's stored preference writes, serialised per record.
  *
@@ -134,35 +134,35 @@ export class NotificationPreferenceWriter {
    * a record is never written under a participant nobody resolved.
    */
   readonly #participantId: string | undefined;
-  readonly #onRecordsRead: (outcome: AttentionPreferenceReadOutcome) => void;
+  readonly #reReadSet: AttentionSetReReader;
   readonly #changes = new Emitter<void>("notification preference write change");
   #snapshot: PreferenceWriteSnapshot = NOTHING_IN_FLIGHT;
   readonly #busyRecordKeys = new Set<string>();
   readonly #queuedFlipsByRecordKey = new Map<string, readonly QueuedFlip[]>();
   readonly #refusalByMemberKey = new Map<string, ConsoleRefusal>();
   /**
-   * The two rounds this writer runs, on two keys of one latch.
+   * The one round this writer runs, on one key of its own latch.
    *
    * {@link WRITE_ROUND_KEY} is JOINED rather than taken: all of one round's records
    * share it, because what supersedes a write is the teardown rather than another
    * record's write. Every loop reads that handle and none settles through it, so the
    * round it mints stands until {@link releasePendingWrites} supersedes it.
    *
-   * {@link SET_READ_KEY} is TAKEN, because whole-set re-reads DO supersede each
-   * other: every record's loop reads the same set, and only the latest-taken read
-   * describes the state the page should be showing.
+   * The whole-set re-read is measured against a round in a register this writer does
+   * not hold — the reading's, keyed on the SET rather than on a writer — because the
+   * reads it has to be ordered against include ones no writer took.
    */
   readonly #acts = new GenerationLatch();
 
   public constructor(options: {
     readonly port: AttentionPreferencePort;
     readonly participantId: string | undefined;
-    /** Where the re-read after a served write lands. The page holds the set. */
-    readonly onRecordsRead: (outcome: AttentionPreferenceReadOutcome) => void;
+    /** The set read a served write triggers. Owned by the reading, not by this. */
+    readonly reReadSet: AttentionSetReReader;
   }) {
     this.#port = options.port;
     this.#participantId = options.participantId;
-    this.#onRecordsRead = options.onRecordsRead;
+    this.#reReadSet = options.reReadSet;
   }
 
   public snapshot(): PreferenceWriteSnapshot {
@@ -257,21 +257,13 @@ export class NotificationPreferenceWriter {
         }
         // Re-read rather than patched, so this page never holds a second copy of a
         // record the daemon owns — and so a queued toggle is composed against what
-        // the daemon actually stored rather than against what this writer sent.
-        const setRead = this.#acts.supersedeAndClaim(this, SET_READ_KEY);
-        const reread = await this.#port.attentionPreferenceRead({ participantId });
+        // the daemon actually stored rather than against what this writer sent. The
+        // reading decides whether that reply reaches the screen; what comes back here
+        // is the value, which stays authoritative for THIS record either way.
+        const reread = await this.#reReadSet();
         if (!round.isCurrent) {
           return;
         }
-        // Published only while this is still the newest set read. A read another
-        // record's loop took after this one describes a later state, and handing the
-        // page this older snapshot afterwards would revert that record's accepted
-        // toggle on screen with nothing to say why. The key is given back on the way
-        // out so the next loop's take is the only thing holding it.
-        setRead.settle(() => {
-          this.#onRecordsRead(reread);
-        });
-        setRead.release();
         const queued = this.#takeNextQueuedFlip(recordKey);
         if (queued === undefined) {
           this.#busyRecordKeys.delete(recordKey);

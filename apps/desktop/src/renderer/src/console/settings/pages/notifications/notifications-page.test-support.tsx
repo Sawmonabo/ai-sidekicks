@@ -27,6 +27,7 @@ import type {
   CallerParticipantOutcome,
 } from "./attention-preference-model.js";
 import { settle as settleReactWork } from "../../../core/settle.test-support.js";
+import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 
@@ -56,9 +57,19 @@ export function servedPreferences(
   return { status: "served", value: { preferences } };
 }
 
-/** Let the chained reads, the write, and the re-read all land. */
-export async function settle(): Promise<void> {
+/**
+ * Let the chained reads, the write, and the re-read all land.
+ *
+ * TWO WAITS, BECAUSE THE CHAIN CROSSES A SCHEDULER. The identity read is issued from
+ * an effect and answers on its own promise, so draining React's queue is the whole of
+ * that half; the preference read behind it goes through `store/scheduling.ts` and is
+ * armed on the fixture's FROZEN clock, so a case that only drained React would advance
+ * nothing and then report the absence of a read it never gave the scheduler a chance
+ * to perform. The bridge is a parameter because the clock is the bridge's.
+ */
+export async function settle(bridge: ConsoleBridge): Promise<void> {
   await settleReactWork();
+  await settleScheduledRead(bridge);
 }
 
 /**
@@ -70,7 +81,7 @@ export async function settle(): Promise<void> {
  */
 export async function renderSettledPage(bridge: ConsoleBridge): Promise<HTMLElement> {
   const container = renderPageAt(bridge, SESSION_ID);
-  await settle();
+  await settle(bridge);
   return container;
 }
 
@@ -129,10 +140,17 @@ export function storedLabels(container: HTMLElement): string[] {
   ].map((element) => element.textContent ?? "");
 }
 
+/**
+ * Press one control and let what it started land.
+ *
+ * React's queue only, and deliberately: a press starts a write, and the re-read behind
+ * a served write is taken straight rather than scheduled — the writer needs the value
+ * in its own loop. Advancing the clock here would settle a read nothing had asked for.
+ */
 export async function press(element: HTMLElement | undefined): Promise<void> {
   await act(async () => {
     element?.click();
     await crossMacrotaskBoundary();
   });
-  await settle();
+  await settleReactWork();
 }

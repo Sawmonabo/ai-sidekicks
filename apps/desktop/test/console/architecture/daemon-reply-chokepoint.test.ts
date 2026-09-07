@@ -118,12 +118,12 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * TWELVE, and PINNED rather than left as a floor. The count was zero when this gate
+ * ELEVEN, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The twelve, by module and by the family that bound it:
+ * It is no longer vacuous. The eleven, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -144,19 +144,16 @@ function isBridgeFamilyModule(module: string): boolean {
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
- *  12. `console/settings/pages/provider-accounts/shell/accounts-reading.ts` — the
- *      provider-account registry read behind the accounts page's fixture shell. The
- *      registry is the one plane of that page the bridge already binds: the sign-in
- *      and token-registration verbs it sits beside are unregistered and go through
- *      the growth port instead, so this row is the account plane's read half and
- *      none of its writes.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
- * none around it. The composer's half was six until its target chip stopped taking a
- * `providerAccount.list` of its own to join a paying account's label: that registry is
- * node-scoped and `console/bridge/quotas/provider-account-quota.ts` already reads it
- * once per window, so the label rows are folded off that reading and the chip joins
- * them.
+ * none around it. TWICE now the number has come DOWN because a surface stopped taking
+ * a `providerAccount.list` of its own: the composer's half was six until its target
+ * chip joined the node's reading for a paying account's label, and the settings
+ * accounts shell was the twelfth row until it did the same for the registry it
+ * renders. That registry is node-scoped and `console/bridge/quotas/`
+ * `provider-account-quota.ts` already reads it once per window behind the one
+ * `providerAccount.subscribe` this console opens, so a second reader was a second
+ * snapshot of one node's accounts with nothing on screen saying the two disagreed.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
@@ -166,7 +163,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 12;
+const CALL_DOOR_CONSUMER_COUNT = 11;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
