@@ -77,6 +77,40 @@ function runScript(...args: readonly string[]): SpawnSyncReturns<string> {
   );
 }
 
+/**
+ * The commit this checkout certainly holds, resolved the way the script will.
+ *
+ * A REMOTE-TRACKING NAME IS THE WRONG INSTRUMENT, and replacing one is what this
+ * exists for. The successful-path control used to pass `origin/develop`, which a
+ * full clone has and a fresh one does not: `actions/checkout@v5` is configured
+ * here with no `fetch-depth`, so it fetches one ref at depth 1 and the job that
+ * runs this project holds no `origin/develop` at all. The script's own ref guard
+ * therefore refused before vitest was ever reached, and a case whose whole
+ * subject is the SUCCESSFUL path asserted `0` against the misuse code on every
+ * CI run. A ref the environment happens to carry is a precondition this suite
+ * does not control; the commit `HEAD` names is one it does, in a shallow clone
+ * and a full one alike — so the control asserts that the guard ADMITS A REF THAT
+ * RESOLVES rather than one somebody remembered to fetch.
+ *
+ * Resolved with the same `^{commit}` peel, in the same working directory the
+ * script resolves from, so what is handed over is the object that guard will
+ * look for in the repository it will look in. A checkout with no HEAD commit
+ * fails HERE with that sentence rather than downstream: it would otherwise turn
+ * this control into the refusal case it is the foil for, and pass.
+ */
+function checkoutLocalCommit(): string {
+  const resolved = spawnSync("git", ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], {
+    cwd: PACKAGE_ROOT,
+    encoding: "utf8",
+  });
+
+  expect(
+    resolved.status,
+    "this checkout resolves no HEAD commit, so there is no ref the successful-path control can prove the guard admits",
+  ).toBe(0);
+  return resolved.stdout.trim();
+}
+
 describe("test:changed refuses an invocation with no base ref", () => {
   it("exits with the misuse code and names what is missing", () => {
     const refused = runScript();
@@ -98,7 +132,7 @@ describe("test:changed refuses an invocation with no base ref", () => {
     // config or running a test, so this costs a tenth of a second and still
     // proves the whole path: argument accepted, vitest resolved, spawned, its
     // exit code returned, and the caller's own arguments passed on.
-    const helped = runScript("origin/develop", "--help");
+    const helped = runScript(checkoutLocalCommit(), "--help");
 
     expect(helped.status).toBe(0);
     expect(helped.stdout).toContain("vitest run");
