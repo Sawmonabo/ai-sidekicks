@@ -103,6 +103,35 @@ describe("the deep-link lifecycle — confirming", () => {
   });
 });
 
+describe("the deep-link lifecycle — an answer about the handle rather than the invitation", () => {
+  it("settles a prompt an authentication detour would otherwise hold open forever", async () => {
+    // The union carried four arms and neither of the two main emits about the HANDLE,
+    // so an acceptance waiting on authentication had no terminal it could reach: the
+    // reference bound lapses mid-ceremony, main answers `reference-invalid`, and a
+    // window that could not represent that arm kept the prompt on screen with nothing
+    // to press for the rest of the visit.
+    const adapter = await startedAdapter();
+    adapter.dismiss();
+    await settleFeeds();
+    adapter.confirm();
+    await settleFeeds();
+    expect(adapter.snapshot().outcome?.kind).toBe("authentication-required");
+    adapter.acknowledge();
+    expect(adapter.snapshot().invite?.reference).toBe(SECOND_REFERENCE);
+
+    adapter.confirm();
+    await settleFeeds();
+
+    expect(adapter.snapshot().outcome).toMatchObject({
+      kind: "reference-invalid",
+      reason: "consumed",
+    });
+    adapter.acknowledge();
+    expect(adapter.snapshot().invite).toBeUndefined();
+    adapter.dispose();
+  });
+});
+
 describe("the deep-link lifecycle — putting one away", () => {
   it("releases the reference and shows what was behind it", async () => {
     const adapter = await startedAdapter();

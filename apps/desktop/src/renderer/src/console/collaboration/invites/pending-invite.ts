@@ -207,6 +207,11 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
    * is a ceremony main is still driving and the other has already released the
    * reference it was driving it for. Two protocol URLs can be outstanding at once, so
    * the handle is what says which link this means.
+   *
+   * NOT THE OUTCOME ARM OF THE SAME NAME. An acceptance that could not be put reaches
+   * a prompt this window already HOLDS, and the act that puts it again is the
+   * confirmation put again on that reference — the same reason this one takes a
+   * handle: what could not be put is what the recovery repeats.
    */
   public retry(): void {
     const head = this.#arrivals.head;

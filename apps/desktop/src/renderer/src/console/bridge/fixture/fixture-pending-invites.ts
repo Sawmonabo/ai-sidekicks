@@ -11,6 +11,13 @@
 // builds one per bridge, and two windows on two scenarios each have their own room —
 // which is the same rule the collaboration models' holder keeps for the same reason.
 //
+// AND TWO HANDLE TABLES, NOT ONE, because the namespace has two brands. An
+// invitation is addressed by the reference its preview minted; a deep link whose
+// preview never reached the control plane minted none, and the retry that re-drives
+// it names the opaque ATTEMPT handle instead. One table indexed by both served every
+// legitimate retry the unscripted refusal — its handle was never a key — and would
+// have answered a colliding one from the wrong entry.
+//
 // THE REFERENCE IS THE FIXTURE'S OWN AND CARRIES NOTHING. `Plan-023 §Invariants`
 // I-023-10 makes it opaque, single-use and TTL-bounded, and a fixture standing in for
 // main keeps the first two of those by construction: the reference is the scenario's
@@ -39,8 +46,16 @@
 import { FixtureGrowthStream } from "./fixture-growth-stream.js";
 import type { Unsubscribe } from "../../core/index.js";
 import { growthUnscriptedReply, type GrowthOutcome } from "../growth-port/index.js";
-import type { GrowthInviteOutcome, GrowthPendingInviteState } from "../growth-values/index.js";
-import type { ScenarioEngine, ScenarioPendingInviteFrame } from "../scenario-runtime/index.js";
+import type {
+  GrowthInviteAttempt,
+  GrowthInviteOutcome,
+  GrowthPendingInviteState,
+} from "../growth-values/index.js";
+import type {
+  ScenarioEngine,
+  ScenarioPendingInviteAttemptFrame,
+  ScenarioPendingInviteFrame,
+} from "../scenario-runtime/index.js";
 
 /** What one scripted reference can still produce. Consumed by the act it answers. */
 interface PendingEntry {
@@ -49,15 +64,33 @@ interface PendingEntry {
   isSpent: boolean;
 }
 
+/** What one scripted attempt handle can still produce. Consumed by its retry. */
+interface AttemptEntry {
+  readonly frame: ScenarioPendingInviteAttemptFrame;
+  /** True once the retry has been driven on this handle. */
+  isSpent: boolean;
+}
+
 /**
  * The fixture's stand-in for the main process's pending-invite lifecycle.
  *
- * A class with private fields: it owns two open feeds and a table of references, so it
- * owns a teardown, and a suite drives every arm without a bridge at all.
+ * A class with private fields: it owns two open feeds and two handle tables — one per
+ * brand, since a reference and an attempt are accepted by different acts — so it owns
+ * a teardown, and a suite drives every arm without a bridge at all.
  */
 export class FixturePendingInvites {
   readonly #engine: ScenarioEngine;
   readonly #entriesByReference = new Map<string, PendingEntry>();
+  /**
+   * The outstanding deep links a retry addresses, keyed by their OWN brand.
+   *
+   * A second table rather than a second use of the one above, which is the whole
+   * correction: `retryPending` is dispatched on an attempt handle and the references
+   * beside it belong to a different brand accepted by different acts, so a lookup
+   * that indexed both by one string served every legitimate retry the unscripted
+   * refusal and would serve a colliding one the wrong entry.
+   */
+  readonly #attemptsByHandle = new Map<GrowthInviteAttempt, AttemptEntry>();
   readonly #pendingFeeds = new Set<FixtureGrowthStream<GrowthPendingInviteState>>();
   readonly #outcomeFeeds = new Set<FixtureGrowthStream<GrowthInviteOutcome>>();
   readonly #unsubscribeFromAdvances: Unsubscribe;
@@ -76,6 +109,9 @@ export class FixturePendingInvites {
     this.#engine = engine;
     for (const frame of engine.scenario.pendingInvites ?? []) {
       this.#entriesByReference.set(frame.invite.reference, { frame, isSpent: false });
+    }
+    for (const frame of engine.scenario.pendingInviteAttempts ?? []) {
+      this.#attemptsByHandle.set(frame.attempt, { frame, isSpent: false });
     }
     this.#deliveredThroughMs = engine.progress.elapsedMs;
     this.#unsubscribeFromAdvances = engine.subscribeToAdvances((elapsedMs) => {
@@ -98,14 +134,11 @@ export class FixturePendingInvites {
     // past, which is what the unbounded lower edge says — the bound that matters is
     // the upper one, and it is the clock's own reading rather than this object's
     // watermark, because that watermark describes the feeds that were ALREADY open.
-    for (const entry of this.#entriesDueBetween(
+    for (const arrival of this.#statesDueBetween(
       Number.NEGATIVE_INFINITY,
       this.#engine.progress.elapsedMs,
     )) {
-      // The scenario scripts the ready arm's own facts; the discriminant the pending
-      // feed is keyed by is stamped here, so a scenario table stays a table of
-      // invitations rather than of wire states.
-      feed.push({ status: "ready", ...entry.frame.invite });
+      feed.push(arrival);
     }
     return feed;
   }
@@ -126,24 +159,38 @@ export class FixturePendingInvites {
    * the double acceptance the invariant forbids.
    */
   public confirm(reference: string): GrowthOutcome<undefined> {
-    return this.#dispatch(reference, (frame) => frame.onConfirm);
+    return this.#dispatch(reference);
   }
 
   /**
-   * Retry one reference.
+   * Re-drive the preview of one outstanding deep link, by its own attempt handle.
    *
-   * A retry addresses an attempt that already failed, so its entry is spent — which is
-   * why this arm re-admits a spent entry and `confirm` does not. What it must not do
-   * is retry an entry that was never confirmed at all, and it does not: an unspent
-   * entry has no failed attempt to retry, and the fixture refuses it as unscripted
-   * rather than performing a confirmation under another name.
+   * WHAT IT PRODUCES IS A PENDING STATE AND NEVER AN OUTCOME. A retry re-runs the
+   * PREVIEW, which is the step that never happened on this arm, so its answer lands
+   * on the same feed the deep link arrived on — and the invitation it mints joins the
+   * reference table, so the acts that spend a reference reach it exactly as they
+   * reach one delivered by the clock.
+   *
+   * The handle is spent by the retry: main keys each failed deep link by one handle,
+   * and a second retry on it addresses a preview that has already been re-driven.
    */
-  public retry(reference: string): GrowthOutcome<undefined> {
-    const entry = this.#entriesByReference.get(reference);
-    if (entry === undefined || !entry.isSpent) {
+  public retry(attempt: GrowthInviteAttempt): GrowthOutcome<undefined> {
+    const entry = this.#attemptsByHandle.get(attempt);
+    if (entry === undefined || entry.isSpent) {
       return growthUnscriptedReply("inviteRetryPending", "invite.retryPending");
     }
-    this.#publishOutcome(entry.frame.onRetry ?? entry.frame.onConfirm);
+    entry.isSpent = true;
+    const retried = entry.frame.onRetry;
+    // Stamped with the tick it arrives at rather than the attempt's own: this is a
+    // delivery moment, and a feed opening later takes it from the open-time walk for
+    // the same reason it takes any other invitation still pending.
+    this.#entriesByReference.set(retried.invite.reference, {
+      frame: { atMs: this.#engine.progress.elapsedMs, ...retried },
+      isSpent: false,
+    });
+    for (const feed of this.#pendingFeeds) {
+      feed.push({ status: "ready", ...retried.invite });
+    }
     return { status: "served", value: undefined };
   }
 
@@ -182,35 +229,56 @@ export class FixturePendingInvites {
     // and a watermark that could be walked back by a zero-delta advance would re-serve
     // whatever the previous one had just handed out.
     this.#deliveredThroughMs = Math.max(servedThrough, elapsedMs);
-    for (const entry of this.#entriesDueBetween(servedThrough, elapsedMs)) {
+    for (const arrival of this.#statesDueBetween(servedThrough, elapsedMs)) {
       for (const feed of this.#pendingFeeds) {
-        feed.push({ status: "ready", ...entry.frame.invite });
+        feed.push(arrival);
       }
     }
   }
 
   /**
-   * The unspent entries whose tick falls in `(afterMs, throughMs]`.
+   * Every unspent entry whose tick falls in `(afterMs, throughMs]`, as a feed state.
    *
    * ONE due rule with two callers, and the half-open lower edge is what lets them
    * compose: an entry is either already behind an open feed's watermark or it is not,
    * so no frame reaches one feed twice and none is skipped between the two triggers.
    * A SPENT entry is excluded on both, because the act that spent it is the answer and
-   * re-offering the invitation it came from would put a consumed reference on screen.
+   * re-offering it would put a consumed handle on screen.
+   *
+   * BOTH TABLES WALK HERE, and the discriminant each arm is keyed by is stamped in
+   * this one place: a scenario stays a table of invitations and of outstanding deep
+   * links rather than of wire states, and the two kinds arrive on one feed in the
+   * order a person meets them.
    */
-  #entriesDueBetween(afterMs: number, throughMs: number): readonly PendingEntry[] {
-    return [...this.#entriesByReference.values()].filter(
-      (entry) => !entry.isSpent && entry.frame.atMs > afterMs && entry.frame.atMs <= throughMs,
-    );
+  #statesDueBetween(afterMs: number, throughMs: number): readonly GrowthPendingInviteState[] {
+    const isDue = (atMs: number, isSpent: boolean): boolean =>
+      !isSpent && atMs > afterMs && atMs <= throughMs;
+    const invitations = [...this.#entriesByReference.values()]
+      .filter((entry) => isDue(entry.frame.atMs, entry.isSpent))
+      .map<GrowthPendingInviteState>((entry) => ({ status: "ready", ...entry.frame.invite }));
+    const attempts = [...this.#attemptsByHandle.values()]
+      .filter((entry) => isDue(entry.frame.atMs, entry.isSpent))
+      .map<GrowthPendingInviteState>((entry) => ({
+        status: "unavailable",
+        retryable: true,
+        attempt: entry.frame.attempt,
+      }));
+    return [...invitations, ...attempts];
   }
 
-  /** Spend one unspent reference and publish the outcome it names. */
-  #dispatch(
-    reference: string,
-    outcomeOf: (frame: ScenarioPendingInviteFrame) => GrowthInviteOutcome,
-  ): GrowthOutcome<undefined> {
+  /**
+   * Publish the outcome one reference names, spending it on the first act only.
+   *
+   * A SECOND CONFIRMATION IS SERVED ONLY WHERE THE SCENARIO SCRIPTS ONE, which is the
+   * recovery the `unavailable` OUTCOME arm offers: that answer says the acceptance
+   * never reached the control plane, so main may still hold the entry and the act put
+   * again is the same confirmation. Absent an `onReconfirm` the entry stays
+   * single-use and the second act finds nothing, which is the ordinary posture.
+   */
+  #dispatch(reference: string): GrowthOutcome<undefined> {
     const entry = this.#entriesByReference.get(reference);
-    if (entry === undefined || entry.isSpent) {
+    const reconfirmation = entry?.isSpent === true ? entry.frame.onReconfirm : undefined;
+    if (entry === undefined || (entry.isSpent && reconfirmation === undefined)) {
       // The SCENARIO's gap, or a reference already used — and both take the
       // unscripted refusal rather than `wire-unregistered`, on the rule
       // `growthUnscriptedReply`'s own header states: this fixture SERVES the
@@ -219,7 +287,7 @@ export class FixturePendingInvites {
       return growthUnscriptedReply("inviteConfirmPending", "invite.confirmPending");
     }
     entry.isSpent = true;
-    this.#publishOutcome(outcomeOf(entry.frame));
+    this.#publishOutcome(reconfirmation ?? entry.frame.onConfirm);
     return { status: "served", value: undefined };
   }
 

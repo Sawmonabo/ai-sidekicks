@@ -25,6 +25,7 @@ export type {
   ConsoleScenario,
   ScenarioActivityFrame,
   ScenarioBeat,
+  ScenarioPendingInviteAttemptFrame,
   ScenarioPendingInviteFrame,
   ScenarioReply,
   ScenarioRuntimeNodeRosterFrame,
