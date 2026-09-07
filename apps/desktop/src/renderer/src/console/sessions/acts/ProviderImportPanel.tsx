@@ -18,11 +18,19 @@
 // rather than merged, because a person watching an import wants to know which half is
 // running: a refusal from the begin means nothing started, and one from the stream
 // means something did and then stopped.
+//
+// ONE IMPORT AT A TIME, AND THE BEGIN IS NOT WHERE IT ENDS. The act settles the
+// moment the daemon hands back an import id, which is the moment the READING starts
+// rather than the moment it finishes. A control re-enabled there lets a second submit
+// replace the id, close the first subscription, and leave that import running with
+// nothing on screen reporting it — so what disables the control is the whole of the
+// import, the begin and the stream that follows it, and the two phases keep their own
+// sentences because they fail differently.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { SessionAct, useSessionAct } from "./act-settlement.js";
-import { useImportProgress } from "./provider-import.js";
+import { isImportUnderway, useImportProgress } from "./provider-import.js";
 import { ImportProgressLine } from "./ImportProgressLine.js";
 import { InlineRefusal } from "../../primitives/index.js";
 import { settleGrowthRead, type GrowthPort } from "../../bridge/index.js";
@@ -74,14 +82,22 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
 
   const trimmedProviderName = providerName.trim();
   const trimmedSourceRef = sourceRef.trim();
-  const isRunning = settlement.status === "running";
-  const disabledReason =
-    blockedReason ??
-    (isRunning
-      ? "The last import is still starting."
-      : trimmedProviderName.length === 0 || trimmedSourceRef.length === 0
-        ? "Both the provider and what to read are needed."
-        : undefined);
+  const isBeginning = settlement.status === "running";
+  const isReading = isImportUnderway(importId, progress);
+  const isRunning = isBeginning || isReading;
+  const isIncomplete = trimmedProviderName.length === 0 || trimmedSourceRef.length === 0;
+  const disabledReason = useMemo(() => {
+    if (blockedReason !== undefined) {
+      return blockedReason;
+    }
+    if (isBeginning) {
+      return "The last import is still starting.";
+    }
+    if (isReading) {
+      return "The last import is still being read.";
+    }
+    return isIncomplete ? "Both the provider and what to read are needed." : undefined;
+  }, [blockedReason, isBeginning, isReading, isIncomplete]);
 
   return (
     <form
@@ -129,7 +145,7 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
         disabled={disabledReason !== undefined}
         title={disabledReason}
       >
-        {isRunning ? "Starting…" : "Import"}
+        {importSubmitLabel(isBeginning, isReading)}
       </button>
       {disabledReason === undefined ? null : (
         <p className="meridian-session-import__blocked">{disabledReason}</p>
@@ -138,4 +154,19 @@ export function ProviderImportPanel(props: ProviderImportPanelProps): React.JSX.
       <ImportProgressLine progress={progress} />
     </form>
   );
+}
+
+/**
+ * What the control says about the phase the import is in.
+ *
+ * Three labels and not two: the button would have read "Starting…" for the whole of
+ * an import once the disabled predicate grew the stream, which names the one phase
+ * that has already finished. The progress line below says what the PRODUCER has
+ * counted; this says which of the panel's two calls is outstanding.
+ */
+function importSubmitLabel(isBeginning: boolean, isReading: boolean): string {
+  if (isBeginning) {
+    return "Starting…";
+  }
+  return isReading ? "Reading…" : "Import";
 }

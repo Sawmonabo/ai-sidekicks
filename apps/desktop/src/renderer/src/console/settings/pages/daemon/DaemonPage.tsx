@@ -15,10 +15,17 @@
 // than asking "are you sure": stopping the runtime ends every run on this machine,
 // and a person who reads only the verb has not been told that.
 //
+// AND IT CONFIRMS ONCE. A confirmation is the record of one intended act, so once it
+// has been answered both of its actions are refused until the dispatch settles —
+// otherwise a double-click on a destructive verb sends two of them. The refusal
+// itself is decided in the handler's own tick by `daemon-controls.ts`; what this file
+// owns is saying so on screen rather than leaving a control that quietly does nothing.
+//
 // THE PAGE DERIVES NO ELIGIBILITY. It offers both controls in every state and lets
 // the refusal render, which is the same discipline the operator surfaces are held to:
 // no field reports whether an operation would be permitted, so a page that greyed one
-// out would be inventing the answer.
+// out would be inventing the answer. The disable above is not that: whether THIS page
+// has a dispatch outstanding is a fact it holds rather than a permission it guessed.
 
 import { useCallback, useState, type ReactNode } from "react";
 
@@ -39,6 +46,18 @@ import {
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-daemon";
+
+/**
+ * Why both confirmation actions are refused once one dispatch has gone out.
+ *
+ * A SENTENCE AND NEVER A BARE DISABLE, on the rule the join form states: a control
+ * greyed out with no cause reads as broken. Cancel is disabled beside the primary
+ * rather than left live, because nothing behind the bridge is cancellable — a Cancel
+ * offered after the call went out would read as retracting it, and it retracts
+ * nothing. Both actions leave together when the settlement clears the confirmation.
+ */
+const DISPATCHED_REASON =
+  "Sent. It cannot be taken back, so both actions wait until the runtime answers.";
 
 /** What each control does and what a person is agreeing to. Written once. */
 const CONTROL_COPY: Readonly<
@@ -69,7 +88,7 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
     setSettlement(next);
     setConfirming(undefined);
   }, []);
-  const dispatch = useDaemonControl(props.context.bridge.growth, onSettled);
+  const control = useDaemonControl(props.context.bridge.growth, onSettled);
 
   return (
     <section className="meridian-settings-page" aria-label="Local runtime">
@@ -114,8 +133,9 @@ export function DaemonPage(props: DaemonPageProps): ReactNode {
         ) : (
           renderControlConfirm(
             confirming,
+            control.inFlight === undefined ? undefined : DISPATCHED_REASON,
             () => {
-              dispatch(confirming);
+              control.put(confirming);
             },
             () => {
               setConfirming(undefined);
@@ -250,13 +270,21 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
   }
 }
 
-/** The confirm step: the verb, what it costs, and the two ways out of it. */
+/**
+ * The confirm step: the verb, what it costs, and the two ways out of it.
+ *
+ * `dispatchedReason` is `undefined` while the confirmation is still a question and a
+ * sentence once it has been answered — one value carrying both the disable and its
+ * cause, so no arm of this markup can offer a control it cannot explain.
+ */
 function renderControlConfirm(
   control: DaemonControl,
+  dispatchedReason: string | undefined,
   onConfirm: () => void,
   onCancel: () => void,
 ): ReactNode {
   const copy = CONTROL_COPY[control];
+  const isDispatched = dispatchedReason !== undefined;
   return (
     <div className="meridian-settings-page__state">
       <p>{copy.consequence}</p>
@@ -264,14 +292,23 @@ function renderControlConfirm(
         <button
           type="button"
           className="meridian-settings-page__action meridian-settings-page__action--primary"
+          disabled={isDispatched}
+          title={dispatchedReason}
           onClick={onConfirm}
         >
           {copy.verb}
         </button>
-        <button type="button" className="meridian-settings-page__action" onClick={onCancel}>
+        <button
+          type="button"
+          className="meridian-settings-page__action"
+          disabled={isDispatched}
+          title={dispatchedReason}
+          onClick={onCancel}
+        >
           Cancel
         </button>
       </div>
+      {isDispatched ? <p>{dispatchedReason}</p> : null}
     </div>
   );
 }

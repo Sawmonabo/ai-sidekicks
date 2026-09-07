@@ -38,6 +38,38 @@ export type ImportProgressReading =
 const UNSUBSCRIBED: ImportProgressReading = { status: "unsubscribed" };
 
 /**
+ * Whether the import an id names is still being read.
+ *
+ * BESIDE THE UNION RATHER THAN IN THE PANEL, because it is a claim about which arms
+ * of a closed set mean "still going" — a consumer spelling that out itself is a
+ * second reading of this vocabulary, and the `switch` here fails to compile the day
+ * a fifth arm lands rather than quietly answering `false` for it.
+ *
+ * `unsubscribed` counts as underway ONLY once an id exists, and that is the whole
+ * reason the id is a parameter: before a begin settles the reading is `unsubscribed`
+ * because nothing was asked, and after it settles the reading is STILL `unsubscribed`
+ * for the frame between the commit and the effect that opens the stream. Reading the
+ * arm alone would leave the control enabled for that frame — the same overlap the
+ * open stream would leave, one frame earlier.
+ */
+export function isImportUnderway(
+  importId: string | undefined,
+  progress: ImportProgressReading,
+): boolean {
+  if (importId === undefined) {
+    return false;
+  }
+  switch (progress.status) {
+    case "unsubscribed":
+    case "open":
+      return true;
+    case "closed":
+    case "refused":
+      return false;
+  }
+}
+
+/**
  * Drain one import's progress stream for as long as the panel is mounted.
  *
  * `importId` is `undefined` until the begin call settles, and that absence is the
