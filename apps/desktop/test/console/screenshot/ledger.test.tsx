@@ -32,7 +32,10 @@
 // green forever. The three claims below the mount — the window is playing the
 // scenario this file names, every beat reached it, and rows are on screen — are
 // what stop this file pinning a picture of nothing. The quiet arm asserts the
-// mirror image, for the same reason in the other direction.
+// mirror image, for the same reason in the other direction: no beat reached it, and
+// the sentence a session with nothing in it renders is on screen — which is the one
+// claim a mount alone cannot make, since a window whose first read has not landed
+// draws loading shells and says nothing at all.
 //
 // The host pin, the skip, and the reason it prints are `baseline-host.ts`' — one
 // reading of this run for the whole tier, over the rule `baseline-platform.ts` holds,
@@ -42,7 +45,6 @@
 // `frame.test.tsx`, and deliberately not repeated here.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act } from "@testing-library/react";
 
 import {
   awaitSessionRouteMounted,
@@ -52,6 +54,7 @@ import {
   SESSION_ROUTE_BODY_SELECTOR,
   SESSION_ROUTE_MOUNT_DEADLINE_MS,
 } from "../console-harness.js";
+import { requireScenarioControl, walkScenarioToFrozenTick } from "../scenario-clock.js";
 import {
   requireCapturedElement,
   skipOffBaselineHost,
@@ -62,13 +65,8 @@ import {
   ConsoleRoot,
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
-import {
-  APPLY_COALESCE_MS,
-  SCENARIO_FIXTURE_GLOBAL,
-} from "../../../src/renderer/src/console/core/index.js";
 import { formatRoute } from "../../../src/renderer/src/console/routing/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-import type { ScenarioFixtureHandle } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-selection.js";
 import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,
@@ -78,45 +76,7 @@ import {
   FLAGSHIP_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 import { LEDGER_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger.js";
-import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { captureSettled } from "./settled-capture.js";
-
-/**
- * How many advances the whole script is walked in, and how many drain it.
- *
- * Steps rather than one jump, on `test/console/endurance/console-workload.ts`'
- * reasoning: a beat delivered into a store is applied through a coalescing window
- * armed on the same frozen clock, and the engine emits its beats AFTER moving the
- * clock — so one advance past the last beat delivers every one of them and leaves
- * the last batch queued behind a deadline nothing will ever reach. The drain
- * advances carry that window past its deadline with nothing left to deliver, which
- * is the quiet point a baseline has to be captured at: every beat in, nothing in
- * flight.
- */
-const SCENARIO_DELIVERY_STEP_COUNT = 20;
-const SCENARIO_DRAIN_STEP_COUNT = 5;
-
-/**
- * The running scenario's handle, or a throw.
- *
- * A throw rather than a skip, on the endurance tier's posture: a run that could not
- * drive the workload photographed an idle console, and reporting that as a pass is
- * worse than not running at all. The handle is installed by the bridge provider's
- * effect under the same `define` gate as the fixture bridge itself, so it is on the
- * page by the time a settled mount returns.
- */
-function requireScenarioControl(): ScenarioFixtureHandle {
-  const control = (globalThis as unknown as Record<string, ScenarioFixtureHandle | undefined>)[
-    SCENARIO_FIXTURE_GLOBAL
-  ];
-  if (control === undefined) {
-    throw new Error(
-      `${SCENARIO_FIXTURE_GLOBAL} is not on this page, so the frozen clock cannot be advanced and ` +
-        "any capture taken here would be of a console no scenario ever reached",
-    );
-  }
-  return control;
-}
 
 /** What one opened fixture session hands back: the mount, and what to capture. */
 interface LedgerMount {
@@ -151,35 +111,6 @@ async function openLedgerSession(scenarioId: string, sessionId: string): Promise
   return { container, frame: requireCapturedElement(container, ".meridian-frame") };
 }
 
-/**
- * Walk the frozen clock to the script's last beat and let the stores settle on it.
- *
- * Each advance is wrapped in `act` because the drain it releases lands in a store
- * whose subscribers are React components: outside `act` those updates settle after
- * the awaited turn rather than before it, which React reports as a warning and a
- * capture observes as a frame one commit behind the state it is claiming to pin.
- *
- * Returns the delivered-beat count so the caller can assert the session it is about
- * to photograph actually has content.
- */
-async function playToFrozenTick(lastBeatAtMs: number): Promise<number> {
-  const control = requireScenarioControl();
-  // At least one coalescing window per step, so every step also drains the batch
-  // the step before it delivered — a shorter step would deliver beats no advance
-  // in this loop ever released.
-  const stepMs = Math.max(
-    APPLY_COALESCE_MS + 1,
-    Math.ceil(lastBeatAtMs / SCENARIO_DELIVERY_STEP_COUNT),
-  );
-  for (let step = 0; step < SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT; step += 1) {
-    await act(async () => {
-      control.advance(stepMs);
-      await crossMacrotaskBoundary();
-    });
-  }
-  return control.deliveredBeatCount();
-}
-
 beforeEach(async () => {
   // The database this window opens outlives the file that opened it: browser mode
   // gives every file in a session one origin, so an arrangement another file
@@ -210,7 +141,9 @@ describe("screenshot — the console under the flagship scenario", () => {
         FLAGSHIP_SCENARIO.sessionId,
       );
 
-      const deliveredBeatCount = await playToFrozenTick(FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0);
+      const deliveredBeatCount = await walkScenarioToFrozenTick(
+        FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0,
+      );
       expect(
         deliveredBeatCount,
         "the whole script has to be in before the tick is frozen: a capture taken mid-script pins " +
@@ -242,6 +175,21 @@ describe("screenshot — the ledger's empty state", () => {
       LEDGER_QUIET_SCENARIO_ID,
       LEDGER_QUIET_SCENARIO.sessionId,
     );
+
+    // The same walk the pair above takes, over a script that plays nothing. What it
+    // is here for is the OTHER thing a walk does: the window's own first read is
+    // armed on this frozen clock, and an unwalked mount photographs twelve loading
+    // shells — a session whose emptiness the console has not been told yet, which is
+    // a different picture and a different claim from the one this reference is named
+    // for.
+    const deliveredBeatCount = await walkScenarioToFrozenTick(
+      LEDGER_QUIET_SCENARIO.beats.at(-1)?.atMs ?? 0,
+    );
+    expect(
+      deliveredBeatCount,
+      "a beat reached this window, so its empty state is the tail end of a session that " +
+        "was still arriving rather than one with nothing in it",
+    ).toBe(0);
 
     // The negative control for the pair above, and the positive one for this
     // capture: the empty state is reachable only because this scenario's script is

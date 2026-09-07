@@ -48,6 +48,10 @@
     // files beside the tiers, and a DOM one — `MutationObserver`, `HTMLElement` — so
     // it is typechecked here rather than in the Node config, which excludes it.
     "test/console/visible-text-monotonicity.ts",
+    // The scenario-clock driver: the second console ROLE in the flat files that is a
+    // DOM one, and here for the same pair of reasons — it settles inside `act`, and
+    // the handle it drives is the fixture's, which reaches renderer modules.
+    "test/console/scenario-clock.ts",
     // One glob rather than a line per family: `test/console/surfaces/` is the mount
     // helpers each view family's screenshot and accessibility suites drive, so a
     // per-file entry here is a line every family branch has to remember to add and

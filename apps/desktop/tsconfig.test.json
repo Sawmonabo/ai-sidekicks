@@ -68,6 +68,11 @@
     // reason: it watches a real `MutationObserver` over an `HTMLElement`, which this
     // Node-lib config has no types for.
     "test/console/visible-text-monotonicity.ts",
+    // The scenario-clock driver, excluded for the same reason: it settles each
+    // advance inside `act`, and it names the running scenario's handle, which pulls
+    // the fixture's own bridge surface into whatever program holds it — renderer
+    // modules that reach `window` and `document`.
+    "test/console/scenario-clock.ts",
     // The architecture tier moved to `tsconfig.console-architecture-test.json` when
     // its wire-truth test started IMPORTING console source rather than reading it:
     // that pulls `store/hooks.ts` into the program, which reaches `window`. Same

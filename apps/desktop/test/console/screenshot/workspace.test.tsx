@@ -36,6 +36,7 @@ import {
   renderSettled,
   resetDurableConsoleState,
 } from "../console-harness.js";
+import { walkScenarioToFrozenTick } from "../scenario-clock.js";
 import {
   requireCapturedElement,
   skipOffBaselineHost,
@@ -85,6 +86,13 @@ interface WorkspaceMount {
  * will see: with a record on disk, this file read an expanded sidebar two turns
  * before a restored collapse landed, and photographed the collapse. The harness's
  * wait puts every reading after the session route has finished arriving.
+ *
+ * AND THE MOUNT WAIT IS NOT THE WHOLE ARRIVAL. The route mounting is what the wait
+ * above observes, and the window's own first read is armed on the fixture's frozen
+ * clock — which nothing here would ever move, since this scenario plays no beats. So
+ * the walk runs too: without it the sidebar is photographed beside a session body
+ * still drawing its loading shells, and the sidebar is not the only thing in a frame
+ * capture.
  */
 async function openWorkspace(): Promise<WorkspaceMount> {
   document.location.hash = formatRoute({
@@ -94,6 +102,7 @@ async function openWorkspace(): Promise<WorkspaceMount> {
   const { container } = await renderSettled(<ConsoleRoot scenarioId={LEDGER_QUIET_SCENARIO_ID} />);
   const frame = requireCapturedElement(container, ".meridian-frame");
   await awaitSessionRouteMounted(container);
+  await walkScenarioToFrozenTick(LEDGER_QUIET_SCENARIO.beats.at(-1)?.atMs ?? 0);
   // Asked for its own sake: the frame alone mounts on a route whose sidebar never
   // arrived, and a capture of that is a picture of a deck this file is not pinning.
   requireCapturedElement(container, SIDEBAR_SELECTOR);
