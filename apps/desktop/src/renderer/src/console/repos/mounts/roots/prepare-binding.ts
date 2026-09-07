@@ -27,6 +27,18 @@ import {
 /** What the hook hands a surface: the reading, and the four things it can ask for. */
 export interface PrepareBinding {
   readonly reading: PrepareReading;
+  /**
+   * The identity of the controller behind this binding, for state that must die with it.
+   *
+   * TYPED `object` SO A SURFACE SCOPES TO IT AND NEVER REACHES THROUGH IT. The controller
+   * is re-minted whenever the workspace or its execution mode moves, and a form held in a
+   * plain register survives that — the row is keyed by workspace id, so React never
+   * remounts it — leaving a branch typed under the previous mode sitting above a
+   * controller that has asked nothing. Handing back the identity lets the surface address
+   * `useSubjectScopedState` at it and be re-seeded during the render that re-mints,
+   * rather than one committed frame later.
+   */
+  readonly controllerIdentity: object;
   readonly checkReuse: (branchName: string) => void;
   readonly prepare: (branchName: string, acknowledgeDirtyCandidate: boolean) => void;
   readonly prepareClone: (branchName: string) => void;
@@ -80,5 +92,5 @@ export function usePrepareController(
   const clearAct = useCallback(() => {
     controller.clearAct();
   }, [controller]);
-  return { reading, checkReuse, prepare, prepareClone, clearAct };
+  return { reading, controllerIdentity: controller, checkReuse, prepare, prepareClone, clearAct };
 }
