@@ -15,6 +15,14 @@
 // holds every inbound edge to that, which needs no list of exceptions and follows a
 // directory the day it grows a door.
 //
+// AND ITS PATHS ARE POSIX-SEPARATED, WHATEVER THE HOST. A tree path is compared against
+// a barrel's `/index.ts` suffix, against a chunk root's directory prefix, and against a
+// specifier resolved with `path.posix` — so one spelling is the only arrangement in which
+// any of those comparisons mean anything. The shared walk answers in the host's
+// separator, so the conversion happens HERE, at the one boundary that mints a tree path,
+// and every consumer downstream speaks `/` and nothing else: the predicates below, the
+// reach index, the gates that read them, and the literal keys of a synthetic tree.
+//
 // COUNTED, NOT COLLAPSED, and that is this module's whole reason for existing in the
 // shape it has. An earlier revision gathered the walk into a `Set` of reached sheets
 // and asked only whether each sheet was in it, so a sheet imported from two barrels,
@@ -24,12 +32,13 @@
 // from — so both duplicates are countable and both are reported with their causes.
 
 import { readFileSync } from "node:fs";
-import { dirname, join, posix, sep } from "node:path";
+import { join, posix } from "node:path";
 
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
   consoleStylesheets,
+  toPosixSeparators,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import {
@@ -80,7 +89,7 @@ export interface StylesheetEdgeOffences {
  * the chunk root below, which is a fact about the graph rather than about the name.
  */
 export function isOwningBarrel(modulePath: string): boolean {
-  return modulePath.endsWith(`${sep}index.ts`);
+  return modulePath.endsWith(`${posix.sep}index.ts`);
 }
 
 /**
@@ -151,9 +160,9 @@ function moduleCandidatesFor(resolvedSpecifier: string): readonly string[] {
  */
 export function owningBarrelOf(tree: StylesheetTree, filePath: string): string | undefined {
   const barrels = new Set(tree.modulePaths.filter(isOwningBarrel));
-  const segments = filePath.split(sep);
+  const segments = filePath.split(posix.sep);
   for (let depth = segments.length - 1; depth > 0; depth -= 1) {
-    const candidate = [...segments.slice(0, depth), "index.ts"].join(sep);
+    const candidate = [...segments.slice(0, depth), "index.ts"].join(posix.sep);
     if (barrels.has(candidate)) {
       return candidate;
     }
@@ -168,13 +177,17 @@ export function owningBarrelOf(tree: StylesheetTree, filePath: string): string |
  * The graph library's own `base.css` is the case that returns `undefined`: it is a
  * bare specifier, it is not this tree's to place, and the reachability claim is about
  * sheets the console owns.
+ *
+ * RESOLVED ENTIRELY IN `path.posix`, on both sides. The importer is a tree path and the
+ * answer is one, and this module's header says why those carry `/` on every host; a
+ * derivation reaching for the HOST's `dirname` would read a Windows-spelled importer as
+ * having no directory at all and resolve every specifier against the tree's root.
  */
 export function resolveStylesheet(importerPath: string, specifier: string): string | undefined {
   if (!specifier.startsWith(".")) {
     return undefined;
   }
-  const importerDirectory = dirname(importerPath).split(sep).join(posix.sep);
-  return posix.normalize(posix.join(importerDirectory, specifier)).split(posix.sep).join(sep);
+  return posix.normalize(posix.join(posix.dirname(importerPath), specifier));
 }
 
 /**
@@ -376,6 +389,9 @@ export function stylesheetEdgeOffences(
  *
  * A missing file throws rather than reading as empty: a control whose own typo made a
  * sheet silently sourceless would assert over a graph it did not describe.
+ *
+ * Its keys are tree paths, so they are written with `/` like every other one — a control
+ * spelling them the host's way would be asserting about a tree the console never mints.
  */
 export function syntheticStylesheetTree(sources: ReadonlyMap<string, string>): StylesheetTree {
   const paths = [...sources.keys()];
@@ -403,16 +419,24 @@ export function syntheticStylesheetTree(sources: ReadonlyMap<string, string>): S
  * through {@link consoleSourceModules}, stylesheets through {@link consoleStylesheets}
  * — and a root that moves moves in one place.
  *
- * SORTED HERE, on the raw relative path. The shared walk orders by a display path that
+ * SORTED HERE, on the tree path itself. The shared walk orders by a display path that
  * prefixes the root, which is the right order for a failure message and a different
  * order for this set; the barrel order `collectStylesheetEdges` walks in is part of
  * what an edge reports, so it is pinned to the path a tree is keyed by.
+ *
+ * AND RE-SPELLED HERE, which is the boundary this module's header names: the walk hands
+ * back whatever separator the host's `relative` used, and one conversion at the mint is
+ * what lets every predicate and every gate below compare paths at all.
  */
 function consoleRelativePaths(modules: readonly ConsoleSourceModule[]): readonly string[] {
-  return modules.map((module) => module.relativePath).sort();
+  return modules.map((module) => toPosixSeparators(module.relativePath)).sort();
 }
 
-/** Read a console-relative path. Exported because a claim reads one file by name. */
+/**
+ * Read a console-relative path. Exported because a claim reads one file by name.
+ *
+ * Takes the tree's own `/`-separated spelling; `join` re-separates it for the host.
+ */
 export function readConsoleFile(consoleRelativePath: string): string {
   return readFileSync(join(CONSOLE_DIRECTORY, consoleRelativePath), "utf8");
 }

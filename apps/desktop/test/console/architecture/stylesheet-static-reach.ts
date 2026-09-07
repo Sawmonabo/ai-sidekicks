@@ -30,7 +30,7 @@
 // parser that read one class fewer than the collision census reads would turn an offence
 // off with nothing anywhere disagreeing out loud.
 
-import { sep } from "node:path";
+import { posix } from "node:path";
 
 import type { StylesheetTree } from "./stylesheet-edge-graph.js";
 import { resolveStylesheet } from "./stylesheet-edge-graph.js";
@@ -155,6 +155,9 @@ export class StylesheetReachIndex {
    *
    * The console writes ESM specifiers — `./x.js`, `../y/index.js` — so the `.js` is
    * rewritten to both source extensions, and a bare directory is tried as its barrel.
+   *
+   * The barrel candidates are composed in `path.posix`, because a tree path carries `/`
+   * on every host and a candidate spelled the host's way matches nothing in the set.
    */
   #resolveModule(importerPath: string, specifier: string): string | undefined {
     const base = resolveStylesheet(importerPath, specifier);
@@ -166,8 +169,8 @@ export class StylesheetReachIndex {
       `${stem}.ts`,
       `${stem}.tsx`,
       base,
-      [stem, "index.ts"].join(sep),
-      [stem, "index.tsx"].join(sep),
+      posix.join(stem, "index.ts"),
+      posix.join(stem, "index.tsx"),
     ]) {
       if (this.#modulePaths.has(candidate)) {
         return candidate;
