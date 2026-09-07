@@ -71,13 +71,24 @@
 
 /* Present only while the two builds disagree. There is no rule here for a healthy
    window, because a healthy window mounts no element to carry one. */
+/* One banner and whatever it draws beneath itself, as one element of the column
+   above. Without the wrapper a supplemented banner contributes two children to a
+   gapped flex column and reads as two unrelated notices. */
+.meridian-frame__banner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* The version banner's SUPPLEMENT — the protocol pair and the supported-set
+   disclosure. It carries no ground and no edge of its own: it sits inside the frame's
+   banner region, beneath the `RefusalBanner` that draws the refusal, and a second
+   surface behind it would read as a second notice. */
 .meridian-version-banner {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
-  padding: var(--meridian-space-2) var(--meridian-space-4);
-  border-bottom: 1px solid var(--meridian-edge);
-  background: var(--meridian-surface-sunken);
+  padding-left: var(--meridian-space-4);
 }
 
 .meridian-version-banner__pair,

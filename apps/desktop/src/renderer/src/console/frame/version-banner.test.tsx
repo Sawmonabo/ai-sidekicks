@@ -23,8 +23,16 @@ import {
 import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "../bridge/scenarios/flagship.js";
 import { LEDGER_SCENARIO, LEDGER_SCENARIO_ID } from "../bridge/scenarios/ledger.js";
 import { settleReactWork } from "../core/act-settlement.test-support.js";
-import { mountConsole } from "./ConsoleRoot.test-support.js";
-import { useConsoleVersionReading, type ConsoleVersionReading } from "./version-banner.js";
+import { liveRegionText } from "../primitives/live-region.test-support.js";
+import { parseRoute } from "../routing/index.js";
+import { FrameStore } from "../store/index.js";
+import { SESSIONS_HASH, mountConsole } from "./ConsoleRoot.test-support.js";
+import {
+  VERSION_BANNER_ID,
+  useConsoleVersionReading,
+  useVersionBannerRaise,
+  type ConsoleVersionReading,
+} from "./version-banner.js";
 
 /** The version this console proposes in every case below. */
 const CONSOLE_VERSION = "2026-05-01";
@@ -265,16 +273,38 @@ describe("the fixture's own handshake outcomes", () => {
   });
 });
 
-describe("the composed window — the banner is refusal-scoped", () => {
-  it("raises the banner in a window whose scenario scripts a refused handshake", async () => {
+describe("the composed window — the banner is refusal-scoped and announced once", () => {
+  it("raises ONE banner, announces its remedy, and draws the pair beneath it", async () => {
+    // THE ANNOUNCEMENT IS THE CLAIM. The refusal used to be drawn straight into the
+    // surface tree, so it never entered the frame's banner list and
+    // `banner-announcements.ts` never saw it: a window told a person, in the widest
+    // shape the grammar has, that it could no longer change the session — and told a
+    // screen reader nothing at all.
     const mounted = await mountConsole({ scenarioId: LEDGER_SCENARIO_ID });
 
-    const banner = mounted.container.querySelector(".meridian-version-banner");
-    expect(banner).not.toBeNull();
-    expect(banner?.textContent).toContain("version.floor_exceeded");
+    // Exactly one, which is the duplication guard: a supplement that drew its own
+    // refusal beside the frame's would put one code and one sentence on screen twice
+    // and announce them once.
+    const banners = mounted.container.querySelectorAll(".meridian-refusal--banner");
+    expect(banners).toHaveLength(1);
+    expect(banners[0]?.textContent).toContain("version.floor_exceeded");
+    // Undismissable: the claim that this window cannot change the session has not
+    // stopped being true, so it may not be put away.
+    expect(mounted.container.querySelector(".meridian-refusal__dismiss")).toBeNull();
+
+    // The REMEDY and not the code. Spoken, a dotted wire code is a token nobody can
+    // act on, read letter by letter ahead of the sentence that matters.
+    const announced = liveRegionText(mounted.container, "assertive");
+    expect(announced).toContain("below the local runtime's minimum");
+    expect(announced).not.toContain("version.floor_exceeded");
+
+    // And the two facts a `FrameBanner` cannot carry, drawn once beneath that row.
+    const supplements = mounted.container.querySelectorAll(".meridian-version-banner");
+    expect(supplements).toHaveLength(1);
+    expect(supplements[0]?.textContent).toContain("Protocol");
   });
 
-  it("negative control: a window whose handshake AGREED mounts no element at all", async () => {
+  it("negative control: a window whose handshake AGREED mounts no element and says nothing", async () => {
     // The rule this pins is the one the surface exists for. Without it a frame that
     // rendered on the settled arm rather than the refused one would pass every case
     // above while putting a permanent version strip across every healthy window —
@@ -284,6 +314,76 @@ describe("the composed window — the banner is refusal-scoped", () => {
     const mounted = await mountConsole({ scenarioId: FLAGSHIP_SCENARIO_ID });
 
     expect(mounted.container.querySelector(".meridian-version-banner")).toBeNull();
+    expect(mounted.container.querySelector(".meridian-refusal--banner")).toBeNull();
     expect(mounted.container.textContent).not.toContain("Protocol");
+    expect(liveRegionText(mounted.container, "assertive")).toBe("");
+  });
+});
+
+describe("the raise — both edges, because a banner outlives the render that put it there", () => {
+  /** The refused reading the cases below raise from. */
+  const REFUSED: ConsoleVersionReading = {
+    phase: "refused",
+    mismatch: {
+      reason: "version.floor_exceeded",
+      consoleProtocolVersion: CONSOLE_VERSION,
+      daemonProtocolVersion: RUNTIME_ONLY_VERSION,
+      daemonSupportedProtocols: [RUNTIME_ONLY_VERSION],
+      movingSide: "console",
+      remedy: "Update the console.",
+    },
+  };
+
+  function RaiseProbe(props: {
+    readonly frameStore: FrameStore;
+    readonly reading: ConsoleVersionReading;
+  }): React.JSX.Element {
+    useVersionBannerRaise(props.frameStore, props.reading);
+    return <></>;
+  }
+
+  it("raises an undismissable banner carrying the reason and the remedy", () => {
+    const frameStore = new FrameStore({ initialRoute: parseRoute(SESSIONS_HASH) });
+
+    render(<RaiseProbe frameStore={frameStore} reading={REFUSED} />);
+
+    expect(frameStore.getState().banners).toStrictEqual([
+      {
+        id: VERSION_BANNER_ID,
+        dismissible: false,
+        code: "version.floor_exceeded",
+        detail: "Update the console.",
+      },
+    ]);
+  });
+
+  it("clears it when the reading stops being a refusal, and when the window goes away", () => {
+    // The edge a bridge swap reaches: the banner list is store state that outlives
+    // this render, so a raise with no matching clear leaves a permanent strip across
+    // a window whose runtime it no longer describes.
+    const frameStore = new FrameStore({ initialRoute: parseRoute(SESSIONS_HASH) });
+    const mounted = render(<RaiseProbe frameStore={frameStore} reading={REFUSED} />);
+    expect(frameStore.getState().banners).toHaveLength(1);
+
+    mounted.rerender(<RaiseProbe frameStore={frameStore} reading={{ phase: "agreed" }} />);
+    expect(frameStore.getState().banners).toStrictEqual([]);
+
+    mounted.rerender(<RaiseProbe frameStore={frameStore} reading={REFUSED} />);
+    expect(frameStore.getState().banners).toHaveLength(1);
+
+    mounted.unmount();
+    expect(frameStore.getState().banners).toStrictEqual([]);
+  });
+
+  it("negative control: a settled agreement raises nothing to begin with", () => {
+    // Without this the clear above would pass against a hook that raised on no arm
+    // at all, which is the state the whole announcement claim rests on not being.
+    const frameStore = new FrameStore({ initialRoute: parseRoute(SESSIONS_HASH) });
+
+    render(<RaiseProbe frameStore={frameStore} reading={{ phase: "reading" }} />);
+    expect(frameStore.getState().banners).toStrictEqual([]);
+
+    render(<RaiseProbe frameStore={frameStore} reading={{ phase: "agreed" }} />);
+    expect(frameStore.getState().banners).toStrictEqual([]);
   });
 });

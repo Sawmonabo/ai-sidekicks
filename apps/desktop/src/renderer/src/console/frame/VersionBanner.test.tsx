@@ -1,9 +1,17 @@
-// What the banner says once the two builds have failed to meet.
+// What the version banner says BEYOND its code and its remedy.
 //
 // The rule that decides WHEN it is raised is `version-banner.test.tsx`; these cases are
 // about the surface itself, because the two fail differently: a rule that is wrong
-// marks the wrong window, and a banner that is wrong marks the right window with a
-// sentence that names one side of a disagreement, or none.
+// marks the wrong window, and a supplement that is wrong marks the right window with a
+// pair that names one side of a disagreement, or none.
+//
+// AND THE CODE AND THE REMEDY ARE NO LONGER THIS COMPONENT'S. They ride the frame's own
+// banner list now, so a refusal is announced once through the announcer every other
+// banner goes through — which means the cases that used to read them off
+// `.meridian-refusal--banner` here read them off the composed window in
+// `version-banner.test.tsx` instead, beside the case that pins there being exactly ONE
+// of those elements. Asserting them here as well would only prove this component can
+// draw a second copy.
 //
 // There is no case here for a healthy window, and that absence is the point: this
 // component takes a mismatch and nothing else, so a window whose handshake succeeded
@@ -58,23 +66,21 @@ describe("the version banner — collapsed to the pair", () => {
     expect(pair.textContent).toContain("local runtime");
   });
 
-  it("carries the runtime's own reason as the code, and names the side that moves", () => {
+  it("draws no refusal of its own, so the frame's banner is the only one on screen", () => {
     const { container } = render(<VersionBanner mismatch={BELOW_FLOOR} />);
 
-    const banner = container.querySelector(".meridian-refusal--banner");
-    // The code is the wire's, verbatim and in mono; the sentence around it is ours,
-    // because the corpus registers the reason and writes no copy for it.
-    expect(banner?.textContent).toContain("version.floor_exceeded");
-    expect(banner?.textContent).toContain("Update the console");
+    // The defect this pins: while this component drew its own `RefusalBanner`, the
+    // code and the remedy were on screen twice — once here and once in the frame's
+    // banner list — and announced once, by the list. Neither the code nor the
+    // sentence belongs to this surface any more.
+    expect(container.querySelector(".meridian-refusal--banner")).toBeNull();
+    expect(container.textContent).not.toContain("version.floor_exceeded");
+    expect(container.textContent).not.toContain("Update the console");
   });
 
-  it("is persistent and offers no remedy control, because neither move happens here", () => {
-    const { container } = render(<VersionBanner mismatch={ABOVE_CEILING} />);
+  it("offers no remedy control, because neither move happens here", () => {
+    render(<VersionBanner mismatch={ABOVE_CEILING} />);
 
-    expect(container.querySelector(".meridian-refusal--banner")).not.toBeNull();
-    // No dismiss: the claim that this window cannot change the session has not
-    // stopped being true, so it may not be put away.
-    expect(container.querySelector(".meridian-refusal__dismiss")).toBeNull();
     // No link: updating either build happens outside this window, and a control here
     // would be the banner executing a remedy it is only allowed to name.
     expect(screen.queryByRole("link")).toBeNull();
@@ -88,7 +94,6 @@ describe("the version banner — collapsed to the pair", () => {
     const pair = screen.getByRole("note");
     expect(pair.textContent).toContain("2026-09-01");
     expect(pair.textContent).toContain("2026-05-01");
-    expect(screen.getByText("version.ceiling_exceeded")).toBeDefined();
   });
 });
 

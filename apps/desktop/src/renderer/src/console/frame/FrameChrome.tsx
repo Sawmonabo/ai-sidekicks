@@ -50,6 +50,21 @@ export interface FrameChromeProps {
   readonly onSelectDestination: (destination: RailDestination) => void;
   readonly banners: readonly FrameBanner[];
   readonly onDismissBanner: (bannerId: string) => void;
+  /**
+   * Extra content one banner draws beneath its row, or nothing for that banner.
+   *
+   * A SLOT BECAUSE `FrameBanner` IS STORE DATA. That shape is what the frame store
+   * holds — `store/frame-store.ts` keeps its React import type-only — so a banner
+   * whose producer has more to say than a code and a sentence cannot say it on the
+   * banner itself. The version mismatch is the case: its protocol pair and the
+   * runtime's published set are facts a `FrameBanner` has no member for, and drawing
+   * them in the surface tree instead is how that refusal was reaching the frame
+   * without ever reaching the announcer.
+   *
+   * The caller matches on the banner's own id, so a supplement belongs to exactly one
+   * row rather than to whichever row happens to be raised.
+   */
+  readonly renderBannerSupplement?: (banner: FrameBanner) => React.ReactNode;
   /** The surface the route resolves to. Mounted inside its own error boundary. */
   readonly children: React.ReactNode;
   /** Rendered above the surface: the palette, dialogs, anything window-scoped. */
@@ -82,20 +97,26 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
         <div className="meridian-frame__column">
           {props.banners.length === 0 ? null : (
             <div className="meridian-frame__banners">
-              {props.banners.map((banner) =>
-                banner.dismissible ? (
-                  <RefusalBanner
-                    key={banner.id}
-                    code={banner.code}
-                    detail={banner.detail}
-                    onDismiss={() => {
-                      props.onDismissBanner(banner.id);
-                    }}
-                  />
-                ) : (
-                  <RefusalBanner key={banner.id} code={banner.code} detail={banner.detail} />
-                ),
-              )}
+              {props.banners.map((banner) => (
+                // Wrapped whether or not a supplement is drawn, so one banner is one
+                // element of the column either way: a row that grew a supplement would
+                // otherwise become two children of a gapped flex column and read as
+                // two separate notices about two separate things.
+                <div key={banner.id} className="meridian-frame__banner">
+                  {banner.dismissible ? (
+                    <RefusalBanner
+                      code={banner.code}
+                      detail={banner.detail}
+                      onDismiss={() => {
+                        props.onDismissBanner(banner.id);
+                      }}
+                    />
+                  ) : (
+                    <RefusalBanner code={banner.code} detail={banner.detail} />
+                  )}
+                  {props.renderBannerSupplement?.(banner)}
+                </div>
+              ))}
             </div>
           )}
           <main className="meridian-frame__surface">

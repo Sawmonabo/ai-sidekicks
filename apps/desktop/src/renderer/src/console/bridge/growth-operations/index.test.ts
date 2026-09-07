@@ -238,17 +238,21 @@ describe("the growth ledger's hydrated-event row — a projection with no namesp
   });
 });
 
-describe("the growth ledger's two identity-and-registry rows — no method to name", () => {
-  it("carries one operation each, and neither names a wire method", () => {
+describe("the growth ledger's three rows with no method to name", () => {
+  it("carries one operation each, and none of them names a wire method", () => {
     // The counterpart of the workflow and sidekick blocks, and the reason those
     // blocks' `toBe` assertions are meaningful: an entry names a method only where
-    // its row's registry exists. Neither of these has one — the corpus resolves a
-    // caller's principal daemon-side and never returns it, and the callback-tool
-    // registry rides spawn with no read seam — so an invented string here would be
-    // a wire fact traceable to nothing.
+    // its row's registry exists. None of these has one — the corpus resolves a
+    // caller's principal daemon-side and never returns it, the callback-tool
+    // registry rides spawn with no read seam, and the negotiation row is a read of a
+    // reply the shell already holds, which is registered nowhere. The last is the
+    // one whose `undefined` is a DECISION rather than a gap: `daemon.hello` exists
+    // and the daemon answers it, so the row could have named a real string — and a
+    // window that sent it would be refused by the per-connection handshake latch.
     for (const slateRow of [
       "caller-participant-identity",
       "callback-tool-registry-read",
+      "daemon-version-negotiation",
     ] as const) {
       const operationIds = operationsServingRow(slateRow);
 

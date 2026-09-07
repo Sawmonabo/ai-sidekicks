@@ -31,6 +31,21 @@
 // own arm rather than being folded into whichever of the two reads closer. A fourth
 // reason registered on the wire fails at this switch rather than rendering as a guess.
 //
+// IT IS RAISED THROUGH THE FRAME'S BANNER LIST AND NOT RENDERED BESIDE IT. The frame
+// store holds every banner the window is showing, and `banner-announcements.ts`
+// announces each newly raised one into the assertive live region — so a refusal drawn
+// straight into the tree is a refusal a screen reader is never told about, which is
+// the one thing this surface exists to say. The raise therefore lives HERE, beside the
+// read, because the rule about which windows get a banner and the rule about which
+// windows perform this read are the same rule and belong in one module.
+//
+// AND THE REMEDY RIDES THE BANNER ROW, WHICH IS A DELIBERATE DEPARTURE FROM DENSITY.
+// The design language puts a detail one click away; the refusal grammar requires a
+// banner to carry a `detail` beside its code, and that detail is the remedy — which
+// side moves. So the sentence is inline because the shape it is rendered in requires
+// it, and what stays one click away is the SUPPORTED SET, which is the disclosure the
+// density rule is actually about.
+//
 // NO POLLING AND NO SECOND CADENCE. The read is put once through the console's single
 // growth-read chokepoint, keyed on the port — which is minted once per bridge, so a
 // re-render never re-reads and a bridge swapped underneath (the fixture's scenario
@@ -39,9 +54,12 @@
 // than an omission: the ack is a negotiation reply on a connection, not an event in any
 // session's log, so no beat of any timeline can change what it said.
 
+import { useEffect } from "react";
+
 import type { NegotiationIncompatibleReason } from "@ai-sidekicks/contracts";
 
 import { useSettledGrowthRead, type GrowthPort, type SettledReadRefusal } from "../bridge/index.js";
+import type { FrameStore } from "../store/index.js";
 
 /** Which side of an incompatible handshake is the one that moves. */
 export type VersionRemedySide = "console" | "runtime" | "neither";
@@ -161,4 +179,57 @@ export function useConsoleVersionReading(growth: GrowthPort): ConsoleVersionRead
     { unsettled: () => ({ phase: "reading" }), settled: settledVersionReading },
   );
   return value;
+}
+
+/**
+ * The id the frame's version banner is raised under.
+ *
+ * A module constant rather than a literal at the two sites that use it — the raise
+ * below and the supplement the frame renders for this row alone — because the two have
+ * to name the same string or the version pair is drawn beside some other banner or
+ * beside none. Namespaced on the read it comes from, so it cannot collide with a
+ * refusal raised through `raiseRefusalBanner`, which keys on origin and code.
+ */
+export const VERSION_BANNER_ID = "daemon-negotiation:version";
+
+/**
+ * Raise the mismatch as a frame banner for as long as the two builds disagree.
+ *
+ * `raiseBanner` and NOT `raiseRefusalBanner`: that helper hardcodes `dismissible: true`
+ * and keys on a refusal's `origin`, which a mismatch has none of — and a version
+ * banner a person can put away would be a claim that this window cannot change the
+ * session, retracted while it is still true.
+ *
+ * DISMISSED ON EVERY OTHER ARM AND ON UNMOUNT. The reading moves — a bridge swap can
+ * re-agree, and a window closes — and a banner list is store state that outlives this
+ * component's render, so a raise with no matching clear leaves a permanent strip
+ * across a window whose runtime it no longer describes.
+ *
+ * KEYED ON THE TWO STRINGS IT RAISES rather than on the reading object. The settled
+ * reading is rebuilt on every settled render, so an effect depending on its identity
+ * would raise on every pass — and each raise writes a fresh banner array into the
+ * store, which re-renders this component, which raises again. The dependency is what
+ * makes that loop unrepresentable rather than merely unlikely.
+ */
+export function useVersionBannerRaise(
+  frameStore: FrameStore,
+  reading: ConsoleVersionReading,
+): void {
+  const refusedCode = reading.phase === "refused" ? reading.mismatch.reason : undefined;
+  const refusedRemedy = reading.phase === "refused" ? reading.mismatch.remedy : undefined;
+  useEffect(() => {
+    if (refusedCode === undefined || refusedRemedy === undefined) {
+      frameStore.dismissBanner(VERSION_BANNER_ID);
+      return undefined;
+    }
+    frameStore.raiseBanner({
+      id: VERSION_BANNER_ID,
+      dismissible: false,
+      code: refusedCode,
+      detail: refusedRemedy,
+    });
+    return () => {
+      frameStore.dismissBanner(VERSION_BANNER_ID);
+    };
+  }, [frameStore, refusedCode, refusedRemedy]);
 }

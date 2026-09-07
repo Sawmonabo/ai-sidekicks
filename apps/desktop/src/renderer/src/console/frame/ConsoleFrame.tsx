@@ -60,7 +60,11 @@ import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useSchemePreference } from "./scheme-preference.js";
 import { VersionBanner } from "./VersionBanner.js";
-import { useConsoleVersionReading } from "./version-banner.js";
+import {
+  VERSION_BANNER_ID,
+  useConsoleVersionReading,
+  useVersionBannerRaise,
+} from "./version-banner.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
 import { type ConsoleSurfaceContext } from "../seats/index.js";
 import { applyConsoleScheme } from "./token-installation.js";
@@ -179,6 +183,11 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   // through the console's growth-read chokepoint and followed by no timer — see
   // `version-banner.ts` for why a handshake has no session-event trigger to watch.
   const versionReading = useConsoleVersionReading(props.bridge.growth);
+  // Raised into the frame's own banner list rather than drawn into the surface tree,
+  // so the refusal is announced exactly once by the announcer every other banner goes
+  // through. The hook owns both edges — the raise and the clear — because a banner
+  // outlives the render that put it there.
+  useVersionBannerRaise(frameStore, versionReading);
 
   const activeSessionId = frameStore.activeSessionId;
 
@@ -219,6 +228,14 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
       onDismissBanner={(bannerId) => {
         frameStore.dismissBanner(bannerId);
       }}
+      // The two facts a `FrameBanner` cannot carry, drawn beneath the mismatch row and
+      // beneath no other. Matched on the id the raise used, so the pair belongs to that
+      // banner rather than to whichever one happens to be raised.
+      renderBannerSupplement={(banner) =>
+        banner.id === VERSION_BANNER_ID && versionReading.phase === "refused" ? (
+          <VersionBanner mismatch={versionReading.mismatch} />
+        ) : null
+      }
       overlays={
         <>
           <PaletteOverlay
@@ -240,17 +257,6 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
           would vanish the moment somebody navigated to the sessions list and back.
           Under the live bridge there is no scenario engine, so this is `null` and the
           release build carries nothing. */}
-      {/* The banner, and ONLY when the two builds did not meet. Above every surface
-          for the reason the mark below it is: an incompatible handshake refuses every
-          mutating dispatch in the window, not on one route. Every other arm — still
-          reading, unreachable, and the agreeing settlement — renders no element and
-          reserves no space, which is what `Spec-023` asks for: a working window says
-          nothing about versions, and a window that has not heard back says nothing
-          rather than repeating the last thing it heard from a runtime it may no
-          longer be talking to. */}
-      {versionReading.phase === "refused" ? (
-        <VersionBanner mismatch={versionReading.mismatch} />
-      ) : null}
       {scenario === undefined ? null : <DemoScenarioMark scenarioLabel={scenario.label} />}
       <RouteSurface context={surfaceContext} />
     </AppFrame>

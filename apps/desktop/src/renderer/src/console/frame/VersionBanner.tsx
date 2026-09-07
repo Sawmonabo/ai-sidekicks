@@ -1,4 +1,4 @@
-// The banner the frame raises when this console and the local runtime did not meet.
+// What the frame's version banner says BEYOND its code and its remedy.
 //
 // IT EXISTS ONLY ON THE REFUSED ARM. `Spec-023`'s version banner has two states and one
 // of them draws nothing: compatible renders no element and reserves no space, and
@@ -7,12 +7,14 @@
 // a version strip, because the props for one do not exist. The rule that decides WHICH
 // windows get here lives beside the read, in `version-banner.ts`.
 //
-// IT IS THE REFUSAL GRAMMAR'S BANNER AND NOT A BOX OF ITS OWN. `RefusalBanner` is the
-// third of the three refusal shapes, for a refusal that changes what the whole room can
-// do — which is exactly what an incompatible handshake changes, since every mutating
-// dispatch is refused while reads carry on. Passing no `onDismiss` is what makes it
-// persistent: a claim that this window cannot change the session stops being true the
-// moment it can be put away, and it has not stopped being true.
+// AND IT NO LONGER DRAWS THE REFUSAL ITSELF. `version-banner.ts` raises the mismatch
+// into the frame store's banner list, so the code and the remedy are rendered by the
+// one `RefusalBanner` `FrameChrome.tsx` renders for every banner and announced once by
+// `banner-announcements.ts` — which is what a refusal drawn straight into the tree
+// never was. This component is the SUPPLEMENT the frame renders beside that row: two
+// facts a `FrameBanner` cannot carry, because that shape is store data and the store
+// holds no React. Drawing the refusal here as well would put one code and one sentence
+// on screen twice and announce them once.
 //
 // AND IT OFFERS NO REMEDY CONTROL. Updating the console is an installer's act and
 // updating the local runtime is an operator's; the banner names which one and executes
@@ -23,7 +25,7 @@
 // them was sent by one of the two builds, so each travels through `WireFigure` and the
 // sentences around them are the console's own.
 
-import { RefusalBanner, WireFigure } from "../primitives/index.js";
+import { WireFigure } from "../primitives/index.js";
 import type { ConsoleVersionMismatch } from "./version-banner.js";
 
 export interface VersionBannerProps {
@@ -40,12 +42,11 @@ export interface VersionBannerProps {
  */
 const NO_PUBLISHED_SET_SENTENCE = "The local runtime published no supported-version set.";
 
-/** Across the frame, for as long as the two builds disagree. */
+/** Beside the frame's mismatch banner, for as long as the two builds disagree. */
 export function VersionBanner(props: VersionBannerProps): React.JSX.Element {
   const supported = props.mismatch.daemonSupportedProtocols;
   return (
     <div className="meridian-version-banner">
-      <RefusalBanner code={props.mismatch.reason} detail={props.mismatch.remedy} />
       <p className="meridian-version-banner__pair" role="note">
         Protocol <WireFigure value={props.mismatch.consoleProtocolVersion} /> here,{" "}
         <WireFigure value={props.mismatch.daemonProtocolVersion} /> on the local runtime.
