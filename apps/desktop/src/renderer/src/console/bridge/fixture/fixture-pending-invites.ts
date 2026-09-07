@@ -42,6 +42,15 @@
 // tick it landed on newly made due. Nothing here polls and nothing here arms a timer —
 // a fixture that armed one would be a second clock, which is what `scenario-engine.ts`
 // exists to prevent.
+//
+// AND THE TWO TABLES ARE MERGED BY TICK, NOT CONCATENATED. Both walks answer one feed
+// and the adapter above preserves feed order, so the order this namespace releases
+// arrivals in IS the order a person meets them. Handing back every due invitation and
+// then every due attempt put a prompt scripted for tick 100 behind an invitation
+// scripted for tick 200 whenever one advance made both due — a scenario reading
+// backwards on screen while every frame in it was correct. The merge below is the fix
+// and it is one comparison rather than a sort per table, because two sorts cannot state
+// what happens when the two tables tie.
 
 import { FixtureGrowthStream } from "./fixture-growth-stream.js";
 import type { Unsubscribe } from "../../core/index.js";
@@ -69,6 +78,52 @@ interface AttemptEntry {
   readonly frame: ScenarioPendingInviteAttemptFrame;
   /** True once the retry has been driven on this handle. */
   isSpent: boolean;
+}
+
+/**
+ * Where each brand sits when two arrivals fall due on one tick.
+ *
+ * An invitation before an unreachable deep link, because the first is something a
+ * person can answer outright and the second is a prompt to try again — a feed that led
+ * with the retry would put the weaker of the two first. These two values order nothing
+ * else: they are read by {@link mergeDueArrivals} and by nothing above it.
+ */
+const INVITATION_ARRIVAL_RANK = 0;
+const ATTEMPT_ARRIVAL_RANK = 1;
+
+/**
+ * One arrival that has fallen due, carrying the keys its position on the feed needs.
+ *
+ * A tick alone cannot order the feed: two tables are walked and one advance can make
+ * an entry in each of them due, so the brand rank travels beside the tick rather than
+ * being decided by whichever table happened to be walked first.
+ */
+interface DueArrival {
+  readonly atMs: number;
+  /** {@link INVITATION_ARRIVAL_RANK} or {@link ATTEMPT_ARRIVAL_RANK}. */
+  readonly rank: number;
+  readonly state: GrowthPendingInviteState;
+}
+
+/**
+ * The due arrivals in the order a person meets them: by tick, then by brand.
+ *
+ * ONE MERGE RATHER THAN A SORT PER TABLE, because the interesting case is the one a
+ * per-table sort cannot express — two entries from two tables agreeing on `atMs`. The
+ * third key is the order each table declared its entries in, and it is not written as a
+ * comparison because it does not have to be: `Array.prototype.sort` is stable, so
+ * entries agreeing on both keys above keep the order they arrived in.
+ *
+ * Pure, and it copies before sorting: the caller composes the array from two `map`
+ * results, and sorting a caller's array in place is a habit that is wrong the first
+ * time somebody passes one they still hold.
+ */
+function mergeDueArrivals(arrivals: readonly DueArrival[]): readonly GrowthPendingInviteState[] {
+  return [...arrivals]
+    .sort((left, right) =>
+      left.atMs === right.atMs ? left.rank - right.rank : left.atMs - right.atMs,
+    )
+    .map((arrival) => arrival.state);
 }
 
 /**
@@ -247,23 +302,28 @@ export class FixturePendingInvites {
    *
    * BOTH TABLES WALK HERE, and the discriminant each arm is keyed by is stamped in
    * this one place: a scenario stays a table of invitations and of outstanding deep
-   * links rather than of wire states, and the two kinds arrive on one feed in the
-   * order a person meets them.
+   * links rather than of wire states. What the two walks produce is then MERGED by
+   * {@link mergeDueArrivals} rather than concatenated, so the two kinds arrive on one
+   * feed in the order the scenario scheduled them rather than in table order.
    */
   #statesDueBetween(afterMs: number, throughMs: number): readonly GrowthPendingInviteState[] {
     const isDue = (atMs: number, isSpent: boolean): boolean =>
       !isSpent && atMs > afterMs && atMs <= throughMs;
     const invitations = [...this.#entriesByReference.values()]
       .filter((entry) => isDue(entry.frame.atMs, entry.isSpent))
-      .map<GrowthPendingInviteState>((entry) => ({ status: "ready", ...entry.frame.invite }));
+      .map<DueArrival>((entry) => ({
+        atMs: entry.frame.atMs,
+        rank: INVITATION_ARRIVAL_RANK,
+        state: { status: "ready", ...entry.frame.invite },
+      }));
     const attempts = [...this.#attemptsByHandle.values()]
       .filter((entry) => isDue(entry.frame.atMs, entry.isSpent))
-      .map<GrowthPendingInviteState>((entry) => ({
-        status: "unavailable",
-        retryable: true,
-        attempt: entry.frame.attempt,
+      .map<DueArrival>((entry) => ({
+        atMs: entry.frame.atMs,
+        rank: ATTEMPT_ARRIVAL_RANK,
+        state: { status: "unavailable", retryable: true, attempt: entry.frame.attempt },
       }));
-    return [...invitations, ...attempts];
+    return mergeDueArrivals([...invitations, ...attempts]);
   }
 
   /**

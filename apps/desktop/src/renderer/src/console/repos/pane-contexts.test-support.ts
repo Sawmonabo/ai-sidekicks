@@ -18,7 +18,7 @@ import type {
   ConsolePaneContext,
   SidebarSectionContext,
 } from "../seats/index.js";
-import type { SessionStore } from "../store/index.js";
+import { FrameStore, type SessionStore } from "../store/index.js";
 
 /**
  * A section context with real collaborators.
@@ -32,11 +32,14 @@ export function sectionContext(reached: {
   readonly isOpen: boolean;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
+  /** The window's store, or a fresh one — born unreported, so nothing is blocked. */
+  readonly frameStore?: FrameStore;
 }): SidebarSectionContext {
   return {
     isOpen: reached.isOpen,
     bridge: reached.bridge,
     sessionStore: reached.sessionStore,
+    frameStore: reached.frameStore ?? new FrameStore(),
     openPane: () => undefined,
   };
 }

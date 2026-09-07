@@ -35,13 +35,19 @@
 //
 // WHICH SOURCE WINS WHERE THEY BOTH SPEAK
 //
-// The READ, for role and state; the log fills what the read did not carry. Of the
-// five `membership.*` kinds only `membership.created` has a registered payload
-// variant, so a role change, a suspension, a revocation, and a reactivation all
-// reach the timeline carrying nothing a fold can read — the log's role is the
-// ADMISSION role however many times it changes afterwards, and the read is a
-// statement about now. The identifier itself is immutable, so the two can only
-// agree about it.
+// The LOG, for a role or a state it has actually stated; the read fills every fact
+// the log did not. That is the reverse of what this module said while the fold
+// claimed only `membership.created`: with no fold for the other four kinds the log
+// could state no state at all and its role was the ADMISSION role forever, so
+// deferring to the read was the only honest reading there was. The fold beside this
+// one now claims all five (`membership-projector.ts` says how each fact is read), and
+// the ordering follows the ordering of the two sources: the read is answered ONCE, on
+// mount, and the log is live. A revocation that lands after the read is the newer
+// statement, and a read that outranked it would leave a membership that has ended
+// reading as one that has not for the rest of the visit — which is the direction that
+// matters, because it is the one that offers acts nobody can perform.
+//
+// The identifier itself is immutable, so the two can only agree about it.
 
 import type { MembershipRole, MembershipState, MembershipUpdate } from "@ai-sidekicks/contracts";
 
@@ -258,6 +264,11 @@ function rowFromEntity(entity: ConsoleEntity): MembershipRow {
  * Written as one function rather than three coalescing expressions at the call site
  * so the precedence is stated once: an entry that carried nothing leaves the log's
  * row exactly as it was, which is what makes a refused read cost the ledger nothing.
+ *
+ * The log leads on role and state and the read fills the absences, because the read
+ * is answered once on mount and the log keeps arriving. `undefined` on the logged side
+ * is the honest "the log has not said", never "the log says nothing is there", so the
+ * fallback is a coalesce rather than a branch on which source is present.
  */
 function mergeMembershipRow(
   logged: MembershipRow,
@@ -269,9 +280,44 @@ function mergeMembershipRow(
   return {
     participantId: logged.participantId,
     membershipId: entry.membershipId,
-    role: isMembershipRole(entry.role) ? entry.role : logged.role,
-    state: isMembershipState(entry.state) ? entry.state : logged.state,
+    role: logged.role ?? (isMembershipRole(entry.role) ? entry.role : undefined),
+    state: logged.state ?? (isMembershipState(entry.state) ? entry.state : undefined),
   };
+}
+
+/**
+ * Whether this membership is one a session can still address.
+ *
+ * `undefined` IS LIVE, and that asymmetry is the whole rule. A state neither source
+ * has stated is exactly the ordinary case — `membership.created` states none by
+ * design, and the roster read refuses until its wire lands — so reading absence as
+ * "not live" would empty every surface that asks this question in a console that is
+ * working. What the predicate is for is the row that has been stated ENDED, and
+ * `MEMBERSHIP_STATE_IS_LIVE` is where those two values are declared.
+ */
+export function isLiveMembership(row: MembershipRow): boolean {
+  return row.state === undefined || MEMBERSHIP_STATE_IS_LIVE[row.state];
+}
+
+/**
+ * The participants of this session's live memberships, from the log alone.
+ *
+ * The one derivation behind every surface that offers an ACT against another member —
+ * the direct-channel picker is the first — as opposed to the surfaces that report on
+ * memberships, which render the ended ones too because a suspended membership is
+ * still a row. Both go through {@link deriveMembershipRows}, so a surface offering an
+ * act and a surface reporting one can never disagree about who is in the session.
+ *
+ * The roster read is deliberately not a parameter: the picker's own section holds no
+ * membership read, and a second call to the one the members section already performs
+ * would be two reads answering one question in one window.
+ */
+export function liveMembershipParticipantIds(
+  participantEntities: Readonly<Record<string, ConsoleEntity>>,
+): readonly string[] {
+  return deriveMembershipRows(participantEntities)
+    .filter(isLiveMembership)
+    .map((row) => row.participantId);
 }
 
 /** A row the log never projected: the participant, and three facts it cannot state. */

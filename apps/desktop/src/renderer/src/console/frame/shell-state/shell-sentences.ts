@@ -167,6 +167,7 @@ const MUTATING_METHOD_LABELS: Record<MutatingDaemonMethod, string> = {
   "driver.respondToRequest": "answering a provider's question",
   "driver.compactContext": "compacting a session's context",
   "providerAccount.probe": "checking a provider account again",
+  "membership.update": "changing a membership",
 };
 
 /**

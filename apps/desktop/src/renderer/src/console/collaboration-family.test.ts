@@ -83,14 +83,22 @@ describe("collaboration family — composition", () => {
     expect(surfaces.registeredSlots()).toStrictEqual(afterFirst);
   });
 
-  it("folds the one membership kind whose payload the contract declares", () => {
-    // The fold is what lets this family read `membership.created` once. Without it
-    // the roster, the typing indicators, the direct-channel labels and the membership
-    // ledger each reach the wire for a fact the store already had — or, as they did,
-    // render a raw participant id and an absent membership identifier instead.
+  it("folds all five membership kinds, so the store's membership state stays live", () => {
+    // The admission fold is what lets this family read a person's handle, membership
+    // identifier and role once instead of reaching the wire for a fact the store
+    // already had. The four transitions are the other half, and the half that decides
+    // whether a membership is still one the session can address: without them a
+    // revoked member stays a direct-channel candidate and a roster row forever,
+    // because nothing else in the window ever hears that the membership ended.
     const { surfaces, sections, projectors, bindings } = ownedBoards();
     registerCollaborationFamily(surfaces, sections, projectors, bindings);
-    expect(Object.keys(projectors.snapshot())).toStrictEqual(["membership.created"]);
+    expect(Object.keys(projectors.snapshot())).toStrictEqual([
+      "membership.created",
+      "membership.role_changed",
+      "membership.suspended",
+      "membership.revoked",
+      "membership.reactivated",
+    ]);
   });
 
   it("passes the frame-binding board down rather than dropping it", () => {

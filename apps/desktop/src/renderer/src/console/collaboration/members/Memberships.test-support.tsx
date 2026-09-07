@@ -11,7 +11,7 @@ import type { ReactElement } from "react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import { deriveMembershipRows } from "./members-model.js";
 import { Memberships as MembershipsSurface } from "./Memberships.js";
@@ -92,13 +92,39 @@ export function storeHolding(memberships: readonly ProjectedMembership[]): Sessi
   return store;
 }
 
-export function contextFor(store: SessionStore, bridge?: ConsoleBridge): SidebarSectionContext {
+/**
+ * A section context around one store.
+ *
+ * `frameStore` is a parameter because the ledger reads the shell's condition off it:
+ * a case that leaves it out gets a fresh one, which is born UNREPORTED and therefore
+ * blocks nothing — the state a shipped window is in until the supervisor says
+ * otherwise, and the right default for every case that is not about the transport.
+ */
+export function contextFor(
+  store: SessionStore,
+  bridge?: ConsoleBridge,
+  frameStore?: FrameStore,
+): SidebarSectionContext {
   return {
     sessionStore: store,
     bridge: bridge ?? createFixtureBridge({ scenario: EMPTY_SCENARIO }),
+    frameStore: frameStore ?? new FrameStore(),
     openPane: () => undefined,
     isOpen: true,
   };
+}
+
+/** A window store whose supervisor has gone offline: every mutating call is closed. */
+export function offlineFrameStore(): FrameStore {
+  const frameStore = new FrameStore();
+  frameStore.publishShellReport({
+    connection: { kind: "offline", attemptLimit: 5, lastError: undefined },
+    negotiation: undefined,
+    lastHeartbeatAt: undefined,
+    transport: undefined,
+    keystore: undefined,
+  });
+  return frameStore;
 }
 
 export const OWNER_AND_COLLABORATOR: readonly ProjectedMembership[] = [
