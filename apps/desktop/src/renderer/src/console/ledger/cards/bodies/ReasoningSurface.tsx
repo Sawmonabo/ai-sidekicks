@@ -21,6 +21,12 @@
 // in that order, rather than one hiding the other. Ranking them would mean a reader
 // who expanded mid-turn lost sight of the arriving lines.
 //
+// ONE COMPONENT, AND THE FIVE PARTS BELOW IT ARE RENDER HELPERS RATHER THAN
+// COMPONENTS. A `.tsx` module declares one component, and none of these five holds
+// state, an effect, or an identity a reader could mount independently — each is a
+// branch of this body's own render, so each is a plain function returning a node,
+// which is the shape `primitives/Nothing.tsx` already uses for the same reason.
+//
 // THE CONTROL IS FAIL-CLOSED ABOUT ELIGIBILITY. The read is run-scoped; a row with
 // no run attribution is a row the read could never answer for, so the control is
 // ABSENT rather than present-and-disabled. A disabled control is a claim that the
@@ -71,13 +77,9 @@ export function ReasoningSurface(props: ReasoningSurfaceProps): React.JSX.Elemen
   }
   return (
     <div className="meridian-reasoning-surface">
-      <ReasoningTail liveText={props.liveText} />
-      <ReasoningReading reading={props.reading} />
-      <ReasoningExpandControl
-        runId={props.runId}
-        reading={props.reading}
-        onExpand={props.onExpand}
-      />
+      {renderReasoningTail(props.liveText)}
+      {renderReasoningReading(props.reading)}
+      {renderExpandControl(props.runId, props.reading, props.onExpand)}
     </div>
   );
 }
@@ -90,11 +92,11 @@ export function ReasoningSurface(props: ReasoningSurfaceProps): React.JSX.Elemen
  * whatever a person was doing; the settlement is what gets announced, by the
  * surfaces that own announcements.
  */
-function ReasoningTail(props: { readonly liveText: string | undefined }): React.JSX.Element | null {
-  if (props.liveText === undefined) {
+function renderReasoningTail(liveText: string | undefined): React.ReactNode {
+  if (liveText === undefined) {
     return null;
   }
-  const lines = reasoningTailOf(props.liveText);
+  const lines = reasoningTailOf(liveText);
   if (lines.length === 0) {
     return null;
   }
@@ -115,10 +117,8 @@ function ReasoningTail(props: { readonly liveText: string | undefined }): React.
 }
 
 /** Whatever the read has said so far, in the shape that fact takes. */
-function ReasoningReading(props: {
-  readonly reading: ReasoningSurfaceReading;
-}): React.JSX.Element | null {
-  switch (props.reading.status) {
+function renderReasoningReading(reading: ReasoningSurfaceReading): React.ReactNode {
+  switch (reading.status) {
     case "not-asked":
       return null;
     case "reading":
@@ -130,24 +130,21 @@ function ReasoningReading(props: {
         <Nothing
           kind="error"
           placement="surface"
-          title={props.reading.refusal.code}
-          detail={props.reading.refusal.detail}
+          title={reading.refusal.code}
+          detail={reading.refusal.detail}
         />
       );
     case "read":
-      return <ReasoningArm response={props.reading.response} />;
+      return renderAvailabilityArm(reading.response);
   }
 }
 
 /** One arm of the closed availability discriminant, rendered as itself. */
-function ReasoningArm(props: {
-  readonly response: ReasoningSurfaceReadResponse;
-}): React.JSX.Element {
-  const response = props.response;
+function renderAvailabilityArm(response: ReasoningSurfaceReadResponse): React.ReactNode {
   if (response.availability === "available" && response.reasoningEntries.length > 0) {
     return (
       <>
-        <ReasoningEntries entries={response.reasoningEntries} />
+        {renderReasoningEntries(response.reasoningEntries)}
         {response.hasMore ? (
           <Nothing
             kind="not-checked"
@@ -178,12 +175,10 @@ function ReasoningArm(props: {
 }
 
 /** The entries themselves, ordered by the sequence the daemon put them in. */
-function ReasoningEntries(props: {
-  readonly entries: readonly ReasoningEntry[];
-}): React.JSX.Element {
+function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.ReactNode {
   return (
     <ol className="meridian-reasoning-surface__entries" aria-label="reasoning entries">
-      {props.entries.map((entry) => (
+      {entries.map((entry) => (
         <li key={entry.sequence} className="meridian-reasoning-surface__entry">
           {entry.content}
         </li>
@@ -199,16 +194,16 @@ function ReasoningEntries(props: {
  * answered: a second press would re-ask a question that has an answer on screen, and
  * this surface holds no continuation cursor to spend on the bounded page's tail.
  */
-function ReasoningExpandControl(props: {
-  readonly runId: RunId | undefined;
-  readonly reading: ReasoningSurfaceReading;
-  readonly onExpand: () => void;
-}): React.JSX.Element | null {
-  if (props.runId === undefined || props.reading.status !== "not-asked") {
+function renderExpandControl(
+  runId: RunId | undefined,
+  reading: ReasoningSurfaceReading,
+  onExpand: () => void,
+): React.ReactNode {
+  if (runId === undefined || reading.status !== "not-asked") {
     return null;
   }
   return (
-    <button type="button" className="meridian-reasoning-surface__expand" onClick={props.onExpand}>
+    <button type="button" className="meridian-reasoning-surface__expand" onClick={onExpand}>
       Show reasoning
     </button>
   );

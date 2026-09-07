@@ -21,6 +21,12 @@
 // statement about the console and not about the ask: an input ask that expires parks
 // its run, and only the `driver_ask.expired` row may say that it did.
 //
+// ONE COMPONENT HERE, AND THE FREE-TEXT ARM IS THE OTHER. Every part of this card
+// but one is a branch of a single render over the ask it was handed, so each is a
+// plain function returning a node rather than a component of its own. The exception
+// is the arm that holds a draft between keystrokes, and it has a module of its own
+// for exactly that reason.
+//
 // THE OPTION ROW IS TWO PARTS AND IS NOT `WireChoiceList`. That primitive renders one
 // wire identifier per row, by design, because its callers offer identifiers with no
 // provider-supplied label. An ask option carries a `value` the answer is composed
@@ -28,11 +34,10 @@
 // the value is what is delivered, and the label is the only thing that says what the
 // choice means. A row carrying both is a different row, not a second copy of that one.
 
-import { useState } from "react";
-
 import { parseInstant } from "../../../core/index.js";
 import { Nothing, WireFigure, formatDuration } from "../../../primitives/index.js";
 import type { OwnerSlotProps } from "../../../seats/index.js";
+import { AskFreeTextArm } from "./AskFreeTextArm.js";
 import type { DriverAskReading } from "./input-ask.js";
 
 /** What the row hands the body the timeline plan authors. */
@@ -72,17 +77,14 @@ export function InputAskCard(props: InputAskCardProps): React.JSX.Element {
   const isPending = props.ask.state === "requested";
   return (
     <div className="meridian-input-ask">
-      <AskPrompt prompt={props.ask.prompt} />
+      {renderPrompt(props.ask.prompt)}
       {isPending ? (
         <>
-          <AskCountdown
-            expiresAt={props.ask.expiresAt}
-            nowEpochMilliseconds={props.nowEpochMilliseconds}
-          />
-          <AskAnswerArms ask={props.ask} onAnswer={props.onAnswer} />
+          {renderCountdown(props.ask.expiresAt, props.nowEpochMilliseconds)}
+          {renderAnswerArms(props.ask, props.onAnswer)}
         </>
       ) : (
-        <AskTerminal ask={props.ask} />
+        renderTerminal(props.ask)
       )}
     </div>
   );
@@ -96,8 +98,8 @@ export function InputAskCard(props: InputAskCardProps): React.JSX.Element {
  * that did not finish — and rather than composing a question of its own, which would
  * put words in the provider's mouth on the one surface where that is unrecoverable.
  */
-function AskPrompt(props: { readonly prompt: string | undefined }): React.JSX.Element {
-  if (props.prompt === undefined) {
+function renderPrompt(prompt: string | undefined): React.ReactNode {
+  if (prompt === undefined) {
     return (
       <Nothing
         kind="empty"
@@ -107,7 +109,7 @@ function AskPrompt(props: { readonly prompt: string | undefined }): React.JSX.El
       />
     );
   }
-  return <p className="meridian-input-ask__prompt">{props.prompt}</p>;
+  return <p className="meridian-input-ask__prompt">{prompt}</p>;
 }
 
 /**
@@ -117,15 +119,15 @@ function AskPrompt(props: { readonly prompt: string | undefined }): React.JSX.El
  * an expired countdown: a card that showed zero for a row carrying no deadline would
  * be asserting a deadline the daemon never stamped.
  */
-function AskCountdown(props: {
-  readonly expiresAt: string | undefined;
-  readonly nowEpochMilliseconds: number;
-}): React.JSX.Element {
+function renderCountdown(
+  expiresAt: string | undefined,
+  nowEpochMilliseconds: number,
+): React.ReactNode {
   // THROUGH THE CONSOLE'S OWN READER, which is the one that refuses rather than
   // normalizes: a stamp naming a day that does not exist reads as a NUMBER through
   // the platform parser and would put a countdown on screen against an instant the
   // daemon never sent.
-  const reading = props.expiresAt === undefined ? undefined : parseInstant(props.expiresAt);
+  const reading = expiresAt === undefined ? undefined : parseInstant(expiresAt);
   if (reading === undefined || reading.kind === "malformed") {
     return (
       <Nothing
@@ -136,7 +138,7 @@ function AskCountdown(props: {
       />
     );
   }
-  const remaining = reading.epochMilliseconds - props.nowEpochMilliseconds;
+  const remaining = reading.epochMilliseconds - nowEpochMilliseconds;
   if (remaining <= 0) {
     return (
       <Nothing
@@ -156,21 +158,21 @@ function AskCountdown(props: {
 }
 
 /** The option group where one was declared, and the free-text field on every ask. */
-function AskAnswerArms(props: {
-  readonly ask: DriverAskReading;
-  readonly onAnswer: (response: string) => void;
-}): React.JSX.Element {
+function renderAnswerArms(
+  ask: DriverAskReading,
+  onAnswer: (response: string) => void,
+): React.ReactNode {
   return (
     <div className="meridian-input-ask__arms">
-      {props.ask.options.length === 0 ? null : (
+      {ask.options.length === 0 ? null : (
         <ul className="meridian-input-ask__options" aria-label="the answers this ask offers">
-          {props.ask.options.map((option) => (
+          {ask.options.map((option) => (
             <li key={option.value}>
               <button
                 type="button"
                 className="meridian-input-ask__option"
                 onClick={() => {
-                  props.onAnswer(option.value);
+                  onAnswer(option.value);
                 }}
               >
                 {option.label === undefined ? null : (
@@ -182,43 +184,8 @@ function AskAnswerArms(props: {
           ))}
         </ul>
       )}
-      <AskFreeTextArm askId={props.ask.askId} onAnswer={props.onAnswer} />
+      <AskFreeTextArm askId={ask.askId} onAnswer={onAnswer} />
     </div>
-  );
-}
-
-/** The arm every ask carries, whatever the provider declared. */
-function AskFreeTextArm(props: {
-  readonly askId: string;
-  readonly onAnswer: (response: string) => void;
-}): React.JSX.Element {
-  const [draft, setDraft] = useState("");
-  const fieldId = `meridian-input-ask-${props.askId}`;
-  return (
-    <form
-      className="meridian-input-ask__free-text"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (draft.length > 0) {
-          props.onAnswer(draft);
-          setDraft("");
-        }
-      }}
-    >
-      <label htmlFor={fieldId}>Answer in your own words</label>
-      <textarea
-        id={fieldId}
-        className="meridian-input-ask__field"
-        value={draft}
-        rows={2}
-        onChange={(event) => {
-          setDraft(event.target.value);
-        }}
-      />
-      <button type="submit" className="meridian-input-ask__send" disabled={draft.length === 0}>
-        Send answer
-      </button>
-    </form>
   );
 }
 
@@ -230,17 +197,17 @@ function AskFreeTextArm(props: {
  * which of the two things happened, because "expired" and "canceled" are different
  * events with different causes and a card that said only "closed" would collapse them.
  */
-function AskTerminal(props: { readonly ask: DriverAskReading }): React.JSX.Element {
-  if (props.ask.state === "responded") {
+function renderTerminal(ask: DriverAskReading): React.ReactNode {
+  if (ask.state === "responded") {
     return (
       <Nothing
         kind="empty"
         placement="surface"
         title="This ask was answered."
         detail="The delivered answer is shown as the daemon recorded it."
-        {...(props.ask.deliveredAnswer === undefined
+        {...(ask.deliveredAnswer === undefined
           ? {}
-          : { action: <WireFigure value={props.ask.deliveredAnswer} title="Delivered answer" /> })}
+          : { action: <WireFigure value={ask.deliveredAnswer} title="Delivered answer" /> })}
       />
     );
   }
@@ -249,7 +216,7 @@ function AskTerminal(props: { readonly ask: DriverAskReading }): React.JSX.Eleme
       kind="empty"
       placement="surface"
       title={
-        props.ask.state === "expired"
+        ask.state === "expired"
           ? "This ask expired before it was answered."
           : "This ask was canceled before it was answered."
       }
