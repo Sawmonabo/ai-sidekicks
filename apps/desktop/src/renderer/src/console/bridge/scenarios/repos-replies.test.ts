@@ -76,10 +76,14 @@ function scriptedAnswers(): readonly unknown[] {
     { workspaceId: GIT_WORKSPACE_ID, worktreeId: IMPLEMENTER_WORKTREE_ID },
     { workspaceId: GIT_WORKSPACE_ID, worktreeId: REVIEWER_WORKTREE_ID },
   ];
+  // Each computed answer is asked at the scenario's OWN start, which is the instant
+  // this walk holds every stamp against — so a reply that varied with the clock would
+  // be checked at the tick this rule is written about rather than at an arbitrary one.
+  const startMilliseconds = parseInstant(REPOS_SCENARIO_STARTED_AT_ISO).epochMilliseconds ?? 0;
   return REPOS_SCENARIO_REPLIES.flatMap((reply) =>
     reply.resultFor === undefined
       ? [reply.result]
-      : requests.map((request) => reply.resultFor(request)),
+      : requests.map((request) => reply.resultFor(request, startMilliseconds)),
   );
 }
 

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseInstant } from "../../core/index.js";
 import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/members/presence-model.js";
+import { collaborationSentInvitesAt } from "./collaboration.replies.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import type { ScenarioReply, ScenarioResolvingReply } from "../scenario-runtime/scenario.js";
 
@@ -49,10 +50,13 @@ describe("the collaboration scenario", () => {
   });
 
   it("serves one pending invitation with an expiry", () => {
-    const invites = resolvingReplyFor("invites.list").result as readonly {
-      state: string;
-      expiresAt: string;
-    }[];
+    // Through the ledger's own ageing function at the scenario's start instant,
+    // because the reply is COMPUTED: it answers what the ledger holds at the moment
+    // it settles, and tick zero is the moment this design claim is about. The
+    // ageing itself is `collaboration.replies.test.ts`.
+    const startMilliseconds = parseInstant(COLLABORATION_SCENARIO.startedAtIso).epochMilliseconds;
+    expect(startMilliseconds).toBeDefined();
+    const invites = collaborationSentInvitesAt(startMilliseconds ?? 0);
     const pending = invites.filter((invite) => invite.state === "pending");
     expect(pending).toHaveLength(1);
     const [onlyPendingInvite] = pending;

@@ -138,7 +138,12 @@ export async function settleScriptedReply(
     return { status: "refused", refusal: reply.refusal };
   }
   if (reply.resultFor !== undefined) {
-    const computed = reply.resultFor(request);
+    // The instant is read HERE rather than at the call, and after the hold rather
+    // than before it: a computed reply that answers about a lifetime has to be
+    // asked at the moment its answer is delivered, so a reply parked on a scripted
+    // latency answers for the tick it comes due at and not the tick it was asked at.
+    // The engine's own clock, so the reply and the beats share one timeline.
+    const computed = reply.resultFor(request, engine.clock.now());
     // A request the scenario does not answer for is `unscripted` and not an empty
     // resolution: the scenario scripts the METHOD and not this entity, which is the
     // authoring gap that arm exists to name.
