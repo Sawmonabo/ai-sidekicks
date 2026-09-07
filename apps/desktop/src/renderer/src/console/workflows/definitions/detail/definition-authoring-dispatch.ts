@@ -114,7 +114,7 @@ export function useWorkflowDefinitionAuthoring(
     outcomes: value.outcomes,
     exportedFile: value.exportedFile,
     exportDefinition: () => {
-      exportDefinitionFile(runtime);
+      void exportDefinitionFile(runtime);
     },
     importDefinition: (text) => {
       void importDefinitionFile(runtime, text);
@@ -128,21 +128,30 @@ export function useWorkflowDefinitionAuthoring(
 /**
  * Serialize the body on screen and put it on the host's clipboard.
  *
- * NO LATCH, because there is no call to be in flight: the serialization is
- * synchronous, and the clipboard write that follows it is the host's own — a second
+ * NO LATCH, because there is no call to be in flight: nothing here reaches the daemon,
+ * and the clipboard write that follows the serialization is the host's own — a second
  * press writes the same bytes again, which is what a person pressing it twice means.
  *
  * The file is published on the settlement whether or not the host took it, and that is
  * the whole design: the surface renders it in a read-only box, so a host that refused
  * leaves the bytes selectable rather than leaving the person with nothing.
+ *
+ * THE SERIALIZATION IS AWAITED because the file form's writer arrives in its own chunk
+ * — the parser is charged to the launches that use it and to no others — and the only
+ * way it fails is a chunk that did not load. That is a fact about the install rather
+ * than about the definition, so it lands on the same rejection seam the clipboard's own
+ * refusal does rather than inventing a second refusal for this surface.
  */
-function exportDefinitionFile(runtime: AuthoringRuntime): void {
+async function exportDefinitionFile(runtime: AuthoringRuntime): Promise<void> {
   const { body } = runtime;
   if (body === undefined) {
     publishOutcome(runtime, "export", { kind: "refused", refusal: bodyUnavailable("Exporting") });
     return;
   }
-  const file = serializeWorkflowDefinitionFile(body);
+  const file = await serializeFile(runtime, body);
+  if (file === undefined) {
+    return;
+  }
   // The bytes go in beside the outcome and not inside it, so the refusal arm below
   // replaces where the act STANDS and leaves what it produced on screen.
   runtime.publish((previous) => ({
@@ -172,6 +181,46 @@ function exportDefinitionFile(runtime: AuthoringRuntime): void {
 }
 
 /**
+ * The file the body serializes to, or `undefined` once the refusal has been published.
+ *
+ * Its own function so the act above reads as the three steps it is — serialize,
+ * publish, copy — rather than opening with a `try` whose block is most of the body.
+ */
+async function serializeFile(
+  runtime: AuthoringRuntime,
+  body: WorkflowVersionBody,
+): Promise<string | undefined> {
+  try {
+    return await serializeWorkflowDefinitionFile(body);
+  } catch (writerRejection: unknown) {
+    publishCodecAbsence(runtime, "export", writerRejection);
+    return undefined;
+  }
+}
+
+/**
+ * Publish the refusal for a file-form codec that did not arrive.
+ *
+ * ONE SENTENCE FOR BOTH ACTS, because it is one fact: the reader and the writer are the
+ * same module and it is fetched on first use, so an export and an import fail together
+ * or not at all. Two spellings of it would drift the first time either was reworded.
+ */
+function publishCodecAbsence(
+  runtime: AuthoringRuntime,
+  act: WorkflowDetailAct,
+  rejection: unknown,
+): void {
+  publishOutcome(runtime, act, {
+    kind: "refused",
+    refusal: normalizeWireRejection(WORKFLOW_DETAIL_ORIGIN, rejection, {
+      code: "call-rejected",
+      detail:
+        "The part of this app that reads and writes definition files did not load, so nothing happened. Pressing again asks for it once more.",
+    }),
+  });
+}
+
+/**
  * Read the pasted text and submit what it describes into this session's own scope.
  *
  * THE TARGET IS THE NARROWEST SCOPE AND IS NOT A CHOICE, which is a decision rather
@@ -192,21 +241,46 @@ async function importDefinitionFile(runtime: AuthoringRuntime, text: string): Pr
     });
     return;
   }
-  const reading = parseWorkflowDefinitionFile(text, {
-    sessionId,
-    scope: "session",
-    scopeRef: sessionId,
+  const definition = await readDefinitionFile(runtime, sessionId, text);
+  if (definition === undefined) {
+    return;
+  }
+  await submitDefinition(runtime, "import", definition, (versionNumber) => {
+    return `${definition.name} was created in this session at version ${versionNumber}.`;
   });
-  if (reading.status === "invalid") {
+}
+
+/**
+ * The body the pasted text describes, or `undefined` once the refusal is published.
+ *
+ * The reader's own refusal travels as the sentence it composed — which member is wrong
+ * is the whole of what a person needs beside a paste box — and the codec's absence
+ * takes the seam beside it, because a chunk that did not arrive says nothing about the
+ * text. Only the reading is guarded: a daemon refusal on the submit below belongs to
+ * the call that raised it.
+ */
+async function readDefinitionFile(
+  runtime: AuthoringRuntime,
+  sessionId: string,
+  text: string,
+): Promise<WorkflowDefinitionCreateBody | undefined> {
+  try {
+    const reading = await parseWorkflowDefinitionFile(text, {
+      sessionId,
+      scope: "session",
+      scopeRef: sessionId,
+    });
+    if (reading.status === "parsed") {
+      return reading.body;
+    }
     publishOutcome(runtime, "import", {
       kind: "refused",
       refusal: detailRefusal("file-unreadable", reading.reason),
     });
-    return;
+  } catch (readerRejection: unknown) {
+    publishCodecAbsence(runtime, "import", readerRejection);
   }
-  await submitDefinition(runtime, "import", reading.body, (versionNumber) => {
-    return `${reading.body.name} was created in this session at version ${versionNumber}.`;
-  });
+  return undefined;
 }
 
 /**

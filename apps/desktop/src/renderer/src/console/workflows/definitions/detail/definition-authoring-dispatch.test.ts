@@ -12,7 +12,7 @@
 // with a single arm replaced, which is what a build with no `workflow.*` wire actually
 // hands this surface.
 
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { serializeWorkflowDefinitionFile } from "../../../bridge/index.js";
@@ -144,10 +144,16 @@ describe("exporting — the bytes outlive the host's answer", () => {
       mounted.current().exportDefinition();
     });
 
-    const held = mounted.current().exportedFile;
+    // WAITED FOR RATHER THAN SLEPT ON: the writer arrives in its own chunk, so the
+    // bytes land when that fetch settles and not a fixed number of turns after a press.
+    const held = await waitFor(() => {
+      const written = mounted.current().exportedFile;
+      expect(written).toBeDefined();
+      return written;
+    });
+
     expect(mounted.current().outcomes.export.kind).toBe("settled");
-    expect(held).toBeDefined();
-    expect(held).toContain("schemaVersion");
+    expect(held).toContain("ai-sidekicks-schema");
   });
 
   it("keeps the file on screen when the host refuses the clipboard", async () => {
@@ -166,10 +172,14 @@ describe("exporting — the bytes outlive the host's answer", () => {
       mounted.current().exportDefinition();
     });
 
-    const held = mounted.current().exportedFile;
+    const held = await waitFor(() => {
+      const written = mounted.current().exportedFile;
+      expect(written).toBeDefined();
+      return written;
+    });
+
     expect(refusalCode(mounted.current().outcomes.export)).toBe("session.not_found");
-    expect(held).toBeDefined();
-    expect(held).toContain("schemaVersion");
+    expect(held).toContain("ai-sidekicks-schema");
   });
 });
 
@@ -234,8 +244,9 @@ describe("single flight — one outstanding create per act and definition", () =
     await mounted.press(() => {
       mounted.current().promoteDefinition();
     });
+    const exported = await serializeWorkflowDefinitionFile(scriptedBody());
     await mounted.press(() => {
-      mounted.current().importDefinition(serializeWorkflowDefinitionFile(scriptedBody()));
+      mounted.current().importDefinition(exported);
     });
 
     expect(mounted.current().outcomes.import.kind).toBe("dispatching");
