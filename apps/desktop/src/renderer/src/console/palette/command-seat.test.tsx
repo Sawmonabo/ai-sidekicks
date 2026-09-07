@@ -107,6 +107,55 @@ describe("a surface's command seat", () => {
 
     expect(registeredSuiteIds()).toEqual([]);
   });
+
+  it("hands the rows back to the older mount when the newer one closes", () => {
+    // The other tear-down order, and the one a person actually performs: two panes
+    // of a kind are open and they close the one they opened last. A register that
+    // only remembered WHICH contributor was live had nothing to restore here and
+    // replaced the owner with an empty contribution — so the pane still on screen
+    // lost every act it offers, and the palette said nothing about why.
+    const older = renderHook(() => {
+      useConsoleCommandSeat(OWNER, [command("suite.older")]);
+    });
+    const newer = renderHook(() => {
+      useConsoleCommandSeat(OWNER, [command("suite.newer")]);
+    });
+
+    newer.unmount();
+
+    expect(registeredSuiteIds()).toEqual(["suite.older"]);
+
+    older.unmount();
+
+    expect(registeredSuiteIds()).toEqual([]);
+  });
+
+  it("restores through three mounts, in either closing order", () => {
+    // Three, because two cannot tell "restore the next one down" apart from
+    // "restore the first one". Closing the middle mount changes nothing on screen;
+    // closing the newest then falls back past it to the oldest.
+    const first = renderHook(() => {
+      useConsoleCommandSeat(OWNER, [command("suite.first")]);
+    });
+    const second = renderHook(() => {
+      useConsoleCommandSeat(OWNER, [command("suite.second")]);
+    });
+    const third = renderHook(() => {
+      useConsoleCommandSeat(OWNER, [command("suite.third")]);
+    });
+
+    second.unmount();
+
+    expect(registeredSuiteIds()).toEqual(["suite.third"]);
+
+    third.unmount();
+
+    expect(registeredSuiteIds()).toEqual(["suite.first"]);
+
+    first.unmount();
+
+    expect(registeredSuiteIds()).toEqual([]);
+  });
 });
 
 describe("the live-contributor register belongs to the composition, not to the module", () => {
@@ -155,5 +204,56 @@ describe("the live-contributor register belongs to the composition, not to the m
     releaseOlder();
 
     expect(registry.all().map((entry) => entry.id)).toEqual(["suite.newer"]);
+  });
+
+  it("restores the older contributor's CHORDS too, not only its commands", () => {
+    // The pair arrives together and has to leave and come back together: a chord
+    // naming a command nobody registered is a keypress that silently does nothing,
+    // and the register that restores one has to restore the other in the same act.
+    const registry = new CommandRegistry();
+    const contributions = new ConsoleFamilyContributions(registry);
+
+    contributions.contribute({
+      owner: OWNER,
+      commands: [command("suite.older")],
+      keyBindings: [{ chord: "$mod+Shift+1", commandId: "suite.older" }],
+    });
+    const releaseNewer = contributions.contribute({
+      owner: OWNER,
+      commands: [command("suite.newer")],
+      keyBindings: [{ chord: "$mod+Shift+2", commandId: "suite.newer" }],
+    });
+
+    releaseNewer();
+
+    expect(contributions.keyBindings()).toEqual([
+      { chord: "$mod+Shift+1", commandId: "suite.older" },
+    ]);
+    expect(registry.all().map((entry) => entry.id)).toEqual(["suite.older"]);
+  });
+
+  it("negative control: releasing one contribution twice does not withdraw the restored one", () => {
+    // Without this the restore above would pass over a release that removed by
+    // POSITION rather than by identity: React runs a cleanup once, but a release is
+    // an ordinary function a caller holds, and a second call that popped the register
+    // again would take the rows of a contributor that never asked to go.
+    const registry = new CommandRegistry();
+    const contributions = new ConsoleFamilyContributions(registry);
+
+    contributions.contribute({
+      owner: OWNER,
+      commands: [command("suite.older")],
+      keyBindings: [],
+    });
+    const releaseNewer = contributions.contribute({
+      owner: OWNER,
+      commands: [command("suite.newer")],
+      keyBindings: [],
+    });
+
+    releaseNewer();
+    releaseNewer();
+
+    expect(registry.all().map((entry) => entry.id)).toEqual(["suite.older"]);
   });
 });

@@ -27,7 +27,9 @@
 // taking the floor — one wire call, `run.pause`, and one further act this pane
 // performs locally — so the row offers the composite there and the plain resume
 // verb once the run is at rest. A bare pause button beside `StepIn` would be two
-// buttons for one call, which is the redundancy rule 7 exists to prevent.
+// buttons for one call, which is the redundancy rule 7 exists to prevent. It takes
+// the same `surface` every other button here does, so the pause it sends and the
+// pause the palette's row sends are one dispatch through one latch.
 
 import { useCallback, useMemo, useState } from "react";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../../bridge/index.js";
@@ -44,7 +46,7 @@ import { StepIn } from "./StepIn.js";
 export interface RunControlsProps {
   readonly run: RunProjection;
   readonly surface: RunControlSurface;
-  /** Handed to `StepIn`, which owns its own `run.pause` dispatch and its receipt. */
+  /** Handed to `StepIn`, which holds the token of its own dispatch under it. */
   readonly bridge: ConsoleBridge;
   /**
    * The capability read, retained per driver. This row resolves it for ITS OWN run:
@@ -127,6 +129,7 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
         {offered.primary.includes("pause") ? (
           <StepIn
             bridge={props.bridge}
+            surface={surface}
             targetRunId={run.runId}
             expectedRunVersion={comparand}
             // The run's own identifier: `RunStateChangeEvent` carries no agent

@@ -31,9 +31,10 @@
 // participant has not written yet, and the row's own buttons open the same form.
 // A palette entry that sent an empty steer would be inventing a message.
 
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 
 import { useConsoleCommandSeat, type ConsoleCommand } from "../../../palette/index.js";
+import { useLatestRef } from "../../../primitives/index.js";
 import { type DriverCapabilityReadout } from "../../../bridge/index.js";
 import { type RunProjection } from "../run-state-projection.js";
 import { RUN_CONTROL_PRESENTATION } from "./control-presentation.js";
@@ -86,18 +87,24 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
     input.driverCapabilities,
     goneRunIds(input.surface),
   );
-  // Assigned during render, before the memo below reads it, so the rebuild that a
-  // changed signature triggers sees this render's rows rather than the previous
-  // pass's. The same shape `frame/frame-commands.ts` uses for its when-context.
-  const rowsRef = useRef<readonly RunControlCommandRow[]>(rows);
-  rowsRef.current = rows;
-  const inputRef = useRef<RunControlCommandInput>(input);
-  inputRef.current = input;
+  // Refreshed by every COMMITTED render and never in the render body: a registered
+  // row reads the run list, the comparand source, and the pane's dispatcher through
+  // this at invoke time, and a render-body write would let a concurrent pass React
+  // throws away — one composed against another session's runs, another bridge's
+  // surface — leave the row on screen dispatching through what that discarded pass
+  // saw, latch and all.
+  const inputRef = useLatestRef(input);
 
   const signature = rows.map((row) => `${row.runId} ${row.control} ${row.title}`).join("|");
+  // Built from THIS render's rows rather than through a ref. The memo runs during the
+  // render whose signature changed, which is before that render's layout effect has
+  // refreshed anything, so a ref read here would build this render's commands out of
+  // the previous pass's rows. The signature is the dependency because it is what the
+  // rows SAY: keying on the array's identity would re-register six commands per run
+  // on every streamed run event.
   const commands = useMemo(
-    () => rowsRef.current.map((row) => buildRunControlCommand(row, inputRef)),
-    [signature],
+    () => rows.map((row) => buildRunControlCommand(row, inputRef)),
+    [signature, inputRef],
   );
 
   useConsoleCommandSeat(RUN_CONTROL_COMMAND_OWNER, commands);

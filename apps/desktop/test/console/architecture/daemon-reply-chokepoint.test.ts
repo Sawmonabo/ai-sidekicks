@@ -133,14 +133,13 @@ function isBridgeFamilyModule(module: string): boolean {
  *      dispatch.
  *   3. `shell/composer/commands/provider-command-read.ts` — the provider-command read.
  *   4. `console/runs/pane/controls/run-control-dispatch.ts` — the runs pane's
- *      run-control dispatch.
- *   5. `console/runs/pane/controls/StepIn.tsx` — its step-in control.
- *   6. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
- *   7. `console/collaboration/channels/channel-model.ts` — the channel model.
- *   8. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
- *   9. `console/collaboration/members/presence-model.ts` — the presence model.
- *  10. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
- *  11. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
+ *      run-control dispatch, for all six controls and BOTH of their entry points.
+ *   5. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
+ *   6. `console/collaboration/channels/channel-model.ts` — the channel model.
+ *   7. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
+ *   8. `console/collaboration/members/presence-model.ts` — the presence model.
+ *   9. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
+ *  10. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
@@ -152,6 +151,14 @@ function isBridgeFamilyModule(module: string): boolean {
  * once per window, so the label rows are folded off that reading and the chip joins
  * them.
  *
+ * The runs half was two until `console/runs/pane/controls/StepIn.tsx` stopped sending
+ * its own `run.pause`. It held a second single-flight latch beside the surface's, so
+ * the button and the palette's row for the same control each admitted while the other
+ * was settling — two idempotency keys against one run version, which the wire reads as
+ * two distinct mutations rather than replays of one. It now dispatches through
+ * `RunControlSurface`, which is entry #4, so this number FALLING is what that fix looks
+ * like from here.
+ *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
  * started reaching past it would be caught by the reach scan above rather than here.
@@ -160,7 +167,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 11;
+const CALL_DOOR_CONSUMER_COUNT = 10;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
