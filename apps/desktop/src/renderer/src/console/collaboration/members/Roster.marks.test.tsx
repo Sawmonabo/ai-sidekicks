@@ -58,17 +58,14 @@ describe("roster — the role, the holder, and the devices behind a row", () => 
       [participant("participant-one", "online"), participant("participant-two", "idle")],
       {
         openDetailParticipantId: "participant-two",
-        detailReading: {
-          kind: "answered",
-          outcome: {
-            status: "served",
-            value: {
-              participantId: "participant-two",
-              aggregateState: "idle",
-              devices: [
-                { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
-              ],
-            },
+        detailState: {
+          kind: "loaded",
+          value: {
+            participantId: "participant-two",
+            aggregateState: "idle",
+            devices: [
+              { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
+            ],
           },
         },
         onToggleDetail: (participantId) => {

@@ -41,7 +41,7 @@ import type { MembershipRole } from "@ai-sidekicks/contracts";
 import { DerivedFigure, Nothing, RefusalCard } from "../../primitives/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
-import type { PresenceDetailReading } from "./presence-detail.js";
+import type { PresenceDetailState } from "./presence-detail.js";
 import type { PresenceReading, RosterRow } from "./presence-model.js";
 import { RosterListRow } from "./RosterListRow.js";
 import { TerminalControlLine } from "./TerminalControlLine.js";
@@ -62,8 +62,8 @@ export interface RosterProps {
   readonly holding: TerminalControlHolding;
   /** The participant whose device fan-out is open, or `undefined` for none. */
   readonly openDetailParticipantId: string | undefined;
-  /** The open row's detail answer. */
-  readonly detailReading: PresenceDetailReading | undefined;
+  /** The one detail read this section holds. The open row is the only row that draws it. */
+  readonly detailState: PresenceDetailState;
   readonly onToggleDetail: (participantId: string) => void;
   /**
    * True when the collaboration channel has dropped.
@@ -154,11 +154,7 @@ export const Roster: React.MemoExoticComponent<(props: RosterProps) => React.JSX
                   props.holding.participantId === row.participant.participantId
                 }
                 isDetailOpen={props.openDetailParticipantId === row.participant.participantId}
-                detailReading={
-                  props.openDetailParticipantId === row.participant.participantId
-                    ? props.detailReading
-                    : undefined
-                }
+                detailState={props.detailState}
                 onToggleDetail={() => {
                   props.onToggleDetail(row.participant.participantId);
                 }}
