@@ -9,16 +9,25 @@
 // routes to the slot at all, so a static one would put the whole binding surface on
 // every window's initial graph to spare one window a frame.
 //
-// THE FAMILY'S FOUR CONSOLE SHEETS ENTER HERE AND AT THE SURFACE ROOT BESIDE THIS ONE.
+// THE FAMILY'S SEVEN CONSOLE SHEETS ENTER HERE AND AT THE SURFACE ROOT BESIDE THIS ONE.
 // Either mount can be the first to render `AgentConsoleBody`, and neither may render it
 // undressed, so both roots name the sheets and the bundler emits one shared asset for
-// the pair. The fifth sheet — the sidekicks page's — stays at the family door, whose
+// the pair. The eighth sheet — the sidekicks page's — stays at the family door, whose
 // header states why. The move is admitted by the collision census
 // (`test/console/architecture/stylesheet-selector-owners.test.ts`): no other family
-// declares a class any of these four declares, so deferring them changes no surface but
+// declares a class any of these seven declares, so deferring them changes no surface but
 // this family's own.
+//
+// THE ORDER IS THE FAMILY'S AND IS LOAD-BEARING. `agents.css` holds the control shape
+// and the grouped rules the five surface sheets refine, so it is named first and they
+// follow in the order their blocks used to occupy in it. That census is keyed on the
+// FAMILY rather than the file precisely so a family may split a class across its own
+// sheets and decide the cascade itself, which is what this list does.
 import "./agent-console.css";
 import "../agents.css";
+import "../axis-field.css";
+import "../attach/attach.css";
+import "../peer-invocation.css";
 import "../provider-switch/provider-switch.css";
 import "../run-console/run-console.css";
 

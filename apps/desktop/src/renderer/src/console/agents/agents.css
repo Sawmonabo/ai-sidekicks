@@ -1,21 +1,33 @@
-/* The agents family's own styles: the card, the shared composition, and the grant.
+/* The agents family's own styles: the agent card, and the control shape every surface
+ * in the family wears.
  *
- * WHAT IS HERE AND WHAT IS NOT. Three sub-modules carry their own sheets beside
- * their components — `provider-switch/provider-switch.css`,
- * `run-console/run-console.css`, and `definitions/sidekick-definitions-page.css` — so a
- * reader looking for one surface's rules is not scrolling past three others'. What
- * stays here is the family's: the agent card, the axis field both forms draw, the
- * attach dialog, the peer-invocation grant, and the grouped rules that give the
- * card, both forms, and the linkage one button and one label.
+ * WHAT IS HERE AND WHAT IS NOT. Six sub-surfaces carry their own sheets beside their
+ * components — `axis-field.css`, `attach/attach.css`, `peer-invocation.css`,
+ * `provider-switch/provider-switch.css`, `run-console/run-console.css`, and
+ * `definitions/sidekick-definitions-page.css` — so a reader looking for one surface's
+ * rules is not scrolling past five others'. What stays here is what is genuinely the
+ * FAMILY's: the agent card, and the grouped rules that give the card, both forms, the
+ * grant, and the linkage one button, one label, one focus ring, and one disabled state.
  *
  * Those grouped rules are deliberately NOT split along with their surfaces. A
  * selector list naming a card action, an attach arm, a switch apply, and a linkage
  * open is one decision about how a control in this family looks; copying it into
- * four sheets is four decisions that agree until one of them stops.
+ * four sheets is four decisions that agree until one of them stops. That is also why
+ * the list-reset block below stays here rather than travelling to the attach sheet it
+ * used to sit inside: it names an attach list, a peer list, and two linkage lists, and
+ * it is one decision about how a bare list in this family reads.
+ *
+ * ORDER IS LOAD-BEARING AND THE FAMILY OWNS IT. This sheet is imported FIRST of the
+ * family's own, ahead of the five beside their components, so a surface sheet may
+ * refine a selector the grouped rules above declare — `.meridian-attach__definition-
+ * button` is the live case, wearing the shared control shape here and its own layout
+ * there. Both import roots (`agent-console/agent-console-pane-body.ts` and
+ * `agent-console-surface-body.ts`) name the sheets in that order, and the split below
+ * was a MOVE: every rule kept its relative position, so no pinned image shifts.
  *
  * Hand-authored composition over generated values, like every other console sheet —
- * no literal colour below, and the only literal lengths are the hairlines that
- * separate rows and the two indents that make a nested list read as nested.
+ * no literal colour below, and the only literal length is the hairline that separates
+ * two cards.
  *
  * Three decisions the design forces:
  *
@@ -222,104 +234,7 @@
   color: var(--meridian-text-faint);
 }
 
-/* ------------------------------------------------------------- axis fields */
-
-.meridian-axis-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  min-width: 0;
-}
-
-.meridian-axis-field__overridden {
-  color: var(--meridian-amber-text);
-}
-
-.meridian-axis-field__trigger,
-.meridian-axis-field__text,
-.meridian-axis-field__input {
-  font: inherit;
-  color: var(--meridian-text);
-  background: var(--meridian-surface-sunken);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  min-width: 0;
-  text-align: start;
-}
-
-.meridian-axis-field__popup {
-  background: var(--meridian-surface-raised);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-md);
-  padding: var(--meridian-space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-axis-field__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.meridian-axis-field__option {
-  padding: var(--meridian-space-1) var(--meridian-space-2);
-  border-radius: var(--meridian-radius-sm);
-  cursor: pointer;
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-sm);
-}
-
-.meridian-axis-field__option[data-highlighted] {
-  background: var(--meridian-surface-sunken);
-}
-
-.meridian-axis-field__empty,
-.meridian-axis-field__advisory {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* ----------------------------------------------------------------- attaching */
-
-.meridian-attach__backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--meridian-surface-sunken);
-  opacity: 0.7;
-}
-
-.meridian-attach__popup {
-  position: fixed;
-  inset-block-start: 12vh;
-  inset-inline: 50%;
-  translate: -50% 0;
-  width: min(38rem, 92vw);
-  max-height: 76vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  background: var(--meridian-surface);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-md);
-  padding: var(--meridian-space-5);
-}
-
-.meridian-attach__title {
-  margin: 0;
-  font-size: var(--meridian-text-md);
-  font-weight: 500;
-}
-
-.meridian-attach__arms {
-  display: flex;
-  gap: var(--meridian-space-2);
-}
+/* ------------------------------------------- lists this family draws bare */
 
 .meridian-attach__definitions,
 .meridian-attach__resolved,
@@ -332,70 +247,4 @@
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
-}
-
-.meridian-attach__definition-button {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  width: 100%;
-}
-
-.meridian-attach__definition-summary,
-.meridian-attach__incomplete {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-attach__confirmation {
-  border-block-start: 1px solid var(--meridian-edge);
-  padding-block-start: var(--meridian-space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-attach__confirmation-head,
-.meridian-attach__resolved-prose {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-}
-
-.meridian-attach__resolved-axis {
-  display: flex;
-  gap: var(--meridian-space-2);
-  align-items: baseline;
-}
-
-/* ----------------------------------------------------------- peer invocation */
-
-.meridian-peer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-peer__title {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  font-weight: 500;
-}
-
-.meridian-peer__switch {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  cursor: pointer;
-}
-
-.meridian-peer__meaning {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-peer__tool {
-  display: flex;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
 }

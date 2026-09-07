@@ -33,7 +33,7 @@ import {
 } from "./stylesheet-selector-owners.js";
 import { declaredClassNames, selectorPreludes } from "./stylesheet-selectors.js";
 
-/** Reading and scanning 66 sheets, measured at ~60ms on the authoring machine. */
+/** Reading and scanning 69 sheets, measured at ~60ms on the authoring machine. */
 vi.setConfig({ testTimeout: 20_000 });
 
 /**
