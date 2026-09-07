@@ -114,6 +114,43 @@ describe("ArtifactsPanel — the acts", () => {
       within(local.container).getByRole("button", { name: "Share with the session" }),
     ).toBeDefined();
   });
+
+  it("holds the visibility toggle on a row whose change is on the wire", () => {
+    // The label names the class this press would move to, read off a row the daemon
+    // has not answered for yet — so offering it while that row's change is
+    // outstanding offers a press asking for the class the row is already moving to.
+    const { container } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow({ visibility: "shared" })] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        visibilityUpdateInFlightArtifactIds={new Set([artifactRow().id])}
+        onChangeVisibility={vi.fn()}
+      />,
+    );
+    const control = within(container).getByRole("button", { name: "Make local-only" });
+    expect(control.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("negative control: the two in-flight registers hold two different controls", () => {
+    // Without this, one set behind both controls would pass the case above while
+    // holding a row's re-read because its visibility change was outstanding — a
+    // control held for a reason that is not about it.
+    const { container } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow({ visibility: "shared" })] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        visibilityUpdateInFlightArtifactIds={new Set([artifactRow().id])}
+        onReadManifest={vi.fn()}
+        onChangeVisibility={vi.fn()}
+      />,
+    );
+    expect(
+      within(container).getByRole("button", { name: "Read manifest" }).hasAttribute("disabled"),
+    ).toBe(false);
+    expect(
+      within(container).getByRole("button", { name: "Make local-only" }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
 });
 
 describe("ArtifactsPanel — delete states the consequence before the act", () => {
@@ -264,6 +301,44 @@ describe("ArtifactsPanel — refusals render, controls stay", () => {
     expect(container.textContent).toContain(refusal.detail);
     // Rule 9: a refusal never hides the control that produced it.
     expect(within(container).getByRole("button", { name: "Delete" })).toBeDefined();
+  });
+
+  it("renders the manifests a blocked delete named, beside the move they belong to", () => {
+    // THE REMEDY AND ITS DATA ARE ONE ANSWER. The refusal's own sentence says to
+    // delete the derivatives first, and the ids that names ride the refusal as a
+    // registered extension — so a remedy rendered without them would point at a list
+    // that is not on screen.
+    const refusal = {
+      ...refuse("artifact", "artifact.delete_blocked", "Referenced by 2 manifests."),
+      referencingArtifacts: { ids: ["derivative-01", "derivative-02"], total: 2 },
+    };
+    const { container } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow()] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        onDelete={vi.fn()}
+        rowRefusals={new Map([["artifact-01", refusal]])}
+      />,
+    );
+    expect(container.textContent).toContain("Delete the derivatives named below first");
+    expect(container.textContent).toContain("derivative-01");
+    expect(container.textContent).toContain("derivative-02");
+  });
+
+  it("negative control: the same code with no ids renders the move and no empty list", () => {
+    // A daemon that named no manifests is not a daemon that named zero of them, and a
+    // heading over an empty list would read as the second.
+    const refusal = refuse("artifact", "artifact.delete_blocked", "Referenced by 2 manifests.");
+    const { container } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow()] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        onDelete={vi.fn()}
+        rowRefusals={new Map([["artifact-01", refusal]])}
+      />,
+    );
+    expect(container.textContent).toContain("Delete the derivatives named below first");
+    expect(container.querySelector(".meridian-artifact-recovery__referencing")).toBeNull();
   });
 
   it("negative control: a row nothing refused carries no refusal", () => {

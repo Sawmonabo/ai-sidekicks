@@ -19,6 +19,7 @@ import { everyTrapThrows, readableOnce } from "../../../../shared/wire-errors.te
 import {
   CONSOLE_REFUSAL_EXTENSION_MEMBERS,
   readRefusalExtensions,
+  wireReferencingArtifactsExtension,
   wireRetryExtension,
 } from "./refusal-extensions.js";
 import { ConsoleRefusalError, refuse, type ConsoleRefusal } from "./refusal.js";
@@ -50,6 +51,7 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
       "holderParticipantId",
       "operationId",
       "owningDocument",
+      "referencingArtifacts",
       "retry",
       "slateRow",
     ]);
@@ -104,6 +106,49 @@ describe("refusal extensions — the registry is the set, and it is closed", () 
     expect(readRefusalExtensions({ failedBindingIds: [] })).toStrictEqual({});
     expect(readRefusalExtensions({ failedBindingIds: [7, null] })).toStrictEqual({});
     expect(readRefusalExtensions({ failedBindingIds: "binding-a" })).toStrictEqual({});
+  });
+
+  it("reads the referencing manifests a blocked delete names, list and total together", () => {
+    // `error-contracts.md §Artifact` puts both on the `artifact.delete_blocked`
+    // details shape, and the panel names the derivatives beside the remedy.
+    expect(
+      readRefusalExtensions({
+        referencingArtifacts: { ids: ["artifact-02", "artifact-03"], total: 51 },
+      }),
+    ).toStrictEqual({ referencingArtifacts: { ids: ["artifact-02", "artifact-03"], total: 51 } });
+  });
+
+  it("keeps the ids and drops a total smaller than them", () => {
+    // "2 of 1" is a claim about the refusing side this console would be inventing.
+    // The ids survive, because they are what a person acts on.
+    expect(
+      readRefusalExtensions({ referencingArtifacts: { ids: ["artifact-02"], total: 0 } }),
+    ).toStrictEqual({ referencingArtifacts: { ids: ["artifact-02"] } });
+    expect(
+      readRefusalExtensions({ referencingArtifacts: { ids: ["artifact-02"], total: 1.5 } }),
+    ).toStrictEqual({ referencingArtifacts: { ids: ["artifact-02"] } });
+  });
+
+  it("answers absent for a count with no list behind it", () => {
+    // A total alone is a figure the console would render over nothing, so the whole
+    // reading is dropped rather than carried half-populated.
+    expect(readRefusalExtensions({ referencingArtifacts: { total: 4 } })).toStrictEqual({});
+    expect(readRefusalExtensions({ referencingArtifacts: { ids: [], total: 4 } })).toStrictEqual(
+      {},
+    );
+  });
+
+  it("reads the wire's own spelling off an envelope's structured details", () => {
+    expect(
+      wireReferencingArtifactsExtension({
+        referencingArtifactIds: ["artifact-02"],
+        referencingArtifactTotal: 3,
+      }),
+    ).toStrictEqual({ referencingArtifacts: { ids: ["artifact-02"], total: 3 } });
+    // Absent rather than present-and-undefined, on the retry hint's rule.
+    expect(
+      Object.hasOwn(wireReferencingArtifactsExtension({ retryAfter: 30 }), "referencingArtifacts"),
+    ).toBe(false);
   });
 
   it("leaves an absent retry bound absent rather than present and undefined", () => {

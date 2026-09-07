@@ -147,6 +147,7 @@ export {
   type ExtendedConsoleRefusal,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
+  type WireReferencingArtifacts,
   readRefusalExtensions,
 } from "./refusal-extensions.js";
 // What a surface DOES about a named refusal, beside rendering the daemon's words:

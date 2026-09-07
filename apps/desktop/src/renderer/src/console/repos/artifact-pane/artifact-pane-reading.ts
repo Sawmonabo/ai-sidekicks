@@ -19,6 +19,7 @@ import {
 import type {
   ArtifactDeleteReceipt,
   ArtifactManifestRow,
+  ArtifactVisibility,
   ArtifactsPanelState,
 } from "../artifacts/artifact-model.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
@@ -75,6 +76,20 @@ export interface ArtifactPaneReading {
    */
   readonly manifestReadInFlightArtifactIds: ReadonlySet<string>;
   /**
+   * Which rows have a visibility change on the wire, so their control holds.
+   *
+   * A SECOND REGISTER RATHER THAN A WIDENING OF THE ONE ABOVE, because the two acts
+   * are two controls on one row: a row re-reading its manifest may still be
+   * re-classified, and a row being re-classified may still be re-read. One set for
+   * both would hold each control for a reason that is not about it, which is the
+   * defect the per-row keying above exists to avoid one level down.
+   *
+   * The control it holds is the one whose LABEL names the class this press moves to,
+   * read off a row the daemon has not answered for yet — so a second press before the
+   * first settles would send the class the row is already being moved to.
+   */
+  readonly visibilityUpdateInFlightArtifactIds: ReadonlySet<string>;
+  /**
    * What the last act on a row answered, keyed by artifact id. Refusals only.
    *
    * Held on the reading rather than in the pane's own `useState`, because a served act
@@ -110,7 +125,7 @@ export type ArtifactRowActOutcome =
 const NO_ROW_REFUSALS: ReadonlyMap<string, ConsoleRefusal> = new Map();
 
 /** One shared empty set, so a reading nobody has acted on keeps a stable identity. */
-const NO_MANIFEST_READS_IN_FLIGHT: ReadonlySet<string> = new Set();
+const NO_ACTS_IN_FLIGHT: ReadonlySet<string> = new Set();
 
 /** Before anyone asked. `not-checked` is a different claim from an empty list. */
 export const NOTHING_READ_YET: ArtifactPaneReading = {
@@ -119,7 +134,8 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
   allowlist: SHIPPED_DEFAULT_ALLOWLIST,
   lastDeleteReceipt: undefined,
   payload: { status: "not-checked" },
-  manifestReadInFlightArtifactIds: NO_MANIFEST_READS_IN_FLIGHT,
+  manifestReadInFlightArtifactIds: NO_ACTS_IN_FLIGHT,
+  visibilityUpdateInFlightArtifactIds: NO_ACTS_IN_FLIGHT,
   refusalByArtifactId: NO_ROW_REFUSALS,
 };
 
@@ -175,25 +191,57 @@ export type ArtifactDeleteOutcome =
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
   | { readonly status: "superseded" };
 
-/** The in-flight set with one row's manifest re-read recorded as outstanding. */
-export function withManifestReadInFlight(
-  manifestReadInFlightArtifactIds: ReadonlySet<string>,
+/**
+ * How a visibility change settled, with the class the DAEMON settled on.
+ *
+ * `ArtifactRowActOutcome`'s four arms with the settled class added where one exists,
+ * on `ArtifactDeleteOutcome`'s shape: the member is present on exactly the arms that
+ * mean the daemon answered, so an announcer narrowing on `status` has it without
+ * asking whether it might be absent.
+ *
+ * THE CLASS IS THE REPLY'S AND NEVER THE REQUEST'S, which is the whole reason the arm
+ * carries one. A policy-blocked share retains the original and offers a derivative
+ * instead, so an announcement composed from what was ASKED FOR would tell a
+ * participant their artifact is shared when the daemon has just said it is not.
+ */
+export type ArtifactVisibilityUpdateOutcome =
+  | { readonly status: "settled"; readonly visibility: ArtifactVisibility }
+  | { readonly status: "reconciling"; readonly visibility: ArtifactVisibility }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
+  | { readonly status: "superseded" };
+
+/**
+ * An in-flight set with one row's act recorded as outstanding.
+ *
+ * ONE PAIR FOR BOTH REGISTERS RATHER THAN A PAIR EACH. The reading carries two
+ * in-flight sets — the manifest re-read's and the visibility change's — and they are
+ * two registers with one shape. Two copies of an add-and-copy would be two chances for
+ * one of them to mutate the set it was handed, which the caller published a render ago.
+ */
+export function withArtifactActInFlight(
+  inFlightArtifactIds: ReadonlySet<string>,
   artifactId: string,
 ): ReadonlySet<string> {
-  const outstanding = new Set(manifestReadInFlightArtifactIds);
+  const outstanding = new Set(inFlightArtifactIds);
   outstanding.add(artifactId);
   return outstanding;
 }
 
-/** The in-flight set without the row whose manifest re-read has settled. */
-export function withoutManifestReadInFlight(
-  manifestReadInFlightArtifactIds: ReadonlySet<string>,
+/**
+ * An in-flight set without the row whose act has settled.
+ *
+ * The already-absent case answers the SAME set rather than a fresh empty one, so a
+ * release that had nothing to release does not mint an identity a subscriber reads as
+ * a change.
+ */
+export function withoutArtifactActInFlight(
+  inFlightArtifactIds: ReadonlySet<string>,
   artifactId: string,
 ): ReadonlySet<string> {
-  if (!manifestReadInFlightArtifactIds.has(artifactId)) {
-    return manifestReadInFlightArtifactIds;
+  if (!inFlightArtifactIds.has(artifactId)) {
+    return inFlightArtifactIds;
   }
-  const remaining = new Set(manifestReadInFlightArtifactIds);
+  const remaining = new Set(inFlightArtifactIds);
   remaining.delete(artifactId);
   return remaining;
 }
@@ -235,7 +283,7 @@ export function withoutRowRefusal(
  *     standing would read as a fact about the list now on screen.
  *   • `payload` SURVIVES: it is about an artifact this read either returned or did not,
  *     and either way nothing here re-fetched bytes to answer for it.
- *   • `manifestReadInFlightArtifactIds` and `refusalByArtifactId` are THE ACTS' REGISTERS
+ *   • The two in-flight sets and `refusalByArtifactId` are THE ACTS' REGISTERS
  *     rather than this read's. A row whose re-read is still on the wire is still holding
  *     its control, and a publish that rebuilt the set would offer it back mid-flight; a
  *     refusal records an ACT that did not happen, and a read that did not re-attempt the
@@ -252,6 +300,7 @@ export function settledReadReading(
     lastDeleteReceipt: undefined,
     payload: previous.payload,
     manifestReadInFlightArtifactIds: previous.manifestReadInFlightArtifactIds,
+    visibilityUpdateInFlightArtifactIds: previous.visibilityUpdateInFlightArtifactIds,
     refusalByArtifactId: previous.refusalByArtifactId,
   };
 }

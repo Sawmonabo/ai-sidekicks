@@ -66,6 +66,7 @@ export const ARTIFACT_PANE_REFUSAL_CODES = [
   "read-threw",
   "payload-fetch-in-flight",
   "manifest-read-in-flight",
+  "visibility-update-in-flight",
 ] as const;
 
 /** One code this pane mints. Derived, so the vocabulary is declared exactly once. */
@@ -141,5 +142,23 @@ export function manifestReadInFlightRefusal(artifactId: string): ConsoleRefusal 
     ARTIFACT_READER_REFUSAL_ORIGIN,
     "manifest-read-in-flight" satisfies ArtifactPaneRefusalCode,
     `The manifest of ${artifactId} has been asked for again and the daemon has not answered yet. That row is read once until it settles.`,
+  );
+}
+
+/**
+ * The refusal a second visibility change becomes while this row's first is on the wire.
+ *
+ * NAMED RATHER THAN SILENT, on `manifestReadInFlightRefusal`'s reason, and it names the
+ * ROW for a reason of its own: the control that mints this is a TOGGLE whose label is
+ * read off the row, so a second press before the first settles asks for the class the
+ * row is already being moved to. The control is held while that row's change is
+ * pending, so this is structurally unreachable from the panel — and recorded anyway,
+ * because a press that produced nothing at all is the silent no-op rule 8 forbids.
+ */
+export function visibilityUpdateInFlightRefusal(artifactId: string): ConsoleRefusal {
+  return refuse(
+    ARTIFACT_READER_REFUSAL_ORIGIN,
+    "visibility-update-in-flight" satisfies ArtifactPaneRefusalCode,
+    `The visibility of ${artifactId} has been changed and the daemon has not answered yet. That row is re-classified once until it settles.`,
   );
 }

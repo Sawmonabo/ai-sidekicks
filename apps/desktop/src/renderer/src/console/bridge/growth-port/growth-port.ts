@@ -360,6 +360,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     artifactList: async () => growthUnavailable("artifactList"),
     artifactRead: async () => growthUnavailable("artifactRead"),
     artifactDelete: async () => growthUnavailable("artifactDelete"),
+    artifactVisibilityUpdate: async () => growthUnavailable("artifactVisibilityUpdate"),
     artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
     artifactIngestAbort: async () => growthUnavailable("artifactIngestAbort"),
     sessionSearch: async () => growthUnavailable("sessionSearch"),

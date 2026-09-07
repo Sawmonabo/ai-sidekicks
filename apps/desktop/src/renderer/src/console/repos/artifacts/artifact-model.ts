@@ -56,7 +56,8 @@ import type {
   GrowthArtifactType,
   GrowthArtifactVisibility,
 } from "../../bridge/index.js";
-import { lossyStringify, type ConsoleRefusal } from "../../core/index.js";
+import { lossyStringify } from "../../core/index.js";
+import type { ArtifactSurfaceRefusal } from "./artifact-refusal-copy.js";
 
 /**
  * One artifact state, named in this family's vocabulary and declared in the wire's.
@@ -150,7 +151,9 @@ export type ArtifactTypeFilter = typeof ARTIFACT_TYPE_FILTER_ALL | ArtifactType;
 export type ArtifactsPanelState =
   | { readonly kind: "not-checked" }
   | { readonly kind: "loading" }
-  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal }
+  // The SURFACE shape: a list that was refused by a rejected call carries the
+  // daemon's own refusal one layer in, and the card's recovery reads it there.
+  | { readonly kind: "refused"; readonly refusal: ArtifactSurfaceRefusal }
   | { readonly kind: "listed"; readonly rows: readonly ArtifactManifestRow[] };
 
 /** The rows one filter admits, in the order they arrived. */
