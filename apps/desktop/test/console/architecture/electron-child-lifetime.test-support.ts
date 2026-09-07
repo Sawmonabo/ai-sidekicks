@@ -175,7 +175,7 @@ export class RefusingSettleRegistrar {
  * and a grandchild whose pid nothing announced would be unobservable. The pid
  * that IS observable is the root's, and the root is what the claim is about.
  */
-const NON_TERMINATING_PROGRAM = "setInterval(() => {}, 60000);";
+export const NON_TERMINATING_PROGRAM = "setInterval(() => {}, 60000);";
 
 /**
  * A spawn through the real chokepoint whose settle-time registration refuses.

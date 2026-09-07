@@ -29,6 +29,36 @@ const SCRIPT = path.join(HERE, "test-changed.ts");
 const MISUSE_EXIT_CODE = 2;
 
 /**
+ * Keeps the INTERPRETER off the stream this suite reads as the script's voice.
+ *
+ * `--experimental-strip-types` makes Node print `ExperimentalWarning: Type
+ * Stripping …` plus its `--trace-warnings` follow-up to stderr before the script
+ * body runs. Measured on Node 22.12 (the same two lines the CI job prints for
+ * every other type-stripped script it invokes): without this flag the run below
+ * that asserts an EMPTY stderr fails on the interpreter's chatter, so the
+ * assertion is passing today by interpreter-version accident rather than by
+ * design.
+ *
+ * Suppressed AT THE SOURCE rather than filtered out of the captured text, and the
+ * choice is the point. A filter over `(node:NNN)` lines — which
+ * `tools/__tests__/entry-guard.test.mjs` uses, because it spawns a dozen scripts
+ * it does not own under flags it does not choose — also swallows a warning the
+ * script itself caused, which is exactly the content-blindness a stderr assertion
+ * exists to avoid. This suite owns its single spawn, so it can name the one
+ * warning class it did not ask for and leave the assertion byte-exact: anything
+ * on stderr after this is the script speaking.
+ *
+ * That helper is NOT reused here, and not for want of trying — it cannot be
+ * imported from this file and both routes refuse mechanically. As `.mjs` it is
+ * TS7016 (no declaration) and `allowJs` is TS5053 against the repo-wide
+ * `isolatedDeclarations`; as `.mts` it is TS6059, outside `tsconfig.scripts.json`'s
+ * `rootDir`. Widening either to share four lines of string handling would put the
+ * repository's tooling tree inside the config that type-validates this package's
+ * scripts.
+ */
+const SUPPRESS_INTERPRETER_WARNING = "--disable-warning=ExperimentalWarning";
+
+/**
  * Run the script the way a package script runs it.
  *
  * `cwd` is the package root because that is where pnpm puts a package script,
@@ -37,10 +67,14 @@ const MISUSE_EXIT_CODE = 2;
  * whether the resolution succeeds.
  */
 function runScript(...args: readonly string[]): SpawnSyncReturns<string> {
-  return spawnSync(process.execPath, ["--experimental-strip-types", SCRIPT, ...args], {
-    cwd: PACKAGE_ROOT,
-    encoding: "utf8",
-  });
+  return spawnSync(
+    process.execPath,
+    [SUPPRESS_INTERPRETER_WARNING, "--experimental-strip-types", SCRIPT, ...args],
+    {
+      cwd: PACKAGE_ROOT,
+      encoding: "utf8",
+    },
+  );
 }
 
 describe("test:changed refuses an invocation with no base ref", () => {

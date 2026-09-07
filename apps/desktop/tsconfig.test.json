@@ -95,6 +95,11 @@
     // renderer module and evaluate nothing in a page, so they stay in this config.
     "test/console/electron-harness.ts",
     "test/console/launch-readiness.ts",
-    "test/console/fixture-handles.ts"
+    "test/console/fixture-handles.ts",
+    // The palette door the two Electron tiers open through, excluded for both of
+    // the reasons its neighbours above are: its `page.evaluate` callback is
+    // browser code this Node-lib config has no `document` for, and it imports the
+    // launcher, so a program that pulls it in pulls those callbacks in too.
+    "test/console/palette-interaction.ts"
   ]
 }

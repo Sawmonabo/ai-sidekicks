@@ -29,6 +29,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
+import { cleanUpAfterChildAtSettleTime } from "./electron-child-cleanup.js";
 import {
   spawnManagedElectronChild,
   TERMINATION_GRACE_MS,
@@ -697,6 +698,28 @@ export function spawnElectron(): Promise<SpawnResult> {
   // this reason.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-smoke-test-"));
 
+  /**
+   * The ONE remover of this spawn's profile, reached from all three paths.
+   *
+   * The refusal before the spawn, the settlement after `close`, and the
+   * settle-time disposer registered below all call this same function rather
+   * than each spelling `rmSync` for itself. `force: true` makes it idempotent,
+   * which is what lets two of those paths run on one spawn — a `close` arriving
+   * after a spawn `error`, or a settlement that already removed the directory
+   * before the disposer asks again.
+   *
+   * Best-effort, because it always was: a leftover temporary profile is a
+   * housekeeping fact, and raising it here would replace whichever result the
+   * caller actually came for.
+   */
+  const removeProfileDirectory = (): void => {
+    try {
+      rmSync(userDataDir, { recursive: true, force: true });
+    } catch {
+      // See above: the caller's own result is the one that explains the run.
+    }
+  };
+
   // Readiness gate. A display that is named but not serving is the one boot
   // precondition this harness can check cheaply and BEFORE spawning, so it is
   // checked here rather than discovered as a spawn-budget silence. On CI the job-level
@@ -721,13 +744,7 @@ export function spawnElectron(): Promise<SpawnResult> {
         diagnosticCollectionMs: null,
         childDisplay,
       };
-      try {
-        rmSync(userDataDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort, exactly as in `settle()`: a leftover temp profile is
-        // harmless, and surfacing a cleanup error here would mask the refusal
-        // this path exists to report.
-      }
+      removeProfileDirectory();
       return Promise.resolve(refusal);
     }
   }
@@ -814,6 +831,13 @@ export function spawnElectron(): Promise<SpawnResult> {
           : {}),
       },
     });
+    // The profile outlives the child unless something removes it on the paths
+    // the child's own events do not reach. `spawnManagedElectronChild` already
+    // bound the KILL to this test; this binds the REMOVAL to it, after the kill
+    // has landed — see `electron-child-cleanup.ts` for why the wait between them
+    // is load-bearing rather than defensive.
+    cleanUpAfterChildAtSettleTime(managed, removeProfileDirectory);
+
     // The stream wiring below reads the handle; every kill goes through
     // `managed`, which owns the process group the detached spawn created.
     const child = managed.child;
@@ -883,9 +907,10 @@ export function spawnElectron(): Promise<SpawnResult> {
     }, spawnBudgetMs);
 
     // Single settle path so both timers and the temporary profile are
-    // disposed exactly once whichever terminal event fires first.
-    // `rmSync` with `force: true` is idempotent, so a `close` arriving
-    // after a spawn `error` cannot fail here.
+    // disposed exactly once whichever terminal event fires first. This is the
+    // FAST path and not the only one: it runs when a terminal event arrived, and
+    // the settle-time registration above is what covers the outcomes where none
+    // does — vitest's own timeout being the one that left profiles behind.
     const settle = (result: SpawnResult): void => {
       clearTimeout(spawnDeadline);
       // Releases the escalation timer and, on a `close` that already happened,
@@ -893,12 +918,7 @@ export function spawnElectron(): Promise<SpawnResult> {
       // reports as the success it is. On the spawn-`error` path it is the only
       // thing that runs at all.
       managed.dispose();
-      try {
-        rmSync(userDataDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup. A leftover temp profile is harmless;
-        // surfacing the cleanup error would mask the actual test result.
-      }
+      removeProfileDirectory();
       resolve(result);
     };
 

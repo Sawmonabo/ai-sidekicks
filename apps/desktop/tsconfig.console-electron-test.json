@@ -52,6 +52,12 @@
     "test/console/endurance/**/*",
     "test/console/electron-harness.ts",
     "test/console/launch-readiness.ts",
+    // The palette door both launching tiers open through. It sits beside them
+    // rather than inside either, and it earns its line the way its two
+    // neighbours above do: it hands `page.evaluate` a callback that reads
+    // `document.activeElement`, which is browser code, and it imports the
+    // launcher, which drags `launch-readiness.ts`'s callbacks in with it.
+    "test/console/palette-interaction.ts",
     "test/console/fixture-handles.ts",
     // These tiers import renderer constants — a database name, a partition, a key
     // — so that a rename breaks the test at compile time instead of leaving it

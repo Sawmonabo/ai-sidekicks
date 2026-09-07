@@ -28,6 +28,11 @@
 // of a spec — the first is the ordinary CommonJS-interop idiom, and the second is
 // what a module writes when it needs the loader inside a function.
 //
+// A RE-EXPORT is the same reach wearing the other keyword: it hands the binding to
+// a module that never wrote `import`, whose importer then spawns with a lifetime
+// nobody registered. So an export declaration carrying a module specifier is read
+// by the same three arms as an import clause.
+//
 // One residual is accepted and named rather than papered over: a loader parked
 // in a variable first (`const load = require; load("node:child_process")`) is
 // not read, for the same reason property accesses are not resolved through an
@@ -131,6 +136,33 @@ function importClauseReachesSpawn(clause: ts.ImportClause): boolean {
 }
 
 /**
+ * Whether an export declaration hands `spawn` on out of `node:child_process`.
+ *
+ * `export * from` and `export * as ns from` are the module whole; a named list is a
+ * name-by-name question against the SOURCE name (`export { spawn as launch }`
+ * re-exports `spawn`); a type-only export starts no process; and a declaration with
+ * no module specifier re-exports a local binding, reaching no module at all.
+ */
+function exportDeclarationReachesSpawn(node: ts.ExportDeclaration): boolean {
+  if (node.isTypeOnly) {
+    return false;
+  }
+  const specifier = node.moduleSpecifier;
+  if (specifier === undefined || !ts.isStringLiteralLike(specifier)) {
+    return false;
+  }
+  if (!isChildProcessSpecifier(specifier.text)) return false;
+  const clause = node.exportClause;
+  if (clause === undefined || ts.isNamespaceExport(clause)) {
+    return true;
+  }
+  return clause.elements.some(
+    (element) =>
+      !element.isTypeOnly && (element.propertyName ?? element.name).text === ASYNCHRONOUS_SPAWN,
+  );
+}
+
+/**
  * Whether a call expression loads `node:child_process` whole.
  *
  * `import("node:child_process")`, `require("node:child_process")`, and the
@@ -184,6 +216,10 @@ function reachesAsynchronousSpawn(source: string, fileName: string): boolean {
       node.importClause !== undefined &&
       importClauseReachesSpawn(node.importClause)
     ) {
+      reaches = true;
+      return;
+    }
+    if (ts.isExportDeclaration(node) && exportDeclarationReachesSpawn(node)) {
       reaches = true;
       return;
     }
@@ -249,7 +285,8 @@ function fileReachesSpawn(relativePath: string): boolean {
  * The first is the ordinary CommonJS-interop idiom; the second is what a module
  * writes when it needs the loader inside a function; the third is the same
  * module under the prefix-less specifier; the fourth defers the load; the fifth
- * is the escape a rule that knew only `require` would leave open.
+ * is the escape a rule that knew only `require` would leave open; the last five are
+ * the export keyword doing an import's work.
  */
 const REACHES_INVISIBLE_TO_THE_REGEX: readonly string[] = [
   'import * as childProcess from "node:child_process";\nchildProcess.spawn("electron");',
@@ -258,6 +295,11 @@ const REACHES_INVISIBLE_TO_THE_REGEX: readonly string[] = [
   'const childProcess = await import("node:child_process");',
   'const childProcess = createRequire(import.meta.url)("node:child_process");',
   'import childProcess from "node:child_process";',
+  // The re-export arm: none writes `import`, so the superseded reader saw nothing.
+  'export { spawn } from "node:child_process";',
+  'export { spawn as launch } from "node:child_process";',
+  'export * from "node:child_process";',
+  'export * as childProcess from "child_process";',
 ];
 
 /** Shapes that name the module or the word and start no process. */
@@ -267,6 +309,10 @@ const REACHES_THAT_ARE_NOT_ONE: readonly string[] = [
   'import type { spawn } from "node:child_process";',
   'import { type spawn } from "node:child_process";',
   'import "node:child_process";',
+  'export type { spawn } from "node:child_process";',
+  'export { type spawn } from "node:child_process";',
+  'export { spawnSync } from "node:child_process";',
+  'export { spawn } from "./electron-child.js";',
   "const spawn = launcher.spawn.bind(launcher);",
   'const advice = "import { spawn } from \\"node:child_process\\"";',
 ];

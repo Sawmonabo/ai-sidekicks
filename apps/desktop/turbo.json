@@ -242,6 +242,7 @@
         "src/main/**",
         "test/console/e2e/**",
         "test/console/electron-harness.ts",
+        "test/console/palette-interaction.ts",
         "vitest.config.*",
         "out/**"
       ],
@@ -259,6 +260,7 @@
         "src/main/**",
         "test/console/endurance/**",
         "test/console/electron-harness.ts",
+        "test/console/palette-interaction.ts",
         "vitest.config.*",
         "out/**"
       ],
