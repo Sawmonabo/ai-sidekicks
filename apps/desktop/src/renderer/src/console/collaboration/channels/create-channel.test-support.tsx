@@ -34,21 +34,43 @@ export interface CreateChannelOverrides {
   readonly bridge?: ConsoleBridge;
   readonly viewerParticipantId?: string | undefined;
   readonly participantIds?: readonly string[];
+  /** Which session the form is for. A case re-addressing the mount passes a second one. */
+  readonly sessionId?: string;
 }
 
-/** Render the create form alone, which is how the form's own suites drive it. */
-export function renderCreateChannel(
-  overrides: CreateChannelOverrides = {},
-): ReturnType<typeof render> {
-  return render(
+/**
+ * The element itself, so a case can re-address the SAME mount.
+ *
+ * Declared once and rendered twice rather than spelled again beside a `rerender`, on
+ * `channels.test-support.tsx`'s own rule for the directory: a second copy of this prop
+ * table is a case whose re-render quietly changes a prop it did not mean to — and the
+ * prop that must not move here is the bridge, which the form reads as half of the
+ * subject its draft is held under.
+ */
+export function createChannelElement(
+  overrides: CreateChannelOverrides,
+  bridge: ConsoleBridge,
+): React.JSX.Element {
+  return (
     <CreateChannel
-      bridge={overrides.bridge ?? channelsBridge()}
-      sessionId={SESSION_ID}
+      bridge={bridge}
+      sessionId={overrides.sessionId ?? SESSION_ID}
       viewerParticipantId={viewerOf(overrides)}
       participantIds={overrides.participantIds ?? [PARTICIPANT_YOU, PARTICIPANT_OTHER]}
       labels={LABELS}
-    />,
+    />
   );
+}
+
+/**
+ * Render the create form alone, which is how the form's own suites drive it — and hand
+ * the bridge back, because a case that re-addresses has to pass the same one.
+ */
+export function renderCreateChannel(
+  overrides: CreateChannelOverrides = {},
+): ReturnType<typeof render> & { readonly bridge: ConsoleBridge } {
+  const bridge = overrides.bridge ?? channelsBridge();
+  return { ...render(createChannelElement(overrides, bridge)), bridge };
 }
 
 /**

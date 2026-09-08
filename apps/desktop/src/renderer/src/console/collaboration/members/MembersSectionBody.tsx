@@ -1,5 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
-import { usePushDrivenRead, type SidebarSectionContext } from "../../seats/index.js";
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  usePushDrivenRead,
+  useSessionScopedState,
+  type SidebarSectionContext,
+} from "../../seats/index.js";
 import { useComposingLookup } from "../activity-model.js";
 import { useDeadlineWake, useSessionDegraded, useSessionPartition } from "../../store/index.js";
 import { Memberships } from "./Memberships.js";
@@ -77,13 +81,61 @@ export function MembersSectionBody(props: {
   // The device fan-out is asked for ONE row at a time, and only once somebody opens
   // one. Reading it for every row would put an owner-only question about every person
   // in the session behind a panel nobody had looked at.
-  const [openDetailParticipantId, setOpenDetailParticipantId] = useState<string | undefined>(
-    undefined,
+  //
+  // WHICH ROW IS OPEN IS HELD FOR THE SESSION AND NOT FOR THE MOUNT. A participant id
+  // names somebody IN a session, so a `useState` cell that survived a re-address handed
+  // the fan-out read a pair of "the session arrived at" and "the participant left
+  // behind" — and that read is owner-only, so the console asked an authorization
+  // question about somebody nobody had opened a row for, in a session they may not even
+  // be in. The holder re-seeds during the render that first sees a new session, so no
+  // committed frame ever carries the previous one's open row.
+  const { value: requestedDetailParticipantId, publish: publishRequestedDetail } =
+    useSessionScopedState<string | undefined>(bridge, sessionStore.sessionId, () => undefined);
+  // Who this section is drawing right now. `rosterRowsFrom` is total and one-to-one
+  // over the read's participants, so the ids the reading carries ARE the rendered
+  // roster — and a read that has not answered, or that refused, draws no row at all.
+  // `Set<string>` and not the branded element type the read carries: what is asked of
+  // it is a held id, which is a plain string, and a set narrowed to the brand would
+  // refuse the one question it exists to answer.
+  const rosterParticipantIds = useMemo(
+    () =>
+      new Set<string>(
+        (reading?.participants ?? []).map((participant) => participant.participantId),
+      ),
+    [reading],
   );
+  // AND THE REQUEST IS VALIDATED BEFORE ANYTHING SUBSCRIBES. A refresh that drops a
+  // participant takes their row with it, and a row that is gone has no control left to
+  // close the panel under it — so an unvalidated request left an owner-only read
+  // subscribed to the presence stream, re-asking about somebody the session no longer
+  // carries, for the rest of the visit. Derived rather than repaired in an effect: the
+  // read is opened from the value this render passes down, and a correction one commit
+  // later is one commit of asking.
+  const openDetailParticipantId =
+    requestedDetailParticipantId !== undefined &&
+    rosterParticipantIds.has(requestedDetailParticipantId)
+      ? requestedDetailParticipantId
+      : undefined;
   const detailState = usePresenceDetail(bridge, sessionStore.sessionId, openDetailParticipantId);
-  const toggleDetail = useCallback((participantId: string) => {
-    setOpenDetailParticipantId((open) => (open === participantId ? undefined : participantId));
-  }, []);
+  const toggleDetail = useCallback(
+    (participantId: string) => {
+      // The function form, because two presses settling in one tick both read the
+      // value their own render closed over and the second would erase the first.
+      publishRequestedDetail((open) => (open === participantId ? undefined : participantId));
+    },
+    [publishRequestedDetail],
+  );
+  // And then the request itself is dropped, which the derivation above cannot do for
+  // it: a held id the roster stopped carrying would silently re-open the panel if that
+  // person came back, reporting a choice nobody made in the meantime as still theirs.
+  useEffect(() => {
+    if (
+      requestedDetailParticipantId !== undefined &&
+      !rosterParticipantIds.has(requestedDetailParticipantId)
+    ) {
+      publishRequestedDetail(undefined);
+    }
+  }, [publishRequestedDetail, requestedDetailParticipantId, rosterParticipantIds]);
 
   // Every instant at which some row's rendered age changes, derived from the read's
   // own `lastSeen` stamps. Memoized on the reading rather than on the array, so a

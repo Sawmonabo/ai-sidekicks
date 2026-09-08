@@ -9,12 +9,31 @@ import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ChannelCreateRequest } from "./channel-writes.js";
-import { CreateChannelDraft, canonicalMemberPair } from "./create-channel-draft.js";
+import { CreateChannelDraft, type CreateChannelContext } from "./create-channel-draft.js";
+import { canonicalMemberPair } from "./create-channel-pair.js";
 import { PARTICIPANT_OTHER, PARTICIPANT_YOU, SESSION_ID } from "./channels.test-support.js";
+
+/** Everybody this session holds, unless a case says otherwise. */
+const BOTH_PARTICIPANTS: readonly string[] = [PARTICIPANT_YOU, PARTICIPANT_OTHER];
+
+/**
+ * The three reads a readiness answer depends on, named rather than positional.
+ *
+ * The live set defaults to the whole session because most cases are about a general
+ * channel, where it decides nothing — and the cases it DOES decide say so by passing
+ * their own, which is what makes the departure visible in the case rather than in a
+ * helper.
+ */
+function contextWith(
+  viewerParticipantId: string | undefined,
+  liveParticipantIds: readonly string[] = BOTH_PARTICIPANTS,
+): CreateChannelContext {
+  return { sessionId: SESSION_ID, viewerParticipantId, liveParticipantIds };
+}
 
 /** The request this draft composes, or a failure naming what it is still missing. */
 function requestOf(draft: CreateChannelDraft, viewerParticipantId?: string): ChannelCreateRequest {
-  const readiness = draft.readiness(SESSION_ID, viewerParticipantId ?? PARTICIPANT_YOU);
+  const readiness = draft.readiness(contextWith(viewerParticipantId ?? PARTICIPANT_YOU));
   if (readiness.status !== "ready") {
     throw new Error(`the draft is still missing: ${readiness.missing.join(", ")}`);
   }
@@ -22,8 +41,12 @@ function requestOf(draft: CreateChannelDraft, viewerParticipantId?: string): Cha
 }
 
 /** What the draft says it is still waiting on. */
-function missingFrom(draft: CreateChannelDraft, viewerParticipantId?: string): readonly string[] {
-  const readiness = draft.readiness(SESSION_ID, viewerParticipantId);
+function missingFrom(
+  draft: CreateChannelDraft,
+  viewerParticipantId?: string,
+  liveParticipantIds?: readonly string[],
+): readonly string[] {
+  const readiness = draft.readiness(contextWith(viewerParticipantId, liveParticipantIds));
   return readiness.status === "incomplete" ? readiness.missing : [];
 }
 
@@ -61,7 +84,7 @@ describe("create channel draft — where the form opens", () => {
 
 describe("create channel draft — the reserved bootstrap name", () => {
   it("refuses the session's own channel name against the name field", () => {
-    const readiness = namedDraft(MAIN_CHANNEL_NAME).readiness(SESSION_ID, PARTICIPANT_YOU);
+    const readiness = namedDraft(MAIN_CHANNEL_NAME).readiness(contextWith(PARTICIPANT_YOU));
     expect(readiness.status).toBe("incomplete");
     expect(readiness.status === "incomplete" ? readiness.nameRefusal : "").toContain(
       MAIN_CHANNEL_NAME,
@@ -70,7 +93,7 @@ describe("create channel draft — the reserved bootstrap name", () => {
 
   it("refuses it around the whitespace a person types with it", () => {
     expect(
-      namedDraft(`  ${MAIN_CHANNEL_NAME}  `).readiness(SESSION_ID, PARTICIPANT_YOU).status,
+      namedDraft(`  ${MAIN_CHANNEL_NAME}  `).readiness(contextWith(PARTICIPANT_YOU)).status,
     ).toBe("incomplete");
   });
 
@@ -232,6 +255,40 @@ describe("create channel draft — what a direct channel sends", () => {
     expect(missingFrom(directDraft(PARTICIPANT_OTHER), undefined)).toContain(
       "which participant this window is",
     );
+  });
+
+  it("composes nothing once the person picked is no longer in this session", () => {
+    // The defect: a membership ends without asking the form. The candidate list stopped
+    // offering them, the draft went on holding their id, and readiness only checked that
+    // it held SOME id — so Create stayed open on a pair the daemon would have to refuse,
+    // and the person met that refusal after the press.
+    const departed = missingFrom(directDraft(PARTICIPANT_OTHER), PARTICIPANT_YOU, [
+      PARTICIPANT_YOU,
+    ]);
+
+    expect(departed.join(" ")).toContain("no longer");
+    // A DIFFERENT sentence from the unpicked one, because they are different facts: one
+    // is about nobody and this one is about somebody the person did choose.
+    expect(departed).not.toContain("the other person in the pair");
+  });
+
+  it("composes nothing where the pick is the viewer's own participant", () => {
+    // The wire requires two DISTINCT humans, and the picker subtracts the viewer — so a
+    // draft holding the reader's own id is one the candidate rule already refuses, with
+    // no second predicate to keep in step with it.
+    expect(missingFrom(directDraft(PARTICIPANT_YOU), PARTICIPANT_YOU).join(" ")).toContain(
+      "no longer",
+    );
+  });
+
+  it("negative control: the same pick composes while that person is still here", () => {
+    // Without this the two cases above would pass over a draft that refused every pick
+    // whatever the session held, which would be a rule about direct channels rather
+    // than one about membership.
+    expect(requestOf(directDraft(PARTICIPANT_OTHER)).memberPair).toStrictEqual([
+      PARTICIPANT_OTHER,
+      PARTICIPANT_YOU,
+    ]);
   });
 });
 

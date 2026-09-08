@@ -33,7 +33,7 @@
 // reach an archived channel, and a branch for it would be a rendering for a refusal
 // this surface cannot provoke.
 
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 
@@ -43,7 +43,7 @@ import {
   type GrowthChannelCreateReceipt,
 } from "../../bridge/index.js";
 import { InlineRefusal, WireFigure, formatDateTime } from "../../primitives/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
+import { useSessionScopedState } from "../../seats/index.js";
 import { type ChannelActivityLabels } from "../activity-model.js";
 import { WireMutationCoordinator, useWireMutation } from "../mutation-coordinator.js";
 import {
@@ -51,7 +51,7 @@ import {
   CHANNEL_NOT_FOUND_CODE,
   channelCreateMutation,
 } from "./channel-writes.js";
-import { CreateChannelDraft } from "./create-channel-draft.js";
+import { CreateChannelDraft, type CreateChannelContext } from "./create-channel-draft.js";
 import { CreateChannelPolicyFields } from "./CreateChannelPolicyFields.js";
 import { DirectChannelPicker } from "./DirectChannelPicker.js";
 
@@ -105,12 +105,21 @@ export interface CreateChannelProps {
 
 export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
   const { bridge, sessionId } = props;
-  // The draft is a store, so it is built by a hook's initializer and never in a render
-  // body: a body would build a fresh one on every pass React discarded and every edit
-  // in it would be lost. It notifies through its own emitter rather than React state,
-  // so this render is re-run by a counter nothing reads — the value is not the point,
-  // the notification is.
-  const [draft] = useState(() => new CreateChannelDraft());
+  // The draft is a store, so it is built by an initializer and never in a render body:
+  // a body would build a fresh one on every pass React discarded and every edit in it
+  // would be lost. It notifies through its own emitter rather than React state, so this
+  // render is re-run by a counter nothing reads — the value is not the point, the
+  // notification is.
+  //
+  // AND IT IS HELD FOR THE SESSION, not for the mount, which is the console's one rule
+  // for state addressed by a subject. A `useState` initializer keeps its draft across a
+  // re-address, and everything in that draft is about the session it was typed in: the
+  // picked participant above all, whose id means a different person — or nobody — in
+  // the session arrived at. Re-seeded DURING the render that first sees a new session,
+  // so the first committed frame there is already a clean form rather than one carrying
+  // a pair nobody in this session chose. The address field beside it in `browser/pane/`
+  // is the same rule with the same reasoning.
+  const { value: draft } = useSessionScopedState(bridge, sessionId, () => new CreateChannelDraft());
   const [, noteDraftEdited] = useReducer((edits: number) => edits + 1, 0);
   useEffect(() => draft.onChange(noteDraftEdited), [draft, noteDraftEdited]);
 
@@ -126,7 +135,7 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
     [bridge, sessionId],
   );
   const create = useWireMutation(createCoordinator);
-  const { value: receipt, publish: publishReceipt } = useSubjectScopedState<
+  const { value: receipt, publish: publishReceipt } = useSessionScopedState<
     GrowthChannelCreateReceipt | undefined
   >(bridge, sessionId, () => undefined);
 
@@ -136,7 +145,19 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
     };
   }, [createCoordinator]);
 
-  const readiness = draft.readiness(sessionId, props.viewerParticipantId);
+  // Composed once per render and handed to both asks, so what the control is enabled
+  // by and what the press composes are measured against ONE reading of who is still in
+  // this session. Two readings taken a line apart would be the same value today and the
+  // seam a later refresh lands in.
+  const context: CreateChannelContext = useMemo(
+    () => ({
+      sessionId,
+      viewerParticipantId: props.viewerParticipantId,
+      liveParticipantIds: props.participantIds,
+    }),
+    [sessionId, props.viewerParticipantId, props.participantIds],
+  );
+  const readiness = draft.readiness(context);
   const isCreating = create.pendingKey !== undefined;
   const refusal = create.refusalByKey[CREATE_SUBJECT_KEY];
   const nameRefusal = refusal?.code === CHANNEL_NAME_RESERVED_CODE ? refusal : undefined;
@@ -145,7 +166,10 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
     nameRefusal === undefined && pickerRefusal === undefined ? refusal : undefined;
 
   const submit = useCallback(() => {
-    const ready = draft.readiness(sessionId, props.viewerParticipantId);
+    // Asked AGAIN at the press rather than closing over the render's answer: the live
+    // participant set moves without this form being touched, so the reading that
+    // enabled the control is not evidence about the moment it was pressed.
+    const ready = draft.readiness(context);
     if (ready.status !== "ready") {
       return;
     }
@@ -164,7 +188,7 @@ export function CreateChannel(props: CreateChannelProps): React.JSX.Element {
       publishReceipt(settlement);
       draft.resetIfUnchangedSince(submitted);
     });
-  }, [createCoordinator, draft, publishReceipt, sessionId, props.viewerParticipantId]);
+  }, [context, createCoordinator, draft, publishReceipt]);
 
   return (
     <section className="meridian-create-channel" aria-label="Creating a channel">

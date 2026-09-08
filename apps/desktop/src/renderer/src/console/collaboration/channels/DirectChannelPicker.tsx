@@ -2,6 +2,7 @@ import { InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { type ChannelActivityLabels } from "../activity-model.js";
 import { type CreateChannelDraft } from "./create-channel-draft.js";
+import { directChannelCandidates } from "./create-channel-pair.js";
 
 /**
  * The other human a `direct` channel is with, and nothing else.
@@ -23,6 +24,11 @@ import { type CreateChannelDraft } from "./create-channel-draft.js";
  * the daemon's answer and it arrives as a refusal, not as a name quietly missing from
  * a list. `channel.not_found` against this control means the person chosen is no
  * longer a member, which is why the refusal renders here rather than under the submit.
+ *
+ * AND THE SET IS THE DRAFT'S ADMISSION RULE, not a filter written here. Both read
+ * `create-channel-pair.ts`, so a candidate who leaves the session stops being drawable
+ * and stops being submittable in one move: a list narrowed here alone would have gone
+ * on offering Create for a pick this control had already withdrawn.
  */
 export function DirectChannelPicker(props: {
   readonly draft: CreateChannelDraft;
@@ -32,9 +38,7 @@ export function DirectChannelPicker(props: {
   readonly refusal: ConsoleRefusal | undefined;
 }): React.JSX.Element {
   const { draft, labels } = props;
-  const candidates = props.participantIds.filter(
-    (participantId) => participantId !== props.viewerParticipantId,
-  );
+  const candidates = directChannelCandidates(props.participantIds, props.viewerParticipantId);
   return (
     <div className="meridian-create-channel__direct">
       <p className="meridian-create-channel__field-note">

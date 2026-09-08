@@ -9,9 +9,10 @@ import {
   GROWTH_CHANNEL_KINDS,
   GROWTH_CHANNEL_TURN_POLICIES,
 } from "../../bridge/index.js";
-import { PARTICIPANT_OTHER } from "./channels.test-support.js";
+import { PARTICIPANT_OTHER, PARTICIPANT_YOU } from "./channels.test-support.js";
 import {
   chooseKind,
+  createChannelElement,
   fieldNotes,
   policyFields,
   renderCreateChannel,
@@ -195,6 +196,82 @@ describe("creating a channel — the direct arm", () => {
     const { container } = renderCreateChannel({ viewerParticipantId: undefined });
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
     expect(container.querySelector(".meridian-create-channel__policy")).not.toBeNull();
+  });
+});
+
+describe("creating a channel — a pick the session stops holding", () => {
+  /**
+   * A second session, so a case can re-address the SAME mount at one.
+   *
+   * UUID-shaped like the first for that harness's own reason, and distinct from it
+   * because what is under test is exactly what happens when the two differ.
+   */
+  const SECOND_SESSION_ID = "019b7d10-0000-7000-8000-000000000002";
+
+  /** The submit control, which is what a stale pick used to leave open. */
+  function submitControl(container: HTMLElement): HTMLButtonElement | null {
+    return container.querySelector<HTMLButtonElement>(".meridian-create-channel__submit");
+  }
+
+  /** Whether each candidate reads as chosen, in the order the picker draws them. */
+  function pickedMarks(container: HTMLElement): readonly (string | null)[] {
+    return [...container.querySelectorAll(".meridian-create-channel__candidate")].map((candidate) =>
+      candidate.getAttribute("aria-pressed"),
+    );
+  }
+
+  /** Name it, choose the direct arm, and pick the one other person offered. */
+  function pickTheOtherPerson(container: HTMLElement): void {
+    typeName(container, "with Dana");
+    chooseKind(container, "direct");
+    act(() => {
+      container.querySelector<HTMLButtonElement>(".meridian-create-channel__candidate")?.click();
+    });
+  }
+
+  it("closes the control once the person picked is no longer in this session", () => {
+    // The defect: the picker stopped offering them, the draft went on holding their id,
+    // and readiness only asked whether it held SOME id — so Create stayed open on a pair
+    // containing a non-member, and the refusal arrived after the press.
+    const mounted = renderCreateChannel();
+    pickTheOtherPerson(mounted.container);
+    expect(submitControl(mounted.container)?.disabled).toBe(false);
+
+    mounted.rerender(createChannelElement({ participantIds: [PARTICIPANT_YOU] }, mounted.bridge));
+
+    expect(submitControl(mounted.container)?.disabled).toBe(true);
+    expect(
+      mounted.container.querySelector(".meridian-create-channel__incomplete")?.textContent ?? "",
+    ).toContain("no longer");
+  });
+
+  it("drops the whole draft when the form is re-addressed to another session", () => {
+    // Everything in this form is about the session it was typed in, and the pick above
+    // all: a participant id names somebody IN a session, so carrying one across a
+    // re-address would offer Create for a pair nobody in the session arrived at chose.
+    const mounted = renderCreateChannel();
+    pickTheOtherPerson(mounted.container);
+    expect(pickedMarks(mounted.container)).toStrictEqual(["true"]);
+
+    mounted.rerender(createChannelElement({ sessionId: SECOND_SESSION_ID }, mounted.bridge));
+
+    // Back on the arm the form opens with, with nothing typed into it.
+    expect(mounted.container.querySelector(".meridian-create-channel__direct")).toBeNull();
+    expect(policyFields(mounted.container).audience.value).toBe("participants");
+    chooseKind(mounted.container, "direct");
+    expect(pickedMarks(mounted.container)).toStrictEqual(["false"]);
+  });
+
+  it("negative control: a re-render that changes neither keeps the pick", () => {
+    // Without this the two cases above would pass over a form that threw its draft away
+    // on every pass, which would drop a person's work for no reason at all.
+    const mounted = renderCreateChannel();
+    pickTheOtherPerson(mounted.container);
+
+    mounted.rerender(createChannelElement({}, mounted.bridge));
+
+    expect(pickedMarks(mounted.container)).toStrictEqual(["true"]);
+    expect(submitControl(mounted.container)?.disabled).toBe(false);
   });
 });
 
