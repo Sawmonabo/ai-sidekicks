@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
 import { LedgerRowLeaseProvider, type LedgerRowLease } from "../../frame/index.js";
+// Deeply, at the modules that DECLARE them: the family door imports the cards' sheet,
+// and a suite has no reason to pull one in to reach a fold and a provider.
+import { LedgerAskTerminalProvider } from "../bodies/AskTerminalProvider.js";
+import { deriveDriverAskTerminals } from "../bodies/input-ask.js";
 import {
   registerTimelineRowRenderer,
   timelineRowRenderer,
@@ -59,8 +63,20 @@ function MountedInAList(props: {
   readonly row: TimelineRowSlotProps["row"];
   readonly listDensity: TimelineRowSlotProps["density"];
   readonly onLeaseWritten?: (rowKey: string, lease: LedgerRowLease) => void;
+  /**
+   * The window this row sits in, where a case is about one.
+   *
+   * Folded through the real derivation rather than a hand-built map: the rule under
+   * test is what the fold decides, and a map written here would be this file asserting
+   * against its own copy of it. Absent, the row is mounted with no window around it —
+   * which is what every routing case above is, and what a bare row genuinely is.
+   */
+  readonly windowRows?: readonly TimelineRowSlotProps["row"][];
 }): React.JSX.Element {
   const [leased, setLeased] = useState<LedgerRowLease | undefined>(undefined);
+  const row = (
+    <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
+  );
   return (
     <InBridge>
       <LedgerRowLeaseProvider
@@ -71,7 +87,13 @@ function MountedInAList(props: {
           },
         }}
       >
-        <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
+        {props.windowRows === undefined ? (
+          row
+        ) : (
+          <LedgerAskTerminalProvider terminalsByAskId={deriveDriverAskTerminals(props.windowRows)}>
+            {row}
+          </LedgerAskTerminalProvider>
+        )}
       </LedgerRowLeaseProvider>
     </InBridge>
   );
@@ -130,6 +152,49 @@ describe("routing a row to its card", () => {
     // The classifier answers `receipt` for this type, which is the right answer for
     // the family table and the wrong surface for a run blocked on a question.
     expect(container.querySelector(".meridian-receipt-row")).toBeNull();
+  });
+
+  it("retires the request's controls once the window holds its terminal", () => {
+    const request = sampleRunRow({
+      id: "row-01",
+      type: "driver_ask.requested",
+      payload: { askId: "ask-09", kind: "input", prompt: "Which branch?" },
+    });
+    const response = sampleRunRow({
+      id: "row-02",
+      type: "driver_ask.responded",
+      payload: { askId: "ask-09", kind: "input", response: "develop" },
+    });
+    const { container } = render(
+      <MountedInAList row={request} listDensity="collapsed" windowRows={[request, response]} />,
+    );
+    // The question stays on screen — it is the request row's and the terminal row
+    // carries none — and the disposition is what replaces the controls.
+    expect(container.textContent).toContain("Which branch?");
+    expect(container.textContent).toContain("This ask was answered");
+    expect(container.querySelector(".meridian-input-ask__arms")).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("negative control: the same request keeps its controls while nothing has settled it", () => {
+    // Without this, a card that retired its controls on the presence of a window
+    // rather than on its own ask's terminal would pass the case above and leave every
+    // open ask unanswerable.
+    const request = sampleRunRow({
+      id: "row-01",
+      type: "driver_ask.requested",
+      payload: { askId: "ask-09", kind: "input", prompt: "Which branch?" },
+    });
+    const otherAnswer = sampleRunRow({
+      id: "row-02",
+      type: "driver_ask.responded",
+      payload: { askId: "ask-10", kind: "input", response: "develop" },
+    });
+    const { container } = render(
+      <MountedInAList row={request} listDensity="collapsed" windowRows={[request, otherAnswer]} />,
+    );
+    expect(container.querySelector(".meridian-input-ask__arms")).not.toBeNull();
+    expect(container.textContent).not.toContain("This ask was answered");
   });
 
   it("negative control: a permission ask is not drawn here", () => {

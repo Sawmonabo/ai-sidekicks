@@ -1,4 +1,11 @@
-// The ledger's card door — and it publishes one name, because one is what leaves.
+// The ledger's card door — three names and the reading type two of them speak, because
+// that is what leaves.
+//
+// All of it is the PANE's: the shell projection it builds a window from, the ask
+// terminals that window folds, and the provider that hands them to the ask rows the
+// seat mounts. The fold and its channel leave together because they are one seam — the
+// row model derives, the feed publishes, the card reads — and a door that carried only
+// one of them would leave the other reached by a path this file cannot see.
 //
 // EVERY LINE IS A NAMED RE-EXPORT AND THE LIST IS SHORT ON PURPOSE. The cards, the
 // machine body, the streaming pipeline and the fixture shell are reached by their
@@ -45,3 +52,5 @@
 import "./cards.css";
 
 export { projectFixtureShellRows } from "./shell/fixture-shell-projection.js";
+export { LedgerAskTerminalProvider } from "./bodies/AskTerminalProvider.js";
+export { deriveDriverAskTerminals, type DriverAskReading } from "./bodies/input-ask.js";
