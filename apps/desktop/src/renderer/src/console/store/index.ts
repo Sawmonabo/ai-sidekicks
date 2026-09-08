@@ -175,9 +175,13 @@ export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 // `snapshot`/`subscribe`/`start`/`requestRead`/`dispose` skeleton, and a publisher that
 // was character-for-character identical in three unrelated families. It leaves this
 // family because every one of those readings sits above it and they reach each other
-// through nothing, so this door is the only place the base can be shared from; the
-// options type travels with it because a subclass has to name what it hands `super`.
-export { ScheduledReading, type ScheduledReadingOptions } from "./scheduled-reading.js";
+// through nothing, so this door is the only place the base can be shared from.
+//
+// THE OPTIONS TYPE IS DELIBERATELY ABSENT. A subclass hands `super` an object literal
+// and never names the shape, so a door line for it would publish a name nothing
+// outside this family types — which the barrel census fails, and which is the rule
+// that a door is never widened for symmetry.
+export { ScheduledReading } from "./scheduled-reading.js";
 
 // The read line every scheduled read is on, and the four names a caller outside this
 // family needs from it: the hook that binds one to a `(subject, key)` pairing, the
