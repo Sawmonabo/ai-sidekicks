@@ -7,151 +7,35 @@
 // composed against, and every refusal — the daemon's, the port's, and this surface's
 // own — renders as itself.
 //
-// THE MOUNT IS DERIVED FROM THE FIXTURE, never written out. `humanFormMountFor` is what
-// the pane resolves a wait through, so a mount built by hand here would keep passing the
-// day the run read stopped carrying a prompt or a schema — which is exactly the state
-// this lane closed. The negative control at the end asserts the fixture really does
-// carry both, so the first case cannot be vacuous.
+// THE MOUNT IS DERIVED FROM THE FIXTURE, never written out, and the negative control at
+// the end asserts the fixture really does carry a prompt and a schema, so the first case
+// cannot be vacuous. The scaffolding that resolves it — and the ports, the render
+// helpers, and the press — is `HumanFormShell.test-support.tsx`, shared with the suite
+// beside this one; the reasons each of them is shaped the way it is live there.
 //
-// THE PORT IS THE CONSOLE'S OWN. The refusing port and the fixture bridge, spread with
-// the one operation a case is about — the idiom `run-control-dispatch.test-support.tsx`
-// states: a stand-in would agree with whatever the hook did with it, and the
-// unregistered-wire arm in particular is only meaningful because it is the refusal the
-// real port composes.
+// WHAT IS DELIBERATELY NOT HERE. What the slot does as its mount MOVES — between two
+// branches' waits, and between the two precisions one numeric control admits — is
+// `HumanFormShell.transitions.test.tsx`. Those cases drive the same slot through a
+// re-render rather than a fresh mount, which is a different discipline from anything in
+// this file, and one suite holding both was a file doing two jobs.
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SidekicksBridgeProvider } from "../../../../bridge/BridgeProvider.js";
-import {
-  createFixtureBridge,
-  type ConsoleBridge,
-  type GrowthPort,
-} from "../../../../bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
-import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
-import type { WireErrorEnvelope } from "../../../../core/index.js";
 import { settle } from "../../../workflows-probe.test-support.js";
-import { humanFormMountFor } from "../human-form-selection.js";
-import { HumanFormSlot } from "./HumanFormSlot.js";
-import type { HumanFormMount } from "./human-form-mount.js";
+import {
+  STALE_REVISION_REFUSAL,
+  bridgeHoldingSubmits,
+  bridgeWatchingSubmits,
+  fixtureWaitMount,
+  pressSubmit,
+  renderSlot,
+} from "./HumanFormShell.test-support.js";
 
 afterEach(() => {
   cleanup();
 });
-
-/** The refusal a daemon raises on a submission composed against a stale revision. */
-const STALE_REVISION_REFUSAL: WireErrorEnvelope = {
-  code: "workflow.form_revision_stale",
-  message: "Somebody else answered this phase first; re-read the form before answering.",
-};
-
-/** What one case asked the port, and the bridge the slot read it through. */
-interface SubmitProbe {
-  readonly bridge: ConsoleBridge;
-  readonly requests: Parameters<GrowthPort["workflowHumanFormSubmit"]>[0][];
-}
-
-/**
- * The fixture bridge with its submit replaced by one the case can watch or refuse.
- *
- * Built ONCE per case rather than inside a render: the dispatch holds its outcome
- * against the port's own identity, so a port composed on each render would re-seed that
- * state every time React re-rendered the form.
- */
-function bridgeWatchingSubmits(refusal?: WireErrorEnvelope): SubmitProbe {
-  const fixture = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const requests: Parameters<GrowthPort["workflowHumanFormSubmit"]>[0][] = [];
-  const growth: GrowthPort = {
-    ...fixture.growth,
-    workflowHumanFormSubmit: async (request) => {
-      requests.push(request);
-      if (refusal !== undefined) {
-        // Thrown rather than returned: a scripted daemon refusal rejects, and the live
-        // seam will reject with the same shape once the wire lands.
-        throw refusal;
-      }
-      return {
-        status: "served",
-        value: {
-          phaseId: request.phaseId,
-          phaseRunId: "019b7a10-0280-7aa1-8100-701a11150005",
-          outputCount: 1,
-          submittedAt: "2026-01-01T10:02:00.000Z",
-        },
-      };
-    },
-  };
-  return { bridge: { ...fixture, growth }, requests };
-}
-
-/** One submit the case settles by hand, and what it was asked. */
-interface HeldSubmit extends SubmitProbe {
-  readonly serve: () => void;
-}
-
-/**
- * A bridge whose submit stays in flight until the case settles it.
- *
- * The window between the press and the answer is where the waiting state and the
- * single-flight refusal both live, and a port that answered on the calling turn would
- * close it before either could be observed — `run-control-dispatch.test-support.tsx`'s
- * reading, at this family's other dispatch.
- */
-function bridgeHoldingSubmits(): HeldSubmit {
-  const fixture = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const requests: Parameters<GrowthPort["workflowHumanFormSubmit"]>[0][] = [];
-  let serveHeld: (() => void) | undefined;
-  const growth: GrowthPort = {
-    ...fixture.growth,
-    workflowHumanFormSubmit: async (request) => {
-      requests.push(request);
-      return new Promise((resolve) => {
-        serveHeld = () => {
-          resolve({
-            status: "served",
-            value: {
-              phaseId: request.phaseId,
-              phaseRunId: "019b7a10-0280-7aa1-8100-701a11150005",
-              outputCount: 2,
-              submittedAt: "2026-01-01T10:03:00.000Z",
-            },
-          });
-        };
-      });
-    },
-  };
-  return { bridge: { ...fixture, growth }, requests, serve: () => serveHeld?.() };
-}
-
-/** The fixture's own waiting phase, resolved the way the run pane resolves it. */
-function fixtureWaitMount(): HumanFormMount {
-  const wait = WORKFLOWS_PARKED_RUN.phaseStates
-    .map((phase) => humanFormMountFor(WORKFLOWS_PARKED_RUN.workflowRunId, phase))
-    .find((mount) => mount !== undefined);
-  if (wait === undefined) {
-    throw new Error("the workflows fixture parks no addressable phase on a person");
-  }
-  return wait;
-}
-
-/** The slot with the shell inside it, under a bridge the case supplies. */
-function renderSlot(mount: HumanFormMount | undefined, bridge?: ConsoleBridge): HTMLElement {
-  const { container } = render(
-    <SidekicksBridgeProvider
-      bridge={bridge ?? createFixtureBridge({ scenario: WORKFLOWS_SCENARIO })}
-    >
-      <HumanFormSlot phase={mount} />
-    </SidekicksBridgeProvider>,
-  );
-  return container;
-}
-
-/** Press the one act the form offers. */
-function pressSubmit(): void {
-  fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
-}
 
 describe("a waiting phase is answerable where the pane shows it", () => {
   it("renders the prompt the run read carried and the controls its schema draws", () => {

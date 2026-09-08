@@ -6,14 +6,34 @@
 // missing required member. So a blank control writes `undefined` and the schema says
 // whether that is allowed.
 //
-// `integer` STEPS BY ONE AND IS STILL THE SCHEMA'S CALL. The step is an affordance; the
-// compiled validator is what refuses a fractional answer to an integer member, because a
-// control that enforced it would be a second authority on the same rule.
+// THE STEP IS NOT AN AFFORDANCE HERE, AND OMITTING IT IS NOT NEUTRAL. A number input
+// with no `step` steps by one, so `1.5` carries `stepMismatch`; this control renders
+// inside a native `<form>` that sets no `noValidate`, so that mismatch blocks the submit
+// EVENT itself and the console's handler never runs. A fractional answer to a `number`
+// member would therefore have been unsendable, with no verdict and no refusal anywhere
+// to say why. `any` is the platform's own word for "the schema expressed no step", and
+// it is what a `number` member gets.
+//
+// `integer` KEEPS ITS STEP OF ONE, and that is the same rule arriving earlier rather
+// than a second authority: the platform's whole-number constraint and the schema's
+// `integer` say one thing, so a control that refuses `1.5` refuses exactly what the
+// compiled validator refuses. Everything the two do NOT share — requiredness, ranges,
+// enum membership — stays the validator's alone, which is why this file reads one member
+// of the descriptor and nothing else.
 
 import { type SchemaFieldControlProps } from "../schema-field-control.js";
 
-/** What a whole-number control steps by, against the browser's own default of one. */
-const INTEGER_STEP = 1;
+/** What a whole-number control steps by, matching the schema's `integer`. */
+const INTEGER_STEP = "1";
+
+/**
+ * The step for a member whose schema declared none.
+ *
+ * The platform's default is `1`, not "unrestricted", so this has to be written out: it
+ * is what withdraws the browser's own opinion about precision from a member the schema
+ * never expressed one for.
+ */
+const UNRESTRICTED_STEP = "any";
 
 /** The text a numeric control shows for whatever the answer holds. */
 function numericTextOf(value: unknown): string {
@@ -27,7 +47,7 @@ export function SchemaNumberField(props: SchemaFieldControlProps): React.JSX.Ele
       id={props.controlId}
       className="meridian-schema-field__input meridian-schema-field__input--figure"
       type="number"
-      step={props.field.isInteger ? INTEGER_STEP : undefined}
+      step={props.field.isInteger ? INTEGER_STEP : UNRESTRICTED_STEP}
       value={numericTextOf(props.value)}
       aria-describedby={props.describedById}
       onChange={(event) => {

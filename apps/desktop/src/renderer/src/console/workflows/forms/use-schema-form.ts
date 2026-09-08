@@ -12,6 +12,28 @@
 // second authority on a question the schema already settles, and the two would disagree
 // the first time a schema used a keyword the mapper does not read.
 //
+// AND THE ANSWER IS WHAT THE SCHEMA ACCEPTED, NOT WHAT WENT INTO IT. Checking a value
+// against a compiled schema READS it — a member declaring a `default` is supplied by the
+// reader, so `{}` comes back valid and comes back as `{ approver: "ada" }`. Submitting
+// the composed value while rendering a verdict about the read one would put a sentence
+// on screen that is true of bytes nobody sends. So the verdict's own accepted value IS
+// the answer wherever there is one, and the composed value stands only where the schema
+// refused it or could not be asked — because there, no reading exists to prefer.
+//
+// WHICH IS ALSO WHY THE DRAWN CONTROLS OPEN SEEDED. Composing the submission from the
+// reading closes the divergence at the wire and would have left it on the screen: the
+// member the schema fills in would send its default while its control sat blank. The
+// seed is that same reading of an untouched answer, so the first thing a person sees is
+// what a press would send, and typing over it replaces a value rather than filling a gap.
+// It is read ONCE, at the mount — a seed recomputed when the schema's identity changed
+// would discard what somebody had typed every time the run read refreshed and handed
+// down an equal schema as a new object.
+//
+// THE RAW EDITOR'S DOCUMENT IS STILL THE PERSON'S. Nothing seeds or rewrites the text:
+// what is submitted from that arm is the schema's reading of what they typed, which adds
+// the members the schema declares values for and — measured at the pinned reader, in
+// `bridge/wire-shapes/json-schema-check.ts` — removes nothing they wrote.
+//
 // A LIST'S ITEMS ARE ADDRESSED BY INDEX AND HELD IN ORDER. Removing the middle entry of
 // a three-item list must not renumber the answer under the person editing it, so the
 // mutation rebuilds the array rather than writing a hole into it.
@@ -41,7 +63,13 @@ export type RawAnswerReading =
 export interface SchemaFormState {
   /** Controls, or the raw editor and why. */
   readonly plan: SchemaFormPlan;
-  /** The answer as it stands, from whichever input mode this plan uses. */
+  /**
+   * The answer a submission would carry, from whichever input mode this plan uses.
+   *
+   * The schema's ACCEPTED reading of what the controls composed wherever the schema made
+   * one, so this member and {@link report} are about the same value; the composed value
+   * itself where the schema refused it or could not be asked.
+   */
   readonly answer: unknown;
   /** The value one drawn control is bound to. `undefined` where nothing was typed. */
   readonly memberValue: (memberPath: readonly string[]) => unknown;
@@ -69,14 +97,31 @@ export interface SchemaFormState {
 /** The empty raw document, which is what an unanswered JSON editor holds. */
 const EMPTY_RAW_TEXT = "{}";
 
+/** The answer an untouched form composes before its schema has said anything about it. */
+const NOTHING_ANSWERED: SchemaFormAnswer = {};
+
+/**
+ * Whatever this is, read as a set of named values — or nothing where it is not one.
+ *
+ * One reading, used by the three places that need it. An array is deliberately not one:
+ * it holds positions rather than names, so walking into it by key would answer for a
+ * member that cannot exist.
+ */
+function asAnswerRecord(value: unknown): SchemaFormAnswer | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as SchemaFormAnswer)
+    : undefined;
+}
+
 /** Read one member out of a nested answer without asserting the shape of what is there. */
 function memberAt(answer: SchemaFormAnswer, memberPath: readonly string[]): unknown {
   let cursor: unknown = answer;
   for (const segment of memberPath) {
-    if (typeof cursor !== "object" || cursor === null || Array.isArray(cursor)) {
+    const record = asAnswerRecord(cursor);
+    if (record === undefined) {
       return undefined;
     }
-    cursor = (cursor as Record<string, unknown>)[segment];
+    cursor = record[segment];
   }
   return cursor;
 }
@@ -99,11 +144,7 @@ function withMemberAt(
   if (rest.length === 0) {
     return { ...answer, [head]: value };
   }
-  const child = answer[head];
-  const childRecord =
-    typeof child === "object" && child !== null && !Array.isArray(child)
-      ? (child as SchemaFormAnswer)
-      : {};
+  const childRecord = asAnswerRecord(answer[head]) ?? NOTHING_ANSWERED;
   return { ...answer, [head]: withMemberAt(childRecord, rest, value) };
 }
 
@@ -111,6 +152,30 @@ function withMemberAt(
 function listAt(answer: SchemaFormAnswer, memberPath: readonly string[]): readonly unknown[] {
   const held = memberAt(answer, memberPath);
   return Array.isArray(held) ? (held as readonly unknown[]) : [];
+}
+
+/**
+ * What this schema fills in for an answer nobody has touched, as the drawn controls' seed.
+ *
+ * Asked of the compiled validator rather than re-read off the descriptors, so the values
+ * a control opens with and the values a submission carries come from ONE authority — a
+ * second pass over the schema's `default` keywords would disagree with the reader the
+ * first time one of them appeared somewhere the mapper does not look.
+ *
+ * An empty answer the schema REFUSES seeds nothing, and cannot: a refusal carries no
+ * reading, so a schema requiring a member it declares no value for opens with every
+ * control blank. That is honest rather than complete — the submission still carries
+ * whatever the schema fills in, and it says so through the verdict the moment the
+ * answer becomes one the schema will read.
+ */
+function schemaSeededAnswer(validator: SchemaValidator): SchemaFormAnswer {
+  if (validator.status !== "compiled") {
+    return NOTHING_ANSWERED;
+  }
+  const report = validator.check(NOTHING_ANSWERED);
+  return report.status === "valid"
+    ? (asAnswerRecord(report.acceptedValue) ?? NOTHING_ANSWERED)
+    : NOTHING_ANSWERED;
 }
 
 /** Parse the raw editor's text, reporting a syntax failure as a value. */
@@ -136,12 +201,16 @@ function readRawText(rawText: string): RawAnswerReading {
 export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   const plan = useMemo(() => planSchemaForm(inputSchema), [inputSchema]);
   const validator = useMemo(() => compileSchemaValidator(inputSchema), [inputSchema]);
-  const [drawnAnswer, setDrawnAnswer] = useState<SchemaFormAnswer>({});
+  // Seeded from the schema's own reading of an untouched answer, and read once: the
+  // header's reason, and why this is an initialiser rather than anything that re-runs.
+  const [drawnAnswer, setDrawnAnswer] = useState<SchemaFormAnswer>(() =>
+    schemaSeededAnswer(validator),
+  );
   const [rawText, setRawText] = useState<string>(EMPTY_RAW_TEXT);
 
   const rawReading = useMemo(() => readRawText(rawText), [rawText]);
   const isRaw = plan.shape === "raw";
-  const answer = isRaw
+  const composedAnswer = isRaw
     ? rawReading.status === "parsed"
       ? rawReading.answer
       : undefined
@@ -183,8 +252,11 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   // stale between the edit and the effect that would refresh it.
   const report =
     validator.status === "compiled" && (!isRaw || rawReading.status === "parsed")
-      ? validator.check(answer)
+      ? validator.check(composedAnswer)
       : undefined;
+  // The header's rule, in one expression: the answer is the schema's reading of what was
+  // composed wherever it made one, so the verdict on screen is a verdict on these bytes.
+  const answer = report?.status === "valid" ? report.acceptedValue : composedAnswer;
 
   return {
     plan,

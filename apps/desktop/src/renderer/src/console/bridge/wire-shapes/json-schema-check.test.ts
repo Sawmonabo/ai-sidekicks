@@ -5,6 +5,12 @@
 // verdict is real — that an answer is checked, that the issues carry the console's own
 // dotted member path, and that a valid answer comes back clean — because a wrapper that
 // swallowed everything would pass the throwing case and be useless.
+//
+// AND ONE PAIR IS ABOUT WHAT A CLEAN VERDICT IS ABOUT. Checking reads an answer rather
+// than inspecting it, so a schema with a `default` accepts `{}` and accepts it as
+// something else; the clean arm therefore carries the value it accepted, and the pair
+// below pins both halves — that a supplied member arrives, and that an answered one is
+// not overwritten by the schema's own value for it.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,6 +34,7 @@ describe("the schema validator wrapper", () => {
     expect(validator.check({ title: "Ship it", count: 2 })).toEqual({
       status: "valid",
       issues: [],
+      acceptedValue: { title: "Ship it", count: 2 },
     });
   });
 
@@ -58,6 +65,47 @@ describe("the schema validator wrapper", () => {
     }
 
     expect(validator.check({ release: {} }).issues[0]?.memberPath).toBe("release.tag");
+  });
+
+  it("carries the value the schema accepted, which is not the value it was handed", () => {
+    // The whole reason the clean arm carries a value: the reader SUPPLIES a member that
+    // declares a default, so `{}` is valid and is valid as something else. A report that
+    // said only "valid" would be a verdict on a value its caller had no way to send.
+    const validator = compileSchemaValidator({
+      type: "object",
+      properties: { approver: { type: "string", default: "ada" }, note: { type: "string" } },
+      required: ["approver"],
+    });
+    if (validator.status !== "compiled") {
+      throw new Error("expected the schema to compile");
+    }
+
+    const report = validator.check({});
+
+    expect(report.status).toBe("valid");
+    if (report.status !== "valid") {
+      return;
+    }
+    expect(report.acceptedValue).toEqual({ approver: "ada" });
+  });
+
+  it("negative control: an answer the schema changes nothing about comes back unchanged", () => {
+    // Without this, the case above would hold over a wrapper that returned the schema's
+    // defaults for every answer, ignoring what it was given.
+    const validator = compileSchemaValidator({
+      type: "object",
+      properties: { approver: { type: "string", default: "ada" } },
+      required: ["approver"],
+    });
+    if (validator.status !== "compiled") {
+      throw new Error("expected the schema to compile");
+    }
+
+    const report = validator.check({ approver: "bela" });
+
+    expect(report.status === "valid" ? report.acceptedValue : undefined).toEqual({
+      approver: "bela",
+    });
   });
 
   it("answers with a reason instead of throwing when the reader cannot read the schema", () => {
