@@ -27,6 +27,17 @@
 //   - A `const` BOUND TO THE STORE'S DOOR — `const readScope = useReadScope(…)`, which
 //     addresses a scope at the `(subject, key)` pairing a render owns.
 //
+// AND THE FACTORY ITSELF IS RESOLVED, NOT MATCHED BY NAME. `ReadScope` and
+// `useReadScope` are the store's own exports or they are nothing: each name is taken
+// through the same scope chain the round's receiver is, at its own position, and it is
+// admitted only where the binding it lands on is the IMPORT SPECIFIER that imported that
+// export — under whatever local alias the clause wrote. That is `daemon-call-census.ts`'
+// own standard for the call door, applied here for the reason its header gives: a name is
+// not an identity. Matching the spelling admitted `helper.useReadScope()` on a bare
+// parameter, which is a scope this parse never saw declared, and a `class ReadScope`
+// declared beside the read — both of them rounds nothing aborts, and both of them read
+// `"present"` while an unstoppable read passed the gate.
+//
 // WHETHER ANYBODY ABANDONS THAT SCOPE IS NOT ASKED, and the reason is that the answer is
 // a claim about WRITES. A first cut of this rule refused the second form on the ground
 // that a scope minted inside a function is superseded by nothing and abandoned by
@@ -42,9 +53,14 @@
 // `ReadScope` parameter are both provenances the console does not write today, and a
 // refusal on one is a call the gate REPORTS rather than a hole it leaves: the form is
 // admitted by the change that first writes it, deliberately, and until then this reads
-// what the console has. A second SPELLING of an admitted form is a different matter and
-// is read as the same form — the door off an imported namespace, and the factory read
-// through a string key — for `daemon-call-census.ts`' reason: one read of one thing.
+// what the console has. A door read off an imported NAMESPACE is refused on that same
+// rule rather than on one of its own: every consumer in this tree names the export
+// through a specifier, so the namespace form is a provenance the console does not write —
+// and admitting it would mean identifying a module this parse cannot reach from the
+// binding, since a specifier's own module travels on the binding record and a namespace
+// import's does not. The ROUND's factory keeps both spellings of one read,
+// `scope.openRound()` and `scope["openRound"]`, through `daemon-call-census.ts`' shared
+// member predicate: that reading is about a member, and this one is about a binding.
 //
 // A FIELD IS SCOPED TO ITS CLASS AND NEVER TO THE MODULE. Two classes in one file can
 // each declare `#readLine` with only one of them a scope, and a private name is
@@ -61,12 +77,13 @@
 // the round was opened off is the one written at the OPEN, so resolving at the daemon
 // call's position would answer with a binding that line never saw.
 //
-// THE HONEST LIMIT. `ReadScope` and `useReadScope` are read as the names a declaration
-// gives them, exactly as the round's own `ReadRound` annotation is read one module over.
-// A module that declared its own class of that name would be read as declaring a scope;
-// resolving both to the store's own exports is the standard the DOOR census takes, and
-// it is not taken here because the door's question is which modules reach it — where an
-// alias is the whole subject — while this one is what a declaration says it holds.
+// THE HONEST LIMIT, AND IT IS THE DOOR CENSUS'S OWN. An export is identified by the NAME
+// a specifier imported it under rather than by the module that specifier names, exactly
+// as `daemon-call-census.ts` identifies the call door — so a module importing something
+// else spelled `useReadScope` from somewhere else would still be read as opening a scope.
+// What is closed is the hole a spelling alone left: a name this module never imported, a
+// class it declares itself, and a member of a value handed in are each refused and
+// REPORTED rather than trusted, which is the direction every refusal here runs in.
 
 import ts from "typescript";
 
@@ -78,10 +95,10 @@ import { withoutTypeWrappers } from "./daemon-method-literals.js";
 /** The scope's own factory, which is the call one round is opened by. */
 const ROUND_FACTORY = "openRound";
 
-/** The store's read-scope class, as a field that mints one names it. */
+/** The store's read-scope class, under the name `store/read-cancellation.ts` exports it. */
 const READ_SCOPE_CLASS = "ReadScope";
 
-/** The store's read-scope door, as a render-addressed scope is opened by it. */
+/** The store's read-scope door, under the name that same module exports it. */
 const READ_SCOPE_DOOR = "useReadScope";
 
 /** One class's read-scope fields, over the span a `this` read of them can sit in. */
@@ -111,7 +128,7 @@ export class ModuleReadScopes {
         this.#fieldScopes.push({
           start: node.getStart(parsed),
           end: node.end,
-          readScopeFieldNames: readScopeFieldNamesOf(node),
+          readScopeFieldNames: this.#readScopeFieldNamesOf(node),
         });
       }
     });
@@ -183,59 +200,76 @@ export class ModuleReadScopes {
       return false;
     }
     const { initializer } = binding.declaration;
-    return mintsReadScope(initializer) || callsReadScopeDoor(initializer);
+    return this.#mintsReadScope(initializer) || this.#callsReadScopeDoor(initializer);
   }
-}
 
-/**
- * Every field of one class whose declaration MINTS a read scope.
- *
- * A property declaration and never an accessor or a method: the reading is what the
- * class holds, and a member that computes an answer is a value this scan does not
- * follow. Both name spellings are recorded — a private name carries its own `#`, so the
- * set holds the text a receiver reads it back by.
- */
-function readScopeFieldNamesOf(declaration: ts.ClassLikeDeclaration): ReadonlySet<string> {
-  const fieldNames = new Set<string>();
-  for (const member of declaration.members) {
-    if (
-      ts.isPropertyDeclaration(member) &&
-      (ts.isIdentifier(member.name) || ts.isPrivateIdentifier(member.name)) &&
-      mintsReadScope(member.initializer)
-    ) {
-      fieldNames.add(member.name.text);
+  /**
+   * Every field of one class whose declaration MINTS a read scope.
+   *
+   * A property declaration and never an accessor or a method: the reading is what the
+   * class holds, and a member that computes an answer is a value this scan does not
+   * follow. Both name spellings are recorded — a private name carries its own `#`, so
+   * the set holds the text a receiver reads it back by.
+   */
+  #readScopeFieldNamesOf(declaration: ts.ClassLikeDeclaration): ReadonlySet<string> {
+    const fieldNames = new Set<string>();
+    for (const member of declaration.members) {
+      if (
+        ts.isPropertyDeclaration(member) &&
+        (ts.isIdentifier(member.name) || ts.isPrivateIdentifier(member.name)) &&
+        this.#mintsReadScope(member.initializer)
+      ) {
+        fieldNames.add(member.name.text);
+      }
     }
+    return fieldNames;
   }
-  return fieldNames;
-}
 
-/** Whether this initializer constructs the store's read scope: `new ReadScope()`. */
-function mintsReadScope(initializer: ts.Expression | undefined): boolean {
-  if (initializer === undefined) {
-    return false;
+  /** Whether this initializer constructs the store's own read scope: `new ReadScope()`. */
+  #mintsReadScope(initializer: ts.Expression | undefined): boolean {
+    if (initializer === undefined) {
+      return false;
+    }
+    const minted = withoutTypeWrappers(initializer);
+    if (!ts.isNewExpression(minted)) {
+      return false;
+    }
+    const constructed = withoutTypeWrappers(minted.expression);
+    return ts.isIdentifier(constructed) && this.#importsStoreExport(constructed, READ_SCOPE_CLASS);
   }
-  const minted = withoutTypeWrappers(initializer);
-  if (!ts.isNewExpression(minted)) {
-    return false;
-  }
-  const constructed = withoutTypeWrappers(minted.expression);
-  return ts.isIdentifier(constructed) && constructed.text === READ_SCOPE_CLASS;
-}
 
-/**
- * Whether this initializer opened a scope through the store's door: `useReadScope(…)`.
- *
- * In both spellings of one read, for the reason the door census gives: the door named
- * directly, and the door read off a module namespace the file imported it as.
- */
-function callsReadScopeDoor(initializer: ts.Expression | undefined): boolean {
-  if (initializer === undefined) {
-    return false;
+  /**
+   * Whether this initializer opened a scope through the store's door: `useReadScope(…)`.
+   *
+   * The callee is a NAME and the name is resolved, for this module's header's reason: a
+   * member of something handed in — `helper.useReadScope()` — is a factory this parse
+   * never saw declared, and the scope it answers with is one nothing here can tie to a
+   * read line.
+   */
+  #callsReadScopeDoor(initializer: ts.Expression | undefined): boolean {
+    if (initializer === undefined) {
+      return false;
+    }
+    const opened = withoutTypeWrappers(initializer);
+    if (!ts.isCallExpression(opened)) {
+      return false;
+    }
+    const door = withoutTypeWrappers(opened.expression);
+    return ts.isIdentifier(door) && this.#importsStoreExport(door, READ_SCOPE_DOOR);
   }
-  const opened = withoutTypeWrappers(initializer);
-  if (!ts.isCallExpression(opened)) {
-    return false;
+
+  /**
+   * Whether this name is bound, at its own position, to the store's `exportName`.
+   *
+   * The binding record already carries what an import specifier came from — the name the
+   * OTHER module exports, whatever this one aliased it to — so the reading is that
+   * record's own and not a second walk of the clause. Every other binding form answers
+   * no: a parameter, a local, a class declared here, and a name this module never
+   * imported are each a provenance that is not the store's export, which is the whole of
+   * the rule.
+   */
+  #importsStoreExport(named: ts.Identifier, exportName: string): boolean {
+    const bound = this.#bindings.resolve(named.text, named.end)?.method;
+    return bound?.kind === "imported" && bound.exportedName === exportName;
   }
-  const door = withoutTypeWrappers(opened.expression);
-  return ts.isIdentifier(door) ? door.text === READ_SCOPE_DOOR : readsMember(door, READ_SCOPE_DOOR);
 }

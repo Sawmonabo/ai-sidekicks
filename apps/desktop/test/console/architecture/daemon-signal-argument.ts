@@ -22,9 +22,9 @@
 // produces (`store/read-cancellation.ts`): a round's signal, `round.signal`, off a
 // name bound either to a `ReadRound` parameter or to a local a `.openRound()` was
 // opened into; and a FORWARDED one, the bare `signal` a read helper took as its own
-// parameter — annotated `AbortSignal` at the eleven `repos` and inventory helpers,
-// contextually typed at the `read: async (signal) => …` arrows a push-driven read
-// hands its round's signal to. Anything else is `"unrecognised"`, which both rules
+// parameter, annotated `AbortSignal` — at the eleven `repos` and inventory helpers and
+// at the `read: async (signal: AbortSignal) => …` arrows a push-driven read hands its
+// round's signal to. Anything else is `"unrecognised"`, which both rules
 // refuse for the reason `"opaque"` is refused: the read has not shown what stops it,
 // and the record has not shown it carries none.
 //
@@ -53,19 +53,21 @@
 // held round's own parameter arm takes the identical test, because a round the caller
 // may omit shows no more about what stops this line than a signal one does.
 //
-// AND AN UNANNOTATED PARAMETER IS ADMITTED ON THE TYPE GATE'S PROOF, not on this
-// parse's guess. The one unannotated form the console writes is the contextually typed
-// callback — `read: async (signal) => …`, whose type the seat's own option type
-// supplies — and this parse cannot see the enclosing function at all, let alone what
-// contextually types it: `typescript-source.ts` sets `setParentNodes` off, so a
-// parameter node here has no parent. What CAN be relied on is the package's `strict`
-// setting: under `noImplicitAny` a parameter with no annotation, no initializer, and no
-// contextual type is a compile error, so a required unannotated parameter that reaches
-// this scan at all IS contextually typed — and `DaemonCallOptions.signal` is declared
-// `AbortSignal`, so the checker has already refused any context that would type it as
-// something else. An initializer is what breaks that proof rather than merely weakening
-// it: it makes the parameter its own type source, so `noImplicitAny` says nothing about
-// it and the value is one this scope supplies.
+// AND AN UNANNOTATED PARAMETER IS NOT ADMITTED AT ALL, which is a rule about this
+// instrument as much as about the source. A first reading admitted one on the type
+// gate's proof: under `noImplicitAny` a parameter with no annotation, no initializer and
+// no contextual type is a compile error, so a required unannotated parameter that
+// reaches this scan at all is contextually typed, and `DaemonCallOptions.signal` is
+// declared `AbortSignal`. Both halves fail together on one shape — a callback
+// contextually typed by a LOOSE signature. `(...args: any[])` types `signal` as `any`,
+// which `noImplicitAny` never reports and which is assignable to `AbortSignal`, so the
+// checker refuses nothing and the caller may hand this line a stale signal or a value
+// that is not a signal. Deciding it properly means asking the checker what contextually
+// types a parameter, and this parse holds no `ts.Program` and cannot even see the
+// enclosing function: `typescript-source.ts` sets `setParentNodes` off, so a parameter
+// node here has no parent. So the annotation is REQUIRED and the console writes it —
+// `read: async (signal: AbortSignal) => …` at the arrows a push-driven read hands its
+// round's signal to, which is a word at the call rather than a claim about a context.
 //
 // THE HONEST LIMIT. A forwarded parameter is trusted one hop: this scan reads the
 // call, not the caller, so a helper handed a dead signal is a defect at the site that
@@ -271,19 +273,15 @@ function requiredParameter(declaration: ts.Declaration): ts.ParameterDeclaration
 /**
  * Whether this binding is a signal the caller handed in.
  *
- * A REQUIRED PARAMETER, and its declared type where it declares one: the console's read
- * helpers annotate `signal: AbortSignal`, and the arrow a push-driven read calls with
- * its round's signal declares nothing because the seat's own option type declares it
- * for them. A parameter typed as anything else is refused rather than admitted on the
- * strength of being a parameter, and an unannotated one is admitted on the type gate's
- * proof rather than this parse's guess — for this module's header's reason.
+ * A REQUIRED PARAMETER ANNOTATED `AbortSignal`, and nothing else: every read helper and
+ * every push-driven read's arrow writes that word. A parameter typed as something else
+ * is refused rather than admitted on the strength of being a parameter, and one typed as
+ * nothing is refused with it — for this module's header's reason, which is that a
+ * contextual type is a fact only the checker holds and this parse is not one.
  */
 function isForwardedSignal(binding: NameBinding | undefined): boolean {
   const parameter = binding === undefined ? undefined : requiredParameter(binding.declaration);
-  if (parameter === undefined) {
-    return false;
-  }
-  return parameter.type === undefined || namesType(parameter.type, SIGNAL_TYPE);
+  return parameter !== undefined && namesType(parameter.type, SIGNAL_TYPE);
 }
 
 /**

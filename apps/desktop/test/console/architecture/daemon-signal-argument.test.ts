@@ -64,24 +64,48 @@ describe("the signal a call hands the door", () => {
     expect(read?.signalArgument).toBe("absent");
   });
 
-  it("takes a forwarded parameter, annotated or contextually typed", () => {
-    // The two spellings the console's own reads carry: the `repos` and inventory
-    // helpers annotate `signal: AbortSignal`, and the arrow a push-driven read hands
-    // its round's signal to declares nothing, because the seat's option type declares
-    // it. Both are signals this call was HANDED, which is the property that matters.
+  it("takes a forwarded parameter the caller annotated", () => {
+    // The two positions the console's own reads carry it in, one rule: the `repos` and
+    // inventory helpers annotate `signal: AbortSignal` on a declared function, and the
+    // arrow a push-driven read hands its round's signal to writes the same word. Both
+    // are signals this call was HANDED, which is the property that matters, and the
+    // annotation is what says so where a reader — and this parse — can see it.
     const [annotated] = plantedSitesInReadHelper([
       'await callDaemon(bridge, "repo.workspaceList", request, { signal });',
     ]);
     expect(annotated?.signalArgument).toBe("present");
-    const [contextual] = plantedSites([
+    const [annotatedArrow] = plantedSites([
       "export function createRoster(bridge) {",
       "  return new PushDrivenRead({",
-      "    read: async (signal) =>",
+      "    read: async (signal: AbortSignal) =>",
       '      await callDaemon(bridge, "repo.workspaceList", {}, { signal }),',
       "  });",
       "}",
     ]);
-    expect(contextual?.signalArgument).toBe("present");
+    expect(annotatedArrow?.signalArgument).toBe("present");
+  });
+
+  it("negative control: an unannotated parameter is not a forwarded signal", () => {
+    // THE HOLE `noImplicitAny` DOES NOT CLOSE. An unannotated parameter was admitted on
+    // the type gate's proof — that a required unannotated parameter which compiles at
+    // all must be contextually typed, and that the door's own option type types it
+    // `AbortSignal`. A callback contextually typed by a LOOSE signature breaks both
+    // halves at once: `(...args: any[])` types `signal` as `any`, which `noImplicitAny`
+    // never reports and which is assignable to `AbortSignal` — so the caller may hand
+    // this line a stale signal, or something that is not a signal at all, and the read
+    // looked stoppable while nothing here could stop it.
+    const [contextuallyAny] = plantedSites([
+      "type LooseHandler = (...args: any[]) => Promise<unknown>;",
+      "function runLoosely(handler: LooseHandler) {",
+      "  return handler;",
+      "}",
+      "export function createRoster(bridge) {",
+      "  return runLoosely(async (signal) =>",
+      '    await callDaemon(bridge, "repo.workspaceList", {}, { signal }),',
+      "  );",
+      "}",
+    ]);
+    expect(contextuallyAny?.signalArgument).toBe("unrecognised");
   });
 
   it("negative control: a parameter the caller may omit is not a forwarded signal", () => {

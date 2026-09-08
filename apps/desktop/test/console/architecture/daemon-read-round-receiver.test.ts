@@ -18,6 +18,16 @@ import { describe, expect, it } from "vitest";
 
 import { plantedSites } from "./daemon-call-planting.test-support.js";
 
+/**
+ * The store's read-scope class, as a module that mints one imports it.
+ *
+ * PART OF THE READING AND NOT SCAFFOLDING AROUND IT, on the sibling bench's own reason
+ * for planting the door clause: a scope is the store's export or it is nothing, so a
+ * case writing `new ReadScope()` under no clause at all would report the factory's
+ * refusal under the name of whatever that case meant to be about.
+ */
+const READ_SCOPE_CLASS_IMPORT = 'import { ReadScope } from "../../store/index.js";';
+
 describe("what a round was opened off", () => {
   it("takes a round opened off each read scope the console declares", () => {
     // THE WHOLE ACCEPTED SET, which is the three shapes `store/read-cancellation.ts`
@@ -29,6 +39,7 @@ describe("what a round was opened off", () => {
     // than refused for being local; a render-addressed line takes its scope off the
     // store's own door. A form none of the three plants is one the reading refuses.
     const [offOwnField] = plantedSites([
+      READ_SCOPE_CLASS_IMPORT,
       "class QuotaReadout {",
       "  readonly #readLine = new ReadScope();",
       "  async seed(bridge) {",
@@ -39,6 +50,7 @@ describe("what a round was opened off", () => {
     ]);
     expect(offOwnField?.signalArgument).toBe("present");
     const [offMintedLocal] = plantedSites([
+      READ_SCOPE_CLASS_IMPORT,
       "class CommandHolder {",
       "  #readLine = undefined;",
       "  open(bridge) {",
@@ -95,6 +107,47 @@ describe("what a round was opened off", () => {
     ).toStrictEqual(["unrecognised", "unrecognised", "unrecognised"]);
   });
 
+  it("negative control: a factory this module never imported is not the store's", () => {
+    // THE HOLE A FACTORY NAME LEFT ONE NODE FURTHER OUT. The round's receiver was
+    // resolved and the receiver's own factory was not, so any member named
+    // `useReadScope` opened a read scope: `helper.useReadScope()` on a parameter
+    // answered a scope this parse never saw declared, and the round opened off it
+    // carried a signal nothing aborts. `new ReadScope()` had the same hole, read as
+    // the store's class on the strength of the spelling alone. The three shapes are
+    // the three provenances a name can have that are not the store's own export — a
+    // member of something handed in, a call this module never imported, and a class of
+    // that spelling declared right here.
+    const [strangerFactory] = plantedSites([
+      "export function readBoundary(bridge, helper) {",
+      "  const readScope = helper.useReadScope();",
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    const [unimportedDoor] = plantedSites([
+      "export function readBoundary(bridge) {",
+      '  const readScope = useReadScope(bridge, "roots");',
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    const [locallyDeclaredClass] = plantedSites([
+      "class ReadScope {",
+      "  openRound() {",
+      "    return { signal: new AbortController().signal };",
+      "  }",
+      "}",
+      "export function readBoundary(bridge) {",
+      "  const readLine = new ReadScope();",
+      "  const round = readLine.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    expect(
+      [strangerFactory, unimportedDoor, locallyDeclaredClass].map((site) => site?.signalArgument),
+    ).toStrictEqual(["unrecognised", "unrecognised", "unrecognised"]);
+  });
+
   it("negative control: an inner class does not inherit an outer field's reading", () => {
     // The field set is the CLASS's and never the module's. A private name is reachable
     // from nowhere but the class that declares it, so an inner class writing `#readLine`
@@ -102,6 +155,7 @@ describe("what a round was opened off", () => {
     // set would have read this line off the outer class's scope, which this one cannot
     // see at all.
     const [shadowed] = plantedSites([
+      READ_SCOPE_CLASS_IMPORT,
       "class QuotaReadout {",
       "  readonly #readLine = new ReadScope();",
       "  hold() {",
