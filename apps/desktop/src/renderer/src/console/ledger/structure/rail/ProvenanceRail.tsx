@@ -154,6 +154,7 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
     painter.paint(canvasRef.current, {
       ticks: railModel.ticks,
       pointerFraction,
+      surfaceRevision,
       ...(hueForActor === undefined ? {} : { actorHue: hueForActor }),
     });
   }, [painter, railModel, pointerFraction, surfaceRevision, hueForActor]);

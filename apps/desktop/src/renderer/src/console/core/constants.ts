@@ -739,6 +739,20 @@ export const REVEAL_LITERAL_BACKTRACK_CAP = 8;
 export const CHAPTER_VISIBLE_ROW_CAP = 120;
 
 /**
+ * Rows one chapter's body holds at all — the mounted window and the head above it.
+ *
+ * TWICE the visible cap, and it is a derivation rather than a second number: a
+ * chapter body retains what it is showing plus the clipped head a reader scrolls
+ * back up into, and both are bounded by the same figure. Writing it as a product
+ * keeps the two in step, so moving the visible cap moves this with it.
+ *
+ * It is a cap in its own right because it is what the body's ring is SIZED at: the
+ * ring is allocated once at this length and then written in place, so nothing about
+ * a chapter's retention grows with how long its run streams for.
+ */
+export const CHAPTER_BODY_RETAINED_ROW_CAP: number = CHAPTER_VISIBLE_ROW_CAP * 2;
+
+/**
  * The widest a tick grows at the centre of the fisheye. Past roughly three the
  * magnified band stops reading as the same rail and starts reading as a second
  * control.

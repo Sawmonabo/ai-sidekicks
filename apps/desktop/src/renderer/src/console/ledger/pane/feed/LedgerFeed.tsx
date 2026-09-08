@@ -109,7 +109,7 @@ import { usePeerInvocationProjection, type SessionStore } from "../../../store/i
 import { type TimelineRowRenderer } from "../../../seats/index.js";
 import { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
 import { buildReplayFromRowAct, useLedgerStructureActs } from "./ledger-feed-acts.js";
-import { useLedgerRowOffers } from "./row-offers/index.js";
+import { LedgerRowOffersMenu, useLedgerRowOffers } from "./row-offers/index.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
 import { useFoldedSupersededBands, useSupersededBandDisclosure } from "./ledger-superseded-fold.js";
 import { useChildRunDisclosure } from "../../structure/child-runs/index.js";
@@ -389,6 +389,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           onReplayFromRowInView={structureActs.replayFromRowInView}
         />
       </div>
+      {/*
+        THE WINDOW'S ONE ROW MENU, mounted beside the list rather than inside each row
+        — `row-offers/LedgerRowOffersMenu.tsx` owns why. It draws no element here: the
+        root renders none of its own and the popup leaves through the overlay portal,
+        so this line adds a machine and not a box.
+      */}
+      <LedgerRowOffersMenu offers={rowOffers} />
       <LedgerWindowReadState sessionStore={props.sessionStore} />
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}

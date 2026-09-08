@@ -27,6 +27,7 @@ import {
 } from "./ledger-chapter-logs.test-support.js";
 import { CHILD_RUN_SUMMARIZED } from "../../structure/child-runs/child-run-expansion.js";
 import { LedgerRowRetention } from "../window/ledger-row-retention.js";
+import { sampleRowOffersBinding } from "./row-offers/ledger-row-offers-binding.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../window/ledger-window.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
@@ -39,7 +40,7 @@ function viewportRowFor(ledgerWindow: LedgerWindowModel, key: string): LedgerVie
 }
 
 /** The offer binding a mount holds: one identity, for the life of the window. */
-const STABLE_ROW_OFFERS: LedgerRowRendererOptions["rowOffers"] = { offersFor: () => [] };
+const STABLE_ROW_OFFERS: LedgerRowRendererOptions["rowOffers"] = sampleRowOffersBinding(() => []);
 
 /** The options every case starts from, over one folded window. */
 function rendererOptions(

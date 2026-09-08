@@ -18,6 +18,8 @@
 // were never persisted, and `replay-model.ts`'s fourth rule forbids claiming otherwise. Rendering
 // the engine's own `granularity` is what makes that structural.
 
+import { useMemo } from "react";
+
 import { WireFigure, formatClockTime } from "../../../primitives/index.js";
 import { Glyph } from "../../../primitives/index.js";
 import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
@@ -68,6 +70,23 @@ const PRIMARY_ACTION_BY_STATE: Readonly<
 export function ReplayControls(props: ReplayControlsProps): React.JSX.Element {
   const { position } = props;
   const primary = PRIMARY_ACTION_BY_STATE[position.state];
+  // FORMATTED ONCE PER INSTANT, and read by both surfaces that say it.
+  //
+  // The scrubber's `valuetext` and the figure beside it are the same moment, and
+  // they used to be two `Intl` formats of one string on every render. This control
+  // renders on every admitted event — the position's span and elapsed offset move
+  // with the log whether or not the dock is revealed, and it is `hidden` rather
+  // than unmounted so that it keeps its place in the tab order — so on a streaming
+  // ledger that was two date formats per frame for a control nobody is looking at.
+  //
+  // Keyed on the instant itself rather than on the position, because the instant is
+  // the only member the string is a function of: a scrub that moved the offset
+  // inside one second re-uses it, and a position that moved to another moment does
+  // not.
+  const positionClockTime = useMemo(
+    () => (position.positionIso === undefined ? undefined : formatClockTime(position.positionIso)),
+    [position.positionIso],
+  );
 
   return (
     <div
@@ -113,14 +132,17 @@ export function ReplayControls(props: ReplayControlsProps): React.JSX.Element {
         aria-label="Replay position"
         // `valuetext` because the raw millisecond offset is not what a person
         // hears the position as — the timestamp beside it is.
-        aria-valuetext={scrubValueText(position)}
+        //
+        // NO ROWS LOADED is the absence spelled here rather than a formatted zero:
+        // a bare millisecond count names no moment in the session.
+        aria-valuetext={positionClockTime ?? "No rows loaded"}
         onChange={(event) => {
           props.onScrub(Number(event.currentTarget.value));
         }}
       />
 
-      {position.positionIso === undefined ? null : (
-        <WireFigure value={formatClockTime(position.positionIso)} title={position.positionIso} />
+      {position.positionIso === undefined || positionClockTime === undefined ? null : (
+        <WireFigure value={positionClockTime} title={position.positionIso} />
       )}
 
       <button
@@ -147,18 +169,6 @@ export function ReplayControls(props: ReplayControlsProps): React.JSX.Element {
       <span className="meridian-replay__granularity">{granularityNote(position)}</span>
     </div>
   );
-}
-
-/**
- * What the scrubber announces.
- *
- * The position's own instant, or the fact that there is nothing loaded to scrub —
- * never a bare millisecond count, which names no moment in the session.
- */
-function scrubValueText(position: ReplayPosition): string {
-  return position.positionIso === undefined
-    ? "No rows loaded"
-    : formatClockTime(position.positionIso);
 }
 
 /**

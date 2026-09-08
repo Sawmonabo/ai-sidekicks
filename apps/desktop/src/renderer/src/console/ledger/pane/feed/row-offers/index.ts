@@ -21,5 +21,6 @@
 import "./row-offers.css";
 
 export { LedgerRowMenu } from "./LedgerRowMenu.js";
+export { LedgerRowOffersMenu } from "./LedgerRowOffersMenu.js";
 
 export { useLedgerRowOffers, type LedgerRowOffersBinding } from "./ledger-row-offers-binding.js";

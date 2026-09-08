@@ -83,6 +83,7 @@ import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
   FLAGSHIP_SESSION_ID,
+  LEDGER_ROW_SELECTOR,
   openFlagshipSessionRoute,
   openSettingsRoute,
   readAppliedEventCount,
@@ -280,6 +281,33 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // had a producer, which made this whole tier an idle loop wearing a
         // workload's name.
         expect(await readBoundSessionIds(consoleApplication)).toContain(FLAGSHIP_SESSION_ID);
+
+        // AND THE WINDOW IS STILL A WINDOW, which is the property the whole frame
+        // owes its cost to. The viewport mounts the visible range and an overscan
+        // either side; what a person is looking at is a small fraction of a log this
+        // workload has driven to its end, so a console that mounts a row per admitted
+        // event is not virtualizing at all — it is laying out and painting the whole
+        // session every frame, and its cost grows with the log rather than with the
+        // screen.
+        //
+        // It is asserted HERE rather than in a tier of its own because the height
+        // chain that bounds the surface is only observable once something overflows
+        // it, and this is the case that has already driven the script to its end.
+        // Measured against the events the store admitted rather than a row count of
+        // its own: the two are different quantities and the claim only needs the
+        // ORDER between them, so a fixture that grows keeps the assertion honest
+        // without a figure to maintain.
+        const mountedRowCount = await consoleApplication.window
+          .locator(LEDGER_ROW_SELECTOR)
+          .count();
+        expect(
+          mountedRowCount,
+          "the ledger mounted no rows at all, so nothing here says anything about windowing",
+        ).toBeGreaterThan(0);
+        expect(
+          mountedRowCount * 2,
+          "the ledger mounted a row for most of what the store admitted, so its surface is not bounded by the viewport and the whole log is being laid out",
+        ).toBeLessThan(Number(appliedEventCount));
       } finally {
         // Detached before the wrapper closes the window: detaching a DevTools
         // session from a closed application raises, and the raise would replace

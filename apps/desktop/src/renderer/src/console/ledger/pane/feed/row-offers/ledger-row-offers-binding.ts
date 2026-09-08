@@ -32,7 +32,8 @@
 // The channel is what the ledger's chord acts already use, so one press and one
 // chord that fail the same way say the same sentence in the same place.
 
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { Menu } from "@base-ui/react/menu";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { FilePathRef, TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -124,9 +125,40 @@ export interface LedgerRowOfferRequest {
   readonly pathReference: FilePathRef | undefined;
 }
 
-/** The stable handle a row asks for its own offers through. */
-export interface LedgerRowOffersBinding {
+/**
+ * Which offers a row carries, and what each one reaches.
+ *
+ * The half of the binding that needs no menu and no React tree, so the suite that
+ * drives the behaviour drives exactly this.
+ */
+export interface LedgerRowOfferResolution {
   readonly offersFor: (request: LedgerRowOfferRequest) => readonly LedgerRowOffer[];
+}
+
+/**
+ * The one menu every row in a window opens, keyed by what that row asked about.
+ *
+ * `Payload` is the row's own request, so the popup that opens is filled from the
+ * trigger that opened it rather than from a row identity the popup would have to
+ * look back up.
+ */
+export type LedgerRowOffersHandle = Menu.Handle<LedgerRowOfferRequest>;
+
+/** The stable handle a row asks for its own offers through. */
+export interface LedgerRowOffersBinding extends LedgerRowOfferResolution {
+  /**
+   * The window's ONE menu, which every row's trigger opens and one popup fills.
+   *
+   * A handle rather than a menu per row, and the difference is the whole reason this
+   * member exists: `Menu.Root` builds a floating-tree node, a positioner, a popup
+   * store, and an interaction stack, and a window mounts as many rows as the
+   * viewport holds. Measured over the endurance tier's churn, one of those machines
+   * per mounted row was megabytes of retained heap for a menu at most one row has
+   * open. Base UI publishes the detached-trigger arrangement for exactly this: the
+   * handle is minted once for the mount, every row's trigger names it, and the feed
+   * mounts the single root it drives.
+   */
+  readonly menuHandle: LedgerRowOffersHandle;
 }
 
 /**
@@ -139,7 +171,7 @@ export interface LedgerRowOffersBinding {
  */
 export function buildLedgerRowOffersBinding(
   readSurface: () => LedgerRowOfferSurface,
-): LedgerRowOffersBinding {
+): LedgerRowOfferResolution {
   const setDensity = (rowId: string, density: TimelineRowDensity): void => {
     const surface = readSurface();
     // The parked offset is CARRIED rather than reset. A row with a clamped body
@@ -210,9 +242,19 @@ export function useLedgerRowOffers(
   useLayoutEffect(() => {
     committedSurfaceRef.current = surface;
   });
+  // MINTED ONCE FOR THE MOUNT and never re-derived, because it is the identity two
+  // sides of one seam agree on: a row's trigger names it and the feed's one root
+  // attaches to it, and a handle rebuilt mid-mount would leave every already-rendered
+  // trigger pointing at a root that is no longer listening.
+  const [menuHandle] = useState<LedgerRowOffersHandle>(() =>
+    Menu.createHandle<LedgerRowOfferRequest>(),
+  );
   return useMemo(
-    () => buildLedgerRowOffersBinding(() => ({ ...committedSurfaceRef.current, bridge })),
-    [bridge],
+    () => ({
+      ...buildLedgerRowOffersBinding(() => ({ ...committedSurfaceRef.current, bridge })),
+      menuHandle,
+    }),
+    [bridge, menuHandle],
   );
 }
 

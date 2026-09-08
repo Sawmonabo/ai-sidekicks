@@ -78,6 +78,25 @@ export interface RailPaintInput {
    * actor tick then takes the neutral tone — an absence, not a default colour.
    */
   readonly actorHue?: RailActorHueLookup;
+  /**
+   * `rail-surface.ts`' revision — WHEN the rendered box last moved.
+   *
+   * Required rather than optional, and it is a measurement rule rather than a
+   * courtesy. Reading `getBoundingClientRect()` after the frame has mutated the DOM
+   * forces the browser to lay the document out synchronously; a rail on a streaming
+   * ledger repaints every frame, so measuring per paint put one forced layout in
+   * every frame of the console's busiest surface — the largest single JavaScript
+   * cost in the frame profile that found it.
+   *
+   * The box only moves when the window, the deck, the pane, or the display's pixel
+   * ratio does, and `useRailSurfaceRevision` already observes exactly those and
+   * already re-runs the paint. So the revision keys the measurement: the painter
+   * still takes it, off the canvas it was handed and nowhere else, and takes it
+   * again the moment the watch says the box moved. A caller that passes a constant
+   * gets one measurement and a rail that never resizes, which is why this is not
+   * defaulted.
+   */
+  readonly surfaceRevision: number;
 }
 
 /**
@@ -91,6 +110,9 @@ export interface RailPaintInput {
 export class RailPainter {
   #context: CanvasRenderingContext2D | undefined;
   #canvas: HTMLCanvasElement | undefined;
+  /** The last box measured, and the revision it was measured at. Both or neither. */
+  #surface: { readonly width: number; readonly height: number } | undefined;
+  #surfaceRevision: number | undefined;
   readonly #readDevicePixelRatio: () => number;
 
   /**
@@ -111,7 +133,7 @@ export class RailPainter {
     if (context === undefined) {
       return;
     }
-    const surface = this.#synchroniseBackingStore(canvas, context);
+    const surface = this.#synchroniseBackingStore(canvas, context, input.surfaceRevision);
     if (surface === undefined) {
       // Nothing has been laid out yet — a rail inside a collapsed pane, or a host
       // whose rects are all zero. Painting into a store with no extent would put
@@ -163,13 +185,30 @@ export class RailPainter {
    * set after the sizing rather than once at construction, and `setTransform`
    * rather than `scale` because `scale` compounds and a second paint would then
    * draw at the square of the ratio.
+   *
+   * MEASURED ONCE PER REVISION, not once per paint — the member's own documentation
+   * says why. On a repeat revision nothing here runs: the store already has the
+   * right extent and the transform set with it is still the one in force, because
+   * the only thing that resets a context's transform is a resize this branch did
+   * not perform.
+   *
+   * A box with no extent CACHES NOTHING. A rail inside a collapsed pane reports
+   * zero at every revision it is asked at, and remembering that would mean the pane
+   * opening without the box moving — which is not a resize the watch reports —
+   * left the rail measured at zero for the life of the mount.
    */
   #synchroniseBackingStore(
     canvas: HTMLCanvasElement,
     context: CanvasRenderingContext2D,
+    revision: number,
   ): { readonly width: number; readonly height: number } | undefined {
+    const measured = this.#surface;
+    if (measured !== undefined && this.#surfaceRevision === revision) {
+      return measured;
+    }
     const rendered = canvas.getBoundingClientRect();
     if (rendered.width <= 0 || rendered.height <= 0) {
+      this.#forgetSurface();
       return undefined;
     }
     const ratio = this.#readDevicePixelRatio();
@@ -182,17 +221,30 @@ export class RailPainter {
       canvas.height = backingHeight;
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    return { width: rendered.width, height: rendered.height };
+    const surface = { width: rendered.width, height: rendered.height };
+    this.#surface = surface;
+    this.#surfaceRevision = revision;
+    return surface;
   }
 
   #contextFor(canvas: HTMLCanvasElement): CanvasRenderingContext2D | undefined {
     if (this.#canvas !== canvas) {
       this.#canvas = canvas;
+      // A DIFFERENT ELEMENT IS A DIFFERENT BOX, whatever the revision says: the
+      // watch reports that one canvas resized and says nothing about a remount
+      // handing the painter another one.
+      this.#forgetSurface();
       // `?? undefined` because a DOM shim answers `null`, which is a real answer:
       // this host cannot paint, and the rail's DOM layer carries the surface.
       this.#context = canvas.getContext("2d") ?? undefined;
     }
     return this.#context;
+  }
+
+  /** Drop the held box, so the next paint measures rather than trusts. */
+  #forgetSurface(): void {
+    this.#surface = undefined;
+    this.#surfaceRevision = undefined;
   }
 }
 

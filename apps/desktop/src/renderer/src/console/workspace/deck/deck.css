@@ -9,11 +9,26 @@
 
 /* --- The deck ----------------------------------------------------------- */
 
+/*
+ * The deck is bounded by the region it sits in, and `max-height` is what says so.
+ *
+ * `min-height: 0` lets a flex child shrink; it does not stop one from GROWING. With
+ * no ceiling the deck took the height of whatever its panes wanted, so a pane whose
+ * body overflowed pushed the deck past the workspace region and the pane's own
+ * scroller never engaged — the surface below it laid out in full, off the bottom of
+ * the window, and every list inside it mounted every row it held. `.meridian-ledger-surface`
+ * carries the same ceiling one level up, and its rule states the measurement.
+ *
+ * A CEILING AND NOT A `height`: the two agree wherever the deck overflows and differ
+ * where it does not, so this bounds the broken case and moves no layout that already
+ * fitted.
+ */
 .meridian-deck {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  max-height: 100%;
 }
 
 /*

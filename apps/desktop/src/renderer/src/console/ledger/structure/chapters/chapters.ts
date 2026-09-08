@@ -34,7 +34,7 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { ChapterBodyRowWindow, chapterClippedHeadRowIds } from "./chapter-body.js";
+import { ChapterBodyRowWindow, chapterClippedHeadRowCount } from "./chapter-body.js";
 import {
   isReopeningEventType,
   isRunStateEventType,
@@ -66,9 +66,10 @@ export interface LedgerChapter {
   readonly rowCount: number;
   /**
    * Rows the outer list's ceiling left out, which the body clips behind a top-edge
-   * fade and scrolls to. Counted by the same selector the body's window is cut with,
-   * so the figure and the rows are one rule; reported rather than dropped, because a
-   * chapter that hid rows silently would make its own row count a lie.
+   * fade and scrolls to. Counted by the same rule the body's window is cut with —
+   * `chapterClippedHeadRowCount`, which the selection itself defers to — so the figure
+   * and the rows cannot disagree; reported rather than dropped, because a chapter that
+   * hid rows silently would make its own row count a lie.
    */
   readonly clippedRowCount: number;
   /**
@@ -323,7 +324,7 @@ function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
     runId: accumulator.runId,
     rowIds: accumulator.rowIds,
     rowCount,
-    clippedRowCount: chapterClippedHeadRowIds(accumulator.rowIds).length,
+    clippedRowCount: chapterClippedHeadRowCount(rowCount),
     actorId: accumulator.actorId,
     lifecycle: accumulator.terminalEventType === undefined ? "live" : "terminal",
     runStateEventType: accumulator.runStateEventType,
