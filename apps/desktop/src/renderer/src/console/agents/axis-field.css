@@ -2,16 +2,28 @@
  *
  * Beside `AxisCombobox.tsx` rather than inside `agents.css`, on the
  * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one
- * file. Split out of that sheet verbatim and in order; this was a MOVE and not a
- * restyle, and no pinned image may shift because of it.
+ * file. Split out of that sheet verbatim and in order; that was a MOVE and not a
+ * restyle, and no pinned image may shift because of it. The account field's three
+ * selectors below arrived afterwards with the control that draws them, and they are
+ * the only rules here the split did not carry across.
  *
  * IT IS A FAMILY-WIDE CONTROL AND STILL NOT FAMILY-SHEET MATERIAL. Three surfaces draw
  * it — the attach form, the provider switch, and the binding column — which is an
  * argument for the family sheet only if the rules were SHARED with something else. They
  * are not: every selector below is `.meridian-axis-field*` and nothing outside this
  * block sets one. What the field genuinely shares with the family's other controls is
- * its focus ring, and that rule stays in `agents.css` with the rest of the control
- * shape, which is why this sheet declares no `:focus-visible` of its own.
+ * the TRIGGER's focus ring, and that rule stays in `agents.css` with the rest of the
+ * control shape, which is why no `:focus-visible` for `__trigger` appears below.
+ *
+ * TWO COMPONENTS DRAW THE BLOCK, AND THAT IS WHY THE SHEET IS HERE RATHER THAN UNDER
+ * `attach/`. `AxisCombobox.tsx` beside this file draws it for the provider axes, and
+ * `attach/account-axis/AccountAxisField.tsx` draws it for the paying account. Filing
+ * these rules under the attach directory would make that directory the reason the
+ * provider switch is styled at all, which is exactly what the stylesheet-owner rule in
+ * `apps/desktop/AGENTS.md` forbids — so the account field's own selectors
+ * (`__option-label`, `__advisories`, `__clear`) join the block they belong to instead.
+ * The clear control carries its own `:focus-visible` because it is a bare text button
+ * and wears none of the family's control shape.
  *
  * Meridian tokens throughout. No literal colour and no literal length. */
 
@@ -63,6 +75,39 @@
   cursor: pointer;
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-sm);
+}
+
+/* An account row carries two readings — the operator's own label and the opaque
+   handle the wire takes — so the row is a column and the label leads it. */
+.meridian-axis-field__option-label {
+  display: block;
+  font-family: var(--meridian-font-sans);
+  color: var(--meridian-text);
+}
+
+.meridian-axis-field__advisories {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-axis-field__clear {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+}
+
+.meridian-axis-field__clear:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }
 
 .meridian-axis-field__option[data-highlighted] {

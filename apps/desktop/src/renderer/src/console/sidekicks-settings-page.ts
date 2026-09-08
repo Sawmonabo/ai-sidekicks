@@ -53,6 +53,7 @@
 // `settings/index.js` because that door imports THIS file to compose the page, and a
 // type line back through it closes a module cycle `no-circular` fails on.
 
+import { SIDEKICK_DEFINITIONS_SECTION } from "./agents/sidekick-definitions-section.js";
 import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
@@ -61,13 +62,21 @@ const OWNER = "collaboration-settings-sidekicks";
 /**
  * Claim the sidekicks section.
  *
- * The body takes the BRIDGE and nothing else from the page context. It reads the
- * saved-sidekick registry on mount and deletes through the same port, so the seam
- * hands it the one member those calls need; `openSection` and `retainedSessionId` are
- * deliberately not threaded, because the page navigates nowhere and its subject is
- * node-local rather than scoped to whichever session this window happens to hold. The
- * chunk root declares exactly that narrower parameter, which is what keeps the agents
- * family from naming the settings family's context type to satisfy this registration.
+ * The body takes the BRIDGE and the RETAINED SESSION and nothing else from the page
+ * context. It reads the saved-sidekick registry on mount and deletes through the same
+ * port, and it offers a definition to whichever session this window is working in — an
+ * act that is meaningless without one, which is why the id is threaded and why the page
+ * renders no attach control at all where this window has opened no session. What stays
+ * deliberately unthreaded is `openSection`: the page navigates nowhere, and the handoff
+ * it makes is picked up by the session's own attach form rather than by a rail move.
+ * The chunk root declares exactly that narrower parameter, which is what keeps the
+ * agents family from naming the settings family's context type to satisfy this
+ * registration.
+ *
+ * The SECTION comes from the agents family's own leaf constant rather than a literal
+ * here, because the in-session picker links back to this page and a second spelling of
+ * the id is a link that goes stale silently. Passing it where a `SettingsSectionId` is
+ * required is what checks it against the settings vocabulary.
  *
  * `label` and `keywords` stay HERE rather than travelling with the body, and that is what
  * makes the loader form usable at all: the rail lists every registered section and the
@@ -76,7 +85,7 @@ const OWNER = "collaboration-settings-sidekicks";
  */
 export function registerSidekicksPage(registry: SettingsPageRegistrar): void {
   registry.register({
-    section: "sidekicks",
+    section: SIDEKICK_DEFINITIONS_SECTION,
     owner: OWNER,
     label: "Sidekicks",
     keywords: [

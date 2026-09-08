@@ -14,7 +14,7 @@
 //
 // Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
 
-// THE SEVEN CONSOLE SHEETS ENTER HERE TOO, for the reason
+// THE SEVEN CONSOLE SHEETS ENTER HERE TOO, in the same order and for the reason
 // `agent-console-pane-body.ts` states: this root and that one are two independent first
 // paints of one body, so each names the rules that body needs rather than one of them
 // relying on the other having run. The ORDER is the family's and is load-bearing —
@@ -43,6 +43,12 @@ import type { ConsoleSurfaceContext } from "../../seats/index.js";
  * detached from itself.
  */
 export function Body(context: ConsoleSurfaceContext): React.ReactNode {
+  // NO `onOpenDefinitions`, and the omission is the answer rather than a gap. This
+  // window draws its own frame, carries no settings rail, and routes to no settings
+  // address, so there is nowhere for the attach form's picker to send anybody — and
+  // the picker draws no link at all rather than one that would go nowhere. The deck's
+  // root beside this one composes the navigation, because the rail is the main
+  // window's.
   return createElement(AgentConsoleWindow, {
     sessionId: routeSessionId(context.route),
     agentId:

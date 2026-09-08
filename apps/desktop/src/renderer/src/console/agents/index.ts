@@ -24,17 +24,17 @@
 // NO STYLESHEET IS IMPORTED HERE, and the reason is what this door is REACHED BY.
 // `collaboration-family.ts` imports it eagerly for the agent console's surface
 // registration, so every module and every sheet this door reaches statically is on the
-// initial graph of every launch. All five of this family's sheets therefore enter at a
+// initial graph of every launch. All eight of this family's sheets therefore enter at a
 // chunk root instead.
 //
-// FOUR OF THEM AT THE AGENT CONSOLE'S TWO ROOTS. Both agent-console mounts are loaders,
-// and the console's own components are the only readers of those four sheets' selectors —
+// SEVEN OF THEM AT THE AGENT CONSOLE'S TWO ROOTS. Both agent-console mounts are loaders,
+// and the console's own components are the only readers of those seven sheets' selectors —
 // measured, not assumed: no module in the static graph names a class any of them declares.
 // They are imported from BOTH roots rather than one, because either mount can be the first
 // to render the body and neither may render it undressed; the bundler emits one shared
 // asset for the pair rather than two copies.
 //
-// THE FIFTH AT `definitions/sidekick-definitions-page-body.ts`, which is a root of its own
+// THE EIGHTH AT `definitions/sidekick-definitions-page-body.ts`, which is a root of its own
 // because the page it dresses is a SETTINGS section rather than a mount of this family's.
 // It sat here, imported beside a re-export of the page, while the settings registration
 // could take only a component — and the two together put a page nobody had opened, and the
@@ -43,7 +43,7 @@
 // The admitting rule is the collision census, not the directory: a sheet may cross a
 // chunk boundary only when no other family declares a class it declares, because load
 // order decides equal-specificity conflicts and deferring such a sheet restyles the
-// other family (`runs/index.ts` records that happening). None of these five does, per
+// other family (`runs/index.ts` records that happening). None of these eight does, per
 // `test/console/architecture/stylesheet-selector-owners.test.ts`.
 
 // --- WHAT LEAVES THIS FAMILY -------------------------------------------
