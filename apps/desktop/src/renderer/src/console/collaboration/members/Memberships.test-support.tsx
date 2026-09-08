@@ -13,6 +13,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
+import { sectionContext } from "../../seats/section-context.test-support.js";
 import { deriveMembershipRows } from "./members-model.js";
 import { Memberships as MembershipsSurface } from "./Memberships.js";
 
@@ -98,25 +99,25 @@ export function storeHolding(memberships: readonly ProjectedMembership[]): Sessi
 }
 
 /**
- * A section context around one store.
+ * A section context around one store, over the shared builder.
  *
- * `frameStore` is a parameter because the ledger reads the shell's condition off it:
- * a case that leaves it out gets a fresh one, which is born UNREPORTED and therefore
- * blocks nothing — the state a shipped window is in until the supervisor says
- * otherwise, and the right default for every case that is not about the transport.
+ * The two answers this family supplies are the ones the seat leaves to a caller: the
+ * ledger's cases are all written against an OPEN section, and the bridge they mount
+ * against is the empty scenario's. `frameStore` stays a parameter and is forwarded
+ * because the ledger reads the shell's condition off it — a case that leaves it out
+ * takes the seat's fresh one, which is born UNREPORTED and therefore blocks nothing.
  */
 export function contextFor(
   store: SessionStore,
   bridge?: ConsoleBridge,
   frameStore?: FrameStore,
 ): SidebarSectionContext {
-  return {
+  return sectionContext({
+    isOpen: true,
     sessionStore: store,
     bridge: bridge ?? createFixtureBridge({ scenario: EMPTY_SCENARIO }),
-    frameStore: frameStore ?? new FrameStore(),
-    openPane: () => undefined,
-    isOpen: true,
-  };
+    frameStore,
+  });
 }
 
 /** A window store whose supervisor has gone offline: every mutating call is closed. */

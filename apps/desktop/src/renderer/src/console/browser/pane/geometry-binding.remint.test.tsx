@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 
 import { BrowserPane } from "./BrowserPane.js";
 import {
-  paneContext,
+  browserPaneContext,
   recordingBrowserBridge,
   releaseQueuedPaneFrames,
 } from "./BrowserPane.test-support.js";
@@ -33,7 +33,9 @@ import {
 describe("browser pane geometry — the publisher under a double mount", () => {
   it("publishes this pane's rectangle rather than holding the disposed one", async () => {
     const publishedPaneIds: string[] = [];
-    const built = paneContext(recordingBrowserBridge((paneId) => publishedPaneIds.push(paneId)));
+    const built = browserPaneContext(
+      recordingBrowserBridge((paneId) => publishedPaneIds.push(paneId)),
+    );
     await act(async () => {
       render(
         <StrictMode>

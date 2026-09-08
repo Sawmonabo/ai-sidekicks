@@ -1,15 +1,17 @@
-// One pane context, for every suite in this family that mounts a pane.
+// One pane context, for every suite in any family that mounts a pane.
 //
 // A pane body is handed its address and eight bindings, and reads two or three of
-// them. The rest is scaffolding every mounting suite has to produce anyway, and four
-// suites had each produced their own — four `paneContext` functions, identical but
-// for the address arm, drifting on the members nobody was looking at. Two built their
-// UI-state store over a `MemoryPersistenceAdapter` and two over an adapter that never
-// settles, and the difference recorded nothing: NO PANE IN THIS FAMILY READS
-// `uiStateStore` at all. So the four collapse to one, and the never-settling adapter
-// is what it carries — the deliberate half of that split. A pane that grew a UI-state
-// read would hang here and be found, where the settling stub would have answered it
-// with an empty store and passed.
+// them. The rest is scaffolding every mounting suite has to produce anyway, and the
+// suites had each produced their own — `paneContext` functions identical but for the
+// address arm, drifting on the members nobody was looking at. Some built their
+// UI-state store over a settling adapter and some over one that never settles, and
+// the difference recorded nothing: NO PANE THAT MOUNTS THROUGH THIS BUILDER READS
+// `uiStateStore` at all. So they collapse to one, and the never-settling adapter is
+// the DEFAULT it carries — the deliberate half of that split. A pane that grew a
+// UI-state read hangs here and is found, where a settling stub would have answered
+// it with an empty store and passed. A suite that genuinely needs a store which
+// ANSWERS hands one in, at the call site, rather than writing a second builder to
+// get it: that binding is what turned every hand-written copy into a silent fork.
 //
 // THE ADDRESS IS THE PARAMETER, and the bindings are the rest. That split is the
 // address union's own: `seats/pane-address.ts` makes a session-scoped kind carry no
@@ -19,11 +21,11 @@
 // mounted with no entity, or a `runs` pane handed one, fails to compile here rather
 // than being invented for by a default.
 //
-// AND IT LIVES IN `seats/` because the suites that mount a pane are in three VIEW
-// families — runs, approvals, inspector — and a sibling may not import a sibling.
-// `console-view-family-isolation` says where a contract three siblings share
-// belongs, and this is the contract `seats/pane-registry.ts` declares: a builder for
-// `ConsolePaneContext` beside the type it builds.
+// AND IT LIVES IN `seats/` because the suites that mount a pane are in VIEW families
+// — runs, approvals, inspector, browser, terminal — and a sibling may not import a
+// sibling. `console-view-family-isolation` says where a contract those siblings
+// share belongs, and this is the contract `seats/pane-registry.ts` declares: a
+// builder for `ConsolePaneContext` beside the type it builds.
 
 import { type ConsoleBridge } from "../bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
@@ -73,14 +75,37 @@ export interface PaneBindings {
    * passes the property PRESENT and undefined, which the bare `?` rejects.
    */
   readonly frameStore?: FrameStore | undefined;
+  /**
+   * This pane's identity in the deck, where a case is about WHICH pane it is.
+   *
+   * Defaulted from the kind, which is what every suite that has nothing to say here
+   * wants — and named by the one class of case that does: a deck moves a slot to
+   * another pane without remounting, so a suite proving the pane's state says whose
+   * it is has to hold two ids at once. That is a claim the caller makes, and the
+   * only reason this member exists rather than the derivation alone.
+   */
+  readonly paneId?: string | undefined;
+  /**
+   * A UI-state store that ANSWERS, for a case that is about a UI-state read.
+   *
+   * The default is the never-settling adapter this module's header argues for, and
+   * this member is how a suite opts out of it OUT LOUD. Two families had opted out
+   * silently, by writing their own builder around `UiStateStore.opening()`, and the
+   * cost of that was not the extra function: a pane in either of them could grow a
+   * UI-state read, pass against a store that answered empty, and hang in the four
+   * families that had kept the adapter — one behaviour with two answers, which is
+   * the divergence a second builder always buys.
+   */
+  readonly uiStateStore?: UiStateStore | undefined;
 }
 
 /**
  * The context a pane body is mounted with, over one address.
  *
- * The pane id is derived from the kind rather than passed: all four suites named
- * theirs `pane-<kind>`, and a deck's real ids are per-pane values no case here
- * asserts on.
+ * The pane id is DERIVED from the kind unless the caller names one: the suites that
+ * do not care named theirs `pane-<kind>`, and a deck's real ids are per-pane values
+ * most cases never assert on. The exception is a case whose subject IS the identity,
+ * and {@link PaneBindings.paneId} is where it says so.
  *
  * The return is spelled as the intersection rather than as `PaneContextOf<TKind>`,
  * which is the same type at every concrete call: `PaneContextOf` resolves through an
@@ -93,14 +118,16 @@ export function paneContext<TKind extends PaneKind>(
 ): PaneAddressOf<TKind> & PaneBindingMembers {
   return {
     ...address,
-    paneId: `pane-${address.kind}`,
+    paneId: bindings.paneId ?? `pane-${address.kind}`,
     linkedSourcePaneId: bindings.linkedSourcePaneId,
     bridge: bindings.bridge,
     frameStore: bindings.frameStore ?? new FrameStore(),
     sessionStore: bindings.sessionStore,
-    // An adapter that never settles: no pane in this family performs a UI-state read,
-    // so one that grew one hangs here rather than passing against a stub.
-    uiStateStore: new UiStateStore({ adapter: new Promise(() => undefined) }),
+    // An adapter that never settles: no pane mounted through this builder performs a
+    // UI-state read, so one that grew one hangs here rather than passing against a
+    // stub. A suite that needs a store which answers passes it.
+    uiStateStore:
+      bindings.uiStateStore ?? new UiStateStore({ adapter: new Promise(() => undefined) }),
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
     focusHue: undefined,
   };
