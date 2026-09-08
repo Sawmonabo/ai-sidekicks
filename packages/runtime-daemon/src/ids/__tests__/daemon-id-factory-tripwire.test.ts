@@ -14,9 +14,16 @@
 // carries every `randomUUID` mention those files hold today, code and prose,
 // with the reason on the line it exempts.
 //
-// The pairing runs in both directions. An unlisted mention in a listed file is
-// an offender, and a listed pair whose source line is gone is a hole held open
-// for nothing — reported by pair, so the list cannot rot into a stale blanket.
+// Within a listed path the comparison is a MULTISET and deliberately not a
+// set. A set would reopen a narrower version of the same hole: two identical
+// trimmed lines collapse onto one member, so copying an already-exempt mint
+// into a second scope of an exempt file reads as "already allowed", and the
+// same collapse hides a deleted occurrence whose twin still stands. Comparing
+// the file's mention texts against the listed ones occurrence for occurrence
+// closes both, and closes them in one comparison rather than two checks that
+// could disagree — an unexpected text lands on the actual side, a vanished one
+// on the expected side. So a duplicated line needs its own list entry, with
+// its own reason, exactly as a new line does.
 //
 // Why a test rather than a lint rule
 // ----------------------------------
@@ -69,8 +76,8 @@ interface ExemptOccurrence {
  * Paths are `/`-separated and relative to `packages/runtime-daemon/src`; line
  * texts are compared after `String.prototype.trim()`, so indentation may move.
  */
-const RANDOM_UUID_OCCURRENCE_ALLOW_LIST: ReadonlyMap<string, readonly ExemptOccurrence[]> = new Map(
-  [
+export const RANDOM_UUID_OCCURRENCE_ALLOW_LIST: ReadonlyMap<string, readonly ExemptOccurrence[]> =
+  new Map([
     [
       "provider/drivers/outbound-frame.ts",
       [
@@ -159,8 +166,7 @@ const RANDOM_UUID_OCCURRENCE_ALLOW_LIST: ReadonlyMap<string, readonly ExemptOccu
         },
       ],
     ],
-  ],
-);
+  ]);
 
 /** Test directories the sweep never descends into, at any depth. */
 const SKIPPED_DIRECTORY_NAME = "__tests__";
@@ -209,37 +215,44 @@ function findRandomUuidMentions(): RandomUuidMention[] {
   return mentions;
 }
 
-/** `path lineText`, the pairing key both directions compare on. */
-function occurrenceKey(relativePath: string, lineText: string): string {
-  return `${relativePath} ${lineText}`;
+/**
+ * The allow-listed line texts for one path, sorted — one entry per exempt
+ * occurrence, so two identical exempt lines are two entries and not one.
+ */
+function allowListedTextsFor(relativePath: string): string[] {
+  const occurrences: readonly ExemptOccurrence[] =
+    RANDOM_UUID_OCCURRENCE_ALLOW_LIST.get(relativePath) ?? [];
+  return occurrences.map((occurrence: ExemptOccurrence) => occurrence.lineText).sort();
 }
 
-/** Every allow-listed pair, flattened to its comparison key. */
-function allowListedKeys(): ReadonlySet<string> {
-  const keys = new Set<string>();
-  for (const [relativePath, occurrences] of RANDOM_UUID_OCCURRENCE_ALLOW_LIST) {
-    for (const occurrence of occurrences) {
-      keys.add(occurrenceKey(relativePath, occurrence.lineText));
-    }
+/** The `randomUUID` line texts each path actually holds, sorted, one per mention. */
+function mentionTextsByPath(mentions: readonly RandomUuidMention[]): ReadonlyMap<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const mention of mentions) {
+    const texts: string[] = grouped.get(mention.relativePath) ?? [];
+    texts.push(mention.lineText);
+    grouped.set(mention.relativePath, texts);
   }
-  return keys;
+  for (const texts of grouped.values()) {
+    texts.sort();
+  }
+  return grouped;
 }
 
 describe("daemon id factories mint through `ids/uuid-v7.ts`", () => {
   it("finds no randomUUID mention outside ids beyond the allow-listed occurrences", () => {
     const mentions: RandomUuidMention[] = findRandomUuidMentions();
-    const allowed: ReadonlySet<string> = allowListedKeys();
 
-    // (i) Every mention in the tree is an allow-listed pair. A NEW line in an
-    // already-listed file is an offender: the path buys nothing on its own.
+    // (i) A mention in a path the allow-list does not name at all is an
+    // offender, reported with its line number so a reviewer can go read it.
     const offenders: string[] = mentions
       .filter(
         (mention: RandomUuidMention) =>
-          !allowed.has(occurrenceKey(mention.relativePath, mention.lineText)),
+          !RANDOM_UUID_OCCURRENCE_ALLOW_LIST.has(mention.relativePath),
       )
       .map(
         (mention: RandomUuidMention) =>
-          `${mention.relativePath}:${String(mention.lineNumber)} — ${mention.lineText}`,
+          `${mention.relativePath}:${String(mention.lineNumber)} ${mention.lineText}`,
       );
 
     expect(
@@ -248,35 +261,33 @@ describe("daemon id factories mint through `ids/uuid-v7.ts`", () => {
         "event id must mint through `mintUuidV7` (`src/ids/uuid-v7.ts`), because " +
         "`packages/contracts/src/session.ts` and `event.ts` both state that " +
         "daemon-assigned ids are RFC 9562 UUIDv7. If this really is an ephemeral " +
-        "token that no row and no event stores — or prose about one — add the " +
+        "token that no row and no event stores, or prose about one, add the " +
         "EXACT trimmed line to `RANDOM_UUID_OCCURRENCE_ALLOW_LIST` under its " +
         "path, with the reason beside it. Listing the path alone is not enough " +
         "and never was.",
     ).toStrictEqual([]);
 
-    // (ii) Every allow-listed pair is still in its file. A pair whose source
-    // line moved or vanished is a hole held open for nothing.
-    const presentKeys: ReadonlySet<string> = new Set(
-      mentions.map((mention: RandomUuidMention) =>
-        occurrenceKey(mention.relativePath, mention.lineText),
-      ),
-    );
-    const staleEntries: string[] = [];
-    for (const [relativePath, occurrences] of RANDOM_UUID_OCCURRENCE_ALLOW_LIST) {
-      for (const occurrence of occurrences) {
-        if (!presentKeys.has(occurrenceKey(relativePath, occurrence.lineText))) {
-          staleEntries.push(`${relativePath} — ${occurrence.lineText}`);
-        }
-      }
+    // (ii) Inside an allow-listed path, the file's mentions and the list must
+    // agree as MULTISETS. Comparing SETS would be a hole: a second copy of an
+    // already-exempt line collapses onto the same member, so duplicating a mint
+    // into another scope of an exempt file reads as "already allowed" — and the
+    // same collapse makes a deleted occurrence look present while its twin
+    // survives. Counting closes both, and closes them in ONE comparison: an
+    // unexpected text (new, or a duplicate of a listed one) shows up on the
+    // actual side, a vanished one on the expected side.
+    const actualTextsByPath: ReadonlyMap<string, string[]> = mentionTextsByPath(mentions);
+    for (const relativePath of RANDOM_UUID_OCCURRENCE_ALLOW_LIST.keys()) {
+      expect(
+        actualTextsByPath.get(relativePath) ?? [],
+        `\`${relativePath}\` no longer matches its allow-list entry occurrence for ` +
+          "occurrence. A line only the FILE has is an unexempted mention: add it " +
+          "to `RANDOM_UUID_OCCURRENCE_ALLOW_LIST` with its own reason if it is " +
+          "genuinely an ephemeral token, and note that a second copy of an " +
+          "already-listed line needs its own entry. A line only the ALLOW-LIST " +
+          "has is a hole held open for nothing: delete that entry, or update its " +
+          "`lineText` if the line was merely reworded.",
+      ).toStrictEqual(allowListedTextsFor(relativePath));
     }
-
-    expect(
-      staleEntries,
-      "An allow-list pair whose source line no longer exists is a hole held " +
-        "open for nothing — and left in place it degrades back into the " +
-        "path-wide exemption this list replaced. Delete the pair, or update its " +
-        "`lineText` if the line was only reworded.",
-    ).toStrictEqual([]);
   });
 
   it("sweeps a real tree — the walk reaches the modules that were migrated", () => {
