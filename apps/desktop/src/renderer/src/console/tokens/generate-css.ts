@@ -34,6 +34,7 @@
 // pins the single scheme it stands for.
 
 import { formatOklch } from "./color.js";
+import { CHROME_SETTLE_SPRING, sampleSpringEasing } from "./motion.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
   BODY_LINE_HEIGHT,
@@ -45,6 +46,7 @@ import {
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
+  TYPEFACE_FEATURE_SETTINGS,
   TYPE_SCALE_REM,
 } from "./palette.js";
 import type { ConsoleScheme } from "./tokens.js";
@@ -121,6 +123,14 @@ function invariantBlock(): string {
     lines.push(declaration(tokenName, `${durationMs}ms`));
   }
   lines.push(declaration("ease-settle", MOTION_EASE_SETTLE));
+  // The spring, sampled ONCE — here, while the sheet is being built — into the
+  // `linear()` easing `Spec-023 §Console Libraries`' motion row asks for. Emitting
+  // it as a token is what keeps the spring off the render path: a family that wants
+  // the settle writes `var(--meridian-ease-spring)` and the compositor runs it, and
+  // nothing computes a spring while anything is on screen. `ease-settle` above stays
+  // beside it as the cheaper cubic for surfaces whose travel does not warrant the
+  // longer string.
+  lines.push(declaration("ease-spring", sampleSpringEasing(CHROME_SETTLE_SPRING)));
 
   return lines.join("\n");
 }
@@ -204,6 +214,10 @@ export function generateMeridianCss(): string {
     "  font-family: var(--meridian-font-sans);",
     "  font-size: var(--meridian-text-md);",
     `  line-height: ${BODY_LINE_HEIGHT};`,
+    // Rule 4's slashed zero and tabular figures. Stated once, on the root, and
+    // inherited by every descendant including the mono spans that carry the wire
+    // figures these features exist for.
+    `  font-feature-settings: ${TYPEFACE_FEATURE_SETTINGS};`,
     "  -webkit-font-smoothing: antialiased;",
     "}",
     "",

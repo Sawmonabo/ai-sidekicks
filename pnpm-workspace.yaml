@@ -82,6 +82,20 @@ allowBuilds:
   #   on every dev + CI platform that builds or runs the desktop shell;
   #   without the binary `electron-vite` and `electron .` cannot launch.
   electron: true
+  # Plan-023 Phase 1C — the console's self-hosted IBM Plex faces.
+  #
+  # DENIED, both. Neither package builds anything: the `woff2` files ship in the
+  # tarball and Vite emits them as build assets, so nothing is compiled, fetched,
+  # or generated at install time. What the postinstall script actually does is run
+  # `@ibm/telemetry-js`, which collects and transmits usage data about the
+  # consuming repository. That is not a build, and a font that renders identically
+  # without it does not earn a network call on every install. Listed explicitly
+  # rather than left unlisted, because `strict-dep-builds` makes an unreviewed
+  # package an install error and a reviewed denial is the decision, not the
+  # absence of one.
+  "@ibm/plex-sans": false
+  "@ibm/plex-mono": false
+  "@ibm/telemetry-js": false
 
 # Workspace-wide dependency unification per ADR-022 §Decision row 1 (pnpm catalogs).
 # Catalogs eliminate per-package version drift for cross-cutting devDependencies (testing

@@ -282,6 +282,22 @@ export const MOTION_EASE_SETTLE = "cubic-bezier(0.22, 0.61, 0.36, 1)";
 export const BODY_LINE_HEIGHT = 1.5;
 
 /**
+ * The OpenType features every line of the console is set with.
+ *
+ * `Spec-023 §Console Design (Meridian)` §Type and figures asks for the slashed
+ * zero and tabular figures, and both are the reason a wire figure is legible: an
+ * unslashed zero beside a capital O in a SHA is a reading error, and proportional
+ * digits make two stacked costs fail to line up on their decimal point.
+ *
+ * Declared once and applied on `body` rather than on the mono token, because
+ * `font-feature-settings` INHERITS — one declaration reaches every descendant,
+ * including the mono spans, and a per-surface copy would be a second home for a
+ * decision that has one. On a face without these features the declaration is
+ * inert, which is what makes it safe to state at the root.
+ */
+export const TYPEFACE_FEATURE_SETTINGS = '"zero" 1, "tnum" 1';
+
+/**
  * Type scale, in rem. Rule 4 sets UI text in a humanist grotesque and every
  * wire-true figure in mono; the scale is shared so a figure and its label sit on
  * the same baseline.
@@ -296,16 +312,25 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
 
 /**
  * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces
- * (`Spec-023 §Console Libraries`, the motion/fonts/icons row); the console does
- * not yet self-host them, so each stack names the family first and falls through
- * to the platform UI face. Self-hosting is gated on one amendment: the foundry
- * packages are OFL-1.1, which sits outside the MIT / Apache-2.0 / BSD / ISC norm
- * ADR-020's Decision Log assumes for a DISTRIBUTED dependency (its 2026-09-01
- * axe-core row admits a never-distributed test dependency and says in terms that
- * a bundled outside-norm use needs its own entry), and at their npm pins those
- * packages ship static instances rather than the variable builds the Console
- * Libraries row describes. When that amendment lands, the faces arrive as one
- * `@font-face` block and these two constants do not move.
+ * (`Spec-023 §Console Libraries`, the motion/fonts/icons row), and the console
+ * now self-hosts them: `frame/typeface.css` declares six `@font-face` rules over
+ * the foundry packages' own Latin-1 subsets, admitted as a distributed OFL-1.1
+ * dependency by ADR-020's Decision Log. The platform fallbacks stay, and they are
+ * not decoration — each face carries a `unicode-range`, so a codepoint outside
+ * Latin-1 falls through to them rather than rendering as a notdef box.
+ *
+ * These two constants did not move when the faces arrived, which was the point of
+ * naming the families here before anything loaded them: the stack is the design's
+ * statement of what the console is set in, and the sheet is how those bytes get
+ * to the document.
+ *
+ * ONE CLAIM THE LIBRARIES ROW MAKES IS NOT TRUE AT THESE PINS. It describes the
+ * faces as "variable builds", and `@ibm/plex-sans@1.1.0` and
+ * `@ibm/plex-mono@2.5.0` publish static instances only — no variable file under
+ * any name, and no `-var` package exists on the registry. The sheet therefore
+ * declares one face per weight. The visible consequence is small and worth
+ * knowing: an intermediate weight resolves to the nearest declared face rather
+ * than being interpolated.
  */
 export const FONT_STACKS: Readonly<Record<string, string>> = {
   "font-sans":

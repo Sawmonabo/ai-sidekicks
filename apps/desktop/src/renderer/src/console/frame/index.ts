@@ -14,6 +14,13 @@
 // rules cascade after the primitives' (whose barrel imports theirs first, being an
 // upstream import of these components).
 //
+// `typeface.css` sits beside it and holds only `@font-face` declarations, which
+// participate in no cascade — a face is matched, not overridden — so its position
+// relative to `frame.css` decides nothing. It is a separate sheet rather than a
+// block inside that one because it is the only file in the tree whose `url()`
+// specifiers name a dependency: a font pin moves in exactly one place, and a
+// reviewer reading a `frame.css` diff is never reading an asset change.
+//
 // A barrel re-exports only its own family. The route vocabulary used to be
 // re-exported from here because it used to LIVE here; it now lives in
 // `console/routing/`, below this family, and consumers import it from there. A
@@ -21,6 +28,7 @@
 // the DAG without ever naming the family it was reaching into.
 
 import "./frame.css";
+import "./typeface.css";
 
 export { ConsoleRoot } from "./composition/ConsoleRoot.js";
 
