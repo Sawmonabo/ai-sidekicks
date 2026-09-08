@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { growthRefusing, growthServing } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import type { GrowthOutcome } from "../../bridge/index.js";
+import { quietShell } from "../shell-condition.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
 import {
   CONTROL_PLANE_HOST,
@@ -21,6 +21,7 @@ import {
   SHORT_EXPIRY,
   bridgeFor,
   choose,
+  heldHostRead,
   mintsReaching,
   pressSend,
   scenarioMinting,
@@ -32,39 +33,16 @@ import { DEFAULT_JOIN_MODE } from "./invite-draft.js";
 import { SentInvites } from "./SentInvites.js";
 import { INVITE_1, SESSION_ID, VIEWING_PARTICIPANT, invite } from "./sent-invites.test-support.js";
 
-/**
- * The host read held open, with the means to answer it later.
- *
- * The window these cases have to observe is the one between the press and the
- * composed link, and a read that answers immediately closes it before a case can
- * look. `settleable` in the coordinator's own suite is this shape for the daemon
- * arm; this is the growth arm's, and it is local because one surface reads this
- * operation.
- */
-function heldHostRead(): {
-  readonly read: () => Promise<GrowthOutcome<{ readonly host: string }>>;
-  readonly answer: () => void;
-} {
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return {
-    read: async () => {
-      await held;
-      return { status: "served", value: { host: CONTROL_PLANE_HOST } };
-    },
-    answer: () => {
-      release();
-    },
-  };
-}
-
 describe("creating an invitation — what the request is composed from", () => {
   it("names the participant the identity read answered with, and never a guess", async () => {
     const { bridge, calls } = bridgeFor(scenarioMinting());
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     await pressSend(container);
@@ -84,7 +62,12 @@ describe("creating an invitation — what the request is composed from", () => {
       callerParticipantRead: async () => await new Promise(() => undefined),
     });
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
 
@@ -100,6 +83,7 @@ describe("creating an invitation — what the request is composed from", () => {
         bridge={bridgeFor(scenarioMinting()).bridge}
         sessionId={SESSION_ID}
         onMinted={() => undefined}
+        frameStore={quietShell()}
       />,
     );
     await settle();
@@ -112,7 +96,12 @@ describe("creating an invitation — what the request is composed from", () => {
       callerParticipantRead: growthRefusing("callerParticipantRead"),
     });
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
 
@@ -123,7 +112,12 @@ describe("creating an invitation — what the request is composed from", () => {
   it("starts on the join mode the corpus fixes as the default", async () => {
     const { bridge, calls } = bridgeFor(scenarioMinting());
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     // Untouched, the form sends `Spec-002 §Default Behavior`'s own value. Read off
@@ -139,7 +133,12 @@ describe("creating an invitation — what the request is composed from", () => {
     // sent the default whatever was picked.
     const { bridge, calls } = bridgeFor(scenarioMinting());
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     choose(container, "viewer");
@@ -151,7 +150,12 @@ describe("creating an invitation — what the request is composed from", () => {
   it("sends the expiry the chosen row names, measured on the console's own clock", async () => {
     const { bridge, calls } = bridgeFor(scenarioMinting());
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
 
@@ -165,7 +169,12 @@ describe("creating an invitation — what the request is composed from", () => {
     // sent the same instant whatever was chosen.
     const { bridge, calls } = bridgeFor(scenarioMinting());
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     choose(container, "1d");
@@ -180,7 +189,12 @@ describe("creating an invitation — the one-time reveal", () => {
     const { bridge } = bridgeFor(scenarioMinting());
     const copy = vi.spyOn(bridge.sidekicks.native, "copyToClipboard");
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     await pressSend(container);
@@ -206,7 +220,12 @@ describe("creating an invitation — the one-time reveal", () => {
       controlPlaneHostRead: growthRefusing("controlPlaneHostRead"),
     });
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={onMinted} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        frameStore={quietShell()}
+        onMinted={onMinted}
+      />,
     );
     await settle();
     await pressSend(container);
@@ -226,6 +245,7 @@ describe("creating an invitation — the one-time reveal", () => {
         bridge={bridgeFor(scenarioMinting()).bridge}
         sessionId={SESSION_ID}
         onMinted={() => undefined}
+        frameStore={quietShell()}
       />,
     );
     await settle();
@@ -254,7 +274,12 @@ describe("creating an invitation — the mint and its link are one act", () => {
     const host = heldHostRead();
     const { bridge, calls } = bridgeFor(scenarioMinting(), { controlPlaneHostRead: host.read });
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
 
@@ -281,7 +306,12 @@ describe("creating an invitation — the mint and its link are one act", () => {
       controlPlaneHostRead: async () => await new Promise(() => undefined),
     });
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     await pressSend(container);
@@ -295,7 +325,12 @@ describe("creating an invitation — the mint and its link are one act", () => {
     // all, which is a closed control rather than a single-flight one.
     const { bridge, calls } = bridgeFor(scenarioMinting());
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     await pressSend(container);
@@ -313,7 +348,12 @@ describe("creating an invitation — what a refusal says", () => {
       scenarioRefusingMint("invite.limit_exceeded", "Too many invitations are already waiting."),
     );
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     await pressSend(container);
@@ -330,7 +370,12 @@ describe("creating an invitation — what a refusal says", () => {
       scenarioRefusingMint("invite.permission_denied", "Only the session owner may issue invites."),
     );
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={() => undefined} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        onMinted={() => undefined}
+        frameStore={quietShell()}
+      />,
     );
     await settle();
     await pressSend(container);
@@ -346,6 +391,7 @@ describe("creating an invitation — what a refusal says", () => {
         bridge={bridgeFor(scenarioMinting()).bridge}
         sessionId={SESSION_ID}
         onMinted={() => undefined}
+        frameStore={quietShell()}
       />,
     );
     await settle();
@@ -361,7 +407,9 @@ describe("creating an invitation — what the ledger beside it does", () => {
     // folded in without composing two members the wire never sent.
     const invitesList = vi.fn(growthServing([invite({ inviteId: INVITE_1 })]));
     const { bridge } = bridgeFor(scenarioMinting(), { invitesList });
-    const { container } = render(<SentInvites bridge={bridge} sessionId={SESSION_ID} />);
+    const { container } = render(
+      <SentInvites bridge={bridge} sessionId={SESSION_ID} frameStore={quietShell()} />,
+    );
     await settle();
     expect(invitesList).toHaveBeenCalledTimes(1);
 
@@ -375,7 +423,9 @@ describe("creating an invitation — what the ledger beside it does", () => {
     // render — which would be the poll this console does not have.
     const invitesList = vi.fn(growthServing([invite({ inviteId: INVITE_1 })]));
     const { bridge } = bridgeFor(scenarioMinting(), { invitesList });
-    const { container } = render(<SentInvites bridge={bridge} sessionId={SESSION_ID} />);
+    const { container } = render(
+      <SentInvites bridge={bridge} sessionId={SESSION_ID} frameStore={quietShell()} />,
+    );
     await settle();
     choose(container, "collaborator");
     await settle();

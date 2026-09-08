@@ -12,6 +12,7 @@
 
 import { InlineRefusal, Nothing, formatCount } from "../../primitives/index.js";
 import { SETTLED_INVITE_VISIBLE_CAP } from "../../core/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 import { type InviteLedger, type LedgerReading } from "./invite-ledger.js";
 import { InviteLedgerRow } from "./InviteLedgerRow.js";
 
@@ -20,6 +21,13 @@ export function SentInvitesLedger(props: {
   readonly reading: LedgerReading | undefined;
   readonly ledger: InviteLedger | undefined;
   readonly pendingRevokeKey: string | undefined;
+  /**
+   * Why the revoke may not be sent right now, or `undefined` while nothing closes it.
+   *
+   * Scoped to the CONTROL and not to the ledger: the rows above it are the read this
+   * surface already has, and an outage does not make them untrue.
+   */
+  readonly revokeBlock: ShellMutationBlock | undefined;
   readonly refusalByInviteId: Readonly<
     Record<string, { readonly code: string; readonly detail: string }>
   >;
@@ -65,6 +73,13 @@ export function SentInvitesLedger(props: {
   }
   return (
     <>
+      {/* DISABLED WITH ITS CAUSE BESIDE IT, never hidden, on the provider-readiness
+          row's precedent: a control that disappears while the runtime is away reads as
+          a control this build does not have, and a disabled one with its sentence off
+          screen reads as one that quietly stopped working. Every pending row's revoke
+          carries the block as its disabled reason; the sentence itself is the hosting
+          members section's, said once above everything under that heading — the cause
+          is the window's, and the rows below are a read the outage does not touch. */}
       {ledger.pending.length === 0 ? (
         <Nothing
           kind="empty"
@@ -83,6 +98,7 @@ export function SentInvitesLedger(props: {
                 // unsettled, not only the one being revoked: the coordinator
                 // behind them applies one at a time.
                 isAnyRevoking={props.pendingRevokeKey !== undefined}
+                revokeBlock={props.revokeBlock}
                 refusal={props.refusalByInviteId[invite.inviteId]}
                 onRevoke={() => {
                   props.onRevoke(invite.inviteId);
@@ -107,6 +123,7 @@ export function SentInvitesLedger(props: {
                   invite={invite}
                   isRevoking={false}
                   isAnyRevoking={false}
+                  revokeBlock={undefined}
                   refusal={undefined}
                 />
               </li>

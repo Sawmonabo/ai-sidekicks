@@ -196,7 +196,7 @@ export function createMountInventoryRead(options: {
   return new PushDrivenRead<MountInventory>({
     clock,
     origin: MOUNT_INVENTORY_ORIGIN,
-    read: async (signal) => await readMountInventory(bridge, sessionId, signal),
+    read: async (signal: AbortSignal) => await readMountInventory(bridge, sessionId, signal),
     // One re-read per burst, never one per event: the signal goes to the read's own
     // `RefreshScheduler`, which debounces with an absolute deadline, so a run ending
     // three worktrees at once costs one inventory read rather than three.

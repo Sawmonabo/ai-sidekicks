@@ -23,21 +23,29 @@ import {
 import { REPORTED_CONNECTIONS, stateWith } from "./shell-state.test-support.js";
 
 describe("the mutating method set", () => {
-  it("is exactly the eight the corpus registers mutating", () => {
-    // Six of them are the handlers the daemon has shipped. The other two — the account
-    // plane's probe and the membership update — are registered mutating by their own
-    // contracts and have no handler yet, which is why the set is not a census of what
-    // has landed: an unregistered verb the console can already call is unregistered,
-    // never read-only.
+  it("is exactly the ten the corpus registers mutating", () => {
+    // Six of them are the handlers the daemon has shipped. The other four are
+    // registered mutating by their own plane's contract and have no handler yet —
+    // which is why the set is not a census of what has landed: an unregistered verb
+    // the console can already call is unregistered, never read-only.
+    //
+    // `membership.update`, `invite.create` and `invite.revoke` are three of those four,
+    // and they are here because they are durable acts the daemon PROXIES to the control
+    // plane. The
+    // reply registry's `CHANGES_A_RUN` table answers a different question about them —
+    // whether a call moves a run — and says so in its own words while calling them
+    // "mutations all the same" that "change the session's own roster".
     expect([...MUTATING_DAEMON_METHODS]).toEqual([
       "session.create",
       "session.join",
+      "membership.update",
+      "invite.create",
+      "invite.revoke",
       "driver.interruptRun",
       "driver.applyIntervention",
       "driver.respondToRequest",
       "driver.compactContext",
       "providerAccount.probe",
-      "membership.update",
     ]);
   });
 
@@ -119,5 +127,26 @@ describe("shellBlockForMethod", () => {
     const offline = stateWith({ kind: "offline", attemptLimit: 5, lastError: undefined });
     expect(shellBlockForMethod(offline, "session.read")).toBeUndefined();
     expect(shellBlockForMethod(offline, "driver.subscribeEvents")).toBeUndefined();
+  });
+
+  it("closes the two roster acts the daemon proxies, and only while it is closed", () => {
+    // NAMED RATHER THAN LEFT TO THE LOOP ABOVE, because these two are the pair whose
+    // classification the reply registry's run-change table answers `false` for — a
+    // different question — and the collaboration surfaces disable their controls from
+    // exactly this seam. A regression that dropped them from the tuple would leave the
+    // loop above passing over a smaller set and say nothing at all.
+    const offline = stateWith({ kind: "offline", attemptLimit: 5, lastError: undefined });
+    const stopped = stateWith({ kind: "stopped" });
+    const connected = stateWith({ kind: "connected" });
+
+    for (const method of ["membership.update", "invite.revoke"]) {
+      expect(shellBlockForMethod(offline, method)?.code, method).toBe("shell-offline");
+      expect(shellBlockForMethod(stopped, method)?.code, method).toBe("shell-stopped");
+      // ADMITTED OTHERWISE, which is the half a blanket block would also satisfy: a
+      // console that closed these controls whatever the shell said would pass every
+      // assertion above.
+      expect(shellBlockForMethod(connected, method), method).toBeUndefined();
+      expect(shellBlockForMethod(UNREPORTED_SHELL_STATE, method), method).toBeUndefined();
+    }
   });
 });

@@ -16,6 +16,8 @@ import { describe, expect, it } from "vitest";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
+import type { FrameStore } from "../../store/index.js";
+import { quietShell } from "../shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   EMPTY_SCENARIO,
@@ -31,10 +33,23 @@ import {
   settle,
 } from "./sent-invites.test-support.js";
 
+/**
+ * The shell every case in this suite runs under: one that has reported nothing.
+ *
+ * Held once rather than minted per render, so a `rerender` re-subscribes to the same
+ * store the first render read. No case here drives the supervisor — the shell's effect
+ * on the revoke control has its own suite.
+ */
+const QUIET_SHELL: FrameStore = quietShell();
+
 describe("sent invites — the read", () => {
   it("renders the port's refusal verbatim rather than an empty ledger", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeRefusingInvites()} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeRefusingInvites()}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     expect(container.textContent ?? "").toContain("wire-unregistered");
@@ -44,7 +59,9 @@ describe("sent invites — the read", () => {
   it("negative control: a served empty list DOES say nobody was invited", async () => {
     // Without this, the case above would pass over a ledger that never rendered
     // its empty state at all.
-    const { container } = render(<SentInvites bridge={bridgeServing([])} sessionId={SESSION_ID} />);
+    const { container } = render(
+      <SentInvites bridge={bridgeServing([])} sessionId={SESSION_ID} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     expect(container.textContent ?? "").toContain("Nobody has been invited");
     expect(container.textContent ?? "").not.toContain("wire-unregistered");
@@ -52,7 +69,9 @@ describe("sent invites — the read", () => {
 
   it("says nothing was asked when the section holds no session", async () => {
     const bridge = fixtureBridgeWithGrowth(EMPTY_SCENARIO, {});
-    const { container } = render(<SentInvites bridge={bridge} sessionId={undefined} />);
+    const { container } = render(
+      <SentInvites bridge={bridge} sessionId={undefined} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     expect(container.textContent ?? "").toContain("has not asked");
   });
@@ -84,6 +103,7 @@ describe("sent invites — an expiry names the day it falls on", () => {
           invite({ inviteId: INVITE_2, expiresAt: NEXT_DAY_SAME_MINUTE }),
         ])}
         sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
       />,
     );
     await settle();
@@ -110,6 +130,7 @@ describe("sent invites — the ledger", () => {
           invite({ inviteId: INVITE_EXPIRED, state: "expired" }),
         ])}
         sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
       />,
     );
     await settle();
@@ -128,6 +149,7 @@ describe("sent invites — the ledger", () => {
           invite({ inviteId: INVITE_REVOKED, state: "revoked" }),
         ])}
         sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
       />,
     );
     await settle();
@@ -138,7 +160,11 @@ describe("sent invites — the ledger", () => {
 
   it("renders the daemon's refusal against the row that asked for it", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     const revoke = container.querySelector<HTMLButtonElement>(".meridian-invites__row-action");
@@ -159,7 +185,11 @@ describe("sent invites — the ledger", () => {
 
   it("negative control: an untouched row carries no refusal", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     expect(container.textContent ?? "").not.toContain("reply-unscripted");
@@ -172,7 +202,11 @@ describe("sent invites — the create control, and the ones still not drawn", ()
     // That read is served here, so the sentence would now be false — and the surface
     // must not keep an explanation for a state it is no longer in.
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     expect(container.textContent ?? "").not.toContain("cannot mint an invitation");
@@ -181,7 +215,11 @@ describe("sent invites — the create control, and the ones still not drawn", ()
 
   it("draws no copy control on the ledger, because no row carries a link or a token", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     const labels = [...container.querySelectorAll("button")].map(
@@ -192,7 +230,11 @@ describe("sent invites — the create control, and the ones still not drawn", ()
 
   it("draws no decline column and never counts down against the pending cap", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     const text = container.textContent ?? "";
@@ -204,7 +246,11 @@ describe("sent invites — the create control, and the ones still not drawn", ()
     // Without this, the two absence cases above would pass over a ledger that drew no
     // row controls whatsoever.
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     expect(container.querySelector(".meridian-invites__row-action")).not.toBeNull();
@@ -214,7 +260,11 @@ describe("sent invites — the create control, and the ones still not drawn", ()
 describe("sent invites — what a person reads", () => {
   it("says revocation is silent", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     expect(container.textContent ?? "").toContain("is told nothing");
@@ -222,7 +272,11 @@ describe("sent invites — what a person reads", () => {
 
   it("names no governance work anywhere", async () => {
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
     expect(container.textContent ?? "").not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
@@ -249,6 +303,7 @@ describe("sent invites — a read that produced no outcome at all", () => {
       <SentInvites
         bridge={bridgeRejectingInvites("the invites read never reached the daemon")}
         sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
       />,
     );
     await settle();
@@ -263,7 +318,11 @@ describe("sent invites — a read that produced no outcome at all", () => {
     // Without this, the case above would hold for a ledger that rendered a refusal
     // whatever the read answered.
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
 

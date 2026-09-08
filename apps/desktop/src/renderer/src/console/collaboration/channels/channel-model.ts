@@ -289,7 +289,7 @@ export function createChannelDirectory(options: {
   return new PushDrivenRead<ChannelDirectoryReading>({
     clock,
     origin: CHANNEL_DIRECTORY_ORIGIN,
-    read: async (signal) => {
+    read: async (signal: AbortSignal) => {
       // Taken BEFORE the request, which is the whole of the ordering: from here on any
       // receipt that lands is newer than this read, whatever order the two answers
       // arrive in.

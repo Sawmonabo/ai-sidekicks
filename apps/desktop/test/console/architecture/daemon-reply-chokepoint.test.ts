@@ -33,9 +33,12 @@
 // probe paths, and the per-case budget come from `test/console/eslint-harness.ts`, which
 // three gates now share; the budget's derivation is recorded there.
 //
-// The reach needles live in `daemon-call-census.ts` beside this file, on the
-// `barrel-census.ts` pattern: this file is the rule applied to the real tree, that one
-// is the rule.
+// The reach and consumption needles live in `daemon-call-census.ts` beside this file
+// and are driven by `daemon-call-census.test.ts` beside that, on the `barrel-census.ts`
+// pattern: this file is the rule applied to the real tree, those two are the rule and
+// its bench. What stays here is the pair of assertions that read the real console — the
+// clean sweep, and the one module that has to trip it — because a needle case writes a
+// source this tree does not contain and cannot be written against it.
 //
 // WHAT IS DELIBERATELY NOT SCANNED.
 //   • `daemon.subscribe`. A subscription is a different seam with a different
@@ -65,7 +68,8 @@ import {
   rendererProbePath,
   ruleMessagesAt,
 } from "../eslint-harness.js";
-import { daemonCallReaches, importsCallDoor } from "./daemon-call-census.js";
+import { importsCallDoor } from "./daemon-call-census.js";
+import { daemonCallReaches } from "./daemon-reach-forms.js";
 
 /**
  * The walk, done once, and shared with every other source-text gate.
@@ -116,14 +120,16 @@ function isBridgeFamilyModule(module: string): boolean {
 }
 
 /**
- * How many modules outside the bridge family import the call door on this branch.
+ * How many modules outside the bridge family consume the call door on this branch —
+ * importing its own name, or reading it off a namespace they imported, which
+ * `daemon-call-census.ts` reads as one act in two spellings.
  *
- * FOURTEEN, and PINNED rather than left as a floor. The count was zero when this gate
+ * FIFTEEN, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The fourteen, by module and by the family that bound it:
+ * It is no longer vacuous. The fifteen, by module and by the family that bound it:
  *
  *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
  *      module rather than as "the send router": the router was split and imports the
@@ -136,31 +142,44 @@ function isBridgeFamilyModule(module: string): boolean {
  *      run-control dispatch, for all six controls and BOTH of their entry points.
  *   5. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
  *   6. `console/collaboration/channels/channel-model.ts` — the channel model.
- *   7. `console/collaboration/mutation-coordinator.ts` — the collaboration mutations.
- *   8. `console/collaboration/members/presence-model.ts` — the presence model.
- *   9. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
- *  10. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
+ *   7. `console/collaboration/invites/CreateInvite.tsx` — the invite mint's
+ *      `invite.create`, the first binding of that verb. It sits here beside the
+ *      ledger's revoke because the two are two acts on two rows and not one
+ *      coordinator over an invite family — the same reason entry 9 gives.
+ *   8. `console/collaboration/invites/SentInvites.tsx` — the sent-invite ledger's
+ *      `invite.revoke`.
+ *   9. `console/collaboration/members/Memberships.tsx` — the membership ledger's
+ *      `membership.update`, behind all four of its controls. TWO ENTRIES FOR ONE
+ *      FAMILY'S MUTATIONS AND NOT ONE COORDINATOR: the shared coordinator used to hold
+ *      the door call behind a binder generic over both methods, which put ONE call
+ *      site in the source for two verbs at once. One call site naming one method is
+ *      what lets `read-signal-chokepoint.test.ts` read a deliberate absence of a
+ *      cancellation signal as deliberate, so the dispatch sits at the surface that
+ *      names a method and the coordinator keeps the single-flight rule it owns.
+ *  10. `console/collaboration/members/presence-model.ts` — the presence model.
+ *  11. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
+ *  12. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
- *  11. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
+ *  13. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
  *      read. The pane's file control has to say which roots a local file may come
  *      from before a person picks one, and the trust envelope is the daemon's: a
  *      renderer that answered from anything else would be deriving the eligibility
  *      the refusal it renders exists to report.
- *  12. `console/sessions/acts/JoinSessionForm.tsx` — the sessions destination's join.
+ *  14. `console/sessions/acts/JoinSessionForm.tsx` — the sessions destination's join.
  *      The first surface to bind `session.join`: the shipped Tier-1 probe calls it
  *      from a mount effect through the raw bridge, and a form a person fills in is a
  *      different act from a probe that joins on being rendered.
- *  13. `console/onboarding/provider-readiness/provider-readiness.ts` — the
+ *  15. `console/onboarding/provider-readiness/provider-readiness.ts` — the
  *      onboarding walkthrough's provider-readiness step, which reads the account
  *      plane's `providerAccount.list` readiness projection.
  *      It is a VIEW over that plane and mints nothing: registration and defaults stay
  *      the settings page's, so that read and the probe below are the whole of its
  *      family's reach.
- *  14. `console/onboarding/provider-readiness/provider-readiness-acts.ts` — the same
+ *  16. `console/onboarding/provider-readiness/provider-readiness-acts.ts` — the same
  *      step's two mutations, which re-probe ONE account through
- *      `providerAccount.probe`. TWO ENTRIES FOR ONE STEP AND NOT A WIDENED THIRTEENTH:
+ *      `providerAccount.probe`. TWO ENTRIES FOR ONE STEP AND NOT A WIDENED FOURTEENTH:
  *      the step's reading and the acts over it are two modules because they are two
  *      jobs, and a census that folded them would report one consumer for a directory
  *      where either half could quietly leave the door.
@@ -181,9 +200,11 @@ function isBridgeFamilyModule(module: string): boolean {
  * was settling — two idempotency keys against one run version, which the wire reads as
  * two distinct mutations rather than replays of one. It now dispatches through
  * `RunControlSurface`, which is entry #4, so this number FALLING is what that fix looks
- * like from here. It reads eleven again rather than ten because entry #11 landed in the
- * same window — two independent moves that happen to cancel, which is exactly why the
- * pin is re-derived by counting the enumeration above and never carried forward.
+ * like from here. It read eleven again rather than ten because
+ * `console/browser/pane/file/file-boundary.ts` landed in the same window — two
+ * independent moves that happen to cancel, which is exactly why the pin is re-derived
+ * by counting the enumeration above and never carried forward, and why that entry is
+ * named by its module rather than by an ordinal a later insertion would move.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
@@ -193,7 +214,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 14;
+const CALL_DOOR_CONSUMER_COUNT = 16;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
@@ -246,99 +267,11 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
     ).toBe(CALL_DOOR_CONSUMER_COUNT);
   });
 
-  it("negative control: the consumer needle sees an ordinary import of the door", () => {
-    // Without this, the pinned count above would be reporting a broken needle rather
-    // than the tree, and a needle that matched nothing would read the console as
-    // having no consumers at all — green, and saying nothing.
-    expect(importsCallDoor(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
-    expect(
-      importsCallDoor(
-        ["import {", "  callDaemon,", "  type DaemonReply,", '} from "../bridge/index.js";'].join(
-          "\n",
-        ),
-      ),
-    ).toBe(true);
-    // An alias is still a consumption, and the local name it takes is not the door's.
-    expect(importsCallDoor('import { callDaemon as send } from "../bridge/index.js";')).toBe(true);
-    // And not on the door merely named in prose, which several modules do carry.
-    expect(importsCallDoor("// a surface reaches the wire through `callDaemon`")).toBe(false);
-    // The false-positive direction the text needle was narrowed twice to survive: this
-    // sentence contains the word `import`, and a scan over text spanned the newlines
-    // between the two words because nothing ended the statement in between. An import
-    // clause is a node; a comment carrying both words in any order is not one.
-    expect(
-      importsCallDoor(
-        [
-          "// a surface would import",
-          "// `callDaemon` from the bridge door rather than reach the wire itself",
-        ].join("\n"),
-      ),
-    ).toBe(false);
-    expect(importsCallDoor('const note = "import { callDaemon } from the door";')).toBe(false);
-    // And a longer name that merely starts with the door's is a different symbol.
-    expect(importsCallDoor('import { callDaemonRegistry } from "./registry.js";')).toBe(false);
-  });
-
   it("negative control: the chokepoint itself trips the scan", () => {
     // Without this, a typo in either pattern would make both clean results above
     // meaningless — the whole console would read as compliant because nothing
     // matched anywhere.
     expect(daemonCallReaches(readGovernedSource(CHOKEPOINT_MODULE))).toContain("called or aliased");
-  });
-
-  it("negative control: the needles separate a reach from a mention", () => {
-    // The line the header draws, asserted against the predicate rather than
-    // against whichever module happens to name the door in prose today.
-    expect(daemonCallReaches("const reply = await bridge.sidekicks.daemon.call(method, params);")) //
-      .toContain("called or aliased");
-    expect(daemonCallReaches("const call = bridge.sidekicks.daemon.call as Widened;")) //
-      .toContain("called or aliased");
-    expect(daemonCallReaches("const { call } = bridge.sidekicks.daemon;")) //
-      .toContain("namespace taken");
-    expect(daemonCallReaches("// a bridge that dropped `daemon.call` would be wrong")) //
-      .toStrictEqual([]);
-    expect(daemonCallReaches("this.#bridge.sidekicks.daemon.subscribe(name, onFrame);")) //
-      .toStrictEqual([]);
-  });
-
-  it("sees the same door reached by a computed key or handed on as a value", () => {
-    // Planted, and each one is the SMALLEST violation that passed the two dotted
-    // needles: one bracket, and a scan over text reads the tree as compliant. A
-    // module that smuggles a reply out this way holds an `unknown` it can cast,
-    // which needs no validator, so the lint ban beside this scan does not cover it.
-    //
-    // The first is now reported by TWO forms rather than one, and that is the reading
-    // improving rather than a rule widening: `sidekicks["daemon"].call(…)` really is
-    // both the namespace taken by a key and the door called, and the text needle
-    // reported only the half whose spelling it was written for.
-    expect(
-      daemonCallReaches(`const reply = await bridge.sidekicks["daemon"].call(name, params);`),
-    ).toStrictEqual(["called or aliased", "namespace taken by computed key"]);
-    expect(daemonCallReaches(`const door = bridge.sidekicks["daemon"];`)) //
-      .toStrictEqual(["namespace taken by computed key"]);
-    expect(daemonCallReaches(`const send = bridge.sidekicks.daemon["call"];`)) //
-      .toStrictEqual(["called by computed key"]);
-    expect(daemonCallReaches("const bound = bridge.sidekicks.daemon.call.bind(bridge);")) //
-      .toStrictEqual(["taken as a value"]);
-  });
-
-  it("negative control: a computed key in prose or on another noun is not a reach", () => {
-    // The other direction of the same claim. A needle that fired on either of these
-    // would be turned off within a week, which is how the scan stops existing.
-    expect(daemonCallReaches("// the daemon [the local runtime] answers `unknown`")) //
-      .toStrictEqual([]);
-    expect(daemonCallReaches("const first = daemonEvents[0];")).toStrictEqual([]);
-    expect(daemonCallReaches("const kinds = this.#sidekicksByName;")).toStrictEqual([]);
-    // The sentence that was reworded rather than reported: a seam's header naming the
-    // namespace it deliberately does NOT reach. The text needle fired on it, and the
-    // disposition a red gate on prose invites is editing the prose.
-    expect(
-      daemonCallReaches(
-        "// the shipped component reads `window.sidekicks.daemon` directly, which the\n// fixture cannot serve",
-      ),
-    ).toStrictEqual([]);
-    // A string naming the door is data rather than a reach, for the same reason.
-    expect(daemonCallReaches('const method = "sidekicks.daemon.call";')).toStrictEqual([]);
   });
 });
 

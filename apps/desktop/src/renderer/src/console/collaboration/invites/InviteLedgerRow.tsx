@@ -1,5 +1,6 @@
 import { Chip, InlineRefusal, WireFigure, formatDateTime } from "../../primitives/index.js";
 import type { ServedInvite } from "../../bridge/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 
 /**
  * One invitation.
@@ -14,6 +15,14 @@ export function InviteLedgerRow(props: {
   readonly isRevoking: boolean;
   /** Some row is being revoked — this one, or a neighbour. */
   readonly isAnyRevoking: boolean;
+  /**
+   * Why the shell closes the revoke, or `undefined` while nothing does.
+   *
+   * The control carries it as its disabled reason; the SENTENCE is said once for the
+   * whole members section, above everything under that heading, because the cause is
+   * the window's and one copy per invitation would be the same words down a list.
+   */
+  readonly revokeBlock: ShellMutationBlock | undefined;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;
   readonly onRevoke?: () => void;
   readonly onDismissRefusal?: () => void;
@@ -38,7 +47,8 @@ export function InviteLedgerRow(props: {
           type="button"
           className="meridian-invites__row-action"
           onClick={onRevoke}
-          disabled={props.isAnyRevoking}
+          disabled={props.isAnyRevoking || props.revokeBlock !== undefined}
+          title={props.revokeBlock?.detail}
           aria-label={`Revoke invitation ${invite.inviteId}`}
         >
           {props.isRevoking ? "Revoking…" : "Revoke"}
