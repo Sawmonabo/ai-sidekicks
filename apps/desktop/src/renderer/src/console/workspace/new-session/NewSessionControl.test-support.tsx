@@ -18,8 +18,10 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import type { NewSessionBlockedAct } from "../../seats/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-
-export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
+// The created session's id, from the module that DECLARES it. Both new-session
+// scaffolding modules script the same `session.create`, so a second copy of the id
+// here would be two spellings of one reply that no gate compares.
+import { CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
 
 /**
  * The one call the suspended-bridge helpers below hold, and no other.

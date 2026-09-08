@@ -72,7 +72,7 @@ import {
   type SidebarSectionRegistry,
 } from "../../seats/index.js";
 import { SidebarSection } from "./SidebarSection.js";
-import { useSectionAttention, useSettlementAnnouncement } from "./sidebar-column-reads.js";
+import { useSectionAttention, useSidebarSettlementAnnouncement } from "./sidebar-column-reads.js";
 import {
   useMountedSidebar,
   type MountedSidebarSeat,
@@ -250,7 +250,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
     }
   }, [snapshot.state.isCollapsed, takeFocus]);
 
-  useSettlementAnnouncement(model, snapshot, announce);
+  useSidebarSettlementAnnouncement(model, snapshot);
 
   const pressSection = useCallback(
     (sectionId: SidebarSectionId) => {

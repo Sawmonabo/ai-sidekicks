@@ -33,8 +33,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
+import { CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
 import {
-  CREATED_SESSION_ID,
   NOTHING_BLOCKS_THE_ACT,
   bridgeAnsweringCreateUnreadably,
   bridgeFor,

@@ -9,6 +9,7 @@
 import { useEffect, useMemo } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { useAnnounceOncePerSentence } from "../../primitives/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   type SidebarSectionId,
@@ -103,7 +104,15 @@ export function useSectionAttention(
 }
 
 /**
- * Whether one session's settled arrangement has already been said out loud.
+ * What one session's settlement turned out to say, frozen at the moment it settled.
+ *
+ * NOT A LATCH, and the distinction is the whole point of this class. Whether a sentence
+ * has already been SPOKEN is `primitives/reading-announcement.ts`'s one ref and nothing
+ * else's — a second copy of that comparison is a sentence a person hears twice with
+ * every test still green. What lives here is a different fact the latch cannot hold: a
+ * settlement describes the arrangement a session came back WITH, and the column keeps
+ * moving afterwards, so the words have to be captured at the transition rather than
+ * recomputed from whatever the snapshot says three section-toggles later.
  *
  * A HOLDER AND NOT RENDER STATE, on `RestoreProgress`' own reading: nothing draws this,
  * and publishing it would re-render the whole column for a fact no part of it shows.
@@ -111,16 +120,34 @@ export function useSectionAttention(
  * model, so the settlement it describes is the settlement of the session that model is
  * about.
  */
-class SidebarSettlementSpeech {
-  #hasSpoken = false;
+class SidebarSettlementSentences {
+  #captured: readonly string[] = [];
+  #hasCaptured = false;
 
-  /** True while this session's settlement has not been said. The announce gate. */
-  public get isUnspoken(): boolean {
-    return !this.#hasSpoken;
-  }
-
-  public recordSpoken(): void {
-    this.#hasSpoken = true;
+  /**
+   * What this session has to say, capturing it on the first settled pass.
+   *
+   * Idempotent, so the render that addresses a new subject may call it and a second
+   * pass over the same snapshot changes nothing — and the array it hands back keeps one
+   * identity for the life of the session, which is what makes it a stable dependency
+   * for the latch's effect.
+   *
+   * AN EMPTY ARRAY UNTIL THEN, deliberately, and never `undefined`. The latch treats an
+   * array as a REPLACEMENT of what it last said and `undefined` as no claim at all — so
+   * an unsettled session retracts the previous session's sentence, which is exactly
+   * true: that settlement was about a session no longer on screen. `SidebarModel` is
+   * constructed unsettled and reaches `hasSettled` only through `restore`, so every
+   * re-minted model necessarily passes through at least one retracting pass before it
+   * can speak. That is what lets two sessions whose arrangements read the same both be
+   * announced, which a mount-lifetime memory of the sentence alone would not.
+   */
+  public capturedFrom(snapshot: SidebarSnapshot): readonly string[] {
+    if (!this.#hasCaptured && snapshot.hasSettled) {
+      this.#hasCaptured = true;
+      const sentence = settlementSentence(snapshot);
+      this.#captured = sentence === undefined ? [] : [sentence];
+    }
+    return this.#captured;
   }
 }
 
@@ -129,12 +156,17 @@ class SidebarSettlementSpeech {
  *
  * Not on a re-render, not when the person opens a section, and not when there is
  * nothing to report. `hasSettled` only ever goes false to true for one model, so the
- * guard is the transition itself.
+ * capture above is the transition itself.
+ *
+ * NAMED FOR THE SIDEBAR, because the general name is the primitive's. Two exported hooks
+ * called `useSettlementAnnouncement` — one taking a sentence, one taking three arguments
+ * — were two contracts under one name across the console DAG, which is the shape a
+ * reader resolves by opening whichever file they happened to land in.
  *
  * ONCE PER SESSION AND NOT ONCE PER MOUNT, which is the same distinction the deck's
  * persistence draws and for the same cause: the workspace stays mounted across a route
  * between two open sessions, and the sidebar's model is re-minted with the session. A
- * latch that lived for the mount stayed true after the first session's settlement, so
+ * memory that lived for the mount stayed set after the first session's settlement, so
  * the second session's saved open-section state — or its restore refusal — changed the
  * column in front of somebody in silence, which is the one thing a live region is for.
  * The MODEL is the subject rather than the session id, because it is the thing whose
@@ -146,26 +178,17 @@ class SidebarSettlementSpeech {
  * announcing it would spend the window's one polite lane on it — the announcer
  * serialises, so a sentence nobody needed delays the next one that somebody does.
  */
-export function useSettlementAnnouncement(
+export function useSidebarSettlementAnnouncement(
   model: SidebarModel,
   snapshot: SidebarSnapshot,
-  announce: (sentence: string) => void,
 ): void {
-  const { value: speech } = useSubjectScopedState(
+  const { value: settlement } = useSubjectScopedState(
     model,
     undefined,
-    () => new SidebarSettlementSpeech(),
+    () => new SidebarSettlementSentences(),
   );
-  useEffect(() => {
-    if (!snapshot.hasSettled || !speech.isUnspoken) {
-      return;
-    }
-    speech.recordSpoken();
-    const sentence = settlementSentence(snapshot);
-    if (sentence !== undefined) {
-      announce(sentence);
-    }
-  }, [announce, snapshot, speech]);
+  const sentences = useMemo(() => settlement.capturedFrom(snapshot), [settlement, snapshot]);
+  useAnnounceOncePerSentence(sentences);
 }
 
 /**

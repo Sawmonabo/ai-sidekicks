@@ -41,14 +41,18 @@
 // stated the same way in `ledger/pane/timeline-pane-body.ts` and `ledger/structure/index.ts`, and it
 // is READERS and not directories: a door earns its place from the modules outside that
 // reach it, however few, because each of them would otherwise name a file rather than a
-// seam. `bodies/` and `ansi/` have none — every reader of both is a sibling inside this
-// directory, which is what a deep intra-family specifier is for. `shell/` has exactly one
-// and it is THIS door's own family door, which must reach the declaring module anyway or
-// `console-no-barrel-chain` reports the second hop, so a door there would have no
-// consumer at all — which `barrel-census` and the dead-code gate both fail.
+// seam. `ansi/` has none — every reader of it is a sibling inside this directory, which
+// is what a deep intra-family specifier is for — so it carries no `index.ts` at all.
+// `bodies/` does have them, counted rather than assumed: the two card frames at this root
+// and four modules under `shell/`, which is why that directory carries a door and why the
+// rules it renders are ITS sheet rather than a section of this one. `shell/` has exactly
+// one reader and it is THIS door's own family door, which must reach the declaring module
+// anyway or `console-no-barrel-chain` reports the second hop, so a door there would have
+// no consumer at all — which `barrel-census` and the dead-code gate both fail.
 
-// The sheet this directory owns, imported by its own door. `markdown/` carries a
-// door of its own and imports its own sheet there.
+// The sheet this directory owns, imported by its own door. The three sub-modules that
+// carry doors of their own — `markdown/`, `tool-families/` and `bodies/` — each import
+// their own sheet there, because a door is what makes a directory an owner.
 import "./cards.css";
 
 export { projectFixtureShellRows } from "./shell/fixture-shell-projection.js";
