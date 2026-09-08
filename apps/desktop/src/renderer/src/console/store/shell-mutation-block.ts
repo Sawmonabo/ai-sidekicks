@@ -10,6 +10,7 @@
 // mutating operations are blocked while the supervisor is not serving, and read-only
 // subscriptions continue.
 
+import type { FrameStore } from "./frame-store.js";
 import type { ShellState } from "./shell-state.js";
 
 /**
@@ -178,4 +179,31 @@ export function shellBlockForMethod(
   method: string,
 ): ShellMutationBlock | undefined {
   return isMutatingDaemonMethod(method) ? shellMutationBlock(state) : undefined;
+}
+
+/**
+ * The block that applies to one method AT THE INSTANT OF THE ASK, off the window's store.
+ *
+ * THE DISPATCH-TIME READING, and it is a different question from the rendered one. A
+ * block a component derived is the block of its last COMMITTED render: a report landing
+ * after that render and before a press reaches the handler leaves the closure holding
+ * `undefined`, so the guard admits the press and the write goes out through a
+ * supervisor that has already stopped. Every surface that dispatches therefore reads
+ * BOTH — {@link shellBlockForMethod} over the subscribed state for what the control
+ * says and how it is drawn, and this where the call is actually put, and inside an act
+ * again after any await the shell can move across.
+ *
+ * ONE IMPLEMENTATION AND NOT AN INLINE `getState()` PER HANDLER. `getState().shellState`
+ * spelled at each dispatch site is the second reading of which cell carries the shell
+ * condition — the class of copy this family's own header warns about — and a surface
+ * that reached for the store directly would be free to read a different cell, or the
+ * same cell without the per-method rule above it. It takes the store rather than a
+ * state because that is what makes it CURRENT: handed a state, a caller would be
+ * handing over the one its render captured, which is the value this exists to bypass.
+ */
+export function currentShellBlock(
+  frameStore: FrameStore,
+  method: string,
+): ShellMutationBlock | undefined {
+  return shellBlockForMethod(frameStore.getState().shellState, method);
 }

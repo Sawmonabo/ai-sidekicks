@@ -16,8 +16,8 @@ export function MembershipLedgerRow(props: {
    * Why the shell closes every membership change, or `undefined` while nothing does.
    *
    * The controls carry it as their disabled reason; the SENTENCE is said once for the
-   * whole ledger by `MembershipLedger.tsx`, because the cause is the window's and one
-   * copy per membership would be the same words repeated down a list.
+   * whole members section by `Memberships.tsx`, because the cause is the window's and
+   * one copy per membership would be the same words repeated down a list.
    */
   readonly updateBlock: ShellMutationBlock | undefined;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;

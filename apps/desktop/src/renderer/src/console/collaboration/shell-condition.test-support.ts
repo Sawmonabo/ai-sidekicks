@@ -40,6 +40,9 @@ export function connectedShell(): FrameStore {
   return store;
 }
 
+/** A supervisor reporting the local runtime turned off. */
+const STOPPED_REPORT: ShellReport = { ...CONNECTED_REPORT, connection: { kind: "stopped" } };
+
 /**
  * A frame store whose supervisor has reported the local runtime stopped.
  *
@@ -49,6 +52,19 @@ export function connectedShell(): FrameStore {
  */
 export function stoppedShell(): FrameStore {
   const store = new FrameStore();
-  store.publishShellReport({ ...CONNECTED_REPORT, connection: { kind: "stopped" } });
+  stopShell(store);
   return store;
+}
+
+/**
+ * Report the runtime stopped on a store a surface is ALREADY mounted against.
+ *
+ * The condition {@link stoppedShell} builds, arriving in the order a real outage
+ * arrives in: after a render that offered the controls. A case driving this is asking
+ * what a handler does with a block its own render never saw — which is the only way to
+ * observe the window between a report landing and React catching up with it, and the
+ * window every dispatch-time re-read exists to close.
+ */
+export function stopShell(store: FrameStore): void {
+  store.publishShellReport(STOPPED_REPORT);
 }

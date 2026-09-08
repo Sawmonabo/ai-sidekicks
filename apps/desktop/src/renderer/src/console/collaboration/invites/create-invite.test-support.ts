@@ -22,6 +22,7 @@ import {
   withDaemonCall,
   type BridgeUnderTest,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import type { GrowthOutcome } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { settle as settleReactWork } from "../../core/settle.test-support.js";
@@ -98,6 +99,35 @@ export function bridgeFor(
     // Every call is the scenario's own; this arm only records what went past.
     async (_recorded, passThrough) => await passThrough(),
   );
+}
+
+/**
+ * The host read held open, with the means to answer it later.
+ *
+ * The window every case about the act's INTERIOR has to observe is the one between the
+ * press and the composed link, and a read that answers immediately closes it before a
+ * case can look. `settleable` in the coordinator's own suite is this shape for the
+ * daemon arm; this is the growth arm's, hoisted the moment a second suite needed it —
+ * one surface reads this operation and two suites drive it, the form's own cases and
+ * the shell cases beside them.
+ */
+export function heldHostRead(): {
+  readonly read: () => Promise<GrowthOutcome<{ readonly host: string }>>;
+  readonly answer: () => void;
+} {
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    read: async () => {
+      await held;
+      return { status: "served", value: { host: CONTROL_PLANE_HOST } };
+    },
+    answer: () => {
+      release();
+    },
+  };
 }
 
 /** Let the reads, the mint, and the effects each schedules land. */
