@@ -35,7 +35,7 @@ import type { TerminalViewerIdentity } from "./viewer-identity.js";
 /**
  * The roles the registered take admits.
  *
- * A TUPLE AND NOT A `Set`, on `browser/geometry/geometry-publisher.ts`'s
+ * A TUPLE AND NOT A `Set`, on `primitives/clipping-ancestors.ts`'s
  * `CLIPPING_OVERFLOW_VALUES` shape. `apps/desktop/AGENTS.md` rejects a module-level
  * collection singleton, and the rule is right about this one rather than merely
  * applying to it: `ReadonlySet<MembershipRole>` restricted the BINDING while the

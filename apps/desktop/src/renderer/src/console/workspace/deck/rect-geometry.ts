@@ -14,6 +14,13 @@
 // on-demand read, while `invalidate` needs a value inside its own read phase. So the
 // clip is walked here, one style read per ancestor per pass. This paragraph is why a
 // later simplification to an observer is a regression.
+//
+// WHICH ancestors clip is not this module's question. `primitives/clipping-ancestors.ts`
+// owns that — the vocabulary, the predicate, and the walk — because the browser family's
+// geometry publisher asks it too and the two copies had already drifted three ways. What
+// stays here is what this module does with the answer: intersect.
+
+import { clippingAncestorsOf } from "../../primitives/index.js";
 
 /** Why a rect was re-measured. Rendered in diagnostics; never inferred. */
 export const RECT_INVALIDATION_SOURCES = [
@@ -28,22 +35,6 @@ export const RECT_INVALIDATION_SOURCES = [
   // apart from four sources firing once, report something untrue.
   "airspace",
 ] as const;
-
-/**
- * The computed `overflow` values that clip a descendant.
- *
- * Declared once and matched positively rather than testing `!== "visible"`: a
- * computed value this environment does not serve is not evidence of a clip, and
- * treating every unreadable ancestor as a clipping one would report a pane hidden
- * because its style could not be read.
- */
-const CLIPPING_OVERFLOW_VALUES: ReadonlySet<string> = new Set([
-  "hidden",
-  "scroll",
-  "auto",
-  "clip",
-  "overlay",
-]);
 
 /** A rectangle in viewport coordinates. The one shape the clip walk passes around. */
 interface ViewportBox {
@@ -63,8 +54,10 @@ interface ViewportBox {
  * The intersection is the only rectangle a bounds setter can act on, so it is what
  * this module publishes.
  *
- * One `getComputedStyle` per ancestor per pass, and the walk stops at the document:
- * the cost is the read, and the read is the thing that makes the answer true.
+ * ONE STYLE READ PER ANCESTOR PER PASS, and no more than that. The walk is a
+ * generator, so stopping once the running clip is empty stops the reads too: a pane
+ * scrolled out of the frame pays for the ancestors it reached and not for the ones
+ * above them, and a pane the viewport alone has already emptied pays for none.
  */
 export function visibleClipOf(element: Element): ViewportBox {
   const box = element.getBoundingClientRect();
@@ -72,39 +65,27 @@ export function visibleClipOf(element: Element): ViewportBox {
     { x: box.x, y: box.y, width: box.width, height: box.height },
     { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight },
   );
-  // `?? null` on both reads rather than a bare `!== null` test: an element standing
-  // in for a host in a test carries no `parentElement` at all, and walking into
-  // `undefined` would read a style off nothing.
-  let ancestor: Element | null = element.parentElement ?? null;
-  while (ancestor !== null && clip.width > 0 && clip.height > 0) {
-    if (isClippingAncestor(ancestor)) {
-      const ancestorBox = ancestor.getBoundingClientRect();
-      clip = intersectBoxes(clip, {
-        x: ancestorBox.x,
-        y: ancestorBox.y,
-        width: ancestorBox.width,
-        height: ancestorBox.height,
-      });
+  if (isEmptyBox(clip)) {
+    return clip;
+  }
+  for (const ancestor of clippingAncestorsOf(element)) {
+    const ancestorBox = ancestor.getBoundingClientRect();
+    clip = intersectBoxes(clip, {
+      x: ancestorBox.x,
+      y: ancestorBox.y,
+      width: ancestorBox.width,
+      height: ancestorBox.height,
+    });
+    if (isEmptyBox(clip)) {
+      break;
     }
-    ancestor = ancestor.parentElement ?? null;
   }
   return clip;
 }
 
-/**
- * Whether this ancestor clips what is inside it.
- *
- * Both axes AND the shorthand, because an environment that does not expand
- * `overflow` into its two long-hand properties would report neither axis and the
- * walk would step straight past a real scroller.
- */
-function isClippingAncestor(ancestor: Element): boolean {
-  const style = window.getComputedStyle(ancestor);
-  return (
-    CLIPPING_OVERFLOW_VALUES.has(style.overflowX) ||
-    CLIPPING_OVERFLOW_VALUES.has(style.overflowY) ||
-    CLIPPING_OVERFLOW_VALUES.has(style.overflow)
-  );
+/** Whether a box has any extent left to show. The walk's stop condition. */
+function isEmptyBox(box: ViewportBox): boolean {
+  return box.width <= 0 || box.height <= 0;
 }
 
 /** Two boxes overlaid, floored at zero so a disjoint pair reports no extent. */
