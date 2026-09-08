@@ -21,6 +21,7 @@ import { BROWSER_VISIBLE_ENV_PREFIX } from "../test/console/screenshot/baseline-
 import {
   SCREENSHOT_TIER_MATCH_OPTIONS,
   SCREENSHOT_TIER_PROVIDER_OPTIONS,
+  SCREENSHOT_TIER_TIMEOUT_MS,
 } from "./screenshot-pins.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
 
@@ -88,6 +89,13 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
       // the tier grows a file per family, and a condition each new file has to
       // remember is a condition the next family renders without.
       setupFiles: ["./test/console/screenshot/capture-faces.setup.ts"],
+      // DERIVED from the wait a capture at the window ceiling is given, never
+      // written down — `screenshot-pins.ts` owns the arithmetic and says why the
+      // inherited browser-mode default stopped being large enough the moment
+      // `settled-capture.ts` began sizing each capture's wait to the window it
+      // opened. Both figures, because a suite here mounts its surface in a hook.
+      testTimeout: SCREENSHOT_TIER_TIMEOUT_MS,
+      hookTimeout: SCREENSHOT_TIER_TIMEOUT_MS,
       browser: {
         ...browserModeOptions(SCREENSHOT_TIER_PROVIDER_OPTIONS),
         expect: { toMatchScreenshot: SCREENSHOT_TIER_MATCH_OPTIONS },

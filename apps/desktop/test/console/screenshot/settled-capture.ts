@@ -48,7 +48,7 @@ import { page } from "vitest/browser";
 // what `architecture/barrel-census.test.ts` reports.
 import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pending-pane-body.js";
 import { settle } from "../../../src/renderer/src/console/core/settle.test-support.js";
-import { captureWindowStep, type CaptureViewport } from "./capture-viewport.js";
+import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./capture-viewport.js";
 
 /**
  * How many times a capture may re-measure and re-open its window before it refuses.
@@ -199,6 +199,28 @@ export class CaptureWindow {
   }
 
   /**
+   * How many of the window this capture started in fit in the one it is holding now.
+   *
+   * An AREA ratio over the two sizes this class already knows — the one it was
+   * constructed with and the one `holdWhole` left applied — because what a capture
+   * costs is pixels, and a window that grew only in height still pays its full width
+   * for every row it gained. Exactly `1` for a capture that fitted, and exactly `1`
+   * for one that took the `grows-with-its-window` arm, which puts the window back
+   * before it returns; both are photographed at the size the tier configures.
+   *
+   * Reported rather than re-measured by the caller. The sizes are this class's, and
+   * two derivations of one quantity is the drift `apps/desktop/AGENTS.md` §Shared code
+   * forbids on the two sides of a seam — the caller reads what was held and
+   * `stabilityWaitMsFor` decides what holding it costs.
+   */
+  public get heldViewportRatio(): number {
+    return (
+      (this.#applied.width * this.#applied.height) /
+      (this.#restoreTo.width * this.#restoreTo.height)
+    );
+  }
+
+  /**
    * Put the window back, and only when this capture is what moved it.
    *
    * Called twice on the `grows-with-its-window` path — once by `holdWhole` before it
@@ -250,6 +272,11 @@ export class CaptureWindow {
  *
  * The restore is in `finally` so a refusal, a mismatch, or a failed comparison all leave
  * the window where the next spec expects it.
+ *
+ * AND THE STABILITY WAIT IS SIZED TO WHAT THE WINDOW ENDED UP HOLDING, which is why it
+ * is passed here and not configured on the project: the matcher's per-call options win
+ * over the project's under its own merge, and a capture's size is not known until
+ * `holdWhole` has run. `capture-viewport.ts` states the rule and owns the number.
  */
 export async function captureSettled(element: Element, referenceName: string): Promise<void> {
   assertNoPendingPaneBodies(pendingPaneKindsIn(element), referenceName);
@@ -260,7 +287,9 @@ export async function captureSettled(element: Element, referenceName: string): P
   try {
     await captureWindow.holdWhole(element, referenceName);
     assertNoPendingPaneBodies(pendingPaneKindsIn(element), referenceName);
-    await expect(element).toMatchScreenshot(referenceName);
+    await expect(element).toMatchScreenshot(referenceName, {
+      timeout: stabilityWaitMsFor(captureWindow.heldViewportRatio),
+    });
   } finally {
     await captureWindow.restore();
   }

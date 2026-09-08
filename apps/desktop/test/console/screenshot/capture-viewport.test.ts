@@ -13,10 +13,23 @@
 // keeps them apart: the reflow is grown for and then fits, the coupled surface hangs
 // over by the same constant again and takes the arm. A rule that armed on the first
 // observation passes every other case in this file.
+//
+// AND THE SECOND SUITE DRIVES WHAT THAT WINDOW COSTS IN TIME. The stability wait is
+// the same window read as work, so its cases sit beside the sizing ones. All three
+// turn on one rounding, which is exactly the shape a suite of whole-number inputs
+// would report clean on: one holds the wait a capture that fits has always had, one
+// asks what a fractional hold buys, and one asks what a hold SMALLER than the window
+// does — the case that separates rounding up from rounding down, and the only one
+// that would notice a small capture being given a fraction of the tier's wait.
 
 import { describe, expect, it } from "vitest";
 
-import { CAPTURE_WINDOW_HEIGHT_CEILING, captureWindowStep } from "./capture-viewport.js";
+import {
+  CAPTURE_WINDOW_HEIGHT_CEILING,
+  captureWindowStep,
+  STABILITY_WAIT_PER_VIEWPORT_MS,
+  stabilityWaitMsFor,
+} from "./capture-viewport.js";
 
 /** The window the console is measured in, which every case starts from. */
 const CONSOLE_WINDOW = { width: 1440, height: 900 };
@@ -204,5 +217,32 @@ describe("the window a capture opens", () => {
         "approvals-pane-live-dark",
       );
     }).toThrowError(/approvals-pane-live-dark/u);
+  });
+});
+
+describe("how long a capture of that window is given to settle", () => {
+  it("gives a viewport-sized capture the tier's own wait", () => {
+    // The unchanged case, and the reason this is a multiplier rather than a raise:
+    // every reference that fits in the window is still compared under exactly the
+    // five seconds it has always had, so nothing about a capture that was never slow
+    // is being made more patient.
+    expect(stabilityWaitMsFor(1)).toBe(STABILITY_WAIT_PER_VIEWPORT_MS);
+  });
+
+  it("rounds a fractional hold up to the whole window it does work in", () => {
+    // 2.05 windows is three windows of encoding and three of comparison in whichever
+    // pass reaches the last rows, so the budget is three windows' worth. A rule that
+    // rounded down would fund 2 of the 2.05 and fail on the fraction it did not.
+    expect(stabilityWaitMsFor(2.05)).toBe(STABILITY_WAIT_PER_VIEWPORT_MS * 3);
+  });
+
+  it("gives a capture smaller than the window the whole wait rather than a fraction", () => {
+    // The floor, which the rounding is rather than something written beside it. A
+    // surface half a window tall is `0.5`, and a rule that multiplied by it — or that
+    // rounded the other way — would hand a small capture a fraction of the wait the
+    // tier has always given it, so a change meant to make one class of capture more
+    // patient would quietly make every small one less so. Planted: rounding DOWN here
+    // gives 0 ms, and this is the only case that says so.
+    expect(stabilityWaitMsFor(0.5)).toBe(STABILITY_WAIT_PER_VIEWPORT_MS);
   });
 });
