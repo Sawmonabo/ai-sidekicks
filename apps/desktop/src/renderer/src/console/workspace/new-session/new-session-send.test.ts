@@ -11,13 +11,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import { countedDraftFor, draftFor, CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
 import {
-  countedDraftFor,
-  draftFor,
-  CREATED_SESSION_ID,
+  NEW_SESSION_DRAFT_REFUSAL_ORIGIN,
   RUN_QUEUE_CREATE_METHOD,
-} from "./new-session-draft.test-support.js";
-import { NEW_SESSION_DRAFT_REFUSAL_ORIGIN, refuseSendThatRejected } from "./new-session-send.js";
+  refuseSendThatRejected,
+} from "./new-session-settlement.js";
 
 describe("NewSessionDraft — the send", () => {
   it("refuses an empty draft without touching the wire", async () => {

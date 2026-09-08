@@ -14,6 +14,10 @@ import {
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { NewSessionDraft } from "./new-session-draft.js";
+// The methods the SEND names, taken from the module that sends them rather than
+// re-declared here: a script keyed on the suite's own copy of a wire string would go
+// on answering a call production had stopped making.
+import { RUN_QUEUE_CREATE_METHOD, SESSION_CREATE_METHOD } from "./new-session-settlement.js";
 
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
@@ -31,10 +35,6 @@ const CREATE_REPLY = {
   memberships: [],
   channels: [],
 } as const;
-
-/** The methods the draft sends, named here so a count reads as what it counts. */
-export const SESSION_CREATE_METHOD = "session.create";
-export const RUN_QUEUE_CREATE_METHOD = "run.queueCreate";
 
 /**
  * The registered queue reply, whole for `CREATE_REPLY`'s reason.

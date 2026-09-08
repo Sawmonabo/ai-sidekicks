@@ -67,12 +67,12 @@
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { sendNewSessionDraft } from "./new-session-send.js";
 import {
   refuseAmbiguousCreate,
   refuseDraft,
-  sendNewSessionDraft,
   type NewSessionSendResult,
-} from "./new-session-send.js";
+} from "./new-session-settlement.js";
 
 /**
  * The posture axis a person picks, taken off the wire type rather than restated.

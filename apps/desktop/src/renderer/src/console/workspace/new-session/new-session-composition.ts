@@ -23,7 +23,7 @@ import {
   type SubjectScopedDisposal,
 } from "../../store/index.js";
 import { NewSessionDraft, type NewSessionDraftState } from "./new-session-draft.js";
-import { refuseSendThatRejected, type NewSessionSendResult } from "./new-session-send.js";
+import { refuseSendThatRejected, type NewSessionSendResult } from "./new-session-settlement.js";
 
 /**
  * What a person hears once a send settles. One sentence per outcome.

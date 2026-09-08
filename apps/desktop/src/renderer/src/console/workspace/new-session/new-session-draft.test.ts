@@ -19,9 +19,11 @@ import {
   draftFor,
   sentMethod,
   CREATED_SESSION_ID,
-  RUN_QUEUE_CREATE_METHOD,
-  SESSION_CREATE_METHOD,
 } from "./new-session-draft.test-support.js";
+// The methods the SEND names, taken from the module that sends them: a count asserted
+// against the suite's own copy of a wire string proves nothing about the string that
+// reached the wire.
+import { RUN_QUEUE_CREATE_METHOD, SESSION_CREATE_METHOD } from "./new-session-settlement.js";
 
 describe("NewSessionDraft — what it holds", () => {
   it("starts empty and says so", () => {
