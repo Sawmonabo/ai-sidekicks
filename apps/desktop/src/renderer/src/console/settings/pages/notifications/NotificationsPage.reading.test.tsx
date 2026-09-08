@@ -13,7 +13,6 @@ import { registerNotificationsPage } from "./NotificationsPage.js";
 import type { AttentionPreference } from "./attention-preference-model.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";
 import {
-  PARTICIPANT_ID,
   SERVED_PARTICIPANT,
   bridgeWith,
   press,
@@ -24,6 +23,7 @@ import {
   storedLabels,
   storedSwitches,
 } from "./notifications-page.test-support.js";
+import { PARTICIPANT_ID } from "./notification-preference-writer.test-support.js";
 
 /** Every row this console supplied rather than read, as the page tags them. */
 function defaultTags(container: HTMLElement): readonly Element[] {

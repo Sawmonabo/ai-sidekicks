@@ -189,7 +189,11 @@ export { PartialRead } from "./PartialRead.js";
 // and retire that adapter; it is not minted here, because a parameter with no caller
 // is a policy question moved out of the primitive that currently answers it and into
 // every call site. The family that would spend it owns that call.
+// THE LATCH ITSELF LEAVES TOO, for the caller whose memory is neither arity's: the
+// sidebar's is once per SESSION, and only an ARRAY replaces this latch's memory where
+// the scalar arity's `undefined` leaves it standing — see `sidebar-column-reads.ts`.
 export {
+  useAnnounceOncePerSentence,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   useReadingAnnouncement,
 } from "./reading-announcement.js";

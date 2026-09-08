@@ -12,6 +12,12 @@
 // settled block, and the two notices are reached by their siblings inside this directory,
 // deeply, which is what an intra-family import is for.
 
+// The sheet this directory owns, imported by its own door. A directory carrying a door
+// is an owner, so these rules do not ride the parent's sheet: `cards.css` would put a
+// body's rules on the document for the frames' sake, and make one directory the reason
+// another is styled at all.
+import "./bodies.css";
+
 export { MachineBody } from "./MachineBody.js";
 export { ParticipantBody } from "./ParticipantBody.js";
 

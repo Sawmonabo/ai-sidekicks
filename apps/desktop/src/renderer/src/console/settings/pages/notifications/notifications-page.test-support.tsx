@@ -21,6 +21,10 @@ import {
   type MountedMovablePage,
 } from "../../settings-page-mount.test-support.js";
 import { NotificationsPage } from "./NotificationsPage.js";
+// The caller participant every notifications suite reads as, from the module that
+// DECLARES it: the page chain and the writer chain answer for the same person, and a
+// second copy of the id here is how one of them comes to read as somebody else.
+import { PARTICIPANT_ID } from "./notification-preference-writer.test-support.js";
 import type {
   AttentionPreference,
   AttentionPreferenceReadOutcome,
@@ -32,7 +36,6 @@ import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.tes
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 
 export const SESSION_ID = "session-notifications";
-export const PARTICIPANT_ID = "participant-ana";
 
 afterEach(() => {
   cleanup();

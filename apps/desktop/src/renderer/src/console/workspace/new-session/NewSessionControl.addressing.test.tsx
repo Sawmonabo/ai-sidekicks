@@ -19,8 +19,8 @@ import { type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
+import { CREATED_SESSION_ID } from "./new-session-draft.test-support.js";
 import {
-  CREATED_SESSION_ID,
   CREATE_REPLY,
   NOTHING_BLOCKS_THE_ACT,
   bridgeFor,

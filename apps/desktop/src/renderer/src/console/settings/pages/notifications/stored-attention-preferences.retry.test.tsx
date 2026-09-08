@@ -22,7 +22,6 @@ import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-su
 import { growthUnavailable } from "../../../bridge/index.js";
 import type { CallerParticipantOutcome } from "./attention-preference-model.js";
 import {
-  PARTICIPANT_ID,
   SERVED_PARTICIPANT,
   bridgeWith,
   renderPageAt,
@@ -31,6 +30,7 @@ import {
   storedLabels,
   SESSION_ID,
 } from "./notifications-page.test-support.js";
+import { PARTICIPANT_ID } from "./notification-preference-writer.test-support.js";
 
 /**
  * An identity read that refuses `attemptsRefused` times and then names somebody.

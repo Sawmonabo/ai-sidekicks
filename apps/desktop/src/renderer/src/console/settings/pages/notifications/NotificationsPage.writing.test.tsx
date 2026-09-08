@@ -12,7 +12,6 @@ import { describe, expect, it, vi } from "vitest";
 import { growthUnavailable } from "../../../bridge/index.js";
 import type { AttentionPreference } from "./attention-preference-model.js";
 import {
-  PARTICIPANT_ID,
   SERVED_PARTICIPANT,
   bridgeWith,
   press,
@@ -22,6 +21,7 @@ import {
   storedSwitches,
   switchesIn,
 } from "./notifications-page.test-support.js";
+import { PARTICIPANT_ID } from "./notification-preference-writer.test-support.js";
 
 describe("the notifications page — what a switch sends", () => {
   /** Serves the identity and the set, and records every update the page attempts. */
