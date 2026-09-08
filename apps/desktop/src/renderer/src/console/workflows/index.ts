@@ -8,7 +8,7 @@
 // the vocabulary it is built from was another's. Each body has its own sub-module
 // door, reached from here by a deep intra-family specifier.
 //
-// WHAT LEAVES THE FAMILY IS TWO REGISTRATIONS AND ONE SEAT BODY. Not the surface,
+// WHAT LEAVES THE FAMILY IS TWO REGISTRATIONS AND ONE SEAT LOADER. Not the surface,
 // not the panes, not the chrome: the console composes this family by calling
 // `registerWorkflowPanes` at its pane seat and `registerWorkflowSurfaces` at its
 // surface seat, and nothing above needs a handle on a body. An export beyond those
@@ -21,9 +21,16 @@
 // composer's, the position and the session are the composer's, and what goes inside is
 // this family's enumeration and this family's start. A board cannot carry it: the deck
 // keys registrations by pane kind and the frame by surface slot, and a menu entry is
-// neither. So the body leaves through this door as a component and the composer mounts
-// it in one line, which is the same direction as a registration — this family handing
-// something to a seat above it — written the only way a menu entry can be written.
+// neither. So what leaves through this door is that body's LOADER, and the composer
+// normalises it in one line — the same direction as a registration, this family handing
+// something to a seat above it, written the only way a menu entry can be written.
+//
+// A LOADER AND NOT THE COMPONENT, because this door is on the eager graph. It was the
+// component for one round, and what that cost is stated where it is paid: `families.ts`
+// imports this module to register the surfaces below, so a re-export put the picker, the
+// definition directory it reads through, the start act it dispatches, and this family's
+// menu sheet into the entry chunk of every session — including every session whose
+// composer never opened that menu.
 //
 // TWO SEATS BECAUSE THERE ARE TWO BOARDS. The deck's board is keyed by pane kind
 // and the frame's by surface slot; this family occupies one seat on each — the two
@@ -32,14 +39,16 @@
 // the frame's reserved-slot absence, which was a true sentence about a browser this
 // family had in fact already built.
 //
-// THE FAMILY'S SHARED SHEET IS NOT IMPORTED HERE ANY MORE. All three of this family's
-// bodies arrive behind a loader now, and the one element this module builds — the pinned
+// THE FAMILY'S SHARED SHEET IS NOT IMPORTED HERE ANY MORE. Every one of this family's
+// bodies arrives behind a loader now, and the one element this module builds — the pinned
 // region below — draws no class `workflows.css` declares, so nothing statically reachable
 // from this module can render against it. A door sheet no reader on the door's own graph
-// can use is charged to every session and painted for none of them. Each of the three
-// chunk roots imports it instead, which is the rule `apps/desktop/AGENTS.md` states from
-// the other side: the stylesheets a lazily-loaded directory owns enter through that
-// chunk's root.
+// can use is charged to every session and painted for none of them. The three chunk roots
+// that paint this family's chrome import it instead, which is the rule
+// `apps/desktop/AGENTS.md` states from the other side: the stylesheets a lazily-loaded
+// directory owns enter through that chunk's root. The picker's root names its own menu
+// sheet on that same rule and does NOT name `workflows.css`, because what it paints
+// inside is the composer's `+` panel rather than this family's chrome.
 //
 // THREE SHEETS STAY, AND ONE REASON DOES NOT COVER ALL THREE.
 //
@@ -70,10 +79,6 @@
 import "./runs/run-list.css";
 import "./parks/park-badge.css";
 import "./channel-progress/channel-progress.css";
-// The composer's picker is mounted directly rather than behind a loader, so its sheet
-// enters here beside the pinned region's two for the same reason theirs do: what draws
-// on the first paint is dressed on the first paint.
-import "./start/workflow-start-menu.css";
 
 import { createElement } from "react";
 
@@ -88,9 +93,15 @@ import {
   type ConsolePaneRegistry,
   type ConsoleSurfaceRegistration,
   type ConsoleSurfaceRegistry,
+  type LazyBodyLoader,
   type PinnedPaneRegionRegistry,
 } from "../seats/index.js";
 import { ChannelWorkflowProgressCard } from "./channel-progress/ChannelWorkflowProgressCard.js";
+// TYPE-ONLY, WHICH IS THE WHOLE POINT OF THE FORM. The loader below is typed against the
+// picker's own props, and a value import of that module would be a static edge into the
+// directory the loader defers — the shape `composer-workflow-picker-boundary.test.ts`
+// fails. A type import is erased before the bundler sees the graph, so it carries none.
+import type { WorkflowStartMenuProps } from "./start/WorkflowStartMenu.js";
 
 /**
  * The family's owner string, as the pane registry's duplicate policy reads it.
@@ -153,17 +164,26 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
 ];
 
 /**
- * The composer's workflow picker, for the seat its `+` menu reserves.
+ * How the composer's `+` menu reaches this family's workflow picker.
  *
- * A COMPONENT AND NOT AN ELEMENT, so the composer holds a stable type: a body composed
- * inline on each render is a new type each time and React remounts it, losing the read
- * it had just settled.
+ * A LOADER AND NOT THE COMPONENT, which is the same boundary the four registrations
+ * around it take and the reason this line is a function rather than a re-export. The
+ * menu is closed until somebody presses its disclosure, so the picker is not painted
+ * before a person acts — and a door line naming the component would put the body, the
+ * definition directory it reads through, the start act it dispatches, and this family's
+ * menu sheet into the entry chunk of every session, because `families.ts` imports this
+ * door eagerly to register the surfaces above.
  *
- * Its sheet enters at this door rather than behind a chunk, because the composer mounts
- * it directly and nothing defers it — the header above says why that is the arithmetic
- * rather than an exception to this family's own rule.
+ * THE SEAT BUILDS THE `LoadedLazyBody`, not this door, and the split is the one every
+ * loader-backed body already follows: what a body reserves while it loads is a question
+ * about the frame it loads inside, and that frame is the composer's `+` panel. A board
+ * cannot carry this registration at all — the deck keys by pane kind and the frame by
+ * surface slot, and a menu entry is neither — so the loader leaves through this door and
+ * the composer normalises it in one line, which is the same direction a registration
+ * travels written the only way a menu entry can be written.
  */
-export { WorkflowStartMenu } from "./start/WorkflowStartMenu.js";
+export const workflowStartMenuBody: LazyBodyLoader<WorkflowStartMenuProps> = () =>
+  import("./start/workflow-start-menu-body.js");
 
 /**
  * Claim this family's pane kinds against a registry.

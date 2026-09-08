@@ -60,6 +60,13 @@
 // session the run starts in, and the channel this composer is addressed within where it
 // is addressed at one. It authors no body.
 //
+// AND IT ARRIVES BEHIND A LOADER, WHICH IS WHY THAT SEAT IS ITS OWN MODULE. The picker is
+// absent from the tree until the `+` disclosure opens, so it is not painted before a
+// person acts and belongs on its own chunk — and this file named it statically, which put
+// it in every session's entry chunk however the registration beyond the door was written.
+// `plus-menu/WorkflowStartSeat.tsx` holds that boundary and states its terms; the three
+// inputs below are unchanged, and what this rail hands the `+` menu is still one element.
+//
 // WHAT EACH REMAINING RESERVED STATE LOOKS LIKE. The edit-and-resend editor has no
 // shell behind it, so its reserved state is the "not built yet" absence. The three the
 // usage plan owns — the context meter, the rate-limit indicator, and the compaction
@@ -82,10 +89,6 @@ import {
   type ReadingState,
 } from "../../../console/primitives/index.js";
 import type { ComposerSeatProps } from "../../../console/seats/index.js";
-// Through the workflows family's own door, which is how a renderer subtree outside the
-// console reaches a console family at all. The body is that family's; this file supplies
-// the seat, the session and — where this composer is addressed at one — the channel.
-import { WorkflowStartMenu } from "../../../console/workflows/index.js";
 import {
   useDeadlineWake,
   useSessionStore,
@@ -97,6 +100,7 @@ import { CompactionSlot, COMPACTION_SLOT_CONTRACT } from "./compaction/Compactio
 import { ContextMeterSlot, CONTEXT_METER_SLOT_CONTRACT } from "./context-meter/ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
 import { PlusMenu } from "./plus-menu/PlusMenu.js";
+import { WorkflowStartSeat } from "./plus-menu/WorkflowStartSeat.js";
 import { QueueShelf } from "./queue-shelf/QueueShelf.js";
 import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./quotas/RateLimitSlot.js";
 import { waitingQueueRows } from "./queue-shelf/waiting-queue.js";
@@ -248,7 +252,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
             bridge={props.bridge}
             sessionId={props.sessionStore.sessionId}
             workflowStartBody={
-              <WorkflowStartMenu
+              <WorkflowStartSeat
                 growth={props.bridge.growth}
                 sessionId={props.sessionStore.sessionId}
                 channelId={
