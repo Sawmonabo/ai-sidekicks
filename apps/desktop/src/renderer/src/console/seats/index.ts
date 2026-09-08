@@ -447,7 +447,14 @@ export { recordConsoleStartedSession, settleFirstSendAutoPin } from "./session-a
 // other, so a second spelling in either would be a contract with two homes and one
 // reader. The module beside this line carries no runtime value at all: what a settled
 // start DOES is the sessions family's act, and this seat carries only the id.
-export type { NewSessionControlComponent, NewSessionControlProps } from "./new-session-seat.js";
+// `NewSessionBlockedAct` travels the same line for the same reason: it is the shape
+// the mounting family composes and the declaring family renders, so it belongs to
+// neither of them and to the seat they meet on.
+export type {
+  NewSessionBlockedAct,
+  NewSessionControlComponent,
+  NewSessionControlProps,
+} from "./new-session-seat.js";
 
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh

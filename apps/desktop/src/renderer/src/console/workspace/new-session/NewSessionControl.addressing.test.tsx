@@ -16,9 +16,10 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {
   CREATE_REPLY,
+  NOTHING_BLOCKS_THE_ACT,
   bridgeFor,
   bridgeQueueingCreates,
-  openDraftWithPosture,
+  openDraftWithFirstTurn,
   politeText,
   press,
   renderControl,
@@ -34,17 +35,17 @@ describe("the composed new-session draft — which composition a settlement land
     // again was shown a refusal for a session THIS draft never sent.
     const queued = bridgeQueueingCreates();
     const container = renderControlOn(queued.bridge);
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     await press("Send");
 
     await press("Discard");
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     await act(async () => {
       queued.answerOldest();
       await crossMacrotaskBoundary();
     });
 
-    expect(container.textContent).not.toContain("first-turn-missing");
+    expect(container.textContent).not.toContain("first-turn-failed");
     expect(politeText(container)).toBe("");
     // The replacement is untouched and still sendable — nothing about the old send
     // reached it, including its sending flag.
@@ -57,10 +58,10 @@ describe("the composed new-session draft — which composition a settlement land
     // a composition whose own create was still in flight.
     const queued = bridgeQueueingCreates();
     const container = renderControlOn(queued.bridge);
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     await press("Send");
     await press("Discard");
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     await press("Send");
     expect(queued.pendingCount()).toBe(2);
 
@@ -70,7 +71,7 @@ describe("the composed new-session draft — which composition a settlement land
     });
 
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
-    expect(container.textContent).not.toContain("first-turn-missing");
+    expect(container.textContent).not.toContain("first-turn-failed");
 
     await act(async () => {
       queued.answerOldest();
@@ -79,7 +80,7 @@ describe("the composed new-session draft — which composition a settlement land
 
     // The newer draft's own settlement is the one that lands.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-    expect(container.textContent).toContain("first-turn-missing");
+    expect(container.textContent).toContain("first-turn-failed");
   });
 
   it("negative control: a settlement for the draft still on screen is rendered", async () => {
@@ -87,7 +88,7 @@ describe("the composed new-session draft — which composition a settlement land
     // above — and no send would ever report anything.
     const queued = bridgeQueueingCreates();
     const container = renderControlOn(queued.bridge);
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     await press("Send");
 
     await act(async () => {
@@ -95,7 +96,7 @@ describe("the composed new-session draft — which composition a settlement land
       await crossMacrotaskBoundary();
     });
 
-    expect(container.textContent).toContain("first-turn-missing");
+    expect(container.textContent).toContain("first-turn-failed");
     expect(politeText(container)).toBe(
       "The session was created, but not everything the draft asked for could be sent.",
     );
@@ -106,13 +107,9 @@ describe("the composed new-session draft — which composition a settlement land
   // refusal text and the announcement are the only evidence a send happened at all.
   it("negative control: an unsent draft carries neither refusal nor announcement", async () => {
     const container = renderControl({ scriptsCreate: true });
-    await press("+ New");
-    await act(async () => {
-      screen.getByRole("radio", { name: "Trusted" }).click();
-      await crossMacrotaskBoundary();
-    });
+    await openDraftWithFirstTurn();
 
-    expect(container.textContent).not.toContain("first-turn-missing");
+    expect(container.textContent).not.toContain("first-turn-failed");
     expect(container.textContent).not.toContain("session-create-failed");
     expect(politeText(container)).toBe("");
   });
@@ -138,10 +135,19 @@ function bridgeCountingCreates(): {
   readonly createCount: () => number;
 } {
   let creates = 0;
-  const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => {
-    creates += 1;
-    return CREATE_REPLY;
-  });
+  // Scoped to the create by name: a composed draft's send makes the turn's call too,
+  // and an arm that counted every call would report one send as two creates — and
+  // would answer `run.queueCreate` with a reply the create's own schema shapes.
+  const { bridge } = withDaemonCall(
+    bridgeFor({ scriptsCreate: true }),
+    async (call, passThrough) => {
+      if (call.method !== "session.create") {
+        return await passThrough();
+      }
+      creates += 1;
+      return CREATE_REPLY;
+    },
+  );
   return { bridge, createCount: () => creates };
 }
 
@@ -158,21 +164,31 @@ describe("the composed new-session draft — the transport it would send through
     const live = bridgeCountingCreates();
     const { rerender } = render(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={retired.bridge} onSessionCreated={recordNothing} />
+        <NewSessionControl
+          bridge={retired.bridge}
+          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          onSessionCreated={recordNothing}
+          onSessionDirectoryRecheck={recordNothing}
+        />
       </LiveAnnouncerProvider>,
     );
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
 
     rerender(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={live.bridge} onSessionCreated={recordNothing} />
+        <NewSessionControl
+          bridge={live.bridge}
+          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          onSessionCreated={recordNothing}
+          onSessionDirectoryRecheck={recordNothing}
+        />
       </LiveAnnouncerProvider>,
     );
 
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     expect(screen.getByRole("button", { name: "+ New" })).toBeDefined();
 
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     await press("Send");
 
     expect(live.createCount()).toBe(1);
@@ -185,10 +201,15 @@ describe("the composed new-session draft — the transport it would send through
     const composed = bridgeCountingCreates();
     render(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={composed.bridge} onSessionCreated={recordNothing} />
+        <NewSessionControl
+          bridge={composed.bridge}
+          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          onSessionCreated={recordNothing}
+          onSessionDirectoryRecheck={recordNothing}
+        />
       </LiveAnnouncerProvider>,
     );
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     await press("Send");
 
     expect(composed.createCount()).toBe(1);

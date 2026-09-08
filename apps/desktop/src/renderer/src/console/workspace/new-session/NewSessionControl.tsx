@@ -12,14 +12,27 @@
 // behind. Replacing the probe would delete a path that works today; hiding the draft
 // behind it would leave the composed path unreachable, which is the defect.
 //
-// WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The posture axis, because it is a
-// closed set the console already holds and the draft already takes, and the first
-// message, because the draft cannot compose `run.queueCreate` without the turn's own
-// body and a session opened with nothing said is a session waiting on a person who
-// thinks they already sent something. Agents and repo mounts are not offered: both
-// need reads this surface would have to invent, and `Spec-023 §Console Design
-// (Meridian)` rule 8 puts an unasked question in the _not checked_ absence rather
-// than in a picker with nothing behind it.
+// WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The first message, and nothing else: the
+// draft cannot compose `run.queueCreate` without the turn's own body, and a session
+// opened with nothing said is a session waiting on a person who thinks they already
+// sent something. Agents and repo mounts are not offered because both need reads this
+// surface would have to invent, and `Spec-023 §Console Design (Meridian)` rule 8 puts
+// an unasked question in the _not checked_ absence rather than in a picker with
+// nothing behind it.
+//
+// AND THE POSTURE PICKER IS GONE FOR THE SHARPER VERSION OF THAT RULE: a control whose
+// choice cannot be honoured is worse than an absent one, because it reports success for
+// a decision nothing acted on. The posture travelled only inside `sendNewSessionDraft`'s
+// `agentAttach` loop, which iterates `request.agents` — empty on every send this build
+// can make, since no surface calls `NewSessionDraft.selectAgent`. And the two calls that
+// ARE made carry nowhere to put it: the registered `SessionCreateRequest` is
+// `{ config?, metadata? }` and `QueueItemCreateRequest` is
+// `{ sessionId, channelId?, workspaceId?, priority?, payload }`, both `.strict()`, and
+// the only request member in the corpus that carries an execution posture is
+// `AgentResolvedConfiguration.executionPostureMode` on the growth-slate `agent.attach`.
+// So the axis comes back with the agent picker that makes the attach leg reachable —
+// `NewSessionDraft` keeps `setPosture` beside `selectAgent` for exactly that lane, and
+// the send already honours it on the leg that can carry it.
 //
 // AND A PARTIAL SEND NAMES WHAT LANDED, not only what did not. All three of the
 // draft's calls are reachable, so a send that stops part way leaves a real session
@@ -33,6 +46,22 @@
 // into a control that looks like it did nothing. Structural guard first, affordance
 // second — never the affordance alone, which is a guard that a keyboard path or a
 // later caller does not get.
+//
+// AND SEND IS CLOSED WHILE THE DESTINATION IS NOT PUTTING ACTS AT ALL. The three
+// controls beside this one — start, join, import — have carried that cause since they
+// were drawn, and this one did not: it took the bridge and nothing else, and stayed
+// live through a stopped supervisor while the sentence above it said mutations could
+// not be put. The cause arrives through `seats/new-session-seat.ts` rather than being
+// derived here, because a control that recomputed its own eligibility would be a
+// second source of truth for a fact the stores own — and it arrives as a reading
+// answering at two moments, because the guard behind the affordance has to ask again
+// when the press lands. The sentence itself is NOT re-rendered here: the section
+// already draws it once, and a control repeating it would put one fact on screen
+// twice.
+//
+// THE BLOCK CLOSES SEND AND NOT "+ New". Opening a draft mints no daemon row and puts
+// nothing on any wire, so refusing to let somebody compose one while the runtime is
+// away would take the offline half of this control away for nothing.
 //
 // AND A SETTLEMENT BELONGS TO THE DRAFT THAT ASKED FOR IT. Discard is reachable
 // while a send is in flight, and "+ New" is reachable the moment it is — so a send
@@ -66,39 +95,12 @@
 // press resumes at exactly that one. Navigating away would take that sentence with it,
 // and would stamp a start the person has not finished making.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
-
-import { SIDEKICK_POSTURE_MODES, type ConsoleBridge } from "../../bridge/index.js";
-import { InlineRefusal, useAnnounce } from "../../primitives/index.js";
+import { InlineRefusal } from "../../primitives/index.js";
 import type { NewSessionControlProps } from "../../seats/index.js";
-import {
-  useSubjectScopedResource,
-  useSubjectScopedState,
-  type SubjectScopedDisposal,
-} from "../../store/index.js";
-import {
-  NewSessionDraft,
-  type DraftPostureMode,
-  type NewSessionDraftState,
-} from "./new-session-draft.js";
-import { refuseSendThatRejected, type NewSessionSendResult } from "./new-session-send.js";
-
-/** How each posture reads on a control, in the vocabulary's own order. */
-const POSTURE_LABELS: Readonly<Record<DraftPostureMode, string>> = {
-  trusted: "Trusted",
-  "workspace-sandboxed": "Sandboxed to the workspace",
-  "readonly-sandboxed": "Sandboxed, read-only",
-};
-
-/** What a person hears once a send settles. One sentence per outcome. */
-const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], string>> = {
-  sent: "The session was created.",
-  partial: "The session was created, but not everything the draft asked for could be sent.",
-  refused: "Nothing was sent, and the draft is still here.",
-};
+import { useNewSessionComposition } from "./new-session-composition.js";
 
 export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
-  const composition = useNewSessionComposition(props.bridge, props.onSessionCreated);
+  const composition = useNewSessionComposition(props);
 
   if (composition.draftState === undefined) {
     return (
@@ -112,23 +114,6 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
 
   return (
     <section className="meridian-new-session" aria-label="New session draft">
-      <fieldset className="meridian-new-session__postures">
-        <legend>How its agents may work</legend>
-        {SIDEKICK_POSTURE_MODES.map((mode) => (
-          <label key={mode} className="meridian-new-session__posture">
-            <input
-              type="radio"
-              name="meridian-new-session-posture"
-              value={mode}
-              checked={composition.draftState?.posture === mode}
-              onChange={() => {
-                composition.setPosture(mode);
-              }}
-            />
-            {POSTURE_LABELS[mode]}
-          </label>
-        ))}
-      </fieldset>
       <label className="meridian-new-session__first-turn">
         Its first message
         <textarea
@@ -158,10 +143,31 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
         <button type="button" className="meridian-new-session__discard" onClick={composition.close}>
           Discard
         </button>
+        {/* The act that replaces Send once the create's reply could not be read. It is
+            offered INSTEAD OF a retry and never beside one: the directory read is
+            what would name a session that was made, and a second send would make
+            another. `Spec-023 §Console Design (Meridian)` rule 9 — the control is
+            disabled with its sentence beside it, and the act that IS available is
+            drawn rather than left to be guessed at. */}
+        {composition.isAmbiguousCreate ? (
+          <button
+            type="button"
+            className="meridian-new-session__recheck"
+            onClick={composition.recheckDirectory}
+          >
+            Check the sessions list
+          </button>
+        ) : null}
         <button
           type="button"
           className="meridian-new-session__send"
-          disabled={composition.draftState.isEmpty || composition.isSending}
+          disabled={
+            composition.draftState.isEmpty ||
+            composition.isSending ||
+            composition.isAmbiguousCreate ||
+            props.blockedAct.sentence !== undefined
+          }
+          title={props.blockedAct.sentence}
           onClick={composition.send}
         >
           Send
@@ -169,227 +175,4 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
       </div>
     </section>
   );
-}
-
-/** Everything the control renders and every act it offers, in one hook. */
-interface NewSessionComposition {
-  /** `undefined` while no draft is open — the state the "+ New" button is in. */
-  readonly draftState: NewSessionDraftState | undefined;
-  readonly sendResult: NewSessionSendResult | undefined;
-  /**
-   * True while THIS draft's send is running — what disables Send meanwhile.
-   *
-   * Scoped to the draft on screen rather than to the control: an older draft's send
-   * settling says nothing about whether the composition a person is looking at may
-   * be sent again.
-   */
-  readonly isSending: boolean;
-  readonly open: () => void;
-  readonly close: () => void;
-  readonly setPosture: (posture: DraftPostureMode) => void;
-  readonly setFirstTurn: (firstTurn: string) => void;
-  readonly send: () => void;
-}
-
-/** What one draft's send is doing, and what it settled on. Held per draft. */
-interface DraftSendReport {
-  readonly isSending: boolean;
-  readonly result: NewSessionSendResult | undefined;
-}
-
-/** A draft nobody has sent. One value, so every seed is the same object. */
-const NO_SEND_YET: DraftSendReport = { isSending: false, result: undefined };
-
-/**
- * No draft until "+ New" is pressed — the seed for a bridge nobody has composed on.
- *
- * The holder seeds during the render that first sees a subject, and a seed that
- * CONSTRUCTED a draft would make arriving at the sessions destination compose a
- * session. The act is the person's; this is what the control shows until they make it.
- */
-function noDraftUntilOpened(): NewSessionDraft | undefined {
-  return undefined;
-}
-
-/**
- * How a draft this control lets go of ends.
- *
- * Total over the seed, because a bridge that was never composed on holds no draft.
- * The discard is the draft's own — "a draft that is closed empty reverts to nothing
- * and leaves no row" is a claim about what `discard()` does, so dropping the object
- * without it would make closing mean something else.
- *
- * THE RELEASING ARM: `discard()` clears the selections and leaves a working draft, so
- * there is no closed state for the holder to recognise and a reading beside it would
- * claim a lifetime that does not end. Declared at module scope because the hook holds
- * the disposal on a dependency of its own.
- */
-const DRAFT_DISPOSAL: SubjectScopedDisposal<NewSessionDraft | undefined> = {
-  release: (draft) => {
-    draft?.discard();
-  },
-};
-
-/**
- * Hold the draft, and keep the rendered state in step with it.
- *
- * The draft is the source of truth and this hook subscribes to it rather than keeping
- * selections of its own: two copies of what a person has chosen is how a discard
- * clears one of them.
- */
-function useNewSessionComposition(
-  bridge: ConsoleBridge,
-  onSessionCreated: (sessionId: string) => void,
-): NewSessionComposition {
-  const heldDraft = useSubjectScopedResource<NewSessionDraft | undefined>(
-    bridge,
-    undefined,
-    noDraftUntilOpened,
-    DRAFT_DISPOSAL,
-  );
-  const openDraft = heldDraft.value;
-  const publishDraft = heldDraft.publish;
-  // Addressed by the DRAFT, so a settlement is measured against the composition it
-  // was sent for and not against a counter this component keeps. Where none is open
-  // the bridge stands in as the subject: nothing is sending, and the seed says so.
-  const sendReport = useSubjectScopedState<DraftSendReport>(
-    openDraft ?? bridge,
-    undefined,
-    () => NO_SEND_YET,
-  );
-  const publishReport = sendReport.publish;
-  const { isSending, result } = sendReport.value;
-  const announce = useAnnounce();
-
-  // Read off the draft rather than mirrored into state on every act: the draft emits
-  // on each commit, and a second copy is one more thing a discard has to clear.
-  const draftState = useSyncExternalStore(
-    useCallback(
-      (onChange: () => void) =>
-        openDraft === undefined ? () => undefined : openDraft.subscribe(onChange),
-      [openDraft],
-    ),
-    useCallback(() => openDraft?.snapshot(), [openDraft]),
-  );
-
-  const open = useCallback(() => {
-    publishDraft(new NewSessionDraft({ bridge }));
-  }, [bridge, publishDraft]);
-
-  const close = useCallback(() => {
-    // Published rather than discarded here: the holder disposes what it replaced,
-    // through the same `discard()` a reconnect would run, so closing by hand and
-    // closing by reconnect end a draft the same way.
-    publishDraft(undefined);
-  }, [publishDraft]);
-
-  const setPosture = useCallback(
-    (posture: DraftPostureMode) => {
-      openDraft?.setPosture(posture);
-    },
-    [openDraft],
-  );
-
-  // Straight through to the draft, with nothing kept here: the field renders off the
-  // draft's own `firstTurn`, so a discard clears the words on screen because it
-  // cleared the only copy of them.
-  const setFirstTurn = useCallback(
-    (firstTurn: string) => {
-      openDraft?.setFirstTurn(firstTurn);
-    },
-    [openDraft],
-  );
-
-  const send = useCallback(() => {
-    if (openDraft === undefined) {
-      return;
-    }
-    // The publisher captured on THIS render is the one bound to the draft that is
-    // sending. If the composition on screen has moved on by the time the create
-    // settles, everything below installs nowhere — the result, the announcement it
-    // would have caused, and the flag that would have re-enabled Send under a draft
-    // still waiting on its own reply.
-    publishReport({ isSending: true, result: undefined });
-    void openDraft.send().then(
-      (sendResult) => {
-        publishReport({ isSending: false, result: sendResult });
-      },
-      () => {
-        // A send that rejected outright USED to publish `NO_SEND_YET`, which cleared
-        // the result: no banner, no announcement, no diagnostic, and a Send button
-        // that answered a press by doing nothing. The draft names the fault in its own
-        // vocabulary instead, so the refusal renders in the slot every other outcome
-        // uses and the announce effect below says it out loud.
-        //
-        // A STRUCTURAL GUARD, and no test drives it, because nothing in this build
-        // reaches it: `callDaemon` answers a rejected call, an absent door and an
-        // unreadable reply alike with a typed refusal, and every statement `send()`
-        // makes outside that call is total — so no wire a test can compose makes this
-        // promise reject, and a test that did would need an injected draft this
-        // component deliberately does not take. What the arm PUBLISHES is asserted
-        // where it is built, in `new-session-draft.test.ts`.
-        //
-        // `then`'s SECOND ARGUMENT rather than a `.catch` tail, for that same reason
-        // rather than a different one: a tail would also catch a throw from the arm
-        // above it and report a fault of this component's as the draft's send
-        // rejecting — the one fault this arm's sentence would be wrong about.
-        publishReport({ isSending: false, result: refuseSendThatRejected() });
-      },
-    );
-  }, [openDraft, publishReport]);
-
-  // The settlement callback as it stood at the last COMMIT, so the effect below can
-  // read it without depending on its identity.
-  //
-  // The destination composes it from the stores its context carries and hands over a
-  // fresh function on every pass — the shape `SessionsSurface.tsx` states outright,
-  // because nothing over there needs a stable one. Named in the effect's dependencies
-  // it would re-run the whole settlement on every render of the surface above: the
-  // sentence said twice, the session opened twice, the navigation put twice. Written
-  // from a layout effect rather than the render body for `ledger/pane/feed`'s reason —
-  // a pass React discards still runs a render body, and a callback captured there
-  // belongs to a tree that never reached the screen.
-  const committedSessionCreatedRef = useRef(onSessionCreated);
-  useLayoutEffect(() => {
-    committedSessionCreatedRef.current = onSessionCreated;
-  });
-
-  // Said once, when a settlement LANDS, rather than from inside the continuation: a
-  // result that installed nowhere is one nobody was waiting for, and announcing from
-  // the value that reached the screen is what keeps those two facts the same one.
-  //
-  // AND THE COMPLETED SEND IS SETTLED FROM HERE, in that order, for the same reason
-  // and one more. The reason: a result that reached the screen is a result whose draft
-  // is still the one on screen, so the session handed out is the session this
-  // composition asked for. The one more: settling navigates, so the sentence has to be
-  // spoken first — said afterwards it would be addressed to a destination that is
-  // already unmounting.
-  //
-  // The draft is dropped in the same act. It has done everything it can do — one draft
-  // object mints at most one session, and every leg it names has landed — so leaving it
-  // held would offer Send under a composition that can only re-report a session that
-  // already exists, on a holder that outlives the navigation away from here.
-  useEffect(() => {
-    if (result === undefined) {
-      return;
-    }
-    announce(SEND_ANNOUNCEMENTS[result.outcome]);
-    if (result.outcome !== "sent" || result.sessionId === undefined) {
-      return;
-    }
-    const createdSessionId = result.sessionId;
-    publishDraft(undefined);
-    committedSessionCreatedRef.current(createdSessionId);
-  }, [announce, publishDraft, result]);
-
-  return {
-    draftState,
-    sendResult: result,
-    isSending,
-    open,
-    close,
-    setPosture,
-    setFirstTurn,
-    send,
-  };
 }

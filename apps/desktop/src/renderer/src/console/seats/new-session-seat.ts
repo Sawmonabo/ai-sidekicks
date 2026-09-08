@@ -20,6 +20,25 @@ import type { ComponentType } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 
+/**
+ * Why the destination is not putting acts right now — at render, and at dispatch.
+ *
+ * ONE FACT ASKED AT TWO MOMENTS, and both halves are here because a control that has
+ * only one of them is wrong in one of them. With the sentence alone the affordance is
+ * right and the guard is fail-OPEN: the cause can land in the frame between the render
+ * that enabled a button and the click that reaches its handler. With the reader alone
+ * nothing can be disabled, because a function is not a value a render can compare.
+ *
+ * The destination composes both from the same two sources, so the reason a control is
+ * closed and the reason a press puts nothing can never be two different reasons.
+ */
+export interface NewSessionBlockedAct {
+  /** The cause as it stood at this render, or `undefined` while acts are offered. */
+  readonly sentence: string | undefined;
+  /** The same question, asked the moment a press lands. Stable across renders. */
+  readonly readSentence: () => string | undefined;
+}
+
 /** What the sessions destination hands the composed draft control. */
 export interface NewSessionControlProps {
   /**
@@ -30,6 +49,19 @@ export interface NewSessionControlProps {
    * console will not read again.
    */
   readonly bridge: ConsoleBridge;
+  /**
+   * Why this draft may not be sent right now, from the destination that decides it.
+   *
+   * The SAME reading the shipped start, join and import controls carry, rather than
+   * one this control derives: every act on this destination is a write, so the
+   * whole-destination fold answers for all of them, and a control that recomputed its
+   * own eligibility would be a second source of truth for a fact the stores own.
+   *
+   * The block closes SEND and not "+ New": opening a draft mints no daemon row, and
+   * refusing to let somebody compose one while the runtime is away would take the
+   * offline half of this control away for no gain.
+   */
+  readonly blockedAct: NewSessionBlockedAct;
   /**
    * The session a completed send produced, told once, at the moment it completed.
    *
@@ -43,6 +75,20 @@ export interface NewSessionControlProps {
    * the moment it settles rather than the one an effect closed over.
    */
   readonly onSessionCreated: (sessionId: string) => void;
+  /**
+   * Ask the destination to re-read the node's session directory.
+   *
+   * The one act a draft can still offer after a create whose reply this build could
+   * not read: a session may exist under a name nothing here holds, and the directory
+   * is what would answer. It is the SESSIONS family's act for the same reason the
+   * settlement above is — the read is addressed at the node and its staleness is
+   * declared through a seat this family owns, neither of which the workspace family
+   * may reach.
+   *
+   * Needs no stable identity, on `onSessionCreated`'s own terms: it is read from a
+   * press rather than from a dependency array.
+   */
+  readonly onSessionDirectoryRecheck: () => void;
 }
 
 /**

@@ -10,6 +10,7 @@
 // mutating operations are blocked while the supervisor is not serving, and read-only
 // subscriptions continue.
 
+import type { FrameStore } from "./frame-store.js";
 import type { ShellState } from "./shell-state.js";
 
 /**
@@ -165,4 +166,24 @@ export function shellBlockForMethod(
   method: string,
 ): ShellMutationBlock | undefined {
   return isMutatingDaemonMethod(method) ? shellMutationBlock(state) : undefined;
+}
+
+/**
+ * The block that applies to one method RIGHT NOW, read off the store as it stands.
+ *
+ * The dispatch-time half of {@link shellBlockForMethod}, and the reason it is a
+ * function of the STORE rather than of a state: a render decides what a control looks
+ * like, and a press decides whether a call is put, and the block can land in the frame
+ * between the two. A surface guarded on the state its render captured is fail-OPEN in
+ * exactly that gap — so a control renders its cause from a subscription and the act
+ * behind it asks again here, where the call is put.
+ *
+ * The two readings cannot disagree about anything but the instant: both funnel through
+ * `shellBlockForMethod`, so the method set and the sentences are one implementation.
+ */
+export function currentShellBlock(
+  frameStore: FrameStore,
+  method: string,
+): ShellMutationBlock | undefined {
+  return shellBlockForMethod(frameStore.getState().shellState, method);
 }

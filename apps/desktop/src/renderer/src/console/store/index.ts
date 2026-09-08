@@ -121,6 +121,10 @@ export {
   /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */
   isMutatingDaemonMethod,
   shellBlockForMethod,
+  // The same question asked where the call is PUT rather than where the control was
+  // drawn. A dispatching surface reads it in its handler, because a block that lands
+  // between the render and the press leaves a render-captured one fail-open.
+  currentShellBlock,
   shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell-mutation-block.js";
