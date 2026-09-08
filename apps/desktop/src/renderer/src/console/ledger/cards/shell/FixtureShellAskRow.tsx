@@ -18,10 +18,18 @@
 // soonest instant still ahead, re-asked of the clock at every step so a host that
 // slept moves the wake-up nowhere.
 
+import { useMemo } from "react";
+
 import { useConsoleClock } from "../../../bridge/index.js";
 import { parseInstant } from "../../../core/index.js";
 import { useDeadlineWake } from "../../../store/index.js";
-import { INPUT_ASK_SLOT, InputAskCard, type DriverAskReading } from "../bodies/index.js";
+import {
+  INPUT_ASK_SLOT,
+  InputAskCard,
+  askSettledBy,
+  useLedgerAskTerminal,
+  type DriverAskReading,
+} from "../bodies/index.js";
 import { useDriverAskAnswer } from "./shell-row-reads.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 
@@ -36,14 +44,24 @@ export interface FixtureShellAskRowProps {
 export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.Element {
   const askAnswer = useDriverAskAnswer(props.attributedRunId, props.ask.askId);
   const clock = useConsoleClock();
-  const nowEpochMilliseconds = useDeadlineWake(
-    clock,
-    askDeadlineMillisecondsOf(props.ask.expiresAt),
+  // THE WINDOW'S ANSWER TO "IS THIS ASK STILL OPEN", not this row's and not this
+  // mount's. The row says only what its own event type says, and the delivery state
+  // beside it is local to a mount and resets with one — so a request answered from
+  // another window, or answered here and then scrolled out and back, kept its controls.
+  // The fold is the ledger's row model's; this is the lookup and the merge.
+  const askTerminal = useLedgerAskTerminal(props.ask.askId);
+  const ask = useMemo(() => askSettledBy(props.ask, askTerminal), [props.ask, askTerminal]);
+  // ARMED ONLY WHILE THE ASK IS OPEN. A settled ask draws no countdown, so a wake-up
+  // for its stamped deadline would be a timer this row can never spend.
+  const deadlines = useMemo(
+    () => (ask.state === "requested" ? askDeadlineMillisecondsOf(ask.expiresAt) : NO_DEADLINES),
+    [ask.expiresAt, ask.state],
   );
+  const nowEpochMilliseconds = useDeadlineWake(clock, deadlines);
   return (
     <InputAskCard
       slot={{ contract: INPUT_ASK_SLOT, body: undefined }}
-      ask={props.ask}
+      ask={ask}
       nowEpochMilliseconds={nowEpochMilliseconds}
       delivery={askAnswer.delivery}
       onAnswer={askAnswer.answer}

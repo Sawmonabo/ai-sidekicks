@@ -168,6 +168,62 @@ export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
 }
 
 /**
+ * The terminal each ask in one window reached, keyed by `askId`.
+ *
+ * WHY THIS IS A WINDOW FOLD AND NOT A ROW READ. The four `driver_ask.*` types are four
+ * ROWS, not four states of one row: the request stays in the log exactly where it was
+ * asked, and the answer, the expiry or the cancellation arrives later as a row of its
+ * own. A card that read only its own row therefore kept offering answer controls beside
+ * a terminal that had already landed — immediately for an answer delivered from another
+ * window, and after any remount for one delivered from this one, because the delivery
+ * state that had been standing in for the terminal is local to a mount and resets with
+ * it. Neither the request row nor the reader over it can see the later row, so the
+ * question is the WINDOW's and is answered once per window here.
+ *
+ * FIRST TERMINAL WINS. An ask settles once; a second terminal row for one `askId` is
+ * either a duplicate delivery or a log that contradicts itself, and in both readings
+ * the row that settled the ask is the first one. Taking the last would let a late
+ * `canceled` overwrite the answer a participant actually gave.
+ */
+export function deriveDriverAskTerminals(
+  rows: readonly TimelineRow[],
+): ReadonlyMap<string, DriverAskReading> {
+  const terminalsByAskId = new Map<string, DriverAskReading>();
+  for (const row of rows) {
+    const reading = readDriverAsk(row);
+    if (reading === undefined || reading.state === "requested") {
+      continue;
+    }
+    if (!terminalsByAskId.has(reading.askId)) {
+      terminalsByAskId.set(reading.askId, reading);
+    }
+  }
+  return terminalsByAskId;
+}
+
+/**
+ * One ask as its own row read it, settled by the terminal the window later holds.
+ *
+ * THE QUESTION STAYS THE REQUEST'S AND THE DISPOSITION COMES FROM THE TERMINAL. Only
+ * `state` and `deliveredAnswer` are taken from the terminal row, because those are the
+ * only two members that row is authoritative about: a `driver_ask.expired` payload
+ * carries no prompt and no option set, so taking the whole reading would blank the
+ * question a reader is looking at and replace it with the card's named absence.
+ *
+ * A reading that is already terminal is returned UNCHANGED rather than merged with
+ * itself — the terminal row draws its own disposition, which is what it always did.
+ */
+export function askSettledBy(
+  ask: DriverAskReading,
+  terminal: DriverAskReading | undefined,
+): DriverAskReading {
+  if (terminal === undefined || ask.state !== "requested") {
+    return ask;
+  }
+  return { ...ask, state: terminal.state, deliveredAnswer: terminal.deliveredAnswer };
+}
+
+/**
  * The declared choice set, with anything unreadable dropped.
  *
  * DROPPED AND NOT REPAIRED. An entry whose `value` is not a present wire string names

@@ -84,6 +84,35 @@ describe("structure", () => {
     expect(container.querySelectorAll("td").length).toBeGreaterThan(0);
   });
 
+  it("renders a GFM table's first row as column headers and the rest as data", () => {
+    const container = renderMarkdown("| a | b |\n| - | - |\n| 1 | 2 |\n");
+    const headerCells = [...container.querySelectorAll("thead th")];
+    expect(headerCells.map((cell) => cell.textContent)).toStrictEqual(["a", "b"]);
+    expect(headerCells.map((cell) => cell.getAttribute("scope"))).toStrictEqual(["col", "col"]);
+    // The header row is a header row and nothing else: a `td` in the head would put a
+    // data cell where assistive technology looks for a column name.
+    expect(container.querySelectorAll("thead td")).toHaveLength(0);
+    expect(
+      [...container.querySelectorAll("tbody td")].map((cell) => cell.textContent),
+    ).toStrictEqual(["1", "2"]);
+    expect(container.querySelectorAll("tbody th")).toHaveLength(0);
+  });
+
+  it("negative control: the delimiter row's alignment reaches header and data cells alike", () => {
+    // Without this, a mapper could render the head and the body out of one alignment
+    // list and drop it on one of them — a column whose header sits over values it is
+    // no longer above, which reads as a correct table and is not one.
+    const container = renderMarkdown("| a | b | c |\n| :-: | --: | - |\n| 1 | 2 | 3 |\n");
+    const headerAlignments = [...container.querySelectorAll("thead th")].map((cell) =>
+      cell.getAttribute("data-align"),
+    );
+    const dataAlignments = [...container.querySelectorAll("tbody td")].map((cell) =>
+      cell.getAttribute("data-align"),
+    );
+    expect(headerAlignments).toStrictEqual(["center", "right", null]);
+    expect(dataAlignments).toStrictEqual(["center", "right", null]);
+  });
+
   it("renders a footnote reference and says whether its body arrived", () => {
     const withBody = renderMarkdown("cite[^1]\n\n[^1]: the note\n", ["1"]);
     expect(

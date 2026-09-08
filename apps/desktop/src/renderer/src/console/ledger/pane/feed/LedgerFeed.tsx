@@ -77,6 +77,7 @@
 import { useCallback, useMemo } from "react";
 
 import { useConsoleClock } from "../../../bridge/index.js";
+import { LedgerAskTerminalProvider } from "../../cards/index.js";
 import {
   LedgerRowLeaseProvider,
   LedgerRowRevealProvider,
@@ -247,16 +248,21 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <div className="meridian-ledger__body">
         <LedgerRowLeaseProvider channel={rowLeaseChannel}>
           <LedgerRowRevealProvider channel={windows.reveal.channel}>
-            <LedgerViewport
-              binding={viewport}
-              renderRow={renderRow}
-              feedLabel={props.feedLabel}
-              scope={scope}
-              peerInvocationEnabled={windows.peerInvocationEnabled}
-              firstReadSettled={windows.firstReadSettled}
-              hasActiveTurn={ledgerWindow.hasActiveTurn}
-              earlierPaging={windows.earlierPaging}
-            />
+            {/* INSIDE the two row channels and around the viewport, because it is read
+                by one row body and not by the list: the ask card asks for its own ask's
+                terminal, and every other row consumes nothing here. */}
+            <LedgerAskTerminalProvider terminalsByAskId={ledgerWindow.askTerminalByAskId}>
+              <LedgerViewport
+                binding={viewport}
+                renderRow={renderRow}
+                feedLabel={props.feedLabel}
+                scope={scope}
+                peerInvocationEnabled={windows.peerInvocationEnabled}
+                firstReadSettled={windows.firstReadSettled}
+                hasActiveTurn={ledgerWindow.hasActiveTurn}
+                earlierPaging={windows.earlierPaging}
+              />
+            </LedgerAskTerminalProvider>
           </LedgerRowRevealProvider>
         </LedgerRowLeaseProvider>
         <LedgerFeedRail

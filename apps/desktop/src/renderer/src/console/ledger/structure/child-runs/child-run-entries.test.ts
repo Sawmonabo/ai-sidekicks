@@ -6,7 +6,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ChildRunSummary, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
+import {
+  type ChildRunSummary,
+  type NodeId,
+  type RunId,
+  type TimelineRow,
+} from "@ai-sidekicks/contracts";
 
 import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import {
@@ -16,6 +21,9 @@ import {
   deriveHandoffEntries,
 } from "./child-run-entries.js";
 import { RAIL_TICK_BINDINGS } from "../rail/rail-ticks.js";
+
+/** When a later observation saw the child's transcript lose entries. */
+const OBSERVED_AT = "2026-09-02T10:04:00.000Z";
 
 /** A complete child-run summary, which the shared fixture builder does not offer. */
 function completeSummary(childRunId: string, eventCount: number): ChildRunSummary {
@@ -60,6 +68,41 @@ describe("child-run entries — one card per child, at the row that first named 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.rowId).toBe("r1");
     expect(entries[0]?.resummarizedRowIds).toEqual(["r2", "r3"]);
+  });
+
+  it("shows the LATEST observation of a child, still anchored at its first row", () => {
+    const entries = deriveChildRunEntries([
+      rowCarryingChildRun("r1", 1, completeSummary("run-child", 1)),
+      rowCarryingChildRun("r2", 2, {
+        ...completeSummary("run-child", 9),
+        state: "succeeded",
+        producingNodeId: "node-b" as NodeId,
+        completeness: { state: "incomplete", cause: "compacted", observedAt: OBSERVED_AT },
+      }),
+    ]);
+    expect(entries).toHaveLength(1);
+    // The anchor is the first row's — the card stays where a reader left it — and
+    // every figure on it is the second row's.
+    expect(entries[0]?.rowId).toBe("r1");
+    expect(entries[0]?.summary.eventCount).toBe(9);
+    expect(entries[0]?.summary.state).toBe("succeeded");
+    expect(entries[0]?.summary.producingNodeId).toBe("node-b");
+    expect(entries[0]?.summary.completeness).toEqual({
+      state: "incomplete",
+      cause: "compacted",
+      observedAt: OBSERVED_AT,
+    });
+  });
+
+  it("negative control: a child summarized once keeps the only summary it has", () => {
+    // Without this, a fold that took the LAST row's summary unconditionally would pass
+    // the case above while dropping the summary of a child nothing re-summarized.
+    const entries = deriveChildRunEntries([
+      rowCarryingChildRun("r1", 1, completeSummary("run-child", 4)),
+      rowCarryingChildRun("r2", 2, completeSummary("run-other", 2)),
+    ]);
+    expect(entries.map((entry) => entry.summary.eventCount)).toEqual([4, 2]);
+    expect(entries.map((entry) => entry.resummarizedRowIds)).toEqual([[], []]);
   });
 
   it("admits a child summarized onto a non-run row, which carries no attribution", () => {

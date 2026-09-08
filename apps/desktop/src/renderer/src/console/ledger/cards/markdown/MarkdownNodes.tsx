@@ -29,7 +29,7 @@
 // a leaf: dropping it would silently delete an author's words, and walking into it loses
 // only the node's own formatting.
 
-import type { Nodes, PhrasingContent, RootContent } from "mdast";
+import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
 import { Fragment } from "react";
 
 import { arePathLinksRenderable, isDeferredFenceLanguage } from "./markdown-rules.js";
@@ -178,15 +178,9 @@ function renderNode(
     case "table":
       return (
         <div className="meridian-markdown__table-scroll">
-          <table className="meridian-markdown__table">
-            <tbody>{renderChildren(node.children, context)}</tbody>
-          </table>
+          <table className="meridian-markdown__table">{renderTableSections(node, context)}</table>
         </div>
       );
-    case "tableRow":
-      return <tr>{renderChildren(node.children, context)}</tr>;
-    case "tableCell":
-      return <td>{renderChildren(node.children, context)}</td>;
     case "footnoteDefinition":
       // Registered elsewhere, rendered nowhere here. This console puts footnotes in one
       // popover host per timeline, so a definition's body belongs to the popover;
@@ -224,6 +218,98 @@ function renderChildren(
 /** A node's children, or an empty list for a leaf. The one structural read left. */
 function childrenOf(node: Nodes): readonly (RootContent | PhrasingContent)[] {
   return "children" in node ? node.children : [];
+}
+
+/**
+ * A GFM table's head and body, which are two things the parse already tells apart.
+ *
+ * THE FIRST ROW IS THE HEADER ROW — that is what the delimiter line under it declares,
+ * and it is the only thing that line declares about rows. Every row used to reach the
+ * screen as `<td>` inside one `<tbody>`, so a table with column names rendered as a
+ * grid with none: a reader on assistive technology got cell contents with nothing to
+ * announce them against, and no amount of styling would have put that back.
+ *
+ * THE TABLE ARM NOW OWNS ITS WHOLE SUBTREE, which is why `tableRow` and `tableCell`
+ * carry no arm of their own in the switch above. Whether a cell is a header is a fact
+ * about its ROW's position in the table, and whether it is aligned is a fact the TABLE
+ * carries — neither is readable from the cell, so a per-cell arm could not have
+ * rendered either one. A row or a cell reaching the switch from anywhere else is a
+ * tree this parser does not produce, and it walks into its children like any other
+ * container rather than emitting table markup outside a table.
+ */
+function renderTableSections(node: Table, context: MarkdownRenderContext): React.ReactNode {
+  const [headerRow, ...bodyRows] = node.children;
+  return (
+    <>
+      {headerRow === undefined ? null : (
+        <thead>{renderTableRow(headerRow, 0, node.align, "column-header", context)}</thead>
+      )}
+      {bodyRows.length === 0 ? null : (
+        <tbody>
+          {bodyRows.map((bodyRow, index) =>
+            renderTableRow(bodyRow, index, node.align, "data", context),
+          )}
+        </tbody>
+      )}
+    </>
+  );
+}
+
+/** Which kind of cell a row's cells are. Decided by the row, never by the cell. */
+type TableCellKind = "column-header" | "data";
+
+/**
+ * One row of a table, with each cell told which column it is in.
+ *
+ * The alignment list is the TABLE's, one entry per column, so the index a cell sits at
+ * is what selects its entry. A row with more cells than the delimiter line declared
+ * columns reads `undefined` past the end and renders unaligned, which is what the
+ * parse says about a column that was never declared.
+ */
+function renderTableRow(
+  row: TableRow,
+  rowIndex: number,
+  alignments: readonly AlignType[] | null | undefined,
+  cellKind: TableCellKind,
+  context: MarkdownRenderContext,
+): React.JSX.Element {
+  return (
+    <tr key={nodeKey(row, rowIndex)}>
+      {row.children.map((cell, columnIndex) =>
+        renderTableCell(cell, columnIndex, alignments?.[columnIndex] ?? null, cellKind, context),
+      )}
+    </tr>
+  );
+}
+
+/**
+ * One cell, as a header or as data, carrying the column's declared alignment.
+ *
+ * `data-align` rather than an inline style, on the heading arm's own precedent: the
+ * parse states which of three alignments a column declared and `markdown.css` states
+ * what each one looks like, so a design change is a stylesheet edit rather than a
+ * mapper edit. An undeclared alignment carries no attribute at all — the sheet's own
+ * default is what a column with no delimiter marker gets, and an attribute spelling
+ * that default would be this mapper asserting a declaration the author never made.
+ */
+function renderTableCell(
+  cell: TableRow["children"][number],
+  columnIndex: number,
+  alignment: AlignType,
+  cellKind: TableCellKind,
+  context: MarkdownRenderContext,
+): React.JSX.Element {
+  const key = nodeKey(cell, columnIndex);
+  const alignmentAttribute = alignment === null ? {} : { "data-align": alignment };
+  return cellKind === "column-header" ? (
+    <th key={key} scope="col" {...alignmentAttribute}>
+      {renderChildren(cell.children, context)}
+    </th>
+  ) : (
+    <td key={key} {...alignmentAttribute}>
+      {renderChildren(cell.children, context)}
+    </td>
+  );
 }
 
 /**
