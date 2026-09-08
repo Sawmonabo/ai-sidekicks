@@ -49,7 +49,7 @@
 
 import { useConsoleBridge } from "../../../../bridge/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../../../primitives/index.js";
-import { HumanPhaseFormAnswer } from "../../../forms/index.js";
+import { SchemaFormAnswer } from "../../../../seats/index.js";
 import { useHumanFormSubmit } from "../human-form-submit.js";
 import type { HumanFormMount } from "./human-form-mount.js";
 
@@ -63,7 +63,7 @@ export function HumanFormShell(mount: HumanFormMount): React.JSX.Element {
   const bridge = useConsoleBridge();
   const { outcome, submit } = useHumanFormSubmit(bridge.growth, mount);
   return (
-    <HumanPhaseFormAnswer
+    <SchemaFormAnswer
       // The header's reason: a switch between two waits reaches this component as a
       // prop change, and only a changed key discards what the previous wait's form held.
       key={mount.phaseRunId}
@@ -72,7 +72,7 @@ export function HumanFormShell(mount: HumanFormMount): React.JSX.Element {
       onSubmit={submit}
     >
       {renderOutcome(outcome)}
-    </HumanPhaseFormAnswer>
+    </SchemaFormAnswer>
   );
 }
 

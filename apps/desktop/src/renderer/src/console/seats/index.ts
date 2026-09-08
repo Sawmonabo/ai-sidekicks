@@ -77,6 +77,11 @@
 // imports the symbol — a tag that outlives its consumer fails the run.
 
 import "./pane-chrome.css";
+// The schema form seat's rules, entering at this door because `schema-form/` carries no
+// door of its own: it publishes to nobody inside this family, so the directory that owns
+// it is this one. Every class it declares is `meridian-schema-*` and no other family
+// declares one, so nothing above it restates a rule it holds.
+import "./schema-form/schema-form.css";
 
 // How a family reaches the screen: the registry it claims a slot in, the call that
 // claims one, and everything a mounted surface is handed. Here rather than in
@@ -474,3 +479,30 @@ export { useNodeRosterObservation, type NodeRosterObservation } from "./node-ros
 // page takes both — it renders from the recorded read and owes that read the signals
 // the absorbed view's own presence channel does not carry.
 export { useNodeRosterReReadTriggers } from "./node-roster-triggers.js";
+
+// THE JSON-SCHEMA FORM SEAT — the mapper, the six Meridian field controls, the two
+// composed surfaces and the schema-validated raw editor behind them. Here for the reason
+// every other seat is here: an owning family needs a form, and a form is not that
+// family's to author twice. The workflow builder previews what a phase will ask, the run
+// pane answers a parked one, and the input-ask card's structured-options arm is the next
+// reader — three surfaces, one drawing of what a schema means.
+//
+// WHAT LEAVES IS A COMPOSED SURFACE AND NEVER THE KIT. `useSchemaForm`, `planSchemaForm`
+// and `compileSchemaValidator` stay inside, and their absence is the boundary rather than
+// an omission: a caller assembling those three itself would be a second answer to what a
+// schema draws, and the one place a schema is drawn is `SchemaForm.tsx`. So the composers
+// live WITH the parts and leave through this door.
+//
+// AND THE SEAT DOES NOT DECIDE WHAT AN ANSWER MEANS. `SchemaFormAnswer` carries the
+// prompt, the controls and the one act that sends what they compose; the mounting body
+// owns where that act goes and what the daemon said back. The seat is the form; the body
+// is the phase.
+//
+// THE READING BESIDE THEM IS THE ATTACHMENT CARRIER'S — which of an answer's values are
+// artifacts, answered against the schema's own declared members rather than against what
+// the mapper drew, because one member outside the render set sends the whole form to the
+// raw editor and the artifact members beside it are still declared. One answer, for the
+// composers' reason: a caller walking the schema itself would be a second reading of it.
+export { SchemaFormAnswer } from "./schema-form/SchemaFormAnswer.js";
+export { SchemaFormPreview } from "./schema-form/SchemaFormPreview.js";
+export { attachmentArtifactIdsIn } from "./schema-form/schema-artifact-members.js";

@@ -34,12 +34,12 @@ import { useSchemaForm } from "./use-schema-form.js";
 import type { WorkflowPhaseDefinition } from "../../bridge/index.js";
 import { InlineRefusal } from "../../primitives/index.js";
 
-export interface HumanPhaseFormPreviewProps {
+export interface SchemaFormPreviewProps {
   readonly phase: WorkflowPhaseDefinition;
 }
 
 /** The form this phase will ask, or nothing at all where it asks for none. */
-export function HumanPhaseFormPreview(props: HumanPhaseFormPreviewProps): React.ReactNode {
+export function SchemaFormPreview(props: SchemaFormPreviewProps): React.ReactNode {
   const config = humanPhaseFormConfigOf(props.phase);
   // Called unconditionally with whatever the config carried, because a hook may not be
   // called behind a branch: a phase with no form hands `undefined` to the mapper, which

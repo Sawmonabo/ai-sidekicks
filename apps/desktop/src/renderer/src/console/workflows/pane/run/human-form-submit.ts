@@ -61,7 +61,7 @@ import {
 } from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
-import { attachmentArtifactIdsIn } from "../../forms/index.js";
+import { attachmentArtifactIdsIn } from "../../../seats/index.js";
 import { useRecordServedRunAct } from "./served-run-act.js";
 import type { HumanFormMount } from "./slots/human-form-mount.js";
 

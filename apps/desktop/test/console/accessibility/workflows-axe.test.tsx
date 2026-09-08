@@ -59,10 +59,10 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-// The form stack's own door, for its sheet and for the one composer that mounts a form
-// over a schema. The family sheet the entry's controls also draw against is already on
-// the page: `../surfaces/workflows.js` above imports the family door for its registrars.
-import { HumanPhaseFormAnswer } from "../../../src/renderer/src/console/workflows/forms/index.js";
+// The seats door, for the schema form seat's sheet and for the one composer that mounts a
+// form over a schema. The family sheet the entry's controls also draw against is already
+// on the page: `../surfaces/workflows.js` above imports the family door for its registrars.
+import { SchemaFormAnswer } from "../../../src/renderer/src/console/seats/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
@@ -113,7 +113,7 @@ describe("accessibility — the workflows surfaces", () => {
 
   it("has no axe violation on a human phase's form once list entries are added", async () => {
     const { container } = await renderSettled(
-      <HumanPhaseFormAnswer
+      <SchemaFormAnswer
         prompt="Who signs this release off?"
         inputSchema={{
           type: "object",
@@ -151,7 +151,7 @@ describe("accessibility — the workflows surfaces", () => {
     // state and no route to the sentences. The mount is a component's for the reason the
     // list-entry case above is: no registered surface opens this arm.
     const { container } = await renderSettled(
-      <HumanPhaseFormAnswer
+      <SchemaFormAnswer
         prompt="Describe the rows this phase should publish."
         inputSchema={{
           type: "object",

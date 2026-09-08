@@ -32,7 +32,7 @@
 
 import { Chip, WireFigure } from "../../../primitives/index.js";
 import type { McpServerBindingRef, WorkflowPhaseDefinition } from "../../../bridge/index.js";
-import { HumanPhaseFormPreview } from "../../forms/index.js";
+import { SchemaFormPreview } from "../../../seats/index.js";
 
 export interface DefinitionPhaseRowProps {
   readonly phase: WorkflowPhaseDefinition;
@@ -104,7 +104,7 @@ export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.El
        * closed vocabulary values, and it renders nothing at all for the four phase types
        * that ask no question — which is what keeps the row a row for every other phase.
        */}
-      <HumanPhaseFormPreview phase={phase} />
+      <SchemaFormPreview phase={phase} />
     </li>
   );
 }

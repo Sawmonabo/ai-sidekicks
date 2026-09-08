@@ -2,10 +2,14 @@
  * The schema-derived form: its fields, its groups, its lists, and the raw editor a
  * schema outside the drawn set opens as.
  *
- * Owned by this directory and reached only from it. Every surface that mounts a form
- * sits behind an `import()` — the definition detail rides the builder pane's chunk —
- * so these rules travel with the chunk that draws them rather than with the console's
- * first paint. Meridian tokens only.
+ * Owned by the seats family, whose door is the one module that imports it: this
+ * directory carries no door of its own — no seat beside it takes anything from here —
+ * so the nearest door above these rules is `seats/index.ts`, and that is where they
+ * enter. The consequence is stated rather than left to be discovered: the seats door is
+ * on the initial import graph, so unlike the surfaces that mount a form — every one of
+ * which still sits behind an `import()` — these rules land with the first paint. Measured
+ * at 763 bytes gzipped after minification, which is what the seat costs a session that
+ * never opens a form. Meridian tokens only.
  */
 
 .meridian-schema-form {
@@ -149,6 +153,34 @@
   flex-direction: column;
   gap: var(--meridian-space-1);
   min-inline-size: 0;
+}
+
+/*
+ * The two controls that change how many entries a list holds.
+ *
+ * The seat's own treatment rather than the workflows family's `.meridian-workflow__action`,
+ * which these buttons wore while the stack lived in that family. A seat drawing against a
+ * view family's sheet is styled by a file it cannot see and that arrives on that family's
+ * chunk: the rules would have been absent for every other surface that mounts a form. The
+ * declarations are the same ones, deliberately — this is where they are OWNED, not a
+ * second look — and this console mints no shared button block, so each block that needs
+ * one states it, as `.meridian-refusal__action` and `.meridian-nothing__action` do.
+ */
+
+.meridian-schema-list__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-schema-list__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }
 
 /* ------------------------------------------------------------- the raw editor */

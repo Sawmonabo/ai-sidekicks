@@ -87,7 +87,7 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
             />
             <button
               type="button"
-              className="meridian-workflow__action"
+              className="meridian-schema-list__action"
               aria-label={listRemoveLabel(list, index)}
               onClick={() => {
                 props.onRemove(index);
@@ -100,7 +100,7 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
       </ol>
       <button
         type="button"
-        className="meridian-workflow__action"
+        className="meridian-schema-list__action"
         aria-label={listAppendLabel(list)}
         onClick={props.onAppend}
       >

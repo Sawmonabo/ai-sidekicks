@@ -8,7 +8,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { HumanPhaseFormPreview } from "./HumanPhaseFormPreview.js";
+import { SchemaFormPreview } from "./SchemaFormPreview.js";
 import type { WorkflowPhaseDefinition } from "../../bridge/index.js";
 
 afterEach(cleanup);
@@ -36,14 +36,14 @@ const ONE_QUESTION = {
 
 describe("the human phase form preview", () => {
   it("draws the phase's prompt and the controls its schema declares", () => {
-    render(<HumanPhaseFormPreview phase={phase("human", ONE_QUESTION)} />);
+    render(<SchemaFormPreview phase={phase("human", ONE_QUESTION)} />);
 
     expect(screen.getByText(ONE_QUESTION.prompt)).toBeDefined();
     expect(screen.getByLabelText("Verdict")).toBeDefined();
   });
 
   it("offers no control that would send an answer, because nothing here can send one", () => {
-    render(<HumanPhaseFormPreview phase={phase("human", ONE_QUESTION)} />);
+    render(<SchemaFormPreview phase={phase("human", ONE_QUESTION)} />);
 
     const buttonNames = screen.queryAllByRole("button").map((button) => button.textContent ?? "");
 
@@ -51,7 +51,7 @@ describe("the human phase form preview", () => {
   });
 
   it("says plainly that answering here changes nothing", () => {
-    const { container } = render(<HumanPhaseFormPreview phase={phase("human", ONE_QUESTION)} />);
+    const { container } = render(<SchemaFormPreview phase={phase("human", ONE_QUESTION)} />);
 
     expect(container.querySelector(".meridian-schema-preview__caption")?.textContent).toContain(
       "answered from its run",
@@ -60,7 +60,7 @@ describe("the human phase form preview", () => {
 
   it("draws nothing at all for a phase type that asks no question", () => {
     for (const type of ["single-agent", "multi-agent", "automated"] as const) {
-      const { container } = render(<HumanPhaseFormPreview phase={phase(type, ONE_QUESTION)} />);
+      const { container } = render(<SchemaFormPreview phase={phase(type, ONE_QUESTION)} />);
 
       expect(container.textContent).toBe("");
       cleanup();
@@ -69,7 +69,7 @@ describe("the human phase form preview", () => {
 
   it("draws nothing for a human phase whose definition declared no schema", () => {
     const { container } = render(
-      <HumanPhaseFormPreview phase={phase("human", { prompt: "Anything?" })} />,
+      <SchemaFormPreview phase={phase("human", { prompt: "Anything?" })} />,
     );
 
     expect(container.textContent).toBe("");
@@ -77,7 +77,7 @@ describe("the human phase form preview", () => {
 
   it("opens the raw editor rather than refusing when the schema is outside the drawn set", () => {
     const { container } = render(
-      <HumanPhaseFormPreview
+      <SchemaFormPreview
         phase={phase("human", {
           prompt: "Anything?",
           // Object-rooted with one member the mapper cannot draw: the raw arm an author
@@ -94,7 +94,7 @@ describe("the human phase form preview", () => {
     // The author is the one person who can repair it, so the preview says what the run's
     // form will say rather than drawing an editor the participant is never offered.
     const { container } = render(
-      <HumanPhaseFormPreview
+      <SchemaFormPreview
         phase={phase("human", { prompt: "Anything?", inputSchema: { type: "string" } })}
       />,
     );
