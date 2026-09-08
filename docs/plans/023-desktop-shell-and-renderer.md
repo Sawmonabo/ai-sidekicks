@@ -1119,8 +1119,32 @@ shipped:
       - apps/desktop/src/renderer/src/console/console-env.d.ts
       - apps/desktop/src/renderer/src/console/core/clock.test.ts
       - apps/desktop/src/renderer/src/console/core/clock.ts
-      - apps/desktop/src/renderer/src/console/core/constants.test.ts
-      - apps/desktop/src/renderer/src/console/core/constants.ts
+      - apps/desktop/src/renderer/src/console/core/constants/agents-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/approvals-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/artifact-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/attachment-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/bound-relations.test.ts
+      - apps/desktop/src/renderer/src/console/core/constants/browser-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/collaboration-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/diff-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/fixture-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/invite-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/live-announcement-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/palette-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/persistence-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/provider-quota-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/refresh-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/restore-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/runs-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/session-goal-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/session-store-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/sessions-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/settings-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/shell-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/terminal-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/tripwire-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/workflows-caps.ts
+      - apps/desktop/src/renderer/src/console/core/constants/workspace-caps.ts
       - apps/desktop/src/renderer/src/console/core/emitter.test.ts
       - apps/desktop/src/renderer/src/console/core/emitter.ts
       - apps/desktop/src/renderer/src/console/core/fixture-globals.ts

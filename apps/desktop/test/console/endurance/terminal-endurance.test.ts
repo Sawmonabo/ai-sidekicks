@@ -47,7 +47,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ConsoleBudgetRegistry } from "../../../scripts/budget/budget-registry.mjs";
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/core/constants.js";
+import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/core/constants/terminal-caps.js";
 import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/emulator/renderer-pool.js";
 import { HeapSampler, retainedGrowthBytes } from "../heap-sampling.js";
 import { requireHeapCollector, TerminalAdapterWorkload } from "./terminal-adapter-workload.js";

@@ -20,7 +20,7 @@ import { expect } from "vitest";
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
-} from "../../../src/renderer/src/console/core/constants.js";
+} from "../../../src/renderer/src/console/core/constants/terminal-caps.js";
 import type { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/emulator/renderer-pool.js";
 import { XtermTerminalAdapter } from "../../../src/renderer/src/console/terminal/emulator/xterm-adapter.js";
 import { retainedGrowthBytes, type HeapSampler } from "../heap-sampling.js";
