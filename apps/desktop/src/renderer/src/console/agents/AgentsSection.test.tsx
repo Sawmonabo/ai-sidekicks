@@ -17,7 +17,7 @@
 // read that never fired.
 
 import { act, render, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { FrameStore, SessionStore } from "../store/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
@@ -28,6 +28,7 @@ import {
   unscriptedScenario,
 } from "../bridge/fixture/fixture-bridge.test-support.js";
 import { type ConsolePaneAddress, type SidebarSectionContext } from "../seats/index.js";
+import { duplicateKeyReports, reportsWhileReactRan } from "../core/react-reports.test-support.js";
 import { AgentsSection } from "./AgentsSection.js";
 
 const SESSION_ID = "session-agents-section";
@@ -231,42 +232,38 @@ describe("AgentsSection — a row is keyed by its agent and named by its name", 
     // under one key on `console.error` and then reuses one subtree for both, so the
     // report is the reading — captured rather than silenced, since a spy that swallows
     // everything would hide whatever else React had to say about this render.
-    const reportedByReact: string[] = [];
-    const consoleErrors = vi
-      .spyOn(console, "error")
-      .mockImplementation((...parts: readonly unknown[]) => {
-        reportedByReact.push(parts.map((part) => String(part)).join(" "));
-      });
-    try {
-      const { section, openedPanes, advance } = await renderSection({
+    const {
+      value: { section, openedPanes },
+      reported,
+    } = await reportsWhileReactRan(async () => {
+      const rendered = await renderSection({
         agents: [
           { agentId: "agent-first", name: "scout", state: "ready" },
           { agentId: "agent-second", name: "scout", state: "ready" },
         ],
       });
       act(() => {
-        advance();
+        rendered.advance();
       });
       await waitFor(() => {
-        expect(openButtons(section)).toHaveLength(2);
+        expect(openButtons(rendered.section)).toHaveLength(2);
       });
+      return rendered;
+    });
 
-      expect(reportedByReact.filter((line) => /same key/iu.test(line))).toStrictEqual([]);
-      // Both still SHOW the name, which is the half a fix that simply swapped the id
-      // onto the screen would have lost — and each opens its own agent.
-      expect(rowsUnder(section, "Ready")).toEqual(["scout", "scout"]);
-      act(() => {
-        for (const button of openButtons(section)) {
-          button.click();
-        }
-      });
-      expect(openedPanes).toEqual([
-        { kind: "agent-console", entity: { kind: "agent", id: "agent-first" } },
-        { kind: "agent-console", entity: { kind: "agent", id: "agent-second" } },
-      ]);
-    } finally {
-      consoleErrors.mockRestore();
-    }
+    expect(duplicateKeyReports(reported)).toStrictEqual([]);
+    // Both still SHOW the name, which is the half a fix that simply swapped the id
+    // onto the screen would have lost — and each opens its own agent.
+    expect(rowsUnder(section, "Ready")).toEqual(["scout", "scout"]);
+    act(() => {
+      for (const button of openButtons(section)) {
+        button.click();
+      }
+    });
+    expect(openedPanes).toEqual([
+      { kind: "agent-console", entity: { kind: "agent", id: "agent-first" } },
+      { kind: "agent-console", entity: { kind: "agent", id: "agent-second" } },
+    ]);
   });
 });
 

@@ -12,13 +12,17 @@
 // nothing was ever watching.
 
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type {
   GrowthMcpInventoryEntry,
   GrowthMcpLiveApplicationResult,
   GrowthMcpServerLegStatus,
 } from "../../../../bridge/index.js";
+import {
+  duplicateKeyReports,
+  reportsWhileReactRan,
+} from "../../../../core/react-reports.test-support.js";
 import { mcpLiveLegKeyOf } from "./live-leg-key.js";
 import type { McpMutationOutcome } from "./mcp-mutation.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
@@ -71,33 +75,6 @@ const SETTLED_OUTCOME: McpMutationOutcome = {
   },
 };
 
-/**
- * Render, capturing what React reported while it was reconciling.
- *
- * React raises the duplicate-key report through `console.error`, so the spy is the
- * reading and the restore is unconditional — a spy left installed by a failing case
- * would silence every later file in the worker.
- */
-function renderReportingReactWarnings(element: React.JSX.Element): readonly string[] {
-  const reported: string[] = [];
-  const consoleErrors = vi
-    .spyOn(console, "error")
-    .mockImplementation((...parts: readonly unknown[]) => {
-      reported.push(parts.map((part) => String(part)).join(" "));
-    });
-  try {
-    render(element);
-  } finally {
-    consoleErrors.mockRestore();
-  }
-  return reported;
-}
-
-/** Whatever React said about two children sharing one key, if it said anything. */
-function duplicateKeyReports(reported: readonly string[]): readonly string[] {
-  return reported.filter((line) => /same key/iu.test(line));
-}
-
 describe("mcpLiveLegKeyOf", () => {
   it("keys two sessions' legs of one binding apart", () => {
     expect(mcpLiveLegKeyOf(LEGS_SHARING_A_HANDLE[0] as GrowthMcpServerLegStatus)).not.toBe(
@@ -121,14 +98,16 @@ describe("mcpLiveLegKeyOf", () => {
 });
 
 describe("the two lists that render a live leg", () => {
-  it("gives each of one binding's legs its own React identity", () => {
-    const reported = renderReportingReactWarnings(<ServerLegs legs={LEGS_SHARING_A_HANDLE} />);
+  it("gives each of one binding's legs its own React identity", async () => {
+    const { reported } = await reportsWhileReactRan(() =>
+      render(<ServerLegs legs={LEGS_SHARING_A_HANDLE} />),
+    );
     expect(duplicateKeyReports(reported)).toEqual([]);
   });
 
-  it("gives each per-leg mutation outcome its own React identity", () => {
-    const reported = renderReportingReactWarnings(
-      <MutationOutcomeLine outcome={SETTLED_OUTCOME} />,
+  it("gives each per-leg mutation outcome its own React identity", async () => {
+    const { reported } = await reportsWhileReactRan(() =>
+      render(<MutationOutcomeLine outcome={SETTLED_OUTCOME} />),
     );
     expect(duplicateKeyReports(reported)).toEqual([]);
   });
@@ -148,13 +127,15 @@ describe("the two lists that render a live leg", () => {
   // The negative control for the two clean results above: the same data through the
   // single-field keying DOES raise React's report, so a clean reading means the keys
   // are distinct rather than that nothing was watching.
-  it("negative control: the single-field keying raises React's duplicate-key report", () => {
-    const reported = renderReportingReactWarnings(
-      <ul>
-        {LEGS_SHARING_A_HANDLE.map((leg) => (
-          <li key={leg.bindingId}>{leg.sessionId}</li>
-        ))}
-      </ul>,
+  it("negative control: the single-field keying raises React's duplicate-key report", async () => {
+    const { reported } = await reportsWhileReactRan(() =>
+      render(
+        <ul>
+          {LEGS_SHARING_A_HANDLE.map((leg) => (
+            <li key={leg.bindingId}>{leg.sessionId}</li>
+          ))}
+        </ul>,
+      ),
     );
     expect(duplicateKeyReports(reported)).not.toEqual([]);
   });

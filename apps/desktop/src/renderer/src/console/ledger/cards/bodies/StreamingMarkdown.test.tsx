@@ -8,6 +8,10 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  duplicateKeyReports,
+  reportsWhileReactRan,
+} from "../../../core/react-reports.test-support.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { FootnoteRegistry } from "../markdown/index.js";
 
@@ -114,21 +118,26 @@ describe("a streaming body", () => {
     expect(footnotes.resolve("event-07", "1")).not.toBeUndefined();
   });
 
-  it("gives two identical settled blocks two identities", () => {
+  it("gives two identical settled blocks two identities", async () => {
     // React reports a duplicate key on `console.error` and then reuses one subtree for
-    // both siblings. The spy is the assertion: keying a block by its text alone passes
-    // every other case in this file and fails here the moment a message repeats a line.
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const { container } = render(
-      <StreamingMarkdown
-        publishedText={REPEATED_BLOCKS_SETTLED}
-        sourceId="event-11"
-        footnotes={new FootnoteRegistry()}
-        isComplete={false}
-      />,
+    // both siblings. The report is the assertion: keying a block by its text alone
+    // passes every other case in this file and fails here the moment a message repeats
+    // a line.
+    const {
+      value: { container },
+      reported,
+    } = await reportsWhileReactRan(() =>
+      render(
+        <StreamingMarkdown
+          publishedText={REPEATED_BLOCKS_SETTLED}
+          sourceId="event-11"
+          footnotes={new FootnoteRegistry()}
+          isComplete={false}
+        />,
+      ),
     );
 
-    expect(consoleError).not.toHaveBeenCalled();
+    expect(duplicateKeyReports(reported)).toStrictEqual([]);
     const repeated = [...container.querySelectorAll(PARAGRAPH_SELECTOR)].filter(
       (paragraph) => paragraph.textContent === "same",
     );
