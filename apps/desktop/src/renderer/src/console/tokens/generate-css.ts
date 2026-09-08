@@ -142,6 +142,10 @@ function invariantBlock(): string {
  * including the trailing newline the assets tier compares.
  */
 export function generateMeridianCss(): string {
+  // The emitted banner deliberately names no governance document: this text is
+  // written into the live stylesheet, and a doc identifier belongs in source
+  // comments rather than in shipped output. The rules it alludes to are
+  // `Spec-023 §Console Design (Meridian)` rules 2-5 and 7.
   const header = [
     "/*",
     " * GENERATED AT RUNTIME — there is no committed copy of this sheet.",
@@ -154,7 +158,7 @@ export function generateMeridianCss(): string {
     " *",
     " * Source of truth: `console/tokens/palette.ts`.",
     " *",
-    " * `Spec-023 §Console Design (Meridian)` rules 2-5 and 7 live in the palette's",
+    " * The design language's colour, type, and spacing rules live in the palette's",
     " * comments; this file carries only their values.",
     " */",
     "",
