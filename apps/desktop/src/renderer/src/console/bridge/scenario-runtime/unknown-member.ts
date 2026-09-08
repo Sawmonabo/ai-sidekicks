@@ -49,3 +49,22 @@ export function readUnknownStringMember(value: unknown, member: string): string 
   const read = readUnknownMember(value, member);
   return typeof read === "string" ? read : undefined;
 }
+
+/**
+ * One NUMBER member of such a value.
+ *
+ * The string reader's rule applied to the other primitive a request key is written
+ * in: `undefined` covers "not an object", "that member is absent", and "that member
+ * is not a number", because a caller that asked for a version ordinal and did not get
+ * one does the same thing in all three cases.
+ *
+ * `Number.isFinite` and not `typeof === "number"`, which is the whole of the
+ * difference: `NaN` and both infinities are numbers, and each would pass a bare
+ * `typeof` check straight into a lookup keyed on an ordinal. A version this fixture
+ * holds no body for is refused by name; a `NaN` compared against every stored number
+ * is false everywhere and refuses for a reason nobody can read.
+ */
+export function readUnknownNumberMember(value: unknown, member: string): number | undefined {
+  const read = readUnknownMember(value, member);
+  return typeof read === "number" && Number.isFinite(read) ? read : undefined;
+}

@@ -43,7 +43,45 @@ import {
 /** Where the console currently is. A closed union — every arm renders something. */
 export type ConsoleRoute =
   | { readonly kind: "sessions" }
-  | { readonly kind: "workspace"; readonly sessionId: string }
+  // ONE ARM CARRYING AN OPTIONAL FOCUS, unlike the settings split below, and the
+  // difference is what the two grammars can express. `#/settings` has nowhere to put
+  // a page-scoped selection, so the pair `{page: undefined, selection}` is a value the
+  // formatter cannot write down and the split makes it unrepresentable. A workspace
+  // address always carries its session, so `{sessionId, workflowPhase}` is writable in
+  // full and reads back byte-for-byte — there is no half-supplied context to forbid.
+  //
+  // THE PHASE DEEP LINK IS A WORKSPACE ADDRESS RATHER THAN A DESTINATION OF ITS OWN.
+  // `#/session/<sid>/workflow/<rid>/phase/<pid>` opens the session it names, focused
+  // on one phase of one run — so the rail highlights `sessions` exactly as a bare
+  // workspace does, the surface the route mounts is the workspace, and the palette's
+  // scope row names the session. A seventh route kind would have had to answer all
+  // three of those questions again and would have answered them the same way.
+  //
+  // WHY A PARKED PHASE NEEDS AN ADDRESS AT ALL. A `waiting-human` park ends when a
+  // person answers that phase's form, and the surfaces that say so — a park banner, a
+  // run row, a notification — are frequently not in the window holding the run pane.
+  // Without a written-down address the phase is reachable only by somebody who has
+  // already navigated to it, which is the one person who does not need the link.
+  | {
+      readonly kind: "workspace";
+      readonly sessionId: string;
+      /**
+       * The phase this address is focused on, where it names one.
+       *
+       * OMITTED and never set to `undefined`, which is what keeps the round trip
+       * exact under `exactOptionalPropertyTypes` — the same rule the settings arm's
+       * `selection` obeys one arm down, and for the same reason: a present-but-
+       * undefined member and an absent one are different values to the structural
+       * comparison {@link parseRoute}'s tests hold this grammar to.
+       *
+       * Both ids travel as opaque wire values. Routing owns the grammar and never the
+       * meaning, so nothing here parses either one or asserts they name a live run.
+       */
+      readonly workflowPhase?: {
+        readonly workflowRunId: string;
+        readonly phaseId: string;
+      };
+    }
   // Bare, and deliberately so. `Spec-023 §Console Design (Meridian)` §The surface
   // set opens the `workflow-builder` pane from this destination, and a pane
   // carries its own context — a definition id written into the address here would
@@ -155,12 +193,7 @@ export function parseRoute(hash: string): ConsoleRoute {
   }
 
   if (head === "session") {
-    const sessionId = rest[0];
-    if (sessionId === undefined || rest.length > 1) {
-      return notFound(hash);
-    }
-    const decoded = decodeSegment(sessionId);
-    return decoded === undefined ? notFound(hash) : { kind: "workspace", sessionId: decoded };
+    return workspaceRoute(hash, rest);
   }
 
   if (head === "workflows") {
@@ -235,13 +268,67 @@ export function parseRoute(hash: string): ConsoleRoute {
   return notFound(hash);
 }
 
+/**
+ * The two workspace addresses, read from the segments after `session`.
+ *
+ * A HELPER RATHER THAN A THIRD BRANCH INSIDE {@link parseRoute}, because this arm is
+ * the only one whose grammar has interior KEYWORDS — `workflow` and `phase` sit
+ * between the three ids and are the whole of what distinguishes a focused address
+ * from a session id that happens to have slashes in it. Reading them inline would
+ * have put five destructured segments and two literal comparisons in the middle of a
+ * function whose other arms are two lines each.
+ *
+ * The keyword positions are checked BEFORE the ids are decoded, so
+ * `#/session/s/anything/r/phase/p` is not-found rather than a workspace address
+ * silently missing its focus. Every id still goes through {@link decodeSegment}, which
+ * is what keeps {@link parseRoute} total over a malformed percent-escape.
+ */
+function workspaceRoute(hash: string, rest: readonly string[]): ConsoleRoute {
+  const [sessionSegment, workflowKeyword, runSegment, phaseKeyword, phaseSegment] = rest;
+  if (sessionSegment === undefined) {
+    return notFound(hash);
+  }
+  const sessionId = decodeSegment(sessionSegment);
+  if (sessionId === undefined) {
+    return notFound(hash);
+  }
+  if (rest.length === 1) {
+    // The key is OMITTED rather than set to `undefined`: this is the arm
+    // `#/session/<id>` has to give back, and the two are different values under
+    // `exactOptionalPropertyTypes`.
+    return { kind: "workspace", sessionId };
+  }
+  if (
+    rest.length !== 5 ||
+    workflowKeyword !== "workflow" ||
+    phaseKeyword !== "phase" ||
+    runSegment === undefined ||
+    phaseSegment === undefined
+  ) {
+    return notFound(hash);
+  }
+  const workflowRunId = decodeSegment(runSegment);
+  const phaseId = decodeSegment(phaseSegment);
+  return workflowRunId === undefined || phaseId === undefined
+    ? notFound(hash)
+    : { kind: "workspace", sessionId, workflowPhase: { workflowRunId, phaseId } };
+}
+
 /** Render a route back to a hash. Round-trips with `parseRoute`. */
 export function formatRoute(route: ConsoleRoute): string {
   switch (route.kind) {
     case "sessions":
       return "#/sessions";
-    case "workspace":
-      return `#/session/${encodeURIComponent(route.sessionId)}`;
+    case "workspace": {
+      const workspaceAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
+      // The keywords are written literally on both sides of one grammar, three lines
+      // from the parse that reads them, so the pair cannot drift into a link that
+      // opens the workspace with its focus quietly dropped.
+      const { workflowPhase } = route;
+      return workflowPhase === undefined
+        ? workspaceAddress
+        : `${workspaceAddress}/workflow/${encodeURIComponent(workflowPhase.workflowRunId)}/phase/${encodeURIComponent(workflowPhase.phaseId)}`;
+    }
     case "workflows":
       return "#/workflows";
     case "settings": {

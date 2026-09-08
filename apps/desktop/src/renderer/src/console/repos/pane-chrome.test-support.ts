@@ -3,8 +3,8 @@
 // BOTH OF THIS FAMILY'S PANES WEAR ONE CHROME, so both suites ask it the same two
 // questions — what the trail says, and which crumb is the subject the pane is a view
 // of — and the reader is hoisted here on the second use rather than written twice.
-// It sits at the family root beside `scenario-clock.test-support.ts` because the two
-// sub-modules that read it are siblings and neither owns the other.
+// It sits at the family root because the two sub-modules that read it are siblings and
+// neither owns the other.
 //
 // IT READS THE DOM AND NEVER THE CHROME'S SOURCE. The claim a suite makes with it is
 // that the body reached the chrome and handed it the address — a claim that has to

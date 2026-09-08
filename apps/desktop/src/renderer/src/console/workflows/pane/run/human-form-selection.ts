@@ -114,15 +114,27 @@ export interface HumanFormSelection {
  * port is in the pair for that hook's own reason: the fixture's scenario switch
  * replaces the bridge and keeps the run id, so a run-only holder would carry a
  * selection made against the previous scenario's phases into the next one.
+ *
+ * AND `addressedPhaseId` IS THE SEED RATHER THAN A FOURTH SOURCE OF TRUTH. A phase deep
+ * link opens this pane already saying which phase it is about, and the honest place for
+ * that is where a person's own first choice would have gone: the initial value of the
+ * one piece of state this hook holds. It is a SEED and not an override — the very next
+ * card a person presses supersedes it, which is right, because they are looking at the
+ * pane and the link is not. It re-seeds when the pair the selection is held at moves,
+ * so a pane re-addressed at another run takes that run's link and not the previous
+ * one's, and the resolution below is unchanged: an addressed phase the run does not park
+ * on a person falls back to the first wait exactly as a stale click does, rather than
+ * leaving the pane pointing at nothing.
  */
 export function useHumanFormSelection(
   growth: GrowthPort,
   workflowRunId: string | undefined,
   run: WorkflowRunSnapshot | undefined,
+  addressedPhaseId?: string | undefined,
 ): HumanFormSelection {
   const { value: requestedPhaseId, publish: requestPhaseId } = useSubjectScopedState<
     string | undefined
-  >(growth, workflowRunId, () => undefined);
+  >(growth, workflowRunId, () => addressedPhaseId);
   const mounts = run === undefined ? [] : humanFormMountsOf(run);
   const openForm = mounts.find((mount) => mount.phaseId === requestedPhaseId) ?? mounts[0];
   return {

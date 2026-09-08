@@ -18,7 +18,10 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
-import { WORKFLOWS_SESSION_ID } from "../../../bridge/scenarios/workflow-fixture-ids.js";
+import {
+  DEFINITION_RELEASE_CHECKS_SESSION,
+  WORKFLOWS_SESSION_ID,
+} from "../../../bridge/scenarios/workflow-fixture-ids.js";
 import type { PaneContextOf } from "../../../seats/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
@@ -79,7 +82,13 @@ function renderPane(context: PaneContextOf<"workflow-builder">): HTMLElement {
 // `workflow-run` on the stated grounds that no definition kind existed, which was
 // simply false and had the suite asserting the pane's behaviour on the one address
 // it must now refuse. The misaddress is kept, as the subject of its own cases.
-const ADDRESSED = { kind: "workflow-definition", id: "definition-01" } as const;
+// The ADDRESS IS A DEFINITION THE FIXTURE HOLDS, since the addressed arm reads one:
+// an id no scenario states would settle as the daemon's own `workflow.not_found`, and
+// every case below would then be asserting on a refusal rather than on the arm.
+const ADDRESSED = {
+  kind: "workflow-definition",
+  id: DEFINITION_RELEASE_CHECKS_SESSION,
+} as const;
 const MISADDRESSED = { kind: "workflow-run", id: "run-01" } as const;
 
 describe("workflow builder pane — with no definition to open", () => {
@@ -123,13 +132,20 @@ const FLOW_ONLY_ELEMENTS: readonly string[] = [
 ];
 
 describe("workflow builder pane — with a definition to open", () => {
-  it("reports the definition as unread rather than as absent", () => {
+  it("reads the definition rather than reporting it as unread", () => {
     // Negative control for the browser case: it would pass over a pane that rendered
     // the browser whatever its address said, which would make the builder
     // unreachable.
+    //
+    // AND THE FIRST FRAME IS `not-loaded`, WHICH IS THE FINDING THIS PINS. The arm
+    // rendered `not-checked` — "nobody asked" — in every build including the fixture,
+    // because the definition read, the version read and the create were registered
+    // method strings on no growth-port row. The read is put now, so the frame a mount
+    // commits says an answer is coming rather than that nothing was asked for.
     const section = renderPane(paneContext(ADDRESSED));
     expect(section.querySelectorAll(".meridian-workflow__scope-heading")).toHaveLength(0);
-    expect(section.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+    expect(section.querySelector(".meridian-nothing--not-checked")).toBeNull();
+    expect(section.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
   });
 
   it("mounts both reserved bodies beneath the absence", () => {
@@ -145,7 +161,10 @@ describe("workflow builder pane — with a definition to open", () => {
     const authoring = section.querySelector(".meridian-workflow__authoring");
     expect(authoring).not.toBeNull();
     expect(authoring?.querySelector("button")).toBeNull();
-    expect(section.textContent ?? "").toContain("wire-unregistered");
+    expect(authoring?.textContent ?? "").toContain("authoring-canvas-reserved");
+    // And it does NOT claim the wire is missing: the create these acts ride is on the
+    // growth port, so the head's refusal is about this build's own reserved canvas.
+    expect(authoring?.textContent ?? "").not.toContain("wire-unregistered");
   });
 
   it("puts phrasing content in the control strip, which is all a span may hold", () => {
@@ -177,7 +196,10 @@ describe("workflow builder pane — with an address it does not author", () => {
     const section = renderPane(paneContext(MISADDRESSED));
     expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(0);
     expect(section.querySelector(".meridian-workflow__authoring")).toBeNull();
-    expect(section.querySelector(".meridian-nothing--not-checked")).toBeNull();
+    // And no read was composed for the id it refused: the detail is what puts one, and
+    // a refused address never mounts it.
+    expect(section.querySelector(".meridian-definition-detail")).toBeNull();
+    expect(section.querySelector(".meridian-nothing--not-loaded")).toBeNull();
   });
 
   it("negative control: the same pane opens on the kind it does author", () => {

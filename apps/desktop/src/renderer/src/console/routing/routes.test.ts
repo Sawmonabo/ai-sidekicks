@@ -91,6 +91,68 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/settings/accounts/%zz").kind).toBe("not-found");
   });
 
+  it("reads the phase deep link as a focused workspace address", () => {
+    // The address a park banner hands out, so a phase waiting on a person is
+    // reachable from outside the pane that happens to be showing its run.
+    expect(parseRoute("#/session/session-1/workflow/run-1/phase/review")).toStrictEqual({
+      kind: "workspace",
+      sessionId: "session-1",
+      workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
+    });
+    expect(formatRoute(parseRoute("#/session/session-1/workflow/run-1/phase/review"))).toBe(
+      "#/session/session-1/workflow/run-1/phase/review",
+    );
+  });
+
+  it("escapes every id in the phase deep link, ids with separators included", () => {
+    // All three are opaque wire values, and the run id is the one a daemon mints —
+    // an unescaped `/` in any of them would re-split into a different address.
+    const route: ConsoleRoute = {
+      kind: "workspace",
+      sessionId: "session/one",
+      workflowPhase: { workflowRunId: "run#two", phaseId: "phase/three" },
+    };
+    expect(parseRoute(formatRoute(route))).toStrictEqual(route);
+  });
+
+  it("omits the focus key rather than setting it to undefined on a bare workspace", () => {
+    // The round trip above is a structural comparison, so this is the rule that makes
+    // it pass: under `exactOptionalPropertyTypes` a present-but-undefined member is
+    // not an absent one, and `#/session/<id>` has to give back the absent form.
+    expect(Object.hasOwn(parseRoute("#/session/session-1"), "workflowPhase")).toBe(false);
+  });
+
+  it("refuses a phase address whose interior keywords are not the grammar's", () => {
+    // The keywords are the whole of what separates a focused address from three
+    // trailing segments, so a wrong one is not-found rather than a workspace with its
+    // focus quietly dropped — which would open the session and show a person nothing
+    // about the phase they followed a link to answer.
+    expect(parseRoute("#/session/session-1/run/run-1/phase/review").kind).toBe("not-found");
+    expect(parseRoute("#/session/session-1/workflow/run-1/step/review").kind).toBe("not-found");
+    // And the lengths on either side of five.
+    expect(parseRoute("#/session/session-1/workflow/run-1").kind).toBe("not-found");
+    expect(parseRoute("#/session/session-1/workflow/run-1/phase/review/extra").kind).toBe(
+      "not-found",
+    );
+  });
+
+  it("refuses a phase address whose escapes are malformed", () => {
+    expect(parseRoute("#/session/session-1/workflow/%zz/phase/review").kind).toBe("not-found");
+    expect(parseRoute("#/session/session-1/workflow/run-1/phase/%zz").kind).toBe("not-found");
+  });
+
+  it("negative control: the two workspace addresses do not render alike", () => {
+    // Without this, a formatter that dropped the focus would satisfy every assertion
+    // above that only reads the parse direction.
+    expect(formatRoute({ kind: "workspace", sessionId: "session-1" })).not.toBe(
+      formatRoute({
+        kind: "workspace",
+        sessionId: "session-1",
+        workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
+      }),
+    );
+  });
+
   it("names no address of its own for the session workspace's rail destination", () => {
     // `workspace` is a ROUTE kind reached from the sessions destination, not a
     // rail destination with an address. `#/workspace` therefore names nothing —

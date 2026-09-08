@@ -19,6 +19,7 @@ import { createFixtureBridge } from "../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
+import type { ConsoleRoute } from "../routing/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import type { ConsolePaneContext } from "../seats/index.js";
 import { ConsolePaneRegistry } from "../seats/index.js";
@@ -36,6 +37,14 @@ export interface SurfaceContextOptions {
   readonly retainedSessionId?: string;
   /** The sessions open in this window, whose stores the registry can hand out. */
   readonly openSessionIds?: readonly string[];
+  /**
+   * The route this window has committed. Defaults to the rail's own destination.
+   *
+   * Written into the frame store AND onto the context, because those are two readers of
+   * one fact: the surface is handed the route, and the pane it opens reads the store.
+   * A case that set one of them would be asserting against a window that does not exist.
+   */
+  readonly route?: ConsoleRoute;
 }
 
 /**
@@ -58,7 +67,8 @@ export function composeWindow(options: SurfaceContextOptions = {}): ComposedWind
       ? {}
       : { initialRoute: { kind: "workspace", sessionId: options.retainedSessionId } },
   );
-  frameStore.navigate({ kind: "workflows" });
+  const committedRoute: ConsoleRoute = options.route ?? { kind: "workflows" };
+  frameStore.navigate(committedRoute);
   // A manual clock so no refresh scheduler an opened session starts outlives the
   // case that opened it.
   const sessionStoreRegistry = new SessionStoreRegistry({
@@ -73,7 +83,7 @@ export function composeWindow(options: SurfaceContextOptions = {}): ComposedWind
   return {
     paneRegistry,
     context: {
-      route: { kind: "workflows" },
+      route: committedRoute,
       bridge: createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }),
       frameStore,
       sessionStore: undefined,

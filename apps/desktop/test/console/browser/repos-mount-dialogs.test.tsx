@@ -33,7 +33,7 @@ import {
   PLAIN_MOUNT_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/repos-fixture-data.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
-import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-clock.test-support.js";
 import { BindWorkspaceDialog } from "../../../src/renderer/src/console/repos/mounts/bind/BindWorkspaceDialog.js";
 import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
 

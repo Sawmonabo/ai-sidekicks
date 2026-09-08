@@ -7,18 +7,18 @@
 // package's split threshold. The port keeps the DECISION — which operations are
 // served at all — and spreads this module's four answers into its served set.
 //
-// WHY THE FIVE READS ARE SERVED, AND WHY THREE OF THEM STILL REFUSE
+// WHY THE SEVEN READS ARE SERVED, AND WHY FIVE OF THEM STILL REFUSE
 //
-// The workflows scenario scripts the five reads the destination, the run list, the
-// run pane, its re-pin picker, and the definition browser are built on, and the growth
-// port routed none of them. Three are keyed on their registered wire method; the run
-// enumeration and the version chain are keyed on their growth operation ids, because
-// neither ledger row registers a method and the handlers below say why. So the panes
-// rendered the "not checked" refusal in every fixture build and the family's
-// screenshots pinned an absence rather than the story the scenario tells. Routing them
-// is what makes a script that already exists reachable.
+// The workflows scenario scripts the seven reads the destination, the run list, the
+// run pane, its re-pin picker, the definition browser and the detail a browser row
+// opens are built on, and the growth port routed none of them. Five are keyed on their
+// registered wire method; the run enumeration and the version chain are keyed on their
+// growth operation ids, because neither ledger row registers a method and the handlers
+// below say why. So the panes rendered the "not checked" refusal in every fixture
+// build and the family's screenshots pinned an absence rather than the story the
+// scenario tells. Routing them is what makes a script that already exists reachable.
 //
-// All five cross the same scripted-reply seam the branch-context read does, so a
+// All seven cross the same scripted-reply seam the branch-context read does, so a
 // workflow read gets the frozen clock's loading window and the two non-arrival
 // refusals a real read has. Where they part is the UNSCRIPTED arm, and the split is
 // a property of the value rather than a preference:
@@ -66,8 +66,8 @@
 //     with this scenario's rows. That is `attentionProjectionRead`'s rule one
 //     function up, and for the same reason: the operation IS served and what it
 //     found for that session here is nothing.
-//   • The two SNAPSHOT reads have no empty form, so an out-of-scope run or phase is
-//     REFUSED with the daemon's own registered code. The refusal is a
+//   • The four SUBJECT-ADDRESSED reads have no empty form, so an out-of-scope run,
+//     phase, definition or version is REFUSED with the daemon's own registered code. The refusal is a
 //     `WireErrorEnvelope` thrown verbatim, which is the shape a SCRIPTED daemon
 //     refusal already takes through this seam and the shape the live bridge will
 //     throw the day these become ordinary calls. `workflow.not_found` is the workflow
@@ -77,9 +77,10 @@
 //
 // NO MUTATION IS ROUTED, and that is the scenario's rule rather than this module's: a
 // scripted reply is a fixed value and not a state machine, so a cancel that answered
-// would sit beside a run read still reporting `suspended`. The six workflow
-// operations this leaves — five mutations and the gate-chain verification — keep
-// refusing under both bridges.
+// would sit beside a run read still reporting `suspended`. The seven workflow
+// operations this leaves — six mutations and the gate-chain verification — keep
+// refusing under both bridges, `workflowDefinitionCreate` among them: a definition
+// this fixture accepted would be a version the browser beside it could never list.
 //
 
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
@@ -109,6 +110,8 @@ export const FIXTURE_SERVED_WORKFLOW_OPERATION_IDS = [
   "workflowPhaseOutputRead",
   "workflowRunList",
   "workflowVersionChainRead",
+  "workflowDefinitionRead",
+  "workflowVersionRead",
 ] as const;
 
 /** One workflow operation the fixture serves. Derived, so the set has one home. */
@@ -116,7 +119,7 @@ export type FixtureServedWorkflowOperationId =
   (typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS)[number];
 
 /**
- * The fixture's five workflow answers for one running scenario.
+ * The fixture's seven workflow answers for one running scenario.
  *
  * `Pick` over the port rather than a shape of its own, so a handler whose signature
  * drifts from the operation it serves is a compile error here rather than a surface
@@ -235,6 +238,45 @@ export function fixtureWorkflowReads(
         "workflowVersionChainRead",
         request,
         () => growthUnscriptedReply("workflowVersionChainRead", WORKFLOWS_VERSION_CHAIN_CALL),
+      );
+    },
+    workflowDefinitionRead: async (request) => {
+      // Not session-scoped, for the version chain's reason rather than an omission:
+      // the read is addressed by a definition id and by nothing else, because a
+      // definition is resolved most-specific-first from a context and then addressed
+      // by the identity that resolution returned. The computed reply scopes itself
+      // against the very summary table the enumeration is served from, so a browser
+      // row and the detail it opens are one record.
+      //
+      // Refused when the scenario scripts nothing, on the run read's ground: this
+      // reply answers facts ABOUT a named definition, so an "empty" one would be a
+      // definition with no name, no scope and no phases — a claim about a definition
+      // no author declared rather than an absence.
+      return answerFromScriptedReply(
+        engine,
+        "workflow.definitionRead",
+        "workflowDefinitionRead",
+        request,
+        () => growthUnscriptedReply("workflowDefinitionRead", "workflow.definitionRead"),
+      );
+    },
+    workflowVersionRead: async (request) => {
+      // Addressed by BOTH halves of the registry's own key, and scoped by the computed
+      // reply against both: a body served under the wrong version number would put one
+      // version's phases and content hash on screen under another version's name, and
+      // a content hash is the one value on this shape a person might carry somewhere
+      // it matters.
+      //
+      // Refused when the scenario scripts nothing, on the same ground as the read
+      // above it. A version body has no empty form at all — it carries a content hash,
+      // a schema marker and a phase sequence — so there is nothing here the fixture
+      // could answer with that would not be an invention.
+      return answerFromScriptedReply(
+        engine,
+        "workflow.versionRead",
+        "workflowVersionRead",
+        request,
+        () => growthUnscriptedReply("workflowVersionRead", "workflow.versionRead"),
       );
     },
   };
