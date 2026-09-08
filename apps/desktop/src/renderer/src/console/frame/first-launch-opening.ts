@@ -12,6 +12,24 @@
 // changes while a window is open, and the one write that changes it is this hook's
 // own.
 //
+// AND IT NEVER TAKES A ROUTE A PERSON CHOSE. The read is asynchronous and the rest of
+// the frame is interactive while it is in flight, so somebody can reach Settings, the
+// sessions list, or a workspace before it settles — and the redirect it computed was
+// decided from the hash the window was BORN at, which stopped describing where they
+// are the moment they moved. So the opening route is captured when the read is issued
+// and any move off it retires the redirect for good.
+//
+// WHY A SUBSCRIPTION AND NOT A COMPARISON AT SETTLEMENT. Both are safe against the
+// narrow race — nothing can navigate between reading the guard and calling `navigate`,
+// because that is straight-line synchronous code and a navigation only ever arrives on
+// an event — so the choice is decided by the case they answer differently: somebody who
+// leaves the opening route and comes back. A comparison sees the route it started at
+// and redirects; the subscription has already LATCHED and does not. The second is
+// right, and not by a margin: a person who has navigated has met the frame, and
+// throwing them into a demo workspace afterwards is the thing this whole guard exists
+// to stop — the route they are standing on being equal to the one they opened at does
+// not make it a route they did not choose.
+//
 // THE ORDER IS NAVIGATE-THEN-MARK, and it is deliberate. Marking first would lose the
 // demo for good if the navigation never happened — a window closed in that gap has
 // been told it saw something it did not. Navigating first risks the opposite, a
@@ -28,6 +46,7 @@ import { useEffect, useRef } from "react";
 
 import { type ConsoleBridge } from "../bridge/index.js";
 import { type UiStateStore } from "../persistence/index.js";
+import { routesAreEqual } from "../routing/index.js";
 import { type FrameStore } from "../store/index.js";
 import {
   FIRST_LAUNCH_SEEN_KEY,
@@ -68,6 +87,22 @@ export function useFirstLaunchOpening(inputs: FirstLaunchOpeningInputs): void {
     // nobody reads. `isCancelled` is the standard shape and is what the cleanup sets.
     let isCancelled = false;
 
+    // Where the window stands at the moment the read is issued. Taken from the store
+    // rather than parsed from `openedAtHash`: the hash is what the RULE turns on, and
+    // this is what the ACT would replace, so the guard compares the redirect against
+    // the thing it is about to overwrite.
+    const openingRoute = frameStore.getState().route;
+    // Latched by the first move off that route, and never unlatched. The comparison is
+    // structural, through the routing family's own reader, so a store that republished
+    // an equal route — which `adoptHash` does not, but nothing here depends on that —
+    // is not read as a person navigating.
+    let hasLeftOpeningRoute = false;
+    const stopWatchingRoute = frameStore.readable.subscribe((state) => {
+      if (!routesAreEqual(state.route, openingRoute)) {
+        hasLeftOpeningRoute = true;
+      }
+    });
+
     void (async () => {
       const storedMark = await uiStateStore.readGlobal(FIRST_LAUNCH_SEEN_KEY);
       if (isCancelled) {
@@ -82,6 +117,14 @@ export function useFirstLaunchOpening(inputs: FirstLaunchOpeningInputs): void {
       if (route === undefined) {
         return;
       }
+      // Read here and acted on here, with nothing between: the two statements are one
+      // synchronous run, so no navigation can land after the guard passes and before
+      // the redirect is applied. AND NO MARK IS WRITTEN on this arm — the demo was not
+      // shown, so recording that it was would lose it for the install, which is the
+      // navigate-then-mark ordering this module already keeps for its other refusal.
+      if (hasLeftOpeningRoute) {
+        return;
+      }
       frameStore.navigate(route);
       await uiStateStore.writeGlobal(
         FIRST_LAUNCH_SEEN_KEY,
@@ -92,6 +135,7 @@ export function useFirstLaunchOpening(inputs: FirstLaunchOpeningInputs): void {
 
     return () => {
       isCancelled = true;
+      stopWatchingRoute();
     };
   }, [bridge, frameStore, uiStateStore, openedAtHash]);
 }

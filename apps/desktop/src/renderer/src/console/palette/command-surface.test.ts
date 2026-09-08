@@ -3,8 +3,15 @@
 //
 // The registry and the vocabulary themselves are `console-commands.test.ts` beside
 // this file. What is left here is the frame's contribution: one chord per rail
-// destination, and a binding type narrow enough that an unpublished key is a compile
-// error rather than a clause that quietly evaluates false.
+// destination plus the composer chord, and a binding type narrow enough that an
+// unpublished key is a compile error rather than a clause that quietly evaluates
+// false.
+//
+// The composer chord is checked here for a property no other file can see: that the
+// string this table binds is the SAME declaration the main process watches for in an
+// auxiliary window. Written out here it would be a second spelling, and the drift
+// would be silent in both processes — one window answering a chord the other one
+// does not.
 //
 // Both subjects are this family's now, so both specifiers are same-family ones. The
 // tuple is reached directly because `palette/index.js` deliberately does not publish
@@ -13,8 +20,10 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { COMPOSER_FOCUS_CHORD } from "../../../../shared/composer-chord.js";
 import { RAIL_DESTINATIONS } from "../routing/index.js";
 import {
+  COMPOSER_FOCUS_COMMAND_ID,
   FRAME_KEY_BINDINGS,
   RAIL_NAVIGATION_DETAILS,
   consoleKeyBindings,
@@ -41,13 +50,43 @@ const BINDING_THE_COMPILER_REJECTS: FrameKeyBinding = {
 };
 
 describe("command surface — the chords the frame binds", () => {
-  it("binds one chord per rail destination, in rail order, and nothing besides", () => {
+  it("binds one chord per rail destination, in rail order, then the composer chord", () => {
     // The defect this pins is a chord table hand-written beside the destination
     // set: it kept a `$mod+2` for a Workspace destination the rail does not draw
-    // and left the spec's workflows destination with no chord at all.
-    expect(FRAME_KEY_BINDINGS.map((binding) => binding.commandId)).toStrictEqual(
-      RAIL_DESTINATIONS.map((destination) => RAIL_NAVIGATION_DETAILS[destination].commandId),
+    // and left the spec's workflows destination with no chord at all. The
+    // destinations are still WALKED, so that claim is unchanged; the one addition
+    // is named rather than admitted by loosening the comparison.
+    expect(FRAME_KEY_BINDINGS.map((binding) => binding.commandId)).toStrictEqual([
+      ...RAIL_DESTINATIONS.map((destination) => RAIL_NAVIGATION_DETAILS[destination].commandId),
+      COMPOSER_FOCUS_COMMAND_ID,
+    ]);
+  });
+
+  it("binds the composer chord to the cross-process declaration, and lets it fire while typing", () => {
+    // Two claims about one row, and each is a way it goes wrong silently. A chord
+    // spelled here rather than imported drifts from the one the main process
+    // watches for, so the press works in one window and does nothing in the other.
+    // And without `allowInTextInput` the chord declines in exactly the places a
+    // person needs it from — a find field, a filter box — which reads as the
+    // binding not existing at all.
+    const composerBinding = FRAME_KEY_BINDINGS.find(
+      (binding) => binding.commandId === COMPOSER_FOCUS_COMMAND_ID,
     );
+
+    expect(composerBinding?.chord).toBe(COMPOSER_FOCUS_CHORD);
+    expect(composerBinding?.allowInTextInput).toBe(true);
+  });
+
+  it("negative control: no rail chord fires while somebody is typing", () => {
+    // Proves the case above is reading a real per-binding flag rather than one this
+    // table sets on everything: navigating away mid-sentence loses the sentence, so
+    // the rail's chords must decline exactly where the composer's fires.
+    for (const destination of RAIL_DESTINATIONS) {
+      const railBinding = FRAME_KEY_BINDINGS.find(
+        (binding) => binding.commandId === RAIL_NAVIGATION_DETAILS[destination].commandId,
+      );
+      expect(railBinding?.allowInTextInput).toBeUndefined();
+    }
   });
 
   it("negative control: an unpublished key is not in the vocabulary the type scopes to", () => {

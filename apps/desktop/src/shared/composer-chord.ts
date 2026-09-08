@@ -15,8 +15,9 @@
 // reach the main window's composer. Only the process that owns both windows can act
 // on the press, and it owns exactly one half of the act — bringing the composer's
 // window forward. The other half, moving the caret, belongs to the window that has
-// the composer and lands with the family that draws one; both halves read this
-// declaration, which is what makes them one chord rather than two.
+// the composer; main asks for it on {@link COMPOSER_FOCUS_REQUEST_CHANNEL}, which is
+// declared here beside the chord for the same reason the chord is: both halves read
+// one module, so they are one act rather than two that agree by hand.
 //
 // This module may import nothing but `@ai-sidekicks/contracts` — it is compiled into
 // the RENDERER bundle, so `electron`, `node:*`, and the main/preload subtrees are
@@ -40,6 +41,26 @@
  * claimed by an operating system.
  */
 export const COMPOSER_FOCUS_CHORD = "$mod+KeyL";
+
+/**
+ * The channel main asks a window's composer for the caret on.
+ *
+ * ONE NAME FOR ONE ASK, and it is here rather than in either process because a
+ * channel string is a seam with two ends that never meet: main sends on it, the
+ * preload listens on it, and a mismatch is silent in both — the send reaches nobody
+ * and the listener waits forever, with every layer above reporting success.
+ *
+ * PREFIXED, because an Electron channel namespace is flat and shared with every
+ * library loaded into the same preload. The prefix is this application's own word, so
+ * a channel added later by anything else cannot collide with this one by accident.
+ *
+ * IT CARRIES NOTHING, and that is the whole of the payload contract. What focusing
+ * means belongs to the window that draws a composer, exactly as it does for the
+ * renderer-local ask this one lands in — so nothing travels here that a later reader
+ * could branch on, and nothing crosses the context bridge that would have to be
+ * cloneable.
+ */
+export const COMPOSER_FOCUS_REQUEST_CHANNEL = "sidekicks:composer-focus-request";
 
 /**
  * Which physical modifier `$mod` names on a host.

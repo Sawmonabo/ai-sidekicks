@@ -83,7 +83,11 @@ export type { ConsoleCommand, KeyBinding } from "./contributions.js";
 // publishing the half beside the whole would let a caller print one table while the
 // keyboard held the other, and would report a chord a view family contributed as an
 // override of nothing. `FrameKeyBinding` types that half and goes with it.
-export { RAIL_NAVIGATION_DETAILS, subscribeToConsoleKeyBindings } from "./command-surface.js";
+export {
+  COMPOSER_FOCUS_COMMAND_ID,
+  RAIL_NAVIGATION_DETAILS,
+  subscribeToConsoleKeyBindings,
+} from "./command-surface.js";
 export type { FrameCommand } from "./command-surface.js";
 
 // The bridge-backed acts are the palette's own contribution, and they reach the

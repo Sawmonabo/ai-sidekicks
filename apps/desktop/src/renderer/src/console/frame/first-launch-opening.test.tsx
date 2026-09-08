@@ -8,6 +8,12 @@
 //
 // The two-launch case is the one this module exists for. Every other assertion here
 // would pass over a hook that opened the demo every single time.
+//
+// The second describe is the other one: the read is asynchronous and the frame is
+// interactive while it is in flight, so a launch and a person can both be deciding
+// where this window goes at once. Those cases deliberately do NOT settle before
+// acting — settling first would move the read past the only window in which the race
+// exists, and every one of them would pass over a hook with no guard at all.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -42,11 +48,29 @@ async function launch(
   bridge: ConsoleBridge,
   openedAtHash = "",
 ): Promise<FrameStore> {
+  const frameStore = openWindow(uiStateStore, bridge, openedAtHash);
+  await settle();
+  return frameStore;
+}
+
+/**
+ * Launch a window and hand it back with the mark read still in flight.
+ *
+ * The moment the race lives in. `readGlobal` is asynchronous, so the effect has
+ * issued its read and yielded by the time this returns, and a caller's navigation
+ * lands while the redirect is still being computed — which is the whole situation
+ * the guard is about, and is unreachable from `launch`, whose settle has already
+ * carried the read to its end.
+ */
+function openWindow(
+  uiStateStore: UiStateStore,
+  bridge: ConsoleBridge,
+  openedAtHash = "",
+): FrameStore {
   const frameStore = new FrameStore({ initialRoute: { kind: "sessions" } });
   renderHook(() => {
     useFirstLaunchOpening({ bridge, frameStore, uiStateStore, openedAtHash });
   });
-  await settle();
   return frameStore;
 }
 
@@ -109,5 +133,63 @@ describe("the first launch of an install", () => {
     await launch(uiStateStore, fixtureBridgePlayingTheDemo(), "#/settings");
 
     expect(await uiStateStore.readGlobal(FIRST_LAUNCH_SEEN_KEY)).toBeUndefined();
+  });
+});
+
+describe("a person deciding where this window goes while the mark is still being read", () => {
+  it("leaves the route they navigated to, and does not replace it with the demo", async () => {
+    // The defect this guard closes. Nothing about the read is fast, and the rest of
+    // the frame is live throughout it — so somebody reaches Settings, and a redirect
+    // computed from the hash the window was BORN at then takes the window off the
+    // page they are reading.
+    const frameStore = openWindow(installStore(), fixtureBridgePlayingTheDemo());
+    frameStore.navigate({ kind: "settings", page: "appearance" });
+
+    await settle();
+
+    expect(frameStore.getState().route).toStrictEqual({
+      kind: "settings",
+      page: "appearance",
+    });
+  });
+
+  it("writes no mark for a demo that navigation retired", async () => {
+    // Navigate-then-mark holds on this arm too: the demo was never shown, so an
+    // install that recorded it as seen would lose it for good on one unlucky launch.
+    const uiStateStore = installStore();
+    const frameStore = openWindow(uiStateStore, fixtureBridgePlayingTheDemo());
+    frameStore.navigate({ kind: "settings", page: "appearance" });
+
+    await settle();
+
+    expect(await uiStateStore.readGlobal(FIRST_LAUNCH_SEEN_KEY)).toBeUndefined();
+  });
+
+  it("still opens the demo for a launch nobody touched", async () => {
+    // The positive half of the pair, taken through the SAME in-flight path so the two
+    // cases differ by exactly one act: the navigation. A guard that simply stopped
+    // redirecting would pass the case above and fail this one.
+    const frameStore = openWindow(installStore(), fixtureBridgePlayingTheDemo());
+
+    await settle();
+
+    expect(frameStore.getState().route).toStrictEqual({
+      kind: "workspace",
+      sessionId: LEDGER_FIRST_SIXTY_SCENARIO.sessionId,
+    });
+  });
+
+  it("negative control: coming back to the opening route does not re-arm the redirect", async () => {
+    // Why the guard latches instead of comparing routes when the read settles. A
+    // person who left and returned has met the frame; the route they are standing on
+    // being equal to the one they opened at does not make it a route they did not
+    // choose, and a comparison at settlement would throw them into the demo anyway.
+    const frameStore = openWindow(installStore(), fixtureBridgePlayingTheDemo());
+    frameStore.navigate({ kind: "settings", page: "appearance" });
+    frameStore.navigate({ kind: "sessions" });
+
+    await settle();
+
+    expect(frameStore.getState().route).toStrictEqual({ kind: "sessions" });
   });
 });

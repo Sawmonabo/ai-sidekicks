@@ -32,6 +32,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import {
+  COMPOSER_FOCUS_COMMAND_ID,
   KeyBindingTable,
   RAIL_NAVIGATION_DETAILS,
   consoleCommands,
@@ -56,7 +57,7 @@ import type { UiStateStore } from "../persistence/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
-import { type ConsoleSurfaceRegistry } from "../seats/index.js";
+import { requestComposerFocus, type ConsoleSurfaceRegistry } from "../seats/index.js";
 import { routeForDestination, warmDestination } from "./rail-navigation.js";
 
 /** What the frame's own commands are built against: this window's store and acts. */
@@ -343,6 +344,28 @@ function buildFrameCommands(
           void surfaceRegistry.preload("workspace");
           frameStore.navigate({ kind: "workspace", sessionId });
         }
+      },
+    },
+    {
+      // The chord's act, and the palette row for people who do not know the chord.
+      //
+      // IT ASKS RATHER THAN FOCUSES. The composer's input element belongs to the
+      // family that draws one and is created and destroyed by its own mount, so what
+      // travels is the ask and the composer decides what focusing means — the same
+      // seam the runs pane's empty state already reaches, and the same one the main
+      // process lands a chord pressed in an auxiliary window on.
+      //
+      // NO `when` CLAUSE, deliberately. Whether a composer is mounted is a fact the
+      // seat already answers by having a listener or not having one, and a clause
+      // here would be a second, staler answer to it — offered from Settings, where
+      // `sessionActive` is true and no composer is drawn, it would be exactly wrong.
+      // An ask nobody is listening for is dropped, which is that seat's stated rule.
+      id: COMPOSER_FOCUS_COMMAND_ID,
+      title: "Focus the composer",
+      group: "Compose",
+      keywords: ["message", "type", "prompt", "input"],
+      run: () => {
+        requestComposerFocus();
       },
     },
     {

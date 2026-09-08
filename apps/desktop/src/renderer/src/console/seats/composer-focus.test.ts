@@ -4,13 +4,22 @@
 // mounted is DROPPED. A buffered ask replayed at the next mount moves the caret out
 // from under whatever the person started doing instead, seconds after they asked for
 // something else — which is worse than the ask doing nothing.
+//
+// The second half of this file is the SHELL's ingress into that same seam. A composer
+// chord pressed in an auxiliary window is answered by the main process, which brings
+// this window forward and then asks it for the caret over the bridge — and what is
+// checkable here is that the ask lands in this emitter rather than beside it, and that
+// the window releases the subscription when it closes.
 
+import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { shellProbe } from "../bridge/shell-signals.test-support.js";
 import {
   composerFocusListenerCount,
   requestComposerFocus,
   subscribeToComposerFocus,
+  useShellComposerFocusRequests,
 } from "./composer-focus.js";
 
 const openSubscriptions: (() => void)[] = [];
@@ -82,5 +91,55 @@ describe("an ask nobody is listening for", () => {
     requestComposerFocus();
 
     expect(takeFocus).not.toHaveBeenCalled();
+  });
+});
+
+describe("the shell asking this window's composer for the caret", () => {
+  it("lands in the same seam a surface's ask does", () => {
+    // The whole reason the ingress is here. A chord pressed in an auxiliary window
+    // and a runs-pane empty state both mean "put the caret in the composer", and the
+    // composer answers exactly one subscription — so a second path for the shell
+    // would be a second answer, free to drift from this one the first time either
+    // changed.
+    const takeFocus = vi.fn();
+    const shell = shellProbe();
+    listen(takeFocus);
+    const mounted = renderHook(() => {
+      useShellComposerFocusRequests(shell.bridge);
+    });
+
+    shell.raiseComposerFocusRequest();
+
+    expect(takeFocus).toHaveBeenCalledTimes(1);
+    mounted.unmount();
+  });
+
+  it("negative control: a window that raised no request moves no caret", () => {
+    // Without this, a binding that asked for the caret on mount — a plausible way to
+    // get the case above green — would look identical, and every window would open
+    // with the caret yanked into the composer.
+    const takeFocus = vi.fn();
+    const shell = shellProbe();
+    listen(takeFocus);
+    const mounted = renderHook(() => {
+      useShellComposerFocusRequests(shell.bridge);
+    });
+
+    expect(takeFocus).not.toHaveBeenCalled();
+    mounted.unmount();
+  });
+
+  it("releases the bridge subscription when the window closes", () => {
+    // A window that closed while holding one leaves the shell delivering into a
+    // handler whose composer is gone — and, on the live bridge, an `ipcRenderer`
+    // listener that accumulates one per window opened.
+    const shell = shellProbe();
+    const mounted = renderHook(() => {
+      useShellComposerFocusRequests(shell.bridge);
+    });
+
+    expect(shell.openSubscriptionCount()).toBe(1);
+    mounted.unmount();
+    expect(shell.openSubscriptionCount()).toBe(0);
   });
 });

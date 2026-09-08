@@ -60,6 +60,7 @@ import {
   consoleSurfaceRegistry,
   frameBindingRegistry,
   mountFrameBindings,
+  useShellComposerFocusRequests,
   type FrameBindingContext,
 } from "../seats/index.js";
 import {
@@ -179,6 +180,13 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     uiStateStore,
     openedAtHash: openedAtHashRef.current,
   });
+
+  // And the one ask that does not come from inside this window at all: a composer
+  // chord pressed in an auxiliary window is answered by the main process, which
+  // brings this window forward and then asks it for the caret. Bound once per window,
+  // beside the openings above, because it is the same kind of fact — something
+  // outside the render tree deciding where this window should be pointing.
+  useShellComposerFocusRequests(props.bridge);
 
   // Every loader-backed body on both boards, warmed once after this window's first
   // frame. `lazy-body-warm-binding.ts` says why this is what a loader costs a person

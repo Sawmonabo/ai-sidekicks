@@ -150,6 +150,14 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       // may not make — so the one honest fixture answer is the one below.
       deriveKeyMaterial: () => refuseAbsentCapability("webAuthn.deriveKeyMaterial"),
     },
+    shell: {
+      // The fixture is a scripted SESSION, not a scripted shell: no scenario opens a
+      // second window, so nothing here could ever press the chord that raises this.
+      // It answers with a disposer and reports nothing — the `attentionSubscribe`
+      // posture, and a reading rather than a refusal: this bridge is not declining to
+      // say when the shell asked, it has no shell behind it that could ask.
+      subscribeToComposerFocusRequest: (): Unsubscribe => () => undefined,
+    },
     update: {
       // The scenario's own declaration, or the bare `idle` this fixture answered
       // before scenarios could state one. The default carries NO `lastCheckedAt`
