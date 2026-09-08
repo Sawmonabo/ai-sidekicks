@@ -1,0 +1,266 @@
+// The account axis inside the real attach form, over the node's real registry read.
+//
+// THE MODEL SUITE BESIDE THIS ONE ANSWERS "WHICH ACCOUNTS", and it answers it over a
+// literal. What it cannot answer is whether anything reaches the wire: the axis is
+// only a registry axis if the form opens the registry, scopes the offer to the driver
+// it is carrying, and puts the daemon's own handle on `agent.attach` — three claims
+// that are each about a seam between two modules, so they are asserted through the
+// column that composes them rather than against the field alone.
+//
+// THE NEGATIVE CONTROL IS THE SHAPE OF THE AXIS. What stood here was an untyped text
+// input beside a standing sentence, which is the one shape that can never be wrong in
+// the renderer and is always wrong at the daemon — a typo composes a request naming an
+// account the registry has never held, refused in the account plane's own namespace
+// after the attach was submitted. So a case asserts the field a person meets is a
+// picker over the registry and not a box they type an opaque handle into.
+//
+// THE CLAIMS A COLUMN RENDER CANNOT MAKE ARE NEXT DOOR, in
+// `AccountAxisField.axis-alone.test.tsx`: the three states the reset control
+// distinguishes and the state a field is in when nothing is pinned differ only in what
+// the FORM is holding behind the field, and the column's own fixtures reach exactly one
+// of them.
+
+import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { settleReads } from "../../agent-console/agent-console.test-support.js";
+import {
+  HeldAttachDaemon,
+  bridgeCalling,
+  currentSubmitControl,
+  disposeOpenedModels,
+  modelsOver,
+  openReadyAttachForm,
+  type ScriptedDaemon,
+} from "../../agent-console/agent-binding-column.test-support.js";
+import { AgentBindingColumn } from "../../agent-console/AgentBindingColumn.js";
+
+afterEach(disposeOpenedModels);
+
+/** The attach dialog, open, with its registry read settled. */
+async function openedAttachForm(scriptedDaemon: ScriptedDaemon): Promise<HTMLElement> {
+  const bridge = bridgeCalling(scriptedDaemon);
+  const { container } = render(
+    <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+  );
+  await settleReads(bridge);
+  await openReadyAttachForm(container);
+  // A SECOND SETTLE, because the registry read does not exist until the dialog does.
+  // The field is the account plane's watcher and it mounts with the popup, so the
+  // read this asserts against is opened by the press above and not by the mount.
+  await settleReads(bridge);
+  return document.querySelector(".meridian-attach__popup") as HTMLElement;
+}
+
+/** The account axis's own field, found by the label a person reads. */
+function accountField(popup: HTMLElement): HTMLElement {
+  const field = [...popup.querySelectorAll(".meridian-axis-field")].find((candidate) =>
+    (candidate.querySelector(".meridian-axis-field__label")?.textContent ?? "").startsWith(
+      "Provider account",
+    ),
+  );
+  expect(field).not.toBeUndefined();
+  return field as HTMLElement;
+}
+
+/** Open the account picker and read back what it offers, label by label. */
+function offeredAccounts(popup: HTMLElement): string[] {
+  fireEvent.click(
+    accountField(popup).querySelector(".meridian-axis-field__trigger") as HTMLElement,
+  );
+  return [...document.querySelectorAll(".meridian-axis-field__option-label")].map(
+    (option) => option.textContent ?? "",
+  );
+}
+
+/** Pick one account by the operator's own word for it, the way a person does. */
+function chooseAccount(popup: HTMLElement, label: string): void {
+  fireEvent.click(
+    accountField(popup).querySelector(".meridian-axis-field__trigger") as HTMLElement,
+  );
+  const option = [...document.querySelectorAll(".meridian-axis-field__option")].find((candidate) =>
+    (candidate.querySelector(".meridian-axis-field__option-label")?.textContent ?? "").startsWith(
+      label,
+    ),
+  );
+  expect(option).not.toBeUndefined();
+  fireEvent.click(option as HTMLElement);
+}
+
+describe("the attach form's account axis — what it offers", () => {
+  it("offers the registry's accounts under the driver's provider and no other provider's", async () => {
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+
+    expect(offeredAccounts(popup)).toEqual(["Team · default", "Personal"]);
+  });
+
+  it("negative control: the axis is a picker over the registry, never a box to type a handle into", async () => {
+    // The pre-fix axis was `<input class="meridian-axis-field__text">` beside a
+    // standing sentence — a shape that accepts an account this node has never held
+    // and cannot say so until the attach has already been submitted.
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+    const field = accountField(popup);
+
+    expect(field.querySelector(".meridian-axis-field__text")).toBeNull();
+    expect(field.querySelector(".meridian-axis-field__trigger")).not.toBeNull();
+  });
+
+  it("marks which account the provider would resolve to on its own", async () => {
+    // Marked on its row rather than hoisted to the top of the list: the daemon sent
+    // the accounts in an order this console has no better answer than, and moving one
+    // would be the renderer asserting a precedence the registry did not state.
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+
+    expect(offeredAccounts(popup)[0]).toContain("default");
+  });
+});
+
+describe("the attach form's account axis — what reaches the wire", () => {
+  it("puts the daemon's opaque handle on the request when a person picks by label", async () => {
+    const scriptedDaemon = new HeldAttachDaemon();
+    const popup = await openedAttachForm(scriptedDaemon);
+
+    chooseAccount(popup, "Personal");
+    await act(async () => {
+      fireEvent.click(currentSubmitControl());
+    });
+
+    expect(scriptedDaemon.attachRequest).toMatchObject({ providerAccountId: "acct-personal" });
+  });
+
+  it("negative control: the operator's own word for the account reaches the wire never", async () => {
+    // The handle is the item and the label is a projection of it. A picker whose
+    // items were labels would put a mutable word where the wire's identity belongs,
+    // and two accounts relabelled alike would become indistinguishable to it.
+    const scriptedDaemon = new HeldAttachDaemon();
+    const popup = await openedAttachForm(scriptedDaemon);
+
+    chooseAccount(popup, "Personal");
+    await act(async () => {
+      fireEvent.click(currentSubmitControl());
+    });
+
+    expect(JSON.stringify(scriptedDaemon.attachRequest)).not.toContain("Personal");
+  });
+
+  it("leaves the request unpinned even though the field speaks for the resolved default", async () => {
+    // The half of the fix that must NOT happen. Naming the account an unpinned attach
+    // resolves to is a READING; pinning it is a request member. A field that wrote the
+    // derived default back would turn the daemon's own resolution into an explicit
+    // override, and the run's receipt would then name an account nobody chose — while
+    // the registry's marked default and the account resolution actually reached are two
+    // different rows in this very fixture.
+    const scriptedDaemon = new HeldAttachDaemon();
+    const popup = await openedAttachForm(scriptedDaemon);
+
+    expect(accountField(popup).textContent ?? "").toContain("this attach resolves to Personal");
+    await act(async () => {
+      fireEvent.click(currentSubmitControl());
+    });
+
+    expect(scriptedDaemon.attachRequest).not.toHaveProperty("providerAccountId");
+  });
+
+  it("clears the pin back to the provider's default rather than sending an empty account", async () => {
+    const scriptedDaemon = new HeldAttachDaemon();
+    const popup = await openedAttachForm(scriptedDaemon);
+
+    chooseAccount(popup, "Team");
+    fireEvent.click(
+      accountField(popup).querySelector(".meridian-axis-field__clear") as HTMLElement,
+    );
+    await act(async () => {
+      fireEvent.click(currentSubmitControl());
+    });
+
+    expect(scriptedDaemon.attachRequest).not.toHaveProperty("providerAccountId");
+  });
+});
+
+describe("the attach form's account axis — what it says about the chosen account", () => {
+  it("names what run admission last made of that account", async () => {
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+
+    chooseAccount(popup, "Personal");
+    const text = accountField(popup).textContent ?? "";
+    expect(text).toContain("fresh sign-in");
+    expect(text).toContain("reauth_required");
+  });
+
+  it("says the readiness is advisory rather than a gate, and leaves the control live", async () => {
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+
+    chooseAccount(popup, "Personal");
+    expect(accountField(popup).textContent ?? "").toContain("advisory and never a gate");
+    // Resolution tests registry MEMBERSHIP; a live probe settles authentication at
+    // spawn. A form that refused here would refuse an account about to work.
+    expect(currentSubmitControl().disabled).toBe(false);
+  });
+
+  it("names the act a remedy calls for and never the provider's own sign-in command", async () => {
+    // `signInInvocation` and `credentialHomePath` are display-only members that
+    // belong to the operator surface that owns them. An attach form printing a
+    // command somebody is invited to run would be this console composing a remedy.
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+
+    chooseAccount(popup, "Personal");
+    const text = accountField(popup).textContent ?? "";
+    expect(text).not.toContain("claude setup-token");
+    expect(text).not.toContain("/homes/acct-personal");
+  });
+
+  it("negative control: an account no readiness entry resolved to carries no verdict", async () => {
+    // The projection is per PROVIDER and names one account. Attributing it to every
+    // row under that provider would report a state nobody derived.
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+
+    chooseAccount(popup, "Team");
+    expect(accountField(popup).textContent ?? "").not.toContain("reauth_required");
+  });
+});
+
+describe("the attach form's account axis — a registry that would not answer", () => {
+  /** The attach script with the registry read refused, and everything else scripted. */
+  function refusingRegistry(): ScriptedDaemon {
+    const scriptedDaemon = new HeldAttachDaemon();
+    return {
+      answer: async (method: string, params?: unknown): Promise<unknown> => {
+        if (method === "providerAccount.list") {
+          throw new Error("the account plane refused this caller");
+        }
+        return await scriptedDaemon.answer(method, params);
+      },
+    };
+  }
+
+  it("renders the refusal verbatim rather than an empty picker", async () => {
+    // The two are different facts and only one of them is "there are no accounts". A
+    // field that drew an empty list over a refused read would report a registry that
+    // had not answered as a registry that had answered nothing.
+    const popup = await openedAttachForm(refusingRegistry());
+    const text = accountField(popup).textContent ?? "";
+
+    expect(text).toContain("call-rejected");
+    expect(text).toContain("providerAccount.list was rejected.");
+    expect(text).not.toContain("No account is registered for this provider");
+  });
+
+  it("carries its own way out, since nothing else asks the registry again", async () => {
+    // A refused read is terminal until something asks again, so without this the
+    // field would say one line of error text for the life of the dialog.
+    const popup = await openedAttachForm(refusingRegistry());
+    const retry = [...accountField(popup).querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Try again",
+    );
+
+    expect(retry).not.toBeUndefined();
+  });
+
+  it("negative control: a registry that answers renders no refusal at all", async () => {
+    // Without this, the cases above would pass over a field that rendered a refusal
+    // for every reading it was ever handed.
+    const popup = await openedAttachForm(new HeldAttachDaemon());
+
+    expect(accountField(popup).textContent ?? "").not.toContain("call-rejected");
+  });
+});

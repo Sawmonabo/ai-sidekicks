@@ -122,11 +122,17 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "type-member",
       "the per-row remembered-rule match on approval rows",
     ),
-    agentProviderSwitchFailedEvent: prerequisite(
+    agentProviderSwitchFailedEvent: eventTypePrerequisite(
       "agentProviderSwitchFailedEvent",
       "agent-provider-switch-failure",
-      "event-type",
       "the `agent.provider_switch_failed` event, which is how a deferred switch that could not be applied reaches a client that did not issue the mutation",
+      ["agent.provider_switch_failed"],
+    ),
+    agentProviderSwitchedEvent: eventTypePrerequisite(
+      "agentProviderSwitchedEvent",
+      "agent-provider-switch-terminal",
+      "the `agent.provider_switched` event, which is how a switch applied at a deferred boundary reaches a client that did not issue the mutation, carrying the continuity arm and the declared losses the new binding is working under",
+      ["agent.provider_switched"],
     ),
     approvalAmendmentArm: prerequisite(
       "approvalAmendmentArm",
@@ -184,4 +190,25 @@ function prerequisite(
   summary: string,
 ): GrowthPrerequisiteEntry {
   return { id, slateRow, kind, summary, liveStatus: "fixture-only" };
+}
+
+/**
+ * One `event-type` row, which carries the types it is waiting for as a value.
+ *
+ * A second builder rather than a fifth parameter on the one above, because the
+ * pairing is the point: the `event-type` kind and a non-empty type list are one
+ * claim, and a signature that let either arrive without the other would admit the
+ * two shapes this table must not hold — an `event-type` row whose types no gate can
+ * read, and a type list filed under a kind that is not about event types.
+ */
+function eventTypePrerequisite(
+  id: GrowthPrerequisiteId,
+  slateRow: GrowthSlateRowId,
+  summary: string,
+  unregisteredEventTypes: readonly [string, ...string[]],
+): GrowthPrerequisiteEntry {
+  return {
+    ...prerequisite(id, slateRow, "event-type", summary),
+    unregisteredEventTypes,
+  };
 }

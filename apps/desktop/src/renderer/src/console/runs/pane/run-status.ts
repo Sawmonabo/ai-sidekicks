@@ -19,14 +19,25 @@
 // WHY THE SUBTYPE IS DERIVED AND NOT READ. The phrases a status history wants —
 // "paused", "resumed", "blocked", "unblocked" — read naturally as event kinds, and
 // `run.resumed`, `run.blocked`, and `run.unblocked` are NOT members of the
-// registered `SessionEventType` census in `packages/contracts/src/event.ts`; nor
-// are `agent.provider_switched` and `agent.provider_switch_failed`, which that
-// file records as a widening not yet landed. A pane that rendered any of them as
-// wire kinds would be publishing event-type strings the corpus does not carry. The
-// condition each phrase describes, however, is exactly a `(previousState,
-// currentState)` pair, which `RunStateChangeEvent` does carry — so the subtype is
-// COMPUTED from the transition and rendered as the console's own derived phrase,
-// with the two wire states shown verbatim beside it.
+// registered `SessionEventType` census in `packages/contracts/src/event.ts`. A pane
+// that rendered any of them as wire kinds would be publishing event-type strings the
+// corpus does not carry. The condition each phrase describes, however, is exactly a
+// `(previousState, currentState)` pair, which `RunStateChangeEvent` does carry — so
+// the subtype is COMPUTED from the transition and rendered as the console's own
+// derived phrase, with the two wire states shown verbatim beside it.
+//
+// WHY THIS TABLE IS FIVE SUBTYPES AND A RESIDUE RATHER THAN SEVEN. The design names
+// two more status rows, one per agent provider-switch terminal, and both are sourced
+// from an EVENT rather than from a transition — so neither is derivable from anything
+// this pane receives, and both are absent from the shipped census besides. They are
+// not declared here as members nothing can produce: a subtype no arm of the fold can
+// return is a vocabulary entry minted ahead of its reader, and the `transitioned`
+// residue below exists precisely so this table never grows a name for a condition it
+// cannot recognize. The debt is recorded where debts of this class are recorded — the
+// growth slate carries one row per terminal in `bridge/growth-port/growth-slate.ts`,
+// naming this pane among the surfaces waiting, and a test there fails the day the
+// census widens. That is the moment this table grows its two members, sourced from
+// the settlement the terminal carries.
 
 import type { RunState, RunStateChangeEvent } from "@ai-sidekicks/contracts";
 import type { ChipTone, GlyphName } from "../../primitives/index.js";

@@ -18,7 +18,12 @@ import { PROVIDER_AXES } from "../agent-wire.js";
 import { DRIVER_CATALOG_FIXTURE } from "../driver-catalog.test-support.js";
 import { AttachSidekickForm } from "./attach-model.js";
 import { ATTACH_FIELDS, type AttachRequest } from "./attach-readiness.js";
-import { DEFINITION, SESSION_ID, namedForm } from "./attach-model.test-support.js";
+import {
+  DEFINITION,
+  DEFINITION_PINNING_ACCOUNT,
+  SESSION_ID,
+  namedForm,
+} from "./attach-model.test-support.js";
 
 /**
  * The two members the registered request base requires of BOTH arms.
@@ -249,6 +254,58 @@ describe("attach form — per-field overrides", () => {
     form.setField("effort", "low", DRIVER_CATALOG_FIXTURE);
     form.clearOverride("effort");
     expect(form.effectiveValue("effort")).toBe("high");
+  });
+});
+
+describe("attach form — what a dropped entry falls back to", () => {
+  // The rule a FIELD needs and `effectiveValue` alone cannot answer: dropping an
+  // entry reaches the provider's default only where the definition pins nothing,
+  // because the registered request has no member meaning "take no value".
+  it("returns an overridden account to the definition's own", () => {
+    const form = namedForm();
+    form.selectDefinition(DEFINITION_PINNING_ACCOUNT);
+    form.setField("providerAccountId", "acct-personal", DRIVER_CATALOG_FIXTURE);
+    expect(form.inheritedValue("providerAccountId")).toBe("acct-team");
+
+    form.setField("providerAccountId", "", DRIVER_CATALOG_FIXTURE);
+    expect(form.effectiveValue("providerAccountId")).toBe("acct-team");
+  });
+
+  it("carries no account member on the request once the override is dropped", () => {
+    // The daemon merges per field, so the definition's account is resolved THERE and
+    // is never echoed back into the request by this form.
+    const form = namedForm();
+    form.selectDefinition(DEFINITION_PINNING_ACCOUNT);
+    form.setField("providerAccountId", "acct-personal", DRIVER_CATALOG_FIXTURE);
+    form.setField("providerAccountId", "", DRIVER_CATALOG_FIXTURE);
+    const readiness = form.readiness(SESSION_ID, DRIVER_CATALOG_FIXTURE);
+
+    expect(readiness.status === "ready" ? readiness.request.providerAccountId : "unread").toBe(
+      undefined,
+    );
+  });
+
+  it("leaves the axis unset where the definition pins no account", () => {
+    // The same act, the other answer: this definition pins none, so dropping the
+    // entry really does reach the provider's registered default.
+    const form = namedForm();
+    form.selectDefinition(DEFINITION);
+    form.setField("providerAccountId", "acct-personal", DRIVER_CATALOG_FIXTURE);
+    expect(form.inheritedValue("providerAccountId")).toBeUndefined();
+
+    form.setField("providerAccountId", "", DRIVER_CATALOG_FIXTURE);
+    expect(form.effectiveValue("providerAccountId")).toBeUndefined();
+  });
+
+  it("negative control: the inline arm inherits nothing, whatever a definition holds", () => {
+    // Without this, a form that returned the definition's value on every arm would
+    // pass the case above — and the inline arm would name a fallback it cannot take.
+    const form = namedForm();
+    form.selectDefinition(DEFINITION_PINNING_ACCOUNT);
+    form.selectArm("inline");
+
+    expect(form.inheritedValue("providerAccountId")).toBeUndefined();
+    expect(form.inheritedValue("modelId")).toBeUndefined();
   });
 });
 

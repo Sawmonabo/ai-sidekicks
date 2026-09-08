@@ -38,6 +38,17 @@
 // get wrong about a registry like this one, and the third is what makes the delete
 // question answerable at all.
 //
+// ATTACHING FROM A ROW IS A HANDOFF, NOT A NAVIGATION. The registry is node-local and
+// an agent joins a session, so "attach from here" has to name one — and the only
+// session this page can name is the one this window is working in, handed down rather
+// than chosen. What the press does is OFFER the definition to that session's attach
+// form through `attach/attach-handoff/`, which is renderer-local, holds one offer at a
+// time, and is spent the moment the form claims it. The page navigates nowhere: it
+// does not know whether the session's agent console is open, and a control that moved
+// somebody somewhere and left them looking at a surface it had not opened would be
+// asserting an act it did not perform. Where this window has opened no session there
+// is nothing to attach into, so the control is ABSENT and the column says why once.
+//
 // THE STATE IS NOT HERE. Everything this page holds — the read, the delete in
 // flight, the refusal per row, and which record the seat is open on — lives in
 // `definition-registry-view.ts`, because a state machine over the growth port and a
@@ -45,6 +56,7 @@
 // and holds no `useState`: it reads one snapshot and hands presses back to the view.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { useAttachHandoff } from "../attach/attach-handoff/index.js";
 import {
   useDefinitionSettlementAnnouncement,
   useSidekickRegistryView,
@@ -87,11 +99,22 @@ const SIDEKICK_REGISTRY_RULES: readonly SidekickRegistryRule[] = [
 
 export interface SidekickDefinitionsPageProps {
   readonly bridge: ConsoleBridge;
+  /**
+   * The session this window is working in, which is the one a row can attach into.
+   *
+   * Required and carrying `undefined` rather than optional: a window that has opened
+   * no session is a real answer this page renders, and an optional member would read
+   * identically whether the composition decided there was none or forgot to pass one.
+   */
+  readonly retainedSessionId: string | undefined;
 }
 
 export function SidekickDefinitionsPage(props: SidekickDefinitionsPageProps): React.JSX.Element {
   const { view, snapshot } = useSidekickRegistryView(props.bridge);
   useDefinitionSettlementAnnouncement(snapshot.reading);
+  // The window's one handoff, subscribed rather than read: an offer this page made
+  // and the session's form then claimed has to stop reading as a standing promise.
+  const handoff = useAttachHandoff(props.bridge);
 
   return (
     <section className="meridian-sidekicks" aria-label="Sidekicks">
@@ -129,7 +152,12 @@ export function SidekickDefinitionsPage(props: SidekickDefinitionsPageProps): Re
       <div className="meridian-sidekicks__columns">
         <section className="meridian-sidekicks__column" aria-label="Saved sidekicks">
           <h3 className="meridian-sidekicks__column-title">Saved</h3>
-          <SavedSidekicks snapshot={snapshot} view={view} />
+          <SavedSidekicks
+            snapshot={snapshot}
+            view={view}
+            handoff={handoff}
+            attachTargetSessionId={props.retainedSessionId}
+          />
         </section>
 
         <section className="meridian-sidekicks__column" aria-label="Sidekick detail">
