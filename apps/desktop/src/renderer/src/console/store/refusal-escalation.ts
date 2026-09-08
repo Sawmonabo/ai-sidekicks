@@ -47,8 +47,15 @@ function escalationIdentityOf(refusal: ConsoleRefusal): string {
   return `${refusal.origin}\u0000${refusal.code}\u0000${refusal.detail}`;
 }
 
+// TWO SELECTIONS, TWO NAMES, ONE MODULE. Both walks below answer "which of these is
+// the one banner", and they differ in what a caller's ORDER means. That was written
+// as one name in two files — this module and the approvals pane's read fold — with
+// two rules and two arguments, both sound, and nothing saying which a call site got.
+// It is not a mode flag either: a caller's order means one thing or the other, and a
+// flag would put that decision at the call site while leaving the reason here.
+
 /**
- * The banner-class refusal in a set, or nothing where the set holds none.
+ * The NEWEST banner-class refusal in a set, or nothing where the set holds none.
  *
  * FOR THE SURFACES WHOSE REFUSALS ARRIVE AS A COLLECTION rather than one at a time —
  * the approvals reader holds a refusal per resolved request and per revoked rule, and
@@ -56,10 +63,12 @@ function escalationIdentityOf(refusal: ConsoleRefusal): string {
  * write this walk itself, and two copies of "which of these is a banner" is two
  * places for rule 9's reading to drift.
  *
- * The LAST match rather than the first: every caller appends, so the last member is
- * the newest thing the daemon said and the older one is already superseded.
+ * The LAST match rather than the first, because these callers APPEND: the last member
+ * is the newest thing the daemon said and the older one is already superseded. A
+ * caller whose members are concurrent rather than sequential wants
+ * {@link preferredBannerClassRefusalAmong}, where position means preference.
  */
-export function bannerClassRefusalAmong(
+export function newestBannerClassRefusalAmong(
   refusals: Iterable<ConsoleRefusal | undefined>,
 ): ConsoleRefusal | undefined {
   let escalating: ConsoleRefusal | undefined = undefined;
@@ -69,6 +78,35 @@ export function bannerClassRefusalAmong(
     }
   }
   return escalating;
+}
+
+/**
+ * The banner-class refusal a caller PREFERS, or nothing where it listed none.
+ *
+ * FOR THE SURFACES WHOSE CANDIDATES ARE CONCURRENT rather than appended. The approvals
+ * pane puts three independent calls on the wire — the approval projection, the
+ * standing-rule list, and the node's declared capabilities — and any of them can come
+ * back `session.not_found`. Their order carries no time, so the last member is not the
+ * newest thing anybody said and {@link newestBannerClassRefusalAmong}'s reason does
+ * not reach them.
+ *
+ * ONE SELECTION AND NOT ONE ESCALATION EACH. The frame keys a banner on the refusal's
+ * ORIGIN and CODE together, so three independent handovers of one vanished session
+ * raise one banner where the three reads happen to agree on an origin and several
+ * where they do not — and those reads do not: a call that rejected wears the calling
+ * surface's own origin while one the port refused wears the port's. A session that is
+ * gone is one fact however many reads noticed it, so the caller passes its candidates
+ * in the order it wants them preferred and hands over exactly one.
+ */
+export function preferredBannerClassRefusalAmong(
+  candidates: Iterable<ConsoleRefusal | undefined>,
+): ConsoleRefusal | undefined {
+  for (const candidate of candidates) {
+    if (candidate !== undefined && isBannerClass(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 /** Hand a whole-workspace refusal to the frame, and leave every other one alone. */

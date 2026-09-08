@@ -28,6 +28,7 @@ import {
   useDriverCapabilities,
 } from "../../bridge/index.js";
 import {
+  preferredBannerClassRefusalAmong,
   useDeadlineWake,
   useSessionPartition,
   useSessionStore,
@@ -46,12 +47,7 @@ import { useApprovalCommands } from "./approval-commands.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { useGoalMutationAuthorization } from "./goal/goal-authorization.js";
 import { useArrivalAnnouncement } from "./body/arrival-announcement.js";
-import {
-  bannerClassRefusalAmong,
-  partitionRecords,
-  providerAsksIn,
-  refusalOfPhase,
-} from "./body/approvals-read-fold.js";
+import { partitionRecords, providerAsksIn, refusalOfPhase } from "./body/approvals-read-fold.js";
 import { DaemonHostedToolsSection } from "./body/DaemonHostedToolsSection.js";
 import { ExecutionBoundaryReading } from "./body/ExecutionBoundaryReading.js";
 import { RulesRead } from "./RulesRead.js";
@@ -156,11 +152,12 @@ export function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Elem
   // A refusal that ends the whole session rather than one read reaches the frame's
   // banner instead of a line inside this pane. All three of this pane's reads name
   // the session, so all three are candidates, in the order they are preferred — one
-  // handover for one fact, on `bannerClassRefusalAmong`'s reason. Each refusal still
-  // renders where it happened; escalation is in addition to that and never instead.
+  // handover for one fact, on `preferredBannerClassRefusalAmong`'s reason — these
+  // three reads are concurrent, so their order is a preference and not a clock. Each
+  // refusal still renders where it happened; escalation is in addition, never instead.
   useRefusalBannerEscalation(
     props.bridgeContext.frameStore,
-    bannerClassRefusalAmong([
+    preferredBannerClassRefusalAmong([
       refusalOfPhase(snapshot.approvals),
       refusalOfPhase(snapshot.rules),
       driverCapabilities?.readRefusal,

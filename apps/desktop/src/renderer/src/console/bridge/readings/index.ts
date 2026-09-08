@@ -21,11 +21,16 @@
 // reached by co-located suites through their own deep specifiers and leave the console
 // through `bridge/index.ts`; a door line for either would be an export no module
 // reaches, which the dead-code gate reports and the barrel census counts.
+// `UnreadableDeliveryIssues` joined them once the refusal composer moved here: the
+// families that used to name that type wrote their own composer against it, and now
+// pass their words to the one below instead, so nothing outside this directory names
+// the issue shape at all.
 
 export { WireReadLifecycle, type WireReadState } from "./reading-lifecycle.js";
 
 export {
   UnreadableDeliveryLedger,
-  type UnreadableDeliveryIssues,
+  unreadableDeliveryRefusalComposerFor,
   type UnreadableDeliveryReading,
+  type UnreadableDeliveryRefusalComposer,
 } from "./unreadable-deliveries.js";
