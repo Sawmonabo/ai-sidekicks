@@ -26,9 +26,18 @@
 //      adapter failure as the same refusal the write itself would have returned:
 //      `write` declares its failure as a VALUE, and the one shipped caller fires
 //      it without awaiting, so a rejection that escapes is an unhandled one.
-//   3. **Reads never throw.** A read that fails returns `undefined` and records the
-//      failure on the store's health, because a preference the console cannot read
-//      is the "not loaded" kind of nothing, not an error the caller must handle.
+//   3. **Reads never throw, and they say which kind of nothing they found.**
+//      `readOutcome` answers `present`, `absent`, or `failed`; the failure is a
+//      VALUE and is counted on the store's health, so no caller has to handle an
+//      exception to learn that the adapter could not answer. `read` and `readGlobal`
+//      are its lossy projection, for the callers where absent and failed decide the
+//      same thing. What separates the two classes is not whether a caller writes at
+//      all but whether it writes a value it DERIVED from the absence back over the
+//      same record: a layout restore does — it opens its fallback arrangement and
+//      files it — so one failed read destroys a deck the adapter is still holding,
+//      and both layout restores therefore take `readOutcome`. A caller that only
+//      re-files a constant mark, or that writes nothing until a person acts, reads
+//      the same answer either way and takes the projection.
 //   4. **The adapter is resolved once, not swapped.** A store may be constructed
 //      around a database that is still opening, and every operation awaits that
 //      one resolution. See `UiStateStoreOptions.adapter` for why the alternative —
@@ -57,6 +66,12 @@ import {
 import { validatePersistedAddress } from "./identifier-grammar.js";
 import { MemoryPersistenceAdapter } from "./memory-adapter.js";
 import { openConsoleDatabase, type OpenConsoleDatabaseOptions } from "./indexeddb-adapter.js";
+import {
+  PERSISTENCE_READ_ABSENT,
+  PERSISTENCE_READ_FAILED,
+  recordFromReadOutcome,
+  type PersistenceReadOutcome,
+} from "./read-outcome.js";
 import { refusePersistence, type PersistenceRefusal } from "./refusals.js";
 import {
   PersistenceHealthLedger,
@@ -241,18 +256,36 @@ export class UiStateStore {
     return await this.write(PERSISTENCE_GLOBAL_PARTITION, key, valueClass, value);
   }
 
-  /** Read one value. Never throws: a failed read is "not loaded", not an error. */
-  public async read(partition: string, key: string): Promise<StoredRecord | undefined> {
+  /**
+   * Read one value, saying which kind of nothing an absence is.
+   *
+   * THE PRIMARY READ. Never throws — a failure is the `failed` arm and is counted on
+   * the store's health — and never conflates the two nothings, so a caller deciding
+   * what to WRITE on the strength of an absence can tell a record that was never
+   * saved from a read the adapter could not perform.
+   */
+  public async readOutcome(partition: string, key: string): Promise<PersistenceReadOutcome> {
     try {
-      return await (await this.#adapterReady).read(partition, key);
+      const record = await (await this.#adapterReady).read(partition, key);
+      return record === undefined ? PERSISTENCE_READ_ABSENT : { outcome: "present", record };
     } catch {
       this.#health.recordFailedRead();
-      return undefined;
+      return PERSISTENCE_READ_FAILED;
     }
   }
 
+  /** One window-wide preference, with the same three-answer outcome. */
+  public async readGlobalOutcome(key: string): Promise<PersistenceReadOutcome> {
+    return await this.readOutcome(PERSISTENCE_GLOBAL_PARTITION, key);
+  }
+
+  /** Read one value. Never throws; a failed read reads as "not loaded" (rule 3). */
+  public async read(partition: string, key: string): Promise<StoredRecord | undefined> {
+    return recordFromReadOutcome(await this.readOutcome(partition, key));
+  }
+
   public async readGlobal(key: string): Promise<StoredRecord | undefined> {
-    return await this.read(PERSISTENCE_GLOBAL_PARTITION, key);
+    return recordFromReadOutcome(await this.readGlobalOutcome(key));
   }
 
   /** Every value for one session. Empty on failure, with the failure counted. */

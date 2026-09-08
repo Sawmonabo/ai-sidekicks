@@ -7,10 +7,14 @@
 // exactly like a session that had never had anything happen in it, and a window that
 // knew it was missing rows said so nowhere a person looks.
 //
-// TWO ARMS AND NEVER BOTH, because they are not two facts about one moment: a window
-// that has not been read yet has nothing to be behind ON. The first read lands, the
-// shells go, and from then on the only thing this says is whether the projection is
-// keeping up.
+// TWO ARMS AND NEVER BOTH, AND THE STANDING CAUSE LEADS. The shells used to win, on
+// the reading that a window which has not been read yet has nothing to be behind ON —
+// and that reading is false for the one cause a first read can raise. `read-failed` is
+// marked when the read is refused or rejects, which leaves the store uninitialised and
+// the cause standing, so the pane drew `aria-busy` loading shells for as long as the
+// failure lasted and never said the read had already ended. The cause decides at any
+// point in the read: while one stands this names it, and only a window with no cause
+// and no first read yet is still filling.
 //
 // THE CATCHING-UP MARK IS STICKY IN THE STORE'S OWN SENSE, which is the one that
 // matters: the cause is cleared by the completed re-pull and by nothing else, so the
@@ -69,6 +73,24 @@ export function LedgerWindowReadState(props: LedgerWindowReadStateProps): React.
   // surfaces speaking about one moment, and never from two selectors.
   const firstReadSettled = useLedgerFirstReadSettled(props.sessionStore);
   const degradedCause = useSessionStore(props.sessionStore, readDegradedCause);
+  // ASKED FIRST, so a first read that has already failed says so instead of drawing
+  // shells for a read that is over. Nothing here mints a second sentence for that
+  // case: the copy below says what is wrong and what is being done about it, and the
+  // cause beside it — `read-failed` rather than `sequence-gap` — is what distinguishes
+  // the read that ended from the projection that is behind.
+  if (degradedCause !== undefined) {
+    return (
+      <div className="meridian-ledger-window-catch-up">
+        <Nothing
+          kind="computing"
+          placement="surface"
+          title="Catching up."
+          detail="Entries this window was told about have not arrived. It re-reads from the last position it kept, and this clears when that read lands."
+        />
+        <span className="meridian-ledger-window-catch-up__cause">{degradedCause}</span>
+      </div>
+    );
+  }
   if (!firstReadSettled) {
     return (
       <div
@@ -83,18 +105,5 @@ export function LedgerWindowReadState(props: LedgerWindowReadStateProps): React.
       </div>
     );
   }
-  if (degradedCause === undefined) {
-    return null;
-  }
-  return (
-    <div className="meridian-ledger-window-catch-up">
-      <Nothing
-        kind="computing"
-        placement="surface"
-        title="Catching up."
-        detail="Entries this window was told about have not arrived. It re-reads from the last position it kept, and this clears when that read lands."
-      />
-      <span className="meridian-ledger-window-catch-up__cause">{degradedCause}</span>
-    </div>
-  );
+  return null;
 }

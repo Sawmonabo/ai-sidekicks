@@ -4,13 +4,20 @@
 // own call door, so a stand-in would prove the case answers itself rather than that
 // the reply is parsed against the shape the corpus registers.
 
+import { act, renderHook } from "@testing-library/react";
+import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { type RunId } from "@ai-sidekicks/contracts";
 
 import { bridgeAnswering } from "../../../bridge/fixture/fixture-bridge.test-support.js";
-import { type ConsoleBridge } from "../../../bridge/index.js";
-import { ChildRunExpansionState } from "./child-run-expansion.js";
+import { SidekicksBridgeProvider, type ConsoleBridge } from "../../../bridge/index.js";
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
+import {
+  ChildRunExpansionState,
+  useChildRunDisclosure,
+  type ChildRunDisclosure,
+} from "./child-run-expansion.js";
 import { FIXTURE_SESSION_ID } from "../timeline-rows.test-support.js";
 
 const CHILD_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
@@ -228,5 +235,42 @@ describe("child-run expansion — one read line per child, and what ends one", (
 
     expect((await settling).status).toBe("summarized");
     expect(expansions.trackedChildRunIds.size).toBe(0);
+  });
+});
+
+describe("the disclosure a row presses — what is on screen while the read runs", () => {
+  /** One session's disclosure, over a bridge whose expansions the case releases. */
+  function mountDisclosure(
+    bridge: ConsoleBridge,
+  ): ReturnType<typeof renderHook<ChildRunDisclosure, unknown>> {
+    return renderHook(() => useChildRunDisclosure(FIXTURE_SESSION_ID), {
+      wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
+        createElement(SidekicksBridgeProvider, { bridge, children }),
+    });
+  }
+
+  it("publishes the expanding state the press raised, not the one it replaced", async () => {
+    // THE ROW'S PROGRESS STATE IS REACHABLE, which is the whole claim: the control is
+    // `disabled` and reads "Expanding" for exactly `status === "expanding"`, and a
+    // publication taken BEFORE `expand` snapshots the state the press replaced — so
+    // against a daemon that never answers the row goes on offering an enabled
+    // `Expand`, and pressing it again is answered by the single-flight guard with
+    // nothing to show for it.
+    const { bridge, release } = bridgeHoldingExpansions();
+    const disclosure = mountDisclosure(bridge);
+
+    act(() => {
+      disclosure.result.current.toggle(CHILD_RUN_ID);
+    });
+
+    expect(disclosure.result.current.expansionFor(CHILD_RUN_ID).status).toBe("expanding");
+
+    // And the press is not merely visible, it lands: without this the case above
+    // would pass over a disclosure that published "expanding" and never settled.
+    await act(async () => {
+      release();
+      await crossMacrotaskBoundary();
+    });
+    expect(disclosure.result.current.expansionFor(CHILD_RUN_ID).status).toBe("expanded");
   });
 });

@@ -305,8 +305,18 @@ export function useChildRunDisclosure(sessionId: string): ChildRunDisclosure {
         publish();
         return;
       }
+      // STARTED BEFORE THE PUBLICATION, and the order is the whole of it. `expand`
+      // raises `expanding` synchronously and `publish` SNAPSHOTS whatever the state
+      // holds when it runs, so publishing first files the state this press replaced:
+      // against a daemon that is slow or never answers, the row goes on offering an
+      // enabled `Expand` — or `Retry` — with no later publication until settlement,
+      // and its disabled progress state is unreachable. `useLedgerEarlierPaging`
+      // makes the same claim about its own in-flight flag and can settle first only
+      // because its state is DERIVED from the reader at render rather than copied at
+      // the call; a mirror has to be filled after the fact it mirrors is true.
+      const expanding = expansionState.expand(bridge, childRunId);
       publish();
-      void expansionState.expand(bridge, childRunId).then(publish, publish);
+      void expanding.then(publish, publish);
     },
     [bridge, expansionState, publish],
   );

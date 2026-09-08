@@ -32,6 +32,26 @@ describe("before the first read lands", () => {
   });
 });
 
+describe("when the first read itself failed", () => {
+  it("says so rather than drawing shells for a read that is already over", () => {
+    // `OpenSessionEntry` marks `read-failed` when the first read is refused or
+    // rejects, and leaves the store uninitialised — so a pane that asked
+    // "initialised?" first drew twelve `aria-busy` shells for as long as the failure
+    // stood and never told anybody the read had ended.
+    const sessionStore = openStore();
+    sessionStore.markDegraded("read-failed");
+
+    const container = readStateOf(sessionStore);
+
+    expect(container.querySelectorAll(".meridian-ledger-window-skeleton__row")).toHaveLength(0);
+    expect(container.querySelector("[aria-busy]")).toBeNull();
+    expect(container.textContent).toContain("Catching up.");
+    expect(container.querySelector(".meridian-ledger-window-catch-up__cause")?.textContent).toBe(
+      "read-failed",
+    );
+  });
+});
+
 describe("once the window has been read", () => {
   it("draws nothing at all while the projection is keeping up", () => {
     const sessionStore = openStore();

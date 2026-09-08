@@ -11,6 +11,13 @@
 // replace an arrangement the person built with whatever the record holds, which reads
 // as the window undoing their work; `RestoreProgress` below is addressed so that
 // neither can happen.
+//
+// AND A READ THAT FAILED IS NOT A FIRST RUN. The store's `readOutcome` answers
+// `present`, `absent`, or `failed` for exactly this: the fallback ledger pane is
+// opened on both kinds of nothing — a window with no panes is not a state this surface
+// has — and is FILED only on `absent`. Filing it on `failed` was a saved arrangement
+// destroyed by a read the adapter could not perform and then a write the adapter
+// happily accepted, with nothing on screen to say so.
 
 import { useEffect, useState } from "react";
 
@@ -207,11 +214,14 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
           }
         }
       });
-      const record = await uiStateStore.read(sessionId, DECK_LAYOUT_RECORD_KEY);
+      const readOutcome = await uiStateStore.readOutcome(sessionId, DECK_LAYOUT_RECORD_KEY);
       watchActsDuringRead();
       if (superseded) {
         return;
       }
+      // Both nothings restore the same way — there is no arrangement to adopt either
+      // way — and they part company at the write below.
+      const record = readOutcome.outcome === "present" ? readOutcome.record : undefined;
 
       // BOTH ARE HONOURED, AND WHICH ONE LEADS TURNS ON WHETHER THE PERSON ACTED. An
       // untouched deck takes the record wholesale, which is the restore's own rule and
@@ -250,6 +260,15 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
       // Opened only now, so nothing above reached the store: every commit this block
       // made is either what the record already held or what the write below carries.
       restore.settle();
+      if (readOutcome.outcome === "failed") {
+        // NOTHING IS FILED OVER A RECORD THIS READ COULD NOT REACH. The deck on
+        // screen is the fallback, or the fallback plus whatever the person did while
+        // the read ran, and neither is an arrangement they asked to save — while the
+        // record the adapter still holds is. Saving is not disabled by this: the
+        // restore has SETTLED, so the subscription below files the person's next
+        // deliberate change, and the next mount reads again.
+        return;
+      }
       if (actedDuringRead || (report?.restoredPaneCount ?? 0) === 0) {
         // ONCE, and only where the deck on screen is not what the record held: the
         // person's arrangement, or the fallback ledger this surface just opened.
