@@ -1,6 +1,6 @@
-// Tripwire: no daemon module outside `src/ids/` mints an id with
-// `crypto.randomUUID()` unless that exact source line is on the allow-list
-// below.
+// Tripwire: no daemon module — the generator's own `src/ids/` included —
+// mints an id with `crypto.randomUUID()` unless that exact source line is on
+// the allow-list in `random-uuid-occurrence-allow-list.ts` beside this file.
 //
 // Why the allow-list is keyed by occurrence and not by file
 // --------------------------------------------------------
@@ -12,7 +12,11 @@
 // path is approved, which is the exact regression this test exists to catch.
 // So the unit is the `(path, exact trimmed line text)` pair, and the list
 // carries every `randomUUID` mention those files hold today, code and prose,
-// with the reason on the line it exempts.
+// with the reason on the line it exempts. The generator's own directory gets
+// no path-wide skip either: an earlier shape stepped over `src/ids/` whole,
+// which would have hidden a helper minting a persisted id with `randomUUID()`
+// beside the very generator that exists to replace it. Its explanatory prose
+// is listed by occurrence like every other file's.
 //
 // Within a listed path the comparison is a MULTISET and deliberately not a
 // set. A set would reopen a narrower version of the same hole: two identical
@@ -34,7 +38,7 @@
 // but flat config REPLACES a rule's options at the last matching config
 // object, and `packages/runtime-daemon/src/**` already has a
 // `no-restricted-syntax` invocation (the `UnsignedPlaceholderAppendToken`
-// test-only-append guard). Exempting the thirteen occurrences across six paths
+// test-only-append guard). Exempting the seventeen occurrences across seven paths
 // below would mean a second config object that silently drops the append guard
 // for exactly those files, or duplicating it — and a selector cannot express
 // "this call site but not the next one added beside it" at all, which is the
@@ -50,129 +54,22 @@
 // the next author learned the wrong idiom, so a stale mention is a finding and
 // not noise.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  type ExemptOccurrence,
+  RANDOM_UUID_OCCURRENCE_ALLOW_LIST,
+} from "./random-uuid-occurrence-allow-list.js";
+
 const DAEMON_SOURCE_ROOT: string = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
-/** One exempt mention: the exact trimmed source line, and why it may stand. */
-interface ExemptOccurrence {
-  readonly lineText: string;
-  readonly reason: string;
-}
-
-/**
- * The (b) set: every `randomUUID` line the daemon may hold outside `ids/`.
- *
- * The minting entries are all ephemeral tokens — no row and no event stores
- * them, and nothing sorts a set of them — so uniqueness is the whole
- * requirement and v4 supplies it. The import entries pull the minter in for one
- * of those call sites. The prose entries mint nothing and describe a call site
- * that is itself on this list.
- *
- * Paths are `/`-separated and relative to `packages/runtime-daemon/src`; line
- * texts are compared after `String.prototype.trim()`, so indentation may move.
- */
-export const RANDOM_UUID_OCCURRENCE_ALLOW_LIST: ReadonlyMap<string, readonly ExemptOccurrence[]> =
-  new Map([
-    [
-      "provider/drivers/outbound-frame.ts",
-      [
-        {
-          lineText: 'import { randomUUID } from "node:crypto";',
-          reason: "pulls the token minter in for the correlation-id default below",
-        },
-        {
-          lineText:
-            "this.#mintCorrelationId = options.mintCorrelationId ?? ((): string => randomUUID());",
-          reason: "in-flight correlation token for one outbound frame; gone when the leg settles",
-        },
-      ],
-    ],
-    [
-      "ipc/streaming-primitive.ts",
-      [
-        {
-          lineText: "// `subscriptionId` is a UUID string at runtime; `crypto.randomUUID()`",
-          reason: "prose on the branded-type declaration, describing the mint below",
-        },
-        {
-          lineText: "* `subscriptionId` is generated via `crypto.randomUUID()` (Node 22.12+",
-          reason: "prose on the subscribe API's doc comment, describing the mint below",
-        },
-        {
-          lineText: "// Branding cast: `crypto.randomUUID()` returns `string`. The runtime",
-          reason: "prose explaining the branding cast applied on the mint below",
-        },
-        {
-          lineText: "const subscriptionId = crypto.randomUUID() as SubscriptionId;",
-          reason: "in-memory subscription id, alive for the life of one transport connection",
-        },
-      ],
-    ],
-    [
-      "git/turn-snapshot-service.ts",
-      [
-        {
-          lineText:
-            "// concatenation and `randomUUID`), which is what lets the `try` start below them",
-          reason: "prose naming the throw-free operations that precede the try block",
-        },
-        {
-          lineText: 'import { createHash, randomUUID } from "node:crypto";',
-          reason: "pulls the token minter in for the scratch-index filename below",
-        },
-        {
-          lineText:
-            "const scratchIndexPath: string = join(this.#snapshotIndexDirectory, `${randomUUID()}.index`);",
-          reason: "collision-free filename for a scratch git index unlinked in the same call",
-        },
-      ],
-    ],
-    [
-      "pty/node-pty-host.ts",
-      [
-        {
-          lineText: 'import { randomUUID } from "node:crypto";',
-          reason: "pulls the token minter in for the PTY handle below",
-        },
-        {
-          lineText: "const sessionId: string = randomUUID();",
-          reason:
-            "host-local PTY handle; the Rust sidecar backend mints `s-{n}` for the same field",
-        },
-      ],
-    ],
-    [
-      "ipc/handlers/presence-subscribe.ts",
-      [
-        {
-          lineText: "// generates a fresh `subscriptionId` via `crypto.randomUUID()` and",
-          reason:
-            "prose only — describes `streaming-primitive.ts`'s subscription id, mints nothing",
-        },
-      ],
-    ],
-    [
-      "ipc/handlers/session-subscribe.ts",
-      [
-        {
-          lineText: "// generates a fresh `subscriptionId` via `crypto.randomUUID()` and",
-          reason:
-            "prose only — describes `streaming-primitive.ts`'s subscription id, mints nothing",
-        },
-      ],
-    ],
-  ]);
 
 /** Test directories the sweep never descends into, at any depth. */
 const SKIPPED_DIRECTORY_NAME = "__tests__";
-
-/** The generator's own home — the one place `randomUUID` is legitimately discussed. */
-const GENERATOR_DIRECTORY: string = join(DAEMON_SOURCE_ROOT, "ids");
 
 /** A `randomUUID` mention and where it was found. */
 interface RandomUuidMention {
@@ -181,13 +78,13 @@ interface RandomUuidMention {
   readonly lineText: string;
 }
 
-/** Walks the daemon's non-test sources outside `ids/`, yielding `.ts` file paths. */
+/** Walks the non-test sources under `directory`, yielding `.ts` file paths. */
 function collectDaemonSourceFiles(directory: string): string[] {
   const collected: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const absolute: string = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === SKIPPED_DIRECTORY_NAME || absolute === GENERATOR_DIRECTORY) {
+      if (entry.name === SKIPPED_DIRECTORY_NAME) {
         continue;
       }
       collected.push(...collectDaemonSourceFiles(absolute));
@@ -200,11 +97,11 @@ function collectDaemonSourceFiles(directory: string): string[] {
   return collected;
 }
 
-/** Every `randomUUID` mention in the daemon's non-test sources outside `ids/`. */
-function findRandomUuidMentions(): RandomUuidMention[] {
+/** Every `randomUUID` mention in the non-test sources under `sourceRoot`. */
+function findRandomUuidMentions(sourceRoot: string): RandomUuidMention[] {
   const mentions: RandomUuidMention[] = [];
-  for (const absolutePath of collectDaemonSourceFiles(DAEMON_SOURCE_ROOT)) {
-    const relativePath: string = relative(DAEMON_SOURCE_ROOT, absolutePath).split(sep).join("/");
+  for (const absolutePath of collectDaemonSourceFiles(sourceRoot)) {
+    const relativePath: string = relative(sourceRoot, absolutePath).split(sep).join("/");
     const lines: string[] = readFileSync(absolutePath, "utf8").split("\n");
     lines.forEach((lineText: string, lineIndex: number) => {
       if (lineText.includes("randomUUID")) {
@@ -239,24 +136,92 @@ function mentionTextsByPath(mentions: readonly RandomUuidMention[]): ReadonlyMap
   return grouped;
 }
 
-describe("daemon id factories mint through `ids/uuid-v7.ts`", () => {
-  it("finds no randomUUID mention outside ids beyond the allow-listed occurrences", () => {
-    const mentions: RandomUuidMention[] = findRandomUuidMentions();
+/**
+ * (i) Mentions in a path the allow-list does not name at all — each reported
+ * with its line number so a reviewer can go read it.
+ */
+function offendersAmong(mentions: readonly RandomUuidMention[]): string[] {
+  return mentions
+    .filter(
+      (mention: RandomUuidMention) => !RANDOM_UUID_OCCURRENCE_ALLOW_LIST.has(mention.relativePath),
+    )
+    .map(
+      (mention: RandomUuidMention) =>
+        `${mention.relativePath}:${String(mention.lineNumber)} ${mention.lineText}`,
+    );
+}
 
-    // (i) A mention in a path the allow-list does not name at all is an
-    // offender, reported with its line number so a reviewer can go read it.
-    const offenders: string[] = mentions
-      .filter(
-        (mention: RandomUuidMention) =>
-          !RANDOM_UUID_OCCURRENCE_ALLOW_LIST.has(mention.relativePath),
-      )
-      .map(
-        (mention: RandomUuidMention) =>
-          `${mention.relativePath}:${String(mention.lineNumber)} ${mention.lineText}`,
-      );
+/** One listed path whose file and allow-list disagree, with both sides shown. */
+interface DriftedPath {
+  readonly relativePath: string;
+  readonly onlyInFile: readonly string[];
+  readonly onlyInAllowList: readonly string[];
+}
+
+/** Multiset difference: every element of `left` not matched one-for-one in `right`. */
+function unmatchedOccurrences(left: readonly string[], right: readonly string[]): string[] {
+  const remaining: string[] = [...right];
+  const unmatched: string[] = [];
+  for (const text of left) {
+    const matchIndex: number = remaining.indexOf(text);
+    if (matchIndex === -1) {
+      unmatched.push(text);
+    } else {
+      remaining.splice(matchIndex, 1);
+    }
+  }
+  return unmatched;
+}
+
+/**
+ * (ii) Inside an allow-listed path, the file's mentions and the list must
+ * agree as MULTISETS. Comparing SETS would be a hole: a second copy of an
+ * already-exempt line collapses onto the same member, so duplicating a mint
+ * into another scope of an exempt file reads as "already allowed" — and the
+ * same collapse makes a deleted occurrence look present while its twin
+ * survives. Counting closes both, and closes them in ONE comparison: an
+ * unexpected text (new, or a duplicate of a listed one) shows up as only in
+ * the file, a vanished one as only in the allow-list.
+ */
+function driftedPathsAmong(mentions: readonly RandomUuidMention[]): DriftedPath[] {
+  const actualTextsByPath: ReadonlyMap<string, string[]> = mentionTextsByPath(mentions);
+  const drifted: DriftedPath[] = [];
+  for (const relativePath of RANDOM_UUID_OCCURRENCE_ALLOW_LIST.keys()) {
+    const inFile: string[] = actualTextsByPath.get(relativePath) ?? [];
+    const inAllowList: string[] = allowListedTextsFor(relativePath);
+    const onlyInFile: string[] = unmatchedOccurrences(inFile, inAllowList);
+    const onlyInAllowList: string[] = unmatchedOccurrences(inAllowList, inFile);
+    if (onlyInFile.length > 0 || onlyInAllowList.length > 0) {
+      drifted.push({ relativePath, onlyInFile, onlyInAllowList });
+    }
+  }
+  return drifted;
+}
+
+/** A throwaway source root holding exactly the files given, for planting offenders. */
+function withPlantedSourceRoot<T>(
+  files: Readonly<Record<string, string>>,
+  body: (sourceRoot: string) => T,
+): T {
+  const sourceRoot: string = mkdtempSync(join(tmpdir(), "daemon-id-tripwire-"));
+  try {
+    for (const [relativePath, contents] of Object.entries(files)) {
+      const absolutePath: string = join(sourceRoot, ...relativePath.split("/"));
+      mkdirSync(dirname(absolutePath), { recursive: true });
+      writeFileSync(absolutePath, contents);
+    }
+    return body(sourceRoot);
+  } finally {
+    rmSync(sourceRoot, { recursive: true, force: true });
+  }
+}
+
+describe("daemon id factories mint through `ids/uuid-v7.ts`", () => {
+  it("finds no randomUUID mention beyond the allow-listed occurrences", () => {
+    const mentions: RandomUuidMention[] = findRandomUuidMentions(DAEMON_SOURCE_ROOT);
 
     expect(
-      offenders,
+      offendersAmong(mentions),
       "`crypto.randomUUID()` emits UUID v4. Every daemon persisted-row id and " +
         "event id must mint through `mintUuidV7` (`src/ids/uuid-v7.ts`), because " +
         "`packages/contracts/src/session.ts` and `event.ts` both state that " +
@@ -267,27 +232,16 @@ describe("daemon id factories mint through `ids/uuid-v7.ts`", () => {
         "and never was.",
     ).toStrictEqual([]);
 
-    // (ii) Inside an allow-listed path, the file's mentions and the list must
-    // agree as MULTISETS. Comparing SETS would be a hole: a second copy of an
-    // already-exempt line collapses onto the same member, so duplicating a mint
-    // into another scope of an exempt file reads as "already allowed" — and the
-    // same collapse makes a deleted occurrence look present while its twin
-    // survives. Counting closes both, and closes them in ONE comparison: an
-    // unexpected text (new, or a duplicate of a listed one) shows up on the
-    // actual side, a vanished one on the expected side.
-    const actualTextsByPath: ReadonlyMap<string, string[]> = mentionTextsByPath(mentions);
-    for (const relativePath of RANDOM_UUID_OCCURRENCE_ALLOW_LIST.keys()) {
-      expect(
-        actualTextsByPath.get(relativePath) ?? [],
-        `\`${relativePath}\` no longer matches its allow-list entry occurrence for ` +
-          "occurrence. A line only the FILE has is an unexempted mention: add it " +
-          "to `RANDOM_UUID_OCCURRENCE_ALLOW_LIST` with its own reason if it is " +
-          "genuinely an ephemeral token, and note that a second copy of an " +
-          "already-listed line needs its own entry. A line only the ALLOW-LIST " +
-          "has is a hole held open for nothing: delete that entry, or update its " +
-          "`lineText` if the line was merely reworded.",
-      ).toStrictEqual(allowListedTextsFor(relativePath));
-    }
+    expect(
+      driftedPathsAmong(mentions),
+      "A listed path no longer matches its allow-list entry occurrence for " +
+        "occurrence. A line only the FILE has is an unexempted mention: add it " +
+        "to `RANDOM_UUID_OCCURRENCE_ALLOW_LIST` with its own reason if it is " +
+        "genuinely an ephemeral token, and note that a second copy of an " +
+        "already-listed line needs its own entry. A line only the ALLOW-LIST " +
+        "has is a hole held open for nothing: delete that entry, or update its " +
+        "`lineText` if the line was merely reworded.",
+    ).toStrictEqual([]);
   });
 
   it("sweeps a real tree — the walk reaches the modules that were migrated", () => {
@@ -298,10 +252,46 @@ describe("daemon id factories mint through `ids/uuid-v7.ts`", () => {
     );
 
     // A green result is only meaningful if the walk actually visited the files
-    // the sweep moved onto `mintUuidV7`; an empty walk would pass vacuously.
+    // the sweep moved onto `mintUuidV7` — and the generator itself, which an
+    // earlier shape stepped over whole; an empty walk would pass vacuously.
+    expect(sweptPaths.has("ids/uuid-v7.ts")).toBe(true);
     expect(sweptPaths.has("workspace/workspace-service.ts")).toBe(true);
     expect(sweptPaths.has("events/compactor.ts")).toBe(true);
     expect(sweptPaths.has("provider/drivers/codex/lifecycle.ts")).toBe(true);
     expect(sweptPaths.size).toBeGreaterThan(50);
+  });
+
+  it("negative control: a randomUUID mint planted beside the generator is an offender", () => {
+    // The generator's directory earns no path-wide skip. A helper added there
+    // that mints with `randomUUID()` is reported exactly as one anywhere else.
+    const offenders: string[] = withPlantedSourceRoot(
+      {
+        "ids/helper.ts":
+          'import { randomUUID } from "node:crypto";\n' +
+          "export const mintHelperId = (): string => randomUUID();\n",
+      },
+      (sourceRoot: string) => offendersAmong(findRandomUuidMentions(sourceRoot)),
+    );
+
+    expect(offenders).toStrictEqual([
+      'ids/helper.ts:1 import { randomUUID } from "node:crypto";',
+      "ids/helper.ts:2 export const mintHelperId = (): string => randomUUID();",
+    ]);
+  });
+
+  it("negative control: an unlisted randomUUID line inside the generator itself drifts", () => {
+    // Even the generator's own file is exempt only occurrence for occurrence:
+    // its four listed prose lines pass, and a fifth mention — a real mint
+    // added beneath them — lands on the file-only side of the comparison.
+    const listedProse: string = allowListedTextsFor("ids/uuid-v7.ts").join("\n");
+    const plantedMint = "export const mintFallbackId = (): string => randomUUID();";
+    const drifted: DriftedPath[] = withPlantedSourceRoot(
+      { "ids/uuid-v7.ts": `${listedProse}\n${plantedMint}\n` },
+      (sourceRoot: string) => driftedPathsAmong(findRandomUuidMentions(sourceRoot)),
+    ).filter((entry: DriftedPath) => entry.relativePath === "ids/uuid-v7.ts");
+
+    expect(drifted).toStrictEqual([
+      { relativePath: "ids/uuid-v7.ts", onlyInFile: [plantedMint], onlyInAllowList: [] },
+    ]);
   });
 });

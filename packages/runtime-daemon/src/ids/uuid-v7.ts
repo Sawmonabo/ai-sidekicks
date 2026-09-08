@@ -23,7 +23,7 @@
 //
 // That split is enforced mechanically by
 // `src/ids/__tests__/daemon-id-factory-tripwire.test.ts`, whose
-// `finds no randomUUID mention outside ids beyond the allow-listed occurrences`
+// `finds no randomUUID mention beyond the allow-listed occurrences`
 // sweeps the daemon's sources and pairs every `randomUUID` line against an
 // allow-list of exact `(path, line text)` exemptions. It is a test and not a
 // `no-restricted-syntax` entry because flat config replaces a rule's options
