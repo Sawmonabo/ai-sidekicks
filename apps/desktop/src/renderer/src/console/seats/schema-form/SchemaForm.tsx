@@ -99,6 +99,10 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
           // projected array position are not the same number once an unanswered row is
           // dropped — and the sentence about a row with nothing in it is the draft's own.
           issuesForEntry={(index) => form.listEntryIssues(memberPath, index)}
+          isActive={form.listIsActive(memberPath)}
+          onChangeActive={(isActive) => {
+            form.setListActive(memberPath, isActive);
+          }}
         />
       );
     }

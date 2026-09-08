@@ -10,19 +10,43 @@
 // Driven through the same real mount, for that suite's reason: a case fed a fabricated
 // list descriptor would pass with the mapper deleted.
 
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { addListEntry, renderForm } from "./SchemaFormHost.test-support.js";
+import {
+  addListEntry,
+  answerEveryCollection,
+  composedAnswer,
+  listFieldset,
+  renderForm,
+  reportedIssueTexts,
+} from "./SchemaFormHost.test-support.js";
 
 afterEach(cleanup);
 
+/**
+ * The shape a present EMPTY collection is the only answer to.
+ *
+ * The root demands at least one member and the collection accepts no entries, so
+ * `{ reviewers: [] }` is the one value this schema takes. Projected through the unanswered
+ * value, a zero-row draft was omitted for being optional, adding a row broke `maxItems`,
+ * and the drawn form could never reach the single state that satisfies its own schema.
+ */
+const PRESENT_EMPTY_SCHEMA = {
+  type: "object",
+  minProperties: 1,
+  properties: {
+    reviewers: { type: "array", title: "Reviewers", items: { type: "string" }, maxItems: 0 },
+  },
+} as const;
+
 describe("the collection a schema-derived form draws", () => {
-  it("draws a list with the control that adds an entry and none that removes one yet", () => {
+  it("draws an answered list with the control that adds an entry and none that removes one yet", () => {
     const container = renderForm({
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
     });
+    answerEveryCollection(container);
 
     expect(container.querySelector(".meridian-schema-list__legend")?.textContent).toContain(
       "Reviewers",
@@ -39,13 +63,15 @@ describe("the collection a schema-derived form draws", () => {
     // requiredness, the entry would have drawn the three-state choice a standalone
     // optional boolean draws, and offered an unanswered option that writes nothing into a
     // slot that has to hold something.
-    renderForm({
-      type: "object",
-      properties: {
-        flags: { type: "array", title: "Flags", items: { type: "boolean" } },
-        notify: { type: "boolean", title: "Notify" },
-      },
-    });
+    answerEveryCollection(
+      renderForm({
+        type: "object",
+        properties: {
+          flags: { type: "array", title: "Flags", items: { type: "boolean" } },
+          notify: { type: "boolean", title: "Notify" },
+        },
+      }),
+    );
     addListEntry("Flags");
 
     expect(screen.getByLabelText("Flags, entry 1")).toHaveProperty("type", "checkbox");
@@ -59,13 +85,15 @@ describe("the collection a schema-derived form draws", () => {
     // A fieldset legend is not part of a button's accessible name, so two lists drawn with
     // the same visible text are two controls a person navigating between buttons cannot
     // tell apart — and pressing one of them adds an entry somewhere they did not choose.
-    renderForm({
-      type: "object",
-      properties: {
-        reviewers: { type: "array", title: "Reviewers", items: { type: "string" } },
-        approvers: { type: "array", title: "Approvers", items: { type: "string" } },
-      },
-    });
+    answerEveryCollection(
+      renderForm({
+        type: "object",
+        properties: {
+          reviewers: { type: "array", title: "Reviewers", items: { type: "string" } },
+          approvers: { type: "array", title: "Approvers", items: { type: "string" } },
+        },
+      }),
+    );
 
     expect(screen.getByRole("button", { name: "Add an entry to Reviewers" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Add an entry to Approvers" })).toBeDefined();
@@ -77,13 +105,15 @@ describe("the collection a schema-derived form draws", () => {
   it("names each entry's remove control after the entry it removes", () => {
     // The same defect one control over, and it arrives the moment somebody adds anything:
     // the first entry of every collection on the form is "entry 1".
-    renderForm({
-      type: "object",
-      properties: {
-        reviewers: { type: "array", title: "Reviewers", items: { type: "string" } },
-        approvers: { type: "array", title: "Approvers", items: { type: "string" } },
-      },
-    });
+    answerEveryCollection(
+      renderForm({
+        type: "object",
+        properties: {
+          reviewers: { type: "array", title: "Reviewers", items: { type: "string" } },
+          approvers: { type: "array", title: "Approvers", items: { type: "string" } },
+        },
+      }),
+    );
     addListEntry("Reviewers");
     addListEntry("Approvers");
 
@@ -97,6 +127,7 @@ describe("the collection a schema-derived form draws", () => {
       type: "object",
       properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
     });
+    answerEveryCollection(container);
     addListEntry("Reviewers");
     addListEntry("Reviewers");
 
@@ -116,6 +147,7 @@ describe("the collection a schema-derived form draws", () => {
         reviewers: { type: "array", title: "Reviewers", items: { type: "string", minLength: 3 } },
       },
     });
+    answerEveryCollection(container);
     addListEntry("Reviewers");
 
     const entryControl = container.querySelector(".meridian-schema-list__item input");
@@ -131,6 +163,120 @@ describe("the collection a schema-derived form draws", () => {
     ).toBeNull();
   });
 
+  it("opens an optional collection unanswered and makes it a present empty array once answered", () => {
+    const container = renderForm(PRESENT_EMPTY_SCHEMA);
+    const list = listFieldset(container);
+
+    // Unanswered: absent from the answer, offering the one control that answers it and
+    // none that adds an entry — a row under a collection nobody is answering would be a
+    // row whose value reaches nothing, which is the rule an optional group already keeps.
+    expect(composedAnswer(container)).toEqual({});
+    expect(within(list).queryByRole("button", { name: "Add an entry to Reviewers" })).toBeNull();
+
+    fireEvent.click(within(list).getByRole("button", { name: "Answer this section" }));
+
+    expect(composedAnswer(container)).toEqual({ reviewers: [] });
+    expect(reportedIssueTexts(container)).toEqual([]);
+    expect(within(list).getByRole("button", { name: "Add an entry to Reviewers" })).toBeDefined();
+
+    fireEvent.click(within(list).getByRole("button", { name: "Leave unanswered" }));
+
+    expect(composedAnswer(container)).toEqual({});
+  });
+
+  it("keeps an answered collection present after its last entry is removed", () => {
+    // Present-empty and absent are two states, and only the activation control moves
+    // between them: a collection somebody answered and then emptied is an empty array,
+    // not a member they never answered.
+    const container = renderForm({
+      type: "object",
+      properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
+    });
+    const list = listFieldset(container);
+    fireEvent.click(within(list).getByRole("button", { name: "Answer this section" }));
+    addListEntry("Reviewers");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Reviewers, entry 1" }));
+
+    expect(composedAnswer(container)).toEqual({ reviewers: [] });
+
+    fireEvent.click(within(list).getByRole("button", { name: "Leave unanswered" }));
+
+    expect(composedAnswer(container)).toEqual({});
+  });
+
+  it("draws a required collection answered from the mount, with no control that takes it back", () => {
+    // The other half of the rule, unchanged: the schema demands the array, so there is no
+    // state the control could reach and it is absent rather than drawn and inert.
+    const container = renderForm({
+      type: "object",
+      properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
+      required: ["reviewers"],
+    });
+    const list = listFieldset(container);
+
+    expect(composedAnswer(container)).toEqual({ reviewers: [] });
+    expect(within(list).queryByRole("button", { name: "Leave unanswered" })).toBeNull();
+    expect(within(list).getByRole("button", { name: "Add an entry to Reviewers" })).toBeDefined();
+  });
+
+  it("names the collection's description in the fieldset's description, ahead of any finding", () => {
+    // A person moving between the entry, add, and remove controls hears the legend and
+    // never the author's instructions, which the fieldset drew visibly and named nowhere.
+    const container = renderForm({
+      type: "object",
+      properties: {
+        reviewers: {
+          type: "array",
+          title: "Reviewers",
+          description: "Two at least.",
+          items: { type: "string" },
+          minItems: 2,
+        },
+      },
+      required: ["reviewers"],
+    });
+    const describedBy = (listFieldset(container).getAttribute("aria-describedby") ?? "").split(" ");
+
+    expect(describedBy).toHaveLength(2);
+    expect(document.getElementById(describedBy[0] ?? "")?.textContent).toBe("Two at least.");
+    expect(document.getElementById(describedBy[1] ?? "")?.textContent ?? "").not.toBe("");
+  });
+
+  it("names the description alone where nothing is wrong, and the finding alone where there is none", () => {
+    const described = renderForm({
+      type: "object",
+      properties: {
+        reviewers: {
+          type: "array",
+          title: "Reviewers",
+          description: "Two at least.",
+          items: { type: "string" },
+        },
+      },
+      required: ["reviewers"],
+    });
+    const describedOnly = (listFieldset(described).getAttribute("aria-describedby") ?? "").split(
+      " ",
+    );
+
+    expect(describedOnly).toHaveLength(1);
+    expect(document.getElementById(describedOnly[0] ?? "")?.textContent).toBe("Two at least.");
+
+    const undescribed = renderForm({
+      type: "object",
+      properties: {
+        reviewers: { type: "array", title: "Reviewers", items: { type: "string" }, minItems: 2 },
+      },
+      required: ["reviewers"],
+    });
+    const issuesOnly = (listFieldset(undescribed).getAttribute("aria-describedby") ?? "").split(
+      " ",
+    );
+
+    expect(issuesOnly).toHaveLength(1);
+    expect(document.getElementById(issuesOnly[0] ?? "")?.textContent ?? "").not.toBe("");
+  });
+
   it("keeps an entry's finding off a member whose own name reads like that entry's position", () => {
     // The negative control for the path representation. Joined with a dot, the property
     // literally named `items.0` and the first entry of the array named `items` are ONE
@@ -143,6 +289,7 @@ describe("the collection a schema-derived form draws", () => {
         items: { type: "array", title: "Items", items: { type: "string", minLength: 3 } },
       },
     });
+    answerEveryCollection(container);
     addListEntry("Items");
 
     const dottedControl = screen.getByLabelText("A member named like a position");

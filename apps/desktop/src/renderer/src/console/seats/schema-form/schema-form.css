@@ -128,11 +128,15 @@
 
 /*
  * The activation control sits ON the legend, beside the name it is about, so a reader
- * moving down the form meets the section and the question of whether to answer it in one
+ * moving down the form meets the container and the question of whether to answer it in one
  * place. Inline-start margin rather than a flex legend: a `legend` box is laid out by the
  * fieldset and a display change on it is the one thing that moves the border notch.
+ *
+ * ONE CLASS FOR BOTH CONTAINERS, because one component draws it: a group's legend and a
+ * collection's legend ask the same question, and a second class would be this sheet
+ * describing one control twice.
  */
-.meridian-schema-group__action {
+.meridian-schema-activation {
   margin-inline-start: var(--meridian-space-2);
 }
 
@@ -167,7 +171,7 @@
 
 /*
  * The two controls that change how many entries a list holds, and the one that says
- * whether an optional section is being answered at all.
+ * whether an optional container is being answered at all.
  *
  * The seat's own treatment rather than the workflows family's `.meridian-workflow__action`,
  * which these buttons wore while the stack lived in that family. A seat drawing against a
@@ -178,7 +182,7 @@
  * one states it, as `.meridian-refusal__action` and `.meridian-nothing__action` do.
  */
 
-.meridian-schema-group__action,
+.meridian-schema-activation,
 .meridian-schema-list__action {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   font-family: var(--meridian-font-sans);
@@ -190,7 +194,7 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-schema-group__action:focus-visible,
+.meridian-schema-activation:focus-visible,
 .meridian-schema-list__action:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;

@@ -147,6 +147,27 @@ describe("the schema-derived form", () => {
     expect(document.getElementById(describedBy.split(" ")[0] ?? "")?.textContent).toBe("One line.");
   });
 
+  it("names a group's description in the fieldset's description, ahead of any finding", () => {
+    // The same gap the collection's fieldset carried: the paragraph was drawn, carried no
+    // id, and the fieldset named only findings — so a reader moving among the section's
+    // own controls heard its name and never the author's instructions.
+    const group = renderForm({
+      type: "object",
+      properties: {
+        release: {
+          type: "object",
+          title: "Release",
+          description: "What ships.",
+          properties: { tag: { type: "string", title: "Tag" } },
+        },
+      },
+    }).querySelector(".meridian-schema-group");
+    const describedBy = (group?.getAttribute("aria-describedby") ?? "").split(" ");
+
+    expect(describedBy).toHaveLength(1);
+    expect(document.getElementById(describedBy[0] ?? "")?.textContent).toBe("What ships.");
+  });
+
   it("draws a group as a named fieldset holding its own members", () => {
     // The same claim as before the draft tree, reached through the control that now says
     // whether an OPTIONAL section is being answered: unanswered, it draws its name and
