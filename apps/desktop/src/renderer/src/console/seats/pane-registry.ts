@@ -43,7 +43,6 @@ import { PendingPaneBody } from "./PendingPaneBody.js";
 import { type ConsolePaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
  * What a family registers to claim a pane kind.
  *
@@ -67,7 +66,6 @@ interface ConsolePaneRegistrationBase {
   readonly owner: string;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * What a family hands `register`, in one of exactly two forms.
  *

@@ -61,7 +61,6 @@ export function useSessionScopedState<TValue>(
  */
 export type SessionScopedKey = string | undefined;
 
-// Consumed by T-023p-1C-4
 /**
  * The exact pair a session-scoped registry's contents belong to.
  *
@@ -75,7 +74,6 @@ export interface SessionSubject {
   readonly sessionStore: SessionStore;
 }
 
-// Consumed by T-023p-1C-4
 /**
  * Whether a held subject is still the one being rendered.
  *

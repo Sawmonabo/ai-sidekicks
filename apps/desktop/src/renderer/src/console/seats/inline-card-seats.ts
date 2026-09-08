@@ -62,7 +62,6 @@ export interface InlineCardAttachmentRef {
   readonly attachmentId: string;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * A diff card, over one computed diff.
  *
@@ -110,7 +109,6 @@ export interface DiffInlineCardProps {
   readonly headRef?: string;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /** An attachment card, over one message attachment. */
 export interface AttachmentInlineCardProps {
   readonly kind: "attachment";
@@ -137,7 +135,6 @@ export interface ArtifactEntityRef extends ConsoleEntityRef {
   readonly kind: "artifact";
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * An artifact card, over one published artifact.
  *
