@@ -254,7 +254,7 @@ export abstract class ActSurfaceController {
 `;
 
 const ACT_BASE_DOOR = `
-export { ActSurfaceController } from "./act-controller-base.js";
+export { ActSurfaceController } from "./act/act-controller-base.js";
 `;
 
 const SUBCLASS_OF_THE_BASE = `
@@ -301,8 +301,8 @@ class SessionQueueReadings {
 /** The fixture pair, indexed the way the real walk indexes the tree. */
 const PLANTED_INDEX: ReadonlyMap<string, ConsoleModuleText> = new Map([
   [
-    "console/store/act-controller-base",
-    { displayPath: "console/store/act-controller-base.ts", source: ACT_BASE_MODULE },
+    "console/store/act/act-controller-base",
+    { displayPath: "console/store/act/act-controller-base.ts", source: ACT_BASE_MODULE },
   ],
   ["console/store/index", { displayPath: "console/store/index.ts", source: ACT_BASE_DOOR }],
 ]);

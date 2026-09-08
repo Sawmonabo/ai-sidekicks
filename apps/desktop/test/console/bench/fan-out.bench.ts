@@ -39,7 +39,7 @@
 // keys — plus an outer record with one key per kind. The saving is structural,
 // not incidental, and it scales with the partition count rather than with any
 // figure written here: every count below is read off `CONSOLE_ENTITY_KINDS`, which
-// `console/store/entities.ts` declares once and this file imports, so a kind added
+// `console/store/entities/entities.ts` declares once and this file imports, so a kind added
 // there moves the arithmetic without touching this comment.
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@
 // that work into a figure the spec states about the map.
 //
 // The entity KIND SET is not local, and no longer could be. `CONSOLE_ENTITY_KINDS`
-// is imported from `console/store/entities.ts`, which declares it once: a second
+// is imported from `console/store/entities/entities.ts`, which declares it once: a second
 // copy here would have been a closed set restated, and it drifted the moment the
 // store grew `workflow-definition` — under-counting the partitions this benchmark
 // exists to measure.
@@ -86,11 +86,11 @@ import { performance } from "node:perf_hooks";
 
 import { expect, test } from "vitest";
 
-import { CONSOLE_ENTITY_KINDS } from "../../../src/renderer/src/console/store/entities.js";
+import { CONSOLE_ENTITY_KINDS } from "../../../src/renderer/src/console/store/entities/entities.js";
 import type {
   ConsoleEntity,
   ConsoleEntityKind,
-} from "../../../src/renderer/src/console/store/entities.js";
+} from "../../../src/renderer/src/console/store/entities/entities.js";
 import {
   BenchmarkLedger,
   DEFAULT_BENCHMARK_LEDGER_PATH,

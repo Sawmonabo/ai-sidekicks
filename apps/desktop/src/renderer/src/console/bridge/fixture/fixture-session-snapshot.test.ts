@@ -25,8 +25,8 @@ import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { membershipRoleOf } from "../daemon/entity-body-reads.js";
 import type { ConsoleEntity } from "../../store/index.js";
-import { SessionStore } from "../../store/session-store.js";
-import type { SessionSnapshot } from "../../store/session-store.js";
+import { SessionStore } from "../../store/session/session-store.js";
+import type { SessionSnapshot } from "../../store/session/session-store.js";
 
 /** The viewer every flagship case resolves, named once so a failure says which id. */
 const FLAGSHIP_VIEWER = FLAGSHIP_SCENARIO.viewingParticipantId ?? "";

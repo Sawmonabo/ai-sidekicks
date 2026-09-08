@@ -57,10 +57,10 @@ import { READING_VERBS, answersReadingResponse } from "./daemon-reading-verbs.js
 const REPO_READS_MODULE = "console/repos/repo-reads.ts";
 
 /** The base class every act controller composes its machine through. */
-const ACT_CONTROLLER_BASE_MODULE = "console/store/act-controller-base.ts";
+const ACT_CONTROLLER_BASE_MODULE = "console/store/act/act-controller-base.ts";
 
 /** The machine that performs a prerequisite read. */
-const ACT_CONTROLLER_MODULE = "console/store/act-controller.ts";
+const ACT_CONTROLLER_MODULE = "console/store/act/act-controller.ts";
 
 /** How a subclass declares itself one. The needle the controller census derives from. */
 const ACT_CONTROLLER_EXTENDS_FORM = "extends ActSurfaceController<";

@@ -163,7 +163,7 @@ describe("timer chokepoint — one seam arms every console timer", () => {
     // It arms through the seam, which is why it is not on the allow-list. If that
     // ever stopped being true this assertion is what would say so, rather than an
     // allow-list entry quietly appearing beside the seam's.
-    const wake = moduleNamed(modules, "console/store/deadline-wake.ts");
+    const wake = moduleNamed(modules, "console/store/subject-scoped/deadline-wake.ts");
     expect(timerArmingSignatures(readConsoleSourceModule(wake))).toStrictEqual([]);
     expect(readConsoleSourceModule(wake)).toContain("clock.scheduleTimeout(");
   });

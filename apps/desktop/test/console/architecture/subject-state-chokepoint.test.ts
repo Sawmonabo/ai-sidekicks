@@ -68,8 +68,8 @@ const CONSOLE_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules();
 
 /** The two modules that hold the rule, written as paths so a move is reviewable. */
 const CHOKEPOINT_MODULES: readonly string[] = [
-  "console/store/subject-scoped-state.ts",
-  "console/store/generation-latch.ts",
+  "console/store/subject-scoped/subject-scoped-state.ts",
+  "console/store/read/generation-latch.ts",
 ];
 
 /**
@@ -80,12 +80,18 @@ const CHOKEPOINT_MODULES: readonly string[] = [
  * a question the subject-keyed holder has no view of. Admission is conditional on
  * IMPORTING a chokepoint, asserted below, so a second implementation cannot be
  * admitted by adding its path here.
+ *
+ * Two of these are SUB-MODULE doors inside the store family rather than family
+ * doors, and they are admitted on the same terms and by the same assertion: they
+ * publish the chokepoints' own names to the one sibling directory that reads them.
  */
 const CHOKEPOINT_DOORS: readonly string[] = [
   "console/seats/index.ts",
   "console/seats/session-subject.ts",
   "console/store/index.ts",
-  "console/store/subject-scoped-resource.ts",
+  "console/store/read/index.ts",
+  "console/store/subject-scoped/index.ts",
+  "console/store/subject-scoped/subject-scoped-resource.ts",
 ];
 
 /**

@@ -28,7 +28,7 @@ import { SessionStore, type ConsoleSessionEvent } from "../store/index.js";
 // type nor its selectors on a barrel, and a test file is not a subject of the
 // layering DAG. The real selector, not a re-export of it: a local narrowing here
 // would be checking this file's own copy of the thing under test.
-import type { ConsoleEntity } from "../store/entities.js";
+import type { ConsoleEntity } from "../store/entities/entities.js";
 import { stampedExecutionPostureOf } from "../bridge/daemon/entity-body-reads.js";
 import { RUN_LIFECYCLE_PROJECTORS, projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
 

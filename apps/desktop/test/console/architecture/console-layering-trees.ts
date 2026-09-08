@@ -232,7 +232,8 @@ export const TEST_SUPPORT_UPWARD_EDGE_TREE: PlantedTree = {
  *
  * Every other rule here is `from`-scoped to `console/`, so an importer that lives
  * outside it matches none of them — which is how a Tier-1 subtree came to hold a
- * `console/store/subject-scoped-state.js` specifier while three gates reported clean.
+ * `console/store/subject-scoped/subject-scoped-state.js` specifier while three gates reported
+ * clean.
  * The door import beside it is the other half of the control: an outside subtree
  * reaching the DOOR is the shape the console offers and must stay legal.
  *

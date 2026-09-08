@@ -27,7 +27,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MUTATING_DAEMON_METHODS } from "../../../src/renderer/src/console/store/shell-mutation-block.js";
+import { MUTATING_DAEMON_METHODS } from "../../../src/renderer/src/console/store/shell/shell-mutation-block.js";
 import type { DaemonCallSite } from "./daemon-call-sites.js";
 import {
   classifyDaemonCallSite,
