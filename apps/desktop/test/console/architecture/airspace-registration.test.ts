@@ -31,7 +31,8 @@
 //      the registry accessor directly, because a hand-rolled registration at a call
 //      site is the shape that forgets to remove.
 //   5. The registry is SINGULAR: exactly one production module constructs an
-//      `AirspaceRegistry`, and it is the holder.
+//      `AirspaceRegistry`, and it is the holder — and exactly one DECLARES the class,
+//      because two declarations of one name are two registries however few are built.
 //   6. Every MODAL wrapper registers its BACKDROP. Claim 3 is satisfied by a module
 //      that registers one rectangle, and for a modal the popup is the wrong one to
 //      stop at: the backdrop is the part that covers the window, so a wrapper that
@@ -46,31 +47,28 @@
 // which is worse than none, because the first failure mode announces itself and this
 // one renders correctly right up until a native view is on screen.
 //
-// THE SOURCE SHAPES ARE `airspace-source.ts`'s and the CLAIMS are this file's. Every
-// predicate below takes a parsed module, so each control drives the real rule over a
-// snippet parsed exactly as the walk parses a module.
+// THE SOURCE SHAPES ARE `airspace-source.ts`'s and the CLAIMS are this file's, and the
+// controls that prove each predicate bites are `airspace-source.test.ts`'s beside them.
+// Every predicate takes a parsed module, so a control there drives the same rule a
+// claim here drives, over a snippet parsed exactly as the walk parses a module.
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   AIRSPACE_REGISTRATION_HOOKS,
-  airspaceRefBindings,
   backdropsMountedWithoutAirspaceRef,
   callsAnyFunctionNamed,
   callsFunctionNamed,
   constructsClassNamed,
+  declaresClassNamed,
   overlayPopupPartsMounted,
   ParsedConsoleTree,
 } from "./airspace-source.js";
-import { parseSourceText } from "../typescript-source.js";
 
 /** The budget this file states rather than inherits; `source-walk-chokepoint.ts`'s figure. */
 const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
 
 vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS });
-
-/** The primitive-layer hook every overlay registers through. */
-const REGISTRATION_HOOK = "useAirspaceRegistration";
 
 /** The registry accessor the hook calls, and nothing else in a view family may. */
 const REGISTRY_ACCESSOR = "airspaceRegistryFor";
@@ -80,6 +78,9 @@ const REGISTRY_CLASS = "AirspaceRegistry";
 
 /** The one production module allowed to construct one. Its holder is the singleton. */
 const REGISTRY_HOLDER = "core/airspace-registries.ts";
+
+/** The one module allowed to declare the class. The DAG floor, where both sides reach it. */
+const REGISTRY_DECLARATION = "core/airspace-registry.ts";
 
 /** The module that declares the hook, and therefore registers nothing itself. */
 const REGISTRATION_DOOR = "primitives/airspace-registration.ts";
@@ -99,15 +100,18 @@ const OVERLAY_PRIMITIVE_PREFIX = "primitives/";
 /**
  * The modules allowed to reach the registry accessor directly.
  *
- * The hook itself, because it is the registration door; the geometry binding, because
- * a native-view consumer reads the airspace rather than registering into it; and the
- * two `core/` modules that declare and hold it. Written as paths rather than inferred
- * from a naming convention, so widening the set is an edit a reviewer sees.
+ * The hook itself, because it is the registration door; the two `core/` modules that
+ * declare and hold it; and the two NATIVE-VIEW CONSUMERS, which read the airspace
+ * rather than registering into it — the browser family's geometry binding and the
+ * deck's rect tracker, which hides a pane's view while an overlay is up. Written as
+ * paths rather than inferred from a naming convention, so widening the set is an edit
+ * a reviewer sees.
  */
 const REGISTRY_READERS: readonly string[] = [
   "core/airspace-registries.ts",
   REGISTRATION_DOOR,
   "browser/pane/geometry-binding.ts",
+  "workspace/deck/rect-discipline.ts",
 ];
 
 describe("airspace — every overlay registers, through one door", () => {
@@ -208,187 +212,17 @@ describe("airspace — every overlay registers, through one door", () => {
     expect(constructors).toStrictEqual([REGISTRY_HOLDER]);
   });
 
-  it("negative control: the checker bites on a planted registration", () => {
-    // Without this, a wrong node predicate would leave every clean result above
-    // meaningless — which is exactly the state the registry itself was found in.
-    expect(
-      callsFunctionNamed(
-        parseSourceText("planted.tsx", "useAirspaceRegistration('dialog');"),
-        REGISTRATION_HOOK,
-      ),
-    ).toBe(true);
-    expect(
-      callsFunctionNamed(
-        parseSourceText("planted.tsx", "const registry = airspaceRegistryFor(document);"),
-        REGISTRY_ACCESSOR,
-      ),
-    ).toBe(true);
-    expect(
-      constructsClassNamed(
-        parseSourceText("planted.tsx", "const own = new AirspaceRegistry();"),
-        REGISTRY_CLASS,
-      ),
-    ).toBe(true);
-  });
-
-  it("negative control: the checker bites on a planted popup mount", () => {
-    const planted = parseSourceText(
-      "planted.tsx",
-      'import { Dialog } from "@base-ui/react/dialog";\n' +
-        "export const Planted = () => (\n" +
-        "  <Dialog.Portal>\n" +
-        '    <Dialog.Backdrop className="x" />\n' +
-        '    <Dialog.Popup className="y">body</Dialog.Popup>\n' +
-        "  </Dialog.Portal>\n" +
-        ");",
-    );
-    expect(overlayPopupPartsMounted(planted)).toStrictEqual([
-      "Dialog.Backdrop",
-      "Dialog.Popup",
-      "Dialog.Portal",
-    ]);
-    // A renamed binding mounts the same popup, and only the local name is at the tag.
-    const renamed = parseSourceText(
-      "renamed.tsx",
-      'import { Menu as Sheet } from "@base-ui/react/menu";\n' +
-        "export const Renamed = () => <Sheet.Positioner />;",
-    );
-    expect(overlayPopupPartsMounted(renamed)).toStrictEqual(["Sheet.Positioner"]);
-  });
-
-  it("negative control: the checker bites on a bare backdrop and clears a registered one", () => {
-    // Without this pair the claim above is a rule whose clean result means nothing:
-    // a predicate that never fired would exonerate exactly the shape it was written
-    // for, which is how the popup-only registration survived four other claims.
-    const bare = parseSourceText(
-      "bare.tsx",
-      'import { Dialog } from "@base-ui/react/dialog";\n' +
-        "export const Bare = () => (\n" +
-        "  <Dialog.Portal>\n" +
-        '    <Dialog.Backdrop className="x" />\n' +
-        '    <Dialog.Popup className="y">body</Dialog.Popup>\n' +
-        "  </Dialog.Portal>\n" +
-        ");",
-    );
-    expect(backdropsMountedWithoutAirspaceRef(bare)).toStrictEqual(["Dialog.Backdrop"]);
-    const registered = parseSourceText(
-      "registered.tsx",
-      'import { Dialog } from "@base-ui/react/dialog";\n' +
-        "export const Registered = () => {\n" +
-        '  const airspace = useModalOverlayAirspace("dialog");\n' +
-        "  return (\n" +
-        "    <Dialog.Portal>\n" +
-        '      <Dialog.Backdrop ref={airspace.backdropRef} className="x" />\n' +
-        "    </Dialog.Portal>\n" +
-        "  );\n" +
-        "};",
-    );
-    expect(backdropsMountedWithoutAirspaceRef(registered)).toStrictEqual([]);
-    // The destructured form and the door hook's own single ref are the same claim
-    // reached two other ways, and a rule that admitted only one shape would push the
-    // next wrapper into rewriting itself to satisfy the gate.
-    const destructured = parseSourceText(
-      "destructured.tsx",
-      'import { AlertDialog } from "@base-ui/react/alert-dialog";\n' +
-        "export const Destructured = () => {\n" +
-        '  const { backdropRef } = useModalOverlayAirspace("dialog");\n' +
-        "  return <AlertDialog.Backdrop ref={backdropRef} />;\n" +
-        "};",
-    );
-    expect(backdropsMountedWithoutAirspaceRef(destructured)).toStrictEqual([]);
-    const doorHook = parseSourceText(
-      "door-hook.tsx",
-      'import { Dialog } from "@base-ui/react/dialog";\n' +
-        "export const DoorHook = () => {\n" +
-        '  const airspaceRef = useAirspaceRegistration("dialog");\n' +
-        "  return <Dialog.Backdrop ref={airspaceRef} />;\n" +
-        "};",
-    );
-    expect(backdropsMountedWithoutAirspaceRef(doorHook)).toStrictEqual([]);
-    // A ref carrying something else is a bare backdrop as far as the airspace is
-    // concerned, and the rule says so rather than accepting any attribute named `ref`.
-    const foreignRef = parseSourceText(
-      "foreign-ref.tsx",
-      'import { Dialog } from "@base-ui/react/dialog";\n' +
-        "export const ForeignRef = () => {\n" +
-        "  const held = useRef(null);\n" +
-        "  return <Dialog.Backdrop ref={held} />;\n" +
-        "};",
-    );
-    expect(backdropsMountedWithoutAirspaceRef(foreignRef)).toStrictEqual(["Dialog.Backdrop"]);
-    // And a backdrop from somewhere that is not the widget package is not this rule's
-    // subject at all — the airspace is about what Base UI lifts out of the layout.
-    const foreignFamily = parseSourceText(
-      "foreign-family.tsx",
-      'import { Story } from "./story.js";\nexport const Foreign = () => <Story.Backdrop />;',
-    );
-    expect(backdropsMountedWithoutAirspaceRef(foreignFamily)).toStrictEqual([]);
-    // And the binding reader underneath all four, asserted directly: it is what
-    // separates `ref={airspace.backdropRef}` from `ref={held}`, and a reader that
-    // returned every `const` would clear the bare case above by accident.
-    expect([...airspaceRefBindings(foreignRef)]).toStrictEqual([]);
-    expect([...airspaceRefBindings(registered)]).toStrictEqual(["airspace"]);
-    expect([...airspaceRefBindings(destructured)]).toStrictEqual(["backdropRef"]);
-  });
-
-  it("negative control: a sentence about the hook is not a call", () => {
-    expect(
-      callsFunctionNamed(
-        parseSourceText(
-          "explainer.ts",
-          "// Overlays reach the airspace through useAirspaceRegistration(...).\nconst x = 1;",
-        ),
-        REGISTRATION_HOOK,
-      ),
-    ).toBe(false);
-    expect(
-      callsFunctionNamed(
-        parseSourceText("explainer.ts", 'const name = "airspaceRegistryFor";'),
-        REGISTRY_ACCESSOR,
-      ),
-    ).toBe(false);
-    expect(
-      constructsClassNamed(
-        parseSourceText(
-          "explainer.ts",
-          "// The holder builds the one AirspaceRegistry.\nconst x = 1;",
-        ),
-        REGISTRY_CLASS,
-      ),
-    ).toBe(false);
-  });
-
-  it("negative control: an in-place widget and a mention of a part are not mounts", () => {
-    // The rule must not fire on the widget families that render where they stand —
-    // a switch, a checkbox, a collapsible — or the primitive layer would swallow the
-    // whole widget vocabulary for a hazard none of them has.
-    const inPlace = parseSourceText(
-      "in-place.tsx",
-      'import { Collapsible } from "@base-ui/react/collapsible";\n' +
-        'import { Switch } from "@base-ui/react/switch";\n' +
-        "export const InPlace = () => (\n" +
-        "  <Collapsible.Root>\n" +
-        "    <Collapsible.Trigger>more</Collapsible.Trigger>\n" +
-        "    <Collapsible.Panel>\n" +
-        "      <Switch.Root />\n" +
-        "    </Collapsible.Panel>\n" +
-        "  </Collapsible.Root>\n" +
-        ");",
-    );
-    expect(overlayPopupPartsMounted(inPlace)).toStrictEqual([]);
-    // A part NAMED and not mounted, and a same-named tag from somewhere else.
-    const mentioned = parseSourceText(
-      "mentioned.tsx",
-      'import { Dialog } from "@base-ui/react/dialog";\n' +
-        "// The primitive mounts Dialog.Popup on this surface's behalf.\n" +
-        "const part = Dialog.Popup;\n" +
-        "export const Mentioned = () => <Dialog.Root>{part}</Dialog.Root>;",
-    );
-    expect(overlayPopupPartsMounted(mentioned)).toStrictEqual([]);
-    const foreign = parseSourceText(
-      "foreign.tsx",
-      'import { Story } from "./story.js";\nexport const Foreign = () => <Story.Popup />;',
-    );
-    expect(overlayPopupPartsMounted(foreign)).toStrictEqual([]);
+  it("exactly one module declares the registry class, and it is the one at the floor", () => {
+    // The claim the construction rule cannot make either, and the one this file was
+    // missing while the console carried TWO classes of this name: the workspace deck
+    // declared a second registry for the same rule — a `Set` of overlay ids behind
+    // `claim` / `isOccupied` — and every claim above stayed green, because the deck
+    // never constructed one and never reached the accessor. Two declarations are two
+    // registries whether or not both are built: the first surface to instantiate the
+    // wrong one registers into a set the visibility predicate does not read.
+    const declarers = tree.modules
+      .filter((module) => declaresClassNamed(module.parsed, REGISTRY_CLASS))
+      .map((module) => module.relativePath);
+    expect(declarers).toStrictEqual([REGISTRY_DECLARATION]);
   });
 });

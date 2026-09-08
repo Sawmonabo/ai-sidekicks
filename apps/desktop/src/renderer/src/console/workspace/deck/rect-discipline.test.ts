@@ -8,9 +8,9 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
+import { AirspaceRegistry, ManualClock } from "../../core/index.js";
 import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../workspace-bounds.js";
-import { AirspaceRegistry, PaneRectTracker } from "./rect-discipline.js";
+import { PaneRectTracker } from "./rect-discipline.js";
 import { type TrackedRect } from "./rect-geometry.js";
 
 /** A rectangle in viewport coordinates, as the DOM would report one. */
@@ -44,7 +44,14 @@ interface TrackerHarness {
   readonly writes: TrackedRect[][];
 }
 
-function harness(airspace?: AirspaceRegistry): TrackerHarness {
+/**
+ * One tracker over one airspace, which is what the window hands it in production.
+ *
+ * A registry per harness and not the window's, so a case reads the overlays IT put up
+ * — the same per-document isolation `core/airspace-registries.ts` gives two windows,
+ * reached here by constructing rather than by resolving a shared document.
+ */
+function harness(airspace: AirspaceRegistry = new AirspaceRegistry()): TrackerHarness {
   const clock = new ManualClock();
   const writes: TrackedRect[][] = [];
   const tracker = new PaneRectTracker({
@@ -52,9 +59,17 @@ function harness(airspace?: AirspaceRegistry): TrackerHarness {
     onFlush: (rects) => {
       writes.push([...rects]);
     },
-    ...(airspace === undefined ? {} : { airspace }),
+    airspace,
   });
   return { clock, tracker, writes };
+}
+
+/** Put an overlay of some size up, and hand back the removal. A dialog unless said. */
+function overlayUp(airspace: AirspaceRegistry): () => void {
+  const registration = airspace.register("dialog", () => ({ x: 0, y: 0, width: 10, height: 10 }));
+  return () => {
+    registration.remove();
+  };
 }
 
 describe("PaneRectTracker — when it writes", () => {
@@ -159,7 +174,7 @@ describe("PaneRectTracker — what it reports as visible", () => {
     clock.runFrame();
     expect(writes[0]?.[0]?.isVisible).toBe(true);
 
-    const release = airspace.claim("dialog-1");
+    const release = overlayUp(airspace);
     clock.runFrame();
     expect(writes[1]?.[0]?.isVisible).toBe(false);
 
@@ -169,17 +184,20 @@ describe("PaneRectTracker — what it reports as visible", () => {
     expect(tracker.invalidationCount("airspace")).toBe(2);
   });
 
-  it("negative control: a claim that does not change occupancy asks for nothing", () => {
-    // The release side has always emitted only on a real change. Without the same
-    // rule on the claim side, every overlay stacked above the first would re-measure
-    // every tracked pane for an answer that cannot differ.
+  it("negative control: an airspace change that does not move occupancy asks for nothing", () => {
+    // The registry publishes EVERY change — a second overlay, and a registered one
+    // moving — because the browser family's publisher re-samples rectangles on those.
+    // This consumer reads only whether the count is above zero, so without the
+    // transition filter each of them would re-measure every tracked pane for an answer
+    // that cannot differ.
     const airspace = new AirspaceRegistry();
     const { clock, tracker } = harness(airspace);
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
     clock.runFrame();
 
-    airspace.claim("dialog-1");
-    airspace.claim("toast-1");
+    const first = airspace.register("dialog", () => ({ x: 0, y: 0, width: 10, height: 10 }));
+    overlayUp(airspace);
+    first.moved();
     expect(tracker.invalidationCount("airspace")).toBe(1);
   });
 
@@ -190,18 +208,29 @@ describe("PaneRectTracker — what it reports as visible", () => {
     clock.runFrame();
     tracker.dispose();
 
-    airspace.claim("dialog-1");
+    overlayUp(airspace);
     expect(clock.pendingCount).toBe(0);
     clock.runFrame();
     expect(writes).toHaveLength(1);
   });
 
   it("negative control: two overlays, and the first to close does not free the airspace", () => {
+    // The whole reason this consumer reads a COUNT: a boolean would let the first
+    // overlay to close hand the airspace back while the second is still on screen.
     const airspace = new AirspaceRegistry();
-    const releaseFirst = airspace.claim("dialog-1");
-    airspace.claim("toast-1");
+    const { clock, tracker, writes } = harness(airspace);
+    tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
+    clock.runFrame();
+    expect(writes[0]?.[0]?.isVisible).toBe(true);
+
+    const releaseFirst = overlayUp(airspace);
+    overlayUp(airspace);
+    clock.runFrame();
+    expect(writes[1]?.[0]?.isVisible).toBe(false);
+
     releaseFirst();
-    expect(airspace.isOccupied).toBe(true);
+    clock.runFrame();
+    expect(writes).toHaveLength(2);
   });
 });
 

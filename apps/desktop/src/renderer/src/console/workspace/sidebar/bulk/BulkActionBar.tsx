@@ -28,7 +28,6 @@ import { type ConsoleBridge } from "../../../bridge/index.js";
 import { DerivedFigure } from "../../../primitives/index.js";
 import { type SidebarBulkAct } from "../../../seats/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
-import { type AirspaceRegistry } from "../../deck/rect-discipline.js";
 import { SIDEBAR_BULK_ACT_DESCRIPTORS } from "./bulk-acts.js";
 import { runBulkAct } from "./bulk-runner.js";
 import { type BulkSelectionModel } from "./bulk-selection.js";
@@ -40,7 +39,6 @@ export interface BulkActionBarProps {
   readonly model: BulkSelectionModel;
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
-  readonly airspace?: AirspaceRegistry;
 }
 
 export function BulkActionBar(props: BulkActionBarProps): React.JSX.Element | null {
@@ -93,7 +91,6 @@ export function BulkActionBar(props: BulkActionBarProps): React.JSX.Element | nu
       {confirmingAct === undefined ? null : (
         <BulkConfirmDialog
           items={confirmingItems}
-          {...(props.airspace === undefined ? {} : { airspace: props.airspace })}
           onCancel={() => {
             publishConfirmingAct(undefined);
           }}

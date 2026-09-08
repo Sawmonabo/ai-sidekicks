@@ -60,6 +60,25 @@ export function constructsClassNamed(parsed: ts.SourceFile, className: string): 
   return constructed;
 }
 
+/**
+ * Whether a module DECLARES the named class, as a tree shape rather than a substring.
+ *
+ * The census the construction rule cannot make. Two modules declaring one class name
+ * are two classes: the second is a rule of its own with its own state, and every
+ * overlay put into it is invisible to the predicate the first one answers — which is
+ * how the console carried an airspace per view family while every construction and
+ * accessor claim stayed green.
+ */
+export function declaresClassNamed(parsed: ts.SourceFile, className: string): boolean {
+  let declared = false;
+  forEachDescendant(parsed, (node) => {
+    if (ts.isClassDeclaration(node) && node.name?.text === className) {
+      declared = true;
+    }
+  });
+  return declared;
+}
+
 /** Whether a module CALLS the named function, as a tree shape rather than a substring. */
 export function callsFunctionNamed(parsed: ts.SourceFile, functionName: string): boolean {
   let called = false;

@@ -9,43 +9,35 @@
 // trust; the list is the thing they can check. The count is stated too, because a list
 // longer than the eye can hold still needs its size said once.
 //
-// IT CLAIMS THE AIRSPACE. `workspace/deck/rect-discipline.ts` holds the registry every
-// overlay registers in so a native view yields while one is up; a dialog that did not
-// claim it would be drawn under the browser pane's `WebContentsView`, which is not a
-// z-index this renderer can win. The registry is OPTIONAL here for the same reason the
-// deck's tracker takes it optionally: a column mounted without one is a column with no
-// native views under it, and claiming a registry that does not exist is not a state.
+// IT IS AIRSPACE, AND IT SAYS SO AT THE DOOR. It declares itself `aria-modal`, and a
+// native `WebContentsView` that kept painting and taking clicks behind a modal would
+// make that declaration false — not a z-index this renderer can win. So it registers
+// its own live rectangle through `primitives/`' one registration hook, into the
+// registry this window's document holds. What this replaced was a hand `claim` on a
+// SECOND registry the deck declared, which is the shape `Spec-023 §Console Design
+// (Meridian)` 12.3's Never bullet names: "No consumer registers an overlay by hand at
+// a call site." A registry passed down four prop hops was also a registry no caller
+// ever passed, so the airspace it claimed held nothing and answered nobody.
 //
 // THE ESCAPE HATCH IS THE PLATFORM'S. Escape cancels and the initial focus lands on
 // the cancelling control, so the destructive button is never what a stray Enter hits.
 
 import { useEffect, useRef } from "react";
 
+import { useAirspaceRegistration } from "../../../primitives/index.js";
 import { type SidebarBulkItem } from "../../../seats/index.js";
-import { type AirspaceRegistry } from "../../deck/rect-discipline.js";
 import { SIDEBAR_BULK_ACT_DESCRIPTORS } from "./bulk-acts.js";
-
-/** The one overlay id this dialog claims the airspace under. */
-const BULK_CONFIRM_AIRSPACE_ID = "sidebar-bulk-confirm";
 
 export interface BulkConfirmDialogProps {
   /** The rows the act will run over, in the order they were selected. */
   readonly items: readonly SidebarBulkItem[];
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
-  readonly airspace?: AirspaceRegistry;
 }
 
 export function BulkConfirmDialog(props: BulkConfirmDialogProps): React.JSX.Element | null {
   const cancelReference = useRef<HTMLButtonElement | null>(null);
-  const { airspace } = props;
-
-  useEffect(() => {
-    if (airspace === undefined) {
-      return;
-    }
-    return airspace.claim(BULK_CONFIRM_AIRSPACE_ID);
-  }, [airspace]);
+  const airspaceRef = useAirspaceRegistration("dialog");
 
   useEffect(() => {
     cancelReference.current?.focus();
@@ -62,6 +54,7 @@ export function BulkConfirmDialog(props: BulkConfirmDialogProps): React.JSX.Elem
 
   return (
     <div
+      ref={airspaceRef}
       className="meridian-sidebar-bulk__confirm"
       role="dialog"
       aria-modal={true}

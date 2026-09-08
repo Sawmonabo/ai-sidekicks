@@ -83,7 +83,6 @@ import { type SidebarModel, type SidebarSnapshot } from "./model/sidebar-model.j
 import { BulkActionBar } from "./bulk/BulkActionBar.js";
 import { useBulkSelectionFace, useBulkSelectionModel } from "./bulk/use-bulk-selection.js";
 import { useSidebarRowDragSources, useSidebarRowDropMonitor } from "./drag/row-drag.js";
-import { type AirspaceRegistry } from "../deck/rect-discipline.js";
 
 export interface SidebarProps {
   readonly sessionStore: SessionStore;
@@ -121,14 +120,6 @@ export interface SidebarProps {
   readonly sectionRegistry?: SidebarSectionRegistry;
   /** Which seat the palette's acts reach this sidebar through. Defaults to the window's. */
   readonly commandSeat?: MountedSidebarSeat;
-  /**
-   * The window's overlay airspace, so the bulk confirm yields the native views under it.
-   *
-   * Optional for the deck tracker's reason: a column mounted without one is a column
-   * with no native view beneath it, and claiming a registry that does not exist is not
-   * a state this file has to represent.
-   */
-  readonly airspace?: AirspaceRegistry;
 }
 
 export function Sidebar(props: SidebarProps): React.JSX.Element {
@@ -356,7 +347,6 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
         model={bulkSelection}
         bridge={props.bridge}
         sessionId={props.sessionStore.sessionId}
-        {...(props.airspace === undefined ? {} : { airspace: props.airspace })}
       />
     </nav>
   );
