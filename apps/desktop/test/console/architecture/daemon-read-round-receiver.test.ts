@@ -26,7 +26,7 @@ import { plantedSites } from "./daemon-call-planting.test-support.js";
  * case writing `new ReadScope()` under no clause at all would report the factory's
  * refusal under the name of whatever that case meant to be about.
  */
-const READ_SCOPE_CLASS_IMPORT = 'import { ReadScope } from "../../store/index.js";';
+const READ_SCOPE_CLASS_IMPORT = 'import { ReadScope } from "../store/index.js";';
 
 describe("what a round was opened off", () => {
   it("takes a round opened off each read scope the console declares", () => {
@@ -63,7 +63,7 @@ describe("what a round was opened off", () => {
     ]);
     expect(offMintedLocal?.signalArgument).toBe("present");
     const [offScopeDoor] = plantedSites([
-      'import { useReadScope } from "../../store/index.js";',
+      'import { useReadScope } from "../store/index.js";',
       "export function readBoundary(bridge) {",
       '  const readScope = useReadScope(bridge, "roots");',
       "  const round = readScope.openRound();",
@@ -71,6 +71,67 @@ describe("what a round was opened off", () => {
       "}",
     ]);
     expect(offScopeDoor?.signalArgument).toBe("present");
+  });
+
+  it("takes a scope imported from the module that declares it, not only the door", () => {
+    // THE STORE HAS TWO HOMES AND BOTH ARE ADMITTED. `store/read-cancellation.ts`
+    // declares the two exports and `store/index.ts` re-exports them, and which one a
+    // consumer writes is a question about where it sits: the two modules inside `store/`
+    // import the declaring module directly — a family door reached from inside its own
+    // family is the barrel chain the package forbids — while the six outside it go
+    // through the door. A reading that admitted only the barrel would report the
+    // scheduler's own read line as a round nothing aborts.
+    const [offDeclaringModule] = plantedSites([
+      'import { ReadScope } from "../store/read-cancellation.js";',
+      "class RefreshScheduler {",
+      "  readonly #readLine = new ReadScope();",
+      "  async seed(bridge) {",
+      "    const round = this.#readLine.openRound();",
+      '    return await callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "  }",
+      "}",
+    ]);
+    expect(offDeclaringModule?.signalArgument).toBe("present");
+  });
+
+  it("negative control: the store's names imported from another module are not the store's", () => {
+    // THE HOLE THE NAME-ONLY IDENTITY LEFT, and it is the module half of the pair an
+    // export is. Both names resolved to an import specifier and the specifier's own
+    // MODULE was never asked, so a module publishing its own `ReadScope` and
+    // `useReadScope` from anywhere in the tree was read as the store's — a scope this
+    // parse never saw declared, opened into a round nothing aborts, at all three of the
+    // positions the reading admits: a class's own field, a `const` that mints one, and a
+    // `const` bound to the door.
+    const strangerModule = 'import { ReadScope, useReadScope } from "./helpers.js";';
+    const [strangerField] = plantedSites([
+      strangerModule,
+      "class QuotaReadout {",
+      "  readonly #readLine = new ReadScope();",
+      "  async seed(bridge) {",
+      "    const round = this.#readLine.openRound();",
+      '    return await callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "  }",
+      "}",
+    ]);
+    const [strangerMint] = plantedSites([
+      strangerModule,
+      "export function readBoundary(bridge) {",
+      "  const readLine = new ReadScope();",
+      "  const round = readLine.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    const [strangerDoor] = plantedSites([
+      strangerModule,
+      "export function readBoundary(bridge) {",
+      '  const readScope = useReadScope(bridge, "roots");',
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    expect(
+      [strangerField, strangerMint, strangerDoor].map((site) => site?.signalArgument),
+    ).toStrictEqual(["unrecognised", "unrecognised", "unrecognised"]);
   });
 
   it("negative control: a round opened off anything but a read scope is not a round", () => {

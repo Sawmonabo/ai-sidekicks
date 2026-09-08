@@ -18,13 +18,16 @@
 // AND THE DOOR IS THE BINDING THE CALL SEES, not a name in a set — which is the same
 // defect the method resolution below refuses, refused the same way: the callee is
 // resolved through `daemon-method-bindings.ts` at the call's own position, and it is a
-// door call only where that resolution lands on an import of the door. A module holding
-// no such import contributes no calls, which is what it means for a module not to reach
-// the door. What "an import of the door" admits — a named specifier under any alias, a
+// door call only where that resolution lands on an import of the door FROM one of the
+// door's own modules. A module holding no such import contributes no calls, which is what
+// it means for a module not to reach the door. What "an import of the door" admits — a
+// named specifier under any alias whose specifier resolves to the bridge's door module, a
 // namespace the door is read off, and nothing else — is `daemon-call-census.ts`'
 // `namesCallDoor`, stated in that module's header beside the consumer census that makes
 // the same reading of the same bindings, rather than restated here where it would be
-// one rule in two headers and would move in one.
+// one rule in two headers and would move in one. The module this scan is READING is what
+// both of those resolutions are relative to, which is why `displayPath` reaches three
+// readings here and not just the failure text.
 //
 // AND THE METHOD IS RESOLVED RATHER THAN REQUIRED TO BE A LITERAL — through the same
 // LEXICAL binding. Ten of the console's call sites name a module constant, one names a
@@ -100,13 +103,13 @@ export function daemonCallSitesIn(
 ): readonly DaemonCallSite[] {
   const parsed = parseSourceText(displayPath, source);
   const bindings = new ModuleBindingScopes(parsed);
-  const readScopes = new ModuleReadScopes(parsed, bindings);
+  const readScopes = new ModuleReadScopes(displayPath, parsed, bindings);
   const calls: ts.CallExpression[] = [];
 
   forEachDescendant(parsed, (node) => {
     if (
       ts.isCallExpression(node) &&
-      namesCallDoor(node.expression, node.getStart(parsed), bindings)
+      namesCallDoor(node.expression, node.getStart(parsed), bindings, displayPath)
     ) {
       calls.push(node);
     }

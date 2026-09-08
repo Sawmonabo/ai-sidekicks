@@ -50,7 +50,7 @@ describe("the method a call names", () => {
     constants.add('export const LIST_METHOD = "repo.workspaceList";', "console/planted/wire.ts");
     const [site] = plantedSitesDeclaringImports(
       [
-        'import { callDaemon } from "../../bridge/index.js";',
+        'import { callDaemon } from "../bridge/index.js";',
         'import { LIST_METHOD } from "./wire.js";',
         "await callDaemon(bridge, LIST_METHOD, request);",
       ],
@@ -70,7 +70,7 @@ describe("the method a call names", () => {
     constants.add('export const METHOD = "session.join";', "console/planted/records.ts");
     const sites = plantedSitesDeclaringImports(
       [
-        'import { callDaemon } from "../../bridge/index.js";',
+        'import { callDaemon } from "../bridge/index.js";',
         'import { METHOD } from "./reads.js";',
         "export async function readWorkspaces(bridge, request, signal: AbortSignal) {",
         "  return await callDaemon(bridge, METHOD, request, { signal });",
@@ -93,7 +93,7 @@ describe("the method a call names", () => {
     constants.add('const METHOD = "session.join";', "console/planted/records.ts");
     const sites = plantedSitesDeclaringImports(
       [
-        'import { callDaemon } from "../../bridge/index.js";',
+        'import { callDaemon } from "../bridge/index.js";',
         'import { METHOD } from "./reads.js";',
         "export async function readWorkspaces(bridge, request, signal: AbortSignal) {",
         "  return await callDaemon(bridge, METHOD, request, { signal });",
@@ -118,7 +118,7 @@ describe("the method a call names", () => {
     constants.add('export let METHOD = "repo.workspaceList";', "console/planted/reads.ts");
     const sites = plantedSitesDeclaringImports(
       [
-        'import { callDaemon } from "../../bridge/index.js";',
+        'import { callDaemon } from "../bridge/index.js";',
         'import { METHOD } from "./reads.js";',
         "export async function readWorkspaces(bridge, request, signal: AbortSignal) {",
         "  return await callDaemon(bridge, METHOD, request, { signal });",
@@ -217,7 +217,7 @@ describe("the method a call names", () => {
       "  return callDaemon(bridge, method, request);",
       "}",
       'const method = "session.join";',
-      'import { callDaemon } from "../../bridge/index.js";',
+      'import { callDaemon } from "../bridge/index.js";',
     ]);
     expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([

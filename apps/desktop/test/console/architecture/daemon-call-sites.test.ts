@@ -50,7 +50,7 @@ describe("the door a call reaches", () => {
     // scan — matching the exported spelling against the callee — contributed none of
     // its calls, and the signal check reported a clean result over nothing.
     const sites = plantedSitesDeclaringImports([
-      'import { callDaemon as send } from "../../bridge/index.js";',
+      'import { callDaemon as send } from "../bridge/index.js";',
       "export async function readAdmittedRoots(bridge, sessionId) {",
       '  return await send(bridge, "repo.workspaceList", { sessionId });',
       "}",
@@ -61,6 +61,24 @@ describe("the door a call reaches", () => {
     ]);
   });
 
+  it("negative control: the door's name imported from another module is not the door", () => {
+    // THE MODULE HALF OF THE (MODULE, NAME) PAIR AN EXPORT IS. The callee resolved to
+    // an import specifier and the specifier's own MODULE was never asked, so a module
+    // publishing its own `callDaemon` from anywhere in the tree contributed call sites
+    // to this scan — sites naming a method the bridge never carried, reported against a
+    // door the module does not hold. The clause is the whole of the difference: the
+    // aliased case above writes the bridge's own module and is a call, and this one
+    // writes another and is none.
+    expect(
+      plantedSitesDeclaringImports([
+        'import { callDaemon } from "./not-the-door.js";',
+        "export async function readAdmittedRoots(bridge, sessionId) {",
+        '  return await callDaemon(bridge, "repo.workspaceList", { sessionId });',
+        "}",
+      ]),
+    ).toStrictEqual([]);
+  });
+
   it("negative control: a nearer binding of the door's name is not the door", () => {
     // THE SHADOW A NAME SET CANNOT SEE. The door is imported under `send`, and the
     // callback below takes a parameter of that name — so the call it makes is the
@@ -69,7 +87,7 @@ describe("the door a call reaches", () => {
     // door spellings counted both, so a helper invoking whatever it was handed was
     // read as a read that carries no signal.
     const sites = plantedSitesDeclaringImports([
-      'import { callDaemon as send } from "../../bridge/index.js";',
+      'import { callDaemon as send } from "../bridge/index.js";',
       "export async function readAdmittedRoots(bridge, request, signal: AbortSignal) {",
       '  await send(bridge, "repo.workspaceList", request, { signal });',
       "  return await withRetry(async (send) => await send(request));",
@@ -94,7 +112,7 @@ describe("the door a call reaches", () => {
       ]),
     ).toStrictEqual([]);
     const sites = plantedSitesDeclaringImports([
-      'import { callDaemon as send } from "../../bridge/index.js";',
+      'import { callDaemon as send } from "../bridge/index.js";',
       "function callDaemon(bridge, method, request) {",
       "  return bridge.send(method, request);",
       "}",
@@ -253,7 +271,7 @@ describe("the door a call reaches", () => {
     // corpus happens to plant would report that fixture and miss every real module. The
     // binding is resolved; the name it was given says nothing.
     const sites = plantedSitesDeclaringImports([
-      'import * as wire from "../../bridge/index.js";',
+      'import * as wire from "../bridge/index.js";',
       "export async function readAdmittedRoots(bridge, request, signal: AbortSignal) {",
       '  return await wire.callDaemon(bridge, "repo.workspaceList", request, { signal });',
       "}",

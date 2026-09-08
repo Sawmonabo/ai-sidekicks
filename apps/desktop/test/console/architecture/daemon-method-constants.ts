@@ -38,28 +38,17 @@
 // `daemon-method-literals.ts` and consumed here, so the two readers cannot disagree about
 // what a declaration holds.
 //
-// THE RESOLUTION IS TEXTUAL AND DELIBERATELY SHALLOW. A relative specifier is joined
-// onto its importer's own path and re-spelled as source — the console writes the
-// EMITTED `.js` extension its module resolution requires, and the module on disk is
-// the `.ts` or `.tsx` beside it. A bare specifier (a package), a specifier that climbs
-// out of the scanned roots, and a name the resolved module does not export each answer
-// nothing, which the census reads as an unresolved method and reports on its own
-// reading. That is the fail-closed direction: a call whose method this parse cannot
-// reach is a defect whatever it was handed, and a resolver that guessed would be back
-// to reporting on whichever module it happened to walk last.
-
-import { posix } from "node:path";
+// AND THE SPECIFIER IS RESOLVED BY `daemon-module-resolution.ts`, which is the one join
+// this tier makes and is no longer this module's own. A name the resolved module does
+// not export answers nothing, exactly as an unresolvable specifier does, which the
+// census reads as an unresolved method and reports on its own reading: a call whose
+// method this parse cannot reach is a defect whatever it was handed.
 
 import ts from "typescript";
 
 import { parseSourceText } from "../typescript-source.js";
 import { variableDeclarationBinding } from "./daemon-method-literals.js";
-
-/** What the console's specifiers name a module by, since that is what it will import. */
-const EMITTED_EXTENSION = ".js";
-
-/** What the module is actually written as, in the order a resolution tries them. */
-const SOURCE_EXTENSIONS: readonly string[] = [".ts", ".tsx"];
+import { moduleCandidates } from "./daemon-module-resolution.js";
 
 /**
  * Every module's exported method constants, keyed by the module that exports them.
@@ -143,33 +132,4 @@ function isExported(statement: ts.VariableStatement): boolean {
   return (
     statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true
   );
-}
-
-/**
- * The module paths a specifier can name, in the order a resolution tries them.
- *
- * POSIX THROUGHOUT, because a display path is POSIX throughout — the walk in
- * `console-source-modules.ts` re-spells every path it produces, so a resolution that
- * used the host's separator would answer a key this index never holds on Windows and
- * hold on this machine. And an extensionless or directory specifier answers nothing
- * rather than guessing an `index` file: the package's own module resolution requires
- * the extension, so a specifier without one is a shape this tree does not contain and
- * inventing a resolution for it would be inventing a reach.
- */
-function moduleCandidates(importerPath: string, moduleSpecifier: string): readonly string[] {
-  if (!moduleSpecifier.startsWith(".")) {
-    return [];
-  }
-  const resolved = posix.normalize(posix.join(posix.dirname(importerPath), moduleSpecifier));
-  if (resolved.startsWith("..")) {
-    return [];
-  }
-  if (SOURCE_EXTENSIONS.some((extension) => resolved.endsWith(extension))) {
-    return [resolved];
-  }
-  if (!resolved.endsWith(EMITTED_EXTENSION)) {
-    return [];
-  }
-  const base = resolved.slice(0, -EMITTED_EXTENSION.length);
-  return SOURCE_EXTENSIONS.map((extension) => `${base}${extension}`);
 }

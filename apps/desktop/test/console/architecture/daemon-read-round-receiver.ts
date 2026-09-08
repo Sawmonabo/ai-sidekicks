@@ -30,13 +30,25 @@
 // AND THE FACTORY ITSELF IS RESOLVED, NOT MATCHED BY NAME. `ReadScope` and
 // `useReadScope` are the store's own exports or they are nothing: each name is taken
 // through the same scope chain the round's receiver is, at its own position, and it is
-// admitted only where the binding it lands on is the IMPORT SPECIFIER that imported that
-// export — under whatever local alias the clause wrote. That is `daemon-call-census.ts`'
-// own standard for the call door, applied here for the reason its header gives: a name is
-// not an identity. Matching the spelling admitted `helper.useReadScope()` on a bare
-// parameter, which is a scope this parse never saw declared, and a `class ReadScope`
-// declared beside the read — both of them rounds nothing aborts, and both of them read
-// `"present"` while an unstoppable read passed the gate.
+// admitted only where the binding it lands on is an IMPORT SPECIFIER that imported that
+// export FROM ONE OF THE STORE'S TWO HOMES — under whatever local alias the clause
+// wrote. That is `daemon-call-census.ts`' own standard for the call door, applied here
+// for the reason its header gives: a name is not an identity. Matching the spelling
+// admitted `helper.useReadScope()` on a bare parameter, which is a scope this parse never
+// saw declared, and a `class ReadScope` declared beside the read — both of them rounds
+// nothing aborts, and both of them read `"present"` while an unstoppable read passed the
+// gate.
+//
+// AND THE MODULE IS HALF OF THAT IDENTITY, because an export is a (module, name) pair
+// and never a spelling. The scope chain answers which CLAUSE bound the name; the
+// specifier that clause carries answers which MODULE it came from, and
+// `daemon-module-resolution.ts` joins the two into the path the console walk names that
+// module by. Both of the store's homes are admitted and no third is:
+// `read-cancellation.ts` DECLARES the two exports and `store/index.ts` re-exports them,
+// which is how every consumer in the tree reaches them — a family door for the six
+// modules outside `store/` and the declaring module itself for the two inside it. A set
+// rather than a suffix match, because `…/index.ts` is every family's door and admitting
+// the suffix would put the whole tree back inside the identity this closes.
 //
 // WHETHER ANYBODY ABANDONS THAT SCOPE IS NOT ASKED, and the reason is that the answer is
 // a claim about WRITES. A first cut of this rule refused the second form on the ground
@@ -77,13 +89,14 @@
 // the round was opened off is the one written at the OPEN, so resolving at the daemon
 // call's position would answer with a binding that line never saw.
 //
-// THE HONEST LIMIT, AND IT IS THE DOOR CENSUS'S OWN. An export is identified by the NAME
-// a specifier imported it under rather than by the module that specifier names, exactly
-// as `daemon-call-census.ts` identifies the call door — so a module importing something
-// else spelled `useReadScope` from somewhere else would still be read as opening a scope.
-// What is closed is the hole a spelling alone left: a name this module never imported, a
-// class it declares itself, and a member of a value handed in are each refused and
-// REPORTED rather than trusted, which is the direction every refusal here runs in.
+// THE HONEST LIMIT, AND IT IS THE DOOR CENSUS'S OWN. What remains open is the resolver's
+// own fail-closed rule rather than a second identity: a BARE specifier names a package
+// this walk does not reach and answers nothing, and a specifier CLIMBING OUT of the
+// scanned roots answers nothing too — so an import of `useReadScope` written either way
+// is refused and REPORTED, never trusted. That is the direction every other refusal here
+// runs in: a name this module never imported, a class it declares itself, a member of a
+// value handed in, and now a name imported from a module that is not the store's are each
+// a scope this reading will not claim to have seen.
 
 import ts from "typescript";
 
@@ -91,6 +104,7 @@ import { forEachDescendant } from "../typescript-source.js";
 import { readsMember } from "./daemon-call-census.js";
 import { type ModuleBindingScopes } from "./daemon-method-bindings.js";
 import { withoutTypeWrappers } from "./daemon-method-literals.js";
+import { specifierNamesModule } from "./daemon-module-resolution.js";
 
 /** The scope's own factory, which is the call one round is opened by. */
 const ROUND_FACTORY = "openRound";
@@ -100,6 +114,19 @@ const READ_SCOPE_CLASS = "ReadScope";
 
 /** The store's read-scope door, under the name that same module exports it. */
 const READ_SCOPE_DOOR = "useReadScope";
+
+/**
+ * The two modules those exports have a home in, as the console walk names them.
+ *
+ * The module that DECLARES them and the family door that re-exports them, which are the
+ * two paths every consumer in the tree writes a specifier for. Declared beside the names
+ * themselves because the identity is the PAIR — one list rather than a rule about how a
+ * barrel is spelled, so moving the seam is an edit a reviewer sees here.
+ */
+const READ_SCOPE_MODULES: readonly string[] = [
+  "console/store/read-cancellation.ts",
+  "console/store/index.ts",
+];
 
 /** One class's read-scope fields, over the span a `this` read of them can sit in. */
 interface ClassFieldScope {
@@ -120,8 +147,14 @@ interface ClassFieldScope {
 export class ModuleReadScopes {
   readonly #fieldScopes: ClassFieldScope[] = [];
   readonly #bindings: ModuleBindingScopes;
+  readonly #displayPath: string;
 
-  public constructor(parsed: ts.SourceFile, bindings: ModuleBindingScopes) {
+  /**
+   * @param displayPath What the scan names this module by, which is what an import's own
+   *   relative specifier resolves against.
+   */
+  public constructor(displayPath: string, parsed: ts.SourceFile, bindings: ModuleBindingScopes) {
+    this.#displayPath = displayPath;
     this.#bindings = bindings;
     forEachDescendant(parsed, (node) => {
       if (ts.isClassLike(node)) {
@@ -261,15 +294,22 @@ export class ModuleReadScopes {
   /**
    * Whether this name is bound, at its own position, to the store's `exportName`.
    *
-   * The binding record already carries what an import specifier came from — the name the
-   * OTHER module exports, whatever this one aliased it to — so the reading is that
-   * record's own and not a second walk of the clause. Every other binding form answers
-   * no: a parameter, a local, a class declared here, and a name this module never
-   * imported are each a provenance that is not the store's export, which is the whole of
-   * the rule.
+   * The binding record already carries BOTH halves of what an import specifier came
+   * from — the name the OTHER module exports, whatever this one aliased it to, and the
+   * specifier that names the module it came from — so the reading is that record's own
+   * and not a second walk of the clause. The specifier is resolved against this module's
+   * own path, because a specifier is written at whatever depth its importer sits at and
+   * `"../../store/index.js"` from one family is `"../store/index.js"` from another. Every
+   * other binding form answers no: a parameter, a local, a class declared here, a name
+   * this module never imported, and a name imported from somewhere else are each a
+   * provenance that is not the store's export, which is the whole of the rule.
    */
   #importsStoreExport(named: ts.Identifier, exportName: string): boolean {
     const bound = this.#bindings.resolve(named.text, named.end)?.method;
-    return bound?.kind === "imported" && bound.exportedName === exportName;
+    return (
+      bound?.kind === "imported" &&
+      bound.exportedName === exportName &&
+      specifierNamesModule(this.#displayPath, bound.moduleSpecifier, READ_SCOPE_MODULES)
+    );
   }
 }

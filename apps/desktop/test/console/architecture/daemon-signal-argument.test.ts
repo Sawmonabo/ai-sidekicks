@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import { plantedSites, plantedSitesInReadHelper } from "./daemon-call-planting.test-support.js";
 
 /** The store's read-scope door, as a module opening a scope through it imports it. */
-const READ_SCOPE_DOOR_IMPORT = 'import { useReadScope } from "../../store/index.js";';
+const READ_SCOPE_DOOR_IMPORT = 'import { useReadScope } from "../store/index.js";';
 
 /**
  * A planted read whose round is opened off the store's door, with the case's own lines

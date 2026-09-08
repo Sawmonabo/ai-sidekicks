@@ -68,7 +68,8 @@ import {
   rendererProbePath,
   ruleMessagesAt,
 } from "../eslint-harness.js";
-import { daemonCallReaches, importsCallDoor } from "./daemon-call-census.js";
+import { importsCallDoor } from "./daemon-call-census.js";
+import { daemonCallReaches } from "./daemon-reach-forms.js";
 
 /**
  * The walk, done once, and shared with every other source-text gate.

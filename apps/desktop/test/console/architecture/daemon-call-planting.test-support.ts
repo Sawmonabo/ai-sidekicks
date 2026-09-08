@@ -40,7 +40,7 @@ import { daemonMethodReadings } from "./daemon-read-signal-census.js";
 const PLANTED_MODULE = "console/planted/surface.ts";
 
 /** The clause a module reaching the door carries, as the console's own consumers write it. */
-const DOOR_IMPORT = 'import { callDaemon } from "../../bridge/index.js";';
+const DOOR_IMPORT = 'import { callDaemon } from "../bridge/index.js";';
 
 /**
  * The clause a module reaching the door through a NAMESPACE carries.
@@ -49,7 +49,7 @@ const DOOR_IMPORT = 'import { callDaemon } from "../../bridge/index.js";';
  * rather than the name — so the case that proves exactly that writes its own clause
  * through the sibling that plants nothing, as every claim about a clause does.
  */
-const DOOR_NAMESPACE_IMPORT = 'import * as daemonDoor from "../../bridge/index.js";';
+const DOOR_NAMESPACE_IMPORT = 'import * as daemonDoor from "../bridge/index.js";';
 
 /**
  * How a module reaches the door off that namespace, in the two spellings of ONE read.
