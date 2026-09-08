@@ -17,7 +17,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { parseRoute, type ConsoleRoute } from "../routing/index.js";
-import { ConsoleSurfaceRegistry, surfaceSlotFor } from "../seats/index.js";
+import {
+  ConsoleSurfaceRegistry,
+  PinnedPaneRegionRegistry,
+  surfaceSlotFor,
+} from "../seats/index.js";
 import { WORKFLOWS_PARKED_RUN } from "../bridge/scenarios/workflow-fixture-runs.js";
 import { registerWorkflowSurfaces } from "./index.js";
 import { fixtureHumanWait } from "./pane/run/WorkflowRunPane.test-support.js";
@@ -48,7 +52,7 @@ describe("the workflow phase link — from the hash to the run pane", () => {
   /** The workflows family's own surface board, registered the way the console does it. */
   function surfacesOfThisFamily(): ConsoleSurfaceRegistry {
     const registry = new ConsoleSurfaceRegistry();
-    registerWorkflowSurfaces(registry);
+    registerWorkflowSurfaces(registry, new PinnedPaneRegionRegistry());
     return registry;
   }
 

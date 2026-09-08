@@ -162,21 +162,6 @@ export function isCompleteRead(reading: ShelfReading): boolean {
 }
 
 /**
- * When each pending invitation stops working, as instants a wake-up can be armed on.
- *
- * Unreadable stamps are dropped rather than defaulted: an expiry this console cannot
- * read is not evidence that the invitation has lapsed, and a `NaN` handed to the
- * wake-up would arm a timer that fires immediately and forever. Such a row keeps
- * rendering as waiting and shows the wire's own spelling, which is the honest
- * reading of a stamp nobody here could parse.
- */
-export function expiryDeadlinesOf(invites: readonly ServedInvite[]): readonly number[] {
-  return invites
-    .map((invite) => parseInstant(invite.expiresAt).epochMilliseconds)
-    .filter((epochMilliseconds): epochMilliseconds is number => epochMilliseconds !== undefined);
-}
-
-/**
  * The invitations still waiting at `atMilliseconds`.
  *
  * The wire's `pending` is what the read SAW, and a console left open outlives it: an

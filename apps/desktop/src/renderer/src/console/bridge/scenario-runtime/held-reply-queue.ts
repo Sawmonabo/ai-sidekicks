@@ -1,5 +1,12 @@
 // The replies a scenario has parked on its frozen clock, and the bound on how many.
 //
+// A `ScenarioReply` carrying `afterMs` is a request that has not been answered yet,
+// and on a frozen clock the only thing that can answer it is the caller moving that
+// clock. Holding them beside the engine rather than in the bridge is what keeps the
+// frozen clock the single source of scenario time — a bridge that spent the delay
+// itself would be a second clock, and the one property the engine exists for is that
+// there is only one.
+//
 // SPLIT OUT OF `scenario-engine.ts` BECAUSE IT IS THE OTHER JOB THAT FILE WAS DOING.
 // The engine owns scenario TIME — one clock, one tick, one delivered-beat cursor, and
 // the replay a late subscriber gets. This module owns SCHEDULING against that time:

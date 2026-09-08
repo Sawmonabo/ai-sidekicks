@@ -6,10 +6,16 @@
 // beside it and nothing would look broken; a derivation that defaulted an absent
 // role to something plausible would put a term on screen that no event ever
 // stated, which is indistinguishable from a fact.
+//
+// The candidate filter — which of those rows a surface may still offer an act to —
+// is its own suite in `members-model.candidates.test.ts`, because answering it needs
+// a real store and the projector table rather than a hand-built partition.
 
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleEntity } from "../../store/index.js";
+import { membershipRow } from "./members-model.test-support.js";
+import type { MembershipRow } from "./members-model.js";
 import {
   MEMBERSHIP_ACTION_NOTES,
   MEMBERSHIP_ROLES,
@@ -20,7 +26,6 @@ import {
   isMembershipRole,
   isMembershipState,
   membershipRefusalRemedy,
-  type MembershipRow,
 } from "./members-model.js";
 
 function participant(id: string, body?: Record<string, unknown>, state?: string): ConsoleEntity {
@@ -29,16 +34,6 @@ function participant(id: string, body?: Record<string, unknown>, state?: string)
     id,
     ...(state === undefined ? {} : { state }),
     ...(body === undefined ? {} : { body }),
-  };
-}
-
-function row(overrides: Partial<MembershipRow> = {}): MembershipRow {
-  return {
-    participantId: "participant-you",
-    membershipId: "membership-1",
-    role: "owner",
-    state: "active",
-    ...overrides,
   };
 }
 
@@ -147,22 +142,148 @@ describe("members model — the rows it derives", () => {
   });
 });
 
+describe("members model — the two sources, and which one wins", () => {
+  const ENTRY = {
+    participantId: "participant-you",
+    membershipId: "membership-read",
+    role: "collaborator",
+    state: "active",
+  } as const;
+
+  it("takes the role and the state from the log, over the read's own", () => {
+    // The read is answered once, on mount; the log keeps arriving. So a revocation the
+    // fold has seen is the newer statement, and a read that outranked it would report a
+    // membership that has ended as one that has not for the rest of the visit — which
+    // is what this case is: the read still says `active` and the log says otherwise.
+    const rows = deriveMembershipRows(
+      {
+        "participant-you": participant(
+          "participant-you",
+          { role: "owner", membershipId: "membership-log" },
+          "revoked",
+        ),
+      },
+      new Map([["participant-you", ENTRY]]),
+    );
+    expect(rows).toStrictEqual([
+      {
+        participantId: "participant-you",
+        membershipId: "membership-read",
+        role: "owner",
+        state: "revoked",
+      },
+    ]);
+  });
+
+  it("takes the entry's facts where the log states none", () => {
+    // The other half of the rule, and the ordinary case: the session's own opener is
+    // admitted by `session.created` and the log states no role and no state for them.
+    const rows = deriveMembershipRows(
+      { "participant-you": participant("participant-you", {}) },
+      new Map([["participant-you", ENTRY]]),
+    );
+    expect(rows[0]?.role).toBe("collaborator");
+    expect(rows[0]?.state).toBe("active");
+    expect(rows[0]?.membershipId).toBe("membership-read");
+  });
+
+  it("keeps the log's facts where the entry states none", () => {
+    const rows = deriveMembershipRows(
+      {
+        "participant-you": participant(
+          "participant-you",
+          { role: "owner", membershipId: "membership-log" },
+          "active",
+        ),
+      },
+      new Map([["participant-you", { participantId: "participant-you", membershipId: "m" }]]),
+    );
+    expect(rows[0]?.role).toBe("owner");
+    expect(rows[0]?.state).toBe("active");
+    expect(rows[0]?.membershipId).toBe("m");
+  });
+
+  it("drops a role or state the wire union does not contain, from either source", () => {
+    const rows = deriveMembershipRows(
+      { "participant-you": participant("participant-you", { role: "owner" }, "active") },
+      new Map([
+        [
+          "participant-you",
+          { participantId: "participant-you", membershipId: "m", role: "observer", state: "gone" },
+        ],
+      ]),
+    );
+    expect(rows[0]?.role).toBe("owner");
+    expect(rows[0]?.state).toBe("active");
+    expect(
+      deriveMembershipRows(
+        { "participant-you": participant("participant-you", { role: "observer" }, "gone") },
+        new Map([
+          [
+            "participant-you",
+            {
+              participantId: "participant-you",
+              membershipId: "m",
+              role: "viewer",
+              state: "active",
+            },
+          ],
+        ]),
+      )[0],
+    ).toMatchObject({ role: "viewer", state: "active" });
+  });
+
+  it("keeps a row the read named and the log never saw", () => {
+    // The read is the membership list; the partition is what this window happened to
+    // project. The session's own opener is exactly this case — admitted by
+    // `session.created`, with no membership beat anywhere in the log.
+    const rows = deriveMembershipRows(
+      { "participant-you": participant("participant-you", { role: "owner" }, "active") },
+      new Map([
+        ["participant-you", { participantId: "participant-you", membershipId: "m1" }],
+        [
+          "participant-opener",
+          { participantId: "participant-opener", membershipId: "m2", role: "owner" },
+        ],
+      ]),
+    );
+    expect(rows.map((each) => each.participantId)).toStrictEqual([
+      "participant-you",
+      "participant-opener",
+    ]);
+    expect(rows[1]?.membershipId).toBe("m2");
+    expect(rows[1]?.state).toBeUndefined();
+  });
+
+  it("negative control: with no entries the rows are exactly the log's", () => {
+    const projected = {
+      "participant-you": participant("participant-you", { role: "owner" }, "active"),
+    };
+    expect(deriveMembershipRows(projected, new Map())).toStrictEqual(
+      deriveMembershipRows(projected),
+    );
+  });
+});
+
 describe("members model — the last remaining owner", () => {
   it("names the sole owner and nobody else", () => {
-    const rows = [row(), row({ participantId: "participant-priya", role: "collaborator" })];
+    const rows = [
+      membershipRow(),
+      membershipRow({ participantId: "participant-priya", role: "collaborator" }),
+    ];
     expect(isLastRemainingOwner(rows[0] as MembershipRow, rows)).toBe(true);
     expect(isLastRemainingOwner(rows[1] as MembershipRow, rows)).toBe(false);
   });
 
   it("names nobody once a second owner exists", () => {
-    const rows = [row(), row({ participantId: "participant-priya" })];
+    const rows = [membershipRow(), membershipRow({ participantId: "participant-priya" })];
     expect(rows.every((candidate) => !isLastRemainingOwner(candidate, rows))).toBe(true);
   });
 
   it("negative control: a row whose role never arrived is never the last owner", () => {
     // The note is advisory precisely because this console does not hold every
     // role — a row with no role must not be counted as one either way.
-    const rows = [row({ role: undefined })];
+    const rows = [membershipRow({ role: undefined })];
     expect(isLastRemainingOwner(rows[0] as MembershipRow, rows)).toBe(false);
   });
 });

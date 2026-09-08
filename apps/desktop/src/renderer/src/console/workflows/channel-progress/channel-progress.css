@@ -1,0 +1,71 @@
+/*
+ * The channel's pinned run card.
+ *
+ * Reached from `workflows/index.ts` — the family DOOR rather than a chunk root, because
+ * the card is the one thing this family draws on the first paint: the door registers it
+ * as a pinned region on the console's flagship `timeline` pane with a `render` and not a
+ * loader, so its rules have to be on the initial document with it.
+ *
+ * It draws no box of its own: the pane chrome's pinned region already carries the
+ * inline padding and the hairline that separate it from the body, and a card that drew
+ * a second border inside that region would put two edges a few pixels apart — the
+ * doubled-frame defect the chrome exists to prevent one level up.
+ */
+.meridian-channel-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-channel-progress__head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-channel-progress__definition {
+  font-weight: 600;
+}
+
+/*
+ * A figure sentence rather than a figure: the two numbers are read together and read
+ * once, so they take the body text's own colour at the quiet weight the chrome uses
+ * for everything that is not the pane's subject.
+ */
+.meridian-channel-progress__phases {
+  color: var(--meridian-text-muted);
+  margin: 0;
+}
+
+/*
+ * The route out of the card, aligned to the text rather than stretched.
+ *
+ * The card is a column flex, so a button with no alignment of its own takes the whole
+ * width of the pinned region — a full-bleed control above a conversation, which reads
+ * as the region's subject rather than as the one act it offers.
+ *
+ * IT DECLARES THE WHOLE TREATMENT RATHER THAN WEARING THE FAMILY'S. Every other action
+ * in this family carries `.meridian-workflow__action`, which `workflows.css` declares —
+ * and that document rides this family's three chunks, none of which the first paint
+ * loads. Borrowing the class here drew a bare user-agent button above the flagship pane
+ * until some workflows body happened to arrive, which is a bundle boundary deciding what
+ * a control looks like. Restated here for the reason `primitives/surface-failure.css`
+ * restates its own: a surface that paints before its family does owns its treatment.
+ */
+.meridian-channel-progress__route {
+  align-self: flex-start;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-channel-progress__route:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

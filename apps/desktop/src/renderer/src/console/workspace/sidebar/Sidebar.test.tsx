@@ -15,7 +15,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
@@ -44,6 +44,7 @@ function renderSidebar(
     <Sidebar
       sessionStore={new SessionStore({ sessionId: "session-sidebar" })}
       bridge={bridge}
+      frameStore={new FrameStore()}
       openPane={() => undefined}
       sectionRegistry={registry}
       {...(uiStateStore === undefined ? {} : { uiStateStore })}

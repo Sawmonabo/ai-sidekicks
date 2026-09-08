@@ -20,11 +20,21 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonSubscribe } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 import { type SidebarSectionContext } from "../../seats/index.js";
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { sectionsRegisteredForTest } from "../sections.test-support.js";
 
 /** Branded UUID, because the call door parses the request before it sends. */
 const SESSION_ID = "019b7910-0006-7000-8000-000000000001";
+
+/**
+ * How many daemon subscriptions one mounted members section takes.
+ *
+ * Two, and both are the Awareness change signal: the roster re-reads presence on it
+ * and the activity feed re-reads who is composing where. This case is about the
+ * ROSTER's, and it cannot single one out — the two are the same event name — so it
+ * counts a whole mount's worth and the arithmetic below says "one mount, then two".
+ */
+const SUBSCRIPTIONS_PER_MOUNT = 2;
 
 /**
  * A real fixture bridge whose event subscription refuses until it is admitted.
@@ -94,6 +104,7 @@ describe("the members section — a presence stream that refused to open", () =>
     const context: SidebarSectionContext = {
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       bridge: seam.bridge,
+      frameStore: new FrameStore(),
       openPane: () => undefined,
       isOpen: true,
     };
@@ -105,7 +116,7 @@ describe("the members section — a presence stream that refused to open", () =>
     expect(container.textContent ?? "").toContain("subscribe-failed");
     const retry = retryControl(container);
     expect(retry?.textContent).toBe("Try again");
-    expect(seam.subscribeCallCount()).toBe(1);
+    expect(seam.subscribeCallCount()).toBe(SUBSCRIPTIONS_PER_MOUNT);
 
     seam.admitSubscribe();
     await act(async () => {
@@ -115,7 +126,9 @@ describe("the members section — a presence stream that refused to open", () =>
 
     // The subscription was taken again, the refusal is gone, and the served roster is
     // on screen — the three halves of "the surface came back".
-    expect(seam.subscribeCallCount()).toBe(2);
+    // One MORE, not another mount's worth: the retry control belongs to the roster's
+    // read, and the activity feed beside it has no control and takes nothing new.
+    expect(seam.subscribeCallCount()).toBe(SUBSCRIPTIONS_PER_MOUNT + 1);
     expect(retryControl(container)).toBeNull();
     expect(container.querySelector(".meridian-roster")).not.toBeNull();
     expect(container.textContent ?? "").not.toContain("subscribe-failed");
@@ -130,6 +143,7 @@ describe("the members section — a presence stream that refused to open", () =>
     const context: SidebarSectionContext = {
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       bridge: seam.bridge,
+      frameStore: new FrameStore(),
       openPane: () => undefined,
       isOpen: true,
     };

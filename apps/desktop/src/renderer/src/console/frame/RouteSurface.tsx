@@ -33,7 +33,7 @@
 // what "a different address" means.
 //
 // Three of the four reach the screen through the `SurfaceAbsence` primitive, which
-// is the console's one centring wrapper; `seats/absorbed-surfaces.ts` raises three
+// is the console's one centring wrapper; `seats/absorbed-surfaces.ts` raises two
 // more through the same component, which is why it is a module and not a block in here.
 
 import { Fragment } from "react";

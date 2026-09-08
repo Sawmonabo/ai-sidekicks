@@ -19,6 +19,28 @@
 // answers to one question is to keep asking it. Navigating back remounts and
 // re-reads, which is the moment a person expects a fresh list.
 //
+// AND A SECOND LIFETIME FOR A SURFACE THAT DOES NOT REMOUNT. "Navigating back remounts"
+// is the runs surface's own reading and it is true of the runs surface: a person reaches
+// that list by going to it. It is false of the pinned card above a channel's timeline,
+// which is mounted for as long as somebody is reading the conversation — which is the
+// whole time the run it names is advancing, parking, completing, or failing. So this
+// module holds two lifetimes over ONE read: {@link useWorkflowRunDirectory} for a
+// surface whose arrival is its refresh, and {@link useLiveWorkflowRunDirectory} for one
+// that has to stay current where it stands. One request builder, one state vocabulary,
+// two answers to how long an answer stays good — never two implementations of the read.
+//
+// WHAT THE LIVE ONE REFRESHES ON, AND WHY IT IS NOT A WORKFLOW EVENT. It declares NO
+// triggering event kinds, and that is a measured claim rather than an omission: no
+// `workflow.*` type is registered in the session-event census at all, which is why
+// `bridge/growth-port/growth-prerequisites.ts` carries the registration as an unmet
+// prerequisite of the workflow slate row. There is therefore no kind the session store
+// folds and no name `daemon.subscribe` would be served for, and a set naming one would
+// be a subscription that silently never fires — the exact hole
+// `bridge/daemon/session-event-streams.ts` exists to keep out. What is left is the
+// window-scoped half of the refresh substrate, which is what a reading no registered
+// signal bears on is entitled to. The day that registration lands, the kinds go in the
+// set below and nothing else here moves.
+//
 // THE FOUR STATES ARE FOUR FACTS AND NO OTHERS — nobody could ask, a read is in
 // flight, an answer came back (possibly with no runs, which is a real answer), and
 // the read refused. Collapsing any two is the conflation the five kinds of nothing
@@ -42,13 +64,32 @@
 // the enumeration carries each run's definition name and that definition's newest
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
+import { useCallback } from "react";
+
 import {
+  consoleClockFor,
   useSettledGrowthRead,
+  type ConsoleBridge,
   type GrowthPort,
   type SettledReadRefusal,
   type WorkflowRunListEntry,
 } from "../../bridge/index.js";
-import { subjectReadStart, type SubjectRead } from "../../store/index.js";
+import {
+  PushDrivenRead,
+  servedGrowthValueOrRaise,
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "../../seats/index.js";
+import {
+  NO_TRIGGERING_EVENT_KINDS,
+  subjectReadStart,
+  useSubjectScopedResource,
+  useWindowReadTriggers,
+  type ReadTriggerTarget,
+  type RefreshReason,
+  type SubjectRead,
+  type SubjectScopedDisposal,
+} from "../../store/index.js";
 
 /** What this read looks like once it has an answer, either kind. */
 type SettledRunDirectory =
@@ -112,4 +153,133 @@ function readRuns(
   sessionId: string | undefined,
 ): ReturnType<GrowthPort["workflowRunList"]> | undefined {
   return sessionId === undefined ? undefined : growth.workflowRunList({ sessionId });
+}
+
+/** Names this read in a refusal the call itself did not name. */
+const LIVE_RUN_DIRECTORY_ORIGIN = "workflow-run-directory";
+
+/**
+ * The enumeration kept current for a surface that stays where it is.
+ *
+ * A class rather than a hook body: it owns a subscription handle and a scheduler and
+ * has a teardown, and `apps/desktop/AGENTS.md` puts stateful logic in a class with
+ * private fields. It IS the trigger target rather than holding one beside it, so the
+ * substrate's four moments and this read's own refresh are one object with one
+ * identity — `collaboration/invites/use-pending-invites.ts`' shape, and the property
+ * that keeps a re-render from re-firing the mount read.
+ *
+ * IT OPENS NO SUBSCRIPTION, and the empty `subscribe` is the same claim
+ * `triggeringEventKinds` makes from the other side: there is no registered signal for
+ * this answer to listen to. What the seat still supplies is everything else it owns —
+ * one read per burst on the refresh chokepoint, no stale reply winning, no flicker back
+ * to the unread frame while a refresh is in flight, and a terminal dispose.
+ */
+class LiveWorkflowRunDirectory implements ReadTriggerTarget {
+  /** No registered session-event kind bears on this reading. See the module header. */
+  public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
+  readonly #read: PushDrivenRead<readonly WorkflowRunListEntry[] | undefined>;
+
+  public constructor(bridge: ConsoleBridge, sessionId: string | undefined) {
+    this.#read = new PushDrivenRead<readonly WorkflowRunListEntry[] | undefined>({
+      clock: consoleClockFor(bridge),
+      origin: LIVE_RUN_DIRECTORY_ORIGIN,
+      read: async () => {
+        const enumeration = readRuns(bridge.growth, sessionId);
+        return enumeration === undefined
+          ? undefined
+          : servedGrowthValueOrRaise(await enumeration).runs;
+      },
+      subscribe: () => () => undefined,
+    });
+  }
+
+  /**
+   * The read itself, for the one binding that subscribes to it.
+   *
+   * Handed out rather than mirrored: `usePushDrivenRead` is the seat's own React
+   * binding and re-implementing it around a forwarded `state` getter would be a second
+   * external-store adapter for one model.
+   */
+  public get read(): PushDrivenRead<readonly WorkflowRunListEntry[] | undefined> {
+    return this.#read;
+  }
+
+  public requestRead(reason: RefreshReason): void {
+    this.#read.refresh(reason);
+  }
+
+  public dispose(): void {
+    this.#read.dispose();
+  }
+
+  public get isDisposed(): boolean {
+    return this.#read.isDisposed;
+  }
+}
+
+/**
+ * The live directory's disposal, as one module-level object.
+ *
+ * Minted once rather than in a render body, because the resource seam holds `dispose`
+ * and `isClosed` on dependencies of their own and a fresh literal each pass would
+ * restart the lifetime beneath it.
+ */
+const LIVE_RUN_DIRECTORY_DISPOSAL: SubjectScopedDisposal<LiveWorkflowRunDirectory> = {
+  dispose: (directory) => {
+    directory.dispose();
+  },
+  isClosed: (directory) => directory.isDisposed,
+};
+
+/**
+ * Read every run one session holds, and keep reading it for as long as the caller is
+ * mounted.
+ *
+ * The bridge rather than the port, because the clock is the bridge's: under the fixture
+ * the scenario's frozen clock is the only clock this renderer reads, and a read that
+ * armed its debounce on the platform clock would never fall due in a story.
+ *
+ * The state is held against the bridge and the session, exactly as
+ * {@link useWorkflowRunDirectory}'s is: either moving is a different question, and the
+ * resource seam disposes the previous one during the render that brings the new one.
+ */
+export function useLiveWorkflowRunDirectory(
+  bridge: ConsoleBridge,
+  sessionId: string | undefined,
+): WorkflowRunDirectoryState {
+  const openDirectory = useCallback(
+    () => new LiveWorkflowRunDirectory(bridge, sessionId),
+    [bridge, sessionId],
+  );
+  const { value: directory } = useSubjectScopedResource(
+    bridge,
+    sessionId,
+    openDirectory,
+    LIVE_RUN_DIRECTORY_DISPOSAL,
+  );
+  // The mount read is the substrate's own `subscribe` moment rather than a `start()`
+  // beside it, so a mounted card asks exactly once and the window coming back is the
+  // second reason it ever asks.
+  useWindowReadTriggers(directory, bridge.transportReconnect);
+  return liveDirectoryState(usePushDrivenRead(directory.read), sessionId);
+}
+
+/**
+ * The live read's three arms, read as the four states every runs surface narrows on.
+ *
+ * ONE VOCABULARY AND NOT TWO. The pinned card and the runs list ask one question, and a
+ * second settlement shape for the live lifetime would be two answers to it — so the
+ * push-driven arms are projected onto the shape this module already publishes rather
+ * than published beside it. `undefined` on the loaded arm is the read that had no
+ * session to ask about, which is `unasked` and never an empty run list.
+ */
+function liveDirectoryState(
+  state: PushDrivenReadState<readonly WorkflowRunListEntry[] | undefined>,
+  sessionId: string | undefined,
+): WorkflowRunDirectoryState {
+  if (state.kind === "failed") {
+    return { status: "unavailable", refusal: { ...state.refusal, status: "unavailable" } };
+  }
+  const runs = state.kind === "loaded" ? state.value : undefined;
+  return runs === undefined ? subjectReadStart(sessionId) : { status: "served", runs };
 }

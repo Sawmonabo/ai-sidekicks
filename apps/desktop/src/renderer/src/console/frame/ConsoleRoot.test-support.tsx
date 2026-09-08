@@ -35,21 +35,32 @@ export const SESSIONS_HASH = "#/sessions";
  * this same slot, so a case about what one of them does to the frame around it has
  * to put the real component there. Both callbacks take the context because both jobs
  * need it, and the slot stays empty for every case that asks for neither.
+ *
+ * `scenarioId` names which scripted session the fixture plays, for the suites whose
+ * claim is about what a scenario DELIVERS rather than about the shell. Absent, the
+ * window opens on the first-run scenario, which is what every other suite drives.
  */
 export async function mountConsole(
   observe?: (context: ConsoleSurfaceContext) => void,
   renderOverlay?: (context: ConsoleSurfaceContext) => ReactNode,
+  scenarioId?: string,
 ): Promise<RenderResult> {
   let mounted: RenderResult | undefined;
-  const props: ConsoleRootProps =
-    observe === undefined && renderOverlay === undefined
+  const props: ConsoleRootProps = {
+    ...(observe === undefined && renderOverlay === undefined
       ? {}
       : {
           renderOverlays: (context) => {
             observe?.(context);
             return renderOverlay === undefined ? null : renderOverlay(context);
           },
-        };
+        }),
+    // Spread rather than passed as `scenarioId={scenarioId}`: the prop is optional
+    // under `exactOptionalPropertyTypes`, so an explicit `undefined` is a different
+    // value from an absent prop — and an absent one is what makes the window open on
+    // the first-run scenario every other suite drives.
+    ...(scenarioId === undefined ? {} : { scenarioId }),
+  };
   await act(async () => {
     mounted = render(<ConsoleRoot {...props} />);
     await crossMacrotaskBoundary();

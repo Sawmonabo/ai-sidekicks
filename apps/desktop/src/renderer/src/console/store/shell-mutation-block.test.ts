@@ -23,11 +23,12 @@ import {
 import { REPORTED_CONNECTIONS, stateWith } from "./shell-state.test-support.js";
 
 describe("the mutating method set", () => {
-  it("is exactly the seven the corpus registers mutating", () => {
-    // Six of them are the handlers the daemon has shipped. The seventh is registered
-    // mutating by the account plane's own contract and has no handler yet — which is
-    // why the set is not a census of what has landed: an unregistered verb the console
-    // can already call is unregistered, never read-only.
+  it("is exactly the eight the corpus registers mutating", () => {
+    // Six of them are the handlers the daemon has shipped. The other two — the account
+    // plane's probe and the membership update — are registered mutating by their own
+    // contracts and have no handler yet, which is why the set is not a census of what
+    // has landed: an unregistered verb the console can already call is unregistered,
+    // never read-only.
     expect([...MUTATING_DAEMON_METHODS]).toEqual([
       "session.create",
       "session.join",
@@ -36,6 +37,7 @@ describe("the mutating method set", () => {
       "driver.respondToRequest",
       "driver.compactContext",
       "providerAccount.probe",
+      "membership.update",
     ]);
   });
 
@@ -55,6 +57,8 @@ describe("the mutating method set", () => {
       "daemon.hello",
       // The account plane's own read, beside the probe that is not one.
       "providerAccount.list",
+      // The collaboration plane's read, beside the membership update that is not one.
+      "channel.list",
     ]) {
       expect(isMutatingDaemonMethod(method), method).toBe(false);
     }

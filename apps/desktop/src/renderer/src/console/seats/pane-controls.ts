@@ -33,6 +33,8 @@
 
 import { createContext, useContext } from "react";
 
+import { type ConsolePaneOpener } from "./pane-address.js";
+
 // NO GLYPH SIZE IS DECLARED HERE. The head's controls and the breadcrumb's
 // separators are one chrome at one size, and that size is `GLYPH_SIZE_CHROME` in
 // `tokens/glyphs.ts` — a console-wide token rather than a per-family constant,
@@ -51,6 +53,21 @@ export interface PaneControls {
    * answers the kind's half, and the host's is whether it supplied a handler.
    */
   readonly onOpenInWindow?: () => void;
+  /**
+   * Open another pane in this pane's deck.
+   *
+   * Not a control on the head — no pane's chrome draws a button for it — but a host
+   * act like the two above, and here for the same reason they are: the deck owns
+   * which panes exist, and a body reaching for a process-wide opener would open its
+   * route in whichever deck was composed last. `ConsolePaneChrome` forwards it to the
+   * pinned region it draws, which is the surface that has a route to offer and no way
+   * of its own to take it.
+   *
+   * Absent where the host opens no panes — the auxiliary window, which holds one pane
+   * and no deck to put a second in — which leaves the region stating where its subject
+   * lives rather than drawing a control that could not act.
+   */
+  readonly openPane?: ConsolePaneOpener;
   /**
    * Make the pane's head the handle that drags it to a new position.
    *

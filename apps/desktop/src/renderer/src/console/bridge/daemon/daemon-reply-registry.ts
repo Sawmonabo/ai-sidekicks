@@ -72,6 +72,8 @@ import {
   ExecutionRootPrepareResponseSchema,
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
+  InviteCreateResponseSchema,
+  InviteCreateSchema,
   InviteRevokeResponseSchema,
   InviteRevokeSchema,
   MembershipUpdateResponseSchema,
@@ -244,6 +246,7 @@ export const CONSOLE_DAEMON_METHOD_BINDINGS: ConsoleDaemonMethodBindings = Objec
   "channel.list": bindDaemonMethod(ChannelListRequestSchema, ChannelListResponseSchema),
   "membership.update": bindDaemonMethod(MembershipUpdateSchema, MembershipUpdateResponseSchema),
   "presence.read": bindDaemonMethod(PresenceReadRequestSchema, PresenceReadResponseSchema),
+  "invite.create": bindDaemonMethod(InviteCreateSchema, InviteCreateResponseSchema),
   "invite.revoke": bindDaemonMethod(InviteRevokeSchema, InviteRevokeResponseSchema),
   "providerAccount.list": bindDaemonMethod(
     ProviderAccountListRequestSchema,
@@ -284,12 +287,13 @@ export const CONSOLE_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.fre
  * both change the run they name. `false` is everything else, and several of them are
  * worth stating because they are mutations all the same: `repo.executionModeSelect`
  * records a WORKSPACE's execution mode and names no run; `session.create`,
- * `session.join`, `membership.update` and `invite.revoke` change the session's own
- * roster; the repo attach, bind, prepare, retire, and dispose acts change mounts,
- * workspaces, and execution roots the same way; and `providerAccount.probe` re-checks
- * an account's readiness, which no run reads until its next admission. A mutation is
- * not automatically a run change, and reading it as one would put every family that
- * also reads under a claim written about run controls.
+ * `session.join`, `membership.update`, `invite.create` and `invite.revoke` change the
+ * session's own roster; the repo attach, bind, prepare, retire, and dispose acts
+ * change mounts, workspaces, and execution roots the same way; and
+ * `providerAccount.probe` re-checks an account's readiness, which no run reads until
+ * its next admission. A mutation is not automatically a run change, and reading it as
+ * one would put every family that also reads under a claim written about run
+ * controls.
  *
  * THIS IS NOT THE DOOR'S READ-VERSUS-MUTATION RULE, and it must not become one.
  * `DaemonCallOptions` in `daemon-reply.ts` keeps that distinction at the call site on
@@ -327,6 +331,7 @@ const CHANGES_A_RUN: { readonly [MethodName in ConsoleDaemonMethod]: boolean } =
   "channel.list": false,
   "membership.update": false,
   "presence.read": false,
+  "invite.create": false,
   "invite.revoke": false,
   "providerAccount.list": false,
   "providerAccount.probe": false,

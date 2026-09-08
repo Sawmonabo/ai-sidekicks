@@ -98,6 +98,7 @@ const EXPECTED_READINGS: readonly string[] = [
   "NodeProviderQuotaReading",
   "OnboardingFlow",
   "OsNotificationPermissionRead",
+  "PendingInviteAdapter",
   "ProposalGateReader",
   "ProviderReadinessModel",
   "RepoMountsReader",

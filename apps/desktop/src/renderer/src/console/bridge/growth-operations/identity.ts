@@ -18,7 +18,10 @@ import { op } from "./operation-entry.js";
  */
 type IdentityOperationId = Extract<
   GrowthOperationId,
-  "callerParticipantRead" | "callbackToolRegistryRead"
+  | "callerParticipantRead"
+  | "callbackToolRegistryRead"
+  | "membershipRosterRead"
+  | "participantPresenceDetailRead"
 >;
 
 /** The identity rows, in the order the single table carried them. */
@@ -47,5 +50,27 @@ export const IDENTITY_GROWTH_OPERATIONS: Readonly<
     "callback-tool-registry-read",
     "method",
     "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
+  ),
+  // The membership roster, which names no wire method because none is registered:
+  // every shape that carries a `membershipId` answers a JOIN or a WRITE, so a window
+  // that neither created nor joined the session in this process holds an identifier
+  // for no membership but its own — and the four `membership.update` controls are
+  // keyed by exactly that identifier.
+  membershipRosterRead: op(
+    "membershipRosterRead",
+    "membership-roster-read",
+    "method",
+    "read a membershipId beside each of a session's participants, so the membership controls are reachable on a session this window did not create",
+  ),
+  // The per-device fan-out behind the aggregated presence summary. It DOES name a
+  // registered method — the `participant.*` registry carries it — and it is the one
+  // read whose refusal is specified as a projection rather than as an error: a caller
+  // outside the owner/operator set gets the summary they already had.
+  participantPresenceDetailRead: op(
+    "participantPresenceDetailRead",
+    "participant-presence-detail",
+    "method",
+    "read one participant's per-device presence fan-out, which is the detail the roster's density rule promises one hover away and which no registered reply carries today",
+    "participant.presenceDetail",
   ),
 };

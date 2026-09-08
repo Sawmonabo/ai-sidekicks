@@ -31,10 +31,15 @@
 // this tier reported that it had: a driver that can no longer see the surface it
 // drives should stop, not continue measuring an unobserved loop.
 //
-// The session workspace still mounts a shipped Tier-1 family that reads the
-// installed bridge, which under the fixture is a question nobody put, so its
-// locator is still `Spec-023 §Console Design (Meridian)` rule 8's `not-checked`
-// class. When that surface ships for real, this one gets the same treatment.
+// The session workspace has NOT shipped, and it no longer even borrows a surface.
+// It used to be held by a shipped Tier-1 family that read the installed bridge —
+// under the fixture a question nobody put, so its locator was that family's
+// `not-checked` absence — and that family is now retired rather than re-homed,
+// because it drew one session's presence a second time beside the collaboration
+// family's. So no family claims the `workspace` slot, the frame renders the card it
+// renders for a slot nobody has claimed, and THAT card is what this route is waited
+// on. When the deck claims the slot, this one gets the settings locator's treatment:
+// the surface's own structure.
 
 import { expect } from "vitest";
 
@@ -99,9 +104,26 @@ export const SETTINGS_ROUTE: string = "#/settings";
 export const SETTINGS_SURFACE_SELECTOR: string =
   ".meridian-frame__surface .meridian-settings__rail";
 
-/** What the session workspace renders and the settings route does not. */
+/**
+ * What the session workspace renders and the settings route does not.
+ *
+ * The frame's reserved-slot card: `Spec-023 §Console Design (Meridian)` rule 8's
+ * `empty` absence, raised through the console's one centring wrapper, which is what
+ * a route resolving to a slot no family claims mounts.
+ *
+ * THE TWO CHILD COMBINATORS ARE THE LOAD-BEARING HALF, and the kind alone is not. The
+ * pages inside the settings frame raise `empty` absences of their own, so a descendant
+ * selector would be satisfied on that route as readily as on this one; what is true
+ * here and nowhere else is that the card IS the surface — the boundary's only child,
+ * with nothing of a family's around it.
+ *
+ * The kind is named beside them because this route raises a SECOND absence through the
+ * same wrapper: `not-loaded`, for the frame in which the route's session store is
+ * still opening. A wait that took either would return on the transient one and report
+ * a transition that had not landed.
+ */
 export const WORKSPACE_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-nothing--block.meridian-nothing--not-checked";
+  ".meridian-frame__surface > .meridian-surface-mount > .meridian-surface-absence .meridian-nothing--block.meridian-nothing--empty";
 
 /**
  * Assign the hash and wait for the surface only that route mounts.

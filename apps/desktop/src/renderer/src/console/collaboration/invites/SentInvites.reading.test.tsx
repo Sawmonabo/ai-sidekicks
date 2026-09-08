@@ -166,20 +166,20 @@ describe("sent invites — the ledger", () => {
   });
 });
 
-describe("sent invites — the controls that are not drawn", () => {
-  it("draws no create control and says which read is missing", async () => {
+describe("sent invites — the create control, and the ones still not drawn", () => {
+  it("draws the create control and no longer says the console cannot mint one", async () => {
+    // The absence this replaced named the caller-identity read as the missing input.
+    // That read is served here, so the sentence would now be false — and the surface
+    // must not keep an explanation for a state it is no longer in.
     const { container } = render(
       <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
     await settle();
-    expect(container.textContent ?? "").toContain("cannot mint an invitation");
-    const labels = [...container.querySelectorAll("button")].map(
-      (button) => button.textContent ?? "",
-    );
-    expect(labels.some((label) => label.toLowerCase().includes("invite"))).toBe(false);
+    expect(container.textContent ?? "").not.toContain("cannot mint an invitation");
+    expect(container.querySelector(".meridian-invite-create__send")).not.toBeNull();
   });
 
-  it("draws no copy control, because no row carries a link or a token", async () => {
+  it("draws no copy control on the ledger, because no row carries a link or a token", async () => {
     const { container } = render(
       <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );
@@ -201,8 +201,8 @@ describe("sent invites — the controls that are not drawn", () => {
   });
 
   it("negative control: the revoke control IS drawn", async () => {
-    // Without this, the three cases above would pass over a ledger that drew no
-    // controls whatsoever.
+    // Without this, the two absence cases above would pass over a ledger that drew no
+    // row controls whatsoever.
     const { container } = render(
       <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
     );

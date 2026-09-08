@@ -63,6 +63,9 @@ import {
   type DaemonReply,
   type DaemonRequestOf,
   type DaemonResponseOf,
+  type GrowthOperationId,
+  type GrowthOperationSignatures,
+  type GrowthOutcome,
 } from "../bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -349,4 +352,46 @@ function withoutKey(
     }
   }
   return remaining;
+}
+
+/**
+ * One growth-port WRITE, as the shape a coordinator consumes.
+ *
+ * `daemonMutation`'s twin, and two functions rather than one over both because the
+ * two seams answer in two vocabularies: the call door answers `DaemonReply` and the
+ * growth port answers `GrowthOutcome`, whose refused arm names the operation, the
+ * slate row, and the document that owes the wire. This is where the second becomes the
+ * first — and it is a WIDENING and not a translation: a `GrowthUnavailable` already IS
+ * a `ConsoleRefusal`, so nothing is paraphrased on the way through and the surface
+ * renders the port's own code and sentence rather than a collaboration-scoped
+ * restatement of one.
+ *
+ * The operation id is a member of the growth registry, so the request and the response
+ * types are READ OFF IT exactly as the daemon binding reads its own: a caller naming an
+ * operation the slate does not carry does not compile, and one passing the wrong
+ * payload does not either.
+ *
+ * The port is INDEXED through a narrowing rather than called through the generic, and
+ * the narrowing is the honest half: `GrowthPort` is a mapped type, so `port[id]` at a
+ * generic key is a union of call signatures TypeScript will not call with one argument.
+ * What the assertion claims is exactly what the mapped type already says — the member
+ * at this key takes this operation's request and answers this operation's value — so it
+ * re-states a fact rather than switching one off.
+ */
+export function growthMutation<TOperationId extends GrowthOperationId>(
+  bridge: ConsoleBridge,
+  operationId: TOperationId,
+): WireMutation<
+  GrowthOperationSignatures[TOperationId]["request"],
+  GrowthOperationSignatures[TOperationId]["value"]
+> {
+  return async (request) => {
+    const call = bridge.growth[operationId] as (
+      growthRequest: GrowthOperationSignatures[TOperationId]["request"],
+    ) => Promise<GrowthOutcome<GrowthOperationSignatures[TOperationId]["value"]>>;
+    const outcome = await call(request);
+    return outcome.status === "served"
+      ? { status: "served", value: outcome.value }
+      : { status: "refused", refusal: outcome };
+  };
 }
