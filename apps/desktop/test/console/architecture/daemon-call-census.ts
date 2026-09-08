@@ -1,10 +1,11 @@
 // The reach census the daemon-reply chokepoint next door runs: how a module shows it
 // reached the bridge's call door, and how it shows it consumes it.
 //
-// A MODEL BESIDE ITS GATE, on the `barrel-census.ts` pattern. The gate reads the real
-// console while its controls drive needles with sources written by hand to fail, and the
-// two jobs had grown into one 433-line file. The needles take source text as a
-// parameter; the walk that produces the real modules stays in the gate.
+// A MODEL BESIDE ITS GATE, on the `barrel-census.ts` pattern, and a bench beside both.
+// The gate reads the real console; the needles here take source text as a parameter, so
+// `daemon-call-census.test.ts` drives them with sources written by hand to fail —
+// shapes this tree does not contain and could not be asserted against. The gate keeps
+// only what reads the real modules, which is the split the three files exist to hold.
 //
 // THE INSTRUMENT IS THE PARSER, and it was a set of regular expressions until a module
 // was reworded to get past one. `daemon.call`, `window.sidekicks.daemon` and
@@ -25,10 +26,44 @@
 // out of the same walk. Depth is still honestly non-exhaustive — a door handed through
 // two helpers defeats a syntactic scan as it defeated a textual one — and the lint ban
 // beside it remains a second, different claim rather than a closure of this one.
+//
+// AND THE DOOR ITSELF IS A BINDING, NEVER A SPELLING — the one reading this file's
+// consumer census and the call scan beside it both make, of the same scopes. Matching a
+// name against the door's spellings answered three questions wrongly at once. A nested
+// `send` — a parameter, a local, a callback argument — SHADOWS an import of the door
+// aliased to that spelling, and the language says the shadow wins while the name set
+// said the door did; the exported spelling `callDaemon` was matched unconditionally, in
+// modules that never imported it, so any function of that name would have been read as
+// the door; and a NAMESPACE-borne door — `import * as daemonDoor from "<the door>"`
+// followed by `daemonDoor.callDaemon(…)` — was matched by neither reading, so a module
+// written that way contributed no calls to the site scan AND was counted no consumer
+// here, which is a signal check passing over nothing while every count that protects it
+// stays satisfied.
+//
+// SO `namesCallDoor` RESOLVES THE CALLEE, in the two binding forms a door call has and
+// no third. An identifier is the door where it resolves to the import specifier that
+// imported it, under the exported spelling or whatever the clause aliased it to — the
+// `propertyName ?? name` reading the clause census below makes of the same element. A
+// property access `X.callDaemon` is the door where `X` resolves to a NAMESPACE import,
+// through the same scope chain at the same position, so a local `const daemonDoor = …`
+// shadows the namespace exactly as a parameter shadows a named import and neither is a
+// door call. The namespace's own local name is never matched: `import * as wire` reads
+// the same as `import * as daemonDoor`, because what a module called a binding is not
+// what the binding is.
+//
+// AND THE MODULE A NAMESPACE NAMES IS DELIBERATELY NOT CONSULTED, for the reason the
+// named form does not consult it either: the door is identified by the EXPORT a call
+// reaches for, and a specifier is written at whatever depth its importer sits at, so
+// matching one would be a second and weaker identity for the same export — one that
+// fails OPEN on every spelling it did not anticipate, which is the direction this whole
+// file exists to refuse. `X.callDaemon` off a namespace of some other module is
+// therefore read as the door and reported, exactly as
+// `import { callDaemon } from "./anywhere.js"` has always been.
 
 import ts from "typescript";
 
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import { ModuleBindingScopes } from "./daemon-method-bindings.js";
 
 /** The bridge namespace whose call door is governed. */
 const DAEMON_NAMESPACE = "daemon";
@@ -42,11 +77,63 @@ const CALL_MEMBER = "call";
 /**
  * The door's consumer-facing name, as `bridge/index.ts` publishes it.
  *
- * Exported because the call-site scan beside this one asks the same question of the
- * same clause — which specifier imported THIS export — and a second declaration of the
- * name there would be a closed set written twice.
+ * Declared here because the two questions asked of it — which specifier imported THIS
+ * export, and whether a callee resolves to one — are both answered in this file, and a
+ * second declaration of the name beside either would be a closed set written twice.
  */
-export const CALL_DOOR_EXPORT = "callDaemon";
+const CALL_DOOR_EXPORT = "callDaemon";
+
+/**
+ * Whether `callee` names the call door, through the binding it has at `position`.
+ *
+ * The rule this module's header states, applied: an identifier resolving to the door's
+ * own import specifier, or a member read of the door off a namespace import. Both go
+ * through the scope chain the caller already built, so the answer is the one the
+ * language would give at that position and a nearer binding of either name wins.
+ *
+ * Exported because the call-site scan beside this one asks exactly this of every callee
+ * it finds; a second reading there would be the same rule in two headers, which is a
+ * rule that moves in one.
+ */
+export function namesCallDoor(
+  callee: ts.Expression,
+  position: number,
+  bindings: ModuleBindingScopes,
+): boolean {
+  if (ts.isIdentifier(callee)) {
+    return isCallDoorSpecifier(bindings.resolve(callee.text, position)?.declaration);
+  }
+  return readsDoorOffImportedNamespace(callee, position, bindings);
+}
+
+/** Whether a declaration is the specifier that imported the door itself. */
+function isCallDoorSpecifier(declaration: ts.Declaration | undefined): boolean {
+  return (
+    declaration !== undefined &&
+    ts.isImportSpecifier(declaration) &&
+    (declaration.propertyName ?? declaration.name).text === CALL_DOOR_EXPORT
+  );
+}
+
+/**
+ * Whether `node` reads the door's export off an IMPORTED MODULE NAMESPACE:
+ * `daemonDoor.callDaemon`.
+ *
+ * The namespace here is an `import * as` binding and never the bridge's own `daemon`
+ * namespace, which `readsCallDoor` below is about — two senses of one word, held apart
+ * in the names because the two readings answer opposite questions about the same door.
+ */
+function readsDoorOffImportedNamespace(
+  node: ts.Node,
+  position: number,
+  bindings: ModuleBindingScopes,
+): boolean {
+  if (!readsMember(node, CALL_DOOR_EXPORT) || !ts.isIdentifier(node.expression)) {
+    return false;
+  }
+  const declaration = bindings.resolve(node.expression.text, position)?.declaration;
+  return declaration !== undefined && ts.isNamespaceImport(declaration);
+}
 
 /** The three ways a value is handed on rather than invoked. */
 const HANDOFF_MEMBERS: readonly string[] = ["bind", "apply", "call"];
@@ -127,7 +214,8 @@ const REACH_FORM_ORDER: readonly string[] = [
 ];
 
 /**
- * Whether `source` CONSUMES the call door: it imports the door's own name.
+ * Whether `source` CONSUMES the call door: it imports the door's own name, or reads the
+ * door off a namespace it imported.
  *
  * Read off the import clause, which is what the regular expression this replaces spent
  * two narrowings approximating. `\bimport\b[^;]*\bcallDaemon\b` spanned newlines, so a
@@ -135,9 +223,36 @@ const REACH_FORM_ORDER: readonly string[] = [
  * it; requiring a brace between the two words fixed that one case and still matched a
  * comment that happened to contain one. An import clause is a node, and a comment is
  * not.
+ *
+ * A NAMESPACE IMPORT COUNTS ONLY WHERE THE MODULE READS THE DOOR OFF IT, which is this
+ * census's half of the binding rule and the reason it is not answered by the clause
+ * alone. `import * as bridge` binds no specifier to enumerate, so counting the clause
+ * would attribute the door to every module that imports the family for anything at all;
+ * skipping the shape entirely let a module reach the door, contribute no calls to the
+ * scan beside this one, and stay outside the pinned consumer count — every gate green
+ * over a module none of them could see. `daemonDoor.callDaemon` is the door read and is
+ * counted; `daemonDoor.formatRefusal` is not.
+ *
+ * A READ AND NOT A CALL, because a named import that is never invoked is counted too:
+ * this census asks what a module CONSUMES and the site scan asks what a call says.
+ * Holding the namespace form to the stricter test would make one pinned number move
+ * differently for two spellings of one consumption.
  */
 export function importsCallDoor(source: string, fileName = "probe.ts"): boolean {
-  return callDoorLocalNames(parseSourceText(fileName, source)).size > 0;
+  const parsed = parseSourceText(fileName, source);
+  return callDoorLocalNames(parsed).size > 0 || readsCallDoorThroughNamespace(parsed);
+}
+
+/** Whether any expression in this module reads the door off a namespace binding. */
+function readsCallDoorThroughNamespace(parsed: ts.SourceFile): boolean {
+  const bindings = new ModuleBindingScopes(parsed);
+  let consumed = false;
+  forEachDescendant(parsed, (node) => {
+    if (readsDoorOffImportedNamespace(node, node.getStart(parsed), bindings)) {
+      consumed = true;
+    }
+  });
+  return consumed;
 }
 
 /**
@@ -151,10 +266,9 @@ export function importsCallDoor(source: string, fileName = "probe.ts"): boolean 
  * is a signal check passing over nothing. Both readings now resolve the same clause
  * and share the one declaration of the name it is looked for under.
  *
- * A NAMESPACE import is deliberately not counted, on the reasoning the walk chokepoint
- * takes for the same shape: `import * as bridge` names no specifier this scan can
- * enumerate, and reporting it as a consumer would attribute the door to every module
- * that imports the family for anything at all.
+ * A NAMESPACE import binds no specifier this clause reading can enumerate, so it is not
+ * answered here at all — it is answered by the member read beside this one, for the
+ * reason `importsCallDoor` states.
  */
 function callDoorLocalNames(parsed: ts.SourceFile): ReadonlySet<string> {
   const localNames = new Set<string>();

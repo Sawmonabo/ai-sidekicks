@@ -13,11 +13,17 @@
 // written into a tree the gate reads.
 //
 // AND A MODULE THAT REACHES THE DOOR IMPORTS THE DOOR, which is scaffolding rather
-// than subject: `daemon-call-sites.ts` resolves a callee to the specifier that bound
-// it, so a planted module with no import clause reaches nothing — correctly, and
+// than subject: `daemon-call-sites.ts` resolves a callee to the binding that bound it,
+// so a planted module with no import clause reaches nothing — correctly, and
 // uninterestingly, for every case whose subject is the call rather than the clause.
 // The import is written once here for the same reason the read helper below is, and
 // the cases whose subject IS the clause take the sibling that plants nothing.
+//
+// IN BOTH SPELLINGS OF THAT BINDING, because a door call is the binding it names: the
+// named specifier every shipped consumer writes, and the namespace a module could write
+// instead. Both are planted here rather than in one bench, so the site scan, the
+// signal reading over it, and the census that classifies the result all drive the
+// second shape from the one fixture — which is the whole reason a corpus is shared.
 
 import { daemonCallSitesIn } from "./daemon-call-sites.js";
 import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
@@ -28,6 +34,15 @@ const PLANTED_MODULE = "console/planted/surface.ts";
 
 /** The clause a module reaching the door carries, as the console's own consumers write it. */
 const DOOR_IMPORT = 'import { callDaemon } from "../../bridge/index.js";';
+
+/**
+ * The clause a module reaching the door through a NAMESPACE carries.
+ *
+ * The local name is a fixture spelling and not a rule — the scan resolves the binding
+ * rather than the name — so the case that proves exactly that writes its own clause
+ * through the sibling that plants nothing, as every claim about a clause does.
+ */
+const DOOR_NAMESPACE_IMPORT = 'import * as daemonDoor from "../../bridge/index.js";';
 
 /** A registry stub carrying one reading row and one recording row. */
 export const PLANTED_REGISTRY: string = [
@@ -74,6 +89,20 @@ export function plantedSitesDeclaringImports(
 }
 
 /**
+ * The sites one planted module declares, reaching the door through a NAMESPACE import.
+ *
+ * The same corpus and the same helper shape as the named door above, so a case states
+ * only which spelling of the binding it is about. The import occupies line 1 here too,
+ * which is what every reported location counts from.
+ */
+export function plantedSitesThroughNamespace(
+  lines: readonly string[],
+  constants: DaemonMethodConstantIndex = emptyIndex(),
+): ReturnType<typeof daemonCallSitesIn> {
+  return plantedSitesDeclaringImports([DOOR_NAMESPACE_IMPORT, ...lines], constants);
+}
+
+/**
  * The same source, wrapped in the read helper shape the console actually writes.
  *
  * A signal is a value with a provenance, so a planted call that hands one has to be
@@ -85,12 +114,22 @@ export function plantedSitesInReadHelper(
   lines: readonly string[],
   constants: DaemonMethodConstantIndex = emptyIndex(),
 ): ReturnType<typeof daemonCallSitesIn> {
-  return plantedSites(
-    [
-      "export async function performRead(bridge, request, signal: AbortSignal) {",
-      ...lines.map((line) => `  ${line}`),
-      "}",
-    ],
-    constants,
-  );
+  return plantedSites(inReadHelper(lines), constants);
+}
+
+/** The same, for a call that reaches the door through a namespace import. */
+export function plantedSitesThroughNamespaceInReadHelper(
+  lines: readonly string[],
+  constants: DaemonMethodConstantIndex = emptyIndex(),
+): ReturnType<typeof daemonCallSitesIn> {
+  return plantedSitesThroughNamespace(inReadHelper(lines), constants);
+}
+
+/** The read helper both wrappers above plant their case inside, declared once. */
+function inReadHelper(lines: readonly string[]): readonly string[] {
+  return [
+    "export async function performRead(bridge, request, signal: AbortSignal) {",
+    ...lines.map((line) => `  ${line}`),
+    "}",
+  ];
 }

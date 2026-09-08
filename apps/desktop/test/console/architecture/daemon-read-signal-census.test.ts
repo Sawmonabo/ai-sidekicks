@@ -22,6 +22,8 @@ import {
   PLANTED_REGISTRY,
   plantedSites,
   plantedSitesInReadHelper,
+  plantedSitesThroughNamespace,
+  plantedSitesThroughNamespaceInReadHelper,
 } from "./daemon-call-planting.test-support.js";
 import {
   classifyDaemonCallSite,
@@ -134,6 +136,30 @@ describe("the four offender readings", () => {
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
       'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
     ]);
+  });
+
+  it("reports an unsignalled read behind a namespace import, and admits a signalled one", () => {
+    // THE SPELLING THAT WAS EXEMPT FROM ALL FOUR READINGS. A door reached as
+    // `daemonDoor.callDaemon(…)` produced no site, so this census classified nothing and
+    // reported nothing — a module could hold the same forgotten signal the browser pane
+    // held and be green here, in the reach scan, and in the pinned consumer count at
+    // once. Both directions are asserted, because a reading that only refuses reads like
+    // a rule nobody can satisfy and would be turned off within a week.
+    const unsignalled = plantedSitesThroughNamespace([
+      "export function useAdmittedRoots(bridge, sessionId) {",
+      '  const reply = await daemonDoor.callDaemon(bridge, "repo.workspaceList", { sessionId });',
+      "}",
+    ]);
+    expect(unstoppableReadOffenders(unsignalled, PLANTED_READINGS)).toStrictEqual([
+      'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
+    ]);
+    const signalled = plantedSitesThroughNamespaceInReadHelper([
+      'await daemonDoor.callDaemon(bridge, "repo.workspaceList", request, { signal });',
+      'await daemonDoor.callDaemon(bridge, "session.join", request);',
+    ]);
+    expect(signalled.map((site) => site.signalArgument)).toStrictEqual(["present", "absent"]);
+    expect(unstoppableReadOffenders(signalled, PLANTED_READINGS)).toStrictEqual([]);
+    expect(stoppableRecordOffenders(signalled, PLANTED_READINGS)).toStrictEqual([]);
   });
 
   it("negative control: a read handed a signal that is not its round's is reported", () => {

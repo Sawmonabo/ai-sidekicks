@@ -33,9 +33,12 @@
 // probe paths, and the per-case budget come from `test/console/eslint-harness.ts`, which
 // three gates now share; the budget's derivation is recorded there.
 //
-// The reach needles live in `daemon-call-census.ts` beside this file, on the
-// `barrel-census.ts` pattern: this file is the rule applied to the real tree, that one
-// is the rule.
+// The reach and consumption needles live in `daemon-call-census.ts` beside this file
+// and are driven by `daemon-call-census.test.ts` beside that, on the `barrel-census.ts`
+// pattern: this file is the rule applied to the real tree, those two are the rule and
+// its bench. What stays here is the pair of assertions that read the real console — the
+// clean sweep, and the one module that has to trip it — because a needle case writes a
+// source this tree does not contain and cannot be written against it.
 //
 // WHAT IS DELIBERATELY NOT SCANNED.
 //   • `daemon.subscribe`. A subscription is a different seam with a different
@@ -116,7 +119,9 @@ function isBridgeFamilyModule(module: string): boolean {
 }
 
 /**
- * How many modules outside the bridge family import the call door on this branch.
+ * How many modules outside the bridge family consume the call door on this branch —
+ * importing its own name, or reading it off a namespace they imported, which
+ * `daemon-call-census.ts` reads as one act in two spellings.
  *
  * FOURTEEN, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
@@ -246,99 +251,11 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
     ).toBe(CALL_DOOR_CONSUMER_COUNT);
   });
 
-  it("negative control: the consumer needle sees an ordinary import of the door", () => {
-    // Without this, the pinned count above would be reporting a broken needle rather
-    // than the tree, and a needle that matched nothing would read the console as
-    // having no consumers at all — green, and saying nothing.
-    expect(importsCallDoor(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
-    expect(
-      importsCallDoor(
-        ["import {", "  callDaemon,", "  type DaemonReply,", '} from "../bridge/index.js";'].join(
-          "\n",
-        ),
-      ),
-    ).toBe(true);
-    // An alias is still a consumption, and the local name it takes is not the door's.
-    expect(importsCallDoor('import { callDaemon as send } from "../bridge/index.js";')).toBe(true);
-    // And not on the door merely named in prose, which several modules do carry.
-    expect(importsCallDoor("// a surface reaches the wire through `callDaemon`")).toBe(false);
-    // The false-positive direction the text needle was narrowed twice to survive: this
-    // sentence contains the word `import`, and a scan over text spanned the newlines
-    // between the two words because nothing ended the statement in between. An import
-    // clause is a node; a comment carrying both words in any order is not one.
-    expect(
-      importsCallDoor(
-        [
-          "// a surface would import",
-          "// `callDaemon` from the bridge door rather than reach the wire itself",
-        ].join("\n"),
-      ),
-    ).toBe(false);
-    expect(importsCallDoor('const note = "import { callDaemon } from the door";')).toBe(false);
-    // And a longer name that merely starts with the door's is a different symbol.
-    expect(importsCallDoor('import { callDaemonRegistry } from "./registry.js";')).toBe(false);
-  });
-
   it("negative control: the chokepoint itself trips the scan", () => {
     // Without this, a typo in either pattern would make both clean results above
     // meaningless — the whole console would read as compliant because nothing
     // matched anywhere.
     expect(daemonCallReaches(readGovernedSource(CHOKEPOINT_MODULE))).toContain("called or aliased");
-  });
-
-  it("negative control: the needles separate a reach from a mention", () => {
-    // The line the header draws, asserted against the predicate rather than
-    // against whichever module happens to name the door in prose today.
-    expect(daemonCallReaches("const reply = await bridge.sidekicks.daemon.call(method, params);")) //
-      .toContain("called or aliased");
-    expect(daemonCallReaches("const call = bridge.sidekicks.daemon.call as Widened;")) //
-      .toContain("called or aliased");
-    expect(daemonCallReaches("const { call } = bridge.sidekicks.daemon;")) //
-      .toContain("namespace taken");
-    expect(daemonCallReaches("// a bridge that dropped `daemon.call` would be wrong")) //
-      .toStrictEqual([]);
-    expect(daemonCallReaches("this.#bridge.sidekicks.daemon.subscribe(name, onFrame);")) //
-      .toStrictEqual([]);
-  });
-
-  it("sees the same door reached by a computed key or handed on as a value", () => {
-    // Planted, and each one is the SMALLEST violation that passed the two dotted
-    // needles: one bracket, and a scan over text reads the tree as compliant. A
-    // module that smuggles a reply out this way holds an `unknown` it can cast,
-    // which needs no validator, so the lint ban beside this scan does not cover it.
-    //
-    // The first is now reported by TWO forms rather than one, and that is the reading
-    // improving rather than a rule widening: `sidekicks["daemon"].call(…)` really is
-    // both the namespace taken by a key and the door called, and the text needle
-    // reported only the half whose spelling it was written for.
-    expect(
-      daemonCallReaches(`const reply = await bridge.sidekicks["daemon"].call(name, params);`),
-    ).toStrictEqual(["called or aliased", "namespace taken by computed key"]);
-    expect(daemonCallReaches(`const door = bridge.sidekicks["daemon"];`)) //
-      .toStrictEqual(["namespace taken by computed key"]);
-    expect(daemonCallReaches(`const send = bridge.sidekicks.daemon["call"];`)) //
-      .toStrictEqual(["called by computed key"]);
-    expect(daemonCallReaches("const bound = bridge.sidekicks.daemon.call.bind(bridge);")) //
-      .toStrictEqual(["taken as a value"]);
-  });
-
-  it("negative control: a computed key in prose or on another noun is not a reach", () => {
-    // The other direction of the same claim. A needle that fired on either of these
-    // would be turned off within a week, which is how the scan stops existing.
-    expect(daemonCallReaches("// the daemon [the local runtime] answers `unknown`")) //
-      .toStrictEqual([]);
-    expect(daemonCallReaches("const first = daemonEvents[0];")).toStrictEqual([]);
-    expect(daemonCallReaches("const kinds = this.#sidekicksByName;")).toStrictEqual([]);
-    // The sentence that was reworded rather than reported: a seam's header naming the
-    // namespace it deliberately does NOT reach. The text needle fired on it, and the
-    // disposition a red gate on prose invites is editing the prose.
-    expect(
-      daemonCallReaches(
-        "// the shipped component reads `window.sidekicks.daemon` directly, which the\n// fixture cannot serve",
-      ),
-    ).toStrictEqual([]);
-    // A string naming the door is data rather than a reach, for the same reason.
-    expect(daemonCallReaches('const method = "sidekicks.daemon.call";')).toStrictEqual([]);
   });
 });
 

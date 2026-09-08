@@ -27,6 +27,7 @@ import {
   plantedSites,
   plantedSitesDeclaringImports,
   plantedSitesInReadHelper,
+  plantedSitesThroughNamespace,
 } from "./daemon-call-planting.test-support.js";
 import {
   stoppableRecordOffenders,
@@ -105,6 +106,80 @@ describe("the door a call reaches", () => {
     ]);
     expect(sites.map((site) => site.line)).toStrictEqual([7]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
+  it("negative control: the door read off a namespace import is still the door", () => {
+    // THE SHAPE THAT PASSED EVERY GATE AT ONCE. A callee that is a property access was
+    // skipped by a reading admitting only identifiers, and the consumer census beside
+    // it skipped the namespace clause too — so a module written this way contributed no
+    // calls AND was counted no consumer, and an unsignalled read in it satisfied the
+    // signal check, the pinned count, and the reach scan all at the same time.
+    const sites = plantedSitesThroughNamespace([
+      "export async function readAdmittedRoots(bridge, sessionId) {",
+      '  return await daemonDoor.callDaemon(bridge, "repo.workspaceList", { sessionId });',
+      "}",
+    ]);
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
+      'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
+    ]);
+  });
+
+  it("negative control: the name a module gave the namespace is not what makes it the door", () => {
+    // A namespace has no canonical spelling, so a needle keyed on the one the shared
+    // corpus happens to plant would report that fixture and miss every real module. The
+    // binding is resolved; the name it was given says nothing.
+    const sites = plantedSitesDeclaringImports([
+      'import * as wire from "../../bridge/index.js";',
+      "export async function readAdmittedRoots(bridge, request, signal: AbortSignal) {",
+      '  return await wire.callDaemon(bridge, "repo.workspaceList", request, { signal });',
+      "}",
+    ]);
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
+  it("negative control: a nearer binding of the namespace's name is not the door", () => {
+    // THE SHADOW, ON THE OTHER ARM. `daemonDoor` is the bridge family at module scope
+    // and a local object inside the function, so the call the function makes is the
+    // local's, exactly as the language would run it — and the module's real door call
+    // is the one outside it. A rule that matched the spelling would report both.
+    const sites = plantedSitesThroughNamespace([
+      'await daemonDoor.callDaemon(bridge, "session.join", request);',
+      "export function withStub(bridge, request) {",
+      "  const daemonDoor = { callDaemon: stubbedCall };",
+      '  return daemonDoor.callDaemon(bridge, "repo.workspaceList", request);',
+      "}",
+    ]);
+    expect(sites.map((site) => site.line)).toStrictEqual([2]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
+  it("negative control: a member read that is not the door, off a name that is not one", () => {
+    // The other direction of the same claim, in the three shapes that share the
+    // property-access spelling and none of which is a door call: another member of the
+    // door's own namespace, a namespace of a module that is not the door reached for
+    // something else, and the door's own name read off a bridge handed in as an
+    // argument — which is a value this scan cannot follow and deliberately does not
+    // guess at, on the depth limit the header states.
+    expect(
+      plantedSitesThroughNamespace([
+        'await daemonDoor.formatRefusal(bridge, "repo.workspaceList", request);',
+      ]),
+    ).toStrictEqual([]);
+    expect(
+      plantedSitesDeclaringImports([
+        'import * as formatting from "../../console/formatting.js";',
+        'await formatting.render("repo.workspaceList");',
+      ]),
+    ).toStrictEqual([]);
+    expect(
+      plantedSitesDeclaringImports([
+        "export async function readAdmittedRoots(door, request) {",
+        '  return await door.callDaemon(door, "repo.workspaceList", request);',
+        "}",
+      ]),
+    ).toStrictEqual([]);
   });
 });
 
