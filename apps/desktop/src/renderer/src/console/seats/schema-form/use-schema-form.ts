@@ -6,32 +6,38 @@
 // that renders the verdict, and the owner plan that eventually sends it, read ONE member
 // rather than branching on which control a person happened to use.
 //
+// THE DRAWN ARM HOLDS A DRAFT TREE AND THE ANSWER IS A PROJECTION OF IT. What the
+// controls are editing (`schema-draft.ts`) can say three things a JSON value cannot: a
+// row nobody has answered, a section nobody has opened, and text a control could not read
+// as a value. The answer is composed from that tree by one function
+// (`schema-projection.ts`), so the value the compiled validator checks and the bytes a
+// submission carries are the same bytes by construction — and a state the answer cannot
+// hold never has to be smuggled into it as `undefined`, which JSON writes as `null`.
+//
 // THE VALIDATION IS THE SCHEMA'S AND NEVER THIS HOOK'S. Requiredness, ranges, enum
-// membership: all of it is the compiled schema's answer, re-run over the whole answer
-// on every edit. A hook that re-derived requiredness from the descriptors would be a
-// second authority on a question the schema already settles, and the two would disagree
-// the first time a schema used a keyword the mapper does not read.
+// membership: all of it is the compiled schema's answer, re-run over the whole projected
+// answer on every edit. The one thing this hook adds is what the projection DROPPED — a
+// drawn row with no value in it — because that is a finding about the draft the answer
+// has no way to express, and a report that stayed clean over it would offer to send fewer
+// entries than the person can see.
 //
 // ON THE DRAWN ARM, WHAT IS DISPLAYED IS WHAT IS SUBMITTED. Checking a value against a
 // compiled schema READS it — a member declaring a `default` is supplied by the reader, so
 // `{}` comes back valid and comes back as `{ approver: "ada" }`. Submitting that reading
 // would put a member into the answer that no control on the screen accounts for, which is
-// why the drawn arm submits the value its controls composed and nothing else. The values
+// why the drawn arm submits the projection of its own draft and nothing else. The values
 // the schema declares are not lost by that: they are SEEDED, per control, out of the
-// descriptors the mapper drew (`schema-answer.ts`), so a declared value reaches the
-// submission by being visible in the control it belongs to rather than by being added to
-// the bytes on the way out.
+// descriptors the mapper drew (`schema-answer.ts`).
 //
 // THE RAW EDITOR'S DOCUMENT IS STILL THE PERSON'S, AND THAT ARM IS THE OTHER READING.
 // Nothing seeds or rewrites the text, so there is no control there to make displayed and
 // submitted agree: what is submitted from that arm is the schema's reading of what they
 // typed, which adds the members the schema declares values for and — measured at the
 // pinned reader, in `bridge/wire-shapes/json-schema-check.ts` — removes nothing they
-// wrote. The two arms differ because their displays do, not because the rule does.
-//
-// A LIST'S ITEMS ARE ADDRESSED BY INDEX AND HELD IN ORDER. Removing the middle entry of
-// a three-item list must not renumber the answer under the person editing it, so the
-// mutation rebuilds the array rather than writing a hole into it.
+// wrote. The two arms differ because their displays do, not because the rule does. They
+// also never coexist: the arm is a property of the PLAN, and a plan that drew controls
+// draws no editor, so a draft is never built from an answer and the projection runs one
+// way only.
 //
 // A SCHEMA NOTHING COULD CHECK IS ANSWERED AS JSON, WHATEVER THE MAPPER DREW. A drawn
 // control is a promise that the form will refuse a wrong value in it, and a schema the
@@ -40,20 +46,41 @@
 // the editor while the composed answer still read controls nobody could see.
 //
 // NOTHING HERE POLLS, CACHES, OR SUBSCRIBES. The compiled validator is minted once per
-// schema through `useMemo`; the answer is one object; the report is derived on render
-// from the two of them. There is no effect in this module at all.
+// schema through `useMemo`; the draft is one tree; the answer and the report are derived
+// on render from it. There is no effect in this module at all.
 
 import { useCallback, useMemo, useState } from "react";
 
-import { listAt, memberAt, withMemberAt, type SchemaFormAnswer } from "./schema-answer-paths.js";
 import {
-  newListEntryFor,
-  seedAnswerFromPlan,
+  leafDrawnAt,
+  seedDraftFromPlan,
+  withGroupActivation,
+  withLeafDrafted,
+  withListEntryAppended,
+  withListEntryDrafted,
   withListEntryRemoved,
-  withMemberAnswered,
 } from "./schema-answer.js";
-import { type SchemaFallback, type SchemaFormPlan } from "./schema-fields.js";
+import {
+  groupDraftAt,
+  listDraftAt,
+  scalarDraftAt,
+  type SchemaFormDraft,
+  type SchemaScalarDraft,
+} from "./schema-draft.js";
+import { issuesForListEntry } from "./schema-field-control.js";
+import { memberKeyOf, type SchemaFallback, type SchemaFormPlan } from "./schema-fields.js";
 import { planSchemaForm } from "./schema-form-plan.js";
+import {
+  controlViewOf,
+  draftIssuesIn,
+  listEntryViewsOf,
+  projectAnswer,
+  projectedEntryPosition,
+  reportWithDraftIssues,
+  unansweredEntryMessage,
+  type SchemaControlView,
+  type SchemaListEntryView,
+} from "./schema-projection.js";
 import {
   compileSchemaValidator,
   type SchemaMemberPath,
@@ -73,23 +100,33 @@ export interface SchemaFormState {
   /**
    * The answer a submission would carry, from whichever input mode this plan uses.
    *
-   * Exactly what the drawn controls hold where the plan drew them, so nothing is sent
-   * that nothing on the screen accounts for; the schema's accepted reading of the raw
-   * document on the arm that has no controls, where the display is the text itself.
+   * The projection of what the drawn controls hold where the plan drew them, so nothing
+   * is sent that nothing on the screen accounts for; the schema's accepted reading of the
+   * raw document on the arm that has no controls, where the display is the text itself.
    */
   readonly answer: unknown;
-  /** The value one drawn control is bound to. `undefined` where nothing was typed. */
-  readonly memberValue: (memberPath: SchemaMemberPath) => unknown;
-  /** Write one drawn control's value. */
-  readonly setMemberValue: (memberPath: SchemaMemberPath, value: unknown) => void;
-  /** One list's entries, always an array so a control need not ask whether it is one. */
-  readonly listItems: (memberPath: SchemaMemberPath) => readonly unknown[];
-  /** Write one entry of a list. */
-  readonly setListItem: (memberPath: SchemaMemberPath, index: number, value: unknown) => void;
-  /** Add an empty entry to the end of a list. */
-  readonly appendListItem: (memberPath: SchemaMemberPath) => void;
-  /** Drop one entry, keeping the order of the rest. */
-  readonly removeListItem: (memberPath: SchemaMemberPath, index: number) => void;
+  /** What one drawn control displays: its value, and any text it could not read. */
+  readonly memberView: (memberPath: SchemaMemberPath) => SchemaControlView;
+  /** Write what one drawn control is now displaying. */
+  readonly setMemberDraft: (memberPath: SchemaMemberPath, draft: SchemaScalarDraft) => void;
+  /** One collection's rows, always an array so a control need not ask whether it is one. */
+  readonly listEntries: (memberPath: SchemaMemberPath) => readonly SchemaListEntryView[];
+  /** Write what one row is now displaying, addressed by where that row is drawn. */
+  readonly setListEntryDraft: (
+    memberPath: SchemaMemberPath,
+    index: number,
+    draft: SchemaScalarDraft,
+  ) => void;
+  /** Add a row to the end of a collection. */
+  readonly appendListEntry: (memberPath: SchemaMemberPath) => void;
+  /** Drop one row, keeping the order and the identity of the rest. */
+  readonly removeListEntry: (memberPath: SchemaMemberPath, index: number) => void;
+  /** What is wrong with one drawn row: the draft's own finding, or the schema's. */
+  readonly listEntryIssues: (memberPath: SchemaMemberPath, index: number) => readonly string[];
+  /** Whether an optional section has been opened. A required one is always open. */
+  readonly groupIsActive: (memberPath: SchemaMemberPath) => boolean;
+  /** Open a section or leave it unanswered, which is the control its legend offers. */
+  readonly setGroupActive: (memberPath: SchemaMemberPath, isActive: boolean) => void;
   /** The raw editor's text, which is the input on the raw arm and unread on the other. */
   readonly rawText: string;
   readonly setRawText: (text: string) => void;
@@ -103,6 +140,9 @@ export interface SchemaFormState {
 
 /** The empty raw document, which is what an unanswered JSON editor holds. */
 const EMPTY_RAW_TEXT = "{}";
+
+/** What a control with no descriptor behind it displays, which is nothing at all. */
+const NOTHING_DISPLAYED: SchemaControlView = { value: undefined, unreadableText: "" };
 
 /** Parse the raw editor's text, reporting a syntax failure as a value. */
 function readRawText(rawText: string): RawAnswerReading {
@@ -159,61 +199,64 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   const plan = armFor(mappedPlan, validator);
   // Seeded per control from what the plan says each one opens holding, and read once: the
   // header's reason, and why this is an initialiser rather than anything that re-runs.
-  const [drawnAnswer, setDrawnAnswer] = useState<SchemaFormAnswer>(() => seedAnswerFromPlan(plan));
+  const [draft, setDraft] = useState<SchemaFormDraft>(() => seedDraftFromPlan(plan));
   const [rawText, setRawText] = useState<string>(EMPTY_RAW_TEXT);
 
   const rawReading = useMemo(() => readRawText(rawText), [rawText]);
   const isRaw = plan.shape === "raw";
+  const projectedAnswer = projectAnswer(plan, draft);
   const composedAnswer = isRaw
     ? rawReading.status === "parsed"
       ? rawReading.answer
       : undefined
-    : drawnAnswer;
+    : projectedAnswer;
 
-  // Through the answer's own write path rather than a bare write, because a control
-  // reporting ABSENCE is reporting the shape of the object and not a value in it: the
-  // member leaves, and an optional group the removal emptied leaves with it.
-  const setMemberValue = useCallback(
-    (memberPath: SchemaMemberPath, value: unknown) => {
-      setDrawnAnswer((current) => withMemberAnswered(plan, current, memberPath, value));
+  const setMemberDraft = useCallback(
+    (memberPath: SchemaMemberPath, memberDraft: SchemaScalarDraft) => {
+      setDraft((current) => withLeafDrafted(plan, current, memberPath, memberDraft));
     },
     [plan],
   );
 
-  const setListItem = useCallback((memberPath: SchemaMemberPath, index: number, value: unknown) => {
-    setDrawnAnswer((current) => {
-      const items = [...listAt(current, memberPath)];
-      items[index] = value;
-      return withMemberAt(current, memberPath, items);
-    });
-  }, []);
+  const setListEntryDraft = useCallback(
+    (memberPath: SchemaMemberPath, index: number, entryDraft: SchemaScalarDraft) => {
+      setDraft((current) => withListEntryDrafted(plan, current, memberPath, index, entryDraft));
+    },
+    [plan],
+  );
 
-  const appendListItem = useCallback(
+  const appendListEntry = useCallback(
     (memberPath: SchemaMemberPath) => {
-      // Asked of the plan rather than fixed at `""`, so a new entry's control opens
-      // showing what the answer holds for it — an unchecked box is `false` in both.
-      const addedEntry = newListEntryFor(plan, memberPath);
-      setDrawnAnswer((current) =>
-        withMemberAt(current, memberPath, [...listAt(current, memberPath), addedEntry]),
-      );
+      setDraft((current) => withListEntryAppended(plan, current, memberPath));
     },
     [plan],
   );
 
-  const removeListItem = useCallback(
+  const removeListEntry = useCallback(
     (memberPath: SchemaMemberPath, index: number) => {
-      setDrawnAnswer((current) => withListEntryRemoved(plan, current, memberPath, index));
+      setDraft((current) => withListEntryRemoved(plan, current, memberPath, index));
     },
     [plan],
   );
 
-  // Derived on render rather than held, because it is a pure function of two values the
-  // hook already has: a stored report is a second copy of the answer's verdict that goes
-  // stale between the edit and the effect that would refresh it.
-  const report =
+  const setGroupActive = useCallback(
+    (memberPath: SchemaMemberPath, isActive: boolean) => {
+      setDraft((current) => withGroupActivation(plan, current, memberPath, isActive));
+    },
+    [plan],
+  );
+
+  // Derived on render rather than held, because it is a pure function of values the hook
+  // already has: a stored report is a second copy of the answer's verdict that goes stale
+  // between the edit and the effect that would refresh it. The draft's own findings are
+  // folded in here, where both the draft and the schema's reading are in hand.
+  const schemaReport =
     validator.status === "compiled" && (!isRaw || rawReading.status === "parsed")
       ? validator.check(composedAnswer)
       : undefined;
+  const report = isRaw
+    ? schemaReport
+    : reportWithDraftIssues(schemaReport, draftIssuesIn(plan, draft));
   // The header's rule, in one expression. The drawn arm sends what its controls hold, so
   // nothing reaches the wire that no control accounts for; the raw arm has no controls to
   // agree with, so it sends the schema's reading of the document a person wrote.
@@ -222,12 +265,33 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
   return {
     plan,
     answer,
-    memberValue: (memberPath) => memberAt(drawnAnswer, memberPath),
-    setMemberValue,
-    listItems: (memberPath) => listAt(drawnAnswer, memberPath),
-    setListItem,
-    appendListItem,
-    removeListItem,
+    memberView: (memberPath) => {
+      const leaf = leafDrawnAt(plan, memberPath);
+      return leaf?.form === "field"
+        ? controlViewOf(leaf.field, scalarDraftAt(draft, memberPath))
+        : NOTHING_DISPLAYED;
+    },
+    setMemberDraft,
+    listEntries: (memberPath) => {
+      const leaf = leafDrawnAt(plan, memberPath);
+      return leaf?.form === "list"
+        ? listEntryViewsOf(leaf.list.item, listDraftAt(draft, memberPath))
+        : [];
+    },
+    setListEntryDraft,
+    appendListEntry,
+    removeListEntry,
+    listEntryIssues: (memberPath, index) => {
+      const position = projectedEntryPosition(listDraftAt(draft, memberPath), index);
+      return position === undefined
+        ? [unansweredEntryMessage(index)]
+        : issuesForListEntry(report, memberPath, position);
+    },
+    groupIsActive: (memberPath) => {
+      const groupKey = memberKeyOf(memberPath);
+      return groupKey !== undefined && groupDraftAt(draft, groupKey)?.state === "active";
+    },
+    setGroupActive,
     rawText,
     setRawText,
     rawReading,

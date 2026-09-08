@@ -17,13 +17,16 @@ import { useId } from "react";
 import { SchemaFieldControl } from "./SchemaFieldControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
+import type { SchemaScalarDraft } from "./schema-draft.js";
 import { describedByOf } from "./schema-field-control.js";
 import type { SchemaFieldDescriptor } from "./schema-fields.js";
+import type { SchemaControlView } from "./schema-projection.js";
 
 export interface SchemaFormFieldProps {
   readonly field: SchemaFieldDescriptor;
-  readonly value: unknown;
-  readonly onChange: (value: unknown) => void;
+  /** What this member's control displays, projected from the draft node it holds. */
+  readonly view: SchemaControlView;
+  readonly onChange: (draft: SchemaScalarDraft) => void;
   /** The schema's findings about this member, in the order it reported them. */
   readonly issues: readonly string[];
 }
@@ -49,7 +52,8 @@ export function SchemaFormField(props: SchemaFormFieldProps): React.JSX.Element 
       </label>
       <SchemaFieldControl
         field={field}
-        value={props.value}
+        value={props.view.value}
+        unreadableText={props.view.unreadableText}
         onChange={props.onChange}
         controlId={controlId}
         describedById={describedBy}

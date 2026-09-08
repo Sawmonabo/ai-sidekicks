@@ -1,8 +1,10 @@
-// What a drawn form OPENS holding, and what one control's change does to the answer.
+// What a drawn form OPENS holding, and what one control's change does to the draft.
 //
-// How the answer object itself is addressed — read a member, write one, drop one, read a
-// list — is `schema-answer-paths.ts`, which knows nothing about a plan. This module is the
-// half that reads the plan the mapper drew.
+// THE SEED BUILDS A DRAFT AND NOT AN ANSWER. `schema-draft.ts` states the representation;
+// this module is the half that reads the plan the mapper drew, so a node is opened for
+// every control on the screen and for nothing else. The answer is a PROJECTION of what
+// this seeds (`schema-projection.ts`), which is what makes the value the validator checks
+// and the value a submission sends the same bytes by construction.
 //
 // SPLIT FROM THE HOOK BECAUSE THESE ARE PURE AND THE HOOK IS NOT. Nothing here reads
 // React, holds state, or knows a form is mounted — which is what lets the opening values
@@ -18,49 +20,60 @@
 // the schema thinks of the answer as a whole, and what a person is looking at is what a
 // press would send.
 //
-// WHAT AN UNANSWERED MEMBER IS WORTH IS ONE RULE, AND IT LIVES IN `schema-fields.ts`.
-// Nothing here re-decides whether a control opens present: this module asks
-// `unansweredFieldValue` / `unansweredListValue` / `unansweredGroupValue` and writes what
-// they answer, exactly as every control's change handler does when a person clears one. So
-// the value a form opens at and the value it returns to are the same value by
-// construction, rather than by two readings that agree today.
+// A CONTROL THE SCHEMA DECLARED NO VALUE FOR OPENS UNANSWERED, WHICH IS ONE NODE AND NOT
+// A VALUE. What an unanswered node is WORTH is decided once, in the projection, out of
+// `schema-fields.ts`'s presence rule — so this module never has to know that a required
+// box opens at `false` while a required number box opens at nothing.
+//
+// AN OPTIONAL GROUP OPENS INACTIVE UNLESS THE SCHEMA DECLARED A VALUE FOR IT. Seeded
+// through its children on their own requiredness, an optional `settings` holding a
+// required boolean `enabled` opened as `{ settings: { enabled: false } }` and the box
+// could only ever replace that with `true` or `false` — so a schema that accepts or
+// requires the whole group to be ABSENT could never be satisfied through the drawn form.
+// It opens inactive instead, and a person activates it on its legend. A group the schema
+// declared a VALUE for — its own `default`, a child's, or a collection's entries — is the
+// same rule read from the other side rather than an exception to it: the schema has
+// stated a value, something on the screen has to be displaying it, so the section opens
+// answered with its children showing what was declared.
 //
 // A GROUP'S OWN `default` IS SEEDED THROUGH ITS CHILDREN AND NEVER AS AN OBJECT. A group
 // is a container: no control displays its object, so writing that object whole would put
-// a member into the submission nothing on the screen accounts for. But dropping it is the
-// same divergence from the other side — the compiled reader supplies a declared object to
-// its own accepted value, so a form that ignored one displayed blank controls while the
-// value it was told was valid carried the author's. So the seed takes the NEAREST declared
-// value on a member's path: the control's own where it has one, else the enclosing group's
-// projected at that member's key. A group default a child could not show never reaches
-// here at all — the mapper sends that schema to the raw editor.
-//
-// AND AN ABSENT MEMBER IS REMOVED RATHER THAN WRITTEN AS `undefined`. A key holding
-// `undefined` is present to every reader that walks the object — the compiled validator's
-// `maxProperties` among them — so this module's one write path DELETES the key instead,
-// and prunes the enclosing group where that emptied one the schema does not require.
+// a member into the submission nothing on the screen accounts for. So the seed takes the
+// NEAREST declared value on a member's path: the control's own where it has one, else the
+// enclosing group's projected at that member's key. A group default a child could not show
+// never reaches here at all — the mapper sends that schema to the raw editor.
 
+import {
+  activeGroup,
+  answeredScalar,
+  INACTIVE_GROUP,
+  leafDraftAt,
+  listDraftOf,
+  NOTHING_DRAFTED,
+  UNANSWERED_SCALAR,
+  withEntryAppended,
+  withEntryDrafted,
+  withEntryRemoved,
+  withGroupMember,
+  withNodeAt,
+  groupDraftAt,
+  type SchemaFormDraft,
+  type SchemaGroupMembersDraft,
+  type SchemaLeafDraft,
+  type SchemaScalarDraft,
+} from "./schema-draft.js";
 import {
   emptyControlValue,
   leafKeyOf,
+  leafPathOf,
   memberKeyOf,
-  unansweredFieldValue,
-  unansweredGroupValue,
-  unansweredListValue,
   type SchemaFieldDescriptor,
   type SchemaFormPlan,
   type SchemaGroupDescriptor,
   type SchemaLeafEntry,
   type SchemaListDescriptor,
 } from "./schema-fields.js";
-import {
-  asAnswerRecord,
-  listAt,
-  NOTHING_ANSWERED,
-  withMemberAt,
-  withoutKey,
-  type SchemaFormAnswer,
-} from "./schema-answer-paths.js";
+import { asAnswerRecord, type SchemaFormAnswer } from "./schema-answer-paths.js";
 import { isSameMemberPath, type SchemaMemberPath } from "../../bridge/index.js";
 
 /**
@@ -76,39 +89,49 @@ function drawnLeaves(plan: SchemaFormPlan): readonly SchemaLeafEntry[] {
     : [];
 }
 
-/**
- * What one STANDALONE member opens holding, or `undefined` where it opens with nothing.
- *
- * `undefined` is unambiguous as "seed nothing": JSON carries no such value, so a schema
- * cannot declare one and a caller cannot mistake a declared value for an absent one.
- *
- * The declared value where the schema wrote one, and otherwise the ONE rule's answer for
- * an unanswered member of this kind — the same call the control makes when a person clears
- * it, which is what makes opening and returning to unanswered one state rather than two.
- */
-function openingMemberValue(field: SchemaFieldDescriptor, declaredValue: unknown): unknown {
-  return declaredValue !== undefined ? declaredValue : unansweredFieldValue(field);
+/** The leaf the plan drew at one path, or nothing where it drew none there. */
+export function leafDrawnAt(
+  plan: SchemaFormPlan,
+  memberPath: SchemaMemberPath,
+): SchemaLeafEntry | undefined {
+  for (const leaf of drawnLeaves(plan)) {
+    if (isSameMemberPath(leafPathOf(leaf), memberPath)) {
+      return leaf;
+    }
+  }
+  return undefined;
 }
 
-/**
- * What one ENTRY of a list opens holding, which is never nothing.
- *
- * The position exists the moment somebody presses the add control, so absence is not
- * available to it the way it is to a standalone member: the entry is on the screen either
- * way. What it holds is therefore what its control DISPLAYS for an untouched one, read
- * from the shared table in `schema-fields.ts` — and the three whose empty display is worth
- * nothing are unanswered IN the drawn list, which is what the validator reads them as and
- * what the control renders.
- */
-function openingEntryValue(item: SchemaFieldDescriptor, declaredValue: unknown): unknown {
-  return declaredValue !== undefined ? declaredValue : emptyControlValue(item.kind);
+/** The collection the plan drew at one path, or nothing where it drew a control there. */
+export function listDrawnAt(
+  plan: SchemaFormPlan,
+  memberPath: SchemaMemberPath,
+): SchemaListDescriptor | undefined {
+  const leaf = leafDrawnAt(plan, memberPath);
+  return leaf?.form === "list" ? leaf.list : undefined;
+}
+
+/** The group the plan drew under one root key, or nothing where that key names no group. */
+export function groupDrawnUnder(
+  plan: SchemaFormPlan,
+  groupKey: string,
+): SchemaGroupDescriptor | undefined {
+  if (plan.shape !== "fields") {
+    return undefined;
+  }
+  for (const entry of plan.entries) {
+    if (entry.form === "group" && memberKeyOf(entry.group.memberPath) === groupKey) {
+      return entry.group;
+    }
+  }
+  return undefined;
 }
 
 /**
  * A collection's declared `default`, taken only where it declared a list.
  *
- * Narrowed HERE, before the value is written, rather than trusted from the descriptor: a
- * `default` of another shape is one the compiled validator refuses on its own terms, and
+ * Narrowed HERE, before the entries are minted, rather than trusted from the descriptor:
+ * a `default` of another shape is one the compiled validator refuses on its own terms, and
  * seeding it would put a string at a member whose control renders lists — the answer
  * holding one thing while the surface showed another, which is what this module exists
  * to prevent.
@@ -137,43 +160,33 @@ function nearestDeclaredValue(
   return key === undefined ? undefined : groupDefault[key];
 }
 
-/** Where one leaf's value sits in the answer, and what it opens holding. */
-function openingValueOf(
+/** One leaf's opening node: its declared value where the schema wrote one, else nothing. */
+function openingLeafDraft(
   leaf: SchemaLeafEntry,
   groupDefault: SchemaFormAnswer | undefined,
-): {
-  readonly memberPath: SchemaMemberPath;
-  readonly value: unknown;
-} {
+): SchemaLeafDraft {
   const declaredValue = nearestDeclaredValue(leaf, groupDefault);
-  return leaf.form === "list"
-    ? {
-        memberPath: leaf.list.memberPath,
-        // The declared entries where the schema wrote a list of them, and otherwise the
-        // one rule's answer: `[]` where the collection must exist, and nothing at all
-        // where the answer may leave it out until somebody adds an entry.
-        value: declaredEntries(declaredValue) ?? unansweredListValue(leaf.list),
-      }
-    : {
-        memberPath: leaf.field.memberPath,
-        value: openingMemberValue(leaf.field, declaredValue),
-      };
+  if (leaf.form === "list") {
+    return listDraftOf((declaredEntries(declaredValue) ?? []).map(answeredScalar));
+  }
+  return declaredValue === undefined ? UNANSWERED_SCALAR : answeredScalar(declaredValue);
 }
 
-/** One leaf's opening value written into the answer, or the answer untouched where it has none. */
-function withSeededLeaf(
-  seeded: SchemaFormAnswer,
-  leaf: SchemaLeafEntry,
-  groupDefault: SchemaFormAnswer | undefined,
-): SchemaFormAnswer {
-  const opening = openingValueOf(leaf, groupDefault);
-  return opening.value === undefined
-    ? seeded
-    : withMemberAt(seeded, opening.memberPath, opening.value);
+/** Every member of one group, opened at whatever that group and its controls declared. */
+export function seededGroupMembers(group: SchemaGroupDescriptor): SchemaGroupMembersDraft {
+  const groupDefault = asAnswerRecord(group.defaultValue);
+  let members: SchemaGroupMembersDraft = {};
+  for (const leaf of group.entries) {
+    const key = leafKeyOf(leaf);
+    if (key !== undefined) {
+      members = withGroupMember(members, key, openingLeafDraft(leaf, groupDefault));
+    }
+  }
+  return members;
 }
 
 /**
- * The answer a drawn form opens with: every control's own declared value, and nothing else.
+ * The draft a drawn form opens with: every control's own declared value, and nothing else.
  *
  * Read ONCE, at the mount. A seed recomputed when the schema's identity changed would
  * discard what somebody had typed every time a run read refreshed and handed down an
@@ -182,145 +195,205 @@ function withSeededLeaf(
  * Walked as entries rather than as flattened leaves, because a group's declared value has
  * to travel with the leaves it names: flattened, the only thing left of the group is the
  * path segment its children carry, and the value would have nowhere to be read from.
- *
- * A GROUP IS SEEDED BEFORE ITS LEAVES ARE FOLDED IN, which is what puts a required one in
- * the answer even when none of its members contributes a value. Left to the leaves, a
- * schema requiring an object whose every member is optional opened on an answer that did
- * not hold the object, offered no control that could create it, and stayed invalid whatever
- * anybody typed. An optional group is seeded with nothing and appears the moment a member
- * of it is answered, which is the same rule read the other way.
  */
-export function seedAnswerFromPlan(plan: SchemaFormPlan): SchemaFormAnswer {
+export function seedDraftFromPlan(plan: SchemaFormPlan): SchemaFormDraft {
   if (plan.shape !== "fields") {
-    return NOTHING_ANSWERED;
+    return NOTHING_DRAFTED;
   }
-  let seeded: SchemaFormAnswer = NOTHING_ANSWERED;
+  let seeded: SchemaFormDraft = NOTHING_DRAFTED;
   for (const entry of plan.entries) {
-    if (entry.form !== "group") {
-      seeded = withSeededLeaf(seeded, entry, undefined);
+    if (entry.form === "group") {
+      const key = memberKeyOf(entry.group.memberPath);
+      if (key !== undefined) {
+        seeded = withNodeAt(seeded, key, openingGroupDraft(entry.group));
+      }
       continue;
     }
-    const openingGroup = unansweredGroupValue(entry.group);
-    if (openingGroup !== undefined) {
-      seeded = withMemberAt(seeded, entry.group.memberPath, openingGroup);
-    }
-    const groupDefault = asAnswerRecord(entry.group.defaultValue);
-    for (const leaf of entry.group.entries) {
-      seeded = withSeededLeaf(seeded, leaf, groupDefault);
+    const key = leafKeyOf(entry);
+    if (key !== undefined) {
+      seeded = withNodeAt(seeded, key, openingLeafDraft(entry, undefined));
     }
   }
   return seeded;
 }
 
 /**
- * What an entry added to this list opens holding.
+ * Whether a section opens answered.
  *
- * The item schema's own declared value where it has one, and otherwise what that control
- * shows for an untouched entry — read from the shared table, so a repeated control and a
- * standalone one of the same kind never open at two different values.
- *
- * A path the plan drew no list for is a caller asking about a collection this form does
- * not have. There is no control there to derive an opening value from, so there is no
- * value: inventing one would put a member of some kind into a list of another.
+ * ONE RULE AND NOT TWO: a required group always, and an optional one exactly while the
+ * schema declared a VALUE for it — its own `default`, whatever that object names, or a
+ * child's own, or a collection's opening entries. An empty declared object counts, and
+ * counts on its own: `default: {}` is the schema saying the member is there, so the
+ * section is answered even though no child came out of the seed holding anything. A
+ * section holding a declared value and drawn unanswered would show that value nowhere
+ * while the schema's own reading of the answer supplied it, which is the divergence this
+ * whole module exists to close; a section the schema declared nothing for has nothing to
+ * display, so it opens inactive and a person answers it on its legend.
  */
-export function newListEntryFor(plan: SchemaFormPlan, memberPath: SchemaMemberPath): unknown {
-  const list = listDrawnAt(plan, memberPath);
-  return list === undefined ? undefined : openingEntryValue(list.item, list.item.defaultValue);
+function openingGroupDraft(group: SchemaGroupDescriptor) {
+  const members = seededGroupMembers(group);
+  const isDeclared =
+    group.defaultValue !== undefined || Object.values(members).some(holdsDeclaredValue);
+  return group.isRequired || isDeclared ? activeGroup(members) : INACTIVE_GROUP;
 }
 
-/** The collection the plan drew at one path, or nothing where it drew none there. */
-function listDrawnAt(
-  plan: SchemaFormPlan,
-  memberPath: SchemaMemberPath,
-): SchemaListDescriptor | undefined {
-  for (const leaf of drawnLeaves(plan)) {
-    if (leaf.form === "list" && isSameMemberPath(leaf.list.memberPath, memberPath)) {
-      return leaf.list;
-    }
-  }
-  return undefined;
-}
-
-/** The group the plan drew under one root key, or nothing where that key names no group. */
-function groupDrawnUnder(
-  plan: SchemaFormPlan,
-  groupKey: string,
-): SchemaGroupDescriptor | undefined {
-  if (plan.shape !== "fields") {
-    return undefined;
-  }
-  for (const entry of plan.entries) {
-    if (entry.form === "group" && memberKeyOf(entry.group.memberPath) === groupKey) {
-      return entry.group;
-    }
-  }
-  return undefined;
+/** Whether one seeded leaf came out of the schema holding something rather than nothing. */
+function holdsDeclaredValue(leaf: SchemaLeafDraft): boolean {
+  return leaf.form === "list" ? leaf.entries.length > 0 : leaf.state === "answered";
 }
 
 /**
- * Write what one control composed — and where that is ABSENCE, take the member out.
+ * What an entry added to this collection opens holding.
  *
- * THE ONE WRITE PATH FOR A DRAWN CONTROL, and the reason it takes the plan. A control
- * reports what its display is worth (`schema-fields.ts`'s rule), and this is where that
- * answer becomes the shape of the object: a value is written at the path, and absence
- * REMOVES the key rather than parking `undefined` in it, because a key holding `undefined`
- * is present to every reader that walks the object and the compiled validator's own
- * `maxProperties` is one of them.
+ * The item schema's own declared value where it has one, and otherwise whatever an
+ * untouched control of that kind is DISPLAYING — the shared table in `schema-fields.ts`,
+ * so a repeated control and a standalone one of the same kind open at the same value. The
+ * three kinds whose empty display is worth nothing open UNANSWERED, which is the node the
+ * answer has no way to hold: written into the array as `undefined`, that row serialized
+ * as `null`, so the validator read one value and the daemon would have received another
+ * while the blank control displayed neither.
  *
- * AND THE GROUP THAT REMOVAL EMPTIED FOLLOWS THE SAME RULE. A group is a member too, so an
- * optional one whose last answered member has just left goes with it, while a required one
- * stays as the `{}` its legend stands over. Asked of the plan rather than derived from the
- * answer, because "was this group required" is a reading of the schema and the answer does
- * not carry one. One level and no walk: `SchemaGroupDescriptor` holds leaves and never
- * another group, so a path is one segment or two and there is no third depth to prune.
+ * A path the plan drew no collection for is a caller asking about one this form does not
+ * have. There is no control there to derive an opening node from, so there is no node.
  */
-export function withMemberAnswered(
+export function newListEntryDraft(
   plan: SchemaFormPlan,
-  answer: SchemaFormAnswer,
   memberPath: SchemaMemberPath,
-  value: unknown,
-): SchemaFormAnswer {
-  if (value !== undefined) {
-    return withMemberAt(answer, memberPath, value);
+): SchemaScalarDraft | undefined {
+  const list = listDrawnAt(plan, memberPath);
+  if (list === undefined) {
+    return undefined;
   }
+  return openingEntryDraft(list.item);
+}
+
+/** One entry's opening node, from its item schema alone. */
+function openingEntryDraft(item: SchemaFieldDescriptor): SchemaScalarDraft {
+  if (item.defaultValue !== undefined) {
+    return answeredScalar(item.defaultValue);
+  }
+  const displayed = emptyControlValue(item.kind);
+  return displayed === undefined ? UNANSWERED_SCALAR : answeredScalar(displayed);
+}
+
+/**
+ * Write one leaf at its path, activating the group it sits in where that group is not yet.
+ *
+ * THE ONE WRITE PATH FOR A DRAWN CONTROL, and the reason it takes the plan. Answering a
+ * member of a section IS answering the section, so a write under an inactive group opens
+ * that group at its own seed FIRST and then lands the value — the same state activating
+ * it on the legend reaches, rather than a second, thinner activation that skipped the
+ * siblings.
+ */
+export function withLeafDrafted(
+  plan: SchemaFormPlan,
+  draft: SchemaFormDraft,
+  memberPath: SchemaMemberPath,
+  leaf: SchemaLeafDraft,
+): SchemaFormDraft {
   const [leading, ...rest] = memberPath;
   if (leading === undefined) {
-    return answer;
+    return draft;
   }
   const head = String(leading);
   if (rest.length === 0) {
-    return withoutKey(answer, head);
+    return withNodeAt(draft, head, leaf);
   }
-  const groupRecord = asAnswerRecord(answer[head]);
-  if (groupRecord === undefined) {
-    return answer;
-  }
-  const pruned = withoutKey(groupRecord, String(rest[0]));
   const group = groupDrawnUnder(plan, head);
-  const groupSurvivesEmpty =
-    Object.keys(pruned).length > 0 ||
-    (group !== undefined && unansweredGroupValue(group) !== undefined);
-  return groupSurvivesEmpty ? { ...answer, [head]: pruned } : withoutKey(answer, head);
+  if (group === undefined) {
+    return draft;
+  }
+  const held = groupDraftAt(draft, head);
+  const members = held?.state === "active" ? held.members : seededGroupMembers(group);
+  return withNodeAt(draft, head, activeGroup(withGroupMember(members, String(rest[0]), leaf)));
 }
 
 /**
- * One entry dropped from a collection, with the collection itself following the same rule.
+ * A group opened or left unanswered, which is the one control a group's legend offers.
  *
- * The entries are positions, so the array is rebuilt rather than holed — and when the last
- * of them leaves, what stays is what an unanswered collection is worth: `[]` where the
- * schema requires it, and nothing at all where it does not. Without that second half a
- * presence-sensitive schema had no way back: adding an entry and removing it left `[]`
- * behind, and no control on the form could take it away again.
+ * Activating seeds the members exactly as the mount would have, so a section answered
+ * later holds what it would have held had it been required. Leaving it unanswered drops
+ * those members: the group is absent from the answer, and a person who opens it again
+ * meets the seed rather than a half-remembered draft the surface never showed them.
  */
-export function withListEntryRemoved(
+export function withGroupActivation(
   plan: SchemaFormPlan,
-  answer: SchemaFormAnswer,
+  draft: SchemaFormDraft,
+  memberPath: SchemaMemberPath,
+  isActive: boolean,
+): SchemaFormDraft {
+  const groupKey = memberKeyOf(memberPath);
+  if (groupKey === undefined) {
+    return draft;
+  }
+  const group = groupDrawnUnder(plan, groupKey);
+  if (group === undefined) {
+    return draft;
+  }
+  return withNodeAt(
+    draft,
+    groupKey,
+    isActive ? activeGroup(seededGroupMembers(group)) : INACTIVE_GROUP,
+  );
+}
+
+/** One entry appended to a collection, at whatever an added entry opens holding. */
+export function withListEntryAppended(
+  plan: SchemaFormPlan,
+  draft: SchemaFormDraft,
+  memberPath: SchemaMemberPath,
+): SchemaFormDraft {
+  const held = heldListDraft(plan, draft, memberPath);
+  const added = newListEntryDraft(plan, memberPath);
+  if (held === undefined || added === undefined) {
+    return draft;
+  }
+  return withLeafDrafted(plan, draft, memberPath, withEntryAppended(held, added));
+}
+
+/** One entry of a collection replaced, keeping the identity that entry already carries. */
+export function withListEntryDrafted(
+  plan: SchemaFormPlan,
+  draft: SchemaFormDraft,
   memberPath: SchemaMemberPath,
   index: number,
-): SchemaFormAnswer {
-  const remaining = listAt(answer, memberPath).filter((_entry, at) => at !== index);
-  const list = listDrawnAt(plan, memberPath);
-  const written =
-    remaining.length === 0 && list !== undefined ? unansweredListValue(list) : remaining;
-  return withMemberAnswered(plan, answer, memberPath, written);
+  entry: SchemaScalarDraft,
+): SchemaFormDraft {
+  const held = heldListDraft(plan, draft, memberPath);
+  return held === undefined
+    ? draft
+    : withLeafDrafted(plan, draft, memberPath, withEntryDrafted(held, index, entry));
+}
+
+/** One entry dropped, with every entry that stays keeping its own id and its own draft. */
+export function withListEntryRemoved(
+  plan: SchemaFormPlan,
+  draft: SchemaFormDraft,
+  memberPath: SchemaMemberPath,
+  index: number,
+): SchemaFormDraft {
+  const held = heldListDraft(plan, draft, memberPath);
+  return held === undefined
+    ? draft
+    : withLeafDrafted(plan, draft, memberPath, withEntryRemoved(held, index));
+}
+
+/**
+ * The collection this draft holds at one path, opened at its seed where it holds none.
+ *
+ * A collection inside a group nobody has activated has no node yet, and the three list
+ * acts are reachable only from a drawn row — so the seed is what those acts start from,
+ * and the write path above is what activates the group around it.
+ */
+function heldListDraft(plan: SchemaFormPlan, draft: SchemaFormDraft, memberPath: SchemaMemberPath) {
+  const leaf = leafDraftAt(draft, memberPath);
+  if (leaf?.form === "list") {
+    return leaf;
+  }
+  const drawn = leafDrawnAt(plan, memberPath);
+  if (drawn?.form !== "list") {
+    return undefined;
+  }
+  const opened = openingLeafDraft(drawn, undefined);
+  return opened.form === "list" ? opened : undefined;
 }

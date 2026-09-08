@@ -23,22 +23,25 @@
 // and the validator do NOT share — requiredness, ranges, enum membership — stays the
 // validator's alone.
 //
-// AND A TEXT THIS CONTROL CANNOT READ AS A FINITE NUMBER IS HELD HERE RATHER THAN WRITTEN.
-// `1e309` is a syntactically valid figure the platform hands over as typed, and `Number`
-// turns it into `Infinity` — which is not JSON, which `numericTextOf` cannot display, and
-// which serialization turns into `null`. Stored, a person read a BLANK box while the
-// answer carried a value they had never seen and could not clear, and a press sent bytes
-// that matched neither. So the unreadable text stays the control's own state and is what
-// the box shows, the answer holds what an unanswered member of this kind is worth — the
-// one rule's answer, which for a numeric control is absence at either requiredness,
-// because a number box has no empty display worth a value — and `aria-invalid` says the
-// same thing to a reader who cannot see the box. What is displayed is what is submitted,
-// which is this subtree's whole rule, and here it is met by submitting nothing.
+// AND A TEXT THIS CONTROL CANNOT READ AS A FINITE NUMBER TRAVELS WITH THE MEMBER RATHER
+// THAN WITH THE COMPONENT. `1e309` is a syntactically valid figure the platform hands over
+// as typed, and `Number` turns it into `Infinity` — which is not JSON, which
+// `numericTextOf` cannot display, and which serialization turns into `null`. Written into
+// the answer, a person read a BLANK box while the answer carried a value they had never
+// seen and could not clear. So the control reports an UNANSWERED node carrying that text,
+// and the draft holds it on the member the text was typed into — which is what keeps it
+// with its own list entry when an earlier entry is removed and the rows shift under React.
+// Held in component state instead, the invalid text moved to whichever row inherited the
+// reused subtree, or vanished with the one that unmounted.
+//
+// WHAT THE ANSWER HOLDS FOR IT IS THE PROJECTION'S ONE RULE and never this control's
+// reading: a numeric control has no empty display worth a value, so the member is absent
+// at either requiredness. `aria-invalid` says the same thing to a reader who cannot see
+// the box. What is displayed is what is submitted, which is this subtree's whole rule, and
+// here it is met by submitting nothing.
 
-import { useState } from "react";
-
+import { answeredScalar, unansweredScalar } from "../schema-draft.js";
 import { type SchemaFieldControlProps } from "../schema-field-control.js";
-import { unansweredFieldValue } from "../schema-fields.js";
 
 /** What a whole-number control steps by, matching the schema's `integer`. */
 const INTEGER_STEP = "1";
@@ -79,24 +82,23 @@ function finiteNumberIn(typed: string): number | undefined {
 
 /** A number, or nothing at all. */
 export function SchemaNumberField(props: SchemaFieldControlProps): React.JSX.Element {
-  // What the person typed that the answer could not carry. Held only while the member is
-  // absent, so anything written from outside — a seed, a reset — is what the box shows.
-  const [unreadableText, setUnreadableText] = useState("");
-  const isShowingUnreadableText = props.value === undefined && unreadableText !== "";
+  // What the person typed that no member could carry, read off the draft rather than off
+  // this component: the node is what the box shows, so a seed, a reset, or a row that
+  // moved is displayed as whatever that member actually holds.
+  const isShowingUnreadableText = props.unreadableText !== "";
   return (
     <input
       id={props.controlId}
       className="meridian-schema-field__input meridian-schema-field__input--figure"
       type="number"
       step={stepOf(props.field)}
-      value={isShowingUnreadableText ? unreadableText : numericTextOf(props.value)}
+      value={isShowingUnreadableText ? props.unreadableText : numericTextOf(props.value)}
       aria-describedby={props.describedById}
       aria-invalid={isShowingUnreadableText ? true : undefined}
       onChange={(event) => {
         const typed = event.currentTarget.value;
         const read = finiteNumberIn(typed);
-        setUnreadableText(read === undefined ? typed : "");
-        props.onChange(read === undefined ? unansweredFieldValue(props.field) : read);
+        props.onChange(read === undefined ? unansweredScalar(typed) : answeredScalar(read));
       }}
     />
   );

@@ -20,6 +20,22 @@
 // missing has no child to hang the sentence on — so the fieldset draws its own findings
 // exactly as the list fieldset draws the collection's. Left to the leaves, a required
 // group whose children are all optional read clean while the report said otherwise.
+//
+// AN OPTIONAL SECTION IS ANSWERED OR LEFT UNANSWERED, AND THAT IS ONE CONTROL ON THE
+// LEGEND. A group the answer may leave out has no state a set of child controls can show:
+// seeded through its children, an optional section holding a required member opened
+// already answered and could never be taken back out, so a schema that accepts or
+// requires its ABSENCE was unsatisfiable through this form. The legend is where the
+// group is NAMED, so it is where the group is answered — beside the same required mark a
+// field's label and a collection's legend render, rather than a second marker somewhere
+// else saying the same thing differently. An inactive section draws no members at all:
+// controls under a section nobody is answering would be controls whose values reach
+// nothing.
+//
+// A REQUIRED GROUP OFFERS NO SUCH CONTROL, because there is no state for it to reach —
+// the schema demands the object, so the section is answered from the mount. "Absent, not
+// disabled": a control that could never do anything is not drawn greyed out, it is not
+// drawn.
 
 import { useId } from "react";
 
@@ -35,7 +51,17 @@ export interface SchemaFieldGroupProps {
   readonly renderLeaf: (entry: SchemaLeafEntry) => React.ReactNode;
   /** The schema's findings about the group itself, rather than about one of its members. */
   readonly issues: readonly string[];
+  /** Whether somebody is answering this section. A required one is always answered. */
+  readonly isActive: boolean;
+  /** Answer this section, or leave it unanswered. */
+  readonly onChangeActive: (isActive: boolean) => void;
 }
+
+/** What the control on an unanswered section's legend reads. */
+const ACTIVATE_LABEL = "Answer this section";
+
+/** What it reads once the section is being answered. */
+const DEACTIVATE_LABEL = "Leave unanswered";
 
 /** A named set of controls, one level deep, under whatever the schema said about it. */
 export function SchemaFieldGroup(props: SchemaFieldGroupProps): React.JSX.Element {
@@ -49,18 +75,33 @@ export function SchemaFieldGroup(props: SchemaFieldGroupProps): React.JSX.Elemen
       <legend className="meridian-schema-group__legend">
         {group.label}
         <SchemaRequiredMark isRequired={group.isRequired} />
+        {group.isRequired ? null : (
+          <button
+            type="button"
+            className="meridian-schema-group__action"
+            onClick={() => {
+              props.onChangeActive(!props.isActive);
+            }}
+          >
+            {props.isActive ? DEACTIVATE_LABEL : ACTIVATE_LABEL}
+          </button>
+        )}
       </legend>
       {group.description === undefined ? null : (
         <p className="meridian-schema-field__description">{group.description}</p>
       )}
-      {group.entries.map((entry) => (
-        <div
-          className="meridian-schema-group__entry"
-          key={encodeMemberPointer((entry.form === "field" ? entry.field : entry.list).memberPath)}
-        >
-          {props.renderLeaf(entry)}
-        </div>
-      ))}
+      {!props.isActive
+        ? null
+        : group.entries.map((entry) => (
+            <div
+              className="meridian-schema-group__entry"
+              key={encodeMemberPointer(
+                (entry.form === "field" ? entry.field : entry.list).memberPath,
+              )}
+            >
+              {props.renderLeaf(entry)}
+            </div>
+          ))}
       <SchemaFieldIssues issues={issues} issuesId={issuesId} />
     </fieldset>
   );

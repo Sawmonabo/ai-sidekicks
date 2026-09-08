@@ -14,7 +14,15 @@
 // wire delivered, so nothing has proved what sits at a member yet — a number control
 // handed a string by a restored draft has to render that honestly rather than crash. Each
 // control narrows what it can use and falls back to its own empty state for the rest.
+//
+// AND A CONTROL REPORTS A DRAFT NODE RATHER THAN A VALUE, which is what lets it say the
+// one thing a value cannot: that it is displaying text it could not read. The node is
+// `schema-draft.ts`'s (`answeredScalar` / `unansweredScalar` / `UNANSWERED_SCALAR`), so
+// what an unanswered control is WORTH is settled once by the projection rather than six
+// times here — and the text it could not read travels with the member it belongs to
+// instead of living in component state that a list re-key would move to another row.
 
+import type { SchemaScalarDraft } from "./schema-draft.js";
 import type { SchemaFieldDescriptor } from "./schema-fields.js";
 import {
   isSameMemberPath,
@@ -27,8 +35,16 @@ export interface SchemaFieldControlProps {
   readonly field: SchemaFieldDescriptor;
   /** Whatever the answer currently holds at this member. Not yet proved to be anything. */
   readonly value: unknown;
-  /** Report the new value. The hook owns where it lands in the answer. */
-  readonly onChange: (value: unknown) => void;
+  /**
+   * The text this control is showing that it could not read as a value.
+   *
+   * Empty for the five controls that read everything they can be shown — they neither
+   * read it nor write it, and a member every control had to opt out of would be a member
+   * five of them carried a reason to ignore.
+   */
+  readonly unreadableText: string;
+  /** Report what this control is now displaying. The hook owns where the node lands. */
+  readonly onChange: (draft: SchemaScalarDraft) => void;
   /** The id the chrome's label points at, so a click on the label reaches the control. */
   readonly controlId: string;
   /** The description element's id, where this field carries one. */

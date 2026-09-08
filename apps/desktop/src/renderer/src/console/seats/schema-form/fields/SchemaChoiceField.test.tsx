@@ -14,6 +14,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SchemaChoiceField } from "./SchemaChoiceField.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../schema-draft.js";
 import { type SchemaFieldDescriptor } from "../schema-fields.js";
 import { planSchemaForm } from "../schema-form-plan.js";
 
@@ -61,6 +62,7 @@ function renderControl(
     <SchemaChoiceField
       field={field}
       value={value}
+      unreadableText=""
       onChange={onChange}
       controlId="severity-control"
       describedById={undefined}
@@ -96,7 +98,7 @@ describe("the enumerated choice control", () => {
 
     fireEvent.change(select, { target: { value: optionShowing(select, "").value } });
 
-    expect(onChange).toHaveBeenCalledWith("");
+    expect(onChange).toHaveBeenCalledWith(answeredScalar(""));
   });
 
   it("shows an answered empty string as that member rather than as no answer", () => {
@@ -112,7 +114,7 @@ describe("the enumerated choice control", () => {
 
     fireEvent.change(select, { target: { value: optionShowing(select, "Not answered").value } });
 
-    expect(onChange).toHaveBeenCalledWith(undefined);
+    expect(onChange).toHaveBeenCalledWith(UNANSWERED_SCALAR);
   });
 
   it("reports a boolean rather than the word its option showed", () => {
@@ -123,7 +125,7 @@ describe("the enumerated choice control", () => {
 
     fireEvent.change(select, { target: { value: optionShowing(select, "Yes").value } });
 
-    expect(onChange).toHaveBeenCalledWith(true);
+    expect(onChange).toHaveBeenCalledWith(answeredScalar(true));
   });
 
   it("shows a held no as the answer it is rather than as no answer", () => {
@@ -137,7 +139,7 @@ describe("the enumerated choice control", () => {
 
     fireEvent.change(select, { target: { value: optionShowing(select, "Not answered").value } });
 
-    expect(onChange).toHaveBeenCalledWith(undefined);
+    expect(onChange).toHaveBeenCalledWith(UNANSWERED_SCALAR);
   });
 
   it("shows no answer for a held value that is not a member at all", () => {

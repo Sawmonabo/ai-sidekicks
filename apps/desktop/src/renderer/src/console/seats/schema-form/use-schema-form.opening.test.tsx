@@ -19,7 +19,13 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { mountForm, NESTED_SCHEMA } from "./use-schema-form.test-support.js";
+import {
+  answerMember,
+  listValuesOf,
+  memberValueOf,
+  mountForm,
+  NESTED_SCHEMA,
+} from "./use-schema-form.test-support.js";
 import { isSameMemberPath } from "../../bridge/index.js";
 
 afterEach(cleanup);
@@ -72,7 +78,7 @@ describe("what a schema form opens holding", () => {
     expect(form().report?.status).toBe("valid");
     expect(form().answer).toEqual({ approver: "ada" });
     // And on the control, not only on the wire: the seed is what a person reads.
-    expect(form().memberValue(["approver"])).toBe("ada");
+    expect(memberValueOf(form(), ["approver"])).toBe("ada");
   });
 
   it("negative control: a member the schema declares no value for opens empty", () => {
@@ -80,7 +86,7 @@ describe("what a schema form opens holding", () => {
     // with something — the seed has to be the schema's own reading and nothing else.
     const form = mountForm(DEFAULTED_SCHEMA);
 
-    expect(form().memberValue(["note"])).toBeUndefined();
+    expect(memberValueOf(form(), ["note"])).toBeUndefined();
   });
 
   it("carries a typed answer over the schema's own value for that member", () => {
@@ -89,7 +95,7 @@ describe("what a schema form opens holding", () => {
     const form = mountForm(DEFAULTED_SCHEMA);
 
     act(() => {
-      form().setMemberValue(["approver"], "bela");
+      answerMember(form(), ["approver"], "bela");
     });
 
     expect(form().answer).toEqual({ approver: "bela" });
@@ -102,7 +108,7 @@ describe("what a schema form opens holding", () => {
     const form = mountForm(PARTLY_DEFAULTED_SCHEMA);
 
     expect(form().report?.status).toBe("invalid");
-    expect(form().memberValue(["approver"])).toBe("ada");
+    expect(memberValueOf(form(), ["approver"])).toBe("ada");
     expect(form().answer).toEqual({ approver: "ada" });
   });
 
@@ -112,13 +118,13 @@ describe("what a schema form opens holding", () => {
     const form = mountForm(PARTLY_DEFAULTED_SCHEMA);
 
     act(() => {
-      form().setMemberValue(["note"], "looks good");
+      answerMember(form(), ["note"], "looks good");
     });
 
     expect(form().report?.status).toBe("valid");
     const answer = form().answer as Record<string, unknown>;
     for (const memberKey of Object.keys(answer)) {
-      expect(form().memberValue([memberKey])).toEqual(answer[memberKey]);
+      expect(memberValueOf(form(), [memberKey])).toEqual(answer[memberKey]);
     }
     expect(answer).toEqual({ approver: "ada", note: "looks good" });
   });
@@ -128,7 +134,7 @@ describe("what a schema form opens holding", () => {
     // carries `false` rather than nothing, and expressing it costs no second toggle.
     const form = mountForm(REQUIRED_BOOLEAN_SCHEMA);
 
-    expect(form().memberValue(["approved"])).toBe(false);
+    expect(memberValueOf(form(), ["approved"])).toBe(false);
     expect(form().answer).toEqual({ approved: false });
     expect(form().report?.status).toBe("valid");
   });
@@ -149,7 +155,7 @@ describe("what a schema form opens holding", () => {
     const form = mountForm(PRESENCE_SENSITIVE_SCHEMA);
 
     act(() => {
-      form().setMemberValue(["notify"], true);
+      answerMember(form(), ["notify"], true);
     });
 
     expect(form().answer).toEqual({ notify: true });
@@ -177,7 +183,7 @@ describe("what a schema form opens holding", () => {
       properties: { approved: { type: "boolean", default: true } },
     });
 
-    expect(form().memberValue(["approved"])).toBe(true);
+    expect(memberValueOf(form(), ["approved"])).toBe(true);
     expect(form().answer).toEqual({ approved: true });
   });
 
@@ -187,7 +193,7 @@ describe("what a schema form opens holding", () => {
     // for a member nobody answered.
     const form = mountForm(PARTLY_DEFAULTED_SCHEMA);
 
-    expect(form().memberValue(["note"])).toBeUndefined();
+    expect(memberValueOf(form(), ["note"])).toBeUndefined();
     expect(form().answer).not.toHaveProperty("note");
   });
 
@@ -198,10 +204,10 @@ describe("what a schema form opens holding", () => {
     });
 
     act(() => {
-      form().appendListItem(["flags"]);
+      form().appendListEntry(["flags"]);
     });
 
-    expect(form().listItems(["flags"])).toEqual([false]);
+    expect(listValuesOf(form(), ["flags"])).toEqual([false]);
   });
 
   it("adds a repeated number entry the schema reads as unanswered rather than as text", () => {
@@ -211,12 +217,12 @@ describe("what a schema form opens holding", () => {
     });
 
     act(() => {
-      form().appendListItem(["scores"]);
+      form().appendListEntry(["scores"]);
     });
 
     // The control shows a blank number box, so the answer holds no value for it — and the
     // schema reports the entry rather than accepting a string the box cannot display.
-    expect(form().listItems(["scores"])).toEqual([undefined]);
+    expect(listValuesOf(form(), ["scores"])).toEqual([undefined]);
     expect(form().report?.status).toBe("invalid");
     expect(
       form().report?.issues.some((issue) => isSameMemberPath(issue.memberPath, ["scores", 0])),
@@ -233,7 +239,7 @@ describe("what a schema form opens holding", () => {
       required: ["reviewers"],
     });
 
-    expect(form().listItems(["reviewers"])).toEqual([]);
+    expect(listValuesOf(form(), ["reviewers"])).toEqual([]);
     expect(form().answer).toEqual({ reviewers: [] });
     expect(form().report?.status).toBe("valid");
   });
@@ -252,7 +258,7 @@ describe("what a schema form opens holding", () => {
 
     // Read off the CONTROL and not only off the answer: the value reaches the submission
     // by being visible in the control it belongs to, which is this seed's whole rule.
-    expect(form().memberValue(["release", "tag"])).toBe("v1");
+    expect(memberValueOf(form(), ["release", "tag"])).toBe("v1");
     expect(form().answer).toEqual({ release: { tag: "v1" } });
   });
 
@@ -260,10 +266,10 @@ describe("what a schema form opens holding", () => {
     const form = mountForm(NESTED_SCHEMA);
 
     act(() => {
-      form().appendListItem(["reviewers"]);
+      form().appendListEntry(["reviewers"]);
     });
 
-    expect(form().listItems(["reviewers"])).toEqual([""]);
+    expect(listValuesOf(form(), ["reviewers"])).toEqual([""]);
   });
 
   it("opens a member one level down at the value its own schema declared", () => {
@@ -274,7 +280,7 @@ describe("what a schema form opens holding", () => {
       },
     });
 
-    expect(form().memberValue(["release", "tag"])).toBe("v1");
+    expect(memberValueOf(form(), ["release", "tag"])).toBe("v1");
     expect(form().answer).toEqual({ release: { tag: "v1" } });
   });
 
@@ -284,7 +290,7 @@ describe("what a schema form opens holding", () => {
       properties: { reviewers: { type: "array", items: { type: "string" }, default: ["ada"] } },
     });
 
-    expect(form().listItems(["reviewers"])).toEqual(["ada"]);
+    expect(listValuesOf(form(), ["reviewers"])).toEqual(["ada"]);
     expect(form().answer).toEqual({ reviewers: ["ada"] });
   });
 });

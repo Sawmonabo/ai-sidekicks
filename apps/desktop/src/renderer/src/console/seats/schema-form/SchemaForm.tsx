@@ -46,12 +46,7 @@ import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaFieldList } from "./SchemaFieldList.js";
 import { SchemaFormField } from "./SchemaFormField.js";
 import { SchemaJsonEditor } from "./SchemaJsonEditor.js";
-import {
-  describedByOf,
-  issuesForListEntry,
-  issuesForMember,
-  ROOT_MEMBER_PATH,
-} from "./schema-field-control.js";
+import { describedByOf, issuesForMember, ROOT_MEMBER_PATH } from "./schema-field-control.js";
 import { leafPathOf, type SchemaFormEntry, type SchemaLeafEntry } from "./schema-fields.js";
 import { encodeMemberPointer } from "../../bridge/index.js";
 import type { SchemaFormState } from "./use-schema-form.js";
@@ -89,27 +84,30 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
       return (
         <SchemaFieldList
           list={entry.list}
-          items={form.listItems(memberPath)}
-          onChangeItem={(index, value) => {
-            form.setListItem(memberPath, index, value);
+          entries={form.listEntries(memberPath)}
+          onChangeEntry={(index, draft) => {
+            form.setListEntryDraft(memberPath, index, draft);
           }}
           onAppend={() => {
-            form.appendListItem(memberPath);
+            form.appendListEntry(memberPath);
           }}
           onRemove={(index) => {
-            form.removeListItem(memberPath, index);
+            form.removeListEntry(memberPath, index);
           }}
           issues={issues}
-          issuesForEntry={(index) => issuesForListEntry(form.report, memberPath, index)}
+          // Asked of the form rather than of the report, because a drawn row and a
+          // projected array position are not the same number once an unanswered row is
+          // dropped — and the sentence about a row with nothing in it is the draft's own.
+          issuesForEntry={(index) => form.listEntryIssues(memberPath, index)}
         />
       );
     }
     return (
       <SchemaFormField
         field={entry.field}
-        value={form.memberValue(memberPath)}
-        onChange={(value) => {
-          form.setMemberValue(memberPath, value);
+        view={form.memberView(memberPath)}
+        onChange={(draft) => {
+          form.setMemberDraft(memberPath, draft);
         }}
         issues={issues}
       />
@@ -122,6 +120,10 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
         group={entry.group}
         renderLeaf={renderLeaf}
         issues={issuesForMember(form.report, entry.group.memberPath)}
+        isActive={form.groupIsActive(entry.group.memberPath)}
+        onChangeActive={(isActive) => {
+          form.setGroupActive(entry.group.memberPath, isActive);
+        }}
       />
     ) : (
       renderLeaf(entry)

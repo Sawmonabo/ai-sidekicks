@@ -17,6 +17,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SchemaNumberField } from "./SchemaNumberField.js";
+import { answeredScalar, unansweredScalar } from "../schema-draft.js";
 import { type SchemaFieldDescriptor } from "../schema-fields.js";
 import { planSchemaForm } from "../schema-form-plan.js";
 
@@ -38,6 +39,7 @@ function stepTakenFor(member: Readonly<Record<string, unknown>>): string | null 
     <SchemaNumberField
       field={numericFieldOf(member)}
       value={undefined}
+      unreadableText=""
       onChange={vi.fn()}
       controlId="ratio-control"
       describedById={undefined}
@@ -50,10 +52,17 @@ function stepTakenFor(member: Readonly<Record<string, unknown>>): string | null 
   return input.getAttribute("step");
 }
 
-/** Mount the control over one member schema, reporting what it writes and what it shows. */
+/**
+ * Mount the control over one member schema, reporting what it writes and what it shows.
+ *
+ * The unreadable text is a PROP now rather than component state, so a case that asserts
+ * what the box shows for one hands it the same way the form does — from the draft node
+ * the member holds.
+ */
 function renderNumeric(
   member: Readonly<Record<string, unknown>>,
   value: unknown,
+  unreadableText = "",
 ): {
   readonly input: HTMLInputElement;
   readonly onChange: ReturnType<typeof vi.fn>;
@@ -63,6 +72,7 @@ function renderNumeric(
     <SchemaNumberField
       field={numericFieldOf(member)}
       value={value}
+      unreadableText={unreadableText}
       onChange={onChange}
       controlId="ratio-control"
       describedById={undefined}
@@ -104,12 +114,17 @@ describe("a figure the control cannot carry", () => {
 
     fireEvent.change(input, { target: { value: "1e309" } });
 
-    expect(onChange).toHaveBeenCalledWith(undefined);
-    expect(onChange).not.toHaveBeenCalledWith(Infinity);
-    // The other half, and the reason absence is honest here: the text is still in the box,
-    // so the person can see what the form would not take.
-    expect(input.value).toBe("1e309");
-    expect(input.getAttribute("aria-invalid")).toBe("true");
+    // An UNANSWERED node carrying the text, so the member holds nothing and the text has
+    // a home on the member rather than in this component — which is what keeps it with
+    // its own list entry when the rows around it shift.
+    expect(onChange).toHaveBeenCalledWith(unansweredScalar("1e309"));
+    expect(onChange).not.toHaveBeenCalledWith(answeredScalar(Infinity));
+    // The other half, and the reason absence is honest here: the text is shown back, so
+    // the person can see what the form would not take.
+    expect(renderNumeric({ type: "number" }, undefined, "1e309").input.value).toBe("1e309");
+    expect(
+      renderNumeric({ type: "number" }, undefined, "1e309").input.getAttribute("aria-invalid"),
+    ).toBe("true");
   });
 
   it("negative control: a finite figure is written and the control reports nothing wrong", () => {
@@ -117,7 +132,7 @@ describe("a figure the control cannot carry", () => {
 
     fireEvent.change(input, { target: { value: "1e30" } });
 
-    expect(onChange).toHaveBeenCalledWith(1e30);
+    expect(onChange).toHaveBeenCalledWith(answeredScalar(1e30));
     expect(input.getAttribute("aria-invalid")).toBeNull();
   });
 
@@ -129,7 +144,7 @@ describe("a figure the control cannot carry", () => {
     expect(input.value).toBe("5");
     fireEvent.change(input, { target: { value: "" } });
 
-    expect(onChange).toHaveBeenCalledWith(undefined);
+    expect(onChange).toHaveBeenCalledWith(unansweredScalar(""));
     expect(input.getAttribute("aria-invalid")).toBeNull();
   });
 });
