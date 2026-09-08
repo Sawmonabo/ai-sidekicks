@@ -81,7 +81,7 @@ declare global {
 
 // Keyed by the glob-relative path (e.g. `"../invite-accept-view.tsx"`). Eager so
 // the values are plain strings available synchronously at module evaluation.
-const rendererViewSources = import.meta.glob("../*.tsx", {
+const rendererViewSources = import.meta.glob("../invite-accept-view.tsx", {
   query: "?raw",
   import: "default",
   eager: true,

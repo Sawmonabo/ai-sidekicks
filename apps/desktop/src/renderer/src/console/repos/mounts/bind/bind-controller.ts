@@ -38,9 +38,7 @@ import {
   ActSurfaceController,
   useActController,
   type ActOutcome,
-  type ActPrerequisiteReading,
   type ActReading,
-  type ActSettlementReading,
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -55,13 +53,6 @@ export interface BindSettlement {
   readonly status: "bound";
   readonly response: WorkspaceBindResponse;
 }
-
-/** Where the pre-bind capabilities read stands, in the four states rule 8 keeps apart. */
-export type BindCapabilitiesReading =
-  ActPrerequisiteReading<WorkspaceExecutionModeCapabilitiesReadResponse>;
-
-/** Where the bind itself stands. */
-export type BindActReading = ActSettlementReading<BindSettlement>;
 
 /** Both halves, published together so a surface renders one consistent frame. */
 export type BindReading = ActReading<

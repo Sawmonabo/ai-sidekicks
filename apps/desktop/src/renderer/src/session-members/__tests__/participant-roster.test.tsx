@@ -21,168 +21,56 @@
 //     composes `presence.read` (decoded snapshot) with `presence.subscribe`
 //     (opaque change-signal that triggers a re-read) — the Option-C design in
 //     participant-roster.tsx's header.
-//   • Spec-023 §Trust Stance (bridge-projection / CP-002-5): the
-//     `describe("bridge-projection (CP-002-5)")` block asserts the view source
-//     NEVER imports the runtime-daemon or control-plane packages directly.
+//   • Spec-023 §Trust Stance (bridge-projection / CP-002-5) is asserted by
+//     `participant-roster.projection.test.tsx`, which reads this view's source text.
 //
 // Mirrors SessionBootstrap.test.tsx idioms: the `installMockBridge`
 // install/teardown shape, the `afterEach` reset, and the RTL
 // `render`/`screen.findBy*`/`getBy*` assertion style. The mock bridge is
-// DUPLICATED here per the T6.3 standing directive — this view's bridge surface
-// is `{ daemon: { call, subscribe } }` (read + subscribe), wider than
-// SessionBootstrap's call-only surface, so a shared helper would not fit anyway.
+// DUPLICATED from that suite per the T6.3 standing directive — this view's bridge
+// surface is `{ daemon: { call, subscribe } }` (read + subscribe), wider than
+// SessionBootstrap's call-only surface, so a shared helper would not fit anyway. It
+// lives in `participant-roster.test-support.ts`, which the three suites here share.
 //
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`/
 // `vi`/`afterEach`; the renderer test tsconfig adds `vitest/globals` to `types`.
+//
+// SPLIT ON ITS SEAMS. This file carried the scaffolding, the lifecycle cases, the
+// failure cases, and a source-text tripwire in one program, past the package's file
+// ceiling — four jobs, and three of them left. The scaffolding is
+// `participant-roster.test-support.ts`, the refusal surfacing is
+// `participant-roster.failures.test.tsx`, and the CP-002-5 read is
+// `participant-roster.projection.test.tsx`, which asserts about this view's TEXT rather
+// than about what it renders and needs no DOM at all. What stays here is the view's own
+// lifecycle: what it renders, what it reads, what it subscribes to, and what it
+// releases.
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
-import { NotImplementedAtTier1Error } from "@ai-sidekicks/contracts";
-import type {
-  ParticipantId,
-  PresenceReadResponse,
-  PresenceUpdate,
-  SessionId,
-  SidekicksBridge,
-  Unsubscribe,
-} from "@ai-sidekicks/contracts";
+import type { PresenceReadResponse, PresenceUpdate, Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { ParticipantRoster } from "../participant-roster.js";
-
-// --------------------------------------------------------------------------
-// CP-002-5 source-text read — Vite `import.meta.glob` raw form.
-// --------------------------------------------------------------------------
-//
-// See invite-accept-view.test.tsx for the full rationale. In short: the
-// bridge-projection assertion needs the view's source TEXT; Vite's
-// `import.meta.glob(..., { query: "?raw" })` inlines it as a string at transform
-// time with NO module import, which is the only lint-clean / typecheck-clean
-// option here (`node:fs` is doubly banned — by the renderer
-// `no-restricted-imports` rule and by the renderer test typegraph's `types: []`
-// posture). The local `ImportMeta` augmentation declares the single signature we
-// use; it is scoped to this test program and does not leak into the production
-// renderer typecheck.
-declare global {
-  interface ImportMeta {
-    glob: (
-      pattern: string,
-      options: { query: "?raw"; import: "default"; eager: true },
-    ) => Record<string, string>;
-  }
-}
-
-const rendererViewSources = import.meta.glob("../*.tsx", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-});
-
-// Branded id fixtures — `"<uuid>" as SessionId` / `as ParticipantId` mirrors the
-// shipped SDK precedent (packages/client-sdk/test/membershipClient.integration.test.ts:64-70).
-const KNOWN_SESSION_ID = "01970000-0000-7000-8000-0000000000a1" as SessionId;
-// A SECOND session id for the session-switch test: re-rendering with a new
-// `sessionId` must reset the roster to loading (not show the prior session's
-// stale `loaded` roster) and re-read for the new session.
-const SECOND_SESSION_ID = "01970000-0000-7000-8000-0000000000a2" as SessionId;
-const PARTICIPANT_ONLINE = "01970000-0000-7000-8000-0000000000b1" as ParticipantId;
-const PARTICIPANT_OFFLINE = "01970000-0000-7000-8000-0000000000b2" as ParticipantId;
-const PARTICIPANT_RECONNECTING = "01970000-0000-7000-8000-0000000000b3" as ParticipantId;
-const PARTICIPANT_NEW_ON_REREAD = "01970000-0000-7000-8000-0000000000b4" as ParticipantId;
-// A member that belongs ONLY to SECOND_SESSION_ID's roster — used to prove the
-// new session's participants eventually load after a session switch.
-const PARTICIPANT_SECOND_SESSION = "01970000-0000-7000-8000-0000000000b5" as ParticipantId;
-
-// Two snapshots so the re-read test can assert the roster updates from one to
-// the other on a subscribe push. SNAPSHOT_ONE varies `state` across the
-// `PresenceState` union and INCLUDES an `"offline"` member to pin Spec-002 AC2
-// (an offline member renders a row, does not vanish).
-const SNAPSHOT_ONE: PresenceReadResponse = {
-  participants: [
-    {
-      participantId: PARTICIPANT_ONLINE,
-      state: "online",
-      lastSeen: "2026-05-26T10:00:00.000Z",
-    },
-    {
-      participantId: PARTICIPANT_OFFLINE,
-      state: "offline",
-      lastSeen: "2026-05-26T09:55:00.000Z",
-    },
-    {
-      participantId: PARTICIPANT_RECONNECTING,
-      state: "reconnecting",
-      lastSeen: "2026-05-26T09:58:00.000Z",
-    },
-  ],
-};
-
-// SNAPSHOT_TWO is what a subscribe-triggered re-read returns — an extra member
-// joined and one flipped to `idle`. The re-read test asserts the roster reflects
-// THIS snapshot after the captured handler fires.
-const SNAPSHOT_TWO: PresenceReadResponse = {
-  participants: [
-    {
-      participantId: PARTICIPANT_ONLINE,
-      state: "idle",
-      lastSeen: "2026-05-26T10:05:00.000Z",
-    },
-    {
-      participantId: PARTICIPANT_NEW_ON_REREAD,
-      state: "online",
-      lastSeen: "2026-05-26T10:05:30.000Z",
-    },
-  ],
-};
-
-// The roster SECOND_SESSION_ID returns — a disjoint membership, so the
-// session-switch test can assert the prior session's members are gone and this
-// one's member is present.
-const SECOND_SESSION_SNAPSHOT: PresenceReadResponse = {
-  participants: [
-    {
-      participantId: PARTICIPANT_SECOND_SESSION,
-      state: "online",
-      lastSeen: "2026-05-26T11:00:00.000Z",
-    },
-  ],
-};
-
-// A manually-resolvable promise — lets a test hold two `presence.read` calls in
-// flight and resolve them in a CHOSEN order (older last) to exercise the
-// out-of-order guard. `resolve` is assigned synchronously inside the executor,
-// so it is always defined by the time the test calls it.
-function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
-}
-
-function installMockBridge(
-  call: ReturnType<typeof vi.fn>,
-  subscribe: ReturnType<typeof vi.fn>,
-): void {
-  // ParticipantRoster reads `window.sidekicks.daemon.call` (presence.read) AND
-  // `window.sidekicks.daemon.subscribe` (presence.subscribe) — both methods are
-  // required on the mock. Mocking the other five capability groups would be
-  // unnecessary scaffolding; we cast through `unknown` because the partial shape
-  // is not structurally assignable to the full `SidekicksBridge`.
-  const bridge: { daemon: { call: typeof call; subscribe: typeof subscribe } } = {
-    daemon: { call, subscribe },
-  };
-  (window as unknown as { sidekicks: SidekicksBridge }).sidekicks =
-    bridge as unknown as SidekicksBridge;
-}
-
-// A no-op `Unsubscribe` for tests that do not assert on cleanup. The unmount
-// test below uses a dedicated `vi.fn()` spy instead.
-const noopUnsubscribe: Unsubscribe = () => {};
+import {
+  KNOWN_SESSION_ID,
+  PARTICIPANT_NEW_ON_REREAD,
+  PARTICIPANT_OFFLINE,
+  PARTICIPANT_ONLINE,
+  PARTICIPANT_RECONNECTING,
+  PARTICIPANT_SECOND_SESSION,
+  SECOND_SESSION_ID,
+  SECOND_SESSION_SNAPSHOT,
+  SNAPSHOT_ONE,
+  SNAPSHOT_TWO,
+  createDeferred,
+  installMockBridge,
+  noopUnsubscribe,
+  removeMockBridge,
+} from "./participant-roster.test-support.js";
 
 // Component under test: `ParticipantRoster` (Plan-002 Phase 6 T6.3).
 describe("ParticipantRoster", () => {
   afterEach(() => {
-    delete (window as unknown as { sidekicks?: SidekicksBridge }).sidekicks;
+    removeMockBridge();
     vi.clearAllMocks();
   });
 
@@ -450,193 +338,5 @@ describe("ParticipantRoster", () => {
     unmount();
 
     expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("renders the error envelope when presence.read rejects asynchronously", async () => {
-    // Async-rejection branch on the initial read — the Tier-1 production path
-    // rejects with `NotImplementedAtTier1Error`. The view surfaces the
-    // `role="alert"` envelope and is not stranded in loading.
-    const tier1Error = new NotImplementedAtTier1Error("presence.read");
-    const daemonCall = vi.fn().mockRejectedValue(tier1Error);
-    const daemonSubscribe = vi.fn(() => noopUnsubscribe);
-    installMockBridge(daemonCall, daemonSubscribe);
-
-    render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
-
-    const errorSection = await screen.findByLabelText("participant-roster-error");
-    expect(errorSection).toBeDefined();
-    expect(errorSection.getAttribute("role")).toBe("alert");
-    expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
-    expect(errorSection.textContent).toContain("presence.read");
-    expect(screen.queryByLabelText("participant-roster-loading")).toBeNull();
-  });
-
-  it("renders the error envelope when presence.read throws synchronously", async () => {
-    // LOAD-BEARING sync-throw case on the read path. At Tier 1, `daemon.call`
-    // throws SYNCHRONOUSLY (`() => tier1Throw("daemon.call")`). The view's
-    // `refreshSnapshot` wraps the call in a void async IIFE so `await` funnels the
-    // sync throw into the same `catch` as an async rejection — a regression that
-    // bypassed that would let the throw escape and strand the view in loading.
-    const tier1Error = new NotImplementedAtTier1Error("presence.read");
-    const daemonCall = vi.fn(() => {
-      throw tier1Error;
-    });
-    const daemonSubscribe = vi.fn(() => noopUnsubscribe);
-    installMockBridge(daemonCall, daemonSubscribe);
-
-    render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
-
-    const errorSection = await screen.findByLabelText("participant-roster-error");
-    expect(errorSection).toBeDefined();
-    expect(errorSection.getAttribute("role")).toBe("alert");
-    expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
-    expect(screen.queryByLabelText("participant-roster-loading")).toBeNull();
-  });
-
-  it("renders the error envelope when presence.subscribe throws synchronously", async () => {
-    // LOAD-BEARING sync-throw case on the SUBSCRIBE path. The synchronous
-    // `subscribePresence(...)` call has its OWN `try/catch` in the effect because
-    // at Tier 1 it throws synchronously (`() => tier1Throw("daemon.subscribe")`);
-    // an uncaught throw there would crash the effect callback (React does not
-    // catch effect-callback throws) and strand the view. This case proves that
-    // catch drives the error state.
-    //
-    // The initial `refreshSnapshot()` lives INSIDE the subscribe `try`, AFTER the
-    // subscribe assignment — so a synchronous subscribe-throw jumps straight to
-    // the catch and the read is NEVER reached. We assert exactly that: the read
-    // mock is arranged to fail the test if it is ever invoked, and we verify it
-    // was not called. (No never-settling-read contortion is needed: the read does
-    // not run at all on a subscribe-throw, so there is no late `loaded` setState
-    // that could clobber the error — see the no-clobber test below.)
-    const subscribeError = new NotImplementedAtTier1Error("presence.subscribe");
-    const daemonCall = vi.fn(() => {
-      throw new Error("presence.read must not be called when subscribe throws");
-    });
-    const daemonSubscribe = vi.fn(() => {
-      throw subscribeError;
-    });
-    installMockBridge(daemonCall, daemonSubscribe);
-
-    render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
-
-    const errorSection = await screen.findByLabelText("participant-roster-error");
-    expect(errorSection).toBeDefined();
-    expect(errorSection.getAttribute("role")).toBe("alert");
-    expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
-    expect(errorSection.textContent).toContain("presence.subscribe");
-    // The subscribe was attempted, the read was gated out by the subscribe-throw,
-    // and the view is not stranded in loading.
-    expect(daemonSubscribe).toHaveBeenCalledTimes(1);
-    expect(daemonCall).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText("participant-roster-loading")).toBeNull();
-  });
-
-  it("holds the subscribe-throw error and never flips to loaded when the read later resolves", async () => {
-    // No-clobber outcome: distinct failure mode from the test above. That test
-    // pins that the read is never INVOKED on a subscribe-throw (`daemonCall` not
-    // called); this one pins the user-visible CONSEQUENCE of the gate — that the
-    // error envelope HOLDS and the view never flips to `loaded`. We arrange a read
-    // that resolves a VALID snapshot, resolve it AFTER the subscribe-throw error
-    // is on screen, and assert the error still holds.
-    //
-    // The resolve is wrapped in `act` so that IF a read were in flight (the bug),
-    // its `await`-resumed `setRosterState({ loaded })` would commit before we
-    // assert — making this a genuine discriminator. Verified empirically: with the
-    // read gated out (the fix) the error holds; with the initial read ungated (the
-    // bug), the resolved snapshot drives a `loaded` commit and this fails — which
-    // is the exact mislead being prevented: a static snapshot with no live channel.
-    const subscribeError = new NotImplementedAtTier1Error("presence.subscribe");
-    const heldRead = createDeferred<PresenceReadResponse>();
-    const daemonCall = vi.fn(() => heldRead.promise);
-    const daemonSubscribe = vi.fn(() => {
-      throw subscribeError;
-    });
-    installMockBridge(daemonCall, daemonSubscribe);
-
-    render(<ParticipantRoster sessionId={KNOWN_SESSION_ID} />);
-
-    const errorSection = await screen.findByLabelText("participant-roster-error");
-    expect(errorSection.textContent).toContain("presence.subscribe");
-
-    await act(async () => {
-      heldRead.resolve(SNAPSHOT_ONE);
-    });
-
-    expect(screen.getByLabelText("participant-roster-error")).toBeDefined();
-    expect(screen.queryByLabelText("participant-roster-loaded")).toBeNull();
-    expect(screen.queryByText(`participant id: ${PARTICIPANT_ONLINE}`)).toBeNull();
-  });
-
-  describe("bridge-projection", () => {
-    // Spec-023 §Trust Stance + Plan-002 CP-002-5 operational enforcement. The
-    // renderer is the UNTRUSTED surface: it must reach the daemon / control-plane
-    // ONLY through the `window.sidekicks` preload bridge, NEVER by importing the
-    // node-side packages directly. This assertion reads the view's own source
-    // text (via the Vite `import.meta.glob` raw form declared inline above — a
-    // lint-clean / typecheck-clean alternative to `node:fs`, which is doubly
-    // banned in renderer source: by `no-restricted-imports` AND by the renderer
-    // test typegraph's `types: []`/no-`@types/node` posture) and asserts no
-    // import statement targets the banned packages.
-    //
-    // THIS IS THE SOLE OPERATIONAL ENFORCEMENT of the daemon/control-plane import
-    // ban for renderer source: `apps/desktop/eslint.config.mjs` bans `electron` /
-    // `node:*` / `main`/`preload` escapes, but the `@ai-sidekicks/runtime-daemon`
-    // / `@ai-sidekicks/control-plane` ban is deferred to the Plan-023 Tier 8
-    // remainder (those would be inert today). Until that lands, this regex tripwire
-    // is the only thing that turns CI red on a direct import — so it must catch
-    // EVERY realistic direct-import shape, not just the bare-exact form.
-    //
-    // The four regexes below cover (identical set to invite-accept-view.test.tsx):
-    //   1. `bannedBareImport` — `from "@ai-sidekicks/<pkg>"` AND any subpath
-    //      (`from "@ai-sidekicks/<pkg>/internal"`) — the optional `(?:/…)?` group
-    //      is what closes the subpath-evasion gap a trailing-quote-only anchor left.
-    //   2. `bannedRelativeImport` — `from "…/packages/<pkg>/…"` (exact or subpath).
-    //   3. `bannedSideEffectImport` — a `from`-less side-effect import
-    //      (`import "@ai-sidekicks/<pkg>"` or its relative form). A REAL gap for
-    //      control-plane, which (unlike runtime-daemon's native bindings) pulls
-    //      nothing that would crash on a bare side-effect import.
-    //   4. `bannedDynamicImport` — `import("@ai-sidekicks/<pkg>")` (or relative).
-    // where `<pkg>` is `runtime-daemon | control-plane`.
-    //
-    // All four anchor on the IMPORT SURFACE (`from "…"` / `import "…"` /
-    // `import("…")`), NOT bare words: participant-roster.tsx mentions "the local
-    // daemon" / "daemon → client" in PROSE comments, which a naive substring on
-    // the package nickname would false-positive. The set is verified empirically
-    // in the implementer's report: all violation shapes match; allowed imports
-    // (`react`, `@testing-library/react`, type-only `@ai-sidekicks/contracts`) and
-    // prose do not.
-    const bannedBareImport =
-      /from\s*["'`]@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?["'`]/;
-    const bannedRelativeImport = /from\s*["'`][^"'`]*packages\/(?:runtime-daemon|control-plane)\//;
-    const bannedSideEffectImport =
-      /import\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-    const bannedDynamicImport =
-      /import\s*\(\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-    // `[patternName, pattern]` tuples drive the `it.each` below. Naming each
-    // pattern means a future regression reports WHICH shape matched (the case
-    // title interpolates the name) instead of a bare `expected true to be false`
-    // that forces a manual bisect across the four regexes.
-    const bannedDirectImportPatterns: ReadonlyArray<readonly [string, RegExp]> = [
-      ["bannedBareImport", bannedBareImport],
-      ["bannedRelativeImport", bannedRelativeImport],
-      ["bannedSideEffectImport", bannedSideEffectImport],
-      ["bannedDynamicImport", bannedDynamicImport],
-    ];
-
-    // Glob-key-drift guard, hoisted to run ONCE before the `it.each`: if the
-    // `import.meta.glob` key ever drifts, this throws loudly here rather than
-    // letting every case vacuously pass against an `undefined` source. After the
-    // narrowing throw, `participantRosterSource` is `string` for all cases below.
-    const participantRosterSource = rendererViewSources["../participant-roster.tsx"];
-    if (typeof participantRosterSource !== "string") {
-      throw new Error("participant-roster.tsx source was not loaded by import.meta.glob");
-    }
-
-    it.each(bannedDirectImportPatterns)(
-      "participant-roster.tsx source matches no %s direct daemon/control-plane import",
-      (_bannedImportPatternName, bannedImportPattern) => {
-        expect(bannedImportPattern.test(participantRosterSource)).toBe(false);
-      },
-    );
   });
 });

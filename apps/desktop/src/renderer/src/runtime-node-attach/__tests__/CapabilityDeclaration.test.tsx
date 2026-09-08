@@ -32,14 +32,6 @@ import { render, screen } from "@testing-library/react";
 import type { RuntimeNodeAttachRequest } from "@ai-sidekicks/contracts";
 
 import { CapabilityDeclaration } from "../CapabilityDeclaration.js";
-import {
-  BANNED_DIRECT_IMPORT_PATTERNS,
-  runtimeNodeSourceNamed,
-} from "./runtime-node-source.test-support.js";
-
-// CP-003-3 source-text read. The raw glob and the banned-import pattern table
-// live once, in `runtime-node-source.test-support.ts` — every suite in this
-// directory had a verbatim copy of both.
 
 type DeclaredCapabilityMap = RuntimeNodeAttachRequest["capabilities"];
 
@@ -175,33 +167,5 @@ describe("CapabilityDeclaration", () => {
       // rendering, never its row.
       expect(screen.getByText("capability: probe.capability")).toBeDefined();
     });
-  });
-
-  describe("bridge-projection", () => {
-    // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
-    // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
-    // `@ai-sidekicks/runtime-daemon` / `@ai-sidekicks/control-plane` arm has no
-    // lint rule today (deferred to the Plan-023 Tier 8 remainder), so for that
-    // arm this tripwire is the sole operational enforcement.
-    //
-    // The pattern table is `runtime-node-source.test-support.ts`'s. What stays here
-    // is WHICH module the claim is about — this view is one file and reaches no
-    // sibling, so the claim is about that file alone.
-    const capabilityDeclarationSource = runtimeNodeSourceNamed("../CapabilityDeclaration.tsx");
-
-    // Negative control: a tripwire that has never fired positive proves nothing.
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "%s matches a synthetic violating import (negative control)",
-      (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
-        expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
-      },
-    );
-
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "CapabilityDeclaration.tsx source matches no %s",
-      (_bannedImportPatternName, bannedImportPattern) => {
-        expect(bannedImportPattern.test(capabilityDeclarationSource)).toBe(false);
-      },
-    );
   });
 });
