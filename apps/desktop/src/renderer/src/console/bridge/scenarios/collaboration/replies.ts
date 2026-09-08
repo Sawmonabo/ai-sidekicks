@@ -187,5 +187,8 @@ export const COLLABORATION_REPLIES: ConsoleScenario["replies"] = [
     // Somebody else holds the shell. The viewer holding it would draw the one
     // arm every surface renders the same way it renders no holder at all.
     terminalControlHolder: PARTICIPANT_TOMAS,
+    // The same read `presence.read` above answers with, so the detail card behind a
+    // roster row and the row itself are one reading of one instant rather than two.
+    presenceRowsAt: collaborationPresenceRowsAt,
   }),
 ];

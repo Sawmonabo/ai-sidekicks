@@ -28,7 +28,11 @@
 //     `presence.read` carries the aggregate and the four `presence.*` beats carry no
 //     payload variant at all, so per-device detail exists on no other wire. Each
 //     aggregate here AGREES with the roster's own row for that participant: the
-//     detail is what stands behind the summary, never a second answer to it.
+//     detail is what stands behind the summary, never a second answer to it — AT
+//     EVERY INSTANT, which is what the room hands this script the roster read for.
+//     Building the card from the roster TABLE agreed only after every presence beat
+//     had played: the row moved on the clock and the card did not, so a card opened
+//     early reported somebody offline whom the roster beside it drew as here.
 //   • The TERMINAL-CONTROL HOLDER is the one session-scoped fact of the four. It is
 //     stated rather than folded for the reason the surface reading it is forbidden to
 //     fold one: the holder is a wire field, and a room that derived it from whichever
@@ -48,6 +52,7 @@ import {
   MEMBERSHIP_ROSTER_READ_CALL,
   TERMINAL_CONTROL_HOLDER_READ_CALL,
 } from "../../fixture/fixture-collaboration-reads.js";
+import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 import type { ScenarioReply } from "../../scenario-runtime/index.js";
 
 /** What this script needs from the room: who is in it, and which channels it has. */
@@ -70,6 +75,19 @@ export interface CollaborationGrowthScript {
    * and a room whose viewer always held it would never draw that row.
    */
   readonly terminalControlHolder: string | null;
+  /**
+   * The room's roster read, at one instant on the scenario's frozen clock.
+   *
+   * A FUNCTION rather than a table, because presence is the one fact in this script
+   * that MOVES: the room schedules `presence.*` transitions and the roster read
+   * answers the ones due, so a card built from a fixed table would be a second
+   * reading of a moving row. Taken from the room rather than reached for over there,
+   * on this script's own rule — what it needs is stated in this shape, and the room
+   * supplies exactly the read the roster itself answers from.
+   */
+  readonly presenceRowsAt: (
+    settledAtMilliseconds: number,
+  ) => readonly PresenceReadResponseParticipant[];
 }
 
 /** One person, as the two membership-keyed reads and the presence detail see them. */
@@ -85,8 +103,6 @@ export interface CollaborationGrowthParticipant {
    */
   readonly membershipId: string;
   readonly role: string;
-  readonly presenceState: string;
-  readonly lastSeenIso: string;
 }
 
 /** The three channels this script states a policy for. Main deliberately absent. */
@@ -103,43 +119,27 @@ const CHANNEL_CREATED = "019b7904-8ce0-7c11-8140-cca0117a0398";
 const CHANNEL_CREATED_AT = "2026-01-01T10:06:00.000Z";
 
 /**
- * The devices behind each person's aggregate, keyed by participant.
+ * The devices behind one person's aggregate, from their roster row at this instant.
  *
- * Built from the roster rather than written beside it, so the aggregate a detail card
- * shows can never disagree with the row it opened from. The fan-out differs per person
- * on purpose: an idle member on two devices is the reading the card exists for, and an
- * offline member on NO device is the empty state a card that only ever listed rows
- * would never draw.
+ * Built from the ROW rather than from the roster table, so the aggregate a detail card
+ * shows can never disagree with the row it opened from — at the instant it opened,
+ * which is the half a table could not carry. The fan-out is keyed on that state and so
+ * moves with it: an idle member on two devices is the reading the card exists for, and
+ * an offline member on NO device is the empty state a card that only ever listed rows
+ * would never draw. Both are reached by PLAYING this room's presence beats, and before
+ * they play the same person is on the one device their join brought.
  */
-function presenceDetailFor(participant: CollaborationGrowthParticipant): unknown {
+function presenceDetailFor(row: PresenceReadResponseParticipant): unknown {
   const devices =
-    participant.presenceState === "offline"
+    row.state === "offline"
       ? []
-      : participant.presenceState === "idle"
+      : row.state === "idle"
         ? [
-            {
-              deviceId: `${participant.participantId}:desk`,
-              state: participant.presenceState,
-              lastSeen: participant.lastSeenIso,
-            },
-            {
-              deviceId: `${participant.participantId}:phone`,
-              state: "offline",
-              lastSeen: participant.lastSeenIso,
-            },
+            { deviceId: `${row.participantId}:desk`, state: row.state, lastSeen: row.lastSeen },
+            { deviceId: `${row.participantId}:phone`, state: "offline", lastSeen: row.lastSeen },
           ]
-        : [
-            {
-              deviceId: `${participant.participantId}:desk`,
-              state: participant.presenceState,
-              lastSeen: participant.lastSeenIso,
-            },
-          ];
-  return {
-    participantId: participant.participantId,
-    devices,
-    aggregateState: participant.presenceState,
-  };
+        : [{ deviceId: `${row.participantId}:desk`, state: row.state, lastSeen: row.lastSeen }];
+  return { participantId: row.participantId, devices, aggregateState: row.state };
 }
 
 /** The channel roster: what each channel is FOR, in the shape the growth read carries. */
@@ -191,12 +191,12 @@ function channelRosterEntries(script: CollaborationGrowthScript): unknown {
 export function collaborationGrowthReplies(
   script: CollaborationGrowthScript,
 ): readonly ScenarioReply[] {
-  const presenceDetailByParticipantId: Record<string, unknown> = Object.fromEntries(
-    script.participants.map((participant) => [
-      participant.participantId,
-      presenceDetailFor(participant),
-    ]),
-  );
+  const presenceDetailAt = (settledAtMilliseconds: number): Readonly<Record<string, unknown>> =>
+    Object.fromEntries(
+      script
+        .presenceRowsAt(settledAtMilliseconds)
+        .map((row) => [row.participantId, presenceDetailFor(row)]),
+    );
   return [
     { call: "channel.rosterRead", result: channelRosterEntries(script) },
     {
@@ -213,8 +213,15 @@ export function collaborationGrowthReplies(
       })),
     },
     {
+      // COMPUTED FROM THE INSTANT as well as from the request, because this card is
+      // the detail behind a row that moves. The table is rebuilt per settled reply
+      // rather than held, which is what `scenario.ts` requires of a computed reply:
+      // no state, no mutation, and a scenario that stays replayable tick-for-tick.
+      // A participant this room does not hold is absent from the read and therefore
+      // from the table, so the unscripted refusal arm is reached exactly as before.
       call: "participant.presenceDetail",
-      resultFor: (request) => answerFor(presenceDetailByParticipantId, "participantId", request),
+      resultFor: (request, settledAtMilliseconds) =>
+        answerFor(presenceDetailAt(settledAtMilliseconds), "participantId", request),
     },
     {
       // The holder, keyed on the operation id for the second of the two reasons a

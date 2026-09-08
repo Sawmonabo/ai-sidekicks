@@ -9,9 +9,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { DaemonMethod } from "@ai-sidekicks/contracts";
+
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
+import type { ConsoleBridge } from "../console-bridge.js";
 
 /** The room that scripts them, and the session every call is scoped to. */
 function collaborationPort(): ReturnType<typeof createFixtureBridge>["growth"] {
@@ -19,6 +22,55 @@ function collaborationPort(): ReturnType<typeof createFixtureBridge>["growth"] {
 }
 
 const SESSION = { sessionId: COLLABORATION_SCENARIO.sessionId };
+
+/** Past every beat this room plays, so an advance leaves no presence move undue. */
+const PAST_EVERY_BEAT_MS = 10_000;
+
+/**
+ * The whole bridge over this room, for the two answers that move on the clock.
+ *
+ * `collaborationPort` above hands back the growth port alone, which is right for the
+ * six answers that are facts about the session and wrong for the presence detail: that
+ * card is the detail behind a roster row the scenario MOVES, so a case about it has to
+ * drive the frozen clock and read the roster row beside it.
+ */
+function collaborationRoom(): {
+  readonly bridge: ConsoleBridge;
+  readonly advance: (ms: number) => void;
+} {
+  const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+  const engine = bridge.scenarioEngine;
+  if (engine === undefined) {
+    throw new Error("the fixture built no engine, so there is nothing to drive");
+  }
+  return {
+    bridge,
+    advance: (ms: number) => {
+      engine.advance(ms);
+    },
+  };
+}
+
+/** What the ROSTER read says about one person right now, through the real call door. */
+async function rosterStateOf(bridge: ConsoleBridge, participantId: string): Promise<unknown> {
+  const reply = await bridge.sidekicks.daemon.call("presence.read" as DaemonMethod, SESSION);
+  const { participants } = reply as {
+    readonly participants: readonly { participantId: string; state: string }[];
+  };
+  return participants.find((row) => row.participantId === participantId)?.state;
+}
+
+/** The detail card for one person right now, or a failure naming the refusal. */
+async function presenceCardFor(
+  bridge: ConsoleBridge,
+  participantId: string,
+): Promise<{ readonly aggregateState: string; readonly devices: readonly unknown[] }> {
+  const outcome = await bridge.growth.participantPresenceDetailRead({ ...SESSION, participantId });
+  if (outcome.status !== "served") {
+    throw new Error(`the room refused the presence detail for ${participantId}`);
+  }
+  return outcome.value;
+}
 
 describe("the fixture's collaboration answers", () => {
   it("reads every channel's kind, pair, and audience, and names the main channel in none of them", async () => {
@@ -62,32 +114,49 @@ describe("the fixture's collaboration answers", () => {
   });
 
   it("answers presence detail per participant, and agrees with the aggregate on each", async () => {
-    const port = collaborationPort();
-    const [firstParticipantId] = COLLABORATION_SCENARIO.participantIdsInJoinOrder;
-    const lastParticipantId = COLLABORATION_SCENARIO.participantIdsInJoinOrder.at(-1);
+    // Read PAST every beat, because the aggregate this card carries is the roster
+    // row's and that row moves on the clock: the empty-device state is what this room
+    // reaches by PLAYING its last presence beat, not what it opens with.
+    const { bridge, advance } = collaborationRoom();
+    const [firstParticipantId = ""] = COLLABORATION_SCENARIO.participantIdsInJoinOrder;
+    const lastParticipantId = COLLABORATION_SCENARIO.participantIdsInJoinOrder.at(-1) ?? "";
 
-    const first = await port.participantPresenceDetailRead({
-      ...SESSION,
-      participantId: firstParticipantId ?? "",
-    });
-    const last = await port.participantPresenceDetailRead({
-      ...SESSION,
-      participantId: lastParticipantId ?? "",
-    });
+    advance(PAST_EVERY_BEAT_MS);
+    const first = await presenceCardFor(bridge, firstParticipantId);
+    const last = await presenceCardFor(bridge, lastParticipantId);
 
-    expect(first.status).toBe("served");
-    expect(last.status).toBe("served");
-    if (first.status !== "served" || last.status !== "served") {
-      return;
-    }
     // Two different answers to two different questions — the defect a reply keyed on
     // the method alone produces is one answer to both.
-    expect(first.value.participantId).not.toBe(last.value.participantId);
+    expect(firstParticipantId).not.toBe(lastParticipantId);
     // The offline member is on no device, which is the empty state a card that only
     // ever listed rows would never draw.
-    expect(last.value.aggregateState).toBe("offline");
-    expect(last.value.devices).toStrictEqual([]);
-    expect(first.value.devices.length).toBeGreaterThan(0);
+    expect(last.aggregateState).toBe("offline");
+    expect(last.devices).toStrictEqual([]);
+    expect(first.devices.length).toBeGreaterThan(0);
+    // And the card is the detail BEHIND the roster row rather than a second answer to
+    // it, which is checkable only against the row itself.
+    expect(last.aggregateState).toBe(await rosterStateOf(bridge, lastParticipantId));
+    expect(first.aggregateState).toBe(await rosterStateOf(bridge, firstParticipantId));
+  });
+
+  it("answers that same card differently before the beat that moves the row", async () => {
+    // The foil for the case above, and the defect it was written for: the card was
+    // built from the roster TABLE, so it reported this person offline on no device
+    // from tick zero — while the roster row beside it, which answers the moves that
+    // are DUE, drew them as here. A card and a row disagreeing about one person is the
+    // one thing the detail read must never do, and it did it for the first 420ms of
+    // every window. Both halves are asserted: the card reads the OPENING state, and it
+    // still agrees with the row.
+    const { bridge } = collaborationRoom();
+    const lastParticipantId = COLLABORATION_SCENARIO.participantIdsInJoinOrder.at(-1) ?? "";
+
+    const atStart = await presenceCardFor(bridge, lastParticipantId);
+
+    expect(atStart.aggregateState).toBe("online");
+    expect(atStart.devices).toStrictEqual([
+      { deviceId: `${lastParticipantId}:desk`, state: "online", lastSeen: expect.any(String) },
+    ]);
+    expect(atStart.aggregateState).toBe(await rosterStateOf(bridge, lastParticipantId));
   });
 
   it("refuses a presence detail for somebody this room does not hold", async () => {
