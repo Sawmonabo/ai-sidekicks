@@ -1,9 +1,11 @@
 // Moving a pane into a window of its own, and bringing it back.
 //
-// This file is the STATE: which panes are in windows right now, which windows were
-// lost, and which subscription is open. What a hand-off is made of — the refusal
-// vocabulary, the value shapes, and the route grammar the third gate runs — lives in
-// `aux-handoff-contract.ts`, which holds no state and reaches no wire.
+// This file is the ACT: the four gates, the plane calls each one guards, and the two
+// subscriptions a hand-off opens and closes around them. The RECORDS those acts move —
+// pending, detached, lost — live in `aux-handoff-records.ts`, which reaches no wire and
+// holds no subscription; and what a hand-off is made of — the refusal vocabulary, the
+// value shapes, and the route grammar the third gate runs — lives in
+// `aux-handoff-contract.ts`, which holds no state at all.
 //
 // `Spec-023 §The surface set`: "`timeline` and `agent-console` panes can be moved into
 // their own hardened `BrowserWindow` … An auxiliary window loads the same renderer
@@ -11,20 +13,10 @@
 // the daemon itself, and shares no in-memory store and no auth material with the main
 // window."
 //
-// FOUR GATES, IN THIS ORDER, AND EACH ONE REFUSES LOCALLY BEFORE ASKING FOR A
-// WINDOW. Asking first and refusing on the answer would mean a window flashes open
-// for a route this build cannot render:
+// FOUR GATES, IN THIS ORDER, AND EACH ONE REFUSES BEFORE THE NEXT IS ASKED. The first
+// three are local and are `aux-handoff-contract.ts`' `admitDetachTarget`, which states
+// them; the fourth is this file's, and it is the wire:
 //
-//   1. **The kind must be an auxiliary route.** `src/shared/auxiliary-routes.ts`
-//      closes that set at two; a pane kind outside it has no window route to load.
-//   2. **The route must be implemented in THIS build.** `IMPLEMENTED_AUXILIARY_ROUTES`
-//      is a build-time fact, and opening a hardened window onto a hash route with
-//      nothing behind it is the capability-claimed-but-not-built shape that module
-//      exists to prevent.
-//   3. **The target must satisfy the route's context grammar.** Built through
-//      `formatAuxiliaryFragment`, which is the PRODUCER half of the grammar the
-//      auxiliary renderer parses. Composing a fragment by hand here is exactly the
-//      drift that module is written to make impossible.
 //   4. **A shell must be able to open one.** `window.detachPane` is on the preload
 //      contract and `src/main/auxiliary-window-ipc.ts` serves it, so this gate is the
 //      plane's own answer and not a standing refusal: a renderer with an Electron main
@@ -44,23 +36,10 @@
 // EITHER WAY IT STOPS. A crash and a close performed from the window's OWN header are
 // both facts this process cannot derive, so both arrive on a subscription.
 // `aux-ending-signals.ts` owns that pair — when it opens, when it closes, and why an
-// ending has to be listened for BEFORE the first window is asked for. This file holds
-// the SETS those reports are written into, and decides the one thing the pair cannot:
-// whether anything is still in a window at all.
-//
-// AND AN ENDING IS MATCHED ON THE WINDOW, NOT ONLY THE PANE. Two things make the pane id
-// alone ambiguous: a pane that came back can be detached again, so a late report about
-// the FIRST window would suppress a body now in the second; and one renderer holds every
-// session's hand-off while every deck mints its own `pane-1`, so a report named by the
-// pane alone reaches sessions that had nothing to do with it. The handle recorded at
-// detach is what both reports are checked against.
-//
-// AND THE CRASH ITSELF IS KEPT, NOT MERELY REPORTED ONCE. The pane goes back into the
-// deck the instant the signal arrives, so a reason held nowhere would be gone by the
-// time the deck rendered the slot again. It is stored against the pane id, published
-// with every other change, and cleared by exactly two acts: the person dismissing it,
-// or the same pane being detached again — which puts its body back in a window and
-// makes a note about the last one a note about nothing.
+// ending has to be listened for BEFORE the first window is asked for; the records
+// module owns which record a report is matched against and what it is kept for. What
+// is decided HERE is the one thing neither can: whether anything is still held, which
+// is what closes the pair.
 
 import { Emitter, type Unsubscribe } from "../../core/index.js";
 import {
@@ -71,31 +50,40 @@ import {
 } from "../../routing/index.js";
 import { type PaneKind } from "../../seats/index.js";
 import { AuxiliaryEndingSignals } from "./aux-ending-signals.js";
+import { AuxiliaryPaneRecords } from "./aux-handoff-records.js";
 import { type ConsoleAuxiliaryWindowPort } from "./aux-window-signal-watch.js";
 import {
-  auxiliaryTarget,
+  admitDetachTarget,
   detachRequestFor,
-  formatAuxiliaryTargetOrRefuse,
-  refuseHandoff,
   settledPlaneCall,
   type AuxiliaryHandoffOutcome,
   type AuxiliaryHandoffRefusal,
   type AuxiliaryHandoffRequest,
+  type AuxiliaryHandoffSnapshot,
   type DetachedPane,
   type LostAuxiliaryWindow,
 } from "./aux-handoff-contract.js";
 
 export class AuxiliaryHandoff {
   readonly #auxiliaryWindows: ConsoleAuxiliaryWindowPort;
-  readonly #detachedByPaneId = new Map<string, DetachedPane>();
   /**
-   * The windows that were lost, by the pane each one had. A SECOND map rather than a
-   * flag on the first, because the two hold panes in opposite states: a detached pane's
-   * body is elsewhere, and a lost window's pane is back in the deck. One record in both
-   * would mean the deck read a member to decide which of the two it was looking at.
+   * Which panes are pending, detached and lost. A COLLABORATOR rather than three maps
+   * here, because those three are one state machine and this class is the acts that
+   * move it: a record set beside the plane calls invited a detach to write a pane in
+   * while a report about the same pane was being dropped for want of one.
    */
-  readonly #lostByPaneId = new Map<string, LostAuxiliaryWindow>();
+  readonly #records = new AuxiliaryPaneRecords();
   readonly #changes = new Emitter<readonly DetachedPane[]>("auxiliary hand-off change");
+  /**
+   * The last thing this hand-off published, held so a store read is stable.
+   *
+   * REBUILT ONLY IN {@link publish}, which is what makes it a snapshot rather than a
+   * view: `useSyncExternalStore` compares by identity, so a value composed per read
+   * would never settle. The two refusals are captured HERE rather than read live for
+   * the same reason, and it changes nothing a surface saw — the projection above has
+   * always been rebuilt on a publish and never between two.
+   */
+  #snapshot: AuxiliaryHandoffSnapshot;
   /**
    * Both window-ending signals, as one collaborator rather than as four more fields.
    * It holds no set of its own: a lost or returned window is recorded HERE, by the
@@ -134,9 +122,27 @@ export class AuxiliaryHandoff {
         this.#publish();
       },
     });
+    this.#snapshot = this.#composeSnapshot();
   }
 
-  /** Why the crashed-window signal is not being received, where it is not. */
+  /**
+   * Everything this hand-off publishes, as one value held across a change.
+   *
+   * The read a React store takes. It is the SAME value the last publish emitted, so a
+   * subscriber that re-reads on notification and one that reads before subscribing see
+   * one answer rather than two.
+   */
+  public get snapshot(): AuxiliaryHandoffSnapshot {
+    return this.#snapshot;
+  }
+
+  /**
+   * Why the crashed-window signal is not being received, where it is not.
+   *
+   * LIVE off the signals rather than off the snapshot, because a stop clears a refusal
+   * without publishing — the subscription is gone, so there is nothing left to refuse —
+   * and a caller asking this question directly is asking about now.
+   */
   public get paneErrorRefusal(): AuxiliaryHandoffRefusal | undefined {
     return this.#endingSignals.lostWindowRefusal;
   }
@@ -148,26 +154,20 @@ export class AuxiliaryHandoff {
 
   /** Every pane currently shown in a window, in detach order. */
   public detached(): readonly DetachedPane[] {
-    return [...this.#detachedByPaneId.values()];
+    return this.#snapshot.detached;
   }
 
   public detachedPane(paneId: string): DetachedPane | undefined {
-    return this.#detachedByPaneId.get(paneId);
+    return this.#records.detachedPane(paneId);
   }
 
-  /**
-   * Every pane whose window was lost and has not been answered, in loss order.
-   *
-   * Published rather than returned-and-forgotten: the crash is noticed by a
-   * subscription and the slot that has to show it renders on a later frame, so a
-   * record handed back to the drain loop would reach nobody.
-   */
+  /** Every pane whose window was lost and has not been answered, in loss order. */
   public lostWindows(): readonly LostAuxiliaryWindow[] {
-    return [...this.#lostByPaneId.values()];
+    return this.#snapshot.lostWindows;
   }
 
   public lostWindow(paneId: string): LostAuxiliaryWindow | undefined {
-    return this.#lostByPaneId.get(paneId);
+    return this.#records.lostWindow(paneId);
   }
 
   /**
@@ -176,7 +176,7 @@ export class AuxiliaryHandoff {
    * back into a window is not one carrying a note about the last window it was in.
    */
   public dismissLostWindow(paneId: string): void {
-    if (this.#lostByPaneId.delete(paneId)) {
+    if (this.#records.dismissLostWindow(paneId)) {
       this.#publish();
     }
   }
@@ -202,39 +202,22 @@ export class AuxiliaryHandoff {
 
   /** Run all four gates and, if they pass, ask for the window. */
   public async detach(request: AuxiliaryHandoffRequest): Promise<AuxiliaryHandoffOutcome> {
-    if (!isAuxiliaryRouteName(request.kind)) {
-      return {
-        outcome: "refused",
-        refusal: refuseHandoff(
-          "kind-not-detachable",
-          "Only a timeline and an agent console can move into a window of their own.",
-        ),
-      };
+    const admitted = admitDetachTarget(request, this.#implementedRoutes);
+    if ("refusal" in admitted) {
+      return { outcome: "refused", refusal: admitted.refusal };
     }
-    // Bound to its own name because the narrowing gate 1 just made does not survive
-    // into the closure below: `request.kind` is a property read, which the checker
-    // re-widens inside a function expression, so the plane call would be composing a
-    // request against the whole pane-kind set.
-    const route: AuxiliaryRouteName = request.kind;
-    if (!this.#implementedRoutes.includes(route)) {
-      return {
-        outcome: "refused",
-        refusal: refuseHandoff(
-          "route-not-implemented",
-          `This build cannot open a ${AUXILIARY_ROUTE_LABELS[route].toLowerCase()} in its own window yet.`,
-        ),
-      };
-    }
-
-    const fragment = formatAuxiliaryTargetOrRefuse(auxiliaryTarget(route, request));
-    if (typeof fragment !== "string") {
-      return { outcome: "refused", refusal: fragment.refusal };
-    }
+    const { route, fragment } = admitted;
 
     // BEFORE THE WINDOW IS ASKED FOR, per `aux-ending-signals.ts`: the shell reports
     // an ending exactly once, and a window that dies between the reply and the deck's
     // next commit would otherwise report it to nobody.
     this.#endingSignals.openWithoutWaiting();
+    // AND BEFORE IT TOO, THE RECORD THAT ENDING LANDS IN. Listening is not enough on its
+    // own: both ending handlers match a report against a record, and the only record
+    // this hand-off used to write was the one the fulfillment below makes — so a window
+    // that ended while the reply was in flight was heard and then dropped, and the
+    // fulfillment filed a detached pane for a window that was already gone.
+    this.#records.beginDetach(request.paneId);
 
     // THE ROUTE AND ITS CONTEXT TRAVEL, not just the pane id. The shell builds the
     // window's own hash route from them through the same producer half of the grammar
@@ -248,10 +231,12 @@ export class AuxiliaryHandoff {
       this.#auxiliaryWindows.detachPane(detachRequestFor(request, route)),
     );
     if (answer.status === "unavailable") {
-      // Nothing was opened, so nothing is being watched for: the subscriptions this
-      // detach installed would otherwise stand for the window's life, reporting their
-      // own refusal in a placeholder no pane has.
-      this.#stopWatchingWhenNothingIsDetached();
+      // Nothing was opened, so the record that would have caught a report about it goes
+      // too — and nothing is being watched for: the subscriptions this detach installed
+      // would otherwise stand for the window's life, reporting their own refusal in a
+      // placeholder no pane has.
+      this.#records.abandonDetach(request.paneId);
+      this.#stopWatchingWhileNothingIsHeld();
       return { outcome: "refused", refusal: answer.refusal };
     }
 
@@ -262,17 +247,22 @@ export class AuxiliaryHandoff {
       fragment,
       lostReason: undefined,
     };
-    this.#detachedByPaneId.set(request.paneId, detached);
-    // The pane is in a window again, so the note about the last window it was in is
-    // no longer about anything on screen.
-    this.#lostByPaneId.delete(request.paneId);
+    // The records decide which settlement this is, because they hold whatever the shell
+    // reported about this window while the reply was in flight.
+    const ending = this.#records.settleDetach(detached);
     this.#publish();
-    return { outcome: "detached", detached };
+    if (ending === undefined) {
+      return { outcome: "detached", detached };
+    }
+    // The window is already gone, so the pane is in the deck rather than behind a
+    // placeholder — and there is nothing left in a window to keep the signals open for.
+    this.#stopWatchingWhileNothingIsHeld();
+    return { outcome: "window-ended", ending };
   }
 
   /** Bring the window to the front. The placeholder's one control. */
   public async focus(paneId: string): Promise<AuxiliaryHandoffRefusal | undefined> {
-    const detached = this.#detachedByPaneId.get(paneId);
+    const detached = this.#records.detachedPane(paneId);
     if (detached === undefined) {
       return undefined;
     }
@@ -291,12 +281,11 @@ export class AuxiliaryHandoff {
    * strictly worse than one stray window.
    */
   public async returnToDeck(paneId: string): Promise<AuxiliaryHandoffRefusal | undefined> {
-    const detached = this.#detachedByPaneId.get(paneId);
+    const detached = this.#records.removeDetached(paneId);
     if (detached === undefined) {
       return undefined;
     }
-    this.#detachedByPaneId.delete(paneId);
-    this.#stopWatchingWhenNothingIsDetached();
+    this.#stopWatchingWhileNothingIsHeld();
     this.#publish();
     const answer = await settledPlaneCall(() =>
       this.#auxiliaryWindows.closeAuxiliary({ windowId: detached.windowId }),
@@ -305,54 +294,48 @@ export class AuxiliaryHandoff {
   }
 
   /**
-   * Record that a window was lost rather than closed.
+   * A window was lost rather than closed — the pane comes back, carrying why.
    *
-   * The pane returns to the deck — `Spec-023 §The surface set`: "a crashed auxiliary
-   * window returns the pane to the deck with the crash noted in the pane's error slot"
-   * — and the reason is STORED for that slot in the same act, because a reason handed
-   * back to the caller and nowhere else is one the slot never sees, and a pane that
-   * reappears in silence tells the person nothing about why. Matched on the window as
-   * well as the pane, per this file's header — and this report used to carry no window
-   * to match on.
+   * The recording itself is `aux-handoff-records.ts`'; what this method adds is the two
+   * consequences only a hand-off can draw: the signals close once nothing is held, and
+   * subscribers hear about it. Matched on the window as well as the pane, per this
+   * file's header — and this report used to carry no window to match on.
    */
   public noteWindowLost(
     paneId: string,
     windowId: string,
     reason: string,
   ): LostAuxiliaryWindow | undefined {
-    const detached = this.#detachedByPaneId.get(paneId);
-    if (detached === undefined || detached.windowId !== windowId) {
+    const lost = this.#records.noteWindowLost(paneId, windowId, reason);
+    if (lost === undefined) {
+      // Either buffered against a detach still in flight or about no window this
+      // hand-off holds. Nothing anybody can see moved, so nothing is published.
       return undefined;
     }
-    const lost: LostAuxiliaryWindow = { ...detached, lostReason: reason };
-    this.#lostByPaneId.set(paneId, lost);
-    this.#detachedByPaneId.delete(paneId);
-    this.#stopWatchingWhenNothingIsDetached();
+    this.#stopWatchingWhileNothingIsHeld();
     this.#publish();
     return lost;
   }
 
   /**
-   * Record that a window closed in an orderly way, giving its pane back.
+   * A window closed in an orderly way, giving its pane back.
    *
    * NO NOTE IS KEPT, which is the whole difference from {@link noteWindowLost}: the
    * pane came back because somebody asked for it, and a note about that would be a
    * report of a fault where there was none. The body simply stops being suppressed.
    *
-   * MATCHED ON THE WINDOW AS WELL AS THE PANE, per this file's header. A pane that is
-   * not detached at all is the ordinary case for the deck's own {@link returnToDeck},
-   * which drops its record before the close it asked for is even acknowledged — so the
-   * report about it arrives to nothing, which is exactly right.
+   * A pane that is not detached at all is the ordinary case for the deck's own
+   * {@link returnToDeck}, which drops its record before the close it asked for is even
+   * acknowledged — so the report about it arrives to nothing, which is exactly right.
    */
   public noteWindowReturned(paneId: string, windowId: string): DetachedPane | undefined {
-    const detached = this.#detachedByPaneId.get(paneId);
-    if (detached === undefined || detached.windowId !== windowId) {
+    const returned = this.#records.noteWindowReturned(paneId, windowId);
+    if (returned === undefined) {
       return undefined;
     }
-    this.#detachedByPaneId.delete(paneId);
-    this.#stopWatchingWhenNothingIsDetached();
+    this.#stopWatchingWhileNothingIsHeld();
     this.#publish();
-    return detached;
+    return returned;
   }
 
   /**
@@ -380,21 +363,35 @@ export class AuxiliaryHandoff {
   }
 
   /**
-   * Close both signals once the last pane has come back.
+   * Close both signals once nothing is in a window and nothing is on its way into one.
    *
-   * Called by every act that can empty the detached set — the deck's own return, a
-   * crash, a window that closed itself, and a detach the plane refused. Held HERE
-   * rather than by whatever renders the set, because the set is what the condition is
-   * about: a reader deciding it acts one commit late in both directions, and the
-   * commit it is late by is the one an ending can arrive in.
+   * Called by every act that can empty the records — the deck's own return, a crash, a
+   * window that closed itself, and a detach the plane refused. Held HERE rather than by
+   * whatever renders the set, because the set is what the condition is about: a reader
+   * deciding it acts one commit late in both directions, and the commit it is late by
+   * is the one an ending can arrive in.
+   *
+   * A DETACH IN FLIGHT KEEPS THEM OPEN, which is the half the detached set alone could
+   * not say: closing the signals while the shell is opening a window would drop the
+   * ending for the very window this hand-off is waiting on.
    */
-  #stopWatchingWhenNothingIsDetached(): void {
-    if (this.#detachedByPaneId.size === 0) {
+  #stopWatchingWhileNothingIsHeld(): void {
+    if (this.#records.isIdle) {
       this.stopWatchingWindowSignals();
     }
   }
 
   #publish(): void {
-    this.#changes.emit(this.detached());
+    this.#snapshot = this.#composeSnapshot();
+    this.#changes.emit(this.#snapshot.detached);
+  }
+
+  #composeSnapshot(): AuxiliaryHandoffSnapshot {
+    return {
+      detached: this.#records.detached,
+      lostWindows: this.#records.lostWindows,
+      paneErrorRefusal: this.#endingSignals.lostWindowRefusal,
+      paneReturnRefusal: this.#endingSignals.returnedWindowRefusal,
+    };
   }
 }

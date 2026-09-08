@@ -18,6 +18,14 @@
 // last pane comes back, which a reader of the published projection could only ever do
 // one commit late.
 //
+// SO THE HAND-OFF IS READ AS AN EXTERNAL STORE AND NOT COPIED INTO STATE. It survives
+// this mount, which means a surface remounting for a session that already has panes in
+// windows is reading a record that is ALREADY there — and a projection seeded empty and
+// corrected by a passive effect painted that pane's BODY in the deck for one committed
+// frame while its own auxiliary window drew the same pane. `useSyncExternalStore` reads
+// it during the render instead, so the first frame is already right; the hand-off holds
+// its published snapshot by identity, which is what makes that read settle.
+//
 // WHAT IT PUBLISHES, AND WHY THE TWO SETS NEVER OVERLAP. A pane whose body is in a
 // window of its own is in `paneIds`; a pane whose window was LOST is not — its body
 // is back in the deck — and carries a notice instead. One slot renders both, so a
@@ -25,13 +33,14 @@
 // the same moment. The hand-off is what keeps them disjoint, and this module reads
 // them from it rather than deriving either.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import { type ConsoleRefusal } from "../../core/index.js";
 import {
   lostWindowNotice,
   refuseHandoffFromRejection,
   type AuxiliaryHandoffRefusal,
+  type AuxiliaryHandoffSnapshot,
 } from "./aux-handoff-contract.js";
 import { type AuxiliaryHandoff } from "./aux-handoff.js";
 import { useAuxiliaryHandoffRegistry } from "./DetachedPaneBinding.js";
@@ -168,39 +177,42 @@ export function useAuxiliaryPanes(options: {
 /**
  * Follow the hand-off's published state.
  *
- * READ-ONLY OVER A LIFETIME IT DOES NOT OWN. The hand-off may already be holding
- * detached panes when this surface mounts — that is what the window-lifetime registry
- * buys — so the first read happens immediately rather than waiting for a change, and
- * nothing here starts or stops a subscription.
+ * READ-ONLY OVER A LIFETIME IT DOES NOT OWN, and read DURING THE RENDER. The hand-off
+ * may already be holding detached panes when this surface mounts — that is what the
+ * window-lifetime registry buys — so the opening value has to be the record as it
+ * stands rather than an empty one a passive effect corrects a frame later.
+ *
+ * The watches are NOT opened or closed here, and that is a rule rather than an
+ * omission. They are the hand-off's own — opened before it asks the shell for a window,
+ * closed in the same act that empties its records — so nothing decides a subscription's
+ * life from a projection that is always one commit behind the act.
  */
 function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
-  const [projection, setProjection] = useState<DetachedPaneProjection>({
-    paneIds: [],
-    signalRefusal: undefined,
-    lostWindowNoticesByPaneId: NO_LOST_WINDOW_NOTICES,
-  });
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => handoff.subscribe(onStoreChange),
+    [handoff],
+  );
+  const readSnapshot = useCallback(() => handoff.snapshot, [handoff]);
+  const snapshot = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
+  // Keyed on the snapshot rather than run per render, so the deck's memoised slots are
+  // handed one projection identity for as long as the hand-off has not moved.
+  return useMemo(() => projectDetachedPanes(snapshot), [snapshot]);
+}
 
-  useEffect(() => {
-    const read = (): void => {
-      const lost = handoff.lostWindows();
-      setProjection({
-        paneIds: handoff.detached().map((pane) => pane.paneId),
-        signalRefusal: handoff.paneErrorRefusal ?? handoff.paneReturnRefusal,
-        lostWindowNoticesByPaneId:
-          lost.length === 0
-            ? NO_LOST_WINDOW_NOTICES
-            : new Map(lost.map((window) => [window.paneId, lostWindowNotice(window)])),
-      });
-    };
-    const unsubscribe = handoff.subscribe(read);
-    read();
-    // The watches are NOT opened or closed here, and that is the whole correction. They
-    // are the hand-off's own — opened before it asks the shell for a window, closed in
-    // the same act that empties its detached set — so nothing decides a subscription's
-    // life from a projection that is always one commit behind the act. This effect only
-    // follows what is published, and it unsubscribes from that.
-    return unsubscribe;
-  }, [handoff]);
-
-  return projection;
+/**
+ * One published snapshot, as the deck reads it.
+ *
+ * WHERE THE TWO SIGNAL REFUSALS ARE FUSED, and the choice is stated on
+ * {@link DetachedPaneProjection.signalRefusal}: the hand-off publishes both and this is
+ * the one line that renders one of them.
+ */
+function projectDetachedPanes(snapshot: AuxiliaryHandoffSnapshot): DetachedPaneProjection {
+  return {
+    paneIds: snapshot.detached.map((pane) => pane.paneId),
+    signalRefusal: snapshot.paneErrorRefusal ?? snapshot.paneReturnRefusal,
+    lostWindowNoticesByPaneId:
+      snapshot.lostWindows.length === 0
+        ? NO_LOST_WINDOW_NOTICES
+        : new Map(snapshot.lostWindows.map((window) => [window.paneId, lostWindowNotice(window)])),
+  };
 }

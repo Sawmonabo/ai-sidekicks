@@ -128,14 +128,30 @@ export class ModelledShell {
   readonly #paneErrors = new WindowSignalStreams<AuxiliaryWindowPaneError>();
   readonly #paneReturns = new WindowSignalStreams<AuxiliaryWindowPaneReturn>();
   #mintedWindowCount = 0;
+  /**
+   * The reply every detach parks on while replies are held, and the release that
+   * answers them.
+   *
+   * TWO FIELDS BECAUSE THE PROMISE AND ITS RESOLVE ARE ONE FACT WITH TWO HALVES, and a
+   * case drives them from opposite ends: it holds before the detach and releases after
+   * it has driven the window's ending. Absent is the ordinary shape — a detach that
+   * awaits `undefined` answers on the next microtask, which is what every other case
+   * here already depends on.
+   */
+  #heldDetachReplies: Promise<void> | undefined;
+  #releaseHeldDetachReplies: (() => void) | undefined;
 
   /** The plane an `AuxiliaryHandoff` is handed. */
   public get plane(): ConsoleAuxiliaryWindowPort {
     return {
-      detachPane: async (request) => ({
-        status: "served",
-        value: { windowId: this.#openFor(request) },
-      }),
+      detachPane: async (request) => {
+        // THE WINDOW OPENS FIRST AND THE REPLY IS WHAT IS HELD, which is the whole
+        // interleaving a held case is about: a real shell creates the window and then
+        // answers, so a window can end while the renderer has not heard of it yet.
+        const windowId = this.#openFor(request);
+        await this.#heldDetachReplies;
+        return { status: "served", value: { windowId } };
+      },
       focusAuxiliary: async (request) => this.#servedForHeld(request.windowId),
       closeAuxiliary: async (request) => this.#close(request.windowId),
       subscribePaneErrors: async () => ({
@@ -161,6 +177,24 @@ export class ModelledShell {
    */
   public windowFor(paneId: string, sessionId?: string): string | undefined {
     return this.#windowIdByPaneIdentity.get(auxiliaryPaneIdentity(sessionId, paneId));
+  }
+
+  /**
+   * Hold every detach REPLY until {@link releaseDetachReplies}, opening the window as
+   * usual. What a case about an ending before the fulfillment drives.
+   */
+  public holdDetachReplies(): void {
+    this.#heldDetachReplies = new Promise<void>((resolve) => {
+      this.#releaseHeldDetachReplies = resolve;
+    });
+  }
+
+  /** Answer every held detach, and take replies off hold. */
+  public releaseDetachReplies(): void {
+    const release = this.#releaseHeldDetachReplies;
+    this.#heldDetachReplies = undefined;
+    this.#releaseHeldDetachReplies = undefined;
+    release?.();
   }
 
   /** The window stopped being open without anybody asking. Drives the crash arm. */

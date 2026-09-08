@@ -16,12 +16,13 @@
 // rather than minting anything, and that the hand-off it gets back is the one that
 // session's own deck wrote.
 
-import { act, renderHook } from "@testing-library/react";
-import { type ReactNode } from "react";
+import { act, render, renderHook } from "@testing-library/react";
+import { useEffect, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
+import { CommittedFrameRecorder } from "../../core/committed-frame.test-support.js";
 import { ConsoleRefusalError } from "../../core/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import { type FrameBindingContext } from "../../seats/index.js";
@@ -127,6 +128,63 @@ describe("useAuxiliaryPanes — the hand-off comes from the window", () => {
     expect(result.current.paneIds).toStrictEqual(["pane-1"]);
   });
 });
+
+describe("useAuxiliaryPanes — the first committed frame", () => {
+  it("already names a retained detached pane, before any effect runs", async () => {
+    // THE DEFECT IS ONE COMMITTED FRAME LONG. The registry survives a navigation, so a
+    // workspace remounting for a session that already has a pane in a window of its own
+    // is reading a record that is ALREADY there — and a projection seeded empty and
+    // corrected by a passive effect paints that pane's body in the deck for one frame
+    // while its own auxiliary window is drawing the same pane. Asserting after the
+    // rerender cannot see it: `act` flushes the effect before returning.
+    const context = windowContext();
+    const committedFrames: string[] = [];
+    const readWirings: AuxiliaryPaneWiring[] = [];
+    const treeWith = (isProbeMounted: boolean): React.JSX.Element => (
+      <DetachedPaneBinding context={context}>
+        <CommittedFrameRecorder
+          id="auxiliary-panes"
+          onFrame={(committedText) => committedFrames.push(committedText)}
+        >
+          {isProbeMounted ? (
+            <DetachedPaneProbe onWiring={(wiring) => readWirings.push(wiring)} />
+          ) : null}
+        </CommittedFrameRecorder>
+      </DetachedPaneBinding>
+    );
+    const mounted = render(treeWith(true));
+    act(() => {
+      readWirings[0]?.openInWindow(deckPaneNamed("pane-1"));
+    });
+    await settle();
+
+    // Away and back, with the window's registry — and the shell's window — standing
+    // across both: this is a surface being unmounted by a navigation, not a new window.
+    mounted.rerender(treeWith(false));
+    committedFrames.length = 0;
+    mounted.rerender(treeWith(true));
+
+    expect(committedFrames[0]).toContain("pane-1");
+  });
+});
+
+/**
+ * One reader of the wiring, rendering the pane ids it was handed.
+ *
+ * A PRIVATE PROBE rather than a shared harness: it exists to put the projection where
+ * the frame recorder can read it, and nothing outside this file has a use for a
+ * component that renders a list of ids.
+ */
+function DetachedPaneProbe(props: {
+  readonly onWiring: (wiring: AuxiliaryPaneWiring) => void;
+}): React.JSX.Element {
+  const { onWiring } = props;
+  const wiring = useAuxiliaryPanes({ sessionId: SESSION_ID, onRefused: IGNORE_REFUSAL });
+  useEffect(() => {
+    onWiring(wiring);
+  }, [onWiring, wiring]);
+  return <span>{wiring.paneIds.join(" ")}</span>;
+}
 
 /** One deck pane, in the shape `DeckLayout` publishes them. */
 function deckPaneNamed(paneId: string): DeckPane {

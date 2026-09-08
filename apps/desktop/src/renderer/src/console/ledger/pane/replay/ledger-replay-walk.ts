@@ -8,10 +8,12 @@
 // THE ONE IDEA HERE: a replay is a walk over a FIXED set of rows, and two different
 // things move underneath it.
 //
-//   • The LOG grows. That is an arrival, and the walk does not follow it — a row
-//     admitted mid-walk was never in the walk, so scrubbing to the very end of it
-//     reveals nothing, which is why the arrival is counted and named on screen
-//     instead.
+//   • The LOG grows PAST ITS TAIL. That is an arrival, and the walk does not follow it
+//     — a row admitted mid-walk was never in the walk, so scrubbing to the very end of
+//     it reveals nothing, which is why the arrival is counted and named on screen
+//     instead. Past the TAIL and not merely outside the frozen set: "Load earlier"
+//     prepends historical rows the frozen log never held either, and counting those
+//     told a person the session had moved on because they had asked to see its past.
 //   • The PROJECTION moves — a facet chip, a chapter disclosed, a rewound band
 //     folded. Nothing about the log changed, so the walk follows it: the same fixed
 //     set, drawn differently.
@@ -56,10 +58,25 @@ export interface LedgerReplayWalk {
   /**
    * The LOG this walk began over, frozen from engagement to the end of the walk.
    *
-   * What "the session moved on" is measured against, so clearing a filter or opening
-   * a chapter cannot be counted as an arrival.
+   * Which rows this walk MAY cover, so clearing a filter or opening a chapter cannot
+   * enlarge it. What the walk covers is decided by membership here; whether the
+   * session has moved on is decided by {@link frozenTailSequence}, and the two are
+   * different questions over the same frozen log.
    */
   readonly loadedRows: readonly TimelineRow[];
+  /**
+   * The ordering key the frozen log's TAIL sat at, or `undefined` for an empty one.
+   *
+   * WHAT AN ARRIVAL IS MEASURED PAST, and the reason the count is not a membership
+   * test: a row outside the frozen set is not necessarily a row the session admitted,
+   * because "Load earlier" prepends rows that are older than everything in the walk.
+   * Counted as arrivals they made the notice say the session had moved on, and offered
+   * to abandon the walk to reach entries the person had just asked to see.
+   *
+   * The key is `TimelineRow.sequence`, which is the session event sequence the whole
+   * log is ordered by — never a run position, which is reused across a rewind.
+   */
+  readonly frozenTailSequence: number | undefined;
   /**
    * The projection `rows` was folded out of, so an unmoved projection costs one
    * identity check.
@@ -100,6 +117,7 @@ export function walkOverTheWholeWindow(
     generation: replacedWalk === undefined ? 0 : replacedWalk.generation + 1,
     rows: ledgerWindow.rows,
     loadedRows: loadedWindow.rows,
+    frozenTailSequence: tailSequenceOf(loadedWindow.rows),
     projectedFrom: ledgerWindow.rows,
     resumeFrom: undefined,
   };
@@ -115,9 +133,9 @@ export function walkOverTheWholeWindow(
  * projection has now been accounted for. A projection that really did change the
  * walk's rows takes a new generation and the position the replaced walk held.
  *
- * `loadedRows` IS CARRIED ACROSS EITHER WAY. It is the log the arrival count is
- * measured against, and adopting the current one here would make every arrival vanish
- * from the notice the moment somebody opened a chapter.
+ * `loadedRows` AND THE TAIL IT ENDED AT ARE CARRIED ACROSS EITHER WAY. They are what
+ * the arrival count is measured against, and adopting the current log here would make
+ * every arrival vanish from the notice the moment somebody opened a chapter.
  */
 export function walkAcrossProjectionChange(
   previous: LedgerReplayWalk,
@@ -132,26 +150,31 @@ export function walkAcrossProjectionChange(
     generation: previous.generation + 1,
     rows: rowsTheWalkCovers,
     loadedRows: previous.loadedRows,
+    frozenTailSequence: previous.frozenTailSequence,
     projectedFrom: projectedRows,
     resumeFrom: heldPosition,
   };
 }
 
 /**
- * How many rows the log and this window hold that the walk's own log did not.
+ * How many rows the log and this window hold that are ordered PAST the walk's tail.
  *
- * TWO SUBJECTS FROM ONE ID SET, because the two have different consumers and are
+ * TWO SUBJECTS FROM ONE BOUNDARY, because the two have different consumers and are
  * different facts. The notice a reader sees is about the SESSION having moved on, and
  * a narrowing is not the session: an entry admitted into a shut chapter, or one the
  * facet bar is hiding, is in the loaded log and in no window the viewport draws.
  * `ledger-visible-window.ts`' pile of withheld rows is this window's, so the feed's
  * subtraction takes the second figure and the notice takes the first.
  *
- * Counted by id rather than by length, because a window loses rows at the head as
- * well as gaining them at the tail: a subtraction would report a pruned walk as
- * having admitted nothing. The identity short-circuit is what keeps an unreplayed
- * ledger free and is exact for both — while the frozen log IS the log, nothing has
- * been admitted anywhere.
+ * MEASURED PAST THE TAIL AND NOT AGAINST THE FROZEN SET, which is the correction: a
+ * row the frozen log did not hold is not the same fact as a row the session admitted,
+ * because paging backwards prepends rows older than the whole walk. Counted by the
+ * ordering key rather than by length for the reason a membership test was reached for
+ * in the first place — a window loses rows at the head as well as gaining them at the
+ * tail, so a subtraction would report a pruned walk as having admitted nothing.
+ *
+ * The identity short-circuit is what keeps an unreplayed ledger free and is exact for
+ * both: while the frozen log IS the log, nothing has been admitted anywhere.
  */
 export function countRowsAdmittedSinceTheWalkBegan(
   walk: LedgerReplayWalk,
@@ -161,11 +184,24 @@ export function countRowsAdmittedSinceTheWalkBegan(
   if (walk.loadedRows === loadedWindow.rows) {
     return { intoTheLog: 0, intoThisWindow: 0 };
   }
-  const rowIdsTheWalkBeganOver = new Set(walk.loadedRows.map((row) => row.id));
   return {
-    intoTheLog: countRowsOutsideTheWalk(loadedWindow.rows, rowIdsTheWalkBeganOver),
-    intoThisWindow: countRowsOutsideTheWalk(ledgerWindow.rows, rowIdsTheWalkBeganOver),
+    intoTheLog: countRowsPastTheFrozenTail(loadedWindow.rows, walk.frozenTailSequence),
+    intoThisWindow: countRowsPastTheFrozenTail(ledgerWindow.rows, walk.frozenTailSequence),
   };
+}
+
+/**
+ * The ordering key the tail of a frozen log sat at.
+ *
+ * THE LAST ROW RATHER THAN A SCAN FOR THE HIGHEST KEY. The store orders every batch by
+ * this key before it admits one and refuses any sequence it cannot order at all
+ * (`store/sequence-reconciler.ts`), and the projection copies the key verbatim in log
+ * order — so the last row of a loaded window carries the highest key in it. A scan
+ * would be a second reading of an ordering that already holds, run over the whole log
+ * on every appended row of a ledger nobody is replaying.
+ */
+function tailSequenceOf(rows: readonly TimelineRow[]): number | undefined {
+  return rows.at(-1)?.sequence;
 }
 
 /**
@@ -204,14 +240,23 @@ function haveSameRowIds(left: readonly TimelineRow[], right: readonly TimelineRo
   );
 }
 
-/** How many of these rows the walk's own log did not hold when it began. */
-function countRowsOutsideTheWalk(
+/**
+ * How many of these rows sit past the tail the walk froze at.
+ *
+ * An empty frozen log has no tail to be past, and every row is an arrival against it —
+ * which is the only reading available and the right one: a walk that began over
+ * nothing was left behind by everything.
+ */
+function countRowsPastTheFrozenTail(
   rows: readonly TimelineRow[],
-  rowIdsTheWalkBeganOver: ReadonlySet<string>,
+  frozenTailSequence: number | undefined,
 ): number {
+  if (frozenTailSequence === undefined) {
+    return rows.length;
+  }
   let admittedCount = 0;
   for (const row of rows) {
-    if (!rowIdsTheWalkBeganOver.has(row.id)) {
+    if (row.sequence > frozenTailSequence) {
       admittedCount += 1;
     }
   }

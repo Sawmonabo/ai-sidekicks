@@ -7,18 +7,19 @@
 // it holds no state and reaches no wire, so every rule in it can be checked without
 // constructing a hand-off.
 //
-// The four gates `aux-handoff.ts` runs are stated there, in the order it runs them.
-// Gates 1 and 3 are decided by this file's own imports and by {@link auxiliaryTarget};
-// gates 2 and 4 are facts about the build and about the wire, which this file has no
-// way to know.
+// Three of the four gates a detach passes are run HERE, by {@link admitDetachTarget},
+// because all three are decided by values rather than by state. The fourth is the wire
+// answering, which is `aux-handoff.ts`' to ask for.
 
 import type { AuxiliaryWindowDetachRequest } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection, refuse, type NarrowedRefusal } from "../../core/index.js";
 import type { AuxiliaryWindowOutcome, AuxiliaryWindowRefusal } from "../../bridge/index.js";
 import {
+  AUXILIARY_ROUTE_LABELS,
   InvalidAuxiliaryRouteTargetError,
   formatAuxiliaryFragment,
+  isAuxiliaryRouteName,
   type AuxiliaryRouteName,
 } from "../../routing/index.js";
 import { type PaneKind } from "../../seats/index.js";
@@ -152,10 +153,49 @@ export interface LostAuxiliaryWindow extends DetachedPane {
   readonly lostReason: string;
 }
 
-/** What a detach attempt did. A refusal is a value, not an exception. */
+/**
+ * How one window stopped being open.
+ *
+ * A CLOSED PAIR RATHER THAN A REASON THAT MAY BE ABSENT, because the two are opposite
+ * facts about the person's own act: a lost window is a fault to be noted in the pane's
+ * error slot, and a returned one is somebody closing a window they opened. A single
+ * shape with an optional reason would let a missing string decide which of the two a
+ * reader was looking at.
+ */
+export type AuxiliaryWindowEnding =
+  | { readonly ending: "lost"; readonly reason: string }
+  | { readonly ending: "returned" };
+
+/**
+ * What a detach attempt did. A refusal is a value, not an exception.
+ *
+ * THREE ARMS AND NOT TWO, because a window can end between the shell creating it and
+ * the reply reaching this process. The act neither failed — a window really was opened
+ * — nor left a pane in a window, and reporting either would be false: the third arm is
+ * the settlement of a hand-off whose window was already gone, and the pane is in the
+ * deck with whatever the ending said about it recorded beside it.
+ */
 export type AuxiliaryHandoffOutcome =
   | { readonly outcome: "detached"; readonly detached: DetachedPane }
+  | { readonly outcome: "window-ended"; readonly ending: AuxiliaryWindowEnding }
   | { readonly outcome: "refused"; readonly refusal: AuxiliaryHandoffRefusal };
+
+/**
+ * Everything a hand-off publishes, in one value held by identity across a change.
+ *
+ * A SNAPSHOT RATHER THAN FOUR READS, because the surface follows a hand-off through
+ * `useSyncExternalStore`, which compares what a getter returns by identity: four
+ * getters composed into an object per read would hand it a new value every time it
+ * asked and loop the render it exists to settle. The two refusals travel SEPARATELY
+ * rather than pre-picked — which of them a one-line slot renders is the surface's
+ * decision, and it is stated where that line is rendered.
+ */
+export interface AuxiliaryHandoffSnapshot {
+  readonly detached: readonly DetachedPane[];
+  readonly lostWindows: readonly LostAuxiliaryWindow[];
+  readonly paneErrorRefusal: AuxiliaryHandoffRefusal | undefined;
+  readonly paneReturnRefusal: AuxiliaryHandoffRefusal | undefined;
+}
 
 /** Where a pane is detached to. Route-shaped, so an incoherent target cannot be built. */
 export interface AuxiliaryHandoffRequest {
@@ -233,6 +273,55 @@ export async function settledPlaneCall<TValue>(
   } catch (rejection: unknown) {
     return { status: "unavailable", refusal: refuseHandoffFromRejection(rejection) };
   }
+}
+
+/**
+ * The three gates a detach passes before a window is asked for, in order.
+ *
+ * EACH ONE REFUSES LOCALLY, and that ordering is the point: asking the shell first and
+ * refusing on its answer would mean a window flashes open for a route this build
+ * cannot render.
+ *
+ *   1. **The kind must be an auxiliary route.** `src/shared/auxiliary-routes.ts` closes
+ *      that set at two; a pane kind outside it has no window route to load.
+ *   2. **The route must be implemented in THIS build.** A build-time fact, passed in
+ *      rather than read here, so a caller can move it without owning a second copy of
+ *      the rule: opening a hardened window onto a hash route with nothing behind it is
+ *      the capability-claimed-but-not-built shape that module exists to prevent.
+ *   3. **The target must satisfy the route's context grammar.** Built through
+ *      `formatAuxiliaryFragment`, the PRODUCER half of the grammar the auxiliary
+ *      renderer parses; composing a fragment by hand is the drift it forbids.
+ *
+ * The route comes back BOUND TO ITS OWN NAME rather than left on the request, because
+ * the narrowing gate 1 makes does not survive a property read into a closure: the
+ * checker re-widens `request.kind` inside a function expression, and the plane call
+ * would then be composing a request against the whole pane-kind set.
+ */
+export function admitDetachTarget(
+  request: AuxiliaryHandoffRequest,
+  implementedRoutes: readonly AuxiliaryRouteName[],
+):
+  | { readonly route: AuxiliaryRouteName; readonly fragment: string }
+  | { readonly refusal: AuxiliaryHandoffRefusal } {
+  if (!isAuxiliaryRouteName(request.kind)) {
+    return {
+      refusal: refuseHandoff(
+        "kind-not-detachable",
+        "Only a timeline and an agent console can move into a window of their own.",
+      ),
+    };
+  }
+  const route: AuxiliaryRouteName = request.kind;
+  if (!implementedRoutes.includes(route)) {
+    return {
+      refusal: refuseHandoff(
+        "route-not-implemented",
+        `This build cannot open a ${AUXILIARY_ROUTE_LABELS[route].toLowerCase()} in its own window yet.`,
+      ),
+    };
+  }
+  const fragment = formatAuxiliaryTargetOrRefuse(auxiliaryTarget(route, request));
+  return typeof fragment === "string" ? { route, fragment } : fragment;
 }
 
 /**

@@ -29,20 +29,32 @@ describe("a replay across a projection change", () => {
     return `m${String(index)}`;
   }
 
-  /** A log of session-scoped rows one second apart, so an index names an instant. */
-  function messageLog(eventCount: number): readonly ConsoleSessionEvent[] {
-    return Array.from({ length: eventCount }, (_unused, index) => ({
-      id: messageEventId(index),
-      sessionId: REPLAY_SESSION_ID,
-      sequence: index,
-      kind: "user.message",
-      occurredAt: ledgerFixtureStampAt(index),
-      payload: {},
-    }));
+  /**
+   * A log of session-scoped rows one second apart, from one index up to another.
+   *
+   * A SPAN RATHER THAN A COUNT, because one case below needs a log that does not begin
+   * at the session's own head: "Load earlier" prepends rows the window never held, and
+   * a builder that always started at zero could not produce the window it prepends to.
+   */
+  function messageLogSpanning(
+    firstIndex: number,
+    lastIndexExclusive: number,
+  ): readonly ConsoleSessionEvent[] {
+    return Array.from({ length: lastIndexExclusive - firstIndex }, (_unused, offset) => {
+      const index = firstIndex + offset;
+      return {
+        id: messageEventId(index),
+        sessionId: REPLAY_SESSION_ID,
+        sequence: index,
+        kind: "user.message",
+        occurredAt: ledgerFixtureStampAt(index),
+        payload: {},
+      };
+    });
   }
 
   function windowOver(eventCount: number): LedgerWindowModel {
-    return deriveLedgerWindow(messageLog(eventCount), false);
+    return deriveLedgerWindow(messageLogSpanning(0, eventCount), false);
   }
 
   const STARTING_EVENT_COUNT = 4;
@@ -65,6 +77,18 @@ describe("a replay across a projection change", () => {
     const ledgerWindow = windowOver(eventCount);
     return { ledgerWindow, loadedWindow: ledgerWindow };
   }
+
+  /** Both windows over one span of the log — the shape a page read leaves behind. */
+  function bothWindowsSpanning(firstIndex: number, lastIndexExclusive: number): LedgerReplayInputs {
+    const ledgerWindow = deriveLedgerWindow(
+      messageLogSpanning(firstIndex, lastIndexExclusive),
+      false,
+    );
+    return { ledgerWindow, loadedWindow: ledgerWindow };
+  }
+
+  /** How many rows one press of "Load earlier" prepends — a page, not a row. */
+  const EARLIER_PAGE_ROW_COUNT = 3;
 
   /** Every row id the position reveals when scrubbed to the very end of the walk. */
   function revealedAtEndOfWalk(replay: ReturnType<typeof mountReplay>): readonly string[] {
@@ -149,6 +173,34 @@ describe("a replay across a projection change", () => {
     expect(replay.result.current.position.state).toBe("idle");
     expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(0);
     expect(revealedAtEndOfWalk(replay)).toContain(ADMITTED_ROW_ID);
+  });
+
+  it("counts an earlier page as no arrival, and a row past the tail as one", () => {
+    // THE DEFECT: an arrival was every id the frozen log did not hold, so pressing
+    // "Load earlier" mid-walk reported the rows the person had just asked for as
+    // entries the session had emitted since. The notice said the session had moved on
+    // and offered to abandon the walk to reach rows OLDER than everything in it.
+    const replay = mountReplayOver(
+      bothWindowsSpanning(EARLIER_PAGE_ROW_COUNT, EARLIER_PAGE_ROW_COUNT + STARTING_EVENT_COUNT),
+    );
+    act(() => {
+      replay.result.current.play();
+    });
+
+    act(() => {
+      replay.rerender(bothWindowsSpanning(0, EARLIER_PAGE_ROW_COUNT + STARTING_EVENT_COUNT));
+    });
+
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(0);
+    expect(replay.result.current.rowsAdmittedIntoThisWindowSinceReplayBegan).toBe(0);
+
+    act(() => {
+      replay.rerender(bothWindowsSpanning(0, EARLIER_PAGE_ROW_COUNT + STARTING_EVENT_COUNT + 1));
+    });
+
+    // The tail still moves the count, which is what keeps the fix a NARROWING: freezing
+    // an earlier page out must not freeze out the arrivals the notice exists for.
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(1);
   });
 
   it("negative control: an unengaged replay walks whatever the log now holds", () => {

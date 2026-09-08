@@ -17,7 +17,12 @@ import { describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
-import { ModelledShell, refusingPlane, servingPort } from "./aux-handoff.test-support.js";
+import {
+  ModelledShell,
+  SERVED_WINDOW_ID,
+  refusingPlane,
+  servingPort,
+} from "./aux-handoff.test-support.js";
 
 /** A detached timeline pane, and the shell that opened its window. */
 async function detachedUnderModelledShell(): Promise<{
@@ -67,6 +72,54 @@ describe("AuxiliaryHandoff — an ending before the first render", () => {
     // NOTHING is noted, which is the whole difference from the crash arm: the pane came
     // back because somebody asked for it.
     expect(handoff.lostWindow("pane-1")).toBeUndefined();
+  });
+
+  it("gives the pane back when its window ends before the detach resolves", async () => {
+    // THE SECOND HALF OF THE SAME INTERLEAVING. The window is created and then dies
+    // while the detach reply is still in flight, so the report arrives BEFORE the
+    // record it has to be matched against exists. Both ending handlers dropped it, and
+    // the fulfillment then filed a detached pane for a window that was already gone:
+    // a placeholder over nothing, with the crash noted nowhere and no way to clear it.
+    const shell = new ModelledShell();
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: shell.plane });
+    shell.holdDetachReplies();
+
+    const detaching = handoff.detach({
+      paneId: "pane-1",
+      kind: "timeline",
+      sessionId: "session-1",
+    });
+    // Already open, because the shell mints the window before it answers — which is
+    // what makes this an ending the renderer could really be told about.
+    const windowId = shell.windowFor("pane-1", "session-1") ?? "";
+    expect(shell.reportWindowLost(windowId, "the window's renderer stopped")).toBe(true);
+    await crossMacrotaskBoundary();
+    shell.releaseDetachReplies();
+    await detaching;
+
+    expect(handoff.detached()).toHaveLength(0);
+    // The crash is still NOTED, which is the difference between giving the pane back
+    // and pretending the press did nothing.
+    expect(handoff.lostWindow("pane-1")?.lostReason).toBe("the window's renderer stopped");
+  });
+
+  it("keeps no record at all for a detach the plane refused", async () => {
+    // The other end of the pending record: it is REMOVED on the refusal rather than
+    // left standing. A record that outlived a detach which opened nothing would catch
+    // the next report about that pane and file a crash note about a window this build
+    // never created.
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: planeThatRefusesOnlyTheDetach() });
+
+    const outcome = await handoff.detach({
+      paneId: "pane-1",
+      kind: "timeline",
+      sessionId: "session-1",
+    });
+
+    expect(outcome.outcome).toBe("refused");
+    expect(handoff.detached()).toHaveLength(0);
+    expect(handoff.noteWindowLost("pane-1", SERVED_WINDOW_ID, "gone")).toBeUndefined();
+    expect(handoff.lostWindows()).toHaveLength(0);
   });
 
   it("negative control: a detach the plane refused leaves no subscription open", async () => {
