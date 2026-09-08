@@ -1,10 +1,19 @@
 // A yes-or-no answer.
 //
-// AN UNTOUCHED BOX IS `false` AND THE SCHEMA DECIDES WHETHER THAT COUNTS AS ANSWERED. A
-// checkbox has no third state to render, so a required boolean that has never been
-// touched reads as `false` here — which is exactly why this control never decides
-// requiredness. The compiled validator reads the answer; a member the schema demands and
-// nobody set is its finding to report.
+// AN UNTOUCHED BOX IS `false`, AND THE ANSWER SAYS SO BEFORE ANYBODY TOUCHES IT. A
+// checkbox has no third state to render: unchecked is not "unanswered", it is NO. So the
+// member is `false` in the composed answer from the mount, seeded there by
+// `schema-answer.ts` — the one place a control's opening value is decided. Leaving it out
+// until the first toggle displayed one thing and submitted another, and made `false` the
+// one value a person could not send without checking the box and unchecking it again.
+//
+// WHICH IS STILL NOT THIS CONTROL DECIDING REQUIREDNESS. The compiled validator reads the
+// answer; a member the schema demands and nobody set is its finding to report. What
+// changed is what the answer holds, not who judges it.
+//
+// A VALUE THAT IS NOT A BOOLEAN RENDERS UNCHECKED. A restored draft or a hand-edited
+// answer can put anything at this member, and `=== true` is the honest reading of it: the
+// box shows the one thing it can show, and the schema reports what is actually there.
 
 import { type SchemaFieldControlProps } from "../schema-field-control.js";
 

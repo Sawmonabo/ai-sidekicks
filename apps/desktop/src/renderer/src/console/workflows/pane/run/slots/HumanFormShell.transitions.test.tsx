@@ -83,7 +83,9 @@ describe("a run that parks two waits at once", () => {
       {
         workflowRunId: second.workflowRunId,
         phaseId: second.phaseId,
-        fields: {},
+        // The wait's schema carries one optional yes-or-no, and an unchecked box is
+        // `false` rather than unanswered — so the seeded answer is what a press sends.
+        fields: { notifyChannel: false },
         expectedRevision: second.formRevision,
       },
     ]);
