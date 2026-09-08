@@ -14,6 +14,14 @@
 // derive an audience from a participant count; audience is a daemon obligation and
 // a renderer that guessed at one would be asserting a fact nobody sent.
 //
+// AND A DIRECTORY ANSWER CARRIES WHEN IT WAS ASKED. A lifecycle receipt is the daemon's
+// newest word about one row, and the read that catches up to it is a second call whose
+// reply can arrive from a request that predates it. So the answer this module produces is
+// not the row array alone: it is the rows plus the POSITION the read took in this
+// session's settlement order, and the overlay below compares order rather than state.
+// `channel-settlement-order.ts` beside this file owns that order and says why the state
+// comparison it replaced could not tell a stale reply from a third party's move.
+//
 // THE NON-DISCLOSURE FILTER IS THE DAEMON'S, AND IT IS INVISIBLE HERE ON PURPOSE.
 // A channel the caller may not see is omitted from the response, not blanked, and
 // this module has no concept of a hidden row and therefore no way to count one.
@@ -31,6 +39,10 @@ import type { ConsoleClock } from "../../core/index.js";
 import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
 import { subscribeToSessionEventKinds, type SessionStore } from "../../store/index.js";
 import { PushDrivenRead, servedValueOrRaise } from "../../seats/index.js";
+import {
+  ChannelSettlementOrder,
+  type ChannelSettlementPosition,
+} from "./channel-settlement-order.js";
 
 /** The daemon method the directory reads. Named once; the family's only speller. */
 const CHANNEL_LIST_METHOD = "channel.list";
@@ -111,31 +123,38 @@ export function orderChannelRows(
 }
 
 /**
- * One state a lifecycle receipt reported, and the reading it stands in front of.
+ * One directory answer, and where it sits in this session's settlement order.
  *
- * The PAIR rather than the state alone, because "has this read caught up" is a
- * question about both. A receipt says what the channel's state now is; the reading it
- * was answered against says which directory this overlay is correcting. Holding the
- * second is what bounds the first — see {@link retainUncaughtUpStates}.
+ * THE POSITION TRAVELS WITH THE ANSWER because it is a fact about the READ and not
+ * about the surface holding it: the read was issued at a moment, and which lifecycle
+ * receipts it could not have seen is settled then. Recomputed at the render that
+ * consumes it, the answer would be "all of them", which is precisely the mistake.
+ *
+ * The order itself rides along too, so the one surface that records receipts reaches
+ * it through the answer it is correcting rather than through a prop chain of its own —
+ * and there is exactly one order per directory, which is the property that makes a
+ * receipt and a read comparable at all.
  */
-export interface AppliedChannelState {
-  /** What the daemon's receipt reported. Never a state this console worked out. */
-  readonly state: ChannelState;
-  /** What the read said when that receipt landed — the reading this corrects. */
-  readonly supersededState: ChannelState;
+export interface ChannelDirectoryReading {
+  /** The rows exactly as `channel.list` served them. */
+  readonly channels: readonly ChannelListResponseChannel[];
+  /** The settlement order this read is measured against, for whoever records one. */
+  readonly settlements: ChannelSettlementOrder;
+  /** Where this read was issued in that order. */
+  readonly position: ChannelSettlementPosition;
 }
 
 /**
  * The states a lifecycle receipt reported that this list's last read predates.
  *
  * Keyed by channel id, and EMPTY is the ordinary state: an entry exists only between
- * the daemon answering a move and the directory read that carries it, which is a
+ * the daemon answering a move and the first directory read ISSUED after it, which is a
  * window measured in one round trip. It is not a cache and never a second source of
- * truth — {@link retainUncaughtUpStates} drops an entry the moment the read moves at
- * all, and drops one whose channel has left the read altogether, so the map is bounded
- * by the directory it overlays.
+ * truth — {@link retainUncaughtUpStates} drops an entry the moment a read issued after
+ * that receipt lands, and drops one whose channel has left the read altogether, so the
+ * map is bounded by the directory it overlays.
  */
-export type AppliedChannelStates = ReadonlyMap<string, AppliedChannelState>;
+export type AppliedChannelStates = ReadonlyMap<string, ChannelState>;
 
 /**
  * The three states the wire declares, enumerated where the console can read them.
@@ -178,45 +197,50 @@ export function channelStateFromReceipt(reported: string): ChannelState | undefi
  * just muted a channel was invited to mute it a second time and the press that would
  * have done nothing was the surface's own suggestion.
  *
- * It is still not a second source of truth, and the two rules that keep it honest are
- * here rather than in the caller: the overlay only ever carries what the daemon said,
- * and it applies only while the read is still the exact reading it was answered
- * against. A read reporting anything else is NEWER news — the daemon caught up, or
- * somebody else moved the channel again — and newer news wins, which is why this
- * cannot leave a row wearing a state the directory has since contradicted.
+ * It is still not a second source of truth, and the rule that keeps it honest is here
+ * rather than in the caller — ONE rule, shared with {@link retainUncaughtUpStates}: the
+ * overlay carries only what the daemon said, and it applies exactly while the reading
+ * on screen was ISSUED BEFORE that receipt. A reading issued after it is strictly newer
+ * news — the daemon caught up, or somebody else moved the channel again — and newer
+ * news wins, so this cannot leave a row wearing a state a later read has contradicted.
+ *
+ * The comparison is order and never state, and `channel-settlement-order.ts` says why:
+ * a read that predates a receipt can report the state that receipt superseded, and read
+ * as a state comparison that reply is indistinguishable from a third party having moved
+ * the row back.
  *
  * Applied BEFORE ordering, because state is what decides which region a row belongs
  * to — an archived receipt that only changed a chip would leave a terminal row sitting
  * among the live ones, still wearing controls.
  */
 export function applyAppliedStates(
-  channels: readonly ChannelListResponseChannel[],
+  reading: ChannelDirectoryReading,
   appliedStateByChannelId: AppliedChannelStates,
 ): readonly ChannelListResponseChannel[] {
   if (appliedStateByChannelId.size === 0) {
     // The overwhelmingly common case, and it returns the read's own array rather than
     // a copy so the memo above this keeps its identity across every render that has no
     // receipt outstanding.
-    return channels;
+    return reading.channels;
   }
-  return channels.map((channel) => {
+  return reading.channels.map((channel) => {
     const applied = appliedStateByChannelId.get(channel.id);
-    if (applied === undefined || applied.supersededState !== channel.state) {
+    if (applied === undefined || reading.position.postdatesSettlementFor(channel.id)) {
       return channel;
     }
-    return applied.state === channel.state ? channel : { ...channel, state: applied.state };
+    return applied === channel.state ? channel : { ...channel, state: applied };
   });
 }
 
 /**
- * Drop every overlay entry this read has moved past, or has no row for.
+ * Drop every overlay entry a read issued after it has now landed for, or has no row for.
  *
- * The clearing rule, stated once and shared with {@link applyAppliedStates}: an entry
- * survives exactly as long as it is still doing something. A read that agrees has
- * caught up and the entry has nothing left to correct; a read reporting a THIRD state
- * has moved past the reading this entry was answered against, and either way the row
- * now renders from the directory alone. A channel the read no longer carries loses its
- * entry too — its row is gone, so an overlay for it is a state with nothing to be
+ * The clearing rule is the applying rule read the other way round, which is why the two
+ * live beside each other: an entry survives exactly as long as the reading on screen
+ * predates it. The first reading from a read ISSUED after the receipt has seen that
+ * move — whether it agrees with it or reports something newer still — so the row goes
+ * back to rendering from the directory alone. A channel the read no longer carries loses
+ * its entry too: its row is gone, so an overlay for it is a state with nothing to be
  * about, and keeping one would be the unbounded half of a map that is otherwise the
  * width of one directory.
  *
@@ -225,27 +249,24 @@ export function applyAppliedStates(
  * render would wake every subscriber on every read.
  */
 export function retainUncaughtUpStates(
-  channels: readonly ChannelListResponseChannel[],
+  reading: ChannelDirectoryReading,
   appliedStateByChannelId: AppliedChannelStates,
 ): AppliedChannelStates {
   if (appliedStateByChannelId.size === 0) {
     return appliedStateByChannelId;
   }
-  const stateByChannelId = new Map<string, ChannelState>(
-    channels.map((channel) => [channel.id, channel.state]),
-  );
+  const readChannelIds = new Set<string>(reading.channels.map((channel) => channel.id));
   const retained = new Map(
     [...appliedStateByChannelId].filter(
-      ([channelId, applied]) =>
-        stateByChannelId.get(channelId) === applied.supersededState &&
-        applied.state !== applied.supersededState,
+      ([channelId]) =>
+        readChannelIds.has(channelId) && !reading.position.postdatesSettlementFor(channelId),
     ),
   );
   return retained.size === appliedStateByChannelId.size ? appliedStateByChannelId : retained;
 }
 
 /** The read the channel list is built on, with its refresh already bound. */
-export type ChannelDirectory = PushDrivenRead<readonly ChannelListResponseChannel[]>;
+export type ChannelDirectory = PushDrivenRead<ChannelDirectoryReading>;
 
 /**
  * Build the directory for one session.
@@ -261,10 +282,18 @@ export function createChannelDirectory(options: {
   readonly clock: ConsoleClock;
 }): ChannelDirectory {
   const { bridge, sessionStore, clock } = options;
-  return new PushDrivenRead<readonly ChannelListResponseChannel[]>({
+  // One order per directory, minted here because this is where the read line is: the
+  // receipts a list records and the reads this model performs are the two things being
+  // ordered, and they are comparable only while both measure against one register.
+  const settlements = new ChannelSettlementOrder();
+  return new PushDrivenRead<ChannelDirectoryReading>({
     clock,
     origin: CHANNEL_DIRECTORY_ORIGIN,
     read: async (signal) => {
+      // Taken BEFORE the request, which is the whole of the ordering: from here on any
+      // receipt that lands is newer than this read, whatever order the two answers
+      // arrive in.
+      const position = settlements.openRead();
       const reply = await callDaemon(
         bridge,
         CHANNEL_LIST_METHOD,
@@ -273,7 +302,7 @@ export function createChannelDirectory(options: {
         },
         { signal },
       );
-      return servedValueOrRaise(reply).channels;
+      return { channels: servedValueOrRaise(reply).channels, settlements, position };
     },
     subscribe: (onChangeSignal) =>
       subscribeToSessionEventKinds(sessionStore, CHANNEL_LIFECYCLE_EVENT_KINDS, onChangeSignal),

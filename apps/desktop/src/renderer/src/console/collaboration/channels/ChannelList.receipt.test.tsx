@@ -12,9 +12,13 @@
 // travels the same growth port a refusal does, so a surface that stopped applying it
 // fails here rather than passing quietly.
 //
-// AND THE SECOND HALF IS A SECOND READ. An overlay that outlived the directory would
-// be the second source of truth this console does not have, so two cases serve a fresh
-// directory into the list already on screen and read which answer wins.
+// AND THE SECOND HALF IS A SECOND READ. An overlay that outlived the directory would be
+// the second source of truth this console does not have, so the cases below serve a fresh
+// directory into the list already on screen and read which answer wins — and which one
+// wins is decided by WHEN that read was issued, never by which state it reports. So each
+// of them builds its second answer at the moment its read would have gone out: before the
+// press for a read that was already on the wire, after it for one the daemon's answer is
+// behind.
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -24,6 +28,7 @@ import {
   createFixture,
   subscribeThroughBridge,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { ChannelSettlementOrder } from "./channel-settlement-order.js";
 import { acts, confirmArchive, press, rowNames } from "./channel-rows.test-support.js";
 import {
   CHANNEL_RELAY,
@@ -34,6 +39,7 @@ import {
   mainChannel,
   renderChannelListSettled,
   scenarioAnswering,
+  scenarioAnsweringEach,
   serveChannelRead,
 } from "./channels.test-support.js";
 
@@ -145,21 +151,25 @@ describe("channel list — what a later read does to that state", () => {
     state: "muted",
   });
 
-  it("hands the row back to the directory the moment its read reports something else", async () => {
+  it("hands the row back to the directory the moment a read issued after it lands", async () => {
+    const settlements = new ChannelSettlementOrder();
     const bridge = channelsBridge({ scenario: mutedReceipt });
     const rendered = await renderChannelListSettled(
-      loaded([channel(CHANNEL_REVIEW, "active", "review")]),
+      loaded([channel(CHANNEL_REVIEW, "active", "review")], settlements),
       { bridge },
     );
     await press(rendered.container, 0);
     expect(acts(rendered.container)[0]?.textContent).toBe("Unmute");
 
-    // Somebody else archived it. That is NEWER news than this console's receipt, and a
-    // surface preferring its own older answer would leave a terminal row wearing
-    // controls for as long as the window stayed open.
-    await serveChannelRead(rendered, loaded([channel(CHANNEL_REVIEW, "archived", "review")]), {
-      bridge,
-    });
+    // Somebody else archived it, and this read is ISSUED here — after the receipt — so
+    // it is NEWER news than this console's answer. A surface preferring its own older
+    // one would leave a terminal row wearing controls for as long as the window stayed
+    // open.
+    await serveChannelRead(
+      rendered,
+      loaded([channel(CHANNEL_REVIEW, "archived", "review")], settlements),
+      { bridge },
+    );
 
     expect(acts(rendered.container)).toHaveLength(0);
     expect(
@@ -169,22 +179,64 @@ describe("channel list — what a later read does to that state", () => {
     ).toHaveLength(1);
   });
 
-  it("negative control: a read that has not caught up leaves the daemon's answer standing", async () => {
-    // The other half of the same rule, and the reason clearing is keyed on the read
-    // MOVING rather than on a read arriving: this second read simply predates the mute,
-    // and dropping the overlay on its arrival would flip the row back to the state the
-    // daemon has already moved it out of.
+  it("negative control: a read issued before the receipt leaves the daemon's answer standing", async () => {
+    // The other half of the same rule, and the reason clearing is keyed on WHEN the read
+    // was issued rather than on a read arriving: this second answer comes off a read put
+    // on the wire before the mute, and dropping the overlay on its arrival would flip
+    // the row back to the state the daemon has already moved it out of.
+    const settlements = new ChannelSettlementOrder();
     const bridge = channelsBridge({ scenario: mutedReceipt });
     const rendered = await renderChannelListSettled(
-      loaded([channel(CHANNEL_REVIEW, "active", "review")]),
+      loaded([channel(CHANNEL_REVIEW, "active", "review")], settlements),
       { bridge },
     );
-    await press(rendered.container, 0);
+    // Issued BEFORE the press, and served after it: the directory read the previous
+    // `channel.*` event started, still on the wire when this one is pressed.
+    const readIssuedBeforeTheMute = loaded(
+      [channel(CHANNEL_REVIEW, "active", "review")],
+      settlements,
+    );
 
-    await serveChannelRead(rendered, loaded([channel(CHANNEL_REVIEW, "active", "review")]), {
-      bridge,
-    });
+    await press(rendered.container, 0);
+    await serveChannelRead(rendered, readIssuedBeforeTheMute, { bridge });
 
     expect(acts(rendered.container)[0]?.textContent).toBe("Unmute");
+  });
+
+  it("keeps the newer receipt when a read issued before it reports the state it replaced", async () => {
+    // THE DEFECT THIS CASE EXISTS FOR. A mute answers, its `channel.muted` event starts
+    // a fresh directory read, and the person unmutes the same row before that read
+    // settles. The reply then lands saying `muted` — true when the read went out, and
+    // read as a STATE comparison indistinguishable from somebody else having muted it
+    // again — so the unmute's own overlay was dropped, the row flipped back, and Unmute
+    // was offered a second time over an act the daemon had already performed.
+    const settlements = new ChannelSettlementOrder();
+    const bridge = channelsBridge({
+      scenario: scenarioAnsweringEach([
+        ["channel.mute", { channelId: CHANNEL_REVIEW, state: "muted" }],
+        ["channel.unmute", { channelId: CHANNEL_REVIEW, state: "active" }],
+      ]),
+    });
+    const rendered = await renderChannelListSettled(
+      loaded([channel(CHANNEL_REVIEW, "active", "review")], settlements),
+      { bridge },
+    );
+
+    await press(rendered.container, 0);
+    expect(acts(rendered.container)[0]?.textContent).toBe("Unmute");
+    // The read the mute's own event started: issued now, in flight while the unmute is
+    // pressed, and answering with what was true when it went out.
+    const readIssuedBeforeTheUnmute = loaded(
+      [channel(CHANNEL_REVIEW, "muted", "review")],
+      settlements,
+    );
+
+    await press(rendered.container, 0);
+    expect(acts(rendered.container)[0]?.textContent).toBe("Mute");
+
+    await serveChannelRead(rendered, readIssuedBeforeTheUnmute, { bridge });
+
+    expect(acts(rendered.container)[0]?.textContent).toBe("Mute");
+    expect(acts(rendered.container)[0]?.getAttribute("aria-label")).toBe("Mute review");
   });
 });
