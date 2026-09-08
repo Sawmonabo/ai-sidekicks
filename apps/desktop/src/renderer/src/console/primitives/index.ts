@@ -167,21 +167,18 @@ export { PartialRead } from "./PartialRead.js";
 // "announce once" latch would be the second latch, and one that made its own region
 // would be the second speaker `LiveAnnouncerProvider` forbids.
 //
-// THE WORKFLOWS FAMILY IS NOT ON THIS CLAIM, and its absence is a finding rather than
-// an omission. That family's two rendering sites are the one place a reader was
-// expected and neither can be one: its scope picker announces nothing at all by
-// design, and its browser's continuation refusal is already spoken through the
-// family's own settlement adapter, so binding here would say that refusal twice.
-// The two latches are also not the same latch — this one dedups on the SENTENCE SET,
-// which is right for an incomplete-reading notice and wrong for a settlement, where
-// two sessions holding the same number of rows say the same words and the second
-// would go unspoken. A caller-supplied dedup key would make one primitive serve both
-// and retire that adapter; it is not minted here, because a parameter with no caller
-// is a policy question moved out of the primitive that currently answers it and into
-// every call site. The family that would spend it owns that call.
+// THE WORKFLOWS FAMILY READS THE SECOND NAME BELOW, and that is what retired the
+// adapter it had written instead. The two arities are not the same comparison — the
+// reading one dedups on the SENTENCE SET, which is right for an incomplete-reading
+// notice and wrong for a settlement, where two sessions holding the same number of rows
+// say the same words and the second would go unspoken — so the primitive took a
+// caller-supplied dedup key and the family's own ref-and-effect copy is gone. Its scope
+// picker is still on no claim here and announces nothing at all by design, and its
+// browser's continuation refusal is spoken once, through that second name.
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   useReadingAnnouncement,
+  useReadSettlementAnnouncement,
 } from "./reading-announcement.js";
 
 // A window's own cap, which is a different fact from a read's completeness — see the
