@@ -1021,6 +1021,17 @@ export interface SteerPayload {
   // a success status code. The tunable bound is not a parse concern: a schema
   // constant cannot read operator configuration, and a wire cap pinned to the
   // default would refuse carriers a raised setting admits.
+  //
+  // INTERIM: THE DAEMON REFUSES WHAT THIS TYPE ADMITS. No daemon seam resolves an
+  // `ArtifactId` to bytes yet, so until the attachment-reference resolver ships,
+  // a non-empty list on a `driver.applyIntervention` steer is refused WHOLE at
+  // the single IPC ingress (`runtime-daemon/src/ipc/handlers/driver-handlers.ts`,
+  // `refuseAttachmentDeliveryUnsupported`) with the already-registered
+  // `driver.capability_unsupported` — before any driver method runs, because the
+  // alternative is a supported steer answering `applied` after silently dropping
+  // every element. The type is deliberately NOT narrowed to express that: the
+  // carrier contract is correct and the daemon is what is not yet able to honour
+  // it, so the refusal lifts with a code change and no wire change.
   attachments?: ArtifactId[] | undefined;
   expectedTurnId?: string | undefined;
 }
