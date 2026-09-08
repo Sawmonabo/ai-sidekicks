@@ -68,10 +68,21 @@ export interface MockBrowserWindow {
   readonly onceHandlers: Map<string, () => void>;
   /** How many times this window was brought forward. */
   readonly focusCount: number;
+  /**
+   * How many times this window was asked to close.
+   *
+   * Counted rather than collapsed into `isDestroyed`, because the two are different
+   * facts and a suite over the close path needs the difference: Electron's `close`
+   * runs the window's own teardown and fires `closed`, and this mock deliberately
+   * fires neither — the suites drive `onceHandlers.get("closed")` by hand, which is
+   * what lets a case assert what a close DID before deciding what the ending reports.
+   */
+  readonly closeCount: number;
   isDestroyed(): boolean;
   destroy(): void;
   show(): void;
   focus(): void;
+  close(): void;
   once(eventName: string, handler: () => void): MockBrowserWindow;
   on(eventName: string, handler: () => void): MockBrowserWindow;
   loadURL(url: string): Promise<void>;
@@ -106,6 +117,7 @@ export class MockBrowserWindowImpl implements MockBrowserWindow {
   public readonly loadedUrls: string[] = [];
   public readonly onceHandlers: Map<string, () => void> = new Map<string, () => void>();
   #focusCount = 0;
+  #closeCount = 0;
   #destroyed = false;
   readonly #mock: MockWindowHost;
 
@@ -173,6 +185,15 @@ export class MockBrowserWindowImpl implements MockBrowserWindow {
   public focus(): void {
     this.#focusCount += 1;
     this.#mock.record("focus");
+  }
+
+  public get closeCount(): number {
+    return this.#closeCount;
+  }
+
+  public close(): void {
+    this.#closeCount += 1;
+    this.#mock.record("close");
   }
 
   public isDestroyed(): boolean {

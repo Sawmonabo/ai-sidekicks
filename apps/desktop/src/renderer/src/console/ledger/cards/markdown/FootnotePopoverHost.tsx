@@ -25,13 +25,13 @@
 // while a message streams, a definition ahead of its reference is the ordinary case and
 // calling it uncited would be wrong as well as expensive.
 
-import { useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { Popover } from "@base-ui/react/popover";
 
 import { OverlayPopoverPopup } from "../../../primitives/index.js";
 
 import { DefinitionBody } from "./DefinitionBody.js";
-import type { FootnoteRegistry } from "./footnote-registry.js";
+import type { FootnoteDefinition, FootnoteRegistry } from "./footnote-registry.js";
 import { FootnoteHostProvider, type FootnoteHostBinding } from "./footnote-popover-context.js";
 import { type MarkdownRenderContext } from "./MarkdownNodes.js";
 import { UncitedDefinitions } from "./UncitedDefinitions.js";
@@ -56,6 +56,7 @@ export interface FootnotePopoverHostProps {
 }
 
 export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.Element {
+  const definitions = useSourceFootnoteDefinitions(props.footnotes, props.sourceId);
   const popupId = useId();
   // Constructed once and kept, per `apps/desktop/AGENTS.md`: a handle rebuilt on a render
   // would detach every marker in the card from the popup they were opening into.
@@ -92,9 +93,7 @@ export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.
           >
             <DefinitionBody
               bodyNodes={
-                identifier === undefined
-                  ? undefined
-                  : props.footnotes.resolve(props.sourceId, identifier)?.bodyNodes
+                identifier === undefined ? undefined : definitions.get(identifier)?.bodyNodes
               }
               context={definitionContext}
             />
@@ -103,4 +102,35 @@ export function FootnotePopoverHost(props: FootnotePopoverHostProps): React.JSX.
       </Popover.Root>
     </FootnoteHostProvider>
   );
+}
+
+/**
+ * This body's definitions, as the registry holds them RIGHT NOW.
+ *
+ * Through `useSyncExternalStore` and not a plain read, which is the whole of what the
+ * registry grew a subscription for. Definitions are recorded from an effect —
+ * `StreamingMarkdown`'s registration hook — so the write always lands after the render
+ * that read them. While a body streams the next frame hides that; on the LAST frame
+ * there is no next frame and nothing schedules another render, so a popover already
+ * open over a note that update rewrote stayed on the penultimate body indefinitely.
+ *
+ * A hook rather than three calls in the component body, per `apps/desktop/AGENTS.md`:
+ * a subscription is not a render. Both closures are memoised because React re-subscribes
+ * when `subscribe` changes identity and re-reads when `getSnapshot` does, and a fresh
+ * pair per render would tear the subscription down and build it again on every frame of
+ * the stream this hook exists to follow.
+ */
+function useSourceFootnoteDefinitions(
+  footnotes: FootnoteRegistry,
+  sourceId: string,
+): ReadonlyMap<string, FootnoteDefinition> {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => footnotes.subscribeToSource(sourceId, onStoreChange),
+    [footnotes, sourceId],
+  );
+  const readDefinitions = useCallback(
+    () => footnotes.definitionsFor(sourceId),
+    [footnotes, sourceId],
+  );
+  return useSyncExternalStore(subscribe, readDefinitions);
 }

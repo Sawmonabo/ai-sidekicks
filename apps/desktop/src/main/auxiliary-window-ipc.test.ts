@@ -200,6 +200,85 @@ describe("the shell's detach handler", () => {
   });
 });
 
+describe("whose renderer a held window answers to", () => {
+  it("refuses a close from a renderer that did not open the window", async () => {
+    // Every preload-backed window can reach this channel and `auxiliary-window-N` is
+    // guessable in one try, so a handler that authorised on the handle alone let any
+    // renderer close a window opened for another one — after which the owner's deck
+    // processed a return report for a window it never asked to lose.
+    const { detachPane, closeAuxiliary } = await installedHandlers();
+    const owner = requestingRenderer();
+    const intruder = requestingRenderer();
+    const handle = detachPane(owner, {
+      paneId: "pane-timeline-1",
+      route: "timeline",
+      sessionId: SESSION_ID,
+    });
+    const opened = lastConstructedWindow();
+
+    expect(() => closeAuxiliary(intruder, handle)).toThrow(/no auxiliary window/);
+
+    // Not merely refused: the window was never asked to close, and the owner was told
+    // nothing about a pane that is still in a window.
+    expect(opened.closeCount).toBe(0);
+    expect(owner.sender.sent).toStrictEqual([]);
+  });
+
+  it("refuses a focus from a renderer that did not open the window", async () => {
+    // The same discarded-sender shape on the other handle-addressed control: a focus
+    // this renderer may not ask for still pulls somebody else's window in front of the
+    // person looking at something else.
+    const { detachPane, focusAuxiliary } = await installedHandlers();
+    const owner = requestingRenderer();
+    const intruder = requestingRenderer();
+    const handle = detachPane(owner, {
+      paneId: "pane-timeline-1",
+      route: "timeline",
+      sessionId: SESSION_ID,
+    });
+    const opened = lastConstructedWindow();
+
+    expect(() => focusAuxiliary(intruder, handle)).toThrow(/no auxiliary window/);
+
+    expect(opened.focusCount).toBe(0);
+  });
+
+  it("serves both controls to the renderer that opened the window", async () => {
+    // The positive half, without which a registry that refused everything would pass
+    // the two cases above and the deck's own controls would reach no shell at all.
+    const { detachPane, focusAuxiliary, closeAuxiliary } = await installedHandlers();
+    const owner = requestingRenderer();
+    const handle = detachPane(owner, {
+      paneId: "pane-timeline-1",
+      route: "timeline",
+      sessionId: SESSION_ID,
+    });
+    const opened = lastConstructedWindow();
+
+    focusAuxiliary(owner, handle);
+    closeAuxiliary(owner, handle);
+
+    expect(opened.focusCount).toBe(1);
+    expect(opened.closeCount).toBe(1);
+  });
+
+  it("refuses the renderer that opened a window once that window has been forgotten", async () => {
+    // The refusal is one answer for two arms — an unheld handle and a handle held for
+    // another renderer — so an owner whose window has already ended reads the same
+    // "that window is gone" its port was written against, rather than a second class.
+    const { detachPane, closeAuxiliary } = await installedHandlers();
+    const owner = requestingRenderer();
+    const handle = detachPane(owner, {
+      paneId: "pane-timeline-1",
+      route: "timeline",
+      sessionId: SESSION_ID,
+    });
+    lastConstructedWindow().onceHandlers.get("closed")?.();
+
+    expect(() => closeAuxiliary(owner, handle)).toThrow(/no auxiliary window/);
+  });
+});
+
 describe("what the shell tells the renderer when a window stops being open", () => {
   it("reports the return, to the renderer that asked and to no other", async () => {
     const { detachPane } = await installedHandlers();
