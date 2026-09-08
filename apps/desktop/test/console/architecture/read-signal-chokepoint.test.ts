@@ -20,8 +20,8 @@
 // `daemon-method-bindings.ts` resolves what the names it passes are bound to, and
 // `daemon-read-signal-census.ts` folds the console's own method partition — declared
 // in `bridge/daemon/daemon-method-classification.ts` — over those calls and holds the
-// four offender readings.
-// The first two are driven against planted sources in `daemon-call-sites.test.ts` and
+// four offender readings. The first is driven against planted sources in
+// `daemon-call-sites.test.ts`, the second in `daemon-method-resolution.test.ts` and
 // the last in `daemon-read-signal-census.test.ts`, which is where the offending shapes
 // can be written; what stays here is the claim over the real tree.
 

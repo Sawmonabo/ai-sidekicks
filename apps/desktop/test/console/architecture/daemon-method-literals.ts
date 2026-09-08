@@ -16,6 +16,22 @@
 // alias for the union — and through no third. What reduces to no literal is not guessed
 // at: it is handed back as nothing, and the scope chain records it as a binding this
 // parse cannot reduce, which is the fail-closed direction both files run in.
+//
+// AND AN INITIALIZER IS ONLY WHAT A BINDING HOLDS WHERE NOTHING CAN WRITE IT AGAIN, which
+// is why the reduction takes the declaration LIST rather than the initializer alone. The
+// keyword lives on the list — `const` sets a flag there and the declarations under it
+// carry none — so a reader handed one declaration cannot see whether the name it binds is
+// writable, and this reduction read `let method = "session.join"` as that method however
+// many times the module reassigned it afterwards.
+//
+// TRACKING THE WRITES WAS THE OTHER WAY AND IS NOT TAKEN. A reader that followed
+// assignments would have to order them against the call, follow them through branches and
+// closures and out of the module, and answer with whichever value reaches a position — a
+// dataflow engine, and one whose wrong answers look exactly like right ones. The contract
+// the gate is written against is narrower and states itself: a method name is a literal at
+// the call, or a closed union a parameter declares, or a `const` this parse can reduce.
+// Anything writable is a binding this parse cannot reduce, and the gate reports the site
+// rather than trusting a value that can be rewritten under it.
 
 import ts from "typescript";
 
@@ -35,15 +51,27 @@ export type MethodBinding =
   | { readonly kind: "unreadable" };
 
 /**
- * An expression with its type-only wrappers peeled off.
+ * An expression with every transparent wrapper peeled off, to the value itself.
  *
- * `satisfies`, `as`, an angle-bracket assertion and a parenthesis each wrap a value
- * without changing which one it is, and the console writes the first of them where it
- * matters most: the provider-readiness probe's method constant is
- * `"providerAccount.probe" satisfies MutatingDaemonMethod`, which is the store family's
- * classification checked at the declaration. A reader that stopped at the wrapper
- * reported that call as naming no method at all — an offender manufactured by the
- * instrument, from a module doing exactly the right thing.
+ * THE CLOSED LIST IS FIVE, and the rule admitting them is that the emitter deletes each:
+ * `as`, `satisfies`, an angle-bracket `<T>` assertion and a non-null `!` are type-level
+ * and erase, and a parenthesis only groups — so what stands under the wrappers is the
+ * value the program evaluates, and a reader stopping at one is reading a node the run
+ * time does not have. Nothing else joins the list, because everything else CHOOSES a
+ * value rather than restating one: a call, a member read, a conditional and an `await`
+ * each produce something their operand is not, and peeling one would be following a value
+ * rather than reading an expression.
+ *
+ * ONE PEELER AND NOT ONE PER READING, which is why this is exported rather than inlined
+ * at each of the four scans that need it. The console writes the wrappers where they
+ * matter most — the provider-readiness probe's method constant is
+ * `"providerAccount.probe" satisfies MutatingDaemonMethod`, and a reader that stopped
+ * there reported that call as naming no method at all, an offender manufactured by the
+ * instrument — and the same wrappers around a CALLEE are the other direction of the same
+ * defect: `(callDaemon as typeof callDaemon)(…)` is a door call that a reader stopping at
+ * the wrapper sees no door in, so the module stays a counted consumer while the call it
+ * makes reaches no scan at all. A second peeler written next to either reading would be
+ * this list drifting apart one module over.
  */
 export function withoutTypeWrappers(expression: ts.Expression): ts.Expression {
   let inner = expression;
@@ -51,6 +79,7 @@ export function withoutTypeWrappers(expression: ts.Expression): ts.Expression {
     ts.isSatisfiesExpression(inner) ||
     ts.isAsExpression(inner) ||
     ts.isTypeAssertionExpression(inner) ||
+    ts.isNonNullExpression(inner) ||
     ts.isParenthesizedExpression(inner)
   ) {
     inner = inner.expression;
@@ -58,12 +87,21 @@ export function withoutTypeWrappers(expression: ts.Expression): ts.Expression {
   return inner;
 }
 
-/** What a `const` is bound to: its own string literal, or nothing this parse can read. */
-export function literalInitializerBinding(initializer: ts.Expression | undefined): MethodBinding {
-  if (initializer === undefined) {
+/**
+ * What one variable declaration is bound to, read through the list that declares it.
+ *
+ * A `const` answers with its own string literal, and a `let` or a `var` answers with
+ * nothing this parse can read — for the reason this module's header gives, and taking the
+ * list because the list is where the keyword is.
+ */
+export function variableDeclarationBinding(
+  declarationList: ts.VariableDeclarationList,
+  declaration: ts.VariableDeclaration,
+): MethodBinding {
+  if ((declarationList.flags & ts.NodeFlags.Const) === 0 || declaration.initializer === undefined) {
     return { kind: "unreadable" };
   }
-  const literal = withoutTypeWrappers(initializer);
+  const literal = withoutTypeWrappers(declaration.initializer);
   return ts.isStringLiteralLike(literal)
     ? { kind: "literals", literals: [literal.text] }
     : { kind: "unreadable" };

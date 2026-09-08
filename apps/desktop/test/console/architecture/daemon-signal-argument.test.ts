@@ -8,11 +8,11 @@
 // itself.
 //
 // ITS SUBJECT IS THE VALUE AND NOT THE CALL. `daemon-call-sites.test.ts` pins which
-// calls reach the door and what each of them names; this one starts from a call that
-// does and asks what its options argument SHOWS about the thing that stops it, which
-// is the reading both of the census's rules are written against. The two benches and
-// `daemon-read-signal-census.test.ts` share one planted corpus so none of them drifts
-// from the others.
+// calls reach the door and `daemon-method-resolution.test.ts` what each of them names;
+// this one starts from a call that does and asks what its options argument SHOWS about
+// the thing that stops it, which is the reading both of the census's rules are written
+// against. The two benches and `daemon-read-signal-census.test.ts` share one planted
+// corpus so none of them drifts from the others.
 
 import { describe, expect, it } from "vitest";
 

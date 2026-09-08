@@ -21,7 +21,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { NAMESPACE_DOOR_CALLEES } from "./daemon-call-planting.test-support.js";
+import {
+  NAMESPACE_DOOR_CALLEES,
+  WRAPPED_NAMESPACE_DOOR_CALLEES,
+} from "./daemon-call-planting.test-support.js";
 import { daemonCallReaches, importsCallDoor } from "./daemon-call-census.js";
 
 describe("what a module shows about consuming the call door", () => {
@@ -127,6 +130,38 @@ describe("what a module shows about consuming the call door", () => {
       ),
     ).toBe(false);
   });
+
+  it("negative control: a transparent wrapper does not hide the consumption", () => {
+    // THE NAMESPACE HOLE ONE NODE DEEPER. The door read off a namespace is a member read,
+    // and the object it steps off is resolved exactly as a bare callee is — so a cast,
+    // a `!` or a parenthesis around that object left this census answering `false` while
+    // the site scan beside it skipped the same callee. Two numbers that have to move
+    // together, moving neither, which is the shape this whole census exists to refuse.
+    for (const door of WRAPPED_NAMESPACE_DOOR_CALLEES) {
+      expect(
+        importsCallDoor(
+          [
+            'import * as daemonDoor from "../bridge/index.js";',
+            `export const reply = ${door}(bridge, "session.join", request);`,
+          ].join("\n"),
+        ),
+        door,
+      ).toBe(true);
+    }
+    // And the shadow still wins under the same wrapper, so what moved is the reading of
+    // the expression rather than the rule about which binding counts.
+    expect(
+      importsCallDoor(
+        [
+          'import * as daemonDoor from "../bridge/index.js";',
+          "export function withStub(bridge, request) {",
+          "  const daemonDoor = { callDaemon: stubbedCall };",
+          "  return (daemonDoor as typeof daemonDoor).callDaemon(bridge, request);",
+          "}",
+        ].join("\n"),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("what a module shows about reaching past the call door", () => {
@@ -170,6 +205,29 @@ describe("what a module shows about reaching past the call door", () => {
       .toStrictEqual(["called by computed key"]);
     expect(daemonCallReaches("const bound = bridge.sidekicks.daemon.call.bind(bridge);")) //
       .toStrictEqual(["taken as a value"]);
+  });
+
+  it("sees the same door reached under a transparent wrapper", () => {
+    // THE REACH A DOTTED READING STOPPED ONE NODE ABOVE. Each line below is the reach the
+    // needle already names, written with a wrapper the emitter deletes — and the first two
+    // were reported as NO reach at all, which is this gate green over a module holding the
+    // wire. The third was reported as the namespace merely taken, because the parenthesis
+    // hid the step that reads `call` off it: a wrong form name for a real reach, and the
+    // same defect in the direction that still fires.
+    expect(daemonCallReaches("const reply = (bridge.sidekicks.daemon.call)(method);")) //
+      .toStrictEqual(["called or aliased"]);
+    expect(daemonCallReaches("const reply = bridge.sidekicks.daemon.call!(method);")) //
+      .toStrictEqual(["called or aliased"]);
+    expect(daemonCallReaches("const reply = (bridge.sidekicks.daemon).call(method);")) //
+      .toStrictEqual(["called or aliased"]);
+    expect(daemonCallReaches('const door = (bridge.sidekicks as BridgeApi)["daemon"];')) //
+      .toStrictEqual(["namespace taken by computed key"]);
+    expect(daemonCallReaches("const bound = (bridge.sidekicks.daemon.call).bind(bridge);")) //
+      .toStrictEqual(["taken as a value"]);
+    // And the namespace form keeps its own reading under a wrapper: nothing steps through
+    // this one, so it is taken rather than called.
+    expect(daemonCallReaches("const { call } = (bridge.sidekicks.daemon satisfies DaemonApi);")) //
+      .toStrictEqual(["namespace taken"]);
   });
 
   it("negative control: a computed key in prose or on another noun is not a reach", () => {
