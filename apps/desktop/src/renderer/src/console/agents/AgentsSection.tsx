@@ -161,7 +161,13 @@ export function AgentsSection(props: {
       label: GROUP_LABEL[group],
       tone: GROUP_TONE[group],
       rows: agents.map((agent) => ({
-        id: agent.name ?? agent.agentId,
+        // The agent's own id and never its name: two agents may share a name in one
+        // group, and an agent may be renamed while it stands still. Either one moves a
+        // row's React key, which is how a rename detaches a row from the element it
+        // was drawn in and how two same-named agents collide on one key. The name is
+        // still what a reader sees — it rides `label`.
+        id: agent.agentId,
+        ...(agent.name === undefined ? {} : { label: agent.name }),
         stateLabel: agent.state ?? "state not reported",
         openLabel: `${GROUP_LABEL[group]}: agent ${agent.name ?? agent.agentId}`,
         // The agent console, addressed at this agent. It is the one pane kind that is a

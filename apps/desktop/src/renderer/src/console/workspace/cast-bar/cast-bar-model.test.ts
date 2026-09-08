@@ -15,36 +15,17 @@ import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
-import { eventOfKind } from "../../store/session-event.test-support.js";
-import { ParticipantHueAllocator } from "../../tokens/index.js";
 import {
   CAST_LABEL_SOURCE_BY_EVENT_KIND,
   CAST_VERB_BY_EVENT_KIND,
   castChipAccessibleName,
   deriveCastBar,
 } from "./cast-bar-model.js";
+import { castEvent, wheelFor, withRun } from "./cast-bar-model.test-support.js";
 
 const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
   SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
 );
-
-function wheelFor(participantIds: readonly string[]): ParticipantHueAllocator {
-  const allocator = new ParticipantHueAllocator();
-  for (const participantId of participantIds) {
-    allocator.admit(participantId);
-  }
-  return allocator;
-}
-
-/** One admitted event with the actor a chip is derived from, over the shared builder. */
-function event(sequence: number, actorId: string, kind: string): ConsoleSessionEvent {
-  return { ...eventOfKind("session-1", kind, sequence), actorId };
-}
-
-/** The same event, carrying the run identity an ask's lifecycle correlates on. */
-function withRun(base: ConsoleSessionEvent, runId: string): ConsoleSessionEvent {
-  return { ...base, payload: { runId } };
-}
 
 /** The same event, carrying the payload a label is read off. */
 function withPayload(
@@ -85,12 +66,13 @@ describe("deriveCastBar — the name each participant was given", () => {
     const model = deriveCastBar({
       assignments: wheel.assignments(),
       timeline: [
-        withPayload(event(1, "participant-priya", "membership.created"), {
+        withPayload(castEvent(1, "participant-priya", "membership.created"), {
           participantId: "participant-priya",
           identityHandle: "priya",
         }),
       ],
       isDegraded: false,
+      isNodeUnwell: false,
       chipCap: 8,
     });
     expect(model.members[0]?.label).toBe("priya");
@@ -103,12 +85,13 @@ describe("deriveCastBar — the name each participant was given", () => {
     const model = deriveCastBar({
       assignments: wheel.assignments(),
       timeline: [
-        withPayload(event(1, "participant-you", "agent.attached"), {
+        withPayload(castEvent(1, "participant-you", "agent.attached"), {
           agentId: "agent-architect",
           name: "Architect",
         }),
       ],
       isDegraded: false,
+      isNodeUnwell: false,
       chipCap: 8,
     });
     expect(model.members[0]?.label).toBeUndefined();
@@ -120,16 +103,17 @@ describe("deriveCastBar — the name each participant was given", () => {
     const model = deriveCastBar({
       assignments: wheel.assignments(),
       timeline: [
-        withPayload(event(1, "participant-you", "agent.attached"), {
+        withPayload(castEvent(1, "participant-you", "agent.attached"), {
           agentId: "agent-architect",
           name: "Architect",
         }),
-        withPayload(event(2, "participant-you", "agent.config_updated"), {
+        withPayload(castEvent(2, "participant-you", "agent.config_updated"), {
           agentId: "agent-architect",
           name: "Planner",
         }),
       ],
       isDegraded: false,
+      isNodeUnwell: false,
       chipCap: 8,
     });
     expect(model.members[0]?.label).toBe("Planner");
@@ -143,12 +127,13 @@ describe("deriveCastBar — the name each participant was given", () => {
     const model = deriveCastBar({
       assignments: wheel.assignments(),
       timeline: [
-        withPayload(event(1, "participant-priya", "membership.created"), {
+        withPayload(castEvent(1, "participant-priya", "membership.created"), {
           participantId: "participant-priya",
           identityHandle: "",
         }),
       ],
       isDegraded: false,
+      isNodeUnwell: false,
       chipCap: 8,
     });
     expect(model.members[0]?.label).toBeUndefined();
@@ -162,13 +147,14 @@ describe("castChipAccessibleName — the identifier and the verb", () => {
     const model = deriveCastBar({
       assignments: wheel.assignments(),
       timeline: [
-        withPayload(event(1, "participant-priya", "membership.created"), {
+        withPayload(castEvent(1, "participant-priya", "membership.created"), {
           participantId: "participant-priya",
           identityHandle: "priya",
         }),
-        withRun(event(2, "participant-priya", "run.waiting_for_approval"), "run-a"),
+        withRun(castEvent(2, "participant-priya", "run.waiting_for_approval"), "run-a"),
       ],
       isDegraded: false,
+      isNodeUnwell: false,
       chipCap: 8,
     });
     const member = model.members[0];
@@ -185,8 +171,9 @@ describe("castChipAccessibleName — the identifier and the verb", () => {
     const wheel = wheelFor(["participant-you"]);
     const model = deriveCastBar({
       assignments: wheel.assignments(),
-      timeline: [event(1, "participant-you", "run.running")],
+      timeline: [castEvent(1, "participant-you", "run.running")],
       isDegraded: true,
+      isNodeUnwell: false,
       chipCap: 8,
     });
     const member = model.members[0];
@@ -194,176 +181,5 @@ describe("castChipAccessibleName — the identifier and the verb", () => {
     expect(member === undefined ? "" : castChipAccessibleName(member)).toBe(
       "participant-you, working, the connection dropped, so this may be out of date",
     );
-  });
-});
-
-describe("deriveCastBar — one chip per participant, in join-log order", () => {
-  it("keeps the wheel's order and never reorders by activity", () => {
-    const wheel = wheelFor(["participant-you", "participant-priya", "agent-architect"]);
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [event(1, "agent-architect", "run.running")],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.members.map((member) => member.participantId)).toStrictEqual([
-      "participant-you",
-      "participant-priya",
-      "agent-architect",
-    ]);
-  });
-
-  it("takes the verb from the participant's NEWEST row", () => {
-    const wheel = wheelFor(["agent-architect"]);
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [
-        event(1, "agent-architect", "run.queued"),
-        event(2, "agent-architect", "tool.invoked"),
-      ],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.members[0]?.verb).toBe("running a tool");
-  });
-
-  it("invents no verb for a participant with no row, and none for an unmapped kind", () => {
-    const wheel = wheelFor(["participant-you", "agent-scout"]);
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [event(1, "agent-scout", "run.completed")],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.members[0]?.verb).toBeUndefined();
-    expect(model.members[1]?.verb).toBeUndefined();
-    expect(model.members[1]?.newestEventKind).toBe("run.completed");
-  });
-
-  it("negative control: a mapped kind DOES produce a verb", () => {
-    // Without this, the case above would pass over a derivation that never produced
-    // a verb at all.
-    const wheel = wheelFor(["agent-scout"]);
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [event(1, "agent-scout", "run.running")],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.members[0]?.verb).toBe("working");
-  });
-});
-
-describe("deriveCastBar — the fold and the all-clear line", () => {
-  it("shows the cap and folds the rest into a count", () => {
-    const wheel = wheelFor(
-      Array.from({ length: 11 }, (_unused, index) => `participant-${String(index)}`),
-    );
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.members).toHaveLength(8);
-    expect(model.foldedMemberCount).toBe(3);
-  });
-
-  it("says nothing needs you only when nothing does", () => {
-    const wheel = wheelFor(["participant-you", "agent-architect"]);
-    expect(
-      deriveCastBar({
-        assignments: wheel.assignments(),
-        timeline: [event(1, "agent-architect", "run.running")],
-        isDegraded: false,
-        chipCap: 8,
-      }).isAllClear,
-    ).toBe(true);
-
-    expect(
-      deriveCastBar({
-        assignments: wheel.assignments(),
-        timeline: [event(1, "agent-architect", "run.waiting_for_approval")],
-        isDegraded: false,
-        chipCap: 8,
-      }).isAllClear,
-    ).toBe(false);
-  });
-
-  it("counts a FOLDED participant's block, because folding hides the person not the fact", () => {
-    const participantIds = Array.from(
-      { length: 10 },
-      (_unused, index) => `participant-${String(index)}`,
-    );
-    const wheel = wheelFor(participantIds);
-    const blocked = wheel.assignments()[9]?.participantId ?? "";
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [event(1, blocked, "approval.requested")],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.foldedMemberCount).toBeGreaterThan(0);
-    expect(model.isAllClear).toBe(false);
-  });
-
-  // What this case checks is the DERIVATION — that the member keeps its attention
-  // flag. Whether the chip then wears it is the renderer's claim and is asserted in
-  // `CastBar.test.tsx`; a case here titled as though it read a chip would leave that
-  // seam looking covered while nothing rendered the flag at all.
-  it("keeps a member's attention while its own run is blocked, whatever a parallel run does", () => {
-    // The defect: attention was read off each participant's NEWEST row, so an agent
-    // waiting on an approval in one run and working in another looked clear, and the
-    // bar said "Nothing needs you" over a run that was still blocked.
-    const wheel = wheelFor(["participant-you", "agent-architect"]);
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [
-        withRun(event(1, "agent-architect", "run.waiting_for_approval"), "run-a"),
-        withRun(event(2, "agent-architect", "run.running"), "run-b"),
-        withRun(event(3, "agent-architect", "tool.invoked"), "run-b"),
-      ],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.isAllClear).toBe(false);
-    expect(model.members[1]?.needsAttention).toBe(true);
-    // The verb still comes from the newest row: what the actor is DOING and what is
-    // outstanding are two questions, and this chip answers both without conflating
-    // them.
-    expect(model.members[1]?.verb).toBe("running a tool");
-  });
-
-  it("negative control: the block clears once that run itself moves on", () => {
-    // Without this, the case above would pass over a fold that never cleared
-    // anything, which would leave the bar permanently amber.
-    const wheel = wheelFor(["participant-you", "agent-architect"]);
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [
-        withRun(event(1, "agent-architect", "run.waiting_for_approval"), "run-a"),
-        withRun(event(2, "agent-architect", "run.running"), "run-b"),
-        withRun(event(3, "agent-architect", "run.running"), "run-a"),
-      ],
-      isDegraded: false,
-      chipCap: 8,
-    });
-    expect(model.isAllClear).toBe(true);
-    expect(model.members[1]?.needsAttention).toBe(false);
-  });
-
-  it("refuses to claim all-clear over an incomplete projection", () => {
-    // A store with a sequence gap cannot know whether something needs a person, and
-    // "Nothing needs you." over an incomplete projection is a claim the console has
-    // no standing to make.
-    const wheel = wheelFor(["participant-you"]);
-    const model = deriveCastBar({
-      assignments: wheel.assignments(),
-      timeline: [],
-      isDegraded: true,
-      chipCap: 8,
-    });
-    expect(model.isAllClear).toBe(false);
-    expect(model.members[0]?.isVerbStale).toBe(true);
   });
 });

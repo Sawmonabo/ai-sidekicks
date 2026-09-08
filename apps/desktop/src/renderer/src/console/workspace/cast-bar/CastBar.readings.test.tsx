@@ -180,6 +180,29 @@ describe("the cast bar — the node's health, in one mark", () => {
     expect(bar.querySelector(".meridian-cast-bar__status")).toBeNull();
   });
 
+  it("says nothing needs you nowhere while the health mark is amber", async () => {
+    // The contradiction this verdict exists to make unrepresentable: the strip drew
+    // the amber mark and, three elements along, said "Nothing needs you." — because
+    // the mark read the health reply and the line read the event log, which is
+    // spotless here. One reading, two renderings.
+    const bar = await barAnswering([healthReply("degraded", { relay: "degraded" })]);
+
+    expect(bar.querySelector(".meridian-cast-bar__status")?.textContent).toContain(
+      "1 component not healthy",
+    );
+    expect(bar.textContent).not.toContain("Nothing needs you.");
+  });
+
+  it("negative control: the same session with a healthy node does say it", async () => {
+    // Without this the case above would pass over a bar that had stopped drawing the
+    // line at all — and a console that never reports the all-clear is the same defect
+    // read from the other side.
+    const bar = await barAnswering([healthReply("healthy", { relay: "healthy" })]);
+
+    expect(bar.querySelector(".meridian-cast-bar__status")).toBeNull();
+    expect(bar.textContent).toContain("Nothing needs you.");
+  });
+
   it("draws health as unread rather than as healthy when nothing answered", async () => {
     // The one wrong answer a health surface can give. An unanswered read renders the
     // "not checked" kind of nothing, never the absence of a mark, which is what a

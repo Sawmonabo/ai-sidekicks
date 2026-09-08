@@ -17,7 +17,7 @@
 // read that never fired.
 
 import { act, render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { SessionStore } from "../store/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
@@ -94,6 +94,12 @@ function rowsUnder(section: HTMLElement, groupLabel: string): readonly string[] 
   const group = section.querySelector(`[aria-label="${groupLabel}"]`);
   return [...(group?.querySelectorAll(".meridian-section-list__id") ?? [])].map((element) =>
     String(element.textContent),
+  );
+}
+
+function openButtons(section: HTMLElement): readonly HTMLButtonElement[] {
+  return [...section.querySelectorAll(".meridian-section-list__open")].filter(
+    (element): element is HTMLButtonElement => element instanceof HTMLButtonElement,
   );
 }
 
@@ -213,6 +219,53 @@ describe("AgentsSection — the filter", () => {
     await waitFor(() => {
       expect(section.textContent).toContain("No agent matches the filter.");
     });
+  });
+});
+
+describe("AgentsSection — a row is keyed by its agent and named by its name", () => {
+  it("gives two same-named agents rows of their own", async () => {
+    // The defect this is the control for: keying the row on the DISPLAY name handed
+    // both of these rows the key `scout`, and it passes every other case in this file
+    // because no other case has two agents that share one. React reports two children
+    // under one key on `console.error` and then reuses one subtree for both, so the
+    // report is the reading — captured rather than silenced, since a spy that swallows
+    // everything would hide whatever else React had to say about this render.
+    const reportedByReact: string[] = [];
+    const consoleErrors = vi
+      .spyOn(console, "error")
+      .mockImplementation((...parts: readonly unknown[]) => {
+        reportedByReact.push(parts.map((part) => String(part)).join(" "));
+      });
+    try {
+      const { section, openedPanes, advance } = await renderSection({
+        agents: [
+          { agentId: "agent-first", name: "scout", state: "ready" },
+          { agentId: "agent-second", name: "scout", state: "ready" },
+        ],
+      });
+      act(() => {
+        advance();
+      });
+      await waitFor(() => {
+        expect(openButtons(section)).toHaveLength(2);
+      });
+
+      expect(reportedByReact.filter((line) => /same key/iu.test(line))).toStrictEqual([]);
+      // Both still SHOW the name, which is the half a fix that simply swapped the id
+      // onto the screen would have lost — and each opens its own agent.
+      expect(rowsUnder(section, "Ready")).toEqual(["scout", "scout"]);
+      act(() => {
+        for (const button of openButtons(section)) {
+          button.click();
+        }
+      });
+      expect(openedPanes).toEqual([
+        { kind: "agent-console", entity: { kind: "agent", id: "agent-first" } },
+        { kind: "agent-console", entity: { kind: "agent", id: "agent-second" } },
+      ]);
+    } finally {
+      consoleErrors.mockRestore();
+    }
   });
 });
 

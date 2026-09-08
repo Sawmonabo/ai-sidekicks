@@ -6,12 +6,13 @@
 // view while they work. Everything else about the node's health — which component,
 // since when, what to do — belongs to the surface that owns the reading.
 //
-// THREE STATES AND NO FOURTH. Healthy renders NOTHING, because a mark that is always
-// present says nothing by being present and trains a reader to stop seeing it; unwell
-// renders a count; and a read that did not answer renders the "not checked" kind of
-// nothing, which is the one thing a health surface must never dress up as healthy. A
-// read still in flight also renders nothing, deliberately — a bar that grew a badge a
-// few hundred milliseconds after it drew would move every chip beside it.
+// THREE RENDERINGS AND NO FOURTH, over the four arms of the bar's health verdict.
+// Healthy renders NOTHING, because a mark that is always present says nothing by being
+// present and trains a reader to stop seeing it; unwell renders a count; and a read
+// that did not answer renders the "not checked" kind of nothing, which is the one thing
+// a health surface must never dress up as healthy. A read still in flight also renders
+// nothing, deliberately — a bar that grew a badge a few hundred milliseconds after it
+// drew would move every chip beside it.
 //
 // WHY THE UNWELL MARK IS AMBER AND THIS IS NOT A CONTRADICTION. The chip's amber
 // ground was removed by this same lane on the rule that a chip is never coloured for
@@ -22,42 +23,43 @@
 // reader who cannot separate the hues.
 
 import { Chip, Nothing } from "../../primitives/index.js";
-import { type CastBarHealthReading } from "./cast-bar-readings.js";
-import { type CastBarReadState } from "./cast-bar-reads.js";
+import { type CastBarHealthVerdict } from "./cast-bar-readings.js";
 
 export interface CastBarStatusProps {
-  readonly health: CastBarReadState<CastBarHealthReading>;
+  /**
+   * The bar's one health verdict, put by the bar above and read by it as well.
+   *
+   * The same value decides the all-clear line, which is the whole reason it is a
+   * verdict: this component and that line are two renderings of one reading, and
+   * before they shared it they could contradict each other on the same strip.
+   */
+  readonly verdict: CastBarHealthVerdict;
 }
 
 export function CastBarStatus(props: CastBarStatusProps): React.JSX.Element | null {
-  const { health } = props;
-  if (health.status === "reading") {
+  const { verdict } = props;
+  if (verdict.kind === "in-flight" || verdict.kind === "clear") {
     return null;
   }
-  if (health.status === "unavailable") {
+  if (verdict.kind === "unchecked") {
     return (
       <span className="meridian-cast-bar__status">
         <Nothing
           kind="not-checked"
           title="Node health"
-          detail={`${health.refusal.code}: ${health.refusal.detail}`}
+          detail={`${verdict.refusal.code}: ${verdict.refusal.detail}`}
         />
       </span>
     );
   }
-  if (health.value.unwellComponentCount === 0) {
-    return null;
-  }
   return (
     <span className="meridian-cast-bar__status">
-      <Chip tone="attention" glyph="alert" label={unwellLabel(health.value.unwellComponentCount)} />
+      <Chip tone="attention" glyph="alert" label={unwellLabel(verdict.unwellComponentCount)} />
       {/* The names, for a reader who wants them without leaving the bar. Visually
           hidden rather than truncated into the strip: the chip is the whole of what
           this surface claims the room needs to know at a glance, and a list that
           elided its own last entry would be a claim about which component matters. */}
-      <span className="meridian-visually-hidden">
-        {health.value.unwellComponentNames.join(", ")}
-      </span>
+      <span className="meridian-visually-hidden">{verdict.unwellComponentNames.join(", ")}</span>
     </span>
   );
 }

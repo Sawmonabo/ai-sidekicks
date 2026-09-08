@@ -81,19 +81,23 @@ export interface CastBarProps {
 export function CastBar(props: CastBarProps): React.JSX.Element {
   const growth = useCastBarGrowthPort();
   const identity = useCastBarIdentity(growth, props.sessionId);
-  const health = useCastBarHealth(growth, props.sessionId);
+  const healthVerdict = useCastBarHealth(growth, props.sessionId);
   const spend = useCastBarSpend(growth, props.sessionId);
 
   return (
     <header className="meridian-cast-bar" aria-label="Session cast">
       <CastBarIdentity sessionId={props.sessionId} identity={identity} />
-      <CastBarStatus health={health} />
+      <CastBarStatus verdict={healthVerdict} />
       {props.sessionStore === undefined ? (
         <CastBarSkeleton expectedMemberCount={props.expectedMemberCount} />
       ) : (
         <CastBarBody
           sessionStore={props.sessionStore}
           spend={spend}
+          // The one place the verdict becomes the all-clear's conjunct, so the mark
+          // above and the line below are two readings of one value rather than two
+          // derivations that can disagree.
+          isNodeHealthUnwell={healthVerdict.kind === "unwell"}
           onFollow={props.onFollow}
           {...(props.onShowMembers === undefined ? {} : { onShowMembers: props.onShowMembers })}
         />

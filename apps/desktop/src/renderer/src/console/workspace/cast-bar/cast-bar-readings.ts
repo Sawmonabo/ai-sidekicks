@@ -6,27 +6,42 @@
 //
 // EACH TAKES EXACTLY WHAT IT RENDERS AND NOTHING ELSE. The identity read answers a
 // summary and the bar renders all of it; the health read answers a whole projection
-// and the bar renders one category and one count; the receipt answers a decomposition
-// along three axes and the bar renders the single committed figure. Narrowing here
-// rather than in the components keeps the components rendering and keeps every wire
-// shape inside one module.
+// and the bar takes one count and the names behind it; the receipt answers a
+// decomposition along three axes and the bar renders the single committed figure.
+// Narrowing here rather than in the components keeps the components rendering and
+// keeps every wire shape inside one module.
 
 import {
   useConsoleBridge,
   type GrowthPort,
   type GrowthSessionSummary,
+  type SettledReadRefusal,
 } from "../../bridge/index.js";
 import { useCastBarRead, type CastBarReadState } from "./cast-bar-reads.js";
 
-/** The node's health, as much of it as a one-line form says. */
-export interface CastBarHealthReading {
-  /** The wire's own status category, verbatim — never re-worded and never re-derived. */
-  readonly overall: string;
+/** What the health read answers with, folded to the two facts one line can hold. */
+interface CastBarHealthReading {
   /** How many components are not `healthy`, counted from the wire's own readings. */
   readonly unwellComponentCount: number;
   /** The component names behind that count, in the order the wire listed them. */
   readonly unwellComponentNames: readonly string[];
 }
+
+/**
+ * The bar's ONE reading of the node's health — the verdict both halves are decided from.
+ *
+ * A verdict rather than the raw read state, because the bar answers two questions off
+ * this one reading and it used to answer them separately: `CastBarStatus` drew its
+ * amber mark from the served count while `CastBarBody` derived an all-clear from the
+ * event log alone, so a node with an unwell component and no outstanding ask rendered
+ * the mark and "Nothing needs you." in the same strip. One value read by both is what
+ * makes that pair unrepresentable rather than merely repaired.
+ */
+export type CastBarHealthVerdict =
+  | { readonly kind: "in-flight" }
+  | { readonly kind: "unchecked"; readonly refusal: SettledReadRefusal }
+  | { readonly kind: "clear" }
+  | ({ readonly kind: "unwell" } & CastBarHealthReading);
 
 /** The one figure `Spec-023 §Rules every console surface obeys` lets a surface show. */
 export interface CastBarSpendReading {
@@ -51,7 +66,7 @@ export function useCastBarIdentity(
 }
 
 /**
- * The node's health, folded to what one line can hold.
+ * The node's health, folded to what one line can hold and to one verdict.
  *
  * KEYED ON THE SESSION EVEN THOUGH HEALTH IS NODE-WIDE, because the bar is a session
  * surface: a window that moves between sessions re-reads, which is when a person
@@ -61,12 +76,21 @@ export function useCastBarIdentity(
  * The count and the names are folded HERE rather than in the component, so the
  * component renders and this module is the only place that knows what the wire's
  * component rows look like.
+ *
+ * WHY ONLY `unwell` SUPPRESSES THE ALL-CLEAR, and neither of the two arms that have
+ * no answer. `Spec-023 §The surface set` puts the line on the bar "when nothing is
+ * amber or red", so what it is a claim about is what this strip shows — and an
+ * unanswered read shows the "not checked" kind of nothing beside it, which is the
+ * bar reporting the absence rather than dressing it as health. Suppressing on
+ * `in-flight` as well would additionally make the line arrive a few hundred
+ * milliseconds after the bar drew, which is the same late-badge move `CastBarStatus`
+ * refuses one component over.
  */
 export function useCastBarHealth(
   growth: GrowthPort,
   sessionId: string | undefined,
-): CastBarReadState<CastBarHealthReading> {
-  return useCastBarRead(growth, sessionId, async () => {
+): CastBarHealthVerdict {
+  const health = useCastBarRead(growth, sessionId, async () => {
     const outcome = await growth.healthStatusRead({});
     if (outcome.status !== "served") {
       return outcome;
@@ -78,12 +102,27 @@ export function useCastBarHealth(
     return {
       status: "served",
       value: {
-        overall: outcome.value.overall,
         unwellComponentCount: unwell.length,
         unwellComponentNames: unwell.map((component) => component.name),
       },
     };
   });
+  return castBarHealthVerdict(health);
+}
+
+/** The read state as the four things the bar does about it, and nothing else. */
+function castBarHealthVerdict(
+  health: CastBarReadState<CastBarHealthReading>,
+): CastBarHealthVerdict {
+  if (health.status === "reading") {
+    return { kind: "in-flight" };
+  }
+  if (health.status === "unavailable") {
+    return { kind: "unchecked", refusal: health.refusal };
+  }
+  return health.value.unwellComponentCount === 0
+    ? { kind: "clear" }
+    : { kind: "unwell", ...health.value };
 }
 
 /**

@@ -158,7 +158,12 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
   // sections and a drop opens into this column's own deck, so both are the column's
   // rather than a section's — and both are handed DOWN through the section context, so
   // a section reaches neither by import.
-  const bulkSelection = useBulkSelectionModel();
+  //
+  // The selection is held per SESSION rather than per mount: this column is re-bound as
+  // the workspace moves between sessions, and the bar below hands the runner this
+  // session's id beside whatever rows are ticked. `use-bulk-selection.ts` owns why that
+  // pairing is the subject-scoped holder's and not a clear of this file's own.
+  const bulkSelection = useBulkSelectionModel(props.bridge, props.sessionStore.sessionId);
   const bulkSelectionFace = useBulkSelectionFace(bulkSelection);
   const rowDragSources = useSidebarRowDragSources();
   const bindRowDrag = useCallback(

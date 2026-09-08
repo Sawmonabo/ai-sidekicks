@@ -30,6 +30,15 @@ export interface CastBarBodyProps {
    * bar whose store never opened would never ask.
    */
   readonly spend: CastBarReadState<CastBarSpendReading>;
+  /**
+   * Whether the bar's own health verdict says a component needs somebody.
+   *
+   * A boolean rather than the verdict itself, for two reasons that point the same way:
+   * this component renders none of the reading — the mark above it does — and the
+   * value joins the memo the model is derived under, where a fresh object every render
+   * would rebuild the bar on every frame.
+   */
+  readonly isNodeHealthUnwell: boolean;
   readonly onFollow: (participantId: string) => void;
   readonly onShowMembers?: () => void;
 }
@@ -52,9 +61,10 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
         assignments: hueAllocator.assignments(),
         timeline,
         isDegraded: degradedCause !== undefined,
+        isNodeUnwell: props.isNodeHealthUnwell,
         chipCap: CAST_BAR_CHIP_CAP,
       }),
-    [hueAllocator, timeline, degradedCause],
+    [hueAllocator, timeline, degradedCause, props.isNodeHealthUnwell],
   );
 
   if (model.members.length === 0) {
