@@ -169,6 +169,16 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // than deep-imported around.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
+// The COMPOSED shape of that scheduler, beside the primitive it composes. A scheduled
+// read published to subscribers was written out sixteen times across eight view
+// families and `bridge/` — the same emitter, the same latch, the same
+// `snapshot`/`subscribe`/`start`/`requestRead`/`dispose` skeleton, and a publisher that
+// was character-for-character identical in three unrelated families. It leaves this
+// family because every one of those readings sits above it and they reach each other
+// through nothing, so this door is the only place the base can be shared from; the
+// options type travels with it because a subclass has to name what it hands `super`.
+export { ScheduledReading, type ScheduledReadingOptions } from "./scheduled-reading.js";
+
 // The read line every scheduled read is on, and the four names a caller outside this
 // family needs from it: the hook that binds one to a `(subject, key)` pairing, the
 // combinator the bridge's call door races a pending read against, the reading a
