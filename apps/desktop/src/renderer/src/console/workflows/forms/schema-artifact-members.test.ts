@@ -1,9 +1,11 @@
 // What the attachment carrier is composed from: the artifact members a phase's schema
 // declares, read out of the answer somebody composed.
 //
-// Every case goes through the real mapper rather than a hand-built plan, because the
-// claim under test is about the SCHEMA's declared order — a plan written by hand here
-// would assert this walk against an order this test chose.
+// Every case drives a real schema through the real walk, because the claim under test is
+// about what the SCHEMA declares and in what order — a plan or a path list written by
+// hand here would assert this walk against an order this test chose. Two of the cases
+// carry a schema the mapper cannot draw at all, which is where the plan-shaped reading
+// this replaced went silent.
 
 import { describe, expect, it } from "vitest";
 
@@ -79,6 +81,52 @@ describe("the attachment carrier's artifact members", () => {
     });
 
     expect(ids).toEqual(["artifact-typed-by-hand"]);
+  });
+
+  it("carries an artifact answered as JSON beside a member the mapper could not draw", () => {
+    // The whole-plan raw fallback: one member sends the WHOLE form to the editor — here
+    // an object nested two levels deep — and the artifact member beside it is still
+    // declared, still answerable, and still an attachment. A walk over the drawn plan
+    // sees no entries at all for this schema and hands back an empty carrier, so the id
+    // travels as an ordinary string in `fields` and the daemon never resolves it.
+    const ids = attachmentArtifactIdsIn(
+      objectSchema({
+        design: ARTIFACT_MEMBER,
+        release: {
+          type: "object",
+          properties: { window: { type: "object", properties: { opensAt: { type: "string" } } } },
+        },
+      }),
+      { design: "artifact-typed-into-json", release: { window: { opensAt: "2026-01-01" } } },
+    );
+
+    expect(ids).toEqual(["artifact-typed-into-json"]);
+  });
+
+  it("reads an artifact declared under a repeated object, entry by entry", () => {
+    // The shape a path-shaped discovery cannot address: the position an artifact answer
+    // sits at exists only in the answer, so the declaration and the value are read
+    // together. Nothing the mapper draws reaches here either — an array of objects is
+    // outside the render set — which is why this case exists at all.
+    const ids = attachmentArtifactIdsIn(
+      objectSchema({
+        exhibits: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { caption: { type: "string" }, file: ARTIFACT_MEMBER },
+          },
+        },
+      }),
+      {
+        exhibits: [
+          { caption: "before", file: "artifact-before" },
+          { caption: "after", file: "artifact-after" },
+        ],
+      },
+    );
+
+    expect(ids).toEqual(["artifact-before", "artifact-after"]);
   });
 
   it("names no artifact member for a schema the mapper could not map at all", () => {

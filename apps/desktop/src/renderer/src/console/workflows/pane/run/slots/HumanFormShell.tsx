@@ -94,7 +94,15 @@ function renderOutcome(outcome: ReturnType<typeof useHumanFormSubmit>["outcome"]
       return <Nothing kind="not-loaded" placement="inline" title="Waiting for the daemon." />;
     case "submitted":
       return (
-        <p className="meridian-schema-answer__settlement">
+        // `role="status"` for the reason the workflow-start receipt carries one: the
+        // press leaves focus on the submit control, the pending notice this replaces
+        // says nothing on its own, and a settlement rendered as an ordinary paragraph
+        // is therefore read by everyone who can see the screen and nobody else. The
+        // region IS the sentence rather than a wrapper around it, so it speaks when the
+        // outcome lands and stays silent through every re-render that does not move it
+        // — a second element around this one would be a live region whose content
+        // changed for reasons this arm did not.
+        <p className="meridian-schema-answer__settlement" role="status">
           <WireFigure value={outcome.submittedAt} />
           <span>
             {outcome.outputCount === 1

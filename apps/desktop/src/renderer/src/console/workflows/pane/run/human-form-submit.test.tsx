@@ -6,9 +6,9 @@
 // and read the request out of the probe. A case that called the hook and asserted its
 // return would say nothing about what the daemon receives, which is the whole subject.
 //
-// AND THE MAPPER IS THE REAL ONE. The attachment carrier is composed from the phase's own
-// schema, so a plan written by hand here would assert the carrier against an order this
-// file chose rather than against the order an author declared.
+// AND THE SCHEMA IS THE REAL ONE. The attachment carrier is composed from the phase's own
+// input schema — not from what the form drew over it — so a carrier written by hand here
+// would assert an order this file chose rather than the order an author declared.
 //
 // WHAT IS DELIBERATELY NOT HERE. The arms the slot opens on, the single-flight refusal,
 // the settlement rendering, and the re-armed run read are `slots/HumanFormShell.test.tsx`

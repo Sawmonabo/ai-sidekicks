@@ -27,11 +27,13 @@
 // form is drawn is `SchemaForm.tsx`.
 //
 // THE READING IS THE ATTACHMENT CARRIER'S. The submit a run pane dispatches has to say
-// which of an answer's values are artifacts, and that is the mapper's knowledge — which
-// members the schema declared as artifact fields, and in what order. It leaves as one
-// answer for the same reason the composers do: a caller walking the schema itself would
-// be a second reading of what an artifact member is, and it would drift the first time
-// the mapper's own reading moved.
+// which of an answer's values are artifacts, and that question is answered against the
+// phase's own schema — which members it declared as artifact fields, and in what order —
+// rather than against what the mapper drew, because one member outside the render set
+// sends the whole form to the raw editor and the artifact members beside it are still
+// declared. It leaves as one answer for the same reason the composers do: a caller
+// walking the schema itself would be a second reading of what an artifact member is, and
+// it would drift the first time the mapper's own reading moved.
 
 import "./schema-form.css";
 
