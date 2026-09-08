@@ -36,7 +36,12 @@
 // never decodes a push payload and answers every one with a fresh read. So the
 // four states live in the `presence.read` reply, which is the registered
 // `PresenceReadResponse`, and the `presence.*` beats exist to make the signal
-// arrive at all. Their payloads carry the session and the participant the envelope
+// arrive at all — and the reply is COMPUTED FROM THE CLOCK rather than fixed, off the
+// same schedule the beats are emitted from (`collaboration/presence-timeline.ts`), so
+// the read a push prompts answers something the read before it did not. A fixed table
+// there made both halves unreachable at once: it exposed every eventual state at tick
+// zero and then answered every refresh with the rows it had already given.
+// Their payloads carry the session and the participant the envelope
 // is about and nothing else — the census registers these four types with no
 // payload variant, and a fixture that invented a device id or a last-seen member
 // for them would be teaching a shape to a surface that has promised not to read it.
@@ -65,7 +70,9 @@
 // shape `wire-truth.ts` and `wire-truth/` already keep in this directory: an entry a
 // reader opens first, and one axis per module under it, with no door, because nothing
 // outside the scenario composes them. `identifiers.ts`, `beats.ts`, `replies.ts`,
-// `activity.ts`, and `pending-invites.ts` are THIS scenario's own parts, on the split
+// `presence-timeline.ts`, `activity.ts`, and `pending-invites.ts` are THIS scenario's
+// own parts — the timeline being the one fact the beats and a reply BOTH fold, which
+// is why it is a part rather than a section of either — on the split
 // `composer.ts` already makes; `runtime-nodes.ts` and `growth-replies.ts` are the
 // second scripts described above, which play other wires and are not more of this
 // one. The identifiers module is what keeps the parts naming the same room.
@@ -77,6 +84,7 @@ import {
   PARTICIPANT_YOU,
   RUNTIME_NODE_SCRIPT,
   SESSION_ID,
+  SESSION_STARTED_AT_ISO,
 } from "./collaboration/identifiers.js";
 import {
   COLLABORATION_PENDING_INVITES,
@@ -115,7 +123,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
       (participant) => [participant.participantId, participant.role] as const,
     ),
   ),
-  startedAtIso: "2026-01-01T10:05:00.000Z",
+  startedAtIso: SESSION_STARTED_AT_ISO,
   runtimeNodeRoster: collaborationRuntimeNodeRoster(RUNTIME_NODE_SCRIPT),
   activity: COLLABORATION_ACTIVITY,
   beats: COLLABORATION_BEATS,

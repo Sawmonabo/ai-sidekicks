@@ -8,7 +8,10 @@
 //
 // The presence and channel rows are DERIVED from the same two cast tables the beats
 // are, so what a read answers about a person is the row that person's membership
-// beat admitted rather than a second hand-written copy of it.
+// beat admitted rather than a second hand-written copy of it. For presence that
+// derivation is TIME-DEPENDENT — see the reply below — because the roster's whole
+// contract is that the read is the truth: a read that answers the same rows before
+// and after a `presence.*` push says the push carried no news.
 //
 // AND THE INVITE LEDGER IS A TABLE, NOT A RULE. This room exists in part to show an
 // invitation ageing out, and the ageing itself is NOT here: `pending → expired` on the
@@ -35,6 +38,7 @@ import {
   PARTICIPANT_YOU,
 } from "./identifiers.js";
 import { collaborationGrowthReplies } from "./growth-replies.js";
+import { collaborationPresenceRowsAt } from "./presence-timeline.js";
 import type { GrowthInviteSummary } from "../../growth-values/index.js";
 import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
@@ -82,14 +86,20 @@ export const COLLABORATION_REPLIES: ConsoleScenario["replies"] = [
     // state, lastSeen}]}` and nothing beside it — the schema is `.strict()`, so a
     // role or a display name here would be rejected outright. Role lives on the
     // membership projection and the roster reads it from there.
+    //
+    // COMPUTED FROM THE INSTANT, which is what makes this room's presence beats mean
+    // anything. A fixed table here answered every read with each joiner's EVENTUAL
+    // state and final stamp, so at tick zero the console was already showing rows the
+    // script does not reach until 380ms — and the roster, whose whole discipline is to
+    // answer each `presence.*` push with a fresh read, received the identical rows on
+    // every one of them. The transition and the refresh were both unreachable at once.
+    // `presence-timeline.ts` declares the moves the beats are emitted from, and this
+    // answers with the ones DUE at the tick the reply settles at, off the engine's own
+    // frozen clock.
     call: "presence.read",
-    result: {
-      participants: COLLABORATION_PARTICIPANTS.map((participant) => ({
-        participantId: participant.participantId,
-        state: participant.presenceState,
-        lastSeen: participant.lastSeenIso,
-      })),
-    },
+    resultFor: (_request, settledAtMilliseconds) => ({
+      participants: collaborationPresenceRowsAt(settledAtMilliseconds),
+    }),
   },
   {
     call: "channel.list",
