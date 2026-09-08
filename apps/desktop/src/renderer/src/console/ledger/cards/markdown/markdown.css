@@ -193,9 +193,36 @@
   font-size: var(--meridian-text-sm);
 }
 
+/* Both kinds of cell, because the head is a row of this same grid: a `td`-only rule
+   would have left every column name unpadded and unruled the moment the mapper
+   started rendering one. */
+.meridian-markdown__table th,
 .meridian-markdown__table td {
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border: 1px solid var(--meridian-edge);
+  text-align: left;
+}
+
+/* The head reads as the head without a second ground behind it — weight and a rule
+   under the row, which is what the surrounding surface already uses to separate a
+   label from what it labels. */
+.meridian-markdown__table th {
+  border-bottom-width: 2px;
+  font-weight: 600;
+}
+
+/* The delimiter line's own alignment, on header and data cells alike. Both selectors
+   outrank the shared rule above, so a declared column overrides the default start
+   edge and an undeclared one keeps it. */
+.meridian-markdown__table [data-align="center"] {
+  text-align: center;
+}
+
+.meridian-markdown__table [data-align="right"] {
+  text-align: right;
+}
+
+.meridian-markdown__table [data-align="left"] {
   text-align: left;
 }
 
