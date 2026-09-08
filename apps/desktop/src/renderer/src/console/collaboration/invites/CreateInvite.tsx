@@ -49,10 +49,9 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 import type { JoinMode } from "@ai-sidekicks/contracts";
 
-import { type ConsoleBridge, type GrowthOutcome, type GrowthReading } from "../../bridge/index.js";
-import { type ConsoleRefusal } from "../../core/index.js";
+import { type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
-import { useGrowthReadOnMount } from "../../seats/index.js";
+import { useCallerParticipantIdentity } from "../../seats/index.js";
 import { type FrameStore } from "../../store/index.js";
 import { useInviteMintAct } from "./create-invite-act.js";
 import {
@@ -65,38 +64,6 @@ import {
 import { inviteCreateRemedy } from "./invite-refusal-copy.js";
 import { InviteLinkReveal } from "./InviteLinkReveal.js";
 import { useMintedInvite } from "./use-minted-invite.js";
-
-/** Names a refusal the identity read itself did not name. */
-const CREATE_INVITE_ORIGIN = "create-invite";
-
-/** What one `callerParticipantRead` answers, and the arms around that answer. */
-type CallerIdentityReading = GrowthReading<GrowthOutcome<{ readonly participantId: string }>>;
-
-/** Which participant this window is, or why that could not be read. */
-type CallerIdentity =
-  | { readonly status: "read"; readonly participantId: string }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/**
- * The identity read, projected onto what this form asks of it.
- *
- * `undefined` stays the not-yet-answered absence the seat publishes, so the form
- * still tells "still coming" from "the port said no" — the two renderings below are
- * different shapes and collapsing them would close the send control with no sentence.
- */
-function callerIdentityFrom(
-  reading: CallerIdentityReading | undefined,
-): CallerIdentity | undefined {
-  if (reading === undefined) {
-    return undefined;
-  }
-  if (reading.kind === "unreadable") {
-    return { status: "refused", refusal: reading.refusal };
-  }
-  return reading.outcome.status === "served"
-    ? { status: "read", participantId: reading.outcome.value.participantId }
-    : { status: "refused", refusal: reading.outcome };
-}
 
 export interface CreateInviteProps {
   readonly bridge: ConsoleBridge;
@@ -124,18 +91,14 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
   // Held against the exact subject it belongs to, on the ledger's rule beside this
   // form: an identity read answers about ONE session's roster, so a window that moves
   // while it is unsettled must not show the arriving session what the one it left was
-  // told. Through the growth-read seat rather than a hand-rolled effect: this is
-  // exactly the ask-once-per-subject read four surfaces in two view families already
-  // share, and a second copy would be a second answer to when a read is re-asked.
-  const identity = callerIdentityFrom(
-    useGrowthReadOnMount({
-      bridge,
-      subject: sessionId,
-      request: sessionId === undefined ? undefined : { sessionId },
-      origin: CREATE_INVITE_ORIGIN,
-      ask: (readBridge, request) => readBridge.growth.callerParticipantRead(request),
-    }),
-  );
+  // told. Through the caller-participant seat rather than a hand-rolled effect and a
+  // private projection of its arms: this is the ask-once-per-subject read four
+  // surfaces in two view families share, and a second copy would be a second answer
+  // to when a read is re-asked. `undefined` stays the not-yet-answered absence, so
+  // the form still tells "still coming" from "the port said no" — the two renderings
+  // below are different shapes and collapsing them would close the send control with
+  // no sentence.
+  const identity = useCallerParticipantIdentity(bridge, sessionId);
   // And what the mint produced, which is the same rule over a longer-lived value —
   // its own module, because a token that outlives the press has a lifetime worth
   // stating rather than a `useState` a reader has to reconstruct.

@@ -1,13 +1,11 @@
 import { useCallback, useMemo } from "react";
 
-import { membershipRoleOf } from "../../bridge/index.js";
-import { usePushDrivenRead, type SidebarSectionContext } from "../../seats/index.js";
 import {
-  useCallerMembershipRole,
-  useSessionDegraded,
-  useSessionPartition,
-  type CallerParticipantReader,
-} from "../../store/index.js";
+  useCallerParticipantIdentity,
+  usePushDrivenRead,
+  type SidebarSectionContext,
+} from "../../seats/index.js";
+import { useSessionDegraded, useSessionPartition } from "../../store/index.js";
 import { ChannelList } from "./ChannelList.js";
 import { liveMembershipParticipantIds } from "../members/members-model.js";
 import { type CollaborationSessionModels } from "../session-models.js";
@@ -49,33 +47,19 @@ export function ChannelsSectionBody(props: {
     () => liveMembershipParticipantIds(participantEntities),
     [participantEntities],
   );
-  // WHICH PARTICIPANT THIS WINDOW IS, through the console's one reader of that
-  // question rather than a second implementation of it. The identity read lives on
-  // the growth port, which is a family ABOVE `store/`, so the reader is composed here
-  // — the composition site — and the chaining hook is the store's. Its ROLE half is
-  // deliberately unused: nothing on this surface gates on a role, because eligibility
-  // for every act here is the daemon's answer and arrives as a refusal. What is
-  // wanted is the identity, and a second read for it would be a second answer to a
-  // question this hook already asks.
-  // The id off the store ONCE, and the reader depends on the id rather than on the
-  // store that holds it. The two differ where it counts: a store handed a second
-  // session is a new object and would rebuild this reader either way, but a reader
-  // whose dependency list names the store rather than the subject it closes over
-  // reads as a callback that could be rebound without re-reading — which is the shape
-  // the subject-state tripwire refuses, and it refuses it because that is how every
-  // hand-rolled holder in this tree began.
+  // WHICH PARTICIPANT THIS WINDOW IS, through the console's one composition of that
+  // question rather than a second implementation of it. The IDENTITY arm and not the
+  // role-chained one: nothing on this surface gates on a role, because eligibility for
+  // every act here is the daemon's answer and arrives as a refusal — so taking the
+  // chained hook would subscribe this section to a roster partition it never reads.
+  // The id off the store ONCE, so the read below and every callback beside it name the
+  // same subject rather than each re-reading the store that holds it.
   const sessionId = sessionStore.sessionId;
-  const readCallerParticipant = useCallback<CallerParticipantReader>(async () => {
-    const outcome = await bridge.growth.callerParticipantRead({ sessionId });
-    // A served value answers with the identifier; a refusal IS a `ConsoleRefusal` and
-    // travels back untouched, so the reason the viewer is unknown survives.
-    return outcome.status === "served" ? outcome.value.participantId : outcome;
-  }, [bridge, sessionId]);
-  const caller = useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
+  const caller = useCallerParticipantIdentity(bridge, sessionId);
   // The read arm and nothing else. A viewer that is still being read and one whose
   // read refused are both "not known", and the two surfaces below fail closed on that
   // in their own way rather than being handed a guess.
-  const viewerParticipantId = caller.status === "read" ? caller.participantId : undefined;
+  const viewerParticipantId = caller?.status === "read" ? caller.participantId : undefined;
   // The read's OWN re-open, not a rebuild of the set: a refused subscribe leaves this
   // column terminal for the life of the window, and the directory that refused is the
   // only one that has to be re-opened.

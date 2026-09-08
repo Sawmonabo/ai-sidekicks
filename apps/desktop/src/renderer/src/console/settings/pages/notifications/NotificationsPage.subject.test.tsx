@@ -18,7 +18,7 @@ import {
   servedPreferences,
   settle,
 } from "./notifications-page.test-support.js";
-import type { CallerParticipantOutcome } from "./attention-preference-model.js";
+import type { CallerParticipantOutcome } from "../../../seats/index.js";
 
 const OTHER_SESSION_ID = "session-notifications-other";
 

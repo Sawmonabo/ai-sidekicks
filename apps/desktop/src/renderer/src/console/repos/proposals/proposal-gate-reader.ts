@@ -14,7 +14,7 @@
 // accepted act asks for. So an act cannot start a read and this class cannot decide
 // what an act sends.
 //
-// THE CALLER-IDENTITY READ IS `caller-participant-read.ts`, HELD HERE. An act carries
+// THE CALLER-IDENTITY READ IS `caller-participant-attribution.ts`, HELD HERE. An act carries
 // the participant who pressed it as the registered request's `causationParticipantId`,
 // which is a read — but a lazy, unscheduled, unpublished one, so it is that module's and
 // this class holds one of them and hands its answer through the act seam.
@@ -79,7 +79,7 @@
 // sentence the producing side wrote.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { CallerParticipantRead } from "./caller-participant-read.js";
+import { CallerParticipantAttribution } from "./caller-participant-attribution.js";
 import { Emitter, refuse, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
   RefreshScheduler,
@@ -155,7 +155,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: SessionRefreshTriggers;
   readonly #actions: ProposalGateActions;
-  readonly #callerParticipant: CallerParticipantRead;
+  readonly #callerParticipant: CallerParticipantAttribution;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
 
   #reading: ProposalGateReading = NOTHING_ASKED_GATE_READING;
@@ -212,7 +212,7 @@ export class ProposalGateReader implements ReadTriggerTarget {
       target: this,
       sessionStore: options.sessionStore,
     });
-    this.#callerParticipant = new CallerParticipantRead({
+    this.#callerParticipant = new CallerParticipantAttribution({
       bridge: options.bridge,
       sessionId: options.sessionStore.sessionId,
     });
