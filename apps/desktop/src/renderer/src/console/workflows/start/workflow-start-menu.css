@@ -71,8 +71,35 @@
   border-color: var(--meridian-edge);
 }
 
+/*
+ * A row closed while a start is outstanding. Quieted and un-pressable rather than hidden:
+ * the list a person was reading is still the list, and the sentence below it says why
+ * nothing here answers. The hover treatment is withdrawn with the same rule, so a pointer
+ * over a closed row does not advertise a press that will not happen.
+ */
+.meridian-workflow-start-menu__start:disabled {
+  color: var(--meridian-text-muted);
+  cursor: default;
+}
+
+.meridian-workflow-start-menu__start:disabled:hover {
+  background: none;
+  border-color: transparent;
+}
+
 .meridian-workflow-start-menu__more {
   align-self: flex-start;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * Why the rows are closed, said once for the list. Set exactly as the receipt below it
+ * is — the two are the same kind of line about the same act, one before the answer and
+ * one after, and a second treatment would read as a second kind of thing.
+ */
+.meridian-workflow-start-menu__flight {
+  margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }
