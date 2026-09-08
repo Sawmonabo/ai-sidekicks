@@ -25,6 +25,7 @@
 import { render } from "@testing-library/react";
 import { vi } from "vitest";
 
+import { SidekicksBridgeProvider } from "../../../bridge/BridgeProvider.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
@@ -143,8 +144,31 @@ export function silentBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 }
 
+/**
+ * The pane as the frame mounts it — inside the bridge provider.
+ *
+ * THE PROVIDER IS NOT SCAFFOLDING HERE. Every console surface renders inside it, which
+ * is what makes the fixture substitutable, and this pane's own subtree reaches it: the
+ * human-form slot's shell reads the growth port from there rather than from a member on
+ * the mount, which is the OWNER's contract and may not be widened by the console's
+ * stand-in body. The CONTEXT's own bridge is provided, so a suite mounting against the
+ * silent scenario still gets the port whose refusal it is asserting.
+ *
+ * An element rather than a render, because the retarget cases re-render this same tree
+ * at a second address and a helper that rendered would leave them composing the wrapper
+ * a second time — which is how one of the two sites ends up without it.
+ */
+export function paneInWindow(context: PaneContextOf<"workflow-run">): React.JSX.Element {
+  return (
+    <SidekicksBridgeProvider bridge={context.bridge}>
+      <WorkflowRunPane context={context} />
+    </SidekicksBridgeProvider>
+  );
+}
+
+/** Mount the pane against one context and hand back the pane's own section. */
 export function renderPane(context: PaneContextOf<"workflow-run">): HTMLElement {
-  const { container } = render(<WorkflowRunPane context={context} />);
+  const { container } = render(paneInWindow(context));
   // The pane chrome's own `<section>` — every assertion in these suites is scoped to
   // the whole pane, head included, because the head is where the address trail and the
   // host controls are.

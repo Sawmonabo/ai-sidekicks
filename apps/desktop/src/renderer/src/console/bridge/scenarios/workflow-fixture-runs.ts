@@ -91,6 +91,35 @@ export const WORKFLOWS_PARKED_RUN: WorkflowRunSnapshot = {
       formRevision: 0,
       parkReason: "waiting-human",
       parkCause: "Waiting on a release sign-off from a person before the publish phase runs.",
+      // What this phase asks, carried on the park itself. Both members ride
+      // `parkReason: "waiting-human"` and appear on no other phase in this table —
+      // the build phase above is parked on a provider account and asks nobody
+      // anything, and the two settled phases have nothing left to ask.
+      prompt: "Sign off on this release, or send it back. The publish phase runs on your answer.",
+      // Drawn rather than raw, and drawn across three of the six controls: an
+      // enumerated string is the choice control, `long_text` is the multi-line one,
+      // and a bare boolean is the checkbox. A schema the mapper answers with the JSON
+      // editor is what a suite composes for itself — the fixture's own phase is the
+      // case a person meets, and that case is a form.
+      inputSchema: {
+        type: "object",
+        title: "Release sign-off",
+        properties: {
+          decision: {
+            type: "string",
+            title: "Decision",
+            enum: ["approve", "send-back"],
+          },
+          notes: {
+            type: "string",
+            format: "long_text",
+            title: "Notes",
+            description: "What the next person needs to know about this decision.",
+          },
+          notifyChannel: { type: "boolean", title: "Post the outcome to the channel" },
+        },
+        required: ["decision"],
+      },
       // No `autoResumeAt` and no attention key. Nothing armed a resume, so nothing
       // shows a countdown, and a park with no provider account has nothing for the
       // provider-account fold to fold it with.

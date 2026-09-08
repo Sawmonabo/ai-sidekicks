@@ -181,6 +181,16 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "type-member",
       "the copy-on-write parent content hash on a definition or version read reply, which only the authoring write carries today",
     ),
+    // A pair of members on a reply the console already receives, and therefore not an
+    // operation: the run read is registered and served, and what is missing rides it.
+    // A growth operation here would mint a call for a question the run read already
+    // asks, which is the second source of truth the module header forbids.
+    workflowHumanFormContentMembers: prerequisite(
+      "workflowHumanFormContentMembers",
+      "workflow-human-form-schema",
+      "type-member",
+      "the prompt and the input schema of a phase parked on a person, live-scoped on the run read's phase projection, without which a waiting phase is legible and unanswerable",
+    ),
   };
 
 function prerequisite(

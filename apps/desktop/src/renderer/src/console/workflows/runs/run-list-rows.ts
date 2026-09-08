@@ -107,11 +107,13 @@ export interface WorkflowPhasePark {
 /**
  * What a list row does with each member of the wire's phase projection.
  *
- * The four dropped members go on one rule: a row says whether a phase is parked and
+ * The six dropped members go on one rule: a row says whether a phase is parked and
  * never opens the phase. `phaseRunId` and `attemptNumber` address one execution of
- * it, `formRevision` is the token a form submit carries back, and `gateState` is the
- * phase's own gate — all four are the run pane's subject, and a list that read one
- * would be growing into the view that owns the question.
+ * it, `formRevision` is the token a form submit carries back, `gateState` is the
+ * phase's own gate, and `prompt` and `inputSchema` are the question a waiting phase
+ * asks — all six are the run pane's subject, and a list that read one would be
+ * growing into the view that owns the question. The last two most of all: drawing a
+ * form is opening the phase, which is the one thing a row is for not doing.
  */
 type WirePhaseMemberDispositions = {
   readonly phaseId: "projected";
@@ -120,6 +122,8 @@ type WirePhaseMemberDispositions = {
   readonly state: "projected";
   readonly gateState: "dropped";
   readonly formRevision: "dropped";
+  readonly prompt: "dropped";
+  readonly inputSchema: "dropped";
   readonly parkReason: "projected";
   readonly parkCause: "projected";
   readonly autoResumeAt: "projected";
