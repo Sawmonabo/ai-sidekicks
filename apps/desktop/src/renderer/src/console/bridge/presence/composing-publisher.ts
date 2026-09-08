@@ -38,6 +38,35 @@
 // clock at the moment a keystroke arrives, and the stop is a single armed timeout
 // that a later keystroke re-arms rather than a repeating one.
 //
+// PUBLICATIONS ARE SERIALIZED, AND THAT IS AN ORDERING RULE RATHER THAN A COUNTING
+// ONE. A set and the clear that follows it are two calls on one port, and nothing
+// makes the port settle them in the order they were made. A clear issued while the
+// set before it was still unresolved could be applied first, and the late set would
+// then leave this participant marked as composing in a channel this publisher has
+// already forgotten — and will therefore issue no further clear for, so the indicator
+// stands in everybody else's roster until the receiver's own stale bound expires it.
+// Every publication is appended to one chain and dispatched only once its predecessor
+// has settled.
+//
+// THE PORT'S WRITE IS ITSELF IDEMPOTENT PER CHANNEL, which is why serializing is the
+// whole fix and de-duplicating is not. `presenceComposingSet` writes one Awareness
+// field for the authenticated caller — a map each publisher owns, last write winning
+// (`bridge/growth-signatures/presence.ts`) — so two identical sets leave exactly the
+// state one leaves, and the clear removes that entry however many sets preceded it.
+// What no idempotence can repair is ORDER: the last write to land is the state
+// everyone else reads.
+//
+// AND A PUBLICATION ANNOUNCING A STATE THE PUBLISHER HAS SINCE LEFT IS SKIPPED RATHER
+// THAN SENT. Each queued publication is stamped with the state it would announce — a
+// channel id for a set, `undefined` for a clear — and runs only where that is still
+// what this publisher holds. A set overtaken by a clear before it was dispatched
+// announces a channel the person has stopped composing in; a clear overtaken by a
+// keystroke announces a stop that did not happen. The stamp is deliberately NOT a
+// monotonic counter: a counter would coalesce the rate-limit REFRESH, where two sets
+// naming one channel are both real — the second is what re-arms the receiver's stale
+// bound — and would drop the first keystroke's publication for the sake of a later
+// duplicate, delaying the indicator by a whole window.
+//
 // A REFUSAL IS TERMINAL FOR THE PUBLISHER'S LIFETIME. The port refuses this wire
 // under both bridges today, and a publisher that retried would put one refused call
 // on the port per keystroke for the length of every message a person ever types. So
@@ -103,12 +132,29 @@ export class ComposingPublisher {
   #lastPublishedAtMilliseconds = 0;
   #isStopped = false;
   #isDisposed = false;
+  /**
+   * The tail every publication appends to, so two are never in flight at once.
+   *
+   * It cannot become a rejected promise, which is what keeps every later append
+   * reachable: {@link #dispatch} catches the port's throw, and the guard wrapped
+   * around it reads two fields and calls {@link ConsoleClock.cancel}, whose contract
+   * is a no-op for a handle that was never armed, has already run, or has already
+   * been cancelled.
+   */
+  #publicationChain: Promise<void> = Promise.resolve();
 
   public constructor(options: ComposingPublisherOptions) {
     this.#options = options;
   }
 
-  /** The channel a publication is currently outstanding for, or `undefined`. */
+  /**
+   * The channel this publisher is announcing, or `undefined` for none.
+   *
+   * The publisher's INTENT rather than what the port has acknowledged, which is what
+   * makes it the stamp a queued publication is held against: it moves the moment a
+   * keystroke or a stop decides it, and a publication whose own stamp no longer
+   * matches it is announcing a state this publisher has left.
+   */
   public get publishedChannelId(): string | undefined {
     return this.#publishedChannelId;
   }
@@ -157,7 +203,7 @@ export class ComposingPublisher {
     }
     this.#publishedChannelId = channelId;
     this.#lastPublishedAtMilliseconds = now;
-    void this.#publishSet(channelId);
+    this.#publishSet(channelId);
   }
 
   /**
@@ -165,6 +211,11 @@ export class ComposingPublisher {
    *
    * Idempotent, and safe with nothing outstanding: the armed stop is cancelled
    * either way, so a caller never has to ask whether it published in the first place.
+   *
+   * The intent moves to "not composing" HERE, synchronously, and the clear is only
+   * queued: a set still on the chain is stamped with the channel this line just left,
+   * so it is skipped rather than sent, and a set already in flight is followed by the
+   * clear rather than raced by it.
    */
   public stop(): void {
     this.#cancelStop();
@@ -176,15 +227,17 @@ export class ComposingPublisher {
     if (this.#isStopped || this.#isDisposed) {
       return;
     }
-    void this.#publishClear();
+    this.#publishClear();
   }
 
   /**
    * Release the publisher, clearing an outstanding publication on the way out.
    *
-   * The clear is dispatched BEFORE the disposed flag is set, because the alternative
-   * is a person who closed a window leaving a composing indicator up in everybody
-   * else's roster until the receiver's own bound expired it.
+   * The clear is QUEUED before the disposed flag is set, and the chain goes on
+   * draining after it — a disposed publisher still owes the clear, because the
+   * alternative is a person who closed a window leaving a composing indicator up in
+   * everybody else's roster until the receiver's own bound expired it. That is why
+   * the queue's own guard reads the retirement flag and never the disposal one.
    */
   public dispose(): void {
     this.stop();
@@ -210,8 +263,8 @@ export class ComposingPublisher {
     this.#options.clock.cancel(handle);
   }
 
-  async #publishSet(channelId: string): Promise<void> {
-    await this.#dispatch(async () => {
+  #publishSet(channelId: string): void {
+    this.#enqueuePublication(channelId, async () => {
       const outcome = await this.#options.growth.presenceComposingSet({
         sessionId: this.#options.sessionId,
         channelId,
@@ -220,12 +273,37 @@ export class ComposingPublisher {
     });
   }
 
-  async #publishClear(): Promise<void> {
-    await this.#dispatch(async () => {
+  #publishClear(): void {
+    this.#enqueuePublication(undefined, async () => {
       const outcome = await this.#options.growth.presenceComposingClear({
         sessionId: this.#options.sessionId,
       });
       return outcome.status === "served";
+    });
+  }
+
+  /**
+   * Queue one publication behind everything already on the chain.
+   *
+   * `announcedChannelId` is the state this publication would leave the session in —
+   * the channel a set names, `undefined` for a clear — and it is compared against
+   * {@link publishedChannelId} at DISPATCH time rather than at queue time, which is
+   * the whole of the supersession rule: a publication is worth making only where the
+   * state it announces is still the state this publisher holds.
+   *
+   * The retirement flag is read here as well as at every public entry, because a
+   * refusal can land while a later publication is already queued behind it: the port
+   * is dead by the time this runs, and a queued call is still a call.
+   */
+  #enqueuePublication(
+    announcedChannelId: string | undefined,
+    publish: () => Promise<boolean>,
+  ): void {
+    this.#publicationChain = this.#publicationChain.then(async () => {
+      if (this.#isStopped || this.#publishedChannelId !== announcedChannelId) {
+        return;
+      }
+      await this.#dispatch(publish);
     });
   }
 

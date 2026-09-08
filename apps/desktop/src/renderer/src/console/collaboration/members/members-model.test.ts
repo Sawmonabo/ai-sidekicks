@@ -349,6 +349,7 @@ describe("members model — who is still in the session", () => {
       admission("participant-you", 1),
       admission("participant-priya", 2),
       eventOfKind(SESSION_ID, "membership.revoked", 3, {
+        sessionId: SESSION_ID,
         participantId: "participant-priya",
         actor: "participant-you",
       }),
@@ -366,14 +367,23 @@ describe("members model — who is still in the session", () => {
   it("drops a suspended one and takes it back on the reactivation", () => {
     const suspended = partitionAfter([
       admission("participant-priya", 1),
-      eventOfKind(SESSION_ID, "membership.suspended", 2, { participantId: "participant-priya" }),
+      eventOfKind(SESSION_ID, "membership.suspended", 2, {
+        sessionId: SESSION_ID,
+        participantId: "participant-priya",
+      }),
     ]);
     expect(liveMembershipParticipantIds(suspended)).toStrictEqual([]);
 
     const reactivated = partitionAfter([
       admission("participant-priya", 1),
-      eventOfKind(SESSION_ID, "membership.suspended", 2, { participantId: "participant-priya" }),
-      eventOfKind(SESSION_ID, "membership.reactivated", 3, { participantId: "participant-priya" }),
+      eventOfKind(SESSION_ID, "membership.suspended", 2, {
+        sessionId: SESSION_ID,
+        participantId: "participant-priya",
+      }),
+      eventOfKind(SESSION_ID, "membership.reactivated", 3, {
+        sessionId: SESSION_ID,
+        participantId: "participant-priya",
+      }),
     ]);
     expect(liveMembershipParticipantIds(reactivated)).toStrictEqual(["participant-priya"]);
   });
