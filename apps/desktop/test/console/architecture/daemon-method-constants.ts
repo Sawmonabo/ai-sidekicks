@@ -30,6 +30,14 @@
 // admits one declaration by construction, so there is nothing left to be ambiguous
 // between.
 //
+// AND ONLY A `const` IS REDUCED, through the same reduction the scope chain uses, because
+// this index has the writable-binding hole in its own shape too: an
+// `export let METHOD = "session.join"` the exporting module later writes reaches every
+// importer as whatever it holds at the call, and an index that recorded its initializer
+// would classify a read as a record across a module boundary. The rule is stated once in
+// `daemon-method-literals.ts` and consumed here, so the two readers cannot disagree about
+// what a declaration holds.
+//
 // THE RESOLUTION IS TEXTUAL AND DELIBERATELY SHALLOW. A relative specifier is joined
 // onto its importer's own path and re-spelled as source — the console writes the
 // EMITTED `.js` extension its module resolution requires, and the module on disk is
@@ -45,7 +53,7 @@ import { posix } from "node:path";
 import ts from "typescript";
 
 import { parseSourceText } from "../typescript-source.js";
-import { withoutTypeWrappers } from "./daemon-method-literals.js";
+import { variableDeclarationBinding } from "./daemon-method-literals.js";
 
 /** What the console's specifiers name a module by, since that is what it will import. */
 const EMITTED_EXTENSION = ".js";
@@ -85,7 +93,7 @@ export class DaemonMethodConstantIndex {
         continue;
       }
       for (const declaration of statement.declarationList.declarations) {
-        const bound = this.#registeredMethodIn(declaration.initializer);
+        const bound = this.#registeredMethodIn(statement.declarationList, declaration);
         if (ts.isIdentifier(declaration.name) && bound !== undefined) {
           exported.set(declaration.name.text, bound);
         }
@@ -116,16 +124,17 @@ export class DaemonMethodConstantIndex {
     return [];
   }
 
-  /** The registered method an initializer is, or `undefined` for everything else. */
-  #registeredMethodIn(initializer: ts.Expression | undefined): string | undefined {
-    if (initializer === undefined) {
+  /** The registered method a declaration binds, or `undefined` for everything else. */
+  #registeredMethodIn(
+    declarationList: ts.VariableDeclarationList,
+    declaration: ts.VariableDeclaration,
+  ): string | undefined {
+    const bound = variableDeclarationBinding(declarationList, declaration);
+    if (bound.kind !== "literals") {
       return undefined;
     }
-    const literal = withoutTypeWrappers(initializer);
-    if (!ts.isStringLiteralLike(literal)) {
-      return undefined;
-    }
-    return this.#registeredMethods.includes(literal.text) ? literal.text : undefined;
+    const [method] = bound.literals;
+    return method !== undefined && this.#registeredMethods.includes(method) ? method : undefined;
   }
 }
 
