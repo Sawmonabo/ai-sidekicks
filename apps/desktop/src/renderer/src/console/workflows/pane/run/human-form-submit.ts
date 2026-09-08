@@ -30,6 +30,17 @@
 // form. The port joins it for the fixture's own reason: a scenario switch replaces the
 // bridge and keeps every id, and a call made through the previous bridge is retired by
 // that replacement.
+//
+// AND A SERVED SUBMISSION RE-ARMS THE RUN READ, which this outcome cannot do for itself.
+// The outcome above is one attempt's settlement; the pane's snapshot is the run, and a
+// daemon that recorded the answer has moved the phase this form is composed against. So
+// the served arm records the act through `served-run-act.ts` — the SAME round a served
+// cancel or resume advances, held by `run-control-dispatch.ts` — and the pane asks the
+// daemon once more. Nothing the reply reported is spliced into that snapshot: the run is
+// read again rather than believed twice, so the parked phase either stands or goes on
+// the daemon's own answer. Without it a submission the daemon accepted left the pane
+// rendering the old park and its form indefinitely, saying in the same breath that the
+// answer had been recorded.
 
 import {
   settleGrowthRead,
@@ -39,6 +50,7 @@ import {
 } from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
+import { useRecordServedRunAct } from "./served-run-act.js";
 import type { HumanFormMount } from "./slots/human-form-mount.js";
 
 /** The subsystem name every refusal raised in this file carries. */
@@ -175,6 +187,10 @@ export function useHumanFormSubmit(
     mount.phaseRunId,
     () => IDLE,
   );
+  // The run pane's own re-arm, reached through the seat rather than through the mount:
+  // `undefined` where this form is rendered with no run pane above it, which is a form
+  // with no run read behind it to put again.
+  const recordServedRunAct = useRecordServedRunAct();
 
   return {
     outcome,
@@ -207,7 +223,17 @@ export function useHumanFormSubmit(
           // another's form. The claim's own `settle` is the other guard — it asks
           // whether this round is still the live one, which the unmount path retires.
           claim.settle(() => {
-            publish(settledOutcome(settlement));
+            const settled = settledOutcome(settlement);
+            publish(settled);
+            // INSIDE THE SAME GUARD, and after the outcome rather than beside it. A
+            // settlement whose round has been retired settles nothing and must re-arm
+            // nothing either — a read put behind an unmounted pane is a call nobody is
+            // waiting for. Only the served arm advances the round: a refusal changed
+            // nothing about the run, so asking again would be this surface re-reading
+            // on a refusal it had just been given.
+            if (settled.kind === "submitted") {
+              recordServedRunAct?.();
+            }
           });
         })
         .finally(() => {
