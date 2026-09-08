@@ -28,13 +28,19 @@ import {
 } from "../scenarios/collaboration/identifiers.js";
 import { COLLABORATION_SCENARIO } from "../scenarios/collaboration.js";
 import {
-  callBridge,
   createFixture,
   unscriptedScenario,
   type FixtureUnderTest,
 } from "./fixture-bridge.test-support.js";
+import {
+  createdChannelIdIn,
+  directoryMemberCountOf,
+  directoryRowOf,
+  directoryRowsOf,
+  directoryStateOf,
+} from "./fixture-channel-directory.test-support.js";
+import { scenarioAlsoPlaying } from "./scenario-append.test-support.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
-import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 
 /** Past every beat the collaboration room plays, so an advance leaves nothing due. */
 const PAST_EVERY_BEAT_MS = 10_000;
@@ -42,58 +48,18 @@ const PAST_EVERY_BEAT_MS = 10_000;
 /** Far enough in to have delivered the room's opening beats and no further. */
 const INTO_THE_OPENING_MS = 100;
 
+/** A session this room is not, for the frames whose payload names the wrong one. */
+const ELSEWHERE_ID = "019b7904-8ce0-7c11-8199-cca0117a0998";
+
+/** A channel no scripted reply and no shipped beat of this room's names. */
+const ANNOUNCED_CHANNEL_ID = "019b7904-8ce0-7c11-8145-cca0117a0397";
+
 /** The room, its lifecycle replies scripted, ready to be read from. */
 function room(scenario: ConsoleScenario = COLLABORATION_SCENARIO): FixtureUnderTest {
   return createFixture(scenario);
 }
 
 describe("the fixture's channel directory — what the read answers once frames have landed", () => {
-  /** One row of the directory `channel.list` answers with, right now. */
-  async function directoryRowOf(
-    fixture: FixtureUnderTest,
-    channelId: string,
-  ): Promise<Record<string, unknown> | undefined> {
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-    });
-    const channels = (reply as { readonly channels: readonly Record<string, unknown>[] }).channels;
-    return channels.find((channel) => channel["id"] === channelId);
-  }
-
-  /** The state `channel.list` reports for one channel, right now. */
-  async function directoryStateOf(fixture: FixtureUnderTest, channelId: string): Promise<unknown> {
-    return (await directoryRowOf(fixture, channelId))?.["state"];
-  }
-
-  /**
-   * Create one channel in this room and answer with the id the receipt minted.
-   *
-   * The request travels as the caller wrote it rather than through a name parameter,
-   * because the membership arm reads the KIND and the PAIR and a helper that took only
-   * a name could reach one of the two arms.
-   */
-  async function createdChannelId(
-    fixture: FixtureUnderTest,
-    request: Omit<GrowthOperationSignatures["channelCreate"]["request"], "sessionId"> = {},
-  ): Promise<string> {
-    const outcome = await fixture.bridge.growth.channelCreate({
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-      ...request,
-    });
-    if (outcome.status !== "served") {
-      throw new Error("this room scripts a create receipt, so the create should have been served");
-    }
-    return outcome.value.channelId;
-  }
-
-  /** How many members `channel.list` reports for one channel, right now. */
-  async function directoryMemberCountOf(
-    fixture: FixtureUnderTest,
-    channelId: string,
-  ): Promise<unknown> {
-    return (await directoryRowOf(fixture, channelId))?.["participantCount"];
-  }
-
   it("reports a channel live until its archival beat is due, and archived after", async () => {
     // The reading a fixed reply cannot give and the one the scenario is built to show.
     // Before the beat the room has not archived anything, so a read that answered
@@ -128,7 +94,7 @@ describe("the fixture's channel directory — what the read answers once frames 
     // arrive is the fold. A live channel is what a create leaves behind.
     const fixture = room();
 
-    const channelId = await createdChannelId(fixture, { name: "handover" });
+    const channelId = await createdChannelIdIn(fixture, { name: "handover" });
 
     expect(await directoryRowOf(fixture, channelId)).toStrictEqual({
       id: channelId,
@@ -145,7 +111,7 @@ describe("the fixture's channel directory — what the read answers once frames 
     // button, so the two readings cannot be mistaken for each other.
     const fixture = room();
 
-    const channelId = await createdChannelId(fixture, { name: "handover" });
+    const channelId = await createdChannelIdIn(fixture, { name: "handover" });
 
     expect(await directoryMemberCountOf(fixture, channelId)).toBe(
       COLLABORATION_PARTICIPANTS.length,
@@ -160,7 +126,7 @@ describe("the fixture's channel directory — what the read answers once frames 
     const fixture = room();
     const [first, second] = COLLABORATION_PARTICIPANTS;
 
-    const channelId = await createdChannelId(fixture, {
+    const channelId = await createdChannelIdIn(fixture, {
       kind: "direct",
       memberPair: [first?.participantId ?? "", second?.participantId ?? ""],
     });
@@ -180,7 +146,7 @@ describe("the fixture's channel directory — what the read answers once frames 
     const { viewingParticipantId: _omittedViewer, ...withoutViewer } = COLLABORATION_SCENARIO;
     const fixture = room(withoutViewer);
 
-    const channelId = await createdChannelId(fixture, { name: "handover" });
+    const channelId = await createdChannelIdIn(fixture, { name: "handover" });
 
     expect(await directoryMemberCountOf(fixture, channelId)).toBe(
       COLLABORATION_PARTICIPANTS.length,
@@ -193,7 +159,7 @@ describe("the fixture's channel directory — what the read answers once frames 
     // labels by the other human in the pair.
     const fixture = room();
 
-    const channelId = await createdChannelId(fixture);
+    const channelId = await createdChannelIdIn(fixture);
 
     expect(Object.hasOwn((await directoryRowOf(fixture, channelId)) ?? {}, "name")).toBe(false);
   });
@@ -204,7 +170,7 @@ describe("the fixture's channel directory — what the read answers once frames 
     // opening state like any other rather than a fixed answer appended past the fold.
     const fixture = room();
 
-    const channelId = await createdChannelId(fixture, { name: "handover" });
+    const channelId = await createdChannelIdIn(fixture, { name: "handover" });
     await fixture.bridge.growth.channelArchive({ channelId });
 
     expect(await directoryStateOf(fixture, channelId)).toBe("archived");
@@ -225,12 +191,8 @@ describe("the fixture's channel directory — what the read answers once frames 
       sessionId: scenario.sessionId,
       name: "handover",
     });
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: scenario.sessionId,
-    });
-
     expect(outcome.status).toBe("unavailable");
-    expect((reply as { readonly channels: readonly unknown[] }).channels).toStrictEqual([]);
+    expect(await directoryRowsOf(fixture)).toStrictEqual([]);
   });
 
   it("lists one row for a channel two presses created, because the receipt names one", async () => {
@@ -238,15 +200,12 @@ describe("the fixture's channel directory — what the read answers once frames 
     // identity — and two rows for one channel is a shape no `channel.list` can send.
     const fixture = room();
 
-    const first = await createdChannelId(fixture, { name: "handover" });
-    const second = await createdChannelId(fixture, { name: "handover again" });
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-    });
-    const rows = (reply as { readonly channels: readonly { readonly id: string }[] }).channels;
+    const first = await createdChannelIdIn(fixture, { name: "handover" });
+    const second = await createdChannelIdIn(fixture, { name: "handover again" });
+    const rows = await directoryRowsOf(fixture);
 
     expect(second).toBe(first);
-    expect(rows.filter((channel) => channel.id === first)).toHaveLength(1);
+    expect(rows.filter((channel) => channel["id"] === first)).toHaveLength(1);
   });
 
   it("negative control: a room that announces its own channels lists each of them once", async () => {
@@ -257,12 +216,7 @@ describe("the fixture's channel directory — what the read answers once frames 
     const fixture = room();
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    const reply = await callBridge(fixture.bridge, "channel.list", {
-      sessionId: COLLABORATION_SCENARIO.sessionId,
-    });
-    const identifiers = (
-      reply as { readonly channels: readonly { readonly id: string }[] }
-    ).channels.map((channel) => channel.id);
+    const identifiers = (await directoryRowsOf(fixture)).map((channel) => channel["id"]);
 
     expect(new Set(identifiers).size).toBe(identifiers.length);
   });
@@ -276,5 +230,78 @@ describe("the fixture's channel directory — what the read answers once frames 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(await directoryStateOf(fixture, CHANNEL_MAIN)).toBe("active");
+  });
+
+  it("ignores a transition whose payload names a session other than its envelope's", async () => {
+    // A transition is keyed by `channelId` alone, so a frame delivered on this session
+    // whose payload names another one moved this session's row on the strength of a
+    // claim about somebody else's. `Spec-006` makes `sessionId` a member every
+    // `membership_change`-shaped payload carries, and the membership projection already
+    // refuses this exact contradiction — a fold beside it that admitted the frame would
+    // let a fixture experiment accept the attribution regression that projection catches.
+    const fixture = room(
+      scenarioAlsoPlaying(COLLABORATION_SCENARIO, [
+        { kind: "channel.muted", payload: { sessionId: ELSEWHERE_ID, channelId: CHANNEL_REVIEW } },
+      ]),
+    );
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(await directoryStateOf(fixture, CHANNEL_REVIEW)).toBe("active");
+  });
+
+  it("negative control: the same frame naming THIS session mutes the row", async () => {
+    // Without this the case above would pass over a fold that had stopped reading
+    // transitions at all, or one that dropped every appended frame. The frame is
+    // identical but for the session its payload names, so that member is the only thing
+    // deciding between the two readings.
+    const fixture = room(
+      scenarioAlsoPlaying(COLLABORATION_SCENARIO, [
+        {
+          kind: "channel.muted",
+          payload: { sessionId: COLLABORATION_SCENARIO.sessionId, channelId: CHANNEL_REVIEW },
+        },
+      ]),
+    );
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(await directoryStateOf(fixture, CHANNEL_REVIEW)).toBe("muted");
+  });
+
+  it("ignores a transition that names no session at all", async () => {
+    // The other half of the required arm. These three kinds carry a `sessionId`, so an
+    // omission is a malformed frame rather than a terse one — and admitting it would
+    // make the guard above reachable only by writing the wrong id, never by writing none.
+    const fixture = room(
+      scenarioAlsoPlaying(COLLABORATION_SCENARIO, [
+        { kind: "channel.archived", payload: { channelId: CHANNEL_REVIEW } },
+      ]),
+    );
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(await directoryStateOf(fixture, CHANNEL_REVIEW)).toBe("active");
+  });
+
+  it("adds a created row for a `channel.created` frame that names no session", async () => {
+    // The contradiction arm, and the reason the guard is two rules rather than one.
+    // `channel.created` is the one kind here the corpus registers a payload variant for,
+    // and it is `{channelId, name?}` with no session in it — so a required rule would
+    // refuse every creation this fixture itself publishes and empty the directory.
+    const fixture = room(
+      scenarioAlsoPlaying(COLLABORATION_SCENARIO, [
+        { kind: "channel.created", payload: { channelId: ANNOUNCED_CHANNEL_ID, name: "triage" } },
+      ]),
+    );
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(await directoryRowOf(fixture, ANNOUNCED_CHANNEL_ID)).toStrictEqual({
+      id: ANNOUNCED_CHANNEL_ID,
+      name: "triage",
+      state: "active",
+      participantCount: COLLABORATION_PARTICIPANTS.length,
+    });
   });
 });

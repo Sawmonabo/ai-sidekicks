@@ -148,11 +148,15 @@ export async function answerScriptOnly<TOperationId extends GrowthOperationId>(
     // operation to.
     return growthUnscriptedReply(operationId, call);
   }
-  return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () => {
-    // Unreachable: the guard above already refused every unscripted call, and the
-    // seam reports `unscripted` only for exactly that. Named rather than cast, so a
-    // later change that moves the guard fails here loudly instead of serving a value
-    // that was never scripted.
-    throw new Error(`${call} reached the unscripted arm behind its own scripted guard`);
-  });
+  return await answerFromScriptedReply<TOperationId>(engine, call, operationId, request, () =>
+    // THE SAME ANSWER THE GUARD ABOVE GIVES, and the arm is reachable rather than
+    // redundant: `settleScriptedReply` reports `unscripted` for a scripted call whose
+    // COMPUTED reply answered `undefined` for the request it was handed, which is how a
+    // per-entity scenario says it holds no answer for that entity. This arm used to
+    // throw a raw `Error` on the premise that the guard had already covered every
+    // `unscripted` settlement — true of a missing reply and false of a computed one, so
+    // a room scripting `resultFor` for a script-only write answered a malformed request
+    // by exploding at the caller instead of refusing by name.
+    growthUnscriptedReply(operationId, call),
+  );
 }
