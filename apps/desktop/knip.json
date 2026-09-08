@@ -70,6 +70,19 @@
       // The Vitest plugin reads the config and treats every project's `include` globs as
       // entries, so a test file is a root and what it imports is reached. Without it every
       // test file reports as an unused file and every test-only export as unused.
+      //
+      // WHICH IS ALSO THIS GATE'S ONE BLIND SPOT, and it is a property of the entry set
+      // rather than of anything declared here. An entry that reaches a DIRECTORY — a
+      // renderer suite written `import.meta.glob("../**/*.{ts,tsx}", { query: "?raw" })`,
+      // which Vite resolves at transform time and the plugin above reads as one edge per
+      // matched file — makes every module under that directory reachable, so no orphan
+      // below it can be reported. Measured 2026-09-08: a wholly unreachable module planted
+      // at `src/renderer/src/console/core/` was reported by nothing at rc 0, while the same
+      // plant under `scripts/budget/` failed the run at rc 1. No setting here can see that
+      // — the edge is real and the entry is one this plugin is right to claim — so the rule
+      // lives where the pattern is written: `apps/desktop/AGENTS.md` §Tests forbids a
+      // directory glob in any module under `src/`, and
+      // `test/console/architecture/no-directory-source-globs.test.ts` enforces it.
       "vitest": { "config": ["vitest.config.ts"] },
 
       // A same-file consumer counts as a consumer. Without this, every helper a module uses
