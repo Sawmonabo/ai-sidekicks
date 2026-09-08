@@ -80,9 +80,6 @@ export function SentInvitesLedger(props: {
           row-scoped refusal shape, because the block's two members ARE a code and a
           sentence. Said once above the rows rather than on each of them — the cause is
           the window's, and the rows below it are a read the outage does not touch. */}
-      {props.revokeBlock === undefined || ledger.pending.length === 0 ? null : (
-        <InlineRefusal code={props.revokeBlock.code} detail={props.revokeBlock.detail} />
-      )}
       {ledger.pending.length === 0 ? (
         <Nothing
           kind="empty"

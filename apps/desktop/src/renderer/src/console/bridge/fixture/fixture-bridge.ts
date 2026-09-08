@@ -37,7 +37,10 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../console-bridge.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./fixture-call-door.js";
+import { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import { createFixtureGrowthPort } from "./fixture-growth-port.js";
+import { FixtureInviteLedger } from "./fixture-invite-ledger.js";
+import { createSettledCallFolds } from "./fixture-settled-call-folds.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
 import { refuseAbsentCapability } from "./fixture-refusal.js";
 import { playScenarioTransportOutages } from "./fixture-transport-outages.js";
@@ -78,6 +81,19 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   // One host per bridge, because the assertion sequence is per WINDOW: see its own
   // declaration for why the count lives here and not on the scenario.
   const ceremonyHost = new ScriptedCeremonyRunner(scenarioEngine);
+  // ONE CHANNEL LIFECYCLE PER BRIDGE, and it is composed here because two doors read
+  // it: the growth port answers the four acts through it, and the call door's
+  // `channel.list` fold reads the membership each create recorded. Built inside either
+  // one, the other would be answering from a second fixture's memory of this session's
+  // channels.
+  const channelLifecycle = new FixtureChannelLifecycle(scenarioEngine);
+  // ONE INVITE LEDGER PER BRIDGE, on the same rule and for a sharper version of it: the
+  // mint and the revoke are DAEMON calls and the ledger read is a GROWTH operation, so
+  // the two doors do not merely both read this holder — one writes what the other
+  // answers with. Built inside either, a served mint would leave the ledger it is
+  // supposed to appear in untouched.
+  const inviteLedger = new FixtureInviteLedger(scenarioEngine);
+  const settledCallFolds = createSettledCallFolds(channelLifecycle, inviteLedger);
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
   const sidekicks: SidekicksBridge = {
     daemon: {
@@ -92,7 +108,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       ): Promise<DaemonResult<MethodName>> =>
         assertScriptedReplyOnContract(
           method,
-          await resolveScriptedReply(scenarioEngine, method, params),
+          await resolveScriptedReply(scenarioEngine, method, params, settledCallFolds),
         ) as DaemonResult<MethodName>,
       subscribe: <EventName extends DaemonEvent>(
         event: EventName,
@@ -107,7 +123,12 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
         procedure: ProcedureName,
         input: CpInput<ProcedureName>,
       ): Promise<CpOutput<ProcedureName>> =>
-        (await resolveScriptedReply(scenarioEngine, procedure, input)) as CpOutput<ProcedureName>,
+        (await resolveScriptedReply(
+          scenarioEngine,
+          procedure,
+          input,
+          settledCallFolds,
+        )) as CpOutput<ProcedureName>,
       subscribeRelay: (sessionId, handler): Unsubscribe =>
         subscribeToScenarioRelay(scenarioEngine, sessionId, handler),
     },
@@ -174,7 +195,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // honour. An injectable port used to sit here and nothing ever passed one;
     // keeping it would have meant a caller could hand in a port while the served
     // set beside it still described a different one.
-    growth: createFixtureGrowthPort(scenarioEngine),
+    growth: createFixtureGrowthPort(scenarioEngine, channelLifecycle, inviteLedger),
     growthServedOperations: new Set(FIXTURE_SERVED_GROWTH_OPERATION_IDS),
     // The roster read is answered from the scenario's own frames rather than from
     // the reply table, because a roster moves and a reply does not. The presence

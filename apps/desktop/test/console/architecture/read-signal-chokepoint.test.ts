@@ -42,12 +42,12 @@ import {
  * How many of the shell block's roster the registry binds, and so how many this gate
  * can hold to the partition.
  *
- * Seven of its nine: `driver.applyIntervention` and `driver.respondToRequest` reach the
+ * Eight of its ten: `driver.applyIntervention` and `driver.respondToRequest` reach the
  * daemon through a surface the console has not registered a reply shape for yet, so the
  * partition says nothing about them and neither does this claim. A reading below that
  * is the instrument having gone blind rather than the claim holding.
  */
-const CLASSIFIED_BLOCKED_METHOD_COUNT = 7;
+const CLASSIFIED_BLOCKED_METHOD_COUNT = 8;
 
 describe("read cancellation — every door call declares which kind it is", () => {
   const { readings, sites } = readConsoleDaemonCalls();

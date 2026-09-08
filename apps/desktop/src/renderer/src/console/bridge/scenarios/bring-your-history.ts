@@ -37,6 +37,7 @@ import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import type { GrowthImportProgress } from "../growth-values/index.js";
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
+import { requestedIdentifier } from "./computed-reply.js";
 
 export const BRING_YOUR_HISTORY_SCENARIO_ID = "bring-your-history";
 
@@ -120,15 +121,6 @@ function importProgressStream(): GrowthStream<GrowthImportProgress> {
   };
 }
 
-/** Read one member off an unknown request, or `undefined` where it carries none. */
-function requestMember(request: unknown, member: string): string | undefined {
-  if (typeof request !== "object" || request === null) {
-    return undefined;
-  }
-  const value = (request as Record<string, unknown>)[member];
-  return typeof value === "string" ? value : undefined;
-}
-
 /** The refusal a daemon sends for a session identifier that resolves to nothing. */
 const SESSION_NOT_FOUND: WireErrorEnvelope = {
   code: "session.not_found",
@@ -191,7 +183,7 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
       // refusal rendering is measured against.
       call: "session.join",
       resultFor: (request) => {
-        if (requestMember(request, "sessionId") !== SESSION_ID) {
+        if (requestedIdentifier(request, "sessionId") !== SESSION_ID) {
           throw SESSION_NOT_FOUND;
         }
         return {
@@ -207,7 +199,7 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
       // no reader for never reaches a progress subscription at all.
       call: PROVIDER_SESSION_IMPORT_BEGIN_CALL,
       resultFor: (request) => {
-        if (requestMember(request, "providerName") !== IMPORTABLE_PROVIDER_NAME) {
+        if (requestedIdentifier(request, "providerName") !== IMPORTABLE_PROVIDER_NAME) {
           throw IMPORT_PROVIDER_UNSUPPORTED;
         }
         return { importId: IMPORT_ID };
@@ -219,7 +211,7 @@ export const BRING_YOUR_HISTORY_SCENARIO: ConsoleScenario = {
       // exist, and answering it would report progress on nothing.
       call: PROVIDER_SESSION_IMPORT_SUBSCRIBE_CALL,
       resultFor: (request) =>
-        requestMember(request, "importId") === IMPORT_ID ? importProgressStream() : undefined,
+        requestedIdentifier(request, "importId") === IMPORT_ID ? importProgressStream() : undefined,
     },
   ],
 };

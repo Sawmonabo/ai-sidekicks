@@ -23,14 +23,15 @@ import {
 import { REPORTED_CONNECTIONS, stateWith } from "./shell-state.test-support.js";
 
 describe("the mutating method set", () => {
-  it("is exactly the nine the corpus registers mutating", () => {
-    // Six of them are the handlers the daemon has shipped. The other three are
+  it("is exactly the ten the corpus registers mutating", () => {
+    // Six of them are the handlers the daemon has shipped. The other four are
     // registered mutating by their own plane's contract and have no handler yet —
     // which is why the set is not a census of what has landed: an unregistered verb
     // the console can already call is unregistered, never read-only.
     //
-    // `membership.update` and `invite.revoke` are two of those three, and they are
-    // here because they are durable acts the daemon PROXIES to the control plane. The
+    // `membership.update`, `invite.create` and `invite.revoke` are three of those four,
+    // and they are here because they are durable acts the daemon PROXIES to the control
+    // plane. The
     // reply registry's `CHANGES_A_RUN` table answers a different question about them —
     // whether a call moves a run — and says so in its own words while calling them
     // "mutations all the same" that "change the session's own roster".
@@ -38,6 +39,7 @@ describe("the mutating method set", () => {
       "session.create",
       "session.join",
       "membership.update",
+      "invite.create",
       "invite.revoke",
       "driver.interruptRun",
       "driver.applyIntervention",
@@ -63,6 +65,8 @@ describe("the mutating method set", () => {
       "daemon.hello",
       // The account plane's own read, beside the probe that is not one.
       "providerAccount.list",
+      // The collaboration plane's read, beside the membership update that is not one.
+      "channel.list",
     ]) {
       expect(isMutatingDaemonMethod(method), method).toBe(false);
     }

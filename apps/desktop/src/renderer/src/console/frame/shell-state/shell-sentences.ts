@@ -163,6 +163,7 @@ const MUTATING_METHOD_LABELS: Record<MutatingDaemonMethod, string> = {
   "session.create": "starting a session",
   "session.join": "joining a session",
   "membership.update": "changing a membership",
+  "invite.create": "sending an invitation",
   "invite.revoke": "revoking an invitation",
   "driver.interruptRun": "interrupting a run",
   "driver.applyIntervention": "steering, rewinding, and the other run controls",

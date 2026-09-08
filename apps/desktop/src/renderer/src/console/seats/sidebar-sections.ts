@@ -32,7 +32,7 @@
 import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
-import { type ConsolePaneOpener } from "./pane-registry.js";
+import { type ConsolePaneOpener } from "./pane-address.js";
 
 // Consumed by T-023p-1C-3
 /**
@@ -84,17 +84,21 @@ export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
   /**
-   * Where this window's shell condition is published.
+   * This window's own store, for the one question a section cannot answer from the
+   * session's: whether a mutating call can leave the machine at all.
    *
-   * A section that dispatches a daemon WRITE has to ask `shellBlockForMethod` about
-   * the method it names — `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks
-   * mutating operations while the supervisor is not serving — and the store is the one
-   * place that answer comes from. Handed down for `openPane`'s reason: a sidebar
-   * rendered in an auxiliary window reads THAT window's shell.
+   * `store/shell-state.ts` says why the value lives where it does — "a view family
+   * reads it to disable a control it is about to offer" — and this is the seat that
+   * makes that reachable from a section, which holds a SESSION store and a bridge and
+   * neither of those knows the supervisor's condition. Handed down rather than
+   * imported, for `openPane`'s reason: a sidebar rendered in an auxiliary window
+   * reports THAT window's shell.
    *
-   * The STORE and not a derived block, because the question is per method: the reads a
-   * section makes stay live through the same outage that closes its writes, which a
-   * whole-window block passed down could not express.
+   * Required rather than additive-optional, unlike the two members below it. Those two
+   * narrow what a section renders and a section ignoring them simply does less; this
+   * one decides whether a control is offered, and a section handed no signal would
+   * either fail closed — disabling every mutation in a console that works — or fail
+   * open, which is the state this member was added to stop being the only option.
    */
   readonly frameStore: FrameStore;
   /**

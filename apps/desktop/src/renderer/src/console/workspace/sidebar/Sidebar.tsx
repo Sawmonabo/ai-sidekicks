@@ -56,10 +56,11 @@ export interface SidebarProps {
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
   /**
-   * This window's shell condition, for the sections that dispatch daemon writes.
+   * This window's own store, handed to every section.
    *
-   * Handed down for `openPane`'s reason: a sidebar rendered in an auxiliary window
-   * reads THAT window's shell rather than the flagship's.
+   * A section reads it for one thing — whether a mutating call can be sent at all —
+   * and it is a prop for `openPane`'s reason: a sidebar rendered in an auxiliary
+   * window reports that window's shell rather than the main window's.
    */
   readonly frameStore: FrameStore;
   /**

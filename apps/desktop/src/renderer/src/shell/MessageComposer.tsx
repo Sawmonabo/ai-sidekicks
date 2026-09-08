@@ -52,6 +52,7 @@ import { ComposerChipRail } from "./composer/chips/index.js";
 import { ProviderCommandAutocomplete } from "./composer/commands/index.js";
 import { ProviderCommandEnumeration } from "./composer/commands/provider-command-holder.js";
 import { ComposerSendBar } from "./composer/router/index.js";
+import { useComposingPublication } from "./composer/use-composing-publication.js";
 
 /** Declared rather than an arrow, so the resource holder is handed a stable pair. */
 function openEnumeration(): ProviderCommandEnumeration {
@@ -101,6 +102,11 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
     openEnumeration,
     enumerationDisposal,
   );
+  // The typing producer leg (T-023r-6-2 / CP-023-4). It is the HOST's because the
+  // plan pins it here, and it renders nothing: it observes the line the send bar owns
+  // through the draft store the seat already carries, exactly as the discovery
+  // popover observes it, and publishes through the bridge and never into Awareness.
+  useComposingPublication(props);
   return (
     <section
       className="meridian-composer"

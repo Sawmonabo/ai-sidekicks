@@ -14,7 +14,7 @@
 //
 // A `.ts` MODULE THAT BUILDS ELEMENTS. It owns a TABLE — which sections this family
 // claims and what mounts in each — rather than a view, so it takes `createElement`
-// instead of JSX, the shape `frame/legacy-surfaces.ts` already uses for the same
+// instead of JSX, the shape `seats/absorbed-surfaces.ts` already uses for the same
 // reason.
 
 import { createElement } from "react";

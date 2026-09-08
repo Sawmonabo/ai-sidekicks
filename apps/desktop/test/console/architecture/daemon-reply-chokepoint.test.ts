@@ -141,9 +141,13 @@ function isBridgeFamilyModule(module: string): boolean {
  *      run-control dispatch, for all six controls and BOTH of their entry points.
  *   5. `console/agents/run-console/agent-console-reads.ts` — the agent console's reads.
  *   6. `console/collaboration/channels/channel-model.ts` — the channel model.
- *   7. `console/collaboration/invites/SentInvites.tsx` — the sent-invite ledger's
+ *   7. `console/collaboration/invites/CreateInvite.tsx` — the invite mint's
+ *      `invite.create`, the first binding of that verb. It sits here beside the
+ *      ledger's revoke because the two are two acts on two rows and not one
+ *      coordinator over an invite family — the same reason entry 9 gives.
+ *   8. `console/collaboration/invites/SentInvites.tsx` — the sent-invite ledger's
  *      `invite.revoke`.
- *   8. `console/collaboration/members/Memberships.tsx` — the membership ledger's
+ *   9. `console/collaboration/members/Memberships.tsx` — the membership ledger's
  *      `membership.update`, behind all four of its controls. TWO ENTRIES FOR ONE
  *      FAMILY'S MUTATIONS AND NOT ONE COORDINATOR: the shared coordinator used to hold
  *      the door call behind a binder generic over both methods, which put ONE call
@@ -151,28 +155,28 @@ function isBridgeFamilyModule(module: string): boolean {
  *      what lets `read-signal-chokepoint.test.ts` read a deliberate absence of a
  *      cancellation signal as deliberate, so the dispatch sits at the surface that
  *      names a method and the coordinator keeps the single-flight rule it owns.
- *   9. `console/collaboration/members/presence-model.ts` — the presence model.
- *  10. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
- *  11. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
+ *  10. `console/collaboration/members/presence-model.ts` — the presence model.
+ *  11. `console/settings/pages/mounts/mount-inventory.ts` — the mount inventory.
+ *  12. `console/repos/repo-reads.ts` — the repos family's five `repo.*` reads. It used
  *      to reach `daemon.call` itself and hold its own parser and its own two refusal
  *      codes beside it, and it now names five registry keys and holds none of the
  *      three.
- *  12. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
+ *  13. `console/browser/pane/file/file-boundary.ts` — the browser pane's admitted-root
  *      read. The pane's file control has to say which roots a local file may come
  *      from before a person picks one, and the trust envelope is the daemon's: a
  *      renderer that answered from anything else would be deriving the eligibility
  *      the refusal it renders exists to report.
- *  13. `console/sessions/acts/JoinSessionForm.tsx` — the sessions destination's join.
+ *  14. `console/sessions/acts/JoinSessionForm.tsx` — the sessions destination's join.
  *      The first surface to bind `session.join`: the shipped Tier-1 probe calls it
  *      from a mount effect through the raw bridge, and a form a person fills in is a
  *      different act from a probe that joins on being rendered.
- *  14. `console/onboarding/provider-readiness/provider-readiness.ts` — the
+ *  15. `console/onboarding/provider-readiness/provider-readiness.ts` — the
  *      onboarding walkthrough's provider-readiness step, which reads the account
  *      plane's `providerAccount.list` readiness projection.
  *      It is a VIEW over that plane and mints nothing: registration and defaults stay
  *      the settings page's, so that read and the probe below are the whole of its
  *      family's reach.
- *  15. `console/onboarding/provider-readiness/provider-readiness-acts.ts` — the same
+ *  16. `console/onboarding/provider-readiness/provider-readiness-acts.ts` — the same
  *      step's two mutations, which re-probe ONE account through
  *      `providerAccount.probe`. TWO ENTRIES FOR ONE STEP AND NOT A WIDENED FOURTEENTH:
  *      the step's reading and the acts over it are two modules because they are two
@@ -209,7 +213,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 15;
+const CALL_DOOR_CONSUMER_COUNT = 16;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

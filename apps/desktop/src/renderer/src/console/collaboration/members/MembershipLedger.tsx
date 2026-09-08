@@ -1,5 +1,12 @@
 import type { MembershipUpdate } from "@ai-sidekicks/contracts";
-import { InlineRefusal, Nothing, formatCount } from "../../primitives/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import {
+  DerivedFigure,
+  InlineRefusal,
+  Nothing,
+  PartialRead,
+  formatCount,
+} from "../../primitives/index.js";
 import type { ShellMutationBlock } from "../../store/index.js";
 import { isLastRemainingOwner, type MembershipRow } from "./members-model.js";
 import { type WireMutationSnapshot } from "../mutation-coordinator.js";
@@ -7,14 +14,24 @@ import { MembershipLedgerRow } from "./MembershipLedgerRow.js";
 
 export function MembershipLedger(props: {
   readonly rows: readonly MembershipRow[];
-  readonly mutation: WireMutationSnapshot;
+  /** Why the membership roster read did not answer, where it did not. */
+  readonly rosterRefusal: ConsoleRefusal | undefined;
   /**
-   * Why no membership change may be sent right now, or `undefined` while none applies.
+   * True while this session's projection is behind: the rows are last-known.
    *
-   * Scoped to the CONTROLS and not to the ledger: the rows are the session's own
-   * projection and an outage does not make them untrue.
+   * A line above the list and nothing more. What a person may DO to a membership is
+   * the block below, which is a different fact from a different owner.
+   */
+  readonly isLastKnown: boolean;
+  /**
+   * Why a membership cannot be changed from this window right now, or `undefined`.
+   *
+   * The shell's own answer for `membership.update`, rendered as the refusal it is —
+   * a code and a sentence — rather than paraphrased into a line of this surface's own
+   * words. Absent is the ordinary state, including before anything has reported.
    */
   readonly updateBlock: ShellMutationBlock | undefined;
+  readonly mutation: WireMutationSnapshot;
   readonly onApply: (row: MembershipRow, update: MembershipUpdate) => void;
   readonly onDismissRefusal: (membershipId: string) => void;
 }): React.JSX.Element {
@@ -24,25 +41,34 @@ export function MembershipLedger(props: {
         kind="not-checked"
         placement="surface"
         title="No membership has been read."
-        detail="Roles and membership states come from the session's own event log, and this console has projected none for this session. There is no membership-list read to ask with either, so nobody asked — this is not an empty session."
+        detail="Roles and membership states come from the session's own event log and from the membership roster read, and neither has stated one for this session. This is not an empty session."
       />
     );
   }
   return (
     <>
+      {/* Above the rows and never instead of them: what the roster read withdraws is
+          the claim that every row carries the identifier its controls need, not the
+          rows themselves. `beside-an-answer` is the scope, because the log-derived
+          rows on screen arrived some other way and are a fragment of unknown size. */}
+      <PartialRead
+        states={
+          props.rosterRefusal === undefined
+            ? []
+            : [{ kind: "refused", scope: "beside-an-answer", refusal: props.rosterRefusal }]
+        }
+        subject="these memberships"
+      />
       <p className="meridian-members__count">
         {props.rows.length === 1
           ? "One membership."
           : `${formatCount(props.rows.length)} memberships.`}
       </p>
-      {/* DISABLED WITH ITS CAUSE BESIDE IT, never hidden, on the provider-readiness
-          row's precedent: a control that disappears while the runtime is away reads as
-          a control this build does not have, and a disabled one with its sentence off
-          screen reads as one that quietly stopped working. Through the console's one
-          row-scoped refusal shape, because the block's two members ARE a code and a
-          sentence. Said once above the rows rather than on each of them — the cause is
-          the window's, and the rows below it are a projection the outage does not
-          touch. */}
+      {props.isLastKnown ? (
+        <p className="meridian-members__read-only" role="status">
+          <DerivedFigure text="This session's projection is behind, so these rows are the last state this window was sent." />
+        </p>
+      ) : null}
       {props.updateBlock === undefined ? null : (
         <InlineRefusal code={props.updateBlock.code} detail={props.updateBlock.detail} />
       )}

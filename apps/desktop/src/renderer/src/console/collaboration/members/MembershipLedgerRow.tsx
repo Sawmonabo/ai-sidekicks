@@ -63,7 +63,7 @@ export function MembershipLedgerRow(props: {
           kind="not-checked"
           placement="inline"
           title="No controls for this row"
-          detail="Changing a membership names its membership id, and no read this console has returns one alongside a participant."
+          detail="Changing a membership names its membership id. No live read returns one alongside a participant, and neither the session's event log nor the membership roster read has supplied one for this row."
         />
       ) : (
         <MembershipActionsMenu

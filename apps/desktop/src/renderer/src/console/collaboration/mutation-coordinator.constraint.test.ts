@@ -38,6 +38,7 @@ const ADMITTED_METHODS = [
   "session.create",
   "session.join",
   "membership.update",
+  "invite.create",
   "invite.revoke",
   "driver.interruptRun",
   "driver.compactContext",
@@ -77,9 +78,10 @@ describe("the collaboration mutation constraint", () => {
     }
   });
 
-  it("names the two verbs this family dispatches", () => {
-    // The floor under both cases above: a constraint that admitted neither of the
+  it("names the three verbs this family dispatches", () => {
+    // The floor under both cases above: a constraint that admitted none of the
     // family's own methods would still satisfy a partition over the empty set.
+    expect([...ADMITTED_METHODS] as readonly string[]).toContain("invite.create");
     expect([...ADMITTED_METHODS] as readonly string[]).toContain("invite.revoke");
     expect([...ADMITTED_METHODS] as readonly string[]).toContain("membership.update");
   });

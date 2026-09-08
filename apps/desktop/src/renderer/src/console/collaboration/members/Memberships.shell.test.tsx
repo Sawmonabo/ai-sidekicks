@@ -18,8 +18,12 @@ import { describe, expect, it } from "vitest";
 import { settle } from "../../core/settle.test-support.js";
 import type { FrameStore } from "../../store/index.js";
 import { connectedShell, stoppedShell } from "../shell-condition.test-support.js";
-import { Memberships } from "./Memberships.js";
-import { OWNER_AND_COLLABORATOR, contextFor, storeHolding } from "./memberships.test-support.js";
+import {
+  Memberships,
+  OWNER_AND_COLLABORATOR,
+  contextFor,
+  storeHolding,
+} from "./Memberships.test-support.js";
 
 /**
  * The section, with two rows and the shell in the condition under test.

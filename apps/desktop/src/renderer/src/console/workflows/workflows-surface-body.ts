@@ -22,9 +22,11 @@
 // ONE MORE SHEET IS THIS CHUNK'S ALONE. `definitions/definitions-browser.css` dresses
 // `DefinitionsBrowser.tsx`, whose only reader is this chunk — it was `@import`ed from
 // `workflows.css` at the door, so every session paid for rules nothing on the initial
-// graph could render against. What does NOT travel is `runs/run-list.css`: it declares a
-// class the RUNS family also declares, so where it lands in the cascade is not this
-// family's decision alone and the door keeps it.
+// graph could render against. What does NOT travel is the three sheets the family door
+// keeps. `runs/run-list.css` declares a class the RUNS family also declares, so where it
+// lands in the cascade is not this family's decision alone; `parks/park-badge.css` and
+// `channel-progress/channel-progress.css` dress the pinned region the door registers on
+// the flagship pane, which paints before any chunk of this family exists.
 //
 // Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
 

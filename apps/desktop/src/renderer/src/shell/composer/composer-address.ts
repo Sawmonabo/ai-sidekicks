@@ -7,10 +7,12 @@
 // immutably, so an untouched partition keeps its identity and the memo is a pointer
 // comparison rather than a deep one.
 //
-// BOTH ZONES CALL IT. The chip rail renders the address and the send bar acts on it,
-// and they are separate zones behind separate barrels so separate lanes can fill
-// them. Calling one hook twice is one implementation with two readers; handing the
-// answer down from the host would have made the host know what both zones are for.
+// BOTH ZONES CALL IT, AND SO DOES THE HOST'S TYPING PRODUCER. The chip rail renders
+// the address, the send bar acts on it, and `use-composing-publication.ts` reads
+// which channel — if any — a composing indicator may be published for. They are
+// separate zones behind separate barrels so separate lanes can fill them. Calling one
+// hook three times is one implementation with three readers; handing the answer down
+// from the host would have made the host know what every zone is for.
 
 import { useMemo } from "react";
 

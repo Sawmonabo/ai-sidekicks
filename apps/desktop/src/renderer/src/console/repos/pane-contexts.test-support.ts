@@ -42,6 +42,7 @@ export function sectionContext(reached: {
   readonly isOpen: boolean;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
+  /** The window's store, or a fresh one — born unreported, so nothing is blocked. */
   readonly frameStore?: FrameStore;
   readonly openPane?: ConsolePaneOpener;
 }): SidebarSectionContext {

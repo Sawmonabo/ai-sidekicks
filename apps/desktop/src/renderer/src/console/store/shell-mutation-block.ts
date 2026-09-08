@@ -31,6 +31,15 @@ import type { ShellState } from "./shell-state.js";
  * the probe is one of them, and a re-check dispatched through a stopped supervisor is
  * a write this window had no business putting.
  *
+ * `membership.update` is the second entry admitted on that reading and not on a
+ * census: `api-payload-contracts.md` registers `MembershipUpdateRequest` /
+ * `MembershipUpdateResponse` as a role change, a suspension, a revocation, or a
+ * reactivation of somebody's membership, the console's own call door binds it, and the
+ * daemon ships no handler for it yet. Leaving it off left the membership ledger with no
+ * transport signal at all, which is how its four controls came to be gated on the
+ * session store's degraded flag — a fact about the PROJECTION, which says nothing about
+ * whether a call can be sent.
+ *
  * So the authority is the CORPUS registration — `api-payload-contracts.md`, per
  * namespace — of which the shipped handlers are the subset that has landed.
  * `test/console/architecture/daemon-mutating-registrations.test.ts` holds the tuple to
@@ -58,6 +67,7 @@ export const MUTATING_DAEMON_METHODS = [
   "session.create",
   "session.join",
   "membership.update",
+  "invite.create",
   "invite.revoke",
   "driver.interruptRun",
   "driver.applyIntervention",
@@ -69,7 +79,7 @@ export const MUTATING_DAEMON_METHODS = [
 /** One mutating method name. Derived from the tuple above. */
 export type MutatingDaemonMethod = (typeof MUTATING_DAEMON_METHODS)[number];
 
-/** Whether a method string is one of the nine. Total over every string. */
+/** Whether a method string is one of the ten. Total over every string. */
 export function isMutatingDaemonMethod(method: string): method is MutatingDaemonMethod {
   return (MUTATING_DAEMON_METHODS as readonly string[]).includes(method);
 }

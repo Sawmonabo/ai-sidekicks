@@ -1,0 +1,198 @@
+/* Creating a channel: the form's own sheet.
+ *
+ * A second sheet beside `channels.css` rather than a longer one, because the two draw
+ * disjoint things — a directory of rows a person reads, and a form a person fills in —
+ * and one file past the size rule is one file doing two jobs. The split is safe by
+ * CONSTRUCTION rather than by inspection: every selector here is in the
+ * `.meridian-create-channel__*` namespace and every selector there is not, and no rule
+ * in either file names a class from the other, so no element is matched by both sheets
+ * and the cascade cannot be reordered by moving one of them.
+ *
+ * It enters through `collaboration/index.ts` beside its sibling, because this
+ * directory carries no door of its own and the family door is the owner.
+ */
+
+.meridian-create-channel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-3);
+}
+
+.meridian-create-channel__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-create-channel__standing {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-create-channel__decisions {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-create-channel__decision-label {
+  font-size: var(--meridian-text-xs);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-create-channel__decision-consequence {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-create-channel__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.meridian-create-channel__field-label {
+  font-size: var(--meridian-text-xs);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-create-channel__field-note {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-create-channel__field-refusal {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-create-channel__text,
+.meridian-create-channel__select {
+  inline-size: 100%;
+  padding-block: var(--meridian-space-1);
+  padding-inline: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-create-channel__check {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* A native checkbox renders at about 13px, which is under the 24px pointer target
+   WCAG 2.2 asks for and which the accessibility tier fails. Sized here rather than
+   left to the platform: the box is the whole target — the label beside it is text
+   this form does not make clickable — so shrinking the target to the glyph would make
+   the smallest control on the surface the one that decides a channel's policy. */
+.meridian-create-channel__check > input[type="checkbox"] {
+  flex: none;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+.meridian-create-channel__kinds {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-create-channel__kind,
+.meridian-create-channel__candidate {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  padding-block: var(--meridian-space-1);
+  padding-inline: var(--meridian-space-2);
+  cursor: pointer;
+}
+
+/* `accent-text` and not `accent`: the first is the palette's ink for accent-coloured
+   text on a NEUTRAL ground and is measured against all four grounds, and the second is
+   the FILL. Painting the fill as ink is what the accessibility tier caught here. */
+.meridian-create-channel__kind[aria-pressed="true"],
+.meridian-create-channel__candidate[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-create-channel__policy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-2);
+}
+
+.meridian-create-channel__policy-summary {
+  cursor: pointer;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-create-channel__direct,
+.meridian-create-channel__candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-create-channel__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-create-channel__submit,
+.meridian-create-channel__cancel {
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  padding-block: var(--meridian-space-1);
+  padding-inline: var(--meridian-space-3);
+  cursor: pointer;
+}
+
+.meridian-create-channel__submit:disabled,
+.meridian-create-channel__cancel:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.meridian-create-channel__incomplete,
+.meridian-create-channel__receipt {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}

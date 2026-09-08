@@ -102,6 +102,7 @@ export interface SidebarSectionProps {
   readonly filterQuery: string;
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
+  /** This window's store, so a section can read whether a mutation may be sent. */
   readonly frameStore: FrameStore;
   readonly openPane: ConsolePaneOpener;
   /** Handed the disclosure element so the cursor can move focus onto it. */

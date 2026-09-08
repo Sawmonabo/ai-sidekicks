@@ -26,13 +26,34 @@ import { SETTINGS_MCP_PLANE_REPLIES } from "./mcp-plane.js";
  *
  * A refusal leaves as itself, unwrapped: a computed reply refuses by throwing the wire's
  * own envelope, and catching it here would make every caller ask twice.
+ *
+ * THE SETTLEMENT INSTANT IS A PARAMETER RATHER THAN A CONSTANT INSIDE THE CALL. A
+ * computed reply is handed the tick it settles at, so a plane whose answer depends on a
+ * lifetime is driven from a suite by moving that argument; this plane's arms answer from
+ * the request alone, so the default is scenario tick zero and every caller today takes
+ * it. Written down rather than hard-coded at the one call site, because the day one of
+ * these arms starts reading the clock a suite has to be able to say when.
+ *
+ * THE ORDINAL IS THE FIRST ANSWER'S, for the same reason and with the other half of
+ * it: a reader that asks the table twice is asking what it answers, not driving a
+ * playback, so every ask here is that call's first. A plane whose arms started minting
+ * from the ordinal would need a suite that says which mint it is asking about, which is
+ * a driven playback and belongs on the real port.
  */
-export function settingsMcpAnswerFor(call: string, request: unknown): unknown {
+const FIRST_COMPUTED_REPLY_ORDINAL = 1;
+
+export function settingsMcpAnswerFor(
+  call: string,
+  request: unknown,
+  settledAtMilliseconds = 0,
+): unknown {
   const reply = SETTINGS_MCP_PLANE_REPLIES.find((candidate) => candidate.call === call);
   if (reply === undefined) {
     throw new Error(`the settings scenario scripts no ${call} reply`);
   }
-  return reply.resultFor === undefined ? reply.result : reply.resultFor(request);
+  return reply.resultFor === undefined
+    ? reply.result
+    : reply.resultFor(request, settledAtMilliseconds, FIRST_COMPUTED_REPLY_ORDINAL);
 }
 
 /**
@@ -42,8 +63,12 @@ export function settingsMcpAnswerFor(call: string, request: unknown): unknown {
  * carries `unknown` because no code package publishes this namespace, so there is no
  * registered schema to narrow against until the wire lands.
  */
-export function settingsMcpMutationResult(call: string, request: unknown): GrowthMcpMutationResult {
-  const answer = settingsMcpAnswerFor(call, request);
+export function settingsMcpMutationResult(
+  call: string,
+  request: unknown,
+  settledAtMilliseconds = 0,
+): GrowthMcpMutationResult {
+  const answer = settingsMcpAnswerFor(call, request, settledAtMilliseconds);
   if (answer === undefined) {
     throw new Error(`${call} answered nothing for that request`);
   }

@@ -53,6 +53,14 @@ describe("failure matrix — a scenario tick arrives after teardown", () => {
     engine.subscribe((events) => {
       delivered.push([...events]);
     });
+    // BOTH sinks the engine holds, because a dropped tick has to be dropped for both:
+    // the beat emitter carries the session log, and the advance emitter carries the
+    // clock a scripted fact with no beat to ride is scheduled against. A teardown that
+    // cleared one would leave the other delivering into the same torn-down surface.
+    const advanceTicks: number[] = [];
+    engine.subscribeToAdvances((elapsedMs) => {
+      advanceTicks.push(elapsedMs);
+    });
 
     engine.dispose();
     // BOTH entry points, because they are two ways into one drop and a case that
@@ -66,6 +74,7 @@ describe("failure matrix — a scenario tick arrives after teardown", () => {
     engine.advance(SCENARIO_TICK_MS);
 
     expect(delivered).toHaveLength(0);
+    expect(advanceTicks).toStrictEqual([]);
     expect(engine.droppedTickCount).toBe(2);
     expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(2);
   });
@@ -76,10 +85,15 @@ describe("failure matrix — a scenario tick arrives after teardown", () => {
     engine.subscribe((events) => {
       delivered.push([...events]);
     });
+    const advanceTicks: number[] = [];
+    engine.subscribeToAdvances((elapsedMs) => {
+      advanceTicks.push(elapsedMs);
+    });
 
     engine.runToCompletion();
 
     expect(delivered).toHaveLength(1);
+    expect(advanceTicks).toHaveLength(1);
     expect(engine.progress.isComplete).toBe(true);
   });
 });

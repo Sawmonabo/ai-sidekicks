@@ -19,8 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureGrowthPort } from "../fixture/fixture-growth-port.js";
-import { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
+import { createFixtureBridge } from "../fixture/fixture-bridge.js";
 import { type ConsoleScenario } from "../scenario-runtime/scenario.js";
 import {
   RUN_QUEUE_EVENT_STREAM,
@@ -131,7 +130,7 @@ describe("every scripted reply names a call something can make", () => {
     // The half that makes the removal above a repair rather than a deletion: the
     // directory a `session.list` reply looked like it served is served here, from the
     // scenario's own session and without a scripted reply of any kind.
-    const port = createFixtureGrowthPort(new ScenarioEngine({ scenario: COMPOSER_SCENARIO }));
+    const port = createFixtureBridge({ scenario: COMPOSER_SCENARIO }).growth;
     const outcome = await port.sessionList({});
 
     expect(outcome.status).toBe("served");
@@ -205,14 +204,14 @@ describe("every scenario states which participant this window is", () => {
       replies: COMPOSER_SCENARIO.replies,
       startedAtIso: COMPOSER_SCENARIO.startedAtIso,
     };
-    const port = createFixtureGrowthPort(new ScenarioEngine({ scenario: withoutViewer }));
+    const port = createFixtureBridge({ scenario: withoutViewer }).growth;
     const outcome = await port.callerParticipantRead({ sessionId: COMPOSER_SCENARIO.sessionId });
 
     expect(outcome.status).toBe("unavailable");
   });
 
   it("answers the caller-identity read when one is stated", async () => {
-    const port = createFixtureGrowthPort(new ScenarioEngine({ scenario: COMPOSER_SCENARIO }));
+    const port = createFixtureBridge({ scenario: COMPOSER_SCENARIO }).growth;
     const outcome = await port.callerParticipantRead({ sessionId: COMPOSER_SCENARIO.sessionId });
 
     expect(outcome.status).toBe("served");

@@ -86,8 +86,14 @@ function scriptedAnswers(): readonly unknown[] {
     { worktreeId: REVIEWER_WORKTREE_ID },
     { cloneId: EPHEMERAL_CLONE_ID },
   ];
+  // Each computed answer is asked at the scenario's OWN start, which is the instant
+  // this walk holds every stamp against — so a reply that varied with the clock would
+  // be checked at the tick this rule is written about rather than at an arbitrary one.
+  const startMilliseconds = parseInstant(REPOS_SCENARIO_STARTED_AT_ISO).epochMilliseconds ?? 0;
   return REPOS_SCENARIO_REPLIES.flatMap((reply) =>
-    reply.resultFor === undefined ? [reply.result] : requests.map(answerOf(reply.resultFor)),
+    reply.resultFor === undefined
+      ? [reply.result]
+      : requests.map(answerOf(reply.resultFor, startMilliseconds)),
   );
 }
 
@@ -99,11 +105,26 @@ function scriptedAnswers(): readonly unknown[] {
  * reply table is keyed by method and a second entry for one method is unreachable. A
  * refusal carries no instants, so it contributes nothing to either walk; what matters
  * is that asking for one does not abort the walk before it reaches the rows that do.
+ *
+ * The settle instant is bound here rather than taken per request, so every computed
+ * answer this walk collects is the one the scenario would serve at its own start.
+ *
+ * The ORDINAL is not bound, because it is the one argument that has to differ between
+ * two asks of the same reply: a walk that handed every request the first ordinal would
+ * collect one identity from a table that mints a fresh one per call. The position in
+ * the request list is that ordinal, which `Array.prototype.map` already supplies.
  */
-function answerOf(resultFor: (request: unknown) => unknown): (request: unknown) => unknown {
-  return (request) => {
+function answerOf(
+  resultFor: (
+    request: unknown,
+    settledAtMilliseconds: number,
+    computedReplyOrdinal: number,
+  ) => unknown,
+  settledAtMilliseconds: number,
+): (request: unknown, requestIndex: number) => unknown {
+  return (request, requestIndex) => {
     try {
-      return resultFor(request);
+      return resultFor(request, settledAtMilliseconds, requestIndex + 1);
     } catch {
       return undefined;
     }

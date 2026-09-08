@@ -41,13 +41,18 @@
 
 import { useEffect, useState } from "react";
 
-import type { SessionStore } from "../store/index.js";
-import type { ConsoleClock } from "../core/index.js";
+import type { ConsoleEntity, SessionStore } from "../store/index.js";
+import { readWireString, type ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { isCurrentSessionSubject, type SessionSubject } from "../seats/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activity-model.js";
+import { createActivityFeed, type ActivityFeed } from "./activity-feed.js";
 import { createChannelDirectory, type ChannelDirectory } from "./channels/channel-model.js";
 import { createPresenceRoster, type PresenceRoster } from "./members/presence-model.js";
+import {
+  createTerminalControlHolder,
+  type TerminalControlHolderRead,
+} from "./members/terminal-control-holder.js";
 
 /** Everything one session's collaboration surfaces read from. */
 export interface CollaborationSessionModels {
@@ -61,8 +66,27 @@ export interface CollaborationSessionModels {
   readonly subject: SessionSubject;
   readonly clock: ConsoleClock;
   readonly activity: ActivityIndicatorRegistry;
+  /**
+   * The one producer that fills {@link activity}.
+   *
+   * Held beside the registry rather than inside it because the two have different
+   * jobs and different failure modes: the registry is the settled reading every
+   * indicator renders from, and this is the read that keeps it current — which can
+   * refuse, and whose refusal a surface may show without the registry knowing what a
+   * wire is.
+   */
+  readonly activityFeed: ActivityFeed;
   readonly channelDirectory: ChannelDirectory;
   readonly presenceRoster: PresenceRoster;
+  /**
+   * Who holds the session's one shared-terminal write lease.
+   *
+   * Held here rather than by the members section for the reason every read in this set
+   * is: it is session-scoped and it is push-driven, so it owns a subscription and a
+   * scheduler, and both belong to whatever owns the session — never to a render body
+   * React may abandon or replay.
+   */
+  readonly terminalControlHolder: TerminalControlHolderRead;
   readonly labels: ChannelActivityLabels;
 }
 
@@ -131,6 +155,8 @@ export class CollaborationSessionModelHolder {
     const built = buildSessionModels(bridge, sessionStore);
     built.channelDirectory.start();
     built.presenceRoster.start();
+    built.terminalControlHolder.start();
+    built.activityFeed.start();
     this.#current = built;
     this.#outstandingLeaseCount = 1;
     return this.#leaseOn(built);
@@ -146,6 +172,10 @@ export class CollaborationSessionModelHolder {
     }
     held.channelDirectory.dispose();
     held.presenceRoster.dispose();
+    held.terminalControlHolder.dispose();
+    // The feed before the registry it writes into: a settlement landing between the
+    // two would note an indicator on a registry that had already released its timers.
+    held.activityFeed.dispose();
     held.activity.dispose();
   }
 
@@ -186,12 +216,15 @@ function buildSessionModels(
   sessionStore: SessionStore,
 ): CollaborationSessionModels {
   const clock = consoleClockFor(bridge);
+  const activity = new ActivityIndicatorRegistry(clock);
   return {
     subject: { bridge, sessionStore },
     clock,
-    activity: new ActivityIndicatorRegistry(clock),
+    activity,
+    activityFeed: createActivityFeed({ bridge, sessionStore, clock, registry: activity }),
     channelDirectory: createChannelDirectory({ bridge, sessionStore, clock }),
     presenceRoster: createPresenceRoster({ bridge, sessionStore, clock }),
+    terminalControlHolder: createTerminalControlHolder({ bridge, sessionStore, clock }),
     labels: sessionProjectionLabels(sessionStore),
   };
 }
@@ -259,18 +292,42 @@ export function sessionProjectionLabels(sessionStore: SessionStore): ChannelActi
   return {
     participantLabel: (participantId) =>
       projectedName(sessionStore, "participant", participantId) ?? participantId,
+    // TWO READS, BECAUSE THE TWO PARTITIONS ARE KEYED BY DIFFERENT IDENTIFIERS. A run
+    // entity is keyed by its run id and carries no name of its own — no registered
+    // run-lifecycle payload names one, so the projector's body table cannot write one
+    // — while the name a person reads is the AGENT's, keyed by the agent id that the
+    // creation beat puts on the run's body. So the run's agent is resolved first and
+    // that agent's projection second. Indexing the agent partition with the RUN's id
+    // is the shape this replaced: it missed for every run a session ever had, and
+    // missed silently, because the id it fell back to reads like a deliberate answer.
     runLabel: (runId) => {
-      // A run's own projection names its agent where the log carried one; failing
-      // that the agent partition is asked under the same id, because a run keyed by
-      // its agent is the shape the activity field's run id resolves through. Neither
-      // is invented: both are reads, and the id survives when both come back empty.
-      return (
-        projectedName(sessionStore, "run", runId) ??
-        projectedName(sessionStore, "agent", runId) ??
-        runId
+      const agentId = readWireString(
+        projectedEntity(sessionStore, "run", runId)?.body?.[RUN_AGENT_MEMBER],
       );
+      if (agentId === undefined) {
+        return runId;
+      }
+      return projectedName(sessionStore, "agent", agentId) ?? runId;
     },
   };
+}
+
+/**
+ * The body member a run carries its agent on, as the run projector writes it.
+ *
+ * Read through the console's own wire-string rule rather than through a contracts
+ * narrowing, because an entity body is wire-verbatim: the projector's reader decided
+ * this member arrived as a string, and nothing downstream re-narrows it.
+ */
+const RUN_AGENT_MEMBER = "agentId";
+
+/** One stored entity, or `undefined` where this log carried no row for it. */
+function projectedEntity(
+  sessionStore: SessionStore,
+  kind: "participant" | "run" | "agent",
+  id: string,
+): ConsoleEntity | undefined {
+  return sessionStore.snapshot().partitions[kind][id];
 }
 
 /** One entity's projected display name, when the log carried one. */
@@ -279,7 +336,5 @@ function projectedName(
   kind: "participant" | "run" | "agent",
   id: string,
 ): string | undefined {
-  const entity = sessionStore.snapshot().partitions[kind][id];
-  const name = entity?.body?.["name"];
-  return typeof name === "string" && name !== "" ? name : undefined;
+  return readWireString(projectedEntity(sessionStore, kind, id)?.body?.["name"]);
 }

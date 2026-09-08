@@ -65,6 +65,7 @@ import {
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { ActivityIndicatorRegistry } from "../../../src/renderer/src/console/collaboration/activity-model.js";
 import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
+import { loaded as channelDirectory } from "../../../src/renderer/src/console/collaboration/channels/channels.test-support.js";
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/members/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/members/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
@@ -156,15 +157,16 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     await emulateSystemScheme("light");
     const { container } = await renderSettled(
       <ChannelList
-        state={{
-          kind: "loaded",
-          value: [
-            channel("channel-main", "main", "active"),
-            channel("channel-review", "review", "active"),
-            channel("channel-relay", "relay", "muted"),
-            channel("channel-old", "old", "archived"),
-          ],
-        }}
+        state={channelDirectory([
+          channel("channel-main", "main", "active"),
+          channel("channel-review", "review", "active"),
+          channel("channel-relay", "relay", "muted"),
+          channel("channel-old", "old", "archived"),
+        ])}
+        bridge={createFixtureBridge({ scenario: COLLABORATION_SCENARIO })}
+        sessionId={COLLABORATION_SCENARIO.sessionId}
+        viewerParticipantId="participant-sawyer"
+        participantIds={["participant-sawyer", "participant-priya"]}
         openPane={() => undefined}
         activity={new ActivityIndicatorRegistry(new ManualClock())}
         labels={LABELS}
@@ -204,6 +206,22 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
         composingChannelFor={(participantId) =>
           participantId === "participant-priya" ? "review" : undefined
         }
+        roleFor={(participantId) =>
+          participantId === "participant-sawyer" ? "owner" : "collaborator"
+        }
+        holding={{ kind: "held", participantId: "participant-priya" }}
+        openDetailParticipantId="participant-priya"
+        detailState={{
+          kind: "loaded",
+          value: {
+            participantId: "participant-priya",
+            aggregateState: "idle",
+            devices: [
+              { deviceId: "device-desk", state: "idle", lastSeen: "2026-01-01T09:59:30.000Z" },
+            ],
+          },
+        }}
+        onToggleDetail={() => undefined}
         isLastKnown={false}
         onReopen={() => undefined}
       />,

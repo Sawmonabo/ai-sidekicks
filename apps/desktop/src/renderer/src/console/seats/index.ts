@@ -62,10 +62,10 @@
 // NOTHING ELSE HERE RENDERS. No store, no scenario, no second console component.
 //
 // `absorbed-surfaces.ts` is the one module here that BUILDS elements, and every
-// component it builds is owned by a renderer subtree outside the console: the four
+// component it builds is owned by a renderer subtree outside the console: the three
 // shipped Tier-1 families the console absorbed by import. That is not a sibling's
 // body — it is a component with no owner left to mount it, handed to whichever
-// console surface absorbed it. Four view families reach for one of those mounts, so
+// console surface absorbed it. Three view families reach for one of those mounts, so
 // the mounts sit here for exactly the reason every other seat does.
 //
 //
@@ -83,20 +83,22 @@ import "./pane-chrome.css";
 // `frame/` because this is the same kind of contract every other seat is — a family
 // hands the frame a body through it — and because a view family cannot import the
 // frame's door at all without closing a cycle back through `families.ts`. No
-// `@consumedBy` claims: the frame, the composition root and the legacy surfaces all
-// read these today.
+// `@consumedBy` claims: the frame and the composition root read these today.
 //
-// Three names are deliberately absent, each because no PRODUCTION module reaches it
+// Four names are deliberately absent, each because no PRODUCTION module reaches it
 // through this door and the barrel census fails a line like that. `ConsoleSurfaceSlot`
 // is reached through the descriptor a family fills in. `CONSOLE_SURFACE_SLOTS`'s only
 // reader is `families.test.ts`. `registerConsoleSurface` — the module-scope door a
 // plan-owned subtree mounting into the console would call — has no caller outside this
-// family yet; the family that lands the first one adds the line in its own diff.
+// family yet; the family that lands the first one adds the line in its own diff. And
+// `ConsoleSurfaceDescriptor` joined them when the last shipped Tier-1 slot claim was
+// retired: every surviving registrar hands `register` an object literal or a
+// `ConsoleSurfaceRegistration` row and names the descriptor type nowhere, so the line
+// had only a test harness left reading it, and that harness takes the declaring module.
 export {
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
   surfaceSlotFor,
-  type ConsoleSurfaceDescriptor,
   // What a family hands `register`, published for the same reason
   // `ConsolePaneRegistration` is: a family claiming more than one slot keeps its
   // claims in a table, and a table needs the type its rows are. The workflows family
@@ -179,6 +181,9 @@ export {
   paneEntityScopeFor,
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
+  type ConsolePaneLink,
+  type ConsolePaneOpener,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
 } from "./pane-address.js";
 
@@ -190,9 +195,6 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
   type ConsolePaneDescriptor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
-  type ConsolePaneLink,
-  type ConsolePaneOpener,
   type ConsolePaneRegistration,
 } from "./pane-registry.js";
 
@@ -255,6 +257,17 @@ export {
   type SidebarSectionDescriptor,
   type SidebarSectionId,
 } from "./sidebar-sections.js";
+
+// The window's one overlay body, filled by the family that owns it and read by the
+// frame. `unregisterWindowOverlaySeat` is deliberately absent: its only reader is
+// this directory's own suite, and a door line no production module reads is what
+// `architecture/barrel-census.test.ts` fails.
+export {
+  registerWindowOverlaySeat,
+  sessionOpenerFor,
+  windowOverlayRenderer,
+  type WindowOverlaySeatProps,
+} from "./window-overlay-seat.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -319,6 +332,18 @@ export {
 // that outlives its consumer fails the dead-code gate under `--treat-tag-hints-as-errors`
 // rather than exempt anything — so the tag leaves in the diff that imports the symbol.
 export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
+
+// The block one pane pins above its body, and the board a family fills it through.
+// The registry and the board travel, exactly as the sidebar's and the inline cards' do:
+// the registry because `families.ts` names it in the composition's signature and a
+// family's registrar takes one, and the process-wide board because
+// `frame/ConsoleRoot.tsx` is the composition site that names every production board out
+// loud. A FAMILY still never reaches for the board — it is handed one — which is the
+// rule the composition's own header states. The context and descriptor types do NOT
+// travel: a registrar writes its descriptor as an object literal and reads its context
+// from the inferred parameter, so a door line for either would be one no production
+// module reads.
+export { PinnedPaneRegionRegistry, pinnedPaneRegionRegistry } from "./pinned-pane-regions.js";
 
 export {
   // Consumed by T-023p-1C-2
@@ -400,6 +425,13 @@ export {
   type PushDrivenReadState,
 } from "./push-driven-read.js";
 
+// The read discipline for the OTHER kind of wire: one the console does not have yet.
+// A growth-port operation has no push signal to subscribe to and no re-read that
+// could answer differently, so it is asked once per subject and held — the sibling
+// rule to the one above, on this door for the same reason and against the same
+// hazard, four surfaces in two sibling families each holding one answer.
+export { useGrowthReadOnMount } from "./growth-read.js";
+
 // The console's single copy of the daemon-EVENT cast. The brand
 // `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
 // it, and every caller casts; one module casts, and the day the brand narrows one
@@ -407,21 +439,25 @@ export {
 // methods and parses both directions, so no seat casts a call any more.
 export { subscribeDaemonEvent } from "./wire-access.js";
 
-// The mounts for the four shipped Tier-1 families the console absorbed, three of them
-// carrying the bridge-source guard that decides whether they may be mounted at all.
+// The mounts for the two shipped Tier-1 families the console absorbed, one of them
+// carrying the bridge-source guard that decides whether it may be mounted at all, and
+// that guard's own condition beside them: a surface that single-flights the act one of
+// these mounts performs reads the condition to decide whether there is an act to
+// single-flight in this window at all.
 //
 // In this family because a mount reads a bridge source, two primitives and the console's
 // own bridge, and nothing above `bridge/`, and on this door because the surfaces that
-// mount them are view families — `frame/legacy-surfaces.ts` holds the slot table and
-// reaches them here like every other consumer.
+// mount them are view families. The other two shipped families are absent on purpose:
+// the participant roster rendered a session's presence a second time beside the
+// collaboration family's own roster, and the invite acceptance prompt is mounted by
+// nothing, its one prop being the raw invite token the deep-link lifecycle confines to
+// the main process.
 export {
   absorbedSurfaceAsks,
   renderAbsorbedAttachFlow,
   renderAbsorbedCapabilityDeclaration,
-  renderAbsorbedInviteAcceptance,
   renderAbsorbedMixedVersionStatus,
   renderAbsorbedNodeRoster,
-  renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";
 

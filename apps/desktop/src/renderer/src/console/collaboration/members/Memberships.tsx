@@ -7,16 +7,35 @@
 // been asked and has not arrived. Presence is deliberately not read again here —
 // one reader per read, and the section already holds it.
 //
-// TWO FACTS, AND ONE OF THEM HAS NO READ
+// TWO SOURCES, AND THE ROWS ARE DERIVED FROM BOTH BEFORE THEY REACH HERE
 //
-//   • ROLE AND MEMBERSHIP STATE come from the session store's projected
-//     participants — the ledger's own account of who joined and as what. Where an
-//     event has not stated a role, the row says so instead of inventing one.
-//   • A MEMBERSHIP ID has no read at all. `presence.read` does not carry one,
-//     `SessionReadResponse` carries no memberships, and `MembershipSummary` — the
-//     only shape with all three facts — is returned by `session.create` alone. So
-//     a row that has no membership id cannot be the subject of `membership.update`
-//     and says which read would let it be.
+//   • THE LOG. The session store's projected participants — who joined, as what, and
+//     whether the membership has since been suspended, revoked, or restored, folded
+//     from all five `membership.*` beats. Where no beat stated a fact, the row says so
+//     instead of inventing it.
+//   • THE MEMBERSHIP ROSTER READ, on the growth port, which is where a membership id
+//     comes from for everyone the log did not see admitted — including the session's
+//     own opener, who has no admission beat at all. It refuses on a live build, and
+//     its refusal is one line beside the rows rather than instead of them: the
+//     log-derived rows are still the best reading there is.
+//
+// The merge is `members-model.ts`'s and the derivation is the section body's, so this
+// component renders rows and never composes them. A row that still has no membership
+// id after both sources cannot be the subject of `membership.update` and says so.
+//
+// AND WHAT CLOSES THE CONTROLS IS THE TRANSPORT, NEVER THE PROJECTION
+//
+// Those are two different facts and this section used to run them together: the four
+// controls were gated on the session store's degraded flag, which is raised by a
+// sequence gap, a projection failure, a closed subscription, or a failed read — none
+// of which says anything about whether `membership.update` can be sent. A window that
+// missed one event in the stream lost every membership control it had, permanently,
+// on a flag only a completed re-pull clears. So the two facts are now rendered
+// separately: a degraded projection says the rows are LAST-KNOWN and leaves the
+// controls alone, and the shell's own condition — `store/shell-mutation-block.ts`, the
+// console's one answer to "may I send this" — is what closes them. Where the shell has
+// said nothing, nothing closes: silence is not an outage, and the daemon's refusal is
+// the answer a person is entitled to rather than a control that was never offered.
 //
 // ELIGIBILITY IS THE DAEMON'S, NOT THIS SECTION'S
 //
@@ -38,21 +57,31 @@
 // ends read access after a thirty-second grace window. Neither is undone by
 // pressing Reactivate. Printed on every row that copy is noise a person stops
 // reading; printed in the confirmation it is the sentence they are agreeing to.
+//
+// AND WHY THE DEEP LINK'S INVITATION IS NOT ANNOUNCED HERE AT ALL
+//
+// It used to be. An invitation arriving on the operating-system deep link is about a
+// session this window is NOT in, and the person it reaches most often has no session
+// open at all — so a lifecycle mounted under this section opened its two feeds only
+// while a session view happened to be on screen, and a first-time recipient following
+// a link into a fresh window saw nothing. `Plan-023` T-023r-6-3 puts that lifecycle at
+// the window instead, and it is hosted there now
+// (`../invites/InviteLifecycleOverlay.tsx`, seated through `seats/window-overlay-seat.ts`).
+// This section renders the sent-invite ledger and nothing about arrivals: two notices
+// for one invitation would be two places to answer it, and the second one would be
+// wherever the reader happened not to be looking.
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { callDaemon } from "../../bridge/index.js";
-import { shellBlockForMethod, useSessionPartition, useShellState } from "../../store/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import {
-  InviteConfirmation,
-  type PendingInviteConfirmation,
-} from "../invites/InviteConfirmation.js";
-import { deriveMembershipRows } from "./members-model.js";
+import { shellBlockForMethod, useShellState } from "../../store/index.js";
+import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
-  useWireMutation,
   type CollaborationMutation,
   type CollaborationMutationMethod,
+  useWireMutation,
 } from "../mutation-coordinator.js";
 import { SentInvites } from "../invites/SentInvites.js";
 import { MembershipLedger } from "./MembershipLedger.js";
@@ -62,41 +91,40 @@ import { MembershipLedger } from "./MembershipLedger.js";
  *
  * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
  * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
- * condition closes, so a membership change that ever left that tuple stops compiling
- * here rather than quietly going back to being dispatchable through a stopped shell.
- * The literal type survives it, which is what `callDaemon` needs to type the request
- * and the reply; a wider annotation would take both.
+ * condition closes, so a membership change that ever left that tuple stops compiling here rather
+ * than quietly going back to being dispatchable through a stopped shell. The literal
+ * type survives it, which is what `callDaemon` needs to type the request and the
+ * reply; a wider annotation would take both.
  */
 const MEMBERSHIP_UPDATE_METHOD = "membership.update" satisfies CollaborationMutationMethod;
 
 export interface MembershipsProps {
   readonly context: SidebarSectionContext;
+  /** The merged rows, derived once by the section body and read by two surfaces. */
+  readonly rows: readonly MembershipRow[];
+  /** Why the membership roster read did not answer, where it did not. */
+  readonly rosterRefusal: ConsoleRefusal | undefined;
   /**
-   * An invitation waiting on this person's confirmation.
+   * True when this session's projection is behind — a gap, a failed apply, a wire
+   * that stopped.
    *
-   * Always absent today, and the absence is the wire's rather than a default: the
-   * deep-link pending-invite subscription, its preview, and its confirm / retry /
-   * dismiss verbs are on no bridge namespace and on no growth-slate row, so
-   * nothing in this console can produce one. It is a prop rather than a read for
-   * exactly that reason — a reader supplies it when one exists, and until then the
-   * confirmation renders nothing at all.
+   * The rows are LAST-KNOWN under it and the ledger says so, and that is all it does.
+   * It closes no control: a projection that is behind is a fact about what this window
+   * has been told, and `membership.update` is a call this window makes.
    */
-  readonly pendingInvite?: PendingInviteConfirmation | undefined;
+  readonly isLastKnown: boolean;
 }
 
 export function Memberships(props: MembershipsProps): React.JSX.Element {
-  const { context } = props;
+  const { context, rows } = props;
   const { bridge, sessionStore } = context;
-  const participantEntities = useSessionPartition(sessionStore, "participant");
-  const rows = useMemo(() => deriveMembershipRows(participantEntities), [participantEntities]);
-  const [isConfirmationDismissed, setIsConfirmationDismissed] = useState(false);
 
   const coordinator = useMemo(() => {
     // The door call sits HERE, where exactly one method is named, rather than behind
     // a binder generic over the family's methods: one call site naming one method is
     // what lets the read-signal gate read the deliberate absence of a cancellation
-    // signal as deliberate. A membership change that has reached the daemon has
-    // HAPPENED, so there is nothing this window may abandon it with.
+    // signal as deliberate. A membership change that has reached the daemon has HAPPENED, so
+    // there is nothing this window may abandon it with.
     const updateMembership: CollaborationMutation<typeof MEMBERSHIP_UPDATE_METHOD> = async (
       request,
     ) => await callDaemon(bridge, MEMBERSHIP_UPDATE_METHOD, request);
@@ -106,30 +134,15 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
     });
   }, [bridge]);
   const mutation = useWireMutation(coordinator);
-  // Whether this window may send a membership change at all, from the shell state the
-  // frame publishes. Asked of the one seam every dispatching control goes through, so
-  // the projected rows beside it stay on screen through the same outage — that seam
-  // answers about a method, never about the window.
+  // Whether this window can send the one method these controls call. SUBSCRIBED, so a
+  // supervisor going down or coming back moves the controls without waiting for some
+  // other read to settle — and asked per METHOD through the one seam that knows which
+  // calls an outage closes, rather than read off the connection here, where a second
+  // reading of that rule would be free to disagree with the banner above it.
   const updateBlock = shellBlockForMethod(
     useShellState(context.frameStore),
     MEMBERSHIP_UPDATE_METHOD,
   );
-
-  const pendingInvite = isConfirmationDismissed ? undefined : props.pendingInvite;
-  if (pendingInvite !== undefined) {
-    // One screen, one job. Nothing else this body renders survives a pending
-    // confirmation — an early return rather than a conditional wrapper, so there is
-    // no branch in which the ledger's own controls are reachable behind the dialog.
-    return (
-      <InviteConfirmation
-        pending={pendingInvite}
-        bridgeSource={bridge.source}
-        onDismiss={() => {
-          setIsConfirmationDismissed(true);
-        }}
-      />
-    );
-  }
 
   return (
     <section className="meridian-members" aria-label="Memberships">
@@ -143,8 +156,10 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
 
       <MembershipLedger
         rows={rows}
-        mutation={mutation}
+        rosterRefusal={props.rosterRefusal}
+        isLastKnown={props.isLastKnown}
         updateBlock={updateBlock}
+        mutation={mutation}
         onApply={(row, update) => {
           if (row.membershipId === undefined) {
             return;
