@@ -1,84 +1,23 @@
-// The form as a person meets it: six controls from six member shapes, a group, a list,
-// and — the bullet this whole subtree exists for — an out-of-set schema opening the raw
-// editor instead of refusing.
+// The form as a person meets it: six controls from six member shapes, a group, and — the
+// bullet this whole subtree exists for — an out-of-set schema opening the raw editor
+// instead of refusing. The collection surface is `SchemaFieldList.test.tsx`.
 //
 // Driven through the real hook rather than a hand-built state, because the two are one
 // surface: a test that fed the component a fabricated plan would pass with the mapper
 // deleted.
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SchemaForm } from "./SchemaForm.js";
-import { useSchemaForm } from "./use-schema-form.js";
+import {
+  composedAnswer,
+  renderedIssueTexts,
+  renderForm,
+  reportedIssueTexts,
+  rootIssuesElement,
+} from "./SchemaFormHost.test-support.js";
 
 afterEach(cleanup);
-
-/** Where the host below writes the answer the controls composed, for a case to read. */
-const COMPOSED_ANSWER_CLASS = "composed-answer";
-
-/** Where the host writes what the schema actually said, so a case can walk the report. */
-const REPORTED_ISSUES_CLASS = "reported-issues";
-
-/**
- * The form, mounted over one schema through its own hook.
- *
- * It writes the composed answer out beside the controls, because the value a submission
- * would carry is the only thing that settles what a control MEANT: a select that looks
- * right and reports `undefined` renders identically to one that reports a member.
- *
- * And it writes the report's own sentences out for the same reason one level up: whether
- * a finding reached a person is a question about the report and the DOM together, and a
- * case that listed the expected sentences by hand would pass over a report that had grown
- * a fourth one nothing drew.
- */
-function FormHost(props: { readonly inputSchema: unknown }): React.JSX.Element {
-  const form = useSchemaForm(props.inputSchema);
-  return (
-    <>
-      <SchemaForm form={form} />
-      <output className={COMPOSED_ANSWER_CLASS}>{JSON.stringify(form.answer)}</output>
-      <output className={REPORTED_ISSUES_CLASS}>
-        {JSON.stringify((form.report?.issues ?? []).map((issue) => issue.message))}
-      </output>
-    </>
-  );
-}
-
-/** Render one schema's form and hand back the container it drew into. */
-function renderForm(inputSchema: unknown): HTMLElement {
-  const { container } = render(<FormHost inputSchema={inputSchema} />);
-  return container;
-}
-
-/** The answer the drawn controls have composed so far, read back as a value. */
-function composedAnswer(container: HTMLElement): unknown {
-  return JSON.parse(container.querySelector(`.${COMPOSED_ANSWER_CLASS}`)?.textContent ?? "null");
-}
-
-/** Every sentence the schema reported about this answer, read off the real report. */
-function reportedIssueTexts(container: HTMLElement): readonly string[] {
-  return JSON.parse(
-    container.querySelector(`.${REPORTED_ISSUES_CLASS}`)?.textContent ?? "[]",
-  ) as readonly string[];
-}
-
-/** Every sentence the form actually drew, wherever on the form it drew it. */
-function renderedIssueTexts(container: HTMLElement): readonly string[] {
-  return [...container.querySelectorAll(".meridian-schema-field__issues li")].map(
-    (entry) => entry.textContent ?? "",
-  );
-}
-
-/** The findings block the form drew about the whole answer, rather than about a member. */
-function rootIssuesElement(container: HTMLElement): Element | null {
-  return container.querySelector(".meridian-schema-form > .meridian-schema-field__issues");
-}
-
-/** Press the control that adds one entry to the only list on the drawn form. */
-function addListEntry(): void {
-  fireEvent.click(screen.getByRole("button", { name: "Add an entry" }));
-}
 
 describe("the schema-derived form", () => {
   it("draws one labelled control for each of the six kinds", () => {
@@ -241,6 +180,10 @@ describe("the schema-derived form", () => {
       type: "object",
       properties: {
         approver: { type: "string", title: "Approver", minLength: 3, default: "ab" },
+        // Drawn because the constraint below can require it: a member a root combinator
+        // names and `properties` does not declare sends the whole schema to the raw
+        // editor, which would have made this a case about a form that is never drawn.
+        deputy: { type: "string", title: "Deputy" },
         scope: {
           type: "object",
           title: "Scope",
@@ -261,81 +204,6 @@ describe("the schema-derived form", () => {
     // above while telling a person nothing about where to go.
     expect(container.querySelectorAll(".meridian-schema-field__issues")).toHaveLength(3);
     expect(rootIssuesElement(container)?.textContent ?? "").not.toBe("");
-  });
-
-  it("draws a list with the control that adds an entry and none that removes one yet", () => {
-    const container = renderForm({
-      type: "object",
-      properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
-    });
-
-    expect(container.querySelector(".meridian-schema-list__legend")?.textContent).toContain(
-      "Reviewers",
-    );
-    expect(screen.getByRole("button", { name: "Add an entry" })).toBeDefined();
-    expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(0);
-  });
-
-  it("names each repeated control by its collection and the position it sits at", () => {
-    const container = renderForm({
-      type: "object",
-      properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
-    });
-    addListEntry();
-    addListEntry();
-
-    expect(screen.getByRole("textbox", { name: "Reviewers, entry 1" })).toBeDefined();
-    expect(screen.getByRole("textbox", { name: "Reviewers, entry 2" })).toBeDefined();
-    // Spoken rather than drawn: the legend already names the collection and the ordered
-    // list already draws the position, so a visible label would say both a second time.
-    expect(container.querySelector(".meridian-schema-list__item label")?.className).toContain(
-      "meridian-visually-hidden",
-    );
-  });
-
-  it("renders an indexed finding under the entry it is about rather than on the whole list", () => {
-    const container = renderForm({
-      type: "object",
-      properties: {
-        reviewers: { type: "array", title: "Reviewers", items: { type: "string", minLength: 3 } },
-      },
-    });
-    addListEntry();
-
-    const entryControl = container.querySelector(".meridian-schema-list__item input");
-    const describedBy = entryControl?.getAttribute("aria-describedby") ?? "";
-
-    expect(describedBy).not.toBe("");
-    expect(document.getElementById(describedBy)?.textContent ?? "").not.toBe("");
-    // The collection itself has nothing wrong with it — `minItems` and its siblings are
-    // what a list-level finding is — so a message drawn against the fieldset here would
-    // be one nobody could attribute to an entry.
-    expect(
-      container.querySelector(".meridian-schema-list > .meridian-schema-field__issues"),
-    ).toBeNull();
-  });
-
-  it("keeps an entry's finding off a member whose own name reads like that entry's position", () => {
-    // The negative control for the path representation. Joined with a dot, the property
-    // literally named `items.0` and the first entry of the array named `items` are ONE
-    // string, so the entry's finding was drawn under both controls — under a control whose
-    // value the schema had said nothing about.
-    const container = renderForm({
-      type: "object",
-      properties: {
-        "items.0": { type: "string", title: "A member named like a position" },
-        items: { type: "array", title: "Items", items: { type: "string", minLength: 3 } },
-      },
-    });
-    addListEntry();
-
-    const dottedControl = screen.getByLabelText("A member named like a position");
-    const entryControl = container.querySelector(".meridian-schema-list__item input");
-    const entryDescribedBy = entryControl?.getAttribute("aria-describedby") ?? "";
-
-    expect(document.getElementById(entryDescribedBy)?.textContent ?? "").not.toBe("");
-    expect(dottedControl.getAttribute("aria-describedby")).toBeNull();
-    expect(container.querySelectorAll(".meridian-schema-field__issues")).toHaveLength(1);
   });
 
   it("opens the raw editor for a schema outside the drawn set, and never a refusal", () => {

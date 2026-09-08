@@ -32,16 +32,27 @@ describe("what a drawn form opens holding", () => {
     expect(seedAnswerFromPlan(plan)).toEqual({ reviewers: [] });
   });
 
-  it("opens a collection whose declared default is not a list of entries empty as well", () => {
+  it("seeds nothing for a collection whose declared default is not a list of entries", () => {
     const plan = planSchemaForm({
       type: "object",
       properties: { reviewers: { type: "array", items: { type: "string" }, default: "ada" } },
     });
 
-    // Seeding the string would leave the answer holding "ada" at a member whose control
-    // draws entries — the answer saying one thing while the surface showed another. What
-    // the surface shows is an empty collection, so that is what the answer holds.
-    expect(seedAnswerFromPlan(plan)).toEqual({ reviewers: [] });
+    // The mapper never draws this collection at all — a declared value its control could
+    // not show sends the whole schema to the raw editor — so there is no control here for
+    // "ada" to be invisible in, and the seed is the raw arm's empty one.
+    expect(seedAnswerFromPlan(plan)).toEqual({});
+  });
+
+  it("seeds nothing a control could not display, whatever the schema declared", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: { retries: { type: "number", default: "auto" } },
+    });
+
+    // Seeded, "auto" reached the submission while `SchemaNumberField` rendered a blank
+    // box: the answer carrying text nobody had seen or could clear.
+    expect(seedAnswerFromPlan(plan)).toEqual({});
   });
 
   it("negative control: a collection default that IS a list of entries is seeded", () => {

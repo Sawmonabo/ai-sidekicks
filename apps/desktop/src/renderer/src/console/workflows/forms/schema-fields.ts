@@ -123,10 +123,70 @@ export function listEntryLabel(list: SchemaListDescriptor, index: number): strin
   return `${list.label}, entry ${String(index + 1)}`;
 }
 
+/**
+ * What the control that adds one entry is CALLED, which is not what it reads.
+ *
+ * A FIELDSET LEGEND IS NOT PART OF A BUTTON'S ACCESSIBLE NAME. The legend names the
+ * collection to somebody reading the form top to bottom, and says nothing at all to
+ * somebody moving between buttons — so a form with two lists offered two controls called
+ * "Add an entry", and pressing either of them added an entry to a collection the person
+ * had not chosen. The visible text stays the short one, because the surrounding fieldset
+ * IS the answer for a reader who can see it; the spoken name carries the collection.
+ */
+export function listAppendLabel(list: SchemaListDescriptor): string {
+  return `Add an entry to ${list.label}`;
+}
+
+/**
+ * What the control that drops one entry is called, composed from the entry's own name.
+ *
+ * The same defect one control over: "Remove entry 1" is the same sentence in every
+ * collection on the form. It reuses `listEntryLabel` rather than composing a second
+ * phrasing, so the control that removes an entry names exactly what the entry itself is
+ * called and the two cannot drift.
+ */
+export function listRemoveLabel(list: SchemaListDescriptor, index: number): string {
+  return `Remove ${listEntryLabel(list, index)}`;
+}
+
 /** What a group may hold: a control, or a list of one. Never another group. */
 export type SchemaLeafEntry =
   | { readonly form: "field"; readonly field: SchemaFieldDescriptor }
   | { readonly form: "list"; readonly list: SchemaListDescriptor };
+
+/**
+ * Where one leaf sits, whichever of the two forms it took.
+ *
+ * Declared here beside the two descriptors it reads rather than at any of the surfaces
+ * that ask it: the mapper asks which root member a leaf answers under, the form asks
+ * which path to address a finding at, and the answer asks where to write a value. One
+ * question, and it is about the vocabulary rather than about any of the three.
+ */
+export function leafPathOf(leaf: SchemaLeafEntry): SchemaMemberPath {
+  return leaf.form === "field" ? leaf.field.memberPath : leaf.list.memberPath;
+}
+
+/**
+ * The key one member path answers under inside its own level: the last segment.
+ *
+ * ONE IMPLEMENTATION FOR BOTH DEPTHS. A root entry's path is one segment long and a
+ * group's leaf is two, and "which key does this answer under" is the same question at
+ * either — asking it twice is how a nested reading and a root reading come to disagree.
+ */
+export function memberKeyOf(memberPath: SchemaMemberPath): string | undefined {
+  const last = memberPath[memberPath.length - 1];
+  return last === undefined ? undefined : String(last);
+}
+
+/**
+ * The key one leaf answers under inside its group: the last segment of its own path.
+ *
+ * Derived from the path above rather than reading the descriptors a second time, so the
+ * two readings cannot disagree about which of the two forms holds the path.
+ */
+export function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
+  return memberKeyOf(leafPathOf(leaf));
+}
 
 /** One level of nesting, and the type is where "one level" is enforced. */
 export interface SchemaGroupDescriptor {
@@ -140,7 +200,7 @@ export interface SchemaGroupDescriptor {
    * A GROUP HAS NO CONTROL OF ITS OWN, so this is carried rather than displayed: the seed
    * projects each member of it onto the child control that shows that member, and a value
    * here that a child could not show is what sends the whole schema to the raw editor
-   * (`group-default-undrawable`). Dropping it silently was the divergence — the schema's
+   * (`default-undrawable`). Dropping it silently was the divergence — the schema's
    * own reading of `{}` supplies the object, so a form that ignored it displayed blank
    * controls while the accepted value carried the author's values.
    */
@@ -155,17 +215,30 @@ export type SchemaFormEntry =
 /**
  * Why a schema is answered in the raw editor instead of in drawn controls.
  *
- * `planSchemaForm` returns the first four and never the last: whether a schema COMPILES
+ * `planSchemaForm` returns the first five and never the last: whether a schema COMPILES
  * into something an answer can be checked against is a question this module holds no
  * answer to, and the caller holding both readings composes it. The cause still lives
  * here, because a surface reads one vocabulary and a second enumeration beside this one
  * would be two closed sets describing one arm.
+ *
+ * `default-undrawable` IS ABOUT ANY DECLARED VALUE, not only a group's. It was named for
+ * the group case because that was the case that found it, and the rule is the same one
+ * wherever a schema declares a value: a control that cannot display what the schema
+ * declared for it would show one thing while the answer carried another.
+ *
+ * `constraint-undrawable` IS THE ONLY CAUSE ABOUT A MEMBER THE FORM NEVER MET. The others
+ * name something the mapper read and could not draw; this one names a member some level's
+ * own constraints can require and that level's `properties` never declared, so the drawn
+ * form would report a finding nobody had a control to clear. It is ONE cause and not one
+ * per depth: the root is the depth-0 instance of the same defect, and the member it names
+ * carries its full path, which is what tells the two apart without a second name.
  */
 export const SCHEMA_FALLBACK_CAUSES = [
   "root-not-an-object",
   "no-members",
   "member-out-of-set",
-  "group-default-undrawable",
+  "default-undrawable",
+  "constraint-undrawable",
   "schema-uncheckable",
 ] as const;
 
