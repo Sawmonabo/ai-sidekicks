@@ -55,7 +55,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import { MAIN_CHANNEL_NAME, type ChannelListResponseChannel } from "@ai-sidekicks/contracts";
+import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import {
@@ -68,6 +68,7 @@ import {
 } from "../../primitives/index.js";
 import type { PushDrivenReadState, SidebarSectionContext } from "../../seats/index.js";
 import { type ActivityIndicatorRegistry, type ChannelActivityLabels } from "../activity-model.js";
+import type { ChannelDirectoryReading } from "./channel-model.js";
 import { rosterEntriesById, rosterRefusal } from "./channel-roster.js";
 import { useChannelRoster } from "./channel-roster-read.js";
 import { useChannelLifecycle } from "./use-channel-lifecycle.js";
@@ -75,7 +76,7 @@ import { CreateChannel } from "./CreateChannel.js";
 import { ChannelListRow } from "./ChannelListRow.js";
 
 export interface ChannelListProps {
-  readonly state: PushDrivenReadState<readonly ChannelListResponseChannel[]>;
+  readonly state: PushDrivenReadState<ChannelDirectoryReading>;
   readonly bridge: ConsoleBridge;
   /** The session these channels belong to. `undefined` means nothing was asked. */
   readonly sessionId: string | undefined;
@@ -125,21 +126,22 @@ export interface ChannelListProps {
 export function ChannelList(props: ChannelListProps): React.JSX.Element {
   const { state, bridge, sessionId, openPane, activity, labels, isCatchingUp, onReopen } = props;
 
-  // The rows exactly as the daemon served them, and `undefined` until it has. Read
-  // apart from the state that carries it because the hook below takes the rows and
-  // draws no conclusion from which arm they came off.
-  const readChannels = state.kind === "loaded" ? state.value : undefined;
+  // The directory's answer exactly as the daemon served it — its rows, and the position
+  // the read that fetched them took in this session's settlement order — and `undefined`
+  // until one has landed. Read apart from the state that carries it because the hook
+  // below takes the answer and draws no conclusion from which arm it came off.
+  const reading = state.kind === "loaded" ? state.value : undefined;
   const { live, archived, goneNotices, lifecycleFor } = useChannelLifecycle(
     bridge,
     sessionId,
-    readChannels,
+    reading,
   );
   // The directory travels INTO the roster read, because it is what tells that read its
   // answer has moved: a channel created while this list stayed mounted arrives here from
   // the directory's own re-read, and the three facts a row wears come from a call that
   // has no wire signal of its own. See `channel-roster-read.ts` for why the trigger is
   // the channel set changing rather than the gap between the two reads.
-  const roster = useChannelRoster(bridge, sessionId, readChannels);
+  const roster = useChannelRoster(bridge, sessionId, reading?.channels);
   const rosterByChannelId = useMemo(() => rosterEntriesById(roster), [roster]);
 
   const openChannel = useCallback(

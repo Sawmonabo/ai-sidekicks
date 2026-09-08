@@ -11,15 +11,13 @@
 // stranger's row. The coordinator is keyed the same way and superseded on teardown,
 // because a dropped reference is still able to settle into the list that replaced it.
 //
-// A SERVED RECEIPT MOVES THE ROW IT NAMES, AND ONLY UNTIL THE READ MOVES. The three
-// rules that keep that from becoming a second source of truth live in
-// `channel-model.ts` beside the overlay itself; what lives here is the one write —
-// applied to the channel the receipt names, carrying the reading it was answered
-// against, and never on the refused or superseded arm.
+// A SERVED RECEIPT MOVES THE ROW IT NAMES, AND ONLY UNTIL A LATER READ IS ISSUED. The
+// rules that keep that from becoming a second source of truth live in `channel-model.ts`
+// beside the overlay itself; what lives here is the one write — applied to the channel
+// the receipt names, recorded in that directory's settlement order so every read already
+// on the wire is behind it, and never on the refused or superseded arm.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-import type { ChannelListResponseChannel } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
@@ -31,6 +29,7 @@ import {
   orderChannelRows,
   retainUncaughtUpStates,
   type AppliedChannelStates,
+  type ChannelDirectoryReading,
   type ChannelRow,
 } from "./channel-model.js";
 import {
@@ -77,15 +76,15 @@ interface ChannelDirectoryView {
 /**
  * Hold one session's lifecycle state and hand back the directory to draw.
  *
- * `channels` is what the read served and `undefined` before it has, which is why the
- * regions come back empty rather than absent: the caller draws a skeleton or a refusal
- * on those arms and calls this unconditionally, so no arm of that branch changes which
- * hooks run.
+ * `reading` is what the read served — its rows and the position it was issued at — and
+ * `undefined` before it has served anything, which is why the regions come back empty
+ * rather than absent: the caller draws a skeleton or a refusal on those arms and calls
+ * this unconditionally, so no arm of that branch changes which hooks run.
  */
 export function useChannelLifecycle(
   bridge: ConsoleBridge,
   sessionId: string | undefined,
-  channels: readonly ChannelListResponseChannel[] | undefined,
+  reading: ChannelDirectoryReading | undefined,
 ): ChannelDirectoryView {
   // The states a served lifecycle move has reported and this list's read predates.
   const { value: appliedStates, publish: publishApplied } =
@@ -99,10 +98,10 @@ export function useChannelLifecycle(
 
   const ordered = useMemo(
     () =>
-      channels === undefined
+      reading === undefined
         ? undefined
-        : orderChannelRows(applyAppliedStates(channels, appliedStates)),
-    [channels, appliedStates],
+        : orderChannelRows(applyAppliedStates(reading, appliedStates)),
+    [reading, appliedStates],
   );
 
   // Which of the three the row in flight is performing, and which row that is. Read
@@ -144,18 +143,22 @@ export function useChannelLifecycle(
     // the event that provoked it: the event is only a signal, and the read is what says
     // whether the daemon's answer has arrived here yet. Every one of the four channel
     // events produces one.
-    if (channels === undefined) {
+    //
+    // Keyed on the reading and not on the applied map, which is why a receipt landing
+    // under a reading already on screen never retires itself: this runs when the
+    // directory answers, and the retirement it performs is that answer's to make.
+    if (reading === undefined) {
       return;
     }
-    publishApplied((held) => retainUncaughtUpStates(channels, held));
-  }, [channels, publishApplied]);
+    publishApplied((held) => retainUncaughtUpStates(reading, held));
+  }, [reading, publishApplied]);
 
   const actOnChannel = useCallback(
     (channelId: string, action: ChannelLifecycleAction) => {
-      // Captured at the PRESS, and from the read rather than from the row on screen: it
-      // is the reading this act is about, and taking it off an already-overlaid row
-      // would have a second press record this console's own answer as the directory's.
-      const supersededState = channels?.find((channel) => channel.id === channelId)?.state;
+      // The order this act's answer will be recorded in, taken at the press. It is the
+      // directory's own — one register per read line — so a reply already on the wire is
+      // measured against the same serial the receipt below advances.
+      const settlements = reading?.settlements;
       void lifecycleCoordinator.run(channelId, { channelId, action }).then((settlement) => {
         // `undefined` is the refused arm — and the superseded one, where the subject
         // moved while the call was unsettled. The daemon's answer is on the
@@ -171,10 +174,13 @@ export function useChannelLifecycle(
             settlement.channelId === channelId
               ? channelStateFromReceipt(settlement.state)
               : undefined;
-          if (appliedState !== undefined && supersededState !== undefined) {
-            publishApplied(
-              (held) => new Map([...held, [channelId, { state: appliedState, supersededState }]]),
-            );
+          if (appliedState !== undefined && settlements !== undefined) {
+            // RECORDED IN THE ORDER FIRST, then published. The order is what makes a
+            // directory read already on the wire older than this receipt, and a publish
+            // that ran ahead of it would leave that read able to retire an overlay it
+            // was issued before.
+            settlements.noteSettled(channelId);
+            publishApplied((held) => new Map([...held, [channelId, appliedState]]));
           }
           return;
         }
@@ -185,7 +191,7 @@ export function useChannelLifecycle(
         publishGone((held) => new Map([...held, [channelId, refusal]]));
       });
     },
-    [channels, lifecycleCoordinator, publishApplied, publishGone],
+    [reading, lifecycleCoordinator, publishApplied, publishGone],
   );
 
   const lifecycleFor = useCallback(

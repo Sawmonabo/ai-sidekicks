@@ -38,6 +38,8 @@ import { ManualClock } from "../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";
 import type { PushDrivenReadState, SidebarSectionContext } from "../../seats/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "../activity-model.js";
+import type { ChannelDirectoryReading } from "./channel-model.js";
+import { ChannelSettlementOrder } from "./channel-settlement-order.js";
 import { ChannelList } from "./ChannelList.js";
 
 /**
@@ -101,11 +103,21 @@ export function mainChannel(): ChannelListResponseChannel {
   return channel(CHANNEL_MAIN, "active", MAIN_CHANNEL_NAME);
 }
 
-/** What the directory read carries once it has answered. */
+/**
+ * What the directory read carries once it has answered.
+ *
+ * CALLING THIS IS THE MOMENT THE READ WAS ISSUED, which is the whole of what the second
+ * argument is for: the answer carries the position it took in the settlement order, and a
+ * case that wants a reply from a read the daemon had already moved past builds it BEFORE
+ * pressing the control that moves it. Cases that never press a lifecycle control take the
+ * default and get an order of their own, which orders nothing because nothing settles in
+ * it.
+ */
 export function loaded(
   channels: readonly ChannelListResponseChannel[],
-): PushDrivenReadState<readonly ChannelListResponseChannel[]> {
-  return { kind: "loaded", value: channels };
+  settlements: ChannelSettlementOrder = new ChannelSettlementOrder(),
+): PushDrivenReadState<ChannelDirectoryReading> {
+  return { kind: "loaded", value: { channels, settlements, position: settlements.openRead() } };
 }
 
 /** What one roster entry may say, spelled member by member. */
@@ -153,9 +165,25 @@ function channelsScenario(): ConsoleScenario {
   return { ...unscriptedScenario(SCENARIO_ID), sessionId: SESSION_ID };
 }
 
+/**
+ * A scenario whose scripted replies ANSWER the named calls, one row each.
+ *
+ * The engine keys its reply table by call, so a case that presses two different verbs in
+ * one run — a mute and then the unmute that corrects it — scripts both here rather than
+ * building a second bridge the surface would read as a re-address.
+ */
+export function scenarioAnsweringEach(
+  answers: readonly (readonly [call: string, result: unknown])[],
+): ConsoleScenario {
+  return {
+    ...channelsScenario(),
+    replies: answers.map(([call, result]) => ({ call, result })),
+  };
+}
+
 /** A scenario whose one scripted reply ANSWERS the named call. */
 export function scenarioAnswering(call: string, result: unknown): ConsoleScenario {
-  return { ...channelsScenario(), replies: [{ call, result }] };
+  return scenarioAnsweringEach([[call, result]]);
 }
 
 /**
@@ -255,7 +283,7 @@ export function viewerOf(overrides: {
  * exactly the ones a subject-scoped surface reads as a re-address.
  */
 function channelListElement(
-  state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
+  state: PushDrivenReadState<ChannelDirectoryReading>,
   overrides: ChannelListOverrides,
   bridge: ConsoleBridge,
 ): React.JSX.Element {
@@ -284,7 +312,7 @@ function channelListElement(
  * resolved a second time would be a second scenario nothing rendered.
  */
 export function renderChannelList(
-  state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
+  state: PushDrivenReadState<ChannelDirectoryReading>,
   overrides: ChannelListOverrides = {},
 ): ReturnType<typeof render> & { readonly bridge: ConsoleBridge } {
   const bridge = overrides.bridge ?? channelsBridge();
@@ -315,7 +343,7 @@ export async function settleChannelReads(bridge: ConsoleBridge): Promise<void> {
  */
 export async function serveChannelRead(
   rendered: ReturnType<typeof renderChannelList>,
-  state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
+  state: PushDrivenReadState<ChannelDirectoryReading>,
   overrides: ChannelListOverrides = {},
 ): Promise<void> {
   rendered.rerender(channelListElement(state, overrides, rendered.bridge));
@@ -330,7 +358,7 @@ export async function serveChannelRead(
  * surrounding commit, so an assertion taken next reads the render before it.
  */
 export async function renderChannelListSettled(
-  state: PushDrivenReadState<readonly ChannelListResponseChannel[]>,
+  state: PushDrivenReadState<ChannelDirectoryReading>,
   overrides: ChannelListOverrides = {},
 ): Promise<ReturnType<typeof renderChannelList>> {
   const rendered = renderChannelList(state, overrides);

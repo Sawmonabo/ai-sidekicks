@@ -36,6 +36,21 @@
 // Keyed on the directory's set CHANGING, it asks exactly once per change and never
 // otherwise: a mute, an unmute and an archive move a row's state and not the set, so
 // they re-read nothing at all.
+//
+// AND AN EDGE NEEDS A BASELINE THAT IS TRUE, WHICH IS WHY THE READ WAITS. The rule, once:
+// THE FIRST DIRECTORY ANSWER IS THE BASELINE BECAUSE THIS READ IS ISSUED AFTER IT, and
+// never merely because it arrived first. Asked at the mount instead, this read could
+// settle BEFORE the directory's own first reply — two calls put at the same moment answer
+// in whichever order the daemon chooses — and a channel created in the gap between them is
+// in that first directory answer and absent from the roster snapshot beside it. Taken as a
+// baseline anyway, the row sat unenriched until some later channel-set change happened to
+// ask again. So the mount opens nothing: the first read is issued when the directory's
+// first answer arrives, which makes the reply strictly newer than that answer rather than
+// racing it, and every set after it is an edge measured against a baseline the read has
+// actually seen. Deferring costs no update, because the only producer of the signal below
+// is `observeDirectory` itself and it emits nothing before that first read is asked — the
+// seat's rule 1 is a subscription taken before a read can MISS something, and there is
+// nothing here to miss.
 
 import { useCallback, useEffect } from "react";
 
@@ -89,6 +104,15 @@ export class ChannelRosterRead {
    */
   readonly #directoryChanges = new Emitter<void>("channel directory change");
   #askedForChannelKey: string | undefined;
+  /**
+   * Whether the mount has asked this read to run.
+   *
+   * Held apart from the model's own started reading because the two are different
+   * facts here: the mount says a surface wants this read, and the baseline says the
+   * read may be issued. The model opens on the LATER of the two, whichever arrives
+   * second, so neither ordering of mount and first directory answer opens it early.
+   */
+  #isMounted = false;
 
   public constructor(options: {
     readonly bridge: ConsoleBridge;
@@ -117,9 +141,16 @@ export class ChannelRosterRead {
     return this.#model;
   }
 
-  /** Open the signal and ask the first time. */
+  /**
+   * Say the surface wants this read. The first call goes out once a baseline exists.
+   *
+   * Nothing is asked while the directory has not answered: this read's answer has to
+   * be newer than the directory answer it is baselined against, and a read issued at
+   * the mount is only racing it.
+   */
   public start(): void {
-    this.#model.start();
+    this.#isMounted = true;
+    this.#openOnceBaselined();
   }
 
   /** Release the read. Terminal, and the signal goes with it. */
@@ -133,17 +164,19 @@ export class ChannelRosterRead {
   }
 
   /**
-   * Take the directory as it stands, and ask again if its channels have moved.
+   * Take the directory as it stands: baseline the read, or ask again where it moved.
    *
    * `undefined` is the directory that has not answered yet, and it is observed as
-   * NOTHING rather than as an empty set: treating it as one would make the first real
-   * answer look like a change and spend a second read at every mount, when the read this
-   * surface already performed was asked at the same moment the directory's was.
+   * NOTHING rather than as an empty set: treating it as one would baseline this read
+   * against a set the directory never served, and the first real answer would then be a
+   * change against a claim nobody made.
    *
-   * The FIRST set this sees is therefore the baseline and asks nothing. Every set after
-   * it that differs asks once. The key is the ids in the order the directory serves
-   * them, so a re-order is a change too — which is honest, since the roster is keyed by
-   * id and a directory that re-ordered has been re-read.
+   * The FIRST set this sees is the baseline, and it is the one that ISSUES the first
+   * read — which is what makes it a baseline rather than an assumption, since the reply
+   * to a read issued here cannot predate the answer it is measured against. Every set
+   * after it that differs asks once more. The key is the ids in the order the directory
+   * serves them, so a re-order is a change too — which is honest, since the roster is
+   * keyed by id and a directory that re-ordered has been re-read.
    */
   public observeDirectory(channels: readonly ChannelListResponseChannel[] | undefined): void {
     if (channels === undefined) {
@@ -152,10 +185,27 @@ export class ChannelRosterRead {
     const channelKey = channels.map((channel) => channel.id).join("\n");
     const previousKey = this.#askedForChannelKey;
     this.#askedForChannelKey = channelKey;
-    if (previousKey === undefined || previousKey === channelKey) {
+    if (previousKey === undefined) {
+      this.#openOnceBaselined();
+      return;
+    }
+    if (previousKey === channelKey) {
       return;
     }
     this.#directoryChanges.emit();
+  }
+
+  /**
+   * Open the subscription and ask the first time, once both halves have arrived.
+   *
+   * Idempotent through the model, which is what lets both callers reach it without
+   * either one having to know whether the other has run.
+   */
+  #openOnceBaselined(): void {
+    if (!this.#isMounted || this.#askedForChannelKey === undefined) {
+      return;
+    }
+    this.#model.start();
   }
 }
 
@@ -199,11 +249,15 @@ export function useChannelRoster(
     CHANNEL_ROSTER_DISPOSAL,
   );
   useEffect(() => {
-    // In an effect and not in the render body: `start` opens the signal and puts a call
-    // on the wire, and a render React discards must do neither.
+    // In an effect and not in the render body: `start` opens the signal and, once the
+    // directory below has answered, puts a call on the wire — and a render React
+    // discards must do neither.
     read.start();
   }, [read]);
   useEffect(() => {
+    // BELOW the mount effect on purpose, so a first render that already carries the
+    // directory's answer opens the read in this same commit rather than in the next
+    // one: effects run in order, so the mount has recorded itself by the time this runs.
     read.observeDirectory(directoryChannels);
   }, [read, directoryChannels]);
   return usePushDrivenRead(read.model);
