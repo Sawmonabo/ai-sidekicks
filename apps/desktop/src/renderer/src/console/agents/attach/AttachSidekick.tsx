@@ -228,6 +228,10 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
           overlayContainer={props.overlayContainer}
         />
 
+        {/* The account axis takes what it falls BACK to as well as what it shows: an
+            absent member on the registered request means "take the definition's
+            value" rather than "take none", so which of the two a reset would reach is
+            a fact only the form has. */}
         <AccountAxisField
           bridge={props.bridge}
           driverName={driverName}
@@ -235,6 +239,7 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
           onValueChange={(next) => {
             form.setField("providerAccountId", next ?? "", catalogValue);
           }}
+          inheritedValue={form.inheritedValue("providerAccountId")}
           isOverridden={form.isOverridden("providerAccountId")}
           overlayContainer={props.overlayContainer}
         />

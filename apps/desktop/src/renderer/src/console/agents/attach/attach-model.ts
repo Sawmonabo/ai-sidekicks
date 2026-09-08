@@ -196,10 +196,26 @@ export class AttachSidekickForm {
 
   /** What the field shows: the entry where there is one, else the definition's value. */
   public effectiveValue(field: AttachField): string | undefined {
-    const entered = this.#entered.get(field);
-    if (entered !== undefined) {
-      return entered;
-    }
+    return this.#entered.get(field) ?? this.inheritedValue(field);
+  }
+
+  /**
+   * What a field falls back to when the caller's own entry is dropped.
+   *
+   * The definition's value on the definition arm and `undefined` everywhere else —
+   * the same resolution {@link effectiveValue} reads through, so the two can never
+   * disagree about which value an entry is standing in front of.
+   *
+   * A FIELD NEEDS THIS TO SAY WHAT ITS OWN RESET CONTROL DOES, and the registered
+   * request is why the two answers differ. An explicitly-present member overrides
+   * that axis alone and an ABSENT one means "take the definition's value" — there is
+   * no null arm on the attach request the way `agent.configUpdate` carries one for
+   * the default node — so dropping an entry over a definition that pins a value
+   * returns the field to THAT value, and only over a definition that pins none does
+   * it leave the axis unset for the daemon to resolve a provider default. A control
+   * that named the wrong one of those would promise an act the wire cannot carry.
+   */
+  public inheritedValue(field: AttachField): string | undefined {
     if (this.#arm !== "definition") {
       return undefined;
     }
