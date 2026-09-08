@@ -16,14 +16,25 @@
 // draft and is asserted where it lives — this file asserts only what the screen
 // does, which is what a person can actually observe.
 //
+// AND THE LAST DESCRIBE IS THE OTHER HALF OF A SEND: what a COMPLETED one hands out.
+// Both of this draft's reachable calls are scripted there, which is what makes a
+// completed send reachable at all — everywhere else in this file the first turn is
+// unscripted, so every send settles partial and the settlement arm is never taken.
+//
 // WHICH composition a settlement lands in, and which bridge a draft belongs to, is
 // `NewSessionControl.addressing.test.tsx`.
 
-import { act, cleanup, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import { NewSessionControl } from "./NewSessionControl.js";
 import {
+  CREATED_SESSION_ID,
+  bridgeFor,
   bridgeHoldingCreate,
+  composeAndCompleteASend,
+  openDraftWithPosture,
   politeText,
   press,
   renderControl,
@@ -154,5 +165,99 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     // by its own guard.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
     expect(container.textContent).toContain("first-turn-missing");
+  });
+});
+
+describe("the composed new-session draft — what a completed send hands out", () => {
+  afterEach(cleanup);
+
+  it("names the session it made, and leaves the screen", async () => {
+    // The defect: the continuation published its report and stopped. A send that fully
+    // succeeded left this form standing with Send enabled and a real daemon session
+    // nothing above could name — absent from the all-sessions list until some later
+    // directory read happened to notice it, and carrying none of the origin markers
+    // only this window can report.
+    const settledSessionIds: string[] = [];
+    const container = renderControlOn(
+      bridgeFor({ scriptsCreate: true, scriptsFirstTurn: true }),
+      (sessionId) => settledSessionIds.push(sessionId),
+    );
+
+    await composeAndCompleteASend();
+
+    expect(settledSessionIds).toStrictEqual([CREATED_SESSION_ID]);
+    // The act is over, so the draft goes with it: one draft object mints at most one
+    // session, and a form left standing offers Send under a composition that could only
+    // re-report the session that already exists.
+    expect(container.querySelector(".meridian-new-session")).toBeNull();
+    expect(screen.getByRole("button", { name: "+ New" })).toBeDefined();
+    // And the sentence is still said, before the settlement rather than after it: the
+    // settlement navigates, so a sentence spoken afterwards would be addressed to a
+    // destination already coming down.
+    expect(politeText(container)).toBe("The session was created.");
+  });
+
+  it("hands nothing out for a send that stopped part way, and keeps the draft", async () => {
+    // A partial made a session too, and settling there would navigate away from the one
+    // sentence that says which leg could not be made — the sentence a second press acts
+    // on, because the draft resumes at exactly that call.
+    const settledSessionIds: string[] = [];
+    const container = renderControlOn(bridgeFor({ scriptsCreate: true }), (sessionId) =>
+      settledSessionIds.push(sessionId),
+    );
+
+    await openDraftWithPosture();
+    await press("Send");
+
+    expect(settledSessionIds).toStrictEqual([]);
+    expect(container.textContent).toContain("first-turn-missing");
+    expect(container.querySelector(".meridian-new-session")).not.toBeNull();
+  });
+
+  it("hands nothing out when the create itself refused, because there is no session", async () => {
+    const settledSessionIds: string[] = [];
+    renderControlOn(bridgeFor({ scriptsCreate: false }), (sessionId) =>
+      settledSessionIds.push(sessionId),
+    );
+
+    await openDraftWithPosture();
+    await press("Send");
+
+    expect(settledSessionIds).toStrictEqual([]);
+  });
+
+  it("settles once, however many times the destination re-renders under it", async () => {
+    // The destination composes its settlement fresh on every pass — it says so — so a
+    // control that named the callback in the dependencies of the effect that settles
+    // would open the session, stamp the origin and put the navigation again on every
+    // render of the surface above. The identity moves here on every render, and the
+    // count is what says the settlement did not follow it.
+    const settledSessionIds: string[] = [];
+    const bridge = bridgeFor({ scriptsCreate: true, scriptsFirstTurn: true });
+    const { rerender } = render(
+      <LiveAnnouncerProvider>
+        <NewSessionControl
+          bridge={bridge}
+          onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
+        />
+      </LiveAnnouncerProvider>,
+    );
+
+    await composeAndCompleteASend();
+    for (let pass = 0; pass < 3; pass += 1) {
+      rerender(
+        <LiveAnnouncerProvider>
+          <NewSessionControl
+            bridge={bridge}
+            onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
+          />
+        </LiveAnnouncerProvider>,
+      );
+      await act(async () => {
+        await crossMacrotaskBoundary();
+      });
+    }
+
+    expect(settledSessionIds).toStrictEqual([CREATED_SESSION_ID]);
   });
 });

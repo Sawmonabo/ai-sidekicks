@@ -18,6 +18,19 @@
 // `Enter` on the cursored row opens it. The library provides no keyboard drag by
 // design, and the gesture is an addition to that path rather than a replacement.
 //
+// AND IT OPENS ONLY WHERE THE ROW WAS DROPPED ON THE DECK. A monitor hears every drag
+// that ends, wherever it ended — over the deck, back over the sidebar, over the window
+// chrome, or nowhere at all because the person pressed Escape — and `canMonitor` says
+// only that the thing in the air is one of ours. So the settle reads the DROP as well
+// as the source: without that, abandoning a gesture opened the row's pane and said so,
+// which is a console acting on a decision a person had just reversed.
+//
+// WHICH MAKES THE DECK A DROP TARGET, and this module declares both halves of that
+// seam. The key the deck's target carries and the reader that recognises it are next to
+// the key a row's payload is carried under, because they are one contract read from two
+// sides — the deck supplies its own element and this file says what lands on it. Two
+// modules, and the pair drifts the first time one of them is renamed.
+//
 // THE SETTLE IS A FUNCTION, NOT A CALLBACK BODY. The element adapter cannot be driven
 // at all in the `console-unit` tier — jsdom implements neither `DragEvent` nor
 // `DataTransfer` — so the outcome lives in `commitSidebarRowDrop`, which a test drives
@@ -27,6 +40,7 @@ import { useEffect, useState } from "react";
 
 import {
   draggable,
+  dropTargetForElements,
   monitorForElements,
 } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 
@@ -62,19 +76,80 @@ export function sidebarRowTargetFromDragData(
 }
 
 /**
+ * The key the deck's own drop target is carried under.
+ *
+ * A SECOND KEY AND NOT THE ROW'S. The row's key names what is in the AIR and the
+ * deck's names where it may LAND, and the monitor reads both — one off the source, one
+ * off the drop targets the pointer settled over. Spelled as one key, a deck target
+ * would answer "is this drag mine" and a row payload would answer "is this a place to
+ * drop", and the two questions would share an answer.
+ */
+export const SIDEBAR_ROW_DECK_DROP_KEY = "sidebar.deckDropTarget";
+
+/** Whether one of the drop targets a gesture settled over is the deck's. */
+export function isSidebarRowDeckDropTarget(data: Record<string | symbol, unknown>): boolean {
+  return data[SIDEBAR_ROW_DECK_DROP_KEY] === true;
+}
+
+/**
+ * Make the deck a place a dragged sidebar row can land.
+ *
+ * THE DECK'S OWN ROOT AND NOT ITS PANES. What a row opens is decided by the address it
+ * carries, so there is no slot to aim at and no edge to compute — the whole board is
+ * the target, which is also what makes an EMPTY deck a place to drop, and an empty deck
+ * is the one a person is most likely to be dragging onto.
+ *
+ * `canDrop` narrows it to row drags, so a pane being dragged around inside the deck
+ * never sees this target at all: the deck's own per-pane targets decide that gesture,
+ * and a root target that accepted everything would sit under every one of them claiming
+ * a drop it has no rule for.
+ *
+ * The element is passed rather than reached for — a `ref` this module owned would be a
+ * second holder of an element the deck already has — and `null` before the deck mounts
+ * binds nothing, which is the ordinary first pass rather than a case.
+ */
+export function useSidebarRowDeckDropTarget(element: HTMLElement | null): void {
+  useEffect(() => {
+    if (element === null) {
+      return;
+    }
+    return dropTargetForElements({
+      element,
+      canDrop: ({ source }) => sidebarRowTargetFromDragData(source.data) !== undefined,
+      getData: () => ({ [SIDEBAR_ROW_DECK_DROP_KEY]: true }),
+    });
+  }, [element]);
+}
+
+/**
  * Settle one row drop: open what the row names, and say what happened.
  *
- * A drag released over nothing this console recognises reaches here with no target and
- * opens nothing — and says nothing either, because there is no row to name and a
- * sentence about a drag a person abandoned is noise. A drag that DID carry a row is
- * announced in the polite lane: the deck changed, which is the ordinary outcome.
+ * TWO FACTS DECIDE IT, and the second one is the whole reason this takes an argument
+ * the monitor has to work out. `target` says the thing in the air was one of ours; a
+ * drag released over nothing this console recognises reaches here without one, opens
+ * nothing, and says nothing either, because there is no row to name and a sentence
+ * about a drag that was never ours is noise. `droppedOnDeck` says where it LANDED —
+ * the monitor hears a drop wherever the gesture ended, so a row released back over the
+ * sidebar, over the window chrome, or abandoned outright arrives here exactly as one
+ * released over the deck does, and only the drop targets tell them apart.
+ *
+ * A LANDED DROP IS POLITE AND AN ABANDONED ONE IS ASSERTIVE, which is
+ * `deck/pane-drag.ts`'s own rule for the same pair of outcomes: the assertive lane is
+ * for "the thing you tried did not happen", and a person who cannot see the deck has no
+ * other way to learn that a gesture they completed changed nothing. Silence there would
+ * be indistinguishable from success.
  */
 export function commitSidebarRowDrop(
   target: SidebarRowDragTarget | undefined,
+  droppedOnDeck: boolean,
   openPane: ConsolePaneOpener,
   announce: Announce,
 ): void {
   if (target === undefined) {
+    return;
+  }
+  if (!droppedOnDeck) {
+    announce(`${target.label} was not opened.`, "assertive");
     return;
   }
   openPane(target.opens);
@@ -147,18 +222,30 @@ export function useSidebarRowDragSources(): SidebarRowDragSources {
 /**
  * Commit the drop, once, for the whole column.
  *
- * ONE monitor rather than a drop target per pane: the sidebar does not own the deck's
- * elements and must not bind to them, and what a sidebar drop needs from the deck is
- * nothing — the address alone decides what opens. The monitor also runs for a drag
- * released over empty space, which is the case a per-target handler never sees.
+ * ONE monitor rather than an `onDrop` on the deck's target: the outcome depends on the
+ * source AND on where the gesture ended, and the case that has to be heard — a drag
+ * abandoned, or released anywhere but the deck — is precisely the one a target's own
+ * handler never fires for. So the monitor hears every ending and asks the drop targets
+ * which one it was.
+ *
+ * The sidebar still binds to none of the deck's elements: `useSidebarRowDeckDropTarget`
+ * is called BY the deck, on the deck's own root, and what crosses between them is a
+ * key rather than a node.
  */
 export function useSidebarRowDropMonitor(openPane: ConsolePaneOpener, announce: Announce): void {
   useEffect(
     () =>
       monitorForElements({
         canMonitor: ({ source }) => sidebarRowTargetFromDragData(source.data) !== undefined,
-        onDrop: ({ source }) => {
-          commitSidebarRowDrop(sidebarRowTargetFromDragData(source.data), openPane, announce);
+        onDrop: ({ location, source }) => {
+          commitSidebarRowDrop(
+            sidebarRowTargetFromDragData(source.data),
+            location.current.dropTargets.some((dropTarget) =>
+              isSidebarRowDeckDropTarget(dropTarget.data),
+            ),
+            openPane,
+            announce,
+          );
         },
       }),
     [announce, openPane],

@@ -6,7 +6,7 @@
 // "a bridge whose create answers" would let one file pass against a wire the other
 // never scripts.
 
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
@@ -38,38 +38,69 @@ export const CREATE_REPLY: {
 };
 
 /**
- * A bridge whose `session.create` answers, or one whose does not.
+ * The WHOLE registered first-turn response, for the same reason the create's is whole.
+ *
+ * Scripting it is what makes a COMPLETED send reachable at all. The draft this control
+ * composes offers a posture and a first message and no agents, so `session.create` and
+ * `run.queueCreate` are the two calls its send makes — script only the first and every
+ * send in this family settles `partial`, which is the state the settlement arm is
+ * deliberately not reached from.
+ */
+export const FIRST_TURN_REPLY: {
+  readonly queueItemId: string;
+  readonly state: string;
+  readonly createdAt: string;
+} = {
+  queueItemId: "019b793b-7b60-7f2a-9a4a-6f0f1f4f4c11",
+  state: "queued",
+  createdAt: "2026-01-01T09:00:00.000Z",
+};
+
+/**
+ * A bridge whose `session.create` answers, or one whose does not, and whose first turn
+ * is scripted only where a case needs a send to complete.
  *
  * The fixture bridge rather than a hand-written stub: the draft calls through
  * `bridge.sidekicks.daemon.call`, and a stub of that member would be a second
  * implementation of the one door this family's tests already have.
  */
-export function bridgeFor(options: { readonly scriptsCreate: boolean }): ConsoleBridge {
+export function bridgeFor(options: {
+  readonly scriptsCreate: boolean;
+  readonly scriptsFirstTurn?: boolean;
+}): ConsoleBridge {
   const scenario: ConsoleScenario = {
     id: "new-session-control",
     label: "New session control",
-    purpose: "Drives the composed-draft control's one reachable wire call.",
+    purpose: "Drives the composed-draft control's two reachable wire calls.",
     sessionId: "session-draft",
     participantIdsInJoinOrder: ["participant-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
-    replies: options.scriptsCreate
-      ? [
-          {
-            call: "session.create",
-            result: CREATE_REPLY,
-          },
-        ]
-      : [],
+    replies: [
+      ...(options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : []),
+      ...(options.scriptsFirstTurn === true
+        ? [{ call: "run.queueCreate", result: FIRST_TURN_REPLY }]
+        : []),
+    ],
   };
   return createFixtureBridge({ scenario });
 }
 
-/** The control under the window's announcer, which is where the frame mounts it. */
-export function renderControlOn(bridge: ConsoleBridge): HTMLElement {
+/**
+ * The control under the window's announcer, which is where the frame mounts it.
+ *
+ * The settlement is a PARAMETER with a default that records nothing, because the
+ * destination hands one over on every mount and a harness that omitted it would be
+ * driving a control no composition produces. A case about the settlement passes its
+ * own recorder; every other case ignores what the default collects.
+ */
+export function renderControlOn(
+  bridge: ConsoleBridge,
+  onSessionCreated: (sessionId: string) => void = () => undefined,
+): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <NewSessionControl bridge={bridge} />
+      <NewSessionControl bridge={bridge} onSessionCreated={onSessionCreated} />
     </LiveAnnouncerProvider>,
   );
   return container;
@@ -169,4 +200,32 @@ export async function openDraftWithPosture(): Promise<void> {
     screen.getByRole("radio", { name: "Trusted" }).click();
     await crossMacrotaskBoundary();
   });
+}
+
+/**
+ * Type the first message, through the field a person types into.
+ *
+ * `fireEvent` rather than assigning `value`, because the draft holds the text and the
+ * field renders off it: a direct assignment moves the DOM node and leaves the object
+ * that decides what gets sent untouched.
+ */
+export async function typeFirstTurn(firstTurn: string): Promise<void> {
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText("Its first message"), {
+      target: { value: firstTurn },
+    });
+    await crossMacrotaskBoundary();
+  });
+}
+
+/**
+ * Compose and send the one draft whose send COMPLETES — a posture and a first message.
+ *
+ * Both scripted calls land, so this is the only path in this family that reaches the
+ * settlement: `sendNewSessionDraft` reports `sent` exactly when neither leg refused.
+ */
+export async function composeAndCompleteASend(): Promise<void> {
+  await openDraftWithPosture();
+  await typeFirstTurn("Start on the migration.");
+  await press("Send");
 }

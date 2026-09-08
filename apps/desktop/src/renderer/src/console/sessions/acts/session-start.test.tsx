@@ -12,6 +12,7 @@
 // window this suite drives is the one where a start press reaches a wire, and
 // `window.sidekicks` is the surface it reaches it through.
 
+import { act, screen } from "@testing-library/react";
 import { describe, expect, it, vi, afterEach } from "vitest";
 
 import { contextWith, renderSurface, settle } from "../session-surface.test-support.js";
@@ -22,7 +23,7 @@ import {
   uninstallProbeBridge,
 } from "./probe-bridge.test-support.js";
 import { settleFirstSendAutoPin } from "../../seats/index.js";
-import type { ConsoleSurfaceContext } from "../../seats/index.js";
+import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../../seats/index.js";
 
 /** A create that settles with a session, and the calls it recorded. */
 function creatingBridge(): ReturnType<typeof vi.fn> {
@@ -131,5 +132,61 @@ describe("a settled start — what the console does with the session it just mad
     );
 
     expect(navigations).toStrictEqual([{ kind: "workspace", sessionId: CREATED_SESSION_ID }]);
+  });
+});
+
+/** A composed-draft control that hands over the session its send produced. */
+function controlSettlingWith(sessionId: string): NewSessionControlComponent {
+  return (props) => (
+    <button
+      type="button"
+      onClick={() => {
+        props.onSessionCreated(sessionId);
+      }}
+    >
+      Complete a composed send
+    </button>
+  );
+}
+
+describe("a settled composed send — the destination's half of the same act", () => {
+  // The probe is not installed for any case here: the composed draft is
+  // console-authored and never reaches `window.sidekicks`, so what is under test is
+  // the WIRE — that the control this destination mounts is handed a settlement, and
+  // that the settlement is the one the start act performs rather than a second
+  // spelling of some of it.
+
+  it("opens the session's store and navigates into it, as a settled start does", async () => {
+    const navigations: unknown[] = [];
+    const openedSessionIds: string[] = [];
+    const context = contextWith({ navigations, openedSessionIds });
+
+    renderSurface(context, { newSessionControl: controlSettlingWith(CREATED_SESSION_ID) });
+    await settle();
+    await act(() => {
+      screen.getByRole("button", { name: "Complete a composed send" }).click();
+    });
+
+    expect(openedSessionIds).toStrictEqual([CREATED_SESSION_ID]);
+    expect(navigations).toStrictEqual([{ kind: "workspace", sessionId: CREATED_SESSION_ID }]);
+    // And the origin markers only this console can assert, read back through the rule
+    // that asks for them rather than off the record — the same evidence the probed
+    // start is held to, because both are one act.
+    expect(settleFirstSendAutoPin(context.bridge, CREATED_SESSION_ID)).toStrictEqual({
+      pinned: true,
+    });
+  });
+
+  it("negative control: a control that settles nothing leaves the session unopened", async () => {
+    // Without this the case above would pass over a destination that opened and
+    // navigated on its own — on a render, on a mount, on anything but the settlement.
+    const navigations: unknown[] = [];
+    const openedSessionIds: string[] = [];
+
+    renderSurface(contextWith({ navigations, openedSessionIds }));
+    await settle();
+
+    expect(openedSessionIds).toStrictEqual([]);
+    expect(navigations).toStrictEqual([]);
   });
 });

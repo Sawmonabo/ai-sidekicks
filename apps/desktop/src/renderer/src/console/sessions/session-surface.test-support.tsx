@@ -26,7 +26,19 @@ import {
   type ShellConnection,
   type ShellState,
 } from "../store/index.js";
-import type { ConsoleSurfaceContext } from "../seats/index.js";
+import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../seats/index.js";
+
+/**
+ * The composed-draft control every case that is not about it gets.
+ *
+ * Renders the marker and calls nothing: a stand-in that settled a start would put a
+ * navigation and a store open into suites whose subject is the list's chrome, and one
+ * that rendered a control a person could press would change what every
+ * `getByRole("button")` in those suites resolves.
+ */
+function InertNewSessionControl(): React.JSX.Element {
+  return <span data-new-session-control>the composed-session control</span>;
+}
 
 /**
  * Let the destination's asynchronous arrivals land.
@@ -340,11 +352,20 @@ export function contextWith(options: {
  * is the workspace family's, this module is a sibling view family's, and a
  * `.test-support` module is a subject of `console-view-family-isolation` like any
  * other — only `*.test.*` is excluded from that cruise. It is also the right shape
- * for what this file drives: the surface takes the control as an opaque node it
- * places, so every case here is about the destination's own chrome, and the control's
- * behaviour is asserted where the control lives.
+ * for what this file drives: the surface hands the control a bridge and a settlement
+ * and places what it renders, so every case here is about the destination's own
+ * chrome, and the control's behaviour is asserted where the control lives.
+ *
+ * A CASE ABOUT THE SETTLEMENT SUPPLIES ITS OWN. What this destination owes a composed
+ * create is the four things `acts/session-start.ts` does, and the only way to drive
+ * them from here is a control that calls the callback it was handed — so the stand-in
+ * is replaceable and the default one calls nothing, which is what keeps every other
+ * suite's tree the shape it was.
  */
-export function renderSurface(context: ConsoleSurfaceContext): {
+export function renderSurface(
+  context: ConsoleSurfaceContext,
+  options: { readonly newSessionControl?: NewSessionControlComponent } = {},
+): {
   readonly container: HTMLElement;
   readonly politeText: () => string;
 } {
@@ -368,7 +389,7 @@ export function renderSurface(context: ConsoleSurfaceContext): {
         >
           <SessionsSurface
             context={context}
-            newSession={<span data-new-session-control>the composed-session control</span>}
+            newSessionControl={options.newSessionControl ?? InertNewSessionControl}
           />
         </SessionAttentionBinding>
       </LiveAnnouncerProvider>

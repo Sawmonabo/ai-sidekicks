@@ -407,6 +407,17 @@ export { autoPinDecision } from "./auto-pin.js";
 export type { AutoPinDecision, SessionOriginEvidence } from "./auto-pin.js";
 export { recordConsoleStartedSession, settleFirstSendAutoPin } from "./session-auto-pin.js";
 
+// The composed new-session draft's seat: the props the control takes, and the props
+// type as a component the composition root hands over.
+//
+// Beside the auto-pin record above for the same reason it is here — two view families
+// meet on it. The workspace family declares the control against these props and the
+// sessions family mounts a component that satisfies them, and neither may import the
+// other, so a second spelling in either would be a contract with two homes and one
+// reader. The module beside this line carries no runtime value at all: what a settled
+// start DOES is the sessions family's act, and this seat carries only the id.
+export type { NewSessionControlComponent, NewSessionControlProps } from "./new-session-seat.js";
+
 // The read discipline every live wire read in this console follows — subscribe
 // first, answer a push with a fresh read, one read per burst through the refresh
 // chokepoint, never a flicker. It sits here rather than in the family that wrote it

@@ -66,6 +66,12 @@
 // a settled create reaches — beside `onJoined`, doing the same four things a settled
 // join does, for the act next door.
 //
+// AND THE COMPOSED DRAFT REACHES THE SAME ACT, through the seat its two families meet
+// on. It had the same defect for the same reason from the other side: a completed send
+// published its report and named its session to nobody, so a composed session was as
+// unreachable as a probed one. Both settle through `settleStartedSession` below, which
+// is the one place this destination says what starting a session here produces.
+//
 // ONE ATTENTION READ FOR THE WHOLE WINDOW, AND THIS DESTINATION DOES NOT PERFORM IT.
 // The notification center renders it and the list takes each row's severity from the
 // same plane, so two reads would be two answers to "what needs me" and the row and the
@@ -83,9 +89,9 @@
 // `setState` produces the next render. Every dependency below is a STABLE
 // identity: a store, the bridge, or a wire-verbatim string off the route.
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 
-import type { ConsoleSurfaceContext } from "../seats/index.js";
+import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../seats/index.js";
 import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/index.js";
 import { NotificationCenter, useAttentionSettlementAnnouncement } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
@@ -113,14 +119,20 @@ import { type SessionRowsProps } from "./SessionRowsView.js";
 export interface SessionsSurfaceProps {
   readonly context: ConsoleSurfaceContext;
   /**
-   * The composed-session control, held as a node rather than built on an act.
+   * The composed-session control, as the component this surface mounts every pass.
    *
    * The opposite of the start press below, and deliberately: the probe must not be
    * built until the press, because building it creates a session. This one owns its
    * own open state and creates nothing until its own send, so rebuilding it per press
-   * would throw away whatever a person had chosen.
+   * would throw away whatever a person had chosen — mounting it on every render costs
+   * nothing, because the component identity does not move and React reconciles it.
+   *
+   * THE COMPONENT AND NOT A BUILT NODE, because two of its props are this surface's:
+   * the bridge it composes against, and the settlement a completed send is handed to.
+   * Built one layer up, at the registration, neither was reachable — which is how a
+   * composed session came to be created and then left unnamed.
    */
-  readonly newSession: ReactNode;
+  readonly newSessionControl: NewSessionControlComponent;
 }
 
 export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element {
@@ -238,6 +250,23 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     openSession(item.sessionId);
   };
 
+  // What a session started HERE settles into, for both ways of starting one.
+  //
+  // ONE SITE, because there is one act. The probe creates immediately and the draft
+  // creates on its own send, and the difference ends at the moment a session exists:
+  // from there both are a start this window authored, and `acts/session-start.ts` is
+  // the four things that follow. Two call sites composing the same settlement would be
+  // two answers to what a start produces, and the second one is where a marker gets
+  // forgotten.
+  const settleStartedSession = (sessionId: string): void => {
+    settleSessionStart({
+      bridge: context.bridge,
+      sessionStoreRegistry: context.sessionStoreRegistry,
+      openSession,
+      sessionId,
+    });
+  };
+
   // Why no act may be put right now, in the words the control carries.
   //
   // THE SHELL'S CAUSE OUTRANKS THE LIST'S. A window that cannot reach the runtime
@@ -263,9 +292,10 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // press because what it mounts creates a session, while this one owns its own open
   // state and creates nothing until its own send — so rebuilding it per press would
   // throw away whatever a person had chosen.
+  const ComposedNewSession = props.newSessionControl;
   const startControl = (
     <>
-      {props.newSession}
+      <ComposedNewSession bridge={context.bridge} onSessionCreated={settleStartedSession} />
       <SessionActs
         bridge={context.bridge}
         preferences={preferences}
@@ -355,12 +385,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
               // one screen up. The probe is the only `session.create` caller in this
               // renderer and it now hands the session out, so this destination stops
               // counting presses and starts acting on the session a press produced.
-              settleSessionStart({
-                bridge: context.bridge,
-                sessionStoreRegistry: context.sessionStoreRegistry,
-                openSession,
-                sessionId: created.sessionId,
-              });
+              settleStartedSession(created.sessionId);
             },
             // The act is over, whichever way it went. Released here rather than beside
             // the create above, because a refused create ends the act just as
