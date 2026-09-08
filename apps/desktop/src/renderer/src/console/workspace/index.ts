@@ -72,6 +72,13 @@ export { NewSessionControl } from "./new-session/NewSessionControl.js";
 
 export { Workspace } from "./Workspace.js";
 
+// The window-lifetime binding this family keeps, through the same door for the same
+// reason: `families.ts` fills the binding board and the frame mounts what it holds,
+// and neither of them may import a view family. Which panes are showing in windows of
+// their own outlives every navigation, so the registry behind it cannot be held by a
+// surface a route unmounts — `auxiliary/aux-handoff-registry.ts` says why at length.
+export { registerWorkspaceFrameBindings } from "./auxiliary/workspace-frame-binding.js";
+
 // The sidebar sections this family fills, through the seat like every other family.
 // It ships through this door because the composition root that calls it sits
 // outside the console and reaches a family through its barrel — and it is a CALL

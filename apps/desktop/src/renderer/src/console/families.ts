@@ -50,7 +50,7 @@ import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.
 import { registerLedger } from "./ledger/index.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
-import { NewSessionControl, Workspace } from "./workspace/index.js";
+import { NewSessionControl, Workspace, registerWorkspaceFrameBindings } from "./workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsolePaneRegistry,
@@ -149,6 +149,13 @@ export function registerConsoleFamilies(
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
   registerRunLifecycleProjectors(projectors);
+  // The workspace family's frame-lifetime binding, on the same terms and for the
+  // lifetime a surface cannot give it: a pane moved into a window of its own stays
+  // there while a person navigates, so the record of which panes those are is held for
+  // the WINDOW rather than for whichever destination is on screen. It takes the
+  // binding board this function was HANDED, so a composition fills its bindings where
+  // it fills its surfaces.
+  registerWorkspaceFrameBindings(frameBindings);
   // The fixture-only pane harness, which is the one surface that mounts a
   // REGISTERED pane body in a running window. It takes both boards because it
   // resolves its body out of the pane board this composition owns, and it decides

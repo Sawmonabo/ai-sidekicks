@@ -21,6 +21,25 @@
 // moved"). What IS refused is an act with no subject at all — no deck mounted, or a
 // deck focusing nothing — and those two are said by the seat and by this file
 // respectively, because only one of them is a fact about the deck.
+//
+// AND CLOSING A PANE THAT IS IN A WINDOW OF ITS OWN IS REFUSED, WITH THE REMEDY NAMED.
+// `Spec-023 §The surface set` keeps a detached pane's slot as the placeholder its
+// window returns INTO, so `layout.close` on one deletes the only thing that could
+// receive the pane back: the shell goes on holding a window whose placeholder is gone,
+// and its eventual return signal names a pane the deck no longer has. The pointer path
+// already agrees — a detached slot renders `DetachedPaneBody`, which offers a focus
+// control and a return control and NO close — so refusing here is what makes the
+// keyboard and palette paths say the same thing that surface does, rather than
+// inventing an act no control offers.
+//
+// REFUSING RATHER THAN CLOSING THE WINDOW FOR THEM. The other candidate was to route
+// the close through the hand-off and take the window down with the slot, and it makes
+// one keystroke destroy a separate top-level window that is not on screen and may be
+// the surface the person is actually reading — an auxiliary window carries its own
+// bridge instance and its own subscription, so it is a window in its own right and not
+// a projection of this slot. The sentence names the control that exists ("Return it to
+// the deck"), which is one press away in the slot the act was aimed at, and after it
+// the close is the ordinary one.
 
 import type { Announce } from "../../../primitives/index.js";
 import type { DeckLayout } from "../deck-layout.js";
@@ -46,6 +65,42 @@ export type DeckActName = keyof DeckActs;
 export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
 
 /**
+ * What closing says about a pane whose body is in a window of its own.
+ *
+ * Composed from the kind and the placeholder's own control label, so the sentence
+ * names a control the person can see rather than describing one. Exported because the
+ * suite asserts the sentence a person hears and composing a second copy of it there
+ * would assert the test's spelling rather than the console's.
+ */
+export function detachedPaneCloseRefusal(kind: string): string {
+  return `The ${kind} pane is open in a window of its own. Return it to the deck before closing it.`;
+}
+
+/**
+ * Whether one pane's body is currently in a window of its own.
+ *
+ * A READING passed in rather than the hand-off itself, and a predicate rather than the
+ * detached set: this module decides what an act does and has no business holding the
+ * plane that opens windows, and a caller handing over a set would be handing over a
+ * value that is stale the moment it is captured.
+ */
+export type PaneDetachmentReading = (paneId: string) => boolean;
+
+/**
+ * One reading over the ids a surface publishes.
+ *
+ * Built here rather than in the component, so the predicate's shape lives beside the
+ * type that declares it. A scan rather than a `Set`: the question is asked once per
+ * press over a list the deck's own restore cap bounds, and a set built per render to
+ * answer it would be the more expensive of the two.
+ */
+export function paneDetachmentReadingFor(
+  detachedPaneIds: readonly string[],
+): PaneDetachmentReading {
+  return (paneId) => detachedPaneIds.includes(paneId);
+}
+
+/**
  * Bind the five acts to one deck.
  *
  * A function of the layout and the announcer rather than a method on `DeckLayout`:
@@ -53,7 +108,11 @@ export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused in the deck.";
  * announcer reached from inside it would make every consumer of a layout a consumer
  * of the announcer too. The acts are the layer where a keystroke becomes a sentence.
  */
-export function deckActsOn(layout: DeckLayout, announce: Announce): DeckActs {
+export function deckActsOn(
+  layout: DeckLayout,
+  announce: Announce,
+  isPaneDetached: PaneDetachmentReading,
+): DeckActs {
   const focusStep = (step: 1 | -1): void => {
     const before = layout.snapshot().focusedPaneId;
     layout.focusAdjacent(step);
@@ -111,6 +170,12 @@ export function deckActsOn(layout: DeckLayout, announce: Announce): DeckActs {
       const closing = panes.find((pane) => pane.paneId === focusedPaneId);
       if (closing === undefined) {
         announce(NO_FOCUSED_PANE_SENTENCE, "assertive");
+        return;
+      }
+      if (isPaneDetached(closing.paneId)) {
+        // Assertive, on `NO_FOCUSED_PANE_SENTENCE`'s lane rule: the thing the person
+        // asked for did not happen, and the pane they were looking at is unchanged.
+        announce(detachedPaneCloseRefusal(closing.kind), "assertive");
         return;
       }
       layout.close(closing.paneId);

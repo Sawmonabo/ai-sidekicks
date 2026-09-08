@@ -22,8 +22,9 @@ import type { StoredRecord } from "../persistence/adapter.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
-import { FrameStore, SessionStore } from "../store/index.js";
+import { FrameStore, SessionStore, SessionStoreRegistry } from "../store/index.js";
 import { ConsolePaneRegistry, PaneControlsContext } from "../seats/index.js";
+import { DetachedPaneBinding } from "./auxiliary/DetachedPaneBinding.js";
 import { DeckLayout } from "./deck/deck-layout.js";
 import { DECK_LAYOUT_RECORD_KEY } from "./layout/layout-persistence.js";
 import { Workspace } from "./Workspace.js";
@@ -148,25 +149,59 @@ export function workspaceFor(
   isKeyed: boolean,
   bridge: ConsoleBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
-  // The provider carries the SAME bridge the surface is handed, because that is the
-  // shape the frame mounts: one window, one transport, and one clock resolved off it
-  // — the deck reads that clock for its rect tracker, and a provider carrying another
-  // bridge would be two time bases in a window production only ever gives one.
+  return underWindowProviders(
+    bridge,
+    <Workspace
+      {...(isKeyed ? { key: session.sessionId } : {})}
+      bridge={bridge}
+      frameStore={
+        new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
+      }
+      sessionStore={session.store}
+      uiStateStore={uiStateStore}
+      draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
+      route={{ kind: "workspace", sessionId: session.sessionId }}
+      paneRegistry={testRegistry()}
+    />,
+  );
+}
+
+/**
+ * Everything a window mounts ABOVE a workspace, in the order it mounts them.
+ *
+ * ONE HOME, because a case that spelled this shape itself had a workspace with no
+ * binding above it and read a wiring defect as a broken surface. The provider carries
+ * the SAME bridge the surface is handed, because that is what the frame does: one
+ * window, one transport, and one clock resolved off it — the deck reads that clock for
+ * its rect tracker, and a provider carrying another bridge would be two time bases in
+ * a window production only ever gives one.
+ *
+ * THE BINDING SITS ABOVE THE KEYED SURFACE, which is where a window mounts it and why
+ * it is here rather than inside {@link workspaceFor}: which panes are showing in
+ * windows of their own outlives the destination on screen, so a binding inside the key
+ * would go away on exactly the navigation the record has to survive. Its subject is
+ * the bridge, so a caller handing the same one to two renders keeps one registry.
+ */
+export function underWindowProviders(
+  bridge: ConsoleBridge,
+  surface: React.JSX.Element,
+): React.JSX.Element {
   return (
     <SidekicksBridgeProvider bridge={bridge}>
       <LiveAnnouncerProvider>
-        <Workspace
-          {...(isKeyed ? { key: session.sessionId } : {})}
-          bridge={bridge}
-          frameStore={
-            new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
-          }
-          sessionStore={session.store}
-          uiStateStore={uiStateStore}
-          draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-          route={{ kind: "workspace", sessionId: session.sessionId }}
-          paneRegistry={testRegistry()}
-        />
+        <DetachedPaneBinding
+          context={{
+            bridge,
+            frameStore: new FrameStore(),
+            // The REAL registry rather than a stub: the binding reads neither member,
+            // and a hand-built pair would be a context shape no frame hands over.
+            sessionStoreRegistry: new SessionStoreRegistry({
+              read: () => Promise.resolve(undefined),
+            }),
+          }}
+        >
+          {surface}
+        </DetachedPaneBinding>
       </LiveAnnouncerProvider>
     </SidekicksBridgeProvider>
   );

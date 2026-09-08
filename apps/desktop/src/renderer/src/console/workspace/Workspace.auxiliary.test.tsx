@@ -288,4 +288,52 @@ describe("Workspace — a pane moved into a window of its own", () => {
     });
     expect(container.querySelector(".meridian-deck__detached")).toBeNull();
   });
+
+  it("keeps the pane in its window when the surface is left and returned to", async () => {
+    // THE NAVIGATION DEFECT, at the seam a person meets it. The record used to be held
+    // for the workspace's MOUNT, and this surface is keyed on the route's session
+    // inside one keyed on the whole address — so leaving unmounted it while the shell
+    // kept the window open, and the returning deck drew the body here while the
+    // auxiliary window was drawing the same pane there.
+    const store = memoryStore();
+    const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const bridge = bridgeServingWindowWire(detachingPort());
+    const { container, rerender } = render(workspaceFor(session, store, true, bridge));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+    pressDetach(container);
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-deck__detached")).not.toBeNull();
+    });
+
+    // Away — the keyed surface unmounts — and back to the same session.
+    rerender(workspaceFor(otherSession(), store, true, bridge));
+    await waitFor(() => {
+      expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+    });
+    rerender(workspaceFor(session, store, true, bridge));
+
+    // Exactly one body in this window, and it is not this pane's: the slot is still
+    // held and the projection is still suppressed.
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-deck__detached")).not.toBeNull();
+    });
+    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    expect(container.querySelector("[data-body]")).toBeNull();
+
+    // And the way back still works, which is the half a re-minted record loses: its
+    // return signal would have named a pane no record matched.
+    const returnControl = [
+      ...container.querySelectorAll<HTMLButtonElement>(".meridian-deck__detached-control"),
+    ].find((button) => button.textContent === "Return it to the deck");
+    expect(returnControl).not.toBeUndefined();
+    act(() => {
+      returnControl?.click();
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+    });
+  });
 });

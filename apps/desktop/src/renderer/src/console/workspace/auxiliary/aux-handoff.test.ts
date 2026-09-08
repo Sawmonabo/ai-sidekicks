@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { IMPLEMENTED_AUXILIARY_ROUTES } from "../../routing/index.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import {
+  ModelledShell,
   refusingPlane,
   WIRE_REJECTION_MESSAGE,
   detachingThenRejectingPort,
@@ -210,7 +211,12 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   });
 
   it("publishes every change to its subscribers", async () => {
-    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
+    // The MODELLED SHELL rather than `servingPort()`, which refuses both window
+    // signals: the hand-off opens them before it asks for a window, so over that port
+    // two subscription refusals are real changes and this case would be counting them
+    // beside the ones it is about. A shell that serves them leaves the detached set as
+    // the only thing that moves.
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: new ModelledShell().plane });
     const counts: number[] = [];
     const unsubscribe = handoff.subscribe((detached) => {
       counts.push(detached.length);
