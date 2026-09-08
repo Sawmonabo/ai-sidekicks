@@ -22,11 +22,7 @@ import {
   useSubjectScopedState,
   type SubjectScopedDisposal,
 } from "../../store/index.js";
-import {
-  NewSessionDraft,
-  type DraftPostureMode,
-  type NewSessionDraftState,
-} from "./new-session-draft.js";
+import { NewSessionDraft, type NewSessionDraftState } from "./new-session-draft.js";
 import { refuseSendThatRejected, type NewSessionSendResult } from "./new-session-send.js";
 
 /**
@@ -58,7 +54,6 @@ export interface NewSessionComposition {
   readonly isSending: boolean;
   readonly open: () => void;
   readonly close: () => void;
-  readonly setPosture: (posture: DraftPostureMode) => void;
   readonly setFirstTurn: (firstTurn: string) => void;
   readonly send: () => void;
   /** The destination's directory re-read, offered where a send cannot be repeated. */
@@ -162,13 +157,6 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     // closing by reconnect end a draft the same way.
     publishDraft(undefined);
   }, [publishDraft]);
-
-  const setPosture = useCallback(
-    (posture: DraftPostureMode) => {
-      openDraft?.setPosture(posture);
-    },
-    [openDraft],
-  );
 
   // Straight through to the draft, with nothing kept here: the field renders off the
   // draft's own `firstTurn`, so a discard clears the words on screen because it
@@ -298,7 +286,6 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     isSending,
     open,
     close,
-    setPosture,
     setFirstTurn,
     send,
     recheckDirectory,

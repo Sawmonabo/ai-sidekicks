@@ -546,13 +546,6 @@ export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js"
 export { growthSlateRow } from "./growth-port/growth-slate.js";
 export type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
 
-// The posture vocabulary the definitions registry declares. Through this door
-// because the new-session draft's picker offers the same three modes: a second
-// declaration in the workspace family would be the parallel closed set the module
-// rule forbids, and the draft's own type derives from the contracts package, so the
-// compiler holds the two to each other at the call site.
-export { SIDEKICK_POSTURE_MODES } from "./wire-shapes/sidekick-definition.js";
-
 // How a growth read ENDS when its seam can also REJECT. It lives in this family
 // because it settles a promise the growth port returned and knows nothing about any
 // surface, and in `readings/` because what it is about is the READING rather than any

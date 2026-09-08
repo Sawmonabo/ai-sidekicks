@@ -18,7 +18,7 @@ import type { NewSessionBlockedAct } from "../../seats/index.js";
 import {
   bridgeFor,
   blockedActSaying,
-  openDraftWithPosture,
+  openDraftWithFirstTurn,
   press,
   renderControlOn,
 } from "./NewSessionControl.test-support.js";
@@ -41,7 +41,7 @@ describe("the composed new-session draft — while the destination is not puttin
       () => undefined,
       blockedActSaying(STOPPED_SHELL_SENTENCE),
     );
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
 
     const send = screen.getByRole("button", { name: "Send" });
     expect(send.hasAttribute("disabled")).toBe(true);
@@ -61,7 +61,7 @@ describe("the composed new-session draft — while the destination is not puttin
 
     await press("+ New");
 
-    expect(screen.getByRole("group", { name: "How its agents may work" })).toBeDefined();
+    expect(screen.getByLabelText("Its first message")).toBeDefined();
   });
 
   it("negative control: a send dispatched on a control rendered UNBLOCKED puts nothing", async () => {
@@ -81,7 +81,7 @@ describe("the composed new-session draft — while the destination is not puttin
       lateBlock,
     );
 
-    await openDraftWithPosture();
+    await openDraftWithFirstTurn();
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
     blocked = true;
     await press("Send");
@@ -89,7 +89,7 @@ describe("the composed new-session draft — while the destination is not puttin
     // Nothing reached the wire, so there is no settlement to render and no sentence to
     // say: the cause is already on screen beside the control, and a sending flag set
     // here would have left a spinner nothing settles.
-    expect(container.textContent).not.toContain("first-turn-missing");
+    expect(container.textContent).not.toContain("first-turn-failed");
     expect(container.textContent).not.toContain("Already sent");
     // And the draft is untouched — still composed, still sendable the moment the
     // runtime is back.

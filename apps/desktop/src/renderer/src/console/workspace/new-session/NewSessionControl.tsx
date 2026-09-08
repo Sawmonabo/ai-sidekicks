@@ -12,14 +12,27 @@
 // behind. Replacing the probe would delete a path that works today; hiding the draft
 // behind it would leave the composed path unreachable, which is the defect.
 //
-// WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The posture axis, because it is a
-// closed set the console already holds and the draft already takes, and the first
-// message, because the draft cannot compose `run.queueCreate` without the turn's own
-// body and a session opened with nothing said is a session waiting on a person who
-// thinks they already sent something. Agents and repo mounts are not offered: both
-// need reads this surface would have to invent, and `Spec-023 §Console Design
-// (Meridian)` rule 8 puts an unasked question in the _not checked_ absence rather
-// than in a picker with nothing behind it.
+// WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The first message, and nothing else: the
+// draft cannot compose `run.queueCreate` without the turn's own body, and a session
+// opened with nothing said is a session waiting on a person who thinks they already
+// sent something. Agents and repo mounts are not offered because both need reads this
+// surface would have to invent, and `Spec-023 §Console Design (Meridian)` rule 8 puts
+// an unasked question in the _not checked_ absence rather than in a picker with
+// nothing behind it.
+//
+// AND THE POSTURE PICKER IS GONE FOR THE SHARPER VERSION OF THAT RULE: a control whose
+// choice cannot be honoured is worse than an absent one, because it reports success for
+// a decision nothing acted on. The posture travelled only inside `sendNewSessionDraft`'s
+// `agentAttach` loop, which iterates `request.agents` — empty on every send this build
+// can make, since no surface calls `NewSessionDraft.selectAgent`. And the two calls that
+// ARE made carry nowhere to put it: the registered `SessionCreateRequest` is
+// `{ config?, metadata? }` and `QueueItemCreateRequest` is
+// `{ sessionId, channelId?, workspaceId?, priority?, payload }`, both `.strict()`, and
+// the only request member in the corpus that carries an execution posture is
+// `AgentResolvedConfiguration.executionPostureMode` on the growth-slate `agent.attach`.
+// So the axis comes back with the agent picker that makes the attach leg reachable —
+// `NewSessionDraft` keeps `setPosture` beside `selectAgent` for exactly that lane, and
+// the send already honours it on the leg that can carry it.
 //
 // AND A PARTIAL SEND NAMES WHAT LANDED, not only what did not. All three of the
 // draft's calls are reachable, so a send that stops part way leaves a real session
@@ -82,18 +95,9 @@
 // press resumes at exactly that one. Navigating away would take that sentence with it,
 // and would stamp a start the person has not finished making.
 
-import { SIDEKICK_POSTURE_MODES } from "../../bridge/index.js";
 import { InlineRefusal } from "../../primitives/index.js";
 import type { NewSessionControlProps } from "../../seats/index.js";
 import { useNewSessionComposition } from "./new-session-composition.js";
-import type { DraftPostureMode } from "./new-session-draft.js";
-
-/** How each posture reads on a control, in the vocabulary's own order. */
-const POSTURE_LABELS: Readonly<Record<DraftPostureMode, string>> = {
-  trusted: "Trusted",
-  "workspace-sandboxed": "Sandboxed to the workspace",
-  "readonly-sandboxed": "Sandboxed, read-only",
-};
 
 export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
   const composition = useNewSessionComposition(props);
@@ -110,23 +114,6 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
 
   return (
     <section className="meridian-new-session" aria-label="New session draft">
-      <fieldset className="meridian-new-session__postures">
-        <legend>How its agents may work</legend>
-        {SIDEKICK_POSTURE_MODES.map((mode) => (
-          <label key={mode} className="meridian-new-session__posture">
-            <input
-              type="radio"
-              name="meridian-new-session-posture"
-              value={mode}
-              checked={composition.draftState?.posture === mode}
-              onChange={() => {
-                composition.setPosture(mode);
-              }}
-            />
-            {POSTURE_LABELS[mode]}
-          </label>
-        ))}
-      </fieldset>
       <label className="meridian-new-session__first-turn">
         Its first message
         <textarea

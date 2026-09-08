@@ -92,24 +92,6 @@
   font-size: var(--meridian-text-sm);
 }
 
-/* A `fieldset` for the grouping the legend gives it, with the browser's default
-   inset border and margin removed — the card above already draws the boundary. */
-.meridian-new-session__postures {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.meridian-new-session__posture {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-1);
-  color: var(--meridian-text);
-}
-
 .meridian-new-session__first-turn {
   display: flex;
   flex-direction: column;

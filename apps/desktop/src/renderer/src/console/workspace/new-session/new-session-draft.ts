@@ -54,7 +54,8 @@
 // THE FIRST TURN IS THE DRAFT'S, because the draft is what sends it. `run.queueCreate`
 // is registered and callable and takes the turn's own body, so a draft holding agents,
 // a mount and a posture and no words could not compose one — which is why this used to
-// refuse the leg by name. A person composing a session says what it is for in the same
+// refuse the leg by name. It is also the ONLY axis the shipped control offers, so a
+// draft that reaches a send from the screen always has one. A person composing a session says what it is for in the same
 // act, and a first turn that is still blank is the one refusal here that is a CHOICE
 // rather than a fact about the build: the session and its sidekicks exist, and nothing
 // has been said yet.
@@ -222,6 +223,16 @@ export class NewSessionDraft {
     this.#commit({ repoMount });
   }
 
+  /**
+   * The posture this session's agents work under, once one can be chosen.
+   *
+   * BESIDE {@link selectAgent}, AND UNREACHABLE FOR THE SAME REASON. The posture rides
+   * `agent.attach`'s `executionPostureMode` and nothing else — the two calls a draft
+   * without agents makes carry no member for it — so it is honoured exactly on the leg
+   * that iterates the agents nothing selects yet. `NewSessionControl.tsx` therefore
+   * offers no picker for it: the axis and its control land together with the lane that
+   * makes attaching an agent reachable.
+   */
   public setPosture(posture: DraftPostureMode | undefined): void {
     this.#commit({ posture });
   }
@@ -288,10 +299,12 @@ export class NewSessionDraft {
         outcome: "refused",
         sessionId: undefined,
         completedCalls: [],
-        refusal: refuseDraft(
-          "draft-empty",
-          "Pick at least one sidekick, a repository, or a posture, or type the first message, before sending.",
-        ),
+        // NAMED FOR THE CONTROLS THAT EXIST. The sentence used to offer a sidekick, a
+        // repository and a posture as alternatives, and a person reading it could
+        // reach none of the three: the shipped control offers the first message and
+        // nothing else. The lane that makes another axis pickable widens this
+        // sentence with it, in the same change that mints the control.
+        refusal: refuseDraft("draft-empty", "Type the first message before sending."),
       };
     }
 
