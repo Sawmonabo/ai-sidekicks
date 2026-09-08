@@ -56,6 +56,43 @@ function renderBar(
   return container;
 }
 
+/**
+ * One bar and one bridge, with the route from one session's selection to another's.
+ *
+ * A RE-RENDER AND NOT A REMOUNT, which is the shape the column has in the sidebar: the
+ * bar is mounted once and handed a model that is re-minted with the session, so
+ * anything it holds for the life of the MOUNT survives the route. One bridge across
+ * both renders, so the model is the only thing that moves.
+ */
+function renderRoutableBar(model: BulkSelectionModel): {
+  readonly container: HTMLElement;
+  readonly routeTo: (next: BulkSelectionModel) => void;
+} {
+  const bridge = createFixtureBridge({ scenario: unscriptedScenario("sidebar-bulk-bar") });
+  const barFor = (forModel: BulkSelectionModel): React.JSX.Element => (
+    <BulkActionBar model={forModel} bridge={bridge} sessionId={SESSION_ID} />
+  );
+  const { container, rerender } = render(barFor(model));
+  return {
+    container,
+    routeTo: (next) => {
+      rerender(barFor(next));
+    },
+  };
+}
+
+/** Press the first act the bar offers, which is what stages a confirm. */
+function stageConfirm(container: HTMLElement): void {
+  act(() => {
+    container.querySelector<HTMLButtonElement>(".meridian-sidebar-bulk__act")?.click();
+  });
+}
+
+/** The rows the staged confirm is previewing, or none where no confirm is up. */
+function confirmItemLabels(container: HTMLElement): readonly string[] {
+  return buttonsNamed(container, ".meridian-sidebar-bulk__confirm-items li");
+}
+
 function buttonsNamed(container: HTMLElement, selector: string): readonly string[] {
   return [...container.querySelectorAll(selector)].map((element) =>
     (element.textContent ?? "").replaceAll(/\s+/gu, " ").trim(),
@@ -187,5 +224,43 @@ describe("the bulk action bar", () => {
     });
 
     expect(container.querySelector(".meridian-sidebar-bulk")).toBeNull();
+  });
+});
+
+describe("the bulk action bar — a staged act belongs to the selection it was staged over", () => {
+  it("puts the confirm away when the column routes to another session's selection", () => {
+    // The defect: the pending act was mount state beside a model that is session-keyed,
+    // so a route left the first session's staged act standing over the second session's
+    // rows — the preview re-read `selectedFor` against the arriving model and previewed
+    // ITS rows under a confirm nobody had opened for them, one press from running.
+    const firstSession = new BulkSelectionModel();
+    firstSession.toggle(FIRST_QUEUED);
+    const { container, routeTo } = renderRoutableBar(firstSession);
+    stageConfirm(container);
+    expect(confirmItemLabels(container)).toStrictEqual(["Draft the migration"]);
+
+    // The same act, so the arriving selection has rows the stale confirm can preview.
+    // A second session selecting nothing for it would hide the defect behind the
+    // dialog's own empty arm rather than showing it.
+    const secondSession = new BulkSelectionModel();
+    secondSession.toggle(SECOND_QUEUED);
+    routeTo(secondSession);
+
+    expect(confirmItemLabels(container)).toStrictEqual([]);
+    expect(container.querySelector(".meridian-sidebar-bulk__confirm")).toBeNull();
+  });
+
+  it("negative control: a confirm nothing routed away from is still previewing its rows", () => {
+    // Without this, the case above would pass over a bar whose confirm never opened,
+    // and over one that closed on every re-render — a selection toggled while the
+    // preview is up re-renders this bar, and the preview has to survive that.
+    const session = new BulkSelectionModel();
+    session.toggle(FIRST_QUEUED);
+    const { container, routeTo } = renderRoutableBar(session);
+    stageConfirm(container);
+
+    routeTo(session);
+
+    expect(confirmItemLabels(container)).toStrictEqual(["Draft the migration"]);
   });
 });

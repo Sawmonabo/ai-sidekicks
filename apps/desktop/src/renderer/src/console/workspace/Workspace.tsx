@@ -40,8 +40,16 @@
 //     it back. The hand-off's own lifecycle — its detached set, its crash records, and
 //     the four acts a slot offers — is `workspace/auxiliary/auxiliary-panes.ts`'; this surface
 //     passes what that publishes down to the deck and raises what it refuses.
+//   • **And a banner belongs to the session it was raised in.** This surface is NOT
+//     remounted between two open sessions, so a column held for the life of the mount
+//     went on saying what a save or a detach refused in the session somebody left,
+//     over the deck of the one they are looking at — a sentence about an act nobody
+//     performed here, with nothing on screen tying it to where it came from. The
+//     column rides `seats/session-subject.ts` on `(bridge, session)`, so the render
+//     that first sees the arriving session already reads an empty one, and a bridge
+//     replacement — which retires every call the refusals describe — clears it too.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
@@ -73,6 +81,7 @@ import { useSidebarLayout } from "./sidebar/persistence/use-sidebar-layout.js";
 import {
   composerSeatRenderer,
   parseConsolePaneAddress,
+  useSessionScopedState,
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type ConsolePaneOpener,
@@ -80,6 +89,7 @@ import {
 } from "../seats/index.js";
 import { useActorFollow } from "./cast-bar/actor-follow.js";
 import {
+  NO_WORKSPACE_BANNERS,
   dismissWorkspaceBanner,
   raiseWorkspaceBanner,
   workspaceBannerKey,
@@ -144,15 +154,36 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   // rather than the first time somebody presses a chip.
   const announce = useAnnounce();
   const sessionStore = props.sessionStore;
-  const [banners, setBanners] = useState<readonly WorkspaceBanner[]>([]);
+  // WHAT THIS ROOM CANNOT DO, ADDRESSED BY THE SESSION IT CANNOT DO IT IN. The bridge
+  // is the subject and the session the key, which is this console's one session pairing:
+  // every refusal that lands here was raised by a call or a write made through that
+  // transport, so a replacement retiring those calls retires their sentences with them.
+  const { value: banners, settle: settleBanners } = useSessionScopedState<
+    readonly WorkspaceBanner[]
+  >(props.bridge, sessionId, () => NO_WORKSPACE_BANNERS);
 
-  const raise = useCallback((refusal: ConsoleRefusal) => {
-    setBanners((current) => raiseWorkspaceBanner(current, refusal));
-  }, []);
+  // CAPTURED WHEN THE REFUSAL LANDS, not when the raiser was handed over, and that is
+  // forced rather than chosen: both save writers are held per STORE and built once, so
+  // each closes over the raiser from the render that seeded it. A publisher captured at
+  // that render names the session that was on screen then and would go on refusing
+  // every later session's refusals in silence — `settle` names the visit committed at
+  // the moment of the call instead, so the column stays writable for the life of the
+  // mount and the refusal lands on the session a person is actually reading.
+  const raise = useCallback(
+    (refusal: ConsoleRefusal) => {
+      const publishIntoTheVisitOnScreen = settleBanners();
+      publishIntoTheVisitOnScreen((current) => raiseWorkspaceBanner(current, refusal));
+    },
+    [settleBanners],
+  );
 
-  const dismiss = useCallback((key: string) => {
-    setBanners((current) => dismissWorkspaceBanner(current, key));
-  }, []);
+  const dismiss = useCallback(
+    (key: string) => {
+      const publishIntoTheVisitOnScreen = settleBanners();
+      publishIntoTheVisitOnScreen((current) => dismissWorkspaceBanner(current, key));
+    },
+    [settleBanners],
+  );
 
   const restoreRefusals = useDeckPersistence({
     layout,

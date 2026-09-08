@@ -16,8 +16,10 @@ import {
   SCENARIO,
   SESSION_ID,
   memoryStore,
+  otherSession,
   sessionStore,
   workspaceFor,
+  type WorkspaceSession,
 } from "./Workspace.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { refusingPlane } from "./auxiliary/aux-handoff.test-support.js";
@@ -60,6 +62,39 @@ async function pressDetach(container: HTMLElement): Promise<void> {
   await act(async () => {
     control?.click();
     await crossMacrotaskBoundary();
+  });
+}
+
+/**
+ * One workspace and one bridge, with the route between two sessions inside that mount.
+ *
+ * UNKEYED, which is the whole shape these cases are about: the workspace stays mounted
+ * across a navigation between two open sessions, so a value held for the life of the
+ * MOUNT survives the route. ONE bridge across both renders, because the fixture mints a
+ * new one per call and a replaced transport is a second reason to drop what this column
+ * holds — a case that let both move could not say which one did the clearing.
+ */
+function renderRoutableSession(): {
+  readonly container: HTMLElement;
+  readonly routeTo: (session: WorkspaceSession) => void;
+} {
+  const uiStateStore = memoryStore();
+  const bridge = bridgeRefusingDetach();
+  const { container, rerender } = render(
+    workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, uiStateStore, false, bridge),
+  );
+  return {
+    container,
+    routeTo: (session) => {
+      rerender(workspaceFor(session, uiStateStore, false, bridge));
+    },
+  };
+}
+
+/** Wait for the pane whose body offers the detach control these cases press. */
+async function awaitDetachable(container: HTMLElement): Promise<void> {
+  await waitFor(() => {
+    expect(container.querySelector("[data-detach='timeline']")).not.toBeNull();
   });
 }
 
@@ -145,5 +180,39 @@ describe("Workspace — the banner column", () => {
     // The same element, not one carrying the same words: a remount is what the old
     // position key caused, and it is invisible in the markup.
     expect(rowCarrying(container, "shell-absent")).toBe(survivor);
+  });
+});
+
+describe("Workspace — the banner column belongs to the session that raised it", () => {
+  it("stops showing one session's banners once the workspace routes to another", async () => {
+    // The defect: a mount-lifetime list. The workspace is not remounted between two
+    // open sessions, so a refusal raised while the first was on screen went on standing
+    // over the second's deck — a sentence about an act nobody performed in the session
+    // they are looking at, with nothing on screen tying it to the one they left.
+    const { container, routeTo } = renderRoutableSession();
+    await awaitDetachable(container);
+    await pressDetach(container);
+    expect(bannerRows(container)).toHaveLength(1);
+
+    routeTo(otherSession());
+
+    expect(bannerRows(container)).toHaveLength(0);
+  });
+
+  it("negative control: the session arrived at raises banners of its own", async () => {
+    // Two ways the case above could pass over a broken column, and this closes both: a
+    // column that had stopped raising banners at all, and one that folded the arriving
+    // session's refusal into the row the previous session left standing — which is the
+    // same triple, so the coalescing rule would count it rather than draw it.
+    const { container, routeTo } = renderRoutableSession();
+    await awaitDetachable(container);
+    await pressDetach(container);
+
+    routeTo(otherSession());
+    await awaitDetachable(container);
+    await pressDetach(container);
+
+    expect(bannerRows(container)).toHaveLength(1);
+    expect(rowCarrying(container, "shell-absent").textContent).not.toContain("×");
   });
 });
