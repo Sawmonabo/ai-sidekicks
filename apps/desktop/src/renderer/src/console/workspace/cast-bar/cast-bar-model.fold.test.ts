@@ -15,12 +15,18 @@
 import { describe, expect, it } from "vitest";
 
 import { deriveCastBar } from "./cast-bar-model.js";
-import { castEvent, wheelFor, withRun } from "./cast-bar-model.test-support.js";
+import {
+  castBarOver,
+  castEvent,
+  ledgerOver,
+  wheelFor,
+  withRun,
+} from "./cast-bar-model.test-support.js";
 
 describe("deriveCastBar — one chip per participant, in join-log order", () => {
   it("keeps the wheel's order and never reorders by activity", () => {
     const wheel = wheelFor(["participant-you", "participant-priya", "agent-architect"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [castEvent(1, "agent-architect", "run.running")],
       isDegraded: false,
@@ -36,7 +42,7 @@ describe("deriveCastBar — one chip per participant, in join-log order", () => 
 
   it("takes the verb from the participant's NEWEST row", () => {
     const wheel = wheelFor(["agent-architect"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         castEvent(1, "agent-architect", "run.queued"),
@@ -51,7 +57,7 @@ describe("deriveCastBar — one chip per participant, in join-log order", () => 
 
   it("invents no verb for a participant with no row, and none for an unmapped kind", () => {
     const wheel = wheelFor(["participant-you", "agent-scout"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [castEvent(1, "agent-scout", "run.completed")],
       isDegraded: false,
@@ -67,7 +73,7 @@ describe("deriveCastBar — one chip per participant, in join-log order", () => 
     // Without this, the case above would pass over a derivation that never produced
     // a verb at all.
     const wheel = wheelFor(["agent-scout"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [castEvent(1, "agent-scout", "run.running")],
       isDegraded: false,
@@ -83,7 +89,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     const wheel = wheelFor(
       Array.from({ length: 11 }, (_unused, index) => `participant-${String(index)}`),
     );
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [],
       isDegraded: false,
@@ -97,24 +103,24 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
   it("says nothing needs you only when nothing does", () => {
     const wheel = wheelFor(["participant-you", "agent-architect"]);
     expect(
-      deriveCastBar({
+      castBarOver({
         assignments: wheel.assignments(),
         timeline: [castEvent(1, "agent-architect", "run.running")],
         isDegraded: false,
         isNodeUnwell: false,
         chipCap: 8,
-      }).isAllClear,
-    ).toBe(true);
+      }).standing,
+    ).toBe("all-clear");
 
     expect(
-      deriveCastBar({
+      castBarOver({
         assignments: wheel.assignments(),
         timeline: [castEvent(1, "agent-architect", "run.waiting_for_approval")],
         isDegraded: false,
         isNodeUnwell: false,
         chipCap: 8,
-      }).isAllClear,
-    ).toBe(false);
+      }).standing,
+    ).toBe("attention");
   });
 
   it("counts a FOLDED participant's block, because folding hides the person not the fact", () => {
@@ -124,7 +130,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     );
     const wheel = wheelFor(participantIds);
     const blocked = wheel.assignments()[9]?.participantId ?? "";
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [castEvent(1, blocked, "approval.requested")],
       isDegraded: false,
@@ -132,7 +138,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
       chipCap: 8,
     });
     expect(model.foldedMemberCount).toBeGreaterThan(0);
-    expect(model.isAllClear).toBe(false);
+    expect(model.standing).toBe("attention");
   });
 
   // What this case checks is the DERIVATION — that the member keeps its attention
@@ -144,7 +150,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     // waiting on an approval in one run and working in another looked clear, and the
     // bar said "Nothing needs you" over a run that was still blocked.
     const wheel = wheelFor(["participant-you", "agent-architect"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         withRun(castEvent(1, "agent-architect", "run.waiting_for_approval"), "run-a"),
@@ -155,7 +161,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
       isNodeUnwell: false,
       chipCap: 8,
     });
-    expect(model.isAllClear).toBe(false);
+    expect(model.standing).toBe("attention");
     expect(model.members[1]?.needsAttention).toBe(true);
     // The verb still comes from the newest row: what the actor is DOING and what is
     // outstanding are two questions, and this chip answers both without conflating
@@ -167,7 +173,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     // Without this, the case above would pass over a fold that never cleared
     // anything, which would leave the bar permanently amber.
     const wheel = wheelFor(["participant-you", "agent-architect"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         withRun(castEvent(1, "agent-architect", "run.waiting_for_approval"), "run-a"),
@@ -178,7 +184,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
       isNodeUnwell: false,
       chipCap: 8,
     });
-    expect(model.isAllClear).toBe(true);
+    expect(model.standing).toBe("all-clear");
     expect(model.members[1]?.needsAttention).toBe(false);
   });
 
@@ -187,14 +193,14 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     // "Nothing needs you." over an incomplete projection is a claim the console has
     // no standing to make.
     const wheel = wheelFor(["participant-you"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [],
       isDegraded: true,
       isNodeUnwell: false,
       chipCap: 8,
     });
-    expect(model.isAllClear).toBe(false);
+    expect(model.standing).toBe("attention");
     expect(model.members[0]?.isVerbStale).toBe(true);
   });
 
@@ -203,7 +209,7 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
     // saying nothing is amber printed next to an amber mark is the strip contradicting
     // itself. The log here is spotless: the verdict alone decides it.
     const wheel = wheelFor(["participant-you"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [],
       isDegraded: false,
@@ -211,14 +217,50 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
       chipCap: 8,
     });
 
-    expect(model.isAllClear).toBe(false);
+    expect(model.standing).toBe("attention");
+  });
+
+  it("says the count is partial where the window opened partway through the log", () => {
+    // The all-clear line is a CLAIM about everything, and a resumed read establishes a
+    // window whose head is somewhere in the middle: the request lifecycles below it
+    // have no base-state carrier, so zero read is not zero. The strip says which, and
+    // the log here is otherwise spotless — the read position alone decides it.
+    const wheel = wheelFor(["participant-you"]);
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: [],
+      outstandingAsks: ledgerOver([], { readFromCursor: "cursor-42" }),
+      isDegraded: false,
+      isNodeUnwell: false,
+      chipCap: 8,
+    });
+
+    expect(model.standing).toBe("earlier-unread");
+  });
+
+  it("lets a block the console DID read outrank the rows it did not", () => {
+    // Two true things, one line: a reader with a block in front of them gains nothing
+    // from a sentence about rows below the window, and the pair would leave them
+    // deciding which is the news.
+    const wheel = wheelFor(["participant-you", "agent-architect"]);
+    const blocked = [withRun(castEvent(1, "agent-architect", "run.waiting_for_approval"), "run-a")];
+    const model = deriveCastBar({
+      assignments: wheel.assignments(),
+      timeline: blocked,
+      outstandingAsks: ledgerOver(blocked, { readFromCursor: "cursor-42" }),
+      isDegraded: false,
+      isNodeUnwell: false,
+      chipCap: 8,
+    });
+
+    expect(model.standing).toBe("attention");
   });
 
   it("negative control: the same spotless log with a healthy node IS the all-clear", () => {
     // Without this the case above would pass over a fold that had stopped saying the
     // line at all, which is the failure the line exists to avoid from the other side.
     const wheel = wheelFor(["participant-you"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [],
       isDegraded: false,
@@ -226,6 +268,6 @@ describe("deriveCastBar — the fold and the all-clear line", () => {
       chipCap: 8,
     });
 
-    expect(model.isAllClear).toBe(true);
+    expect(model.standing).toBe("all-clear");
   });
 });

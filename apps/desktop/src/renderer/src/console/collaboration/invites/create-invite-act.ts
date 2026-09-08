@@ -52,13 +52,14 @@ import {
 import type { ConsoleRefusal } from "../../core/index.js";
 import {
   currentShellBlock,
+  isShellBlockRefusal,
   shellBlockForMethod,
   useShellState,
   type FrameStore,
   type ShellMutationBlock,
 } from "../../store/index.js";
 import { inviteExpiryChoice, inviteExpiryInstant } from "./invite-draft.js";
-import { inviteMintWithLink, isShellBlockRefusal, type InviteMintReceipt } from "./invite-mint.js";
+import { inviteMintWithLink, type InviteMintReceipt } from "./invite-mint.js";
 import {
   WireMutationCoordinator,
   type CollaborationMutation,

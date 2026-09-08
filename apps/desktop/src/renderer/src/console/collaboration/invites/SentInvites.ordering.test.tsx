@@ -27,7 +27,7 @@ import type { ConsoleBridge, InvitesListOutcome, ServedInvite } from "../../brid
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { bridgeFor, pressSend, scenarioMinting } from "./create-invite.test-support.js";
-import { quietShell } from "../shell-condition.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   INVITE_1,

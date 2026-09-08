@@ -6,7 +6,15 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
-import { LedgerRowLeaseProvider, type LedgerRowLease } from "../../frame/index.js";
+import {
+  LedgerRowLeaseProvider,
+  LedgerShellConditionProvider,
+  type LedgerRowLease,
+} from "../../frame/index.js";
+// The condition that closes no control, from the one module that builds shell
+// conditions: an ask row dispatches a mutating call and reads the window's supervisor
+// through the ledger, so a harness without one is a mount this shell refuses.
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 // Deeply, at the modules that DECLARE them: the family door imports the cards' sheet,
 // and a suite has no reason to pull one in to reach a fold and a provider.
 import { LedgerAskTerminalProvider } from "../bodies/AskTerminalProvider.js";
@@ -82,6 +90,9 @@ function MountedInAList(props: {
   readonly windowRows?: readonly TimelineRowSlotProps["row"][];
 }): React.JSX.Element {
   const [leased, setLeased] = useState<LedgerRowLease | undefined>(undefined);
+  // Minted once and kept: a fresh store on every render would be a fresh subscription
+  // on every render for the ask row that reads it.
+  const [frameStore] = useState(quietShell);
   const row = (
     <FixtureShellRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
   );
@@ -95,15 +106,17 @@ function MountedInAList(props: {
           },
         }}
       >
-        {props.windowRows === undefined ? (
-          row
-        ) : (
-          <LedgerAskTerminalProvider
-            terminalsByAskIdentity={deriveDriverAskTerminals(props.windowRows)}
-          >
-            {row}
-          </LedgerAskTerminalProvider>
-        )}
+        <LedgerShellConditionProvider channel={{ frameStore }}>
+          {props.windowRows === undefined ? (
+            row
+          ) : (
+            <LedgerAskTerminalProvider
+              terminalsByAskIdentity={deriveDriverAskTerminals(props.windowRows)}
+            >
+              {row}
+            </LedgerAskTerminalProvider>
+          )}
+        </LedgerShellConditionProvider>
       </LedgerRowLeaseProvider>
     </InBridge>
   );

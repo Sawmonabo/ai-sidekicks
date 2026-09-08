@@ -59,6 +59,17 @@ export {
 } from "./entity-projector-registry.js";
 
 export { SessionStore, type SessionStoreState } from "./session-store.js";
+// What the session still has open, from the module that HOLDS it rather than from the
+// store that publishes one reading of it. It leaves the family because the cast bar
+// renders the strip's all-clear line, and that line is a claim about lifecycles rather
+// than about rows: the journal is kept apart from the window precisely so a pruned or
+// re-read timeline cannot silently clear an approval, and a surface reading the window
+// instead would put the defect straight back. The journal CLASS stays inside — one
+// writer per store, constructed by the store itself — so what leaves is the reading.
+// The two record types stay inside for the barrel census's rule: the fold above reads
+// them by iterating the ledger's own maps and names neither, so a door line for either
+// would be a re-export with no reader.
+export type { OutstandingAskLedger } from "./outstanding-asks/outstanding-ask-journal.js";
 // The base state a read establishes. Exported because the composition root now
 // builds one — the adapter over the growth port's session read lives there, which
 // is where a family that may reach the bridge is allowed to be.
@@ -119,10 +130,10 @@ export type {
 //
 // `currentShellBlock` ships beside `shellBlockForMethod` because a dispatching surface
 // needs both and they answer different questions: the rendered block draws the control,
-// and the current one decides whether the call is put. Five surfaces take it — the
+// and the current one decides whether the call is put. Six surfaces take it — the
 // membership ledger, the sent-invite ledger, the invitation mint, the sessions
-// destination's act block, and the onboarding step's re-check — and a family that
-// could not reach it through this door would spell
+// destination's act block, the onboarding step's re-check, and the ledger's answer to a
+// provider-raised ask — and a family that could not reach it through this door would spell
 // `getState().shellState` for itself, which is the second reading of which cell carries
 // the shell condition.
 export {
@@ -137,6 +148,12 @@ export {
   shellBlocksAreEqual,
   shellMutationBlock,
 } from "./shell-mutation-block.js";
+// The refusal a block becomes, and the predicate that recognises one. Both leave the
+// family because both producers of a blocked dispatch are VIEW families and siblings
+// cannot reach each other: the invitation mint settles one, and so does the ledger's
+// ask answer. The origin string itself stays inside — it is the seam these two names
+// exist to keep from being spelled twice.
+export { isShellBlockRefusal, shellBlockRefusal } from "./shell-mutation-block.js";
 export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell-mutation-block.js";
 export { useRailAttentionCount, useShellState } from "./hooks.js";
 // Every open session's projection as one signal, and the one fold the frame takes

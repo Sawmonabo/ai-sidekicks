@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { quietShell } from "../shell-condition.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import { settle } from "./sent-invites.test-support.js";
 import { COLLABORATION_SCENARIO } from "../../bridge/scenarios/collaboration.js";

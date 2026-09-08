@@ -48,27 +48,29 @@
 //     of those rows is addressed from a head this store can move underneath it, so
 //     `windowGeneration` publishes which window a page was asked under and the merge
 //     is settled through it.
+//   • **What is outstanding outlives the window.** The `timeline` above is one window
+//     and it is capped, so a fold over it loses an approval the moment the row that
+//     opened it is pruned or thrown away by the next read. `outstanding-asks/outstanding-ask-journal.ts`
+//     holds those lifecycles instead — seeded from each base state, advanced by every
+//     admitted row and every recovered one, and cleared by nothing this class does.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 
 import { reportTripwire } from "../core/index.js";
 import { ParticipantHueAllocator } from "../tokens/index.js";
+import { foldAppliedBatch } from "./applied-batch-fold.js";
 import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
-import { mergeEarlierWindow, type EarlierWindowMerge } from "./earlier-window.js";
+import { foldEarlierWindowPage, type EarlierWindowMerge } from "./earlier-window.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
 import { EntityProjectionRunner } from "./entity-projection.js";
 import { GenerationLatch, type CurrentGenerationClaim } from "./generation-latch.js";
+import { OutstandingAskJournal, type OutstandingAskLedger } from "./outstanding-asks/index.js";
 import { PreInitialisationBuffer } from "./pre-initialisation-buffer.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
-import {
-  SequenceReconciler,
-  isReconcilableSequence,
-  orderBatchBySequence,
-} from "./sequence-reconciler.js";
+import { SequenceReconciler, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
   admitsSnapshotAt,
-  capTimeline,
   establishedState,
   uninitialisedState,
   type TimelineRetainedEnd,
@@ -108,6 +110,15 @@ export class SessionStore {
   readonly #reconciler = new SequenceReconciler();
   readonly #preInitialisationBuffer = new PreInitialisationBuffer();
   readonly #projectionRunner: EntityProjectionRunner;
+  /**
+   * What is still waiting on a person, held apart from the window it was learned from.
+   *
+   * Constructed here rather than handed in, because its lifetime is this store's and its
+   * inputs are this store's: it is advanced by exactly the rows the apply chokepoint
+   * admits and the rows the backward walk recovers, and a caller able to supply a second
+   * register could publish a count over a session whose rows it never saw.
+   */
+  readonly #outstandingAsks = new OutstandingAskJournal();
   readonly #reentrantQueue: ConsoleSessionEvent[] = [];
   #applying = false;
   /**
@@ -179,6 +190,18 @@ export class SessionStore {
   }
 
   /**
+   * What this session still has open, as of every row this store has ever been given.
+   *
+   * A GETTER RATHER THAN A STATE MEMBER, on `paging-binding.ts`' precedent: the ledger
+   * only ever moves on an act that also bumps `revision`, so a reader subscribed to that
+   * re-asks exactly when it could have changed — and a mirror on the committed state
+   * would be a second copy of a value whose whole point is that it is the register's.
+   */
+  public get outstandingAskLedger(): OutstandingAskLedger {
+    return this.#outstandingAsks.ledger;
+  }
+
+  /**
    * A handle on the window this log is a view of, for a caller settling against it.
    *
    * FOR THE READER THAT ASKS FOR ROWS THIS WINDOW DOES NOT HOLD. Such a read is
@@ -235,7 +258,18 @@ export class SessionStore {
     // act just replaced, so the claim it took at issue stops being current here and
     // its page settles nowhere.
     this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
+    // AND THE OUTSTANDING LEDGER TAKES WHAT THIS READ ESTABLISHED WITHOUT LOSING WHAT IT
+    // ALREADY HELD. The read re-establishes the WINDOW and says nothing about a request
+    // it did not carry, so a register cleared here would throw away exactly the older
+    // asks it exists to hold — which is the defect this whole seam answers. What the
+    // seed does move is the window-head fact, because that is a property of this read.
+    this.#outstandingAsks.seedFrom({
+      entities: snapshot.entities,
+      cursor: snapshot.cursor,
+      windowHeadCursor: snapshot.readFromCursor,
+    });
     const timeline = orderBatchBySequence(snapshot.timeline ?? []);
+    this.#outstandingAsks.admit(timeline);
     this.#reconciler.rebaseTo(
       snapshot.cursor,
       timeline.map((event) => event.sequence),
@@ -297,7 +331,21 @@ export class SessionStore {
 
     this.#applying = true;
     try {
-      return this.#applyBatchInner(events);
+      const current = this.#store.getState();
+      const { outcome, nextState } = foldAppliedBatch(current, events, {
+        sessionId: this.#sessionId,
+        reconciler: this.#reconciler,
+        projectionRunner: this.#projectionRunner,
+        preInitialisationBuffer: this.#preInitialisationBuffer,
+        hueAllocator: this.#hueAllocator,
+        outstandingAsks: this.#outstandingAsks,
+        timelineCap: this.#timelineCap,
+        retainedEnd: this.#retainedEnd,
+      });
+      if (nextState !== undefined) {
+        this.#store.setState(nextState);
+      }
+      return outcome;
     } finally {
       this.#applying = false;
       const queued = this.#reentrantQueue.splice(0, this.#reentrantQueue.length);
@@ -316,19 +364,11 @@ export class SessionStore {
    * Grow the log at its head with a page read from behind
    * {@link SessionStoreState.windowHeadCursor}.
    *
-   * NOT A SECOND APPLY CHOKEPOINT, and every difference from `applyBatch` is a
-   * property rather than a shortcut. It reconciles no sequence — every row is below
-   * the cursor by construction, so the reconciler would classify each one as a
-   * duplicate or a divergence and refuse the page wholesale. It runs no projector —
-   * a partition holds the NEWEST state of an entity, and an older event's projector
-   * would replace a run's current state with the one it was in before this window
-   * opened. It moves no cursor, records no gap, and neither sets nor clears the
-   * degraded flag: nothing about what this window is missing at the TAIL is decided
-   * by a page from its head.
-   *
-   * A foreign session is refused here as it is there, and for the same reason: two
-   * sessions never share a store, and a page routed to the wrong one would put
-   * another session's rows under this session's ids.
+   * NOT A SECOND APPLY CHOKEPOINT, and `earlier-window.ts` states every difference
+   * from `applyBatch` as a property rather than a shortcut — no sequence reconciled,
+   * no projector run, no cursor moved, no gap recorded, and the degraded flag neither
+   * set nor cleared. What it DOES advance is the outstanding-ask register, because a
+   * recovered row is the one thing a backward page is worth to it.
    *
    * Answers what the merge did, so a caller can tell an exhausted walk (nothing
    * admitted, nothing overlapping) from a page asked for at the wrong position
@@ -336,139 +376,17 @@ export class SessionStore {
    */
   public prependEarlierEvents(events: readonly ConsoleSessionEvent[]): EarlierWindowMerge {
     const current = this.#store.getState();
-    const admissible = orderBatchBySequence(
-      events.filter(
-        (event) => event.sessionId === this.#sessionId && isReconcilableSequence(event.sequence),
-      ),
-    );
-    const merge = mergeEarlierWindow(current.timeline, admissible);
-    if (merge.admitted === 0) {
+    const { merge, nextState } = foldEarlierWindowPage(current, events, {
+      sessionId: this.#sessionId,
+      hueAllocator: this.#hueAllocator,
+      outstandingAsks: this.#outstandingAsks,
+      timelineCap: this.#timelineCap,
+    });
+    if (nextState === undefined) {
       return merge;
     }
-    // Counted BEFORE the cap runs, because the count is what decides which end the
-    // cap keeps: reading it back off the capped array would let the cap answer its
-    // own question and cut the rows that just arrived.
     this.#earlierEventCount += merge.admitted;
-    for (const event of admissible) {
-      if (event.actorId !== undefined) {
-        this.#hueAllocator.admit(event.actorId);
-      }
-    }
-    this.#store.setState({
-      ...current,
-      timeline: capTimeline(merge.timeline, this.#timelineCap, this.#retainedEnd),
-      revision: current.revision + 1,
-    });
+    this.#store.setState(nextState);
     return merge;
-  }
-
-  #applyBatchInner(events: readonly ConsoleSessionEvent[]): ApplyOutcome {
-    const current = this.#store.getState();
-    let admitted = 0;
-    let duplicates = 0;
-    let buffered = 0;
-    let refusedForeignSession = 0;
-    let gapDetected = false;
-    let droppedBeforeInitialisation = 0;
-    let refusedDivergedSequence = 0;
-    let projectionFailures = 0;
-
-    let partitions = current.partitions;
-    let appended: ConsoleSessionEvent[] | undefined;
-
-    for (const event of orderBatchBySequence(events)) {
-      if (event.sessionId !== this.#sessionId) {
-        refusedForeignSession += 1;
-        continue;
-      }
-      if (!isReconcilableSequence(event.sequence)) {
-        // Refused BEFORE the buffer: no base state makes such a sequence
-        // applicable, so buffering it would only defer the same refusal.
-        refusedDivergedSequence += 1;
-        continue;
-      }
-      if (!current.initialised) {
-        buffered += 1;
-        if (this.#preInitialisationBuffer.push(event)) {
-          droppedBeforeInitialisation += 1;
-        }
-        continue;
-      }
-
-      const admission = this.#reconciler.reconcile(event.sequence);
-      if (admission.outcome === "duplicate") {
-        duplicates += 1;
-        continue;
-      }
-      if (admission.outcome === "diverged") {
-        refusedDivergedSequence += 1;
-        continue;
-      }
-      if (admission.openedGap !== undefined) {
-        gapDetected = true;
-      }
-
-      const projected = this.#projectionRunner.run(partitions, event);
-      if (projected === undefined) {
-        projectionFailures += 1;
-      } else {
-        partitions = projected;
-      }
-
-      if (event.actorId !== undefined) {
-        this.#hueAllocator.admit(event.actorId);
-      }
-      appended ??= [...current.timeline];
-      appended.push(event);
-      admitted += 1;
-    }
-
-    // The dedupe set answers only for sequences the cursor cannot. Released here
-    // rather than never, so a session that runs all day holds a batch's worth of
-    // numbers instead of its whole history.
-    this.#reconciler.releaseSequencesAtOrBelowCursor();
-
-    const outcome: ApplyOutcome = {
-      admitted,
-      duplicates,
-      buffered,
-      refusedForeignSession,
-      gapDetected,
-      droppedBeforeInitialisation,
-      refusedDivergedSequence,
-      projectionFailures,
-    };
-    if (
-      admitted === 0 &&
-      !gapDetected &&
-      droppedBeforeInitialisation === 0 &&
-      refusedDivergedSequence === 0
-    ) {
-      return outcome;
-    }
-
-    this.#store.setState({
-      ...current,
-      partitions,
-      timeline:
-        appended === undefined
-          ? current.timeline
-          : capTimeline(appended, this.#timelineCap, this.#retainedEnd),
-      cursor: this.#reconciler.cursor,
-      // A drop at the cap is a known-incomplete projection for the same reason a
-      // skipped sequence is, so it takes the same cause. The sequences it cost are
-      // deliberately NOT recorded here — the drain re-derives them against the base
-      // state as an ordinary range.
-      degradedCause: worstDegradedCause(
-        current.degradedCause,
-        refusedDivergedSequence > 0 ? "stream-diverged" : undefined,
-        gapDetected || droppedBeforeInitialisation > 0 ? "sequence-gap" : undefined,
-        projectionFailures > 0 ? "projection-failed" : undefined,
-      ),
-      gaps: this.#reconciler.gaps(),
-      revision: current.revision + 1,
-    });
-
-    return outcome;
   }
 }

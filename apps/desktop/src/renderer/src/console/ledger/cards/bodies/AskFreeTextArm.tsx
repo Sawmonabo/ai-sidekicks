@@ -24,20 +24,37 @@
 // boundary rather than truncated — so an ask with no options is the ordinary case and
 // this arm is the only answer path that is always there.
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { type DriverAskDelivery } from "./input-ask.js";
 
 export interface AskFreeTextArmProps {
-  /** Names the field to a reader and keeps two open asks' labels apart. */
-  readonly askId: string;
   /** Where the answer this card last dispatched has got to. */
   readonly delivery: DriverAskDelivery;
+  /**
+   * Whether the card has closed both arms — a delivery in flight or already taken, or
+   * a supervisor that is not serving.
+   *
+   * A BOOLEAN AND NOT THE BLOCK, because the card draws the reason once above both
+   * arms: an option group and this field are shut by one condition, and a second
+   * rendering of it here would be the same sentence twice on one card. What this arm
+   * owes is the affordance.
+   */
+  readonly isClosed: boolean;
   readonly onAnswer: (response: string) => void;
 }
 
 export function AskFreeTextArm(props: AskFreeTextArmProps): React.JSX.Element {
   const [draft, setDraft] = useState("");
+  // MINTED PER MOUNT AND NEVER COMPOSED FROM THE ASK. `askId` is the PROVIDER's,
+  // minted per provider session, so two runs blocked at once legitimately raise the
+  // same one — and an id built from it gave both fields the same `id`, at which point
+  // a click on either label focuses whichever the document reached first and the second
+  // ask's field is unlabelled to a screen reader. A composite over `(runId, askId)`
+  // would fix that pair and not the general one: nothing stops one ask from being
+  // rendered in two panes at once. `useId` is the console's own mechanism for exactly
+  // this, and it is unique per rendered instance, which is what the DOM requires.
+  const fieldId = useId();
   const deliveryStatus = props.delivery.status;
   // THE ONE EFFECT, AND IT IS A TRANSITION RATHER THAN A DERIVATION. The field is
   // cleared when the delivery REACHES `accepted`, which is a moment and not a
@@ -49,20 +66,16 @@ export function AskFreeTextArm(props: AskFreeTextArmProps): React.JSX.Element {
       setDraft("");
     }
   }, [deliveryStatus]);
-  // The two statuses in which this arm has nothing further to send: one answer is on
-  // the wire, or one has already reached the driver. `refused` is deliberately not
-  // among them — that is the state a retry is offered from.
-  const isSettling = deliveryStatus === "delivering" || deliveryStatus === "accepted";
-  const fieldId = `meridian-input-ask-${props.askId}`;
   return (
     <form
       className="meridian-input-ask__free-text"
       onSubmit={(event) => {
         event.preventDefault();
-        // An empty draft is not an answer, and delivering one would settle a real
-        // ask with nothing in it. The submit control is disabled on the same
-        // condition, so the guard and the affordance cannot disagree.
-        if (draft.length > 0) {
+        // BOTH CONDITIONS THE SUBMIT CONTROL IS DISABLED ON, so the guard and the
+        // affordance cannot disagree. An empty draft is not an answer and delivering
+        // one would settle a real ask with nothing in it; a closed arm is a delivery
+        // already out, one already taken, or a runtime that is not serving.
+        if (draft.length > 0 && !props.isClosed) {
           props.onAnswer(draft);
         }
       }}
@@ -73,7 +86,7 @@ export function AskFreeTextArm(props: AskFreeTextArmProps): React.JSX.Element {
         className="meridian-input-ask__field"
         value={draft}
         rows={2}
-        disabled={isSettling}
+        disabled={props.isClosed}
         onChange={(event) => {
           setDraft(event.target.value);
         }}
@@ -81,7 +94,7 @@ export function AskFreeTextArm(props: AskFreeTextArmProps): React.JSX.Element {
       <button
         type="submit"
         className="meridian-input-ask__send"
-        disabled={draft.length === 0 || isSettling}
+        disabled={draft.length === 0 || props.isClosed}
       >
         Send answer
       </button>

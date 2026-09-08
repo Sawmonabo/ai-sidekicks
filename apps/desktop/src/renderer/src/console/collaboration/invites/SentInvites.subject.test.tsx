@@ -16,7 +16,7 @@ import {
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge, InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
 import type { FrameStore } from "../../store/index.js";
-import { quietShell } from "../shell-condition.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   EMPTY_SCENARIO,
