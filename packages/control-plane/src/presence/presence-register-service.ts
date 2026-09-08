@@ -318,7 +318,7 @@ const SET_TIMEOUT_MAX_MS = 2_147_483_647;
 // `crypto.randomUUID()` (36 chars) in production, but the constructor
 // (`options?.nodeId ?? crypto.randomUUID()`) accepts an arbitrary
 // caller-supplied string — the tests pass `"node-a"` / `"node-b"` — so this is
-// a bound, NOT a UUID-format assertion: `z.uuid()` would wrongly reject the
+// a bound, NOT a UUID-format assertion: any such assertion would wrongly reject the
 // legitimate non-UUID node ids the abstraction allows. There is no contracts
 // `NodeId` const because `PresenceFanoutMessage` is control-plane-internal.
 const NODE_ID_MAX_LEN = 256;
@@ -421,7 +421,7 @@ type ClientPresence = LocalClientPresence | PeerClientPresence;
 function clientKey(participantId: ParticipantId, deviceId: string): string {
   // `participantId` is canonicalized to lowercase hex (`canonicalizeUuid`)
   // BEFORE it enters the key: it is a `brandedUuidIdSchema` UUID
-  // (session.ts:57) whose validator (`z.string().uuid()`) is case-INSENSITIVE,
+  // (session.ts:57) whose validator (`RFC_9562_TEXT_FORM`) is case-INSENSITIVE,
   // so an uppercase and a lowercase spelling denote the SAME logical
   // participant and MUST collapse to one key (else the same participant on one
   // device splits into two slots). `deviceId` is NOT canonicalized — it is an
@@ -1145,7 +1145,7 @@ export class PresenceRegisterService {
   // ------------------------------------------------------------------------
   //
   // `#sessions` is keyed by `SessionId`, a `brandedUuidIdSchema` UUID whose
-  // validator (`z.string().uuid()`) is case-INSENSITIVE (RFC 9562 §4), and ids
+  // validator (`RFC_9562_TEXT_FORM`) is case-INSENSITIVE (RFC 9562 §4), and ids
   // in this codebase are branded by bare cast at DB-row reads (not parsed
   // through the schema), so an uppercase and a lowercase spelling of the SAME
   // logical session can both reach this map. Routing EVERY keyed access through

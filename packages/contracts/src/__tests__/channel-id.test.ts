@@ -23,8 +23,9 @@
 //
 // Refs: Plan-002 Phase 3 (shared channel-id derivation), RFC 9562 §5.8
 // (UUIDv8) + §4.1 (variant), contracts session.ts:8-11 (rationale —
-// `z.uuid()` accepts any RFC 9562 UUID including v8) + internal/branded.ts:25
-// (`z.string().uuid()`, the `ChannelId` brand's actual validator).
+// the factory predicate accepts any RFC 9562 UUID including v8) +
+// internal/branded.ts (`RFC_9562_TEXT_FORM`, the `ChannelId` brand's actual
+// validator).
 import { describe, expect, it } from "vitest";
 
 import { deriveMainChannelId } from "../channel-id.js";
@@ -99,7 +100,7 @@ describe("deriveMainChannelId", () => {
 
   it("GATING PREMISE — SessionIdSchema accepts an uppercase UUID (so case divergence is reachable)", () => {
     // The whole point of the lowercase-normalize fix is that `SessionIdSchema`
-    // (`z.string().uuid()`, case-INSENSITIVE) admits an uppercase UUID. If this
+    // (`RFC_9562_TEXT_FORM`, case-INSENSITIVE) admits an uppercase UUID. If this
     // were false the schema would already reject non-canonical case and the
     // normalize would be dead code — so this assertion gates the fix below.
     expect(SessionIdSchema.safeParse(UPPERCASE_SESSION_ID).success).toBe(true);

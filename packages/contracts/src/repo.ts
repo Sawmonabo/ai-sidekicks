@@ -46,7 +46,7 @@
 // Zod 4.x).
 import { z } from "zod";
 
-import { brandedUuidIdSchema } from "./internal/branded.js";
+import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 // DIRECT import from the `./node-id.js` leaf, never from `./runtime-node.js`
 // (which re-exports the same three symbols): runtime-node.ts imports values
 // from `./event.js`, and event.ts imports `RepoWorkspaceLifecyclePayloadSchema`
@@ -62,8 +62,8 @@ import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.j
 // --------------------------------------------------------------------------
 //
 // Server-minted UUIDs, so both compose the `brandedUuidIdSchema` helper from
-// `./internal/branded.js` (which encapsulates the
-// `z.string().uuid().brand().as unknown as z.ZodType<T, T>` cast bridging
+// `./internal/branded.js` (which encapsulates the `RFC_9562_TEXT_FORM`
+// predicate plus the `.brand().as unknown as z.ZodType<T, T>` cast bridging
 // Zod's single-T `$ZodBranded` output to the double-T shape tRPC v11's
 // Standard-Schema-V1 input inference needs per ADR-014) — the same idiom as
 // `SessionIdSchema` in session.ts. The contrast case is `NodeIdSchema`
@@ -358,13 +358,15 @@ export function buildRepoWorkspaceLifecyclePayloadSchema<TState extends string>(
       // that brand is Plan-010-owned per Plan-009 T1.1's own task text, and
       // minting it here would pre-empt the owning plan's declaration (CP-009-1
       // makes this file the canonical origin Plan-010 imports FROM, not a place
-      // to declare Plan-010's symbols). The parser is the
-      // same `z.string().uuid()` the branded ids compose through
-      // `brandedUuidIdSchema`, so the RUNTIME accept-set is already identical —
-      // only the compile-time brand is absent, and Plan-010 can narrow at its
-      // own consumption site without a wire change. Representable NOW so
-      // CP-010-5's registration is purely additive.
-      worktreeId: z.string().uuid().optional(),
+      // to declare Plan-010's symbols). The parser is the SAME predicate the
+      // branded ids compose through — `uuidTextFormSchema` and
+      // `brandedUuidIdSchema` are two exports over one `RFC_9562_TEXT_FORM` —
+      // so the RUNTIME accept-set is identical by construction and not by
+      // coincidence: only the compile-time brand is absent, and Plan-010 can
+      // narrow at its own consumption site without a wire change or a value
+      // whose parse result moves. Representable NOW so CP-010-5's registration
+      // is purely additive.
+      worktreeId: uuidTextFormSchema.optional(),
       // The subject's post-transition state — THE PARAMETER, and the only
       // field that varies across the family. Each caller supplies the
       // vocabulary its own plan owns; see this function's note on why that is

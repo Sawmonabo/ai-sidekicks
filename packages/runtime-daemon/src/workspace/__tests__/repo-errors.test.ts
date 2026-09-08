@@ -55,7 +55,7 @@ import {
 const ATTEMPTED_PATH = "/Users/operator/private-clients/acme-payments/src";
 
 // Bare UUIDs, not prefixed handles. T1.1's `RepoMountIdSchema` /
-// `WorkspaceIdSchema` are `brandedUuidIdSchema` (`z.string().uuid()`), so an
+// `WorkspaceIdSchema` are `brandedUuidIdSchema` (`RFC_9562_TEXT_FORM`), so an
 // `rm-` / `ws-`-prefixed fixture would fail to parse — and a fixture here is
 // what a Phase 2 author copies.
 const SAMPLE_MOUNT_ID = "8f3c1a20-0f1e-4c77-9d2b-6a4e1f0b7c53";

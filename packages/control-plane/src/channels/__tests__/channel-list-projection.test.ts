@@ -225,7 +225,7 @@ describe("ChannelListProjection.list", () => {
     // to the daemon's projected main-channel id for the same session.
     expect(mainChannel.id).toBe(deriveMainChannelId(SESSION_ID));
     // The id is a valid version-8 UUID (passes the `ChannelId` brand's
-    // `z.string().uuid()` validator — verified shape here, schema round-trip
+    // `RFC_9562_TEXT_FORM` validator — verified shape here, schema round-trip
     // below).
     expect(mainChannel.id).toMatch(UUID_V8_RE);
     // Owner-only session → exactly one active member.
