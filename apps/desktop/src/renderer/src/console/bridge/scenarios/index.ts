@@ -29,6 +29,7 @@ import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { COMPOSER_SCENARIO } from "./composer.js";
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO } from "./incident/ledger-window-growth.js";
 import { LEDGER_FIRST_SIXTY_SCENARIO } from "./ledger/ledger-first-sixty.js";
 import { LEDGER_QUIET_SCENARIO } from "./ledger/ledger-quiet.js";
 import { LEDGER_SCENARIO } from "./ledger/ledger.js";
@@ -68,4 +69,8 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   // T-023p-1C-8 gallery
   BRING_YOUR_HISTORY_SCENARIO,
   ONBOARDING_SCENARIO, // sign-in and onboarding
+  // The `incident` class, last on purpose: these are evidence rather than composition.
+  // A row here is a defect that happened, replayed from the wire frames it arrived on,
+  // and a person opening the picker to see the product should not meet one first.
+  LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO,
 ];

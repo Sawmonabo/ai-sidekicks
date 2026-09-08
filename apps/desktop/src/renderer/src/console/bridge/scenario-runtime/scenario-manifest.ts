@@ -6,6 +6,12 @@
 //   • `growthOperations` — one row per eventual bridge operation, each naming the
 //     `Plan-023 §Console growth slate` row it serves and whether the fixture has a
 //     script for it. Operations are what a surface CALLS.
+//   • `frozenTicks` — per scenario, the frames the capture tiers pin, in the
+//     `<scenarioId>@t=<tick>` spelling the design names. Read from
+//     `frozen-tick-registry.ts` rather than declared here, for the same reason the
+//     scenarios themselves are read from their own seat board: the manifest is the
+//     place all three lists are ASSERTED against each other, never a fourth home
+//     for one of them.
 //   • `prerequisites` — the rest of the slate: types, settings keys, pane-kind
 //     declarations, event-type registrations, error namespaces, and one governing
 //     document that does not exist yet. These are what a slate row needs and a
@@ -31,6 +37,7 @@ import {
   type GrowthSlateRowId,
 } from "../growth-port/index.js";
 import type { ConsoleScenario } from "./scenario.js";
+import { SCENARIO_FROZEN_TICKS, type ScenarioFrozenTick } from "./frozen-tick-registry.js";
 // The scenario list lives in `scenarios/index.ts`, which holds one reserved line
 // per view family. Seven families ship concurrently; an array they all edit here
 // would conflict six ways, and the conflict resolves cleanly while dropping a
@@ -54,6 +61,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATIONS: readonly GrowthOperationId[] =
 
 export interface ConsoleScenarioManifest {
   readonly scenarios: readonly ConsoleScenario[];
+  readonly frozenTicks: Readonly<Record<string, readonly ScenarioFrozenTick[]>>;
   readonly growthOperations: readonly GrowthOperationEntry[];
   readonly prerequisites: readonly GrowthPrerequisiteEntry[];
   readonly slateRows: readonly GrowthSlateRow[];
@@ -86,6 +94,7 @@ export interface ConsoleScenarioManifest {
 export function consoleScenarioManifest(): ConsoleScenarioManifest {
   return {
     scenarios: CONSOLE_SCENARIOS,
+    frozenTicks: SCENARIO_FROZEN_TICKS,
     growthOperations: Object.values(GROWTH_OPERATIONS),
     prerequisites: Object.values(GROWTH_PREREQUISITES),
     slateRows: GROWTH_SLATE_ROWS,
