@@ -31,6 +31,7 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {
   CREATED_SESSION_ID,
+  bridgeAnsweringCreateUnreadably,
   bridgeFor,
   bridgeHoldingCreate,
   composeAndCompleteASend,
@@ -259,5 +260,52 @@ describe("the composed new-session draft — what a completed send hands out", (
     }
 
     expect(settledSessionIds).toStrictEqual([CREATED_SESSION_ID]);
+  });
+});
+
+describe("the composed new-session draft — the create it cannot answer for", () => {
+  afterEach(cleanup);
+
+  it("names the ambiguity, closes Send, and offers the sessions list instead", async () => {
+    // The defect: an unreadable reply rendered as `session-create-failed` beside a Send
+    // button that was live again — an invitation to press, which is the one act that
+    // makes a second orphan session.
+    const rechecks: number[] = [];
+    const container = renderControlOn(
+      bridgeAnsweringCreateUnreadably(),
+      () => undefined,
+      () => rechecks.push(1),
+    );
+
+    await openDraftWithPosture();
+    await press("Send");
+
+    expect(container.textContent).toContain("session-create-unreadable");
+    expect(container.textContent).toContain("Check the sessions list");
+    // Closed, and stays closed: this draft can put nothing else on the wire.
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    // And the act that IS available is drawn rather than left to be guessed at.
+    await press("Check the sessions list");
+    expect(rechecks).toStrictEqual([1]);
+    // The draft stays: a person can still read what they typed and copy it out.
+    expect(container.querySelector(".meridian-new-session")).not.toBeNull();
+    expect(politeText(container)).toBe(
+      "A session may have been created, and this window could not read the reply. Check the sessions list.",
+    );
+  });
+
+  it("negative control: no session is handed to the destination on that arm", async () => {
+    // Without this the case above would pass over a build that settled the ambiguous
+    // arm as a start — navigating away, opening a store, and stamping origin markers
+    // for a session that may not exist and is certainly not named.
+    const settledSessionIds: string[] = [];
+    renderControlOn(bridgeAnsweringCreateUnreadably(), (sessionId) =>
+      settledSessionIds.push(sessionId),
+    );
+
+    await openDraftWithPosture();
+    await press("Send");
+
+    expect(settledSessionIds).toStrictEqual([]);
   });
 });

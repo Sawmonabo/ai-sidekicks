@@ -37,6 +37,7 @@ import {
   readQueueItemCreateRequest,
   settledGrowthCall,
   type ConsoleBridge,
+  type DaemonReplyRefusalCode,
 } from "../../bridge/index.js";
 import { refuse, type NarrowedRefusal } from "../../core/index.js";
 
@@ -51,6 +52,10 @@ import { refuse, type NarrowedRefusal } from "../../core/index.js";
 export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   "draft-empty",
   "session-create-failed",
+  // The create the console cannot answer for — see {@link NEW_SESSION_SEND_OUTCOMES}.
+  // A SEPARATE CODE FROM `session-create-failed`, because the two are opposite
+  // instructions: one says press again, and this one says do not.
+  "session-create-unreadable",
   "agent-attach-failed",
   "first-turn-missing",
   "first-turn-failed",
@@ -59,6 +64,38 @@ export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   // alternative shipped once: a rejection that cleared the result and said nothing.
   "send-failed",
 ] as const;
+
+/**
+ * What a send SETTLED as. Closed and declared once, so no caller can forget an arm.
+ *
+ * Declared as a tuple on {@link NEW_SESSION_DRAFT_REFUSAL_CODES}' own terms rather
+ * than inline on the result, because the vocabulary has consumers that must be TOTAL
+ * over it — the control keys its announcement off a `Record` of this union — and a
+ * union spelled inline is one a fifth arm can be added to without any of them
+ * noticing.
+ *
+ *   • `sent` — every call the draft named landed.
+ *   • `partial` — the session exists and a later leg did not; the draft stays, and a
+ *     second press resumes at the first call that has not been made.
+ *   • `refused` — nothing was created. Pressing Send again is the right act.
+ *   • `created-unreadable` — the daemon answered `session.create` with a reply this
+ *     build cannot read, so the console cannot say whether a session was created.
+ *     NEITHER of the two dispositions beside it is honest: reporting `refused` invites
+ *     a second press, which mints a second session where the first one landed, and
+ *     reporting `partial` claims a session and an id nothing here holds. The wire
+ *     carries no idempotency member for `session.create` — Spec-001 and Spec-002 mint
+ *     none — so a renderer cannot make the retry safe, and the only safe act left is
+ *     to go and look. This arm is terminal for the draft that reached it.
+ */
+export const NEW_SESSION_SEND_OUTCOMES = [
+  "sent",
+  "partial",
+  "refused",
+  "created-unreadable",
+] as const;
+
+/** One settled send outcome. Derived, so the vocabulary is declared once. */
+export type NewSessionSendOutcome = (typeof NEW_SESSION_SEND_OUTCOMES)[number];
 
 /** One draft refusal code. Derived, so the vocabulary is declared once. */
 export type NewSessionDraftRefusalCode = (typeof NEW_SESSION_DRAFT_REFUSAL_CODES)[number];
@@ -90,8 +127,13 @@ export const RUN_QUEUE_CREATE_METHOD = "run.queueCreate";
  * sidekicks are on it.
  */
 export interface NewSessionSendResult {
-  readonly outcome: "sent" | "partial" | "refused";
-  /** Present once `session.create` answered, whatever happened after it. */
+  readonly outcome: NewSessionSendOutcome;
+  /**
+   * Present once `session.create` answered READABLY, whatever happened after it.
+   *
+   * Absent on `created-unreadable`, which is the whole difficulty of that arm: a
+   * session may exist and this console holds no name for it.
+   */
   readonly sessionId: string | undefined;
   readonly completedCalls: readonly string[];
   readonly refusal: NewSessionDraftRefusal | undefined;
@@ -113,6 +155,33 @@ export function refuseSendThatRejected(): NewSessionSendResult {
     refusal: refuseDraft(
       "send-failed",
       "The draft could not be sent, and nothing was created. It is still here, and Send can be pressed again.",
+    ),
+  };
+}
+
+/**
+ * The settlement for a create this console cannot answer for.
+ *
+ * ONE HOME, because two callers reach it: the send that first read the unreadable
+ * reply, and the draft answering every LATER press without putting anything on the
+ * wire. A second spelling would let the two disagree about what a person is told to
+ * do — and the whole point of the arm is that the instruction is "do not send again".
+ *
+ * The sentence names the ambiguity rather than resolving it, and offers the one act
+ * that is safe: the sessions list re-reads the node's directory, so a session that WAS
+ * created appears there under its own name.
+ */
+export function refuseAmbiguousCreate(): NewSessionSendResult {
+  return {
+    outcome: "created-unreadable",
+    sessionId: undefined,
+    // Nothing is CLAIMED as landed: the call may have made a session and may not, and
+    // a line reading "Already sent: session.create" would be an assertion this module
+    // has no evidence for. The sentence carries the ambiguity instead.
+    completedCalls: [],
+    refusal: refuseDraft(
+      "session-create-unreadable",
+      "The daemon answered, but this build could not read the reply — so a session may have been created and this window cannot name it. Nothing else was sent. Check the sessions list rather than sending again: a second send would make a second session.",
     ),
   };
 }
@@ -144,8 +213,16 @@ export interface NewSessionSendRequest {
 /** What the send landed, so the draft can remember it and resume from it. */
 export interface NewSessionSendProgress {
   readonly result: NewSessionSendResult;
-  /** Present once the create answered — the id every later leg is addressed by. */
+  /** Present once the create answered readably — the id every later leg is addressed by. */
   readonly sessionId: string | undefined;
+  /**
+   * Whether `session.create` answered with a reply this build could not read.
+   *
+   * A SEPARATE MEMBER FROM `sessionId`, and not derivable from it: an absent id also
+   * describes a create that plainly refused, and those two states take opposite next
+   * acts. The draft records this one and never issues a create again.
+   */
+  readonly createAnsweredUnreadably: boolean;
   readonly attachedDefinitionIds: readonly string[];
   readonly firstTurnQueued: boolean;
 }
@@ -162,7 +239,20 @@ export async function sendNewSessionDraft(
 ): Promise<NewSessionSendProgress> {
   const completedCalls: string[] = [];
   const created = await resolveSession(request, completedCalls);
-  if (created.sessionId === undefined) {
+  if (created.settlement === "unreadable") {
+    // The one arm that is neither a refusal nor a partial. Reported through
+    // {@link NewSessionSendProgress} so the draft can REMEMBER it: a create that
+    // answered unreadably is a create that must never be issued again from this
+    // draft, and the memory is what makes the next press dispatch nothing.
+    return {
+      result: refuseAmbiguousCreate(),
+      sessionId: undefined,
+      createAnsweredUnreadably: true,
+      attachedDefinitionIds: [],
+      firstTurnQueued: false,
+    };
+  }
+  if (created.settlement === "refused") {
     return {
       result: {
         outcome: "refused",
@@ -171,11 +261,12 @@ export async function sendNewSessionDraft(
         refusal: created.refusal,
       },
       sessionId: undefined,
+      createAnsweredUnreadably: false,
       attachedDefinitionIds: [],
       firstTurnQueued: false,
     };
   }
-  const sessionId = created.sessionId;
+  const { sessionId } = created;
 
   const attached: string[] = [];
   for (const agent of request.agents) {
@@ -216,6 +307,7 @@ export async function sendNewSessionDraft(
           ),
         },
         sessionId,
+        createAnsweredUnreadably: false,
         attachedDefinitionIds: attached,
         firstTurnQueued: false,
       };
@@ -233,35 +325,60 @@ export async function sendNewSessionDraft(
       refusal: turn.refusal,
     },
     sessionId,
+    createAnsweredUnreadably: false,
     attachedDefinitionIds: attached,
     firstTurnQueued: turn.queued,
   };
 }
 
+/**
+ * How the create leg ended.
+ *
+ * Three arms and not two, because "nothing was created" and "we cannot say" are
+ * different facts with opposite next acts, and an absent `sessionId` describes both.
+ */
+type CreateSettlement =
+  | { readonly settlement: "resolved"; readonly sessionId: string }
+  | { readonly settlement: "refused"; readonly refusal: NewSessionDraftRefusal }
+  | { readonly settlement: "unreadable" };
+
 /** The create leg, skipped for a draft whose session already exists. */
 async function resolveSession(
   request: NewSessionSendRequest,
   completedCalls: string[],
-): Promise<{
-  readonly sessionId: string | undefined;
-  readonly refusal: NewSessionDraftRefusal | undefined;
-}> {
+): Promise<CreateSettlement> {
   if (request.sessionId !== undefined) {
     // Named as completed even though this press did not issue it: the slot's job is to
     // say what EXISTS, and a session made by the previous press is as real as one made
     // by this one.
     completedCalls.push(SESSION_CREATE_METHOD);
-    return { sessionId: request.sessionId, refusal: undefined };
+    return { settlement: "resolved", sessionId: request.sessionId };
   }
   // Through the bridge's one call door, which parses the request before sending and
   // the reply after and never throws.
   const reply = await callDaemon(request.bridge, SESSION_CREATE_METHOD, {});
   if (reply.status === "refused") {
+    if (reply.refusal.code === ("reply-unreadable" satisfies DaemonReplyRefusalCode)) {
+      // THE ONE REFUSAL THAT IS NOT EVIDENCE OF NOTHING HAPPENING. The door answers
+      // this code when the call FULFILLED and the value failed the registered response
+      // schema — so the daemon was reached, ran, and answered, and the only thing that
+      // failed is this build's reading of what it said. A session was very possibly
+      // created.
+      //
+      // NARROW ON PURPOSE, and the boundary is the door's own vocabulary rather than a
+      // judgement made here: `request-unsendable` means nothing left this process,
+      // `read-abandoned` is never reachable on a mutation (the door takes no signal
+      // here), and `call-rejected` is the call itself failing — which this module
+      // treats as a plain refusal, because widening the ambiguous arm to every
+      // transport hiccup would make a draft permanently unsendable for a fault that
+      // reached no daemon.
+      return { settlement: "unreadable" };
+    }
     // The daemon's own message is not console copy — it crosses an IPC boundary, may
     // be a stack, and describes a subsystem the person cannot act on. The code names
     // which call failed, which is what a person pastes into an issue.
     return {
-      sessionId: undefined,
+      settlement: "refused",
       refusal: refuseDraft(
         "session-create-failed",
         "The session could not be created. Nothing was sent, and the draft is still here.",
@@ -269,7 +386,7 @@ async function resolveSession(
     };
   }
   completedCalls.push(SESSION_CREATE_METHOD);
-  return { sessionId: reply.value.sessionId, refusal: undefined };
+  return { settlement: "resolved", sessionId: reply.value.sessionId };
 }
 
 /** The first-turn leg, which is the only one whose absence is the person's choice. */

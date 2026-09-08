@@ -43,6 +43,20 @@ export interface NewSessionControlProps {
    * the moment it settles rather than the one an effect closed over.
    */
   readonly onSessionCreated: (sessionId: string) => void;
+  /**
+   * Ask the destination to re-read the node's session directory.
+   *
+   * The one act a draft can still offer after a create whose reply this build could
+   * not read: a session may exist under a name nothing here holds, and the directory
+   * is what would answer. It is the SESSIONS family's act for the same reason the
+   * settlement above is — the read is addressed at the node and its staleness is
+   * declared through a seat this family owns, neither of which the workspace family
+   * may reach.
+   *
+   * Needs no stable identity, on `onSessionCreated`'s own terms: it is read from a
+   * press rather than from a dependency array.
+   */
+  readonly onSessionDirectoryRecheck: () => void;
 }
 
 /**

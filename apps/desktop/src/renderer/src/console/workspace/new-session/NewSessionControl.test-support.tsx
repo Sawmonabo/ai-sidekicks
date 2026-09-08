@@ -97,10 +97,15 @@ export function bridgeFor(options: {
 export function renderControlOn(
   bridge: ConsoleBridge,
   onSessionCreated: (sessionId: string) => void = () => undefined,
+  onSessionDirectoryRecheck: () => void = () => undefined,
 ): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <NewSessionControl bridge={bridge} onSessionCreated={onSessionCreated} />
+      <NewSessionControl
+        bridge={bridge}
+        onSessionCreated={onSessionCreated}
+        onSessionDirectoryRecheck={onSessionDirectoryRecheck}
+      />
     </LiveAnnouncerProvider>,
   );
   return container;
@@ -108,6 +113,21 @@ export function renderControlOn(
 
 export function renderControl(options: { readonly scriptsCreate: boolean }): HTMLElement {
   return renderControlOn(bridgeFor(options));
+}
+
+/**
+ * A bridge whose `session.create` fulfils with a reply the registered schema refuses.
+ *
+ * Short of `state`, `memberships` and `channels`, so the call door answers
+ * `reply-unreadable` — the daemon was reached, ran, and answered, and only this
+ * build's reading of what it said failed. That is the state a session may exist in
+ * with no name this window holds.
+ */
+export function bridgeAnsweringCreateUnreadably(): ConsoleBridge {
+  const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => ({
+    sessionId: CREATED_SESSION_ID,
+  }));
+  return bridge;
 }
 
 /** A bridge whose `session.create` is held open, and the handle that lets it answer. */

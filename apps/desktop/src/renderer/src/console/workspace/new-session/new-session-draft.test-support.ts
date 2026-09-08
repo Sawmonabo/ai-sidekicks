@@ -128,3 +128,28 @@ export function countedDraftFor(options: ScriptedLegs): CountedDraft {
   );
   return { draft: new NewSessionDraft({ bridge: under.bridge }), calls: under.calls };
 }
+
+/**
+ * A reply to `session.create` the registered response schema refuses.
+ *
+ * Short of `state`, `memberships` and `channels`, which `SessionCreateResponseSchema`
+ * requires — so the call FULFILS and the call door answers `reply-unreadable`. That
+ * distinction is the whole subject of the ambiguous arm: the daemon was reached, ran,
+ * and answered, and only this build's reading of what it said failed.
+ */
+const UNREADABLE_CREATE_REPLY = { sessionId: CREATED_SESSION_ID } as const;
+
+/**
+ * A draft whose create answers unreadably, with the tally of what reached the wire.
+ *
+ * The counted arm rather than the plain one, because what these cases assert is a
+ * NEGATIVE about the wire — that a second press sends no second `session.create` — and
+ * a result alone cannot say how many calls were made.
+ */
+export function countedDraftOverUnreadableCreate(): CountedDraft {
+  const under = withDaemonCall(
+    createFixtureBridge({ scenario: scenario({ scriptsCreate: true }) }),
+    async () => UNREADABLE_CREATE_REPLY,
+  );
+  return { draft: new NewSessionDraft({ bridge: under.bridge }), calls: under.calls };
+}

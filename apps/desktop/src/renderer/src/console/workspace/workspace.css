@@ -54,6 +54,7 @@
 
 .meridian-new-session__open,
 .meridian-new-session__discard,
+.meridian-new-session__recheck,
 .meridian-new-session__send {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge-strong);
@@ -66,14 +67,16 @@
 
 .meridian-new-session__open:focus-visible,
 .meridian-new-session__discard:focus-visible,
+.meridian-new-session__recheck:focus-visible,
 .meridian-new-session__send:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
 
-/* Disabled because the draft is empty, which is a state and not a failure: dimmed
-   so it reads as not-yet rather than refused, and left in place so the row does not
-   reflow the moment a posture is chosen. */
+/* Disabled because the draft is empty, which is a state and not a failure — or
+   because a create answered unreadably, which is a state a second press cannot
+   improve. Dimmed so it reads as not-yet rather than refused, and left in place so
+   the row does not reflow the moment the first message is typed. */
 .meridian-new-session__send:disabled {
   color: var(--meridian-text-muted);
 }

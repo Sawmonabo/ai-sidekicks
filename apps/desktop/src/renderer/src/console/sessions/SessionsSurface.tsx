@@ -267,6 +267,16 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     });
   };
 
+  // Declare the node's directory stale, so this destination's own list re-reads it.
+  //
+  // The same act the settled join performs one screen down, through the same seat —
+  // and the composed draft's only remaining move after a create whose reply could not
+  // be read: a session may exist under a name nothing in this window holds, and the
+  // directory is the read that would answer.
+  const recheckSessionDirectory = (): void => {
+    requestSessionDirectoryRead(growth);
+  };
+
   // Why no act may be put right now, in the words the control carries.
   //
   // THE SHELL'S CAUSE OUTRANKS THE LIST'S. A window that cannot reach the runtime
@@ -295,7 +305,11 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   const ComposedNewSession = props.newSessionControl;
   const startControl = (
     <>
-      <ComposedNewSession bridge={context.bridge} onSessionCreated={settleStartedSession} />
+      <ComposedNewSession
+        bridge={context.bridge}
+        onSessionCreated={settleStartedSession}
+        onSessionDirectoryRecheck={recheckSessionDirectory}
+      />
       <SessionActs
         bridge={context.bridge}
         preferences={preferences}
@@ -325,7 +339,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
           // already settled and carries the session it joined, which is what makes this
           // a read of something that HAPPENED rather than a guess put beside a call
           // still in flight.
-          requestSessionDirectoryRead(growth);
+          recheckSessionDirectory();
           openSession(sessionId);
         }}
         blockedReason={blockedActSentence}

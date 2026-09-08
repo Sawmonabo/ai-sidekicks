@@ -68,7 +68,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
-import { SIDEKICK_POSTURE_MODES, type ConsoleBridge } from "../../bridge/index.js";
+import { SIDEKICK_POSTURE_MODES } from "../../bridge/index.js";
 import { InlineRefusal, useAnnounce } from "../../primitives/index.js";
 import type { NewSessionControlProps } from "../../seats/index.js";
 import {
@@ -90,15 +90,33 @@ const POSTURE_LABELS: Readonly<Record<DraftPostureMode, string>> = {
   "readonly-sandboxed": "Sandboxed, read-only",
 };
 
-/** What a person hears once a send settles. One sentence per outcome. */
+/**
+ * What a person hears once a send settles. One sentence per outcome.
+ *
+ * A `Record` over the closed union rather than a lookup with a fallback, which is what
+ * makes a fifth arm a compile error here instead of a silent empty announcement.
+ */
 const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], string>> = {
   sent: "The session was created.",
   partial: "The session was created, but not everything the draft asked for could be sent.",
   refused: "Nothing was sent, and the draft is still here.",
+  "created-unreadable":
+    "A session may have been created, and this window could not read the reply. Check the sessions list.",
 };
 
+/**
+ * The one settled outcome a draft cannot be sent out of.
+ *
+ * Named here rather than compared inline, because two things read it — the Send
+ * button's disabled state and the act offered in its place — and a second spelling is
+ * how one of them stops agreeing with the other.
+ */
+function isAmbiguousCreate(result: NewSessionSendResult | undefined): boolean {
+  return result?.outcome === "created-unreadable";
+}
+
 export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
-  const composition = useNewSessionComposition(props.bridge, props.onSessionCreated);
+  const composition = useNewSessionComposition(props);
 
   if (composition.draftState === undefined) {
     return (
@@ -158,10 +176,29 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
         <button type="button" className="meridian-new-session__discard" onClick={composition.close}>
           Discard
         </button>
+        {/* The act that replaces Send once the create's reply could not be read. It is
+            offered INSTEAD OF a retry and never beside one: the directory read is
+            what would name a session that was made, and a second send would make
+            another. `Spec-023 §Console Design (Meridian)` rule 9 — the control is
+            disabled with its sentence beside it, and the act that IS available is
+            drawn rather than left to be guessed at. */}
+        {isAmbiguousCreate(composition.sendResult) ? (
+          <button
+            type="button"
+            className="meridian-new-session__recheck"
+            onClick={composition.recheckDirectory}
+          >
+            Check the sessions list
+          </button>
+        ) : null}
         <button
           type="button"
           className="meridian-new-session__send"
-          disabled={composition.draftState.isEmpty || composition.isSending}
+          disabled={
+            composition.draftState.isEmpty ||
+            composition.isSending ||
+            isAmbiguousCreate(composition.sendResult)
+          }
           onClick={composition.send}
         >
           Send
@@ -189,6 +226,8 @@ interface NewSessionComposition {
   readonly setPosture: (posture: DraftPostureMode) => void;
   readonly setFirstTurn: (firstTurn: string) => void;
   readonly send: () => void;
+  /** The destination's directory re-read, offered where a send cannot be repeated. */
+  readonly recheckDirectory: () => void;
 }
 
 /** What one draft's send is doing, and what it settled on. Held per draft. */
@@ -237,10 +276,8 @@ const DRAFT_DISPOSAL: SubjectScopedDisposal<NewSessionDraft | undefined> = {
  * selections of its own: two copies of what a person has chosen is how a discard
  * clears one of them.
  */
-function useNewSessionComposition(
-  bridge: ConsoleBridge,
-  onSessionCreated: (sessionId: string) => void,
-): NewSessionComposition {
+function useNewSessionComposition(props: NewSessionControlProps): NewSessionComposition {
+  const { bridge, onSessionCreated } = props;
   const heldDraft = useSubjectScopedResource<NewSessionDraft | undefined>(
     bridge,
     undefined,
@@ -338,6 +375,14 @@ function useNewSessionComposition(
     );
   }, [openDraft, publishReport]);
 
+  // The destination's directory re-read, straight through. Not memoised and not held:
+  // it is read from a press rather than from a dependency array, and the composition
+  // this hook returns is rebuilt on every render regardless.
+  const { onSessionDirectoryRecheck } = props;
+  const recheckDirectory = useCallback(() => {
+    onSessionDirectoryRecheck();
+  }, [onSessionDirectoryRecheck]);
+
   // The settlement callback as it stood at the last COMMIT, so the effect below can
   // read it without depending on its identity.
   //
@@ -391,5 +436,6 @@ function useNewSessionComposition(
     setPosture,
     setFirstTurn,
     send,
+    recheckDirectory,
   };
 }

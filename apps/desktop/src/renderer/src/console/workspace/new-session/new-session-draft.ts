@@ -43,6 +43,14 @@
 // scoped to the object, so closing the draft — which drops it — is what makes the next
 // "+ New" a genuinely new session.
 //
+// AND ONE SETTLEMENT ENDS THE DRAFT RATHER THAN RESUMING IT. A create the daemon
+// answered with a reply this build cannot read may have made a session, and named
+// none — so there is nothing to resume against and nothing safe to repeat, because
+// `session.create` carries no idempotency member and Spec-001 and Spec-002 mint none.
+// The draft remembers that reading and answers every later send from memory, putting
+// nothing on the wire; the sentence a person is left with says to go and look at the
+// sessions list rather than to press again.
+//
 // THE FIRST TURN IS THE DRAFT'S, because the draft is what sends it. `run.queueCreate`
 // is registered and callable and takes the turn's own body, so a draft holding agents,
 // a mount and a posture and no words could not compose one — which is why this used to
@@ -58,7 +66,12 @@
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, type Unsubscribe } from "../../core/index.js";
-import { refuseDraft, sendNewSessionDraft, type NewSessionSendResult } from "./new-session-send.js";
+import {
+  refuseAmbiguousCreate,
+  refuseDraft,
+  sendNewSessionDraft,
+  type NewSessionSendResult,
+} from "./new-session-send.js";
 
 /**
  * The posture axis a person picks, taken off the wire type rather than restated.
@@ -102,13 +115,24 @@ interface LandedCalls {
   /**
    * The session this draft created, once it has.
    *
-   * Keyed on the CALL having returned rather than on an id having been read: a create
-   * the daemon accepted made a session whether or not its response carried a readable
-   * `sessionId`, so a memory that only remembered ids would let an unreadable response
-   * mint a second session on the next press.
+   * Set only where the reply was READ, so this member and {@link sessionId} move
+   * together and the resume path can address the session it names. The create that
+   * answered unreadably is the other half of the same rule and is recorded beside it
+   * in {@link hasUnreadableCreate}, because it cannot be resumed from at all — there
+   * is no id — and must still stop the next press from minting a second session.
    */
   hasCreatedSession: boolean;
   sessionId: string | undefined;
+  /**
+   * Whether the create answered with a reply this build could not read.
+   *
+   * The state {@link hasCreatedSession} anticipates and could not by itself express:
+   * a create the daemon answered unreadably may have made a session, and no id came
+   * back to address it by — so the draft can neither resume against it nor safely
+   * mint another. Recorded so every LATER press answers from memory and puts nothing
+   * on the wire.
+   */
+  hasUnreadableCreate: boolean;
   readonly attachedDefinitionIds: Set<string>;
   hasQueuedFirstTurn: boolean;
 }
@@ -140,6 +164,7 @@ export class NewSessionDraft {
   readonly #landed: LandedCalls = {
     hasCreatedSession: false,
     sessionId: undefined,
+    hasUnreadableCreate: false,
     attachedDefinitionIds: new Set<string>(),
     hasQueuedFirstTurn: false,
   };
@@ -247,6 +272,17 @@ export class NewSessionDraft {
   }
 
   async #performSend(): Promise<NewSessionSendResult> {
+    if (this.#landed.hasUnreadableCreate) {
+      // THE STRUCTURAL HALF OF THE AMBIGUOUS ARM, and the reason it is here rather
+      // than only on the control. A create this build could not read may have made a
+      // session, and `session.create` carries no idempotency member the console could
+      // use to ask for the same one twice — so a second dispatch does not retry, it
+      // creates. The affordance is disabled from the same fact; this is what makes a
+      // press that arrived anyway — a keyboard path, a later caller, a test — put
+      // nothing on the wire. The same settlement is answered again, so the sentence a
+      // person is reading does not change under them.
+      return refuseAmbiguousCreate();
+    }
     if (this.#state.isEmpty) {
       return {
         outcome: "refused",
@@ -273,7 +309,13 @@ export class NewSessionDraft {
 
     // Recorded whatever the outcome was: the legs that landed are landed, and a
     // partial that forgot them would repeat them on the next press.
-    if (progress.result.outcome !== "refused") {
+    //
+    // The unreadable arm is recorded FIRST and separately, because it is the one
+    // settlement that has to survive as its own fact: `hasCreatedSession` with no
+    // `sessionId` would be indistinguishable from a create that was skipped, and the
+    // resume path reads exactly that pair.
+    this.#landed.hasUnreadableCreate ||= progress.createAnsweredUnreadably;
+    if (progress.result.outcome === "sent" || progress.result.outcome === "partial") {
       this.#landed.hasCreatedSession = true;
       this.#landed.sessionId = progress.sessionId;
     }
