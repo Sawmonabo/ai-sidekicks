@@ -289,8 +289,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         // they are in no revealed set at any position — so they are subtracted here
         // and reported above under their own exit. Leaving them in would tell
         // somebody to scrub forward for rows scrubbing cannot reach.
+        //
+        // THE WINDOW-SCOPED READING, because this pile is this window's. An arrival
+        // the fold or the facet bar is hiding never reached `withheldByReplayRows`,
+        // so subtracting the log-wide count here would take away rows that pile
+        // never held and understate what scrubbing forward brings back.
         withheldByReplayRowCount={
-          visible.withheldByReplayRows.length - replay.rowsAdmittedSinceReplayBegan
+          visible.withheldByReplayRows.length - replay.rowsAdmittedIntoThisWindowSinceReplayBegan
         }
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
         scope={scope}
