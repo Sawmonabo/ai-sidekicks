@@ -194,6 +194,22 @@ function mountProbe(options: {
   };
 }
 
+/**
+ * Type one line into the draft store and let the publication it triggers reach the port.
+ *
+ * The write and the boundary are ONE step because a case that separated them would be
+ * asserting about the scheduler. `ComposingPublisher` appends every publication to a
+ * chain so a clear can never overtake an earlier set, so the call leaves on a microtask
+ * rather than inside the effect that asked for it — and an assertion taken straight
+ * after the write reads the state before the publisher had a turn.
+ */
+async function typeLine(draftStore: DraftStore, draftKey: string, line: string): Promise<void> {
+  await act(async () => {
+    draftStore.write(draftKey, line);
+    await crossMacrotaskBoundary();
+  });
+}
+
 describe("useComposingPublication — the first observation is not a keystroke", () => {
   it("publishes nothing when it mounts onto a draft somebody restored", () => {
     // A composer that announced on mount would say its owner was typing every time a
@@ -208,7 +224,7 @@ describe("useComposingPublication — the first observation is not a keystroke",
     expect(clearCalls).not.toHaveBeenCalled();
   });
 
-  it("publishes on the first move of the line, which is what a keystroke is", () => {
+  it("publishes on the first move of the line, which is what a keystroke is", async () => {
     // The negative control for the case above: without it a hook that published on
     // NOTHING would pass that one and be wrong about every message ever typed.
     const { draftStore, setCalls } = mountProbe({
@@ -216,9 +232,7 @@ describe("useComposingPublication — the first observation is not a keystroke",
       restoredDrafts: [{ draftKey: CHANNEL_DRAFT_KEY, text: "half a thought from yesterday" }],
     });
 
-    act(() => {
-      draftStore.write(CHANNEL_DRAFT_KEY, "half a thought from yesterday, continued");
-    });
+    await typeLine(draftStore, CHANNEL_DRAFT_KEY, "half a thought from yesterday, continued");
 
     expect(setCalls).toHaveBeenCalledTimes(1);
     expect(setCalls).toHaveBeenCalledWith({ sessionId: SESSION_ID, channelId: MAIN_CHANNEL_ID });
@@ -226,7 +240,7 @@ describe("useComposingPublication — the first observation is not a keystroke",
 });
 
 describe("useComposingPublication — a line that moved to empty", () => {
-  it("clears rather than publishing, because an empty line is nobody composing", () => {
+  it("clears rather than publishing, because an empty line is nobody composing", async () => {
     // The send landing and the person clearing what they wrote are the same move from
     // here, and both mean the indicator comes down NOW rather than at the receiver's
     // stale bound — which is a backstop for a window that vanished, not the ordinary
@@ -235,14 +249,10 @@ describe("useComposingPublication — a line that moved to empty", () => {
       focusedPane: MAIN_CHANNEL_PANE,
     });
 
-    act(() => {
-      draftStore.write(CHANNEL_DRAFT_KEY, "on its way");
-    });
+    await typeLine(draftStore, CHANNEL_DRAFT_KEY, "on its way");
     expect(setCalls).toHaveBeenCalledTimes(1);
 
-    act(() => {
-      draftStore.write(CHANNEL_DRAFT_KEY, "");
-    });
+    await typeLine(draftStore, CHANNEL_DRAFT_KEY, "");
 
     expect(clearCalls).toHaveBeenCalledTimes(1);
     expect(clearCalls).toHaveBeenCalledWith({ sessionId: SESSION_ID });
@@ -265,9 +275,7 @@ describe("useComposingPublication — the composer moved to another line", () =>
         { draftKey: AGENT_DRAFT_KEY, text: SHARED_LINE },
       ],
     });
-    act(() => {
-      draftStore.write(CHANNEL_DRAFT_KEY, SHARED_LINE);
-    });
+    await typeLine(draftStore, CHANNEL_DRAFT_KEY, SHARED_LINE);
     expect(setCalls).toHaveBeenCalledTimes(1);
 
     reAddressTo(AGENT_PANE);
@@ -313,9 +321,7 @@ describe("useComposingPublication — the composer moved to another line", () =>
     const { draftStore, setCalls, clearCalls, reAddressTo } = mountProbe({
       focusedPane: MAIN_CHANNEL_PANE,
     });
-    act(() => {
-      draftStore.write(CHANNEL_DRAFT_KEY, SHARED_LINE);
-    });
+    await typeLine(draftStore, CHANNEL_DRAFT_KEY, SHARED_LINE);
     expect(setCalls).toHaveBeenCalledTimes(1);
 
     reAddressTo({ kind: "timeline", entity: { kind: "channel", id: MAIN_CHANNEL_ID } });
@@ -329,7 +335,7 @@ describe("useComposingPublication — the composer moved to another line", () =>
 });
 
 describe("useComposingPublication — an address that may not publish", () => {
-  it("publishes nothing for a provider-bound composer", () => {
+  it("publishes nothing for a provider-bound composer", async () => {
     // A steer is addressed to one agent's run and is nobody else's room to watch, so
     // the target supplies neither conjunct the gate reads and the hook is fail-closed
     // by construction rather than by a branch that could be forgotten.
@@ -337,9 +343,7 @@ describe("useComposingPublication — an address that may not publish", () => {
       focusedPane: AGENT_PANE,
     });
 
-    act(() => {
-      draftStore.write(AGENT_DRAFT_KEY, "stop and check the migration first");
-    });
+    await typeLine(draftStore, AGENT_DRAFT_KEY, "stop and check the migration first");
 
     expect(setCalls).not.toHaveBeenCalled();
     expect(clearCalls).not.toHaveBeenCalled();
@@ -360,15 +364,8 @@ describe("useComposingPublication — an address that may not publish", () => {
       presenceComposingSet: refusingSet,
     });
 
-    act(() => {
-      draftStore.write(CHANNEL_DRAFT_KEY, "first");
-    });
-    await act(async () => {
-      await crossMacrotaskBoundary();
-    });
-    act(() => {
-      draftStore.write(CHANNEL_DRAFT_KEY, "first and second");
-    });
+    await typeLine(draftStore, CHANNEL_DRAFT_KEY, "first");
+    await typeLine(draftStore, CHANNEL_DRAFT_KEY, "first and second");
 
     expect(setCalls).toHaveBeenCalledTimes(1);
     expect(container.textContent).toBe("composing probe");

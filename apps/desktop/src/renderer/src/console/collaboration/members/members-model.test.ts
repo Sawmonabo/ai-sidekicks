@@ -6,13 +6,15 @@
 // beside it and nothing would look broken; a derivation that defaulted an absent
 // role to something plausible would put a term on screen that no event ever
 // stated, which is indistinguishable from a fact.
+//
+// The candidate filter — which of those rows a surface may still offer an act to —
+// is its own suite in `members-model.candidates.test.ts`, because answering it needs
+// a real store and the projector table rather than a hand-built partition.
 
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleEntity, ConsoleSessionEvent } from "../../store/index.js";
-import { eventOfKind } from "../../store/session-event.test-support.js";
-import { SessionStore } from "../../store/index.js";
-import { COLLABORATION_PROJECTORS } from "./membership-projector.js";
+import type { ConsoleEntity } from "../../store/index.js";
+import { membershipRow } from "./members-model.test-support.js";
 import {
   MEMBERSHIP_ACTION_NOTES,
   MEMBERSHIP_ROLES,
@@ -20,12 +22,9 @@ import {
   MEMBERSHIP_STATE_IS_LIVE,
   deriveMembershipRows,
   isLastRemainingOwner,
-  isLiveMembership,
   isMembershipRole,
   isMembershipState,
-  liveMembershipParticipantIds,
   membershipRefusalRemedy,
-  type MembershipRow,
 } from "./members-model.js";
 
 function participant(id: string, body?: Record<string, unknown>, state?: string): ConsoleEntity {
@@ -34,16 +33,6 @@ function participant(id: string, body?: Record<string, unknown>, state?: string)
     id,
     ...(state === undefined ? {} : { state }),
     ...(body === undefined ? {} : { body }),
-  };
-}
-
-function row(overrides: Partial<MembershipRow> = {}): MembershipRow {
-  return {
-    participantId: "participant-you",
-    membershipId: "membership-1",
-    role: "owner",
-    state: "active",
-    ...overrides,
   };
 }
 
@@ -277,20 +266,23 @@ describe("members model — the two sources, and which one wins", () => {
 
 describe("members model — the last remaining owner", () => {
   it("names the sole owner and nobody else", () => {
-    const rows = [row(), row({ participantId: "participant-priya", role: "collaborator" })];
+    const rows = [
+      membershipRow(),
+      membershipRow({ participantId: "participant-priya", role: "collaborator" }),
+    ];
     expect(isLastRemainingOwner(rows[0] as MembershipRow, rows)).toBe(true);
     expect(isLastRemainingOwner(rows[1] as MembershipRow, rows)).toBe(false);
   });
 
   it("names nobody once a second owner exists", () => {
-    const rows = [row(), row({ participantId: "participant-priya" })];
+    const rows = [membershipRow(), membershipRow({ participantId: "participant-priya" })];
     expect(rows.every((candidate) => !isLastRemainingOwner(candidate, rows))).toBe(true);
   });
 
   it("negative control: a row whose role never arrived is never the last owner", () => {
     // The note is advisory precisely because this console does not hold every
     // role — a row with no role must not be counted as one either way.
-    const rows = [row({ role: undefined })];
+    const rows = [membershipRow({ role: undefined })];
     expect(isLastRemainingOwner(rows[0] as MembershipRow, rows)).toBe(false);
   });
 });
@@ -308,89 +300,5 @@ describe("members model — refusal remedies", () => {
 
   it("negative control: a code it does recognize returns a real sentence", () => {
     expect(membershipRefusalRemedy("membership.permission_denied")).toContain("owner");
-  });
-});
-
-describe("members model — who is still in the session", () => {
-  const SESSION_ID = "session-collaboration";
-
-  /**
-   * The participant partition a real store holds after applying these events.
-   *
-   * The REAL store and the REAL projector table, because the claim spans both: the
-   * fold has to write the transition and the derivation has to read it, and a
-   * hand-built partition would assert the second half against an assumption about the
-   * first. This is the whole path the section body takes, minus the React around it.
-   */
-  function partitionAfter(
-    events: readonly ConsoleSessionEvent[],
-  ): Readonly<Record<string, ConsoleEntity>> {
-    const store = new SessionStore({ sessionId: SESSION_ID, projectors: COLLABORATION_PROJECTORS });
-    store.initialise({ cursor: 0, participantJoinLog: [], entities: [] });
-    store.applyBatch(events);
-    return store.snapshot().partitions.participant;
-  }
-
-  /** One admission, as the wire states it. */
-  function admission(participantId: string, sequence: number): ConsoleSessionEvent {
-    return eventOfKind(SESSION_ID, "membership.created", sequence, {
-      membershipId: `membership-for-${participantId}`,
-      participantId,
-      role: "collaborator",
-      identityHandle: participantId,
-    });
-  }
-
-  it("drops a participant whose membership the log says has ended", () => {
-    // The defect: the picker's candidates were every participant the log had ever
-    // named, so a revoked member stayed on offer and every direct channel opened
-    // against them could only be refused.
-    const partition = partitionAfter([
-      admission("participant-you", 1),
-      admission("participant-priya", 2),
-      eventOfKind(SESSION_ID, "membership.revoked", 3, {
-        participantId: "participant-priya",
-        actor: "participant-you",
-      }),
-    ]);
-
-    expect(liveMembershipParticipantIds(partition)).toStrictEqual(["participant-you"]);
-    // The row itself is still derived, and still says what happened: the ledger reports
-    // ended memberships and only the surfaces that OFFER an act filter them out.
-    expect(deriveMembershipRows(partition).map((each) => each.state)).toStrictEqual([
-      undefined,
-      "revoked",
-    ]);
-  });
-
-  it("drops a suspended one and takes it back on the reactivation", () => {
-    const suspended = partitionAfter([
-      admission("participant-priya", 1),
-      eventOfKind(SESSION_ID, "membership.suspended", 2, { participantId: "participant-priya" }),
-    ]);
-    expect(liveMembershipParticipantIds(suspended)).toStrictEqual([]);
-
-    const reactivated = partitionAfter([
-      admission("participant-priya", 1),
-      eventOfKind(SESSION_ID, "membership.suspended", 2, { participantId: "participant-priya" }),
-      eventOfKind(SESSION_ID, "membership.reactivated", 3, { participantId: "participant-priya" }),
-    ]);
-    expect(liveMembershipParticipantIds(reactivated)).toStrictEqual(["participant-priya"]);
-  });
-
-  it("negative control: a created membership is still a candidate", () => {
-    // The asymmetry the predicate rests on. `membership.created` states no state at
-    // all, so a filter that required a live one would empty the picker in a console
-    // that is working — which is the failure the other direction of this fix would be.
-    const partition = partitionAfter([admission("participant-priya", 1)]);
-    expect(deriveMembershipRows(partition)[0]?.state).toBeUndefined();
-    expect(liveMembershipParticipantIds(partition)).toStrictEqual(["participant-priya"]);
-    expect(isLiveMembership(row({ state: undefined }))).toBe(true);
-  });
-
-  it("reads the two ended states off the one table that declares them", () => {
-    expect(isLiveMembership(row({ state: "revoked" }))).toBe(false);
-    expect(isLiveMembership(row({ state: "suspended" }))).toBe(false);
-    expect(isLiveMembership(row({ state: "pending" }))).toBe(true);
   });
 });

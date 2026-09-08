@@ -8,6 +8,7 @@ import {
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   fixtureBridgeWithGrowth,
+  growthAnswering,
   growthServing,
   unscriptedScenario,
 } from "../fixture/fixture-bridge.test-support.js";
@@ -17,8 +18,25 @@ const SESSION_ID = "session-composing";
 const MAIN_CHANNEL_ID = "channel-main";
 const RESTRICTED_CHANNEL_ID = "channel-review";
 
+/**
+ * A second channel the gate admits, so a re-address between two of them is drivable.
+ *
+ * The gate keys on the projected NAME rather than on an id, so any target the
+ * projection names `main` is publishable and the publisher's ordering rule has to hold
+ * across a move between two of them. One session carries one bootstrap channel, so
+ * this is the class's own contract driven at its own boundary rather than a session
+ * the fixture plays.
+ */
+const REBOUND_MAIN_CHANNEL_ID = "channel-main-rebound";
+
 /** The bootstrap channel, named the way the projection names it. */
 const MAIN_TARGET = { channelId: MAIN_CHANNEL_ID, channelName: "main" } as const;
+
+/** The same session's bootstrap channel under a re-addressed id. */
+const REBOUND_MAIN_TARGET = { channelId: REBOUND_MAIN_CHANNEL_ID, channelName: "main" } as const;
+
+/** A channel the gate refuses, which is what makes a re-address stop a publication. */
+const RESTRICTED_TARGET = { channelId: RESTRICTED_CHANNEL_ID, channelName: "review" } as const;
 
 /**
  * A publisher over a port that SERVES both writes, plus the clock driving its bounds.
@@ -46,6 +64,76 @@ function servingPublisher(): {
     clock,
     setCalls,
     clearCalls,
+  };
+}
+
+/**
+ * What reached the port, in the order the publisher issued it.
+ *
+ * The ordering cases are about WHICH CALL WENT OUT FIRST, and two `vi.fn` spies
+ * cannot answer that — each knows only its own count. One log records both writes,
+ * which is what turns "the clear overtook the set" into an assertion rather than a
+ * pair of counts that happen to be right.
+ */
+class PresenceWireLog {
+  readonly #issued: string[] = [];
+
+  /** One set, recorded as it is issued and before its answer is decided. */
+  public recordSet(request: unknown): void {
+    const asked = request as { readonly channelId?: unknown };
+    this.#issued.push(`set:${String(asked.channelId)}`);
+  }
+
+  public recordClear(): void {
+    this.#issued.push("clear");
+  }
+
+  public get issued(): readonly string[] {
+    return this.#issued;
+  }
+}
+
+/**
+ * A publisher whose every SET is held open, and the record of what reached the port.
+ *
+ * The set is answered through the growth port's lazy arm rather than through a
+ * scripted reply, because a scripted reply settles at the moment of the call and every
+ * case here is about the window in between — `growthAnswering` decides the answer when
+ * the call is made, so the case decides when that moment ends. The clear answers
+ * immediately, which is the whole hazard: left to race, it settles first.
+ */
+function publisherWithSetsHeldOpen(scenarioId: string): {
+  readonly publisher: ComposingPublisher;
+  readonly wire: PresenceWireLog;
+  readonly releaseSets: () => Promise<void>;
+} {
+  const wire = new PresenceWireLog();
+  let releaseHeldSets: (() => void) | undefined;
+  const heldSets = new Promise<void>((resolve) => {
+    releaseHeldSets = resolve;
+  });
+  const bridge = fixtureBridgeWithGrowth(unscriptedScenario(scenarioId), {
+    presenceComposingSet: growthAnswering<undefined>(async (request) => {
+      wire.recordSet(request);
+      await heldSets;
+      return undefined;
+    }),
+    presenceComposingClear: growthAnswering<undefined>(async () => {
+      wire.recordClear();
+      return undefined;
+    }),
+  });
+  return {
+    wire,
+    publisher: new ComposingPublisher({
+      growth: bridge.growth,
+      clock: new ManualClock(),
+      sessionId: SESSION_ID,
+    }),
+    releaseSets: async () => {
+      releaseHeldSets?.();
+      await crossMacrotaskBoundary();
+    },
   };
 }
 
@@ -145,9 +233,27 @@ describe("the composing publisher — when a person stops", () => {
   it("clears rather than leaves a publication standing when the target stops being publishable", async () => {
     const { publisher, setCalls, clearCalls } = servingPublisher();
     publisher.noteComposing(MAIN_TARGET);
-    publisher.noteComposing({ channelId: RESTRICTED_CHANNEL_ID, channelName: "review" });
+    // Let the set settle first, so the clear is answering a publication that really is
+    // standing rather than one the supersession rule below elides.
+    await crossMacrotaskBoundary();
+    publisher.noteComposing(RESTRICTED_TARGET);
     await crossMacrotaskBoundary();
     expect(setCalls).toHaveBeenCalledTimes(1);
+    expect(clearCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a set the same tick's re-address superseded before it was dispatched", async () => {
+    // The stamp, read at its cheapest: the set is queued and the target stops being
+    // publishable before the chain runs it, so the publication would announce a channel
+    // this person has already left. The clear still goes out — a publisher that cannot
+    // tell whether an earlier set is still standing publishes the safe write, and the
+    // port's removal is idempotent, so a redundant one costs one call and never an
+    // indicator left up.
+    const { publisher, setCalls, clearCalls } = servingPublisher();
+    publisher.noteComposing(MAIN_TARGET);
+    publisher.noteComposing(RESTRICTED_TARGET);
+    await crossMacrotaskBoundary();
+    expect(setCalls).not.toHaveBeenCalled();
     expect(clearCalls).toHaveBeenCalledTimes(1);
   });
 
@@ -157,6 +263,81 @@ describe("the composing publisher — when a person stops", () => {
     publisher.dispose();
     await crossMacrotaskBoundary();
     expect(clearCalls).toHaveBeenCalledTimes(1);
+    expect(publisher.isDisposed).toBe(true);
+  });
+});
+
+describe("the composing publisher — one publication at a time", () => {
+  it("holds the clear until the set it follows has settled", async () => {
+    // The defect: `stop()` launched the clear while the set before it was still
+    // unresolved, so the port could apply them in either order — and a clear applied
+    // first left the late set standing, marking this participant as composing in a
+    // channel the publisher had already forgotten and would issue no further clear for.
+    const { publisher, wire, releaseSets } = publisherWithSetsHeldOpen("composing-serialized");
+    publisher.noteComposing(MAIN_TARGET);
+    await crossMacrotaskBoundary();
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`]);
+
+    publisher.stop();
+    await crossMacrotaskBoundary();
+    // Not merely "the clear settled second" — it has not been ISSUED, which is the only
+    // thing a caller of an unordered port can control.
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`]);
+
+    await releaseSets();
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`, "clear"]);
+    expect(publisher.publishedChannelId).toBeUndefined();
+  });
+
+  it("ends the old channel and begins the new one when a re-address overtakes a set", async () => {
+    // A clear names no channel — it removes this participant's whole Awareness entry —
+    // so the write that ends the old channel is the new channel's own set. Which means
+    // the ordering is the entire guarantee: the last set to land is the channel
+    // everybody else reads, and out of order that is the one the person has left.
+    const { publisher, wire, releaseSets } = publisherWithSetsHeldOpen("composing-readdressed");
+    publisher.noteComposing(MAIN_TARGET);
+    await crossMacrotaskBoundary();
+
+    publisher.noteComposing(REBOUND_MAIN_TARGET);
+    await crossMacrotaskBoundary();
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`]);
+
+    await releaseSets();
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`, `set:${REBOUND_MAIN_CHANNEL_ID}`]);
+    expect(publisher.publishedChannelId).toBe(REBOUND_MAIN_CHANNEL_ID);
+  });
+
+  it("skips a clear a keystroke superseded before it was dispatched", async () => {
+    // The stamp read from the other end. The person left the bootstrap channel and came
+    // back before the set in flight had settled, so the clear queued in between would
+    // announce a stop that did not happen — and the refresh that follows it is a set
+    // naming the channel they are still composing in.
+    const { publisher, wire, releaseSets } = publisherWithSetsHeldOpen("composing-returned");
+    publisher.noteComposing(MAIN_TARGET);
+    await crossMacrotaskBoundary();
+
+    publisher.noteComposing(RESTRICTED_TARGET);
+    publisher.noteComposing(MAIN_TARGET);
+    await releaseSets();
+
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`, `set:${MAIN_CHANNEL_ID}`]);
+    expect(publisher.publishedChannelId).toBe(MAIN_CHANNEL_ID);
+  });
+
+  it("drains its final clear after a disposal that landed mid-set", async () => {
+    // A disposed publisher still owes the clear: the alternative is a person who closed
+    // a window leaving a composing indicator up in everybody else's roster until the
+    // receiver's own stale bound expired it.
+    const { publisher, wire, releaseSets } = publisherWithSetsHeldOpen("composing-disposed");
+    publisher.noteComposing(MAIN_TARGET);
+    await crossMacrotaskBoundary();
+
+    publisher.dispose();
+    await crossMacrotaskBoundary();
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`]);
+
+    await releaseSets();
+    expect(wire.issued).toStrictEqual([`set:${MAIN_CHANNEL_ID}`, "clear"]);
     expect(publisher.isDisposed).toBe(true);
   });
 });

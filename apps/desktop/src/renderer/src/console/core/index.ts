@@ -193,6 +193,11 @@ export {
 // those cannot reach the third, so the floor is the only home all of them share.
 export { isWireRecord } from "./wire-record.js";
 export { readWireNumber, readWireString } from "./wire-strings.js";
+// The other question a fold asks of an untyped payload, and it is about two members
+// rather than one: whether the session the payload states is the session the envelope
+// delivered it on. Here for the predicates' reason — its readers are `frame/`,
+// `bridge/`, and a VIEW family, and a view family may import neither of the others.
+export { payloadContradictsSession, payloadNamesSession } from "./wire-session-attribution.js";
 // The total stringifier, re-published rather than re-declared. It is DECLARED in
 // `src/shared/wire-errors.ts`, which both processes compile, and `core/wire-rejection.ts`
 // already states that this layer — not that one — is the console's home for turning an

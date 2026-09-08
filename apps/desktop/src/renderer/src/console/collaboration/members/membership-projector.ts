@@ -49,10 +49,41 @@
 // invented here. What stays true is the sentence above it: no fold writes a state the
 // wire did not state, and `membership.created` still writes none.
 //
-// AND IT WRITES NO SESSION CHECK. The run-lifecycle fold holds its payload to the
-// envelope's session because its payloads carry a `sessionId` that could name
-// another; this payload carries none — the envelope is the only statement of which
-// session admitted this membership, and the store it is folded into is that session's.
+// AND EVERY KIND IS HELD TO THE ENVELOPE'S SESSION, UNDER TWO DIFFERENT ARMS OF ONE
+// RULE
+//
+// The fold writes into the participant partition of the store the envelope was routed
+// to, and `SessionStore` compares only the ENVELOPE's session before handing the event
+// on. So a payload that names another session names a participant this store must not
+// hold — and one that reached these kinds unchecked would insert or alter another
+// session's participant here, from where the membership controls and the
+// direct-channel candidate list both read it. The rule lives in
+// `core/wire-session-attribution.ts`, which the run and approval folds consume too;
+// what differs between the five kinds is only which of its two arms the contract
+// warrants.
+//
+// The four TRANSITIONS take the required arm. `Spec-006 §Invite and Membership
+// (membership_change)` fixes their payload at `{sessionId, participantId, inviteId?,
+// previousRole?, newRole?, actor, reason?}`, so `sessionId` is a member every one of
+// them carries and a frame that omits it is malformed rather than terse — exactly what
+// the run and approval folds say about their own registered shapes.
+//
+// `membership.created` takes the contradiction arm, and the asymmetry is the
+// contract's rather than this module's. It is the one kind here `packages/contracts`
+// registers a `SessionEventSchema` variant for, and `membershipCreatedPayloadSchema`
+// is `.strict()` over `{membershipId, participantId, role, identityHandle}` with no
+// `sessionId` anywhere in it: requiring one would refuse every real admission and
+// empty the roster. So an absent member is admitted — the envelope is then the only
+// statement of which session admitted this membership, which is what it has always
+// been — and a PRESENT one that names another session is refused, because the console
+// parses through the tolerant envelope carrier and a strict-shape violation therefore
+// arrives whole rather than being rejected on the way in.
+//
+// A REFUSED FRAME YIELDS NO MUTATION AND NOTHING ELSE, which is the same disposition
+// this fold gives a payload it cannot key on and the same one the run and approval
+// folds give a foreign session. A projector may read the event and nothing else — the
+// apply path replays prefixes, so a tripwire here would fire twice — and the event is
+// still admitted, so the timeline is the ledger that records that it arrived.
 //
 // PURE AND TOTAL, like every projector: it reads the event and nothing else, and a
 // payload it cannot key on yields no mutation rather than a throw. The event still
@@ -60,7 +91,11 @@
 
 import type { MembershipState } from "@ai-sidekicks/contracts";
 
-import { readWireString } from "../../core/index.js";
+import {
+  payloadContradictsSession,
+  payloadNamesSession,
+  readWireString,
+} from "../../core/index.js";
 import type {
   ConsoleEntityProjectorRegistry,
   ConsoleSessionEvent,
@@ -104,6 +139,11 @@ export const projectMembershipCreated: EntityProjector = (
   event: ConsoleSessionEvent,
 ): readonly EntityMutation[] => {
   const payload = event.payload;
+  // The registered variant carries no `sessionId`, so absence is the ordinary case and
+  // only a present member naming somewhere else is a claim about another store.
+  if (payloadContradictsSession(payload, event.sessionId)) {
+    return [];
+  }
   const participantId = readWireString(payload?.["participantId"]);
   if (participantId === undefined) {
     return [];
@@ -147,11 +187,16 @@ export const projectMembershipCreated: EntityProjector = (
 export const projectMembershipRoleChanged: EntityProjector = (
   event: ConsoleSessionEvent,
 ): readonly EntityMutation[] => {
-  const participantId = readWireString(event.payload?.["participantId"]);
+  // `sessionId` is a member every `membership_change` payload carries, so an omission
+  // is malformed and refused with a disagreement.
+  if (!payloadNamesSession(event.payload, event.sessionId)) {
+    return [];
+  }
+  const participantId = readWireString(event.payload["participantId"]);
   if (participantId === undefined) {
     return [];
   }
-  const newRole = readWireString(event.payload?.["newRole"]);
+  const newRole = readWireString(event.payload["newRole"]);
   return [
     {
       operation: "upsert",
@@ -180,7 +225,14 @@ export const projectMembershipRoleChanged: EntityProjector = (
 export const projectMembershipLifecycle: EntityProjector = (
   event: ConsoleSessionEvent,
 ): readonly EntityMutation[] => {
-  const participantId = readWireString(event.payload?.["participantId"]);
+  // Before the kind is even looked up, and for all three at once: a transition whose
+  // payload names another session would move that session's participant into this
+  // partition, where a suspension or a revocation is precisely the fact the membership
+  // controls and the direct-channel candidate list act on.
+  if (!payloadNamesSession(event.payload, event.sessionId)) {
+    return [];
+  }
+  const participantId = readWireString(event.payload["participantId"]);
   const state = STATE_BY_LIFECYCLE_KIND[event.kind];
   if (participantId === undefined || state === undefined) {
     return [];
