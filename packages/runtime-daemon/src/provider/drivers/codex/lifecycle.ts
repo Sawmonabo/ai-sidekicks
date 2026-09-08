@@ -131,8 +131,6 @@
 // `docs/reference/provider-wire/codex.md` (pinned `codex-cli 0.150.1`),
 // `docs/architecture/contracts/error-contracts.md §Driver`.
 
-import { randomUUID } from "node:crypto";
-
 import {
   DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
@@ -259,6 +257,7 @@ import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./interven
 // literal, so a rename cannot leave a refusal naming a driver that no longer
 // exists under that key.
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
+import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Transport constants
@@ -5698,7 +5697,7 @@ export class CodexLifecycleManager {
 
   constructor(options: CodexLifecycleOptions) {
     this.#options = options;
-    this.#newBindingId = options.newBindingId ?? ((): string => randomUUID());
+    this.#newBindingId = options.newBindingId ?? mintUuidV7;
     this.#turnStartTimeoutMs = options.turnStartTimeoutMs ?? DEFAULT_TURN_START_TIMEOUT_MS;
     // Fed the SAME injected scheduler the transport's own deadlines use, so a
     // harness that drives one drives both and a compaction expiry is observable

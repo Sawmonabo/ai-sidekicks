@@ -54,12 +54,22 @@
 // tall enough for any window a capture may open, and this module holds the number
 // both halves read.
 //
+// AND THE SAME WINDOW DECIDES HOW LONG THE CAPTURE OF IT IS GIVEN. A stability check
+// is two captures of the held box compared against each other, and both halves of that
+// are linear in the box's pixels, so the window a capture opened is also the size of
+// the work the matcher has to finish inside one wait. This module owns both readings of
+// that one number — how tall a window may be opened, and what opening it buys — because
+// splitting them would leave the ceiling here and the budget it implies somewhere that
+// cannot see it. `STABILITY_WAIT_PER_VIEWPORT_MS` and `stabilityWaitMsFor` below.
+//
 // Not a test file — no `include` glob reaches it. Deliberately IMPORT-FREE, for
 // `baseline-platform.ts`'s reason: `vitest/screenshot-pins.ts` reads the ceiling
 // below while Vitest RESOLVES ITS CONFIG, which happens in Node, and `vitest/browser`
 // throws outright when it is imported outside browser mode — so a binding folded in
-// here would take down every project in the package. The rule lives here; the binding
-// that applies it lives in `settled-capture.ts`, in the page.
+// here would take down every project in the package. That property is what makes this
+// the only home the wait can have: the pin is read from the page, and the pins file is
+// read from Node, and this module is the one both of them may import. The rule lives
+// here; the binding that applies it lives in `settled-capture.ts`, in the page.
 
 /** A window size in CSS pixels, as both the tester window and a capture use it. */
 export interface CaptureViewport {
@@ -80,6 +90,67 @@ export interface CaptureViewport {
  * there; raising this number to silence one is not.
  */
 export const CAPTURE_WINDOW_HEIGHT_CEILING = 3600;
+
+/**
+ * How long a capture of ONE window is given to prove it is stable.
+ *
+ * WHAT THE WAIT IS ACTUALLY BUYING. `toMatchScreenshot` does not sleep and then
+ * photograph: it takes a capture, takes another, and asks the tier's comparator whether
+ * the two are equal under `allowedMismatchedPixels: 0`, repeating until they are — and
+ * it races that whole loop against a single `timeout`
+ * (`@vitest/browser@4.1.5` `dist/index.js`, `waitForStableScreenshot` wrapping
+ * `getStableScreenshot`). So the wait is a budget for capture WORK, and the work is a
+ * PNG encode plus a pixel comparison over the held box, twice — both linear in that
+ * box's pixels.
+ *
+ * FIVE SECONDS, which is Vitest's own default, restated here because it stopped being
+ * an inherited default the moment the tier began opening the window for a surface. The
+ * default is sized for a capture the size of the window; a tier that holds a box
+ * several windows tall is asking for several times the encode and several times the
+ * comparison under the same budget. Measured: `tall-capture.test.ts` holds a
+ * 1 200 × 2 400 surface whole, which is a ~3 Mpx encode and a ~3 Mpx comparison twice
+ * over, and on a loaded runner (GitHub Actions run 34267040299, the `macos-15`
+ * screenshot job) that did not fit — the probe failed with "Could not capture a stable
+ * screenshot within 5000ms" on a branch whose diff touched no renderer file, while the
+ * same job was green on the base commit and on two sibling branches the same hour. A
+ * perfectly static surface reported unstable, which is a budget failure wearing a
+ * stability failure's name.
+ *
+ * IT STAYS FIVE SECONDS PER WINDOW rather than becoming a larger flat number.
+ * `stabilityWaitMsFor` multiplies it by the windows a capture actually held, so a
+ * viewport-sized capture keeps exactly the wait it has always had and only a capture
+ * that asked for more work is given longer to finish it. A surface that is genuinely
+ * unstable still fails — later, and with the wait it was given named in the failure,
+ * because the matcher prints the number it raced against.
+ */
+export const STABILITY_WAIT_PER_VIEWPORT_MS = 5000;
+
+/**
+ * How long a capture holding `heldViewportRatio` windows is given to prove it is stable.
+ *
+ * Per-capture cost times two captures, and capture cost scales with pixels, so a
+ * capture N viewports tall is given N times the wait. Rounded UP, because a capture
+ * 2.05 windows tall pays the third window's encode and comparison in whichever pass
+ * reaches those rows — a fractional budget would be a budget for work no pass does in
+ * fractions.
+ *
+ * AND THE ROUNDING IS ALSO THE FLOOR, which is why no second guard is written beside
+ * it: a capture smaller than the window is a ratio between 0 and 1, and rounding that
+ * up lands on one window, so such a capture is handed exactly the wait the tier has
+ * always given it and never a fraction of it. A `Math.max(1, …)` here would be
+ * unreachable rather than defensive — both sides of the ratio are window areas, so
+ * neither is ever zero or negative — and an unreachable guard is one the suite beside
+ * this module cannot plant a failure into, which is `apps/desktop/AGENTS.md` §Tests'
+ * bar and not a matter of taste.
+ *
+ * A PURE FUNCTION OVER THE RATIO, which is what makes the wait checkable without
+ * taking a capture: `CaptureWindow` measures the two windows and reports what it held,
+ * and the arithmetic that turns that into a budget is here, beside the sizing rule that
+ * produced the window in the first place.
+ */
+export function stabilityWaitMsFor(heldViewportRatio: number): number {
+  return STABILITY_WAIT_PER_VIEWPORT_MS * Math.ceil(heldViewportRatio);
+}
 
 /**
  * What one sizing pass decided: the window fits, it should grow, or growing is futile.

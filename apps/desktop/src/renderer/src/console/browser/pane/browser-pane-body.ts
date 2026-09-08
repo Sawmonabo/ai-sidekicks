@@ -28,35 +28,22 @@
 // by one rather than through an `@import` chain, so every edge into this family's CSS is
 // visible at one site and "imported here and nowhere else" stays checkable.
 //
-// `controls.css` IS THE SIXTH, AND IT IS NAMED FROM TWO ROOTS — the one shape a SHARED
-// sheet can take once nothing eager renders against it. It dresses the button and the
-// disclosure all three of this family's surfaces wear, and the third of them, the
-// settings page, is behind a chunk root of its own now
-// (`../settings/browser-settings-page-body.ts`), which names this sheet too. Left at the
-// family door it would be a sheet no static reader can use, which
-// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` reports; named
-// from one of the two roots only, it would leave the other surface undressed, which that
-// same file reports from the other side. `agents/agent-console/` carries its four this
-// way already, and the duplication is a chunk each rather than a second copy of the
-// rules to keep in step.
+// AND `controls.css` IS THE SIXTH BECAUSE IT IS NAMED AT BOTH OF THIS FAMILY'S CHUNK
+// ROOTS. It dresses the button and the disclosure three surfaces share — this pane's two
+// and the settings page — and the settings page is now loader-backed as well, at
+// `settings/browser-settings-page-body.ts`. A sheet two chunks render against is named
+// at each of them and lands once, whichever chunk arrives first; naming it at only one
+// would leave the other painting undressed until the first happened to arrive, which is
+// the failure `undressedEagerReaderOffences` reports and
+// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails in both
+// directions — a sheet deferred past a reader the initial graph carries, and a sheet
+// held at a door no static reader can use.
 //
-// THE SEVENTH IS ON THAT OTHER ROOT, AND IT IS NOT AT THE DOOR EITHER.
-// `settings/settings.css` dresses `BrowserSettingsSection` alone, and the settings board
-// reaches that section through a LOADER now rather than statically through
-// `browser/index.ts` — so the eager reader the sheet was held at the door FOR is no
-// longer on the initial graph, and the sheet travels with it. It was deferred behind
-// THIS loader once while that reader was still static, which left Settings → Browser
-// painting its rows, its partition table and its buttons with no rules at all until
-// somebody opened a browser pane, after which it silently started working:
-// `undressedEagerReaderOffences` is what reports that, and it is why the reader and the
-// sheet move in one change rather than one at a time.
+// `settings/settings.css` IS THE ONE SHEET NOT HERE, because it dresses that page alone:
+// its rows, its partition table and its switches have no reader in this chunk, so it
+// enters at the page's own root and nowhere else.
 //
-// `pane.css` STAYS, and its `.meridian-browser-chrome .meridian-browser-action` rule is
-// why the reading is a subtraction rather than a per-sheet question: that restatement
-// names a class the settings page also names, and it is not the sheet that owed those
-// rules — `controls.css` was, and it is named from both roots now.
-//
-// AND TWO OF THE SIX ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN.
+// AND TWO OF THE FIVE ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN.
 // `pane.css` had grown to 458 lines over three directories, so it is split by WHICH
 // COMPONENT DRAWS EACH ROOT: `chrome/chrome.css` for the tab strip, the load hairline,
 // the page picker, and the overflow disclosure; `file/file.css` for the local file
@@ -68,12 +55,12 @@
 // at the door of the directory that owns it — and the directory that owns those two is
 // the chunk this module roots. The order below is the order the door had them in, so
 // the split changes no cascade.
-import "../controls.css";
 import "../cards/cards.css";
 import "./pane.css";
 import "./chrome/chrome.css";
 import "./file/file.css";
 import "../bounds/bounds.css";
+import "../controls.css";
 
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";

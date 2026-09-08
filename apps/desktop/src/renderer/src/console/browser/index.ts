@@ -35,7 +35,10 @@
 //     because every overlay primitive registers into the same one. It renders
 //     nothing, which is why it carries no sheet.
 //   • `settings/` — chapter 13.16's page: the policy rows and their switches, the
-//     partition table with its rows, and the clear control with its arming rounds.
+//     partition table with its rows, the clear control with its arming rounds, and the
+//     chunk root `console/browser-settings-page.ts` registers it through
+//     (`settings/browser-settings-page-body.ts`). Nothing here leaves the door: the page
+//     is composed at the console root, which is where the settings board is named.
 //   • `cards/` — one shell for a capture, a download, and a page tool call, with the
 //     ingest meter inside it.
 //   • `bounds/` — chapter 12.10's resource-ceiling table: the bound vocabulary, the
@@ -45,27 +48,24 @@
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 
-// NONE OF THIS FAMILY'S SEVEN STYLESHEETS ENTERS HERE ANY MORE, and that is a fact
-// about the GRAPH rather than about the directory. This door held two of them for one
-// reason: the settings section left it as a component, and `console/browser-settings-page.ts`
-// mounted that component from a `render`, which the settings board reached statically —
-// so every module rendering it was on the initial import graph and the rules it renders
-// against had to arrive there too. That registration is a LOADER now, so nothing this
-// door statically reaches renders against either sheet, and a sheet held here would be
-// one `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` reports as
-// unusable.
+// NONE OF THIS FAMILY'S SEVEN STYLESHEETS ENTERS HERE, and that is a fact about the
+// GRAPH rather than about the directory. `console/panes/index.ts` calls
+// `registerBrowserPanes` from the entry chunk, so every module this door reaches is on
+// the initial import graph and a sheet named here lands on every launch — including the
+// sessions that never open a page. All seven dress surfaces nothing on that graph can
+// render: the pane opens from the sidebar or the palette, and the settings section is
+// reached two acts after the first paint, by navigating to settings and then choosing it.
 //
-// WHERE THE SEVEN WENT. `pane/pane.css`, `pane/chrome/chrome.css`, `pane/file/file.css`,
-// `cards/cards.css` and `bounds/bounds.css` dress surfaces nothing on the initial graph
-// can render — the pane opens from the sidebar or the palette — and enter at
-// `pane/browser-pane-body.ts`. `settings/settings.css` enters at
-// `settings/browser-settings-page-body.ts`, the second chunk root this family now has.
-// `controls.css` dresses the button and the disclosure all three surfaces wear and is
-// named from BOTH roots, which is the shape `agents/agent-console/` already takes for
-// its four: a sheet two chunks render against belongs to both of them, and naming it
-// from one would leave the other undressed. Each root's header carries its own half.
+// SO EACH ENTERS AT ONE OF THE FAMILY'S TWO CHUNK ROOTS. `pane/browser-pane-body.ts`
+// names `pane/pane.css`, `pane/chrome/chrome.css`, `pane/file/file.css`,
+// `cards/cards.css`, `bounds/bounds.css` and the shared `controls.css`;
+// `settings/browser-settings-page-body.ts` names `settings/settings.css` and that same
+// `controls.css`. A sheet two chunks render against is named at BOTH roots and lands
+// once, whichever chunk arrives first — the shape the agents family's own pair of roots
+// already takes. Naming it at only one leaves the other painting undressed until an
+// unrelated chunk happens to arrive, and then silently working.
 //
-// EVERY HALF IS CHECKED, IN BOTH DIRECTIONS.
+// BOTH HALVES ARE CHECKED, IN BOTH DIRECTIONS.
 // `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails a sheet held
 // at a door whose own static graph can render nothing against it, AND a sheet deferred
 // to a chunk root while a module on the initial graph names a class no eagerly-arriving
@@ -108,16 +108,3 @@ export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
     body: () => import("./pane/browser-pane-body.js"),
   });
 }
-
-// THE SETTINGS SECTION DOES NOT LEAVE THIS DOOR, and what closed the line is the graph
-// rather than the boundary it drew. `console/browser-settings-page.ts` mounted the bound
-// component from a `render`, and this door is reached eagerly by `console/panes/index.ts`
-// for the pane registration above — so a door line for the section put the whole page,
-// its reads, its partition table and its clear rounds on the initial import graph of
-// every launch, whether or not settings was ever opened. A door is an EDGE to every
-// module it re-exports from, and a dynamic import of a module already assigned to the
-// static chunk defers nothing, so a loader naming THIS file would have changed nothing
-// either. The registration names `settings/browser-settings-page-body.ts` instead — the
-// page's own chunk root, which the eager graph does not reach — and that root declares
-// the one member the page reads rather than the settings family's context, so nothing
-// about which family may name which vocabulary moves.

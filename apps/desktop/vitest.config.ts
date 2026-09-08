@@ -42,6 +42,7 @@ import { defineConfig } from "vitest/config";
 import { sharedCoverageOptions } from "../../vitest.shared";
 import { WORKSPACE_SOURCE_CONDITIONS } from "./vitest/browser-mode";
 import { CONSOLE_TIER_PROJECTS } from "./vitest/console-projects";
+import { iconCompilationPlugin } from "./vitest/icon-compilation";
 
 export default defineConfig({
   test: {
@@ -187,6 +188,11 @@ export default defineConfig({
         // without it the bare identifier is a ReferenceError at import time. `false`,
         // matching the release bundle, so the branch is statically dead.
         define: { __SIDEKICKS_CONSOLE_FIXTURES__: "false" },
+        // And the console's icon resolver for the same reason: a Tier-1
+        // component that reaches a console door reaches the glyph primitive
+        // with it, so this project compiles `~icons/*` specifiers even though
+        // it runs no console test.
+        plugins: [iconCompilationPlugin()],
         resolve: {
           conditions: WORKSPACE_SOURCE_CONDITIONS,
         },

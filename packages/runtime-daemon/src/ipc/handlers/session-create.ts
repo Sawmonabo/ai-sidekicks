@@ -91,10 +91,15 @@ export interface SessionCreateDeps {
    * the registry's `dispatch()` wrapper catches them and applies
    * `mapJsonRpcError` per I-007-8.
    *
-   * The implementation MUST assign `sessionId` (UUID v7 per Spec-006
-   * is recommended; v4 is acceptable per session.ts §Branded ID
-   * schemas) and emit the canonical `session.created` event before
-   * returning.
+   * The implementation MUST assign `sessionId` through the daemon-wide
+   * `mintUuidV7` (`runtime-daemon/src/ids/uuid-v7.ts`) — every daemon-side
+   * persisted-row and event id mints there, which is what makes the RFC 9562
+   * UUIDv7 claim in `contracts/src/session.ts` and `contracts/src/event.ts`
+   * true rather than aspirational. The wire schemas still accept any UUID
+   * version on purpose, because control-plane-assigned ids are Postgres
+   * `gen_random_uuid()` v4; that tolerance is for the OTHER side of the
+   * boundary and is not a licence for a daemon id to be v4. It MUST also
+   * emit the canonical `session.created` event before returning.
    */
   readonly createSession: (request: SessionCreateRequest) => Promise<SessionCreateResponse>;
 }

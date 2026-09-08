@@ -332,6 +332,10 @@ export class OutboundTextFrameWriter {
 
   constructor(options: OutboundTextFrameWriterOptions) {
     this.#mechanismGrade = options.mechanismGrade;
+    // Deliberately NOT the daemon's `mintUuidV7`: a correlation value is an
+    // in-flight matching token for one outbound frame. No row and no event
+    // stores it, nothing sorts a set of them, and it is gone once the leg
+    // settles — so uniqueness is the whole requirement and v4 supplies it.
     this.#mintCorrelationId = options.mintCorrelationId ?? ((): string => randomUUID());
   }
 

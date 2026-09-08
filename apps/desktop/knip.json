@@ -60,12 +60,30 @@
       // a JavaScript file would let one escape the gate silently rather than report it. A brace
       // pattern is hinted on the whole pattern rather than per arm, so an arm matching nothing
       // today costs nothing under `--treat-config-hints-as-errors`.
+
+      // The console's compile-time icon resolver is declared in `vitest/icon-compilation.ts`
+      // and installed by BOTH `vitest.config.ts` and `electron.vite.config.ts`, which are
+      // knip entries. Without `vitest/**` in the universe those two entries reach a file knip
+      // does not analyse, so `unplugin-icons` and `@svgr/core` — imported there and nowhere
+      // else — reported as unused dependencies. Measured: adding this glob cleared both and
+      // moved no other file into any report.
       "project": [
         "src/**/*.{ts,tsx}",
         "build/**/*.{ts,mts,mjs,cjs}",
         "scripts/**/*.{ts,mts,mjs,cjs}",
-        "test/**/*.{ts,tsx}"
+        "test/**/*.{ts,tsx}",
+        "vitest/**/*.ts"
       ],
+
+      // The first-party `unplugin-icons` plugin, named rather than left to knip's own
+      // enabler check, because what it does is not guessable from the manifest: it excuses
+      // `~icons/*` specifiers from the unresolved report and `@iconify-json/*` from the
+      // dependency one. The icon SETS are reached only through those virtual specifiers, so
+      // without the plugin `@iconify-json/tabler` is an unused dependency that is in fact
+      // the source of eleven of the console's thirty-six glyphs — and the only other way to
+      // say so would be an `ignoreDependencies` entry, which `apps/desktop/AGENTS.md` admits
+      // none of.
+      "unplugin-icons": true,
 
       // The Vitest plugin reads the config and treats every project's `include` globs as
       // entries, so a test file is a root and what it imports is reached. Without it every

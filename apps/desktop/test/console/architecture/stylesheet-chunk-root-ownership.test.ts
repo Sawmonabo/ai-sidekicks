@@ -110,13 +110,19 @@ describe("the console's deferred stylesheets", () => {
   });
 
   // The converse, and the failure a person actually sees. The browser family's settings
-  // sheet entered through the pane's chunk root while `BrowserSettingsSection` renders
-  // from the settings route, which reaches it statically through `browser/index.ts` — so
+  // sheet entered through the pane's chunk root while `BrowserSettingsSection` was
+  // reached statically through `browser/index.ts` by the settings route — so
   // Settings → Browser opened before any browser pane had ever rendered painted its
   // controls with no rules at all, and then started working once an unrelated pane was
-  // opened. A ban rather than a pin: no sheet is allowed to be in that state, and the
-  // remedy is always the same one the rule states — the sheet enters through the barrel
-  // of the directory that owns it.
+  // opened. A ban rather than a pin: no sheet is allowed to be in that state.
+  //
+  // TWO REMEDIES SATISFY IT, and which one a family takes is the registration question
+  // rather than this gate's. Move the SHEET to the door that owns it, which is what the
+  // placement rule states; or move the READER behind a loader, which is what the browser
+  // family did once its settings page took the registry's loader form — the page is a
+  // chunk root of its own now, the sheet enters there, and nothing on the initial graph
+  // renders against it. This claim is indifferent between them, which is what makes it a
+  // ban on a STATE rather than a demand for one edit.
   it("leaves no sheet on a chunk root that the initial graph renders against", () => {
     expect(consoleUndressedOffences()).toStrictEqual([]);
   });

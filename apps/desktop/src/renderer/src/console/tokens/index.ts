@@ -56,25 +56,25 @@ export { formatOklch } from "./color.js";
 export type { GlyphName } from "./glyphs.js";
 // The icon scale — all four steps, because all four are SPENT by surfaces that render
 // a glyph at a named density and have no business knowing which module holds the
-// paths. The default is here with the other three now that `seats/ConsolePaneChrome`
+// faces. The default is here with the other three now that `seats/ConsolePaneChrome`
 // draws a pane's kind mark at it; it had been withheld while `primitives/Glyph.tsx`
 // was its only reader, and a door that publishes three steps of a four-step scale
 // makes the fourth look like a private detail rather than the standalone size.
 //
-// THE GEOMETRY LEAVES THROUGH THIS DOOR TOO — the paths, the stroke width, the
-// viewBox — for the same reason every other token does, and not because it has many
-// readers. `Glyph.tsx` is its only one, and it reached past this barrel for the module
-// that happens to hold the constants today; a move inside this family would then break
-// a file with no business knowing this family has more than one module. That is the
-// edge `console-cross-family-deep-import` names, and the fix it names is this one.
+// WHAT NO LONGER LEAVES, AND WHY THE DOOR GOT SHORTER RATHER THAN WIDER. The paths
+// are gone — a face is compiled from an icon set or from an SVG file now, and
+// `primitives/glyph-faces.ts` holds the map — and with them went `GLYPH_STROKE_WIDTH`
+// and `GLYPH_VIEWBOX_SIZE`, which are the family's GEOMETRY. Nothing above this family
+// renders with either: the build spends them (`vitest/icon-compilation.ts`, which is
+// not a console family and reaches the declaring module directly) and two suites read
+// the ratio back off a compiled face. A door line for a value no surface sets would
+// read as a token a surface may set, and `barrel-census` fails a line with no
+// production reader in any case.
 export {
   GLYPH_DEFAULT_SIZE,
-  GLYPH_PATHS,
   GLYPH_SIZE_CHROME,
   GLYPH_SIZE_DENSE,
   GLYPH_SIZE_ROW,
-  GLYPH_STROKE_WIDTH,
-  GLYPH_VIEWBOX_SIZE,
 } from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";

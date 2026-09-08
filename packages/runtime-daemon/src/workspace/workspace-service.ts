@@ -159,8 +159,6 @@
  * this module mints none.
  */
 
-import { randomUUID } from "node:crypto";
-
 import type { Database, Statement } from "better-sqlite3";
 
 import {
@@ -187,6 +185,7 @@ import {
   type DirectoryReadabilityProbe,
 } from "./trust-envelope.js";
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 import {
   computeExecutionModeCapabilities,
   computeRepoMountHealth,
@@ -629,9 +628,10 @@ export interface WorkspaceServiceDeps {
   /** ISO-8601 wall clock for `created_at` / `updated_at`. Defaults to `new Date().toISOString()`. */
   readonly now?: () => string;
   /**
-   * Workspace-id source. Defaults to `crypto.randomUUID()`. Injected ids are
-   * still parsed through `WorkspaceIdSchema`, so a test source must mint real
-   * UUIDs rather than counters.
+   * Workspace-id source. Defaults to the daemon-wide `mintUuidV7`
+   * (`ids/uuid-v7.ts`). Injected ids are still parsed through
+   * `WorkspaceIdSchema`, so a test source must mint real UUIDs rather than
+   * counters.
    */
   readonly newWorkspaceId?: () => string;
 }
@@ -770,7 +770,7 @@ export class WorkspaceService {
     this.#trustEnvelope = deps.trustEnvelope ?? new TrustEnvelopeValidator();
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
     this.#now = deps.now ?? ((): string => new Date().toISOString());
-    this.#newWorkspaceId = deps.newWorkspaceId ?? ((): string => randomUUID());
+    this.#newWorkspaceId = deps.newWorkspaceId ?? mintUuidV7;
 
     const database = deps.database;
 

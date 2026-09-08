@@ -1,42 +1,38 @@
 // The browser settings page's body, and the root of the chunk it arrives in.
 //
-// A LOADER-BACKED BODY, on the product question `apps/desktop/AGENTS.md` states the rule
-// on: is this painted before a person acts? The page is a SETTINGS section — a person
-// navigates to settings and then chooses a section, which is two acts after the first
-// paint — so it takes the same form `agents/definitions/sidekick-definitions-page-body.ts`
-// takes for the section beside it, and for the same measured reason: the registration in
-// `console/browser-settings-page.ts` held a `render`, so the section, its policy rows, its
-// partition table, and the two-step clear with its arming rounds were on the renderer's
-// initial import graph of every launch, including every launch that never opens settings.
+// A LOADER-BACKED BODY, so the page, its policy rows, its partition table and the clear
+// control's arming rounds are not on the initial import graph. The page is a SETTINGS
+// section: a person navigates to settings and then chooses a section, which is two acts
+// after the first paint — the registration question `apps/desktop/AGENTS.md §Import
+// boundaries` asks, answered the way the sidekicks page beside it answers it.
 //
-// WHY THIS ROOT EXISTS RATHER THAN THE REGISTRATION NAMING THE FAMILY DOOR. Nothing
-// would have changed: `../index.ts` is reached eagerly by `console/panes/index.ts` for
-// the browser pane's registration, so a dynamic import of it resolves to a chunk that is
-// already static and defers nothing. The boundary has to name a module the eager graph
-// does not reach, which is this one.
+// WHY THIS ROOT EXISTS AT ALL, RATHER THAN THE SETTINGS REGISTRATION NAMING THE FAMILY
+// DOOR. `agents/definitions/sidekick-definitions-page-body.ts` states the mechanism and
+// this family is the second instance of it: `browser/index.ts` is imported EAGERLY by
+// `console/panes/index.ts`, which calls `registerBrowserPanes` to claim the deck's
+// `browser` kind — so the door is in the entry chunk by construction, and every symbol
+// it re-exported travelled with it. `BrowserSettingsSection` left through that door, so
+// twelve modules of a page nobody had opened sat on every launch's initial graph while
+// the pane they belong beside was correctly deferred. A dynamic import of a module the
+// static graph already reaches defers nothing — the bundler assigns such a module to the
+// STATIC chunk — so the boundary has to name a module the eager graph does not reach,
+// which is this one.
 //
-// TWO SHEETS ENTER HERE AND ONE OF THEM IS SHARED. `./settings.css` dresses this page's
-// rows, table and switches and is reachable from nowhere else. `../controls.css` dresses
-// the button and the disclosure this family's three surfaces all wear, so it is named
-// from BOTH of this family's chunk roots — the shape `agents/agent-console/` already
-// takes for its four — rather than left at a door whose own static graph can now render
-// nothing against it, which is the state
-// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` reports.
+// THE PAGE'S TWO SHEETS ENTER HERE, and one of them enters at the pane's root as well.
+// `settings/settings.css` dresses this page alone, so it has one root and this is it.
+// `../controls.css` is the family's shared button and disclosure — three surfaces draw
+// them, this page and the two behind the pane's chunk — so it is named at BOTH roots,
+// which is what a sheet two chunks render against needs and is the shape the agents
+// family's own pair of roots already takes. It lands once whichever chunk arrives first.
 //
-// Both moves are admitted by the collision census
-// (`test/console/architecture/stylesheet-selector-owners.test.ts`): no other family
-// declares a class either sheet declares, so deferring them changes no surface but this
-// family's own — which is the condition the family door's own header already states.
-//
-// WHAT IT DECLARES IT NEEDS IS A BRIDGE, and that is the whole of it. `LoadedLazyBody`
-// asks for a body taking the board's context — here the settings family's
-// `SettingsPageContext` — and a function accepting a wider parameter satisfies one
-// expecting a narrower, so naming the one member this page reads is both sufficient and
-// true. Naming the settings context instead would make the browser family import a
-// sibling view family's vocabulary, which `console-view-family-isolation` in
-// `.dependency-cruiser.mjs` fails, and it would claim a dependency on a rail, a retained
-// session and that session's store this page does not have: both of its reads are
-// node-wide and it navigates nowhere.
+// WHAT IT DECLARES IT NEEDS IS A BRIDGE AND NOTHING ELSE. `LoadedLazyBody` asks for a
+// body taking the board's context — here `SettingsPageContext` — and a function
+// accepting a wider parameter satisfies one expecting a narrower, so naming the single
+// member this page reads is both sufficient and true. Naming the settings context
+// instead would make the browser family import the settings family's vocabulary, which
+// `console-view-family-isolation` in `.dependency-cruiser.mjs` fails, and it would claim
+// a dependency on a retained session and on a rail this page does not have: both of its
+// reads are node-wide, and it navigates nowhere.
 
 import "./settings.css";
 import "../controls.css";
@@ -46,7 +42,7 @@ import { createElement } from "react";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { BrowserSettingsSection } from "./BrowserSettingsSection.js";
 
-/** The browser's node-wide switches and its site-data table, as the settings board loads it. */
+/** The browser section of settings, as the settings board loads it. */
 export function Body(context: { readonly bridge: ConsoleBridge }): React.ReactNode {
   return createElement(BrowserSettingsSection, { bridge: context.bridge });
 }

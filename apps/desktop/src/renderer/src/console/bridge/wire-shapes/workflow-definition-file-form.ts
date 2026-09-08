@@ -50,20 +50,19 @@
 // it is a property of the FILE, so it is read to recognise one and then dropped, and a
 // parser that smuggled it into the request would be widening a registered shape.
 //
-// WHY THE CODEC ARRIVES THROUGH `import()`. This module is on the console's initial
-// import graph — the bridge door publishes it and the renderer root reaches that door —
-// while the only surface that exports or imports a definition is a lazily loaded pane
-// body. A static `import "yaml"` would therefore charge the parser to every launch,
-// including every launch that never opens a definition, against the initial-bundle
-// budget `Spec-023 §Console Design (Meridian)` sets; the package declares no
-// side-effect-free flag, so a bundler cannot drop it on its own. Reached only through
-// `import()`, it is emitted as its own chunk and fetched the first time somebody
-// presses export or import. No memo is kept beside it: the module map is already the
-// memo, there is no render state to observe, and a third copy of the loader class
-// `terminal/emulator/emulator-loader.ts` and the phase graph's own already carry would
-// be a class written for a caller that has no use for it.
+// AND THIS MODULE IS OFF THE INITIAL IMPORT GRAPH, which is why the parser is imported
+// statically here. The door publishes `workflow-definition-file-codec.ts` beside this
+// one, and that module reaches this one through `import()` — so this module, its YAML
+// parser, the body reader and the tool-binding reader under it are all emitted into one
+// chunk that a launch which never opens a definition never fetches. Deferring the parser
+// a second time from in here would split a chunk that is already only fetched on demand,
+// and would make two of the four calls below asynchronous for no reader's benefit.
+//
+// SO THE TWO ENTRIES ARE SYNCHRONOUS. Everything they need is in the chunk they were
+// fetched in; the one thing that can fail before them is the fetch, and that is the
+// codec's to reject.
 
-import type { Scalar } from "yaml";
+import { Document, Scalar, isScalar, parseAllDocuments } from "yaml";
 
 import {
   DEFINITION_BODY_KEYS,
@@ -138,18 +137,16 @@ const YAML_WRITER_OPTIONS = { indent: 2, lineWidth: 0 } as const;
  * the definition read carries the identity and the phase sequence and no schema marker,
  * so a file written from it could not say which schema it is in.
  *
- * ASYNCHRONOUS BECAUSE THE WRITER ARRIVES IN A CHUNK — see the header. The only way
- * this rejects is a chunk that did not load, which is a fact about the install rather
- * than about the definition, so it travels as a rejection to the surface's own
- * rejection seam rather than as a sentence about a file that is perfectly fine.
+ * SYNCHRONOUS, AND THE DOOR'S ENTRY IS NOT — see the header. The writer is in the chunk
+ * this module was fetched in, so the only thing that can fail ahead of a serialization
+ * is the fetch itself, which `workflow-definition-file-codec.ts` owns.
  */
-export async function serializeWorkflowDefinitionFile(body: WorkflowVersionBody): Promise<string> {
-  const { Document, Scalar: ScalarNode } = await import("yaml");
+export function serializeDefinitionFile(body: WorkflowVersionBody): string {
   const fileDocument = new Document({}, { version: "1.2", schema: "core" });
   // Double-quoted deliberately and not left to the writer's own judgement: the value is
   // a string, and the quoting is what keeps it one on the way back in.
-  const marker = new ScalarNode(body.schemaVersion);
-  marker.type = ScalarNode.QUOTE_DOUBLE;
+  const marker = new Scalar(body.schemaVersion);
+  marker.type = Scalar.QUOTE_DOUBLE;
   fileDocument.set(SCHEMA_MARKER_KEY, marker);
   const bodyRecord = definitionBodyFileRecord(body);
   for (const key of DEFINITION_BODY_KEYS) {
@@ -182,13 +179,13 @@ export interface WorkflowDefinitionImportTarget {
  * EVERY REFUSAL IS A SENTENCE AND NEVER A THROW. The caller renders this beside the
  * paste box, so what a person needs is which member is wrong; an exception would reach
  * a boundary that can only say that something failed. The one thing that still rejects
- * is the chunk fetch above it, which is not a fact about the text at all.
+ * is the chunk fetch in `workflow-definition-file-codec.ts` above it, which is not a
+ * fact about the text at all.
  */
-export async function parseWorkflowDefinitionFile(
+export function parseDefinitionFile(
   text: string,
   target: WorkflowDefinitionImportTarget,
-): Promise<WorkflowDefinitionFileReading> {
-  const { isScalar, parseAllDocuments } = await import("yaml");
+): WorkflowDefinitionFileReading {
   const [fileDocument, ...furtherDocuments] = parseAllDocuments(text, YAML_READER_OPTIONS);
   if (fileDocument === undefined) {
     return invalid("This text carries no document, so there is no definition in it to read.");
