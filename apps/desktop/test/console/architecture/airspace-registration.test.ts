@@ -111,7 +111,7 @@ const REGISTRY_READERS: readonly string[] = [
   "core/airspace-registries.ts",
   REGISTRATION_DOOR,
   "browser/pane/geometry-binding.ts",
-  "workspace/deck/rect-discipline.ts",
+  "workspace/deck/rect/rect-discipline.ts",
 ];
 
 describe("airspace — every overlay registers, through one door", () => {

@@ -16,8 +16,11 @@ import { expect } from "vitest";
 import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { type UiStateStore } from "../../persistence/index.js";
-import { DeckLayout } from "../deck/deck-layout.js";
-import { DECK_LAYOUT_SNAPSHOT_VERSION, DECK_SNAPSHOT_HEADER_KEY } from "../deck/deck-snapshot.js";
+import { DeckLayout } from "../deck/model/deck-layout.js";
+import {
+  DECK_LAYOUT_SNAPSHOT_VERSION,
+  DECK_SNAPSHOT_HEADER_KEY,
+} from "../deck/model/deck-snapshot.js";
 import { DECK_LAYOUT_RECORD_KEY, useDeckPersistence } from "./layout-persistence.js";
 
 /** The one session every case here arranges, saves, and restores. */

@@ -18,7 +18,7 @@
 // storing what is open — would hold a new section shut against a rule written to open
 // it, invisibly, until somebody pressed it.
 //
-// Decoding is `deck/deck-snapshot.ts`' treatment applied to a much smaller record and
+// Decoding is `deck/model/deck-snapshot.ts`' treatment applied to a much smaller record and
 // for its reasons: an unknown version is discarded WHOLE rather than half-adopted, and
 // every drop is a typed refusal the sidebar renders rather than a tripwire that throws
 // over a record last week's build wrote. Nothing here applies a default the model does

@@ -10,9 +10,9 @@
 // The dependency runs one way and only one way: `deck-model` → `deck-snapshot` →
 // `deck-layout`. Nothing here imports either of the other two.
 
-import type { ConsoleEntityRef } from "../../store/index.js";
-import type { PaneKind } from "../../seats/index.js";
-import type { DeckDensity } from "../workspace-bounds.js";
+import type { ConsoleEntityRef } from "../../../store/index.js";
+import type { PaneKind } from "../../../seats/index.js";
+import type { DeckDensity } from "../../workspace-bounds.js";
 
 /**
  * Pane widths are carried as permille of the deck, summing to this.

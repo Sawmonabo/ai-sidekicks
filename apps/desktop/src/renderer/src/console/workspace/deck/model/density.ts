@@ -23,7 +23,7 @@ import {
   DECK_DENSITIES,
   DECK_MINIMUM_PANE_WIDTH_PX,
   type DeckDensity,
-} from "../workspace-bounds.js";
+} from "../../workspace-bounds.js";
 
 /**
  * Whether `value` names a preset.

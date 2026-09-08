@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CoalescingLayoutWriter } from "./layout-writer.js";
-import type { DeckSnapshotRecord } from "../deck/deck-snapshot.js";
+import type { DeckSnapshotRecord } from "../deck/model/deck-snapshot.js";
 
 const SESSION_A = "session-a";
 const SESSION_B = "session-b";

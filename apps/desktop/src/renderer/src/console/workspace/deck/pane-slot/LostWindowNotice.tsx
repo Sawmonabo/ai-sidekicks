@@ -2,8 +2,8 @@
 //
 // Its own module for the one-component rule.
 
-import { InlineRefusal } from "../../primitives/index.js";
-import { type ConsoleRefusal } from "../../core/index.js";
+import { InlineRefusal } from "../../../primitives/index.js";
+import { type ConsoleRefusal } from "../../../core/index.js";
 
 /**
  * The pane's error slot: what happened to the window this pane was in.

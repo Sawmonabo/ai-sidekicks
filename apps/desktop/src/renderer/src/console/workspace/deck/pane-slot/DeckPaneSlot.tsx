@@ -13,27 +13,27 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";
 
-import { type ConsoleRefusal } from "../../core/index.js";
+import { type ConsoleRefusal } from "../../../core/index.js";
 import {
   PaneControlsContext,
   isDetachablePaneKind,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
   type PaneControls,
-} from "../../seats/index.js";
+} from "../../../seats/index.js";
 import { DetachedPaneBody } from "./DetachedPaneBody.js";
 import { LostWindowNotice } from "./LostWindowNotice.js";
 import { MissingPaneBody } from "./MissingPaneBody.js";
 import { PaneBody } from "./PaneBody.js";
-import { PERMILLE_PER_PERCENT, type DeckPane } from "./deck-model.js";
-import { type DeckDensity } from "../workspace-bounds.js";
-import { minimumPaneWidthPx } from "./density.js";
+import { PERMILLE_PER_PERCENT, type DeckPane } from "../model/deck-model.js";
+import { type DeckDensity } from "../../workspace-bounds.js";
+import { minimumPaneWidthPx } from "../model/density.js";
 import {
   usePaneDragSource,
   usePaneDropTarget,
   type DeckDragCoordinator,
   type PaneDropIndicator,
-} from "./pane-drag.js";
+} from "../pane-drag.js";
 
 export interface DeckPaneSlotProps {
   readonly pane: DeckPane;

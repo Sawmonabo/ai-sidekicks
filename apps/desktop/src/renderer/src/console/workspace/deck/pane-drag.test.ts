@@ -19,7 +19,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Announce, AnnouncementPoliteness } from "../../primitives/index.js";
-import { DeckLayout } from "./deck-layout.js";
+import { DeckLayout } from "./model/deck-layout.js";
 import {
   DECK_PANE_DRAG_KEY,
   DeckDragCoordinator,

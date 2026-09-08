@@ -5,9 +5,9 @@
 // rather than a condition inside the slot's ternary chain, which already has three
 // arms of its own.
 
-import { InlineRefusal } from "../../primitives/index.js";
-import { type ConsoleRefusal } from "../../core/index.js";
-import { type ConsolePaneContext, type ConsolePaneDescriptor } from "../../seats/index.js";
+import { InlineRefusal } from "../../../primitives/index.js";
+import { type ConsoleRefusal } from "../../../core/index.js";
+import { type ConsolePaneContext, type ConsolePaneDescriptor } from "../../../seats/index.js";
 
 /** Whether what the deck resolved for a pane is an address or a refusal. */
 function isPaneContext(

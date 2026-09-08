@@ -31,9 +31,9 @@ import { useEffect } from "react";
 import { refuse, type ConsoleRefusal, type NarrowedRefusal } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
-import { type DeckLayout } from "../deck/deck-layout.js";
-import { paneAddressKey } from "../deck/deck-model.js";
-import { type DeckRestoreReport } from "../deck/deck-snapshot.js";
+import { type DeckLayout } from "../deck/model/deck-layout.js";
+import { paneAddressKey } from "../deck/model/deck-model.js";
+import { type DeckRestoreReport } from "../deck/model/deck-snapshot.js";
 import {
   CoalescingLayoutWriter,
   WRITER_RETIREMENT,

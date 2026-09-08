@@ -27,7 +27,7 @@ import { ConsoleRefusalError } from "../../core/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import { type FrameBindingContext } from "../../seats/index.js";
 import { FrameStore, SessionStoreRegistry } from "../../store/index.js";
-import { type DeckPane } from "../deck/deck-model.js";
+import { type DeckPane } from "../deck/model/deck-model.js";
 import { DetachedPaneBinding } from "./DetachedPaneBinding.js";
 import { servingPort } from "./aux-handoff.test-support.js";
 import { useAuxiliaryPanes, type AuxiliaryPaneWiring } from "./auxiliary-panes.js";

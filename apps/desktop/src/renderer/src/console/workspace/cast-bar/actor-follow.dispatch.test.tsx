@@ -18,7 +18,7 @@ import {
   type ActorFollowOutcome,
 } from "../../seats/index.js";
 import { type ConsoleSessionEvent, type SessionStore } from "../../store/index.js";
-import { DeckLayout } from "../deck/deck-layout.js";
+import { DeckLayout } from "../deck/model/deck-layout.js";
 import { ACTOR_FOLLOW_ANNOUNCEMENTS, useActorFollow } from "./actor-follow.js";
 
 const FOLLOWED_PARTICIPANT = "agent-scout";

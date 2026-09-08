@@ -2,8 +2,8 @@
 //
 // Its own module for the one-component rule.
 
-import { Nothing } from "../../primitives/index.js";
-import { type PaneKind } from "../../seats/index.js";
+import { Nothing } from "../../../primitives/index.js";
+import { type PaneKind } from "../../../seats/index.js";
 
 /**
  * A pane kind the deck holds and no family has a body for.

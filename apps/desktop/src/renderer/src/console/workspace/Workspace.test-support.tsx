@@ -25,7 +25,7 @@ import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { FrameStore, SessionStore, SessionStoreRegistry } from "../store/index.js";
 import { ConsolePaneRegistry, PaneControlsContext } from "../seats/index.js";
 import { DetachedPaneBinding } from "./auxiliary/DetachedPaneBinding.js";
-import { DeckLayout } from "./deck/deck-layout.js";
+import { DeckLayout } from "./deck/model/deck-layout.js";
 import { DECK_LAYOUT_RECORD_KEY } from "./layout/layout-persistence.js";
 import { Workspace } from "./Workspace.js";
 

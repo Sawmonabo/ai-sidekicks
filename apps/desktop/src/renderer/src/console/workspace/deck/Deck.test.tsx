@@ -18,8 +18,8 @@ import { FIRST_RUN_SCENARIO } from "../../bridge/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "../../seats/index.js";
 import { Deck } from "./Deck.js";
-import { DeckLayout } from "./deck-layout.js";
-import type { DeckPane } from "./deck-model.js";
+import { DeckLayout } from "./model/deck-layout.js";
+import type { DeckPane } from "./model/deck-model.js";
 import { separatorValueBoundsAreOrdered } from "./separator-aria.js";
 
 function emptyLayout(): DeckLayout {
@@ -381,7 +381,7 @@ describe("Deck — the clock its rect flush runs on", () => {
 
     renderDeckOn(bridge);
 
-    // Armed and not yet run — `rect-discipline.ts` rule 1 is reads in the callback and
+    // Armed and not yet run — `rect/rect-discipline.ts` rule 1 is reads in the callback and
     // writes on the next frame, and the frame is this window's.
     expect(clock.pendingFrameCount).toBe(1);
     act(() => {

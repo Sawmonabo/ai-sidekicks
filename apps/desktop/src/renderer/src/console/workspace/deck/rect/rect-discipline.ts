@@ -44,9 +44,9 @@ import {
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
-} from "../../core/index.js";
-import { observeElementResize } from "../../primitives/index.js";
-import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../workspace-bounds.js";
+} from "../../../core/index.js";
+import { observeElementResize } from "../../../primitives/index.js";
+import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../../workspace-bounds.js";
 import {
   rectKey,
   visibleClipOf,

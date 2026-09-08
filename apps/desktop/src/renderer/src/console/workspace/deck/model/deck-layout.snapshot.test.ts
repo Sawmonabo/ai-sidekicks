@@ -355,4 +355,4 @@ describe("DeckLayout — subscription", () => {
     unsubscribe();
   });
 });
-import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+import { DECK_RESTORED_PANE_CAP } from "../../../core/index.js";
