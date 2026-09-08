@@ -135,3 +135,47 @@
 .meridian-run-row__reason-label {
   color: var(--meridian-text-faint);
 }
+
+/* --------------------------------------------------------- park attention */
+
+/*
+ * The fold above the rows: one line per cause, not one per run. Owned by this sheet
+ * because `RunParkAttention.tsx` is a component of this list and the classes are
+ * `meridian-run-attention__*`, which no other family declares — so unlike
+ * `.meridian-run-row__failure` next door there is nothing here for a load order to
+ * decide.
+ */
+
+.meridian-run-attention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-run-attention__entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* The uncorrelated arm stacks a whole park card, so its parts read down the page. */
+.meridian-run-attention__entry--single {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.meridian-run-attention__count {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}

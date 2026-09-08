@@ -37,13 +37,15 @@ export { ScenarioEngine } from "./scenario-engine.js";
 
 export { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 
-// Reading one STRING member off a value nothing typed. Published because two siblings
-// take it from opposite sides of the scripted-reply seam this directory owns —
-// `fixture/` derives what a scenario declares with it, `scenarios/` reads the request a
-// computed reply is handed — and the seam, not either caller, is what it is about. The
-// container read underneath it stays private: every reader outside this module asks for
-// an identifier, so the untyped read has no caller of its own to leave for.
-export { readUnknownStringMember } from "./unknown-member.js";
+// Reading one STRING or NUMBER member off a value nothing typed. Published because two
+// siblings take them from opposite sides of the scripted-reply seam this directory owns
+// — `fixture/` derives what a scenario declares with them, `scenarios/` reads the
+// request a computed reply is handed — and the seam, not either caller, is what they
+// are about. Two primitives because a request key is written in two: a definition id is
+// a string and a version ordinal is a number, and a reply keyed on both reads both. The
+// container read underneath them stays private: every reader outside that module asks
+// for a typed value, so the untyped read has no caller of its own to leave for.
+export { readUnknownNumberMember, readUnknownStringMember } from "./unknown-member.js";
 
 export {
   SCRIPTED_REPLY_REFUSAL_CODES,

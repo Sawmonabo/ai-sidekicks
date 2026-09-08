@@ -17,19 +17,17 @@ import type {
 } from "../wire-shapes/workflow-projection.js";
 
 import {
+  DEFINITION_INCIDENT_TRIAGE_SHARED,
+  DEFINITION_RELEASE_CHECKS_PROJECT,
+  DEFINITION_RELEASE_CHECKS_SESSION,
+  DEFINITION_SHIP_PIPELINE_PROJECT,
+  DEFINITION_SHIP_PIPELINE_SHARED,
   VERSION_INCIDENT_TRIAGE_LATEST,
   VERSION_RELEASE_CHECKS_LATEST,
   VERSION_SHIP_PIPELINE_LATEST,
   VERSION_SHIP_PIPELINE_PINNED,
   WORKFLOWS_SESSION_ID,
 } from "./workflow-fixture-ids.js";
-
-// Definition ids, named rather than inlined and local to this module because no other
-// table in the fixture addresses a definition — a run carries a workflow VERSION id,
-// which is the shared axis and lives beside the rest of them.
-const DEFINITION_RELEASE_CHECKS = "019b7a10-0280-7c11-8100-def111150001";
-const DEFINITION_SHIP_PIPELINE = "019b7a10-0280-7c11-8100-def111150002";
-const DEFINITION_INCIDENT_TRIAGE = "019b7a10-0280-7c11-8100-def111150003";
 
 /**
  * The definitions the browser groups, in the daemon's own resolution order.
@@ -51,7 +49,7 @@ const DEFINITION_INCIDENT_TRIAGE = "019b7a10-0280-7c11-8100-def111150003";
  */
 export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[] = [
   {
-    id: DEFINITION_RELEASE_CHECKS,
+    id: DEFINITION_RELEASE_CHECKS_SESSION,
     name: "Release checks",
     scope: "session",
     scopeRef: WORKFLOWS_SESSION_ID,
@@ -66,7 +64,7 @@ export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[
     createdAt: "2026-01-01T07:04:00.000Z",
   },
   {
-    id: "019b7a10-0280-7c11-8100-def111150004",
+    id: DEFINITION_RELEASE_CHECKS_PROJECT,
     name: "Release checks",
     scope: "project",
     scopeRef: "/Users/operator/work/atlas",
@@ -80,7 +78,7 @@ export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[
     createdAt: "2025-11-02T16:40:00.000Z",
   },
   {
-    id: DEFINITION_SHIP_PIPELINE,
+    id: DEFINITION_SHIP_PIPELINE_PROJECT,
     name: "Ship pipeline",
     scope: "project",
     scopeRef: "/Users/operator/work/atlas",
@@ -91,7 +89,7 @@ export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[
     createdAt: "2025-10-21T11:05:00.000Z",
   },
   {
-    id: "019b7a10-0280-7c11-8100-def111150005",
+    id: DEFINITION_SHIP_PIPELINE_SHARED,
     name: "Ship pipeline",
     scope: "shared",
     scopeRef: "",
@@ -102,7 +100,7 @@ export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[
     createdAt: "2025-08-09T08:30:00.000Z",
   },
   {
-    id: DEFINITION_INCIDENT_TRIAGE,
+    id: DEFINITION_INCIDENT_TRIAGE_SHARED,
     name: "Incident triage",
     scope: "shared",
     scopeRef: "",
@@ -115,8 +113,9 @@ export const WORKFLOWS_SCENARIO_DEFINITIONS: readonly WorkflowDefinitionSummary[
 ];
 
 // The versions each chained definition holds beyond the ones the runs and the summary
-// table already name. Local to this module for the reason the definition ids are: no
-// other table in the fixture addresses a version this console is not pinned to.
+// table already name. Local to this module because no other table in the fixture
+// addresses a version this console is not pinned to — which is what the definition ids
+// stopped being true of when the body table started naming them.
 const VERSION_RELEASE_CHECKS_1 = "019b7a10-0280-7d22-8100-be5100150007";
 const VERSION_RELEASE_CHECKS_2 = "019b7a10-0280-7d22-8100-be5100150008";
 const VERSION_RELEASE_CHECKS_3 = "019b7a10-0280-7d22-8100-be5100150009";
@@ -150,7 +149,7 @@ const VERSION_INCIDENT_TRIAGE_4 = "019b7a10-0280-7d22-8100-be5100150014";
 export const WORKFLOWS_SCENARIO_VERSION_CHAINS: Readonly<
   Record<string, readonly WorkflowVersionChainEntry[]>
 > = {
-  [DEFINITION_RELEASE_CHECKS]: [
+  [DEFINITION_RELEASE_CHECKS_SESSION]: [
     { workflowVersionId: VERSION_RELEASE_CHECKS_LATEST, versionNumber: 4 },
     { workflowVersionId: VERSION_RELEASE_CHECKS_3, versionNumber: 3 },
     { workflowVersionId: VERSION_RELEASE_CHECKS_2, versionNumber: 2 },
@@ -159,12 +158,12 @@ export const WORKFLOWS_SCENARIO_VERSION_CHAINS: Readonly<
   // The chain the frozen pin is measured against: the parked run sits at version 3 and
   // the frozen-pin run at version 1, so this one chain carries both ends of the
   // inequality the run table states.
-  [DEFINITION_SHIP_PIPELINE]: [
+  [DEFINITION_SHIP_PIPELINE_PROJECT]: [
     { workflowVersionId: VERSION_SHIP_PIPELINE_LATEST, versionNumber: 3 },
     { workflowVersionId: VERSION_SHIP_PIPELINE_2, versionNumber: 2 },
     { workflowVersionId: VERSION_SHIP_PIPELINE_PINNED, versionNumber: 1 },
   ],
-  [DEFINITION_INCIDENT_TRIAGE]: [
+  [DEFINITION_INCIDENT_TRIAGE_SHARED]: [
     { workflowVersionId: VERSION_INCIDENT_TRIAGE_LATEST, versionNumber: 5 },
     { workflowVersionId: VERSION_INCIDENT_TRIAGE_4, versionNumber: 4 },
     { workflowVersionId: VERSION_INCIDENT_TRIAGE_3, versionNumber: 3 },

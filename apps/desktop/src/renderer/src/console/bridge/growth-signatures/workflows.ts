@@ -1,6 +1,7 @@
 // The workflow plane: definitions, runs, phase outputs, gates, human forms, the
-// gate-chain verification that audits them, and the two reads the registry does not
-// carry — the run enumeration and the version chain.
+// gate-chain verification that audits them, the two reads the registry does not carry
+// — the run enumeration and the version chain — and the definition plane's own read,
+// version read, and authoring write.
 //
 // One plane of `GrowthOperationSignatures`, composed into it by `index.ts`. The
 // section comment below is the file's own, kept with the rows it explains — and it
@@ -9,6 +10,8 @@
 // `workflow-projection.ts` owns, so the rows and that module move together.
 
 import type {
+  WorkflowDefinitionCreateBody,
+  WorkflowDefinitionReadResult,
   WorkflowDefinitionScope,
   WorkflowDefinitionSummary,
   WorkflowGateState,
@@ -18,6 +21,7 @@ import type {
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
   WorkflowRunState,
+  WorkflowVersionBody,
   WorkflowVersionChainEntry,
 } from "../wire-shapes/index.js";
 
@@ -167,5 +171,43 @@ export interface WorkflowGrowthSignatures {
     // reply has somewhere to grow the definition identity the day a surface needs it,
     // and the console synthesizes none of it today.
     value: { readonly versions: readonly WorkflowVersionChainEntry[] };
+  };
+  // The definition plane's three registry rows, on the `workflow-definition-authoring`
+  // slate row. Every shape below is `wire-shapes/workflow-definition-body.ts`'s, which
+  // is the sibling of the projection module the run rows above draw on: a definition's
+  // BODY and a run's PROJECTION are two subjects, and the two modules move apart.
+  workflowDefinitionRead: {
+    request: {
+      readonly definitionId: string;
+      /** Omitted for the latest version, which is what a browser row opens on. */
+      readonly version?: number;
+    };
+    value: WorkflowDefinitionReadResult;
+  };
+  workflowVersionRead: {
+    // BOTH halves of the key, because that is what the registry addresses a version
+    // by. A caller holding only an opaque `workflowVersionId` holds neither, which is
+    // the whole reason the version-chain row above it exists.
+    request: { readonly definitionId: string; readonly versionNumber: number };
+    value: WorkflowVersionBody;
+  };
+  workflowDefinitionCreate: {
+    // The body verbatim, so the five authoring acts differ in what they compose and
+    // not in what they send: saving, cutting a new version, importing, promoting and
+    // forking all submit this one shape, and the daemon's authorization keys on its
+    // `scope`. An act discriminant on the request would be a member the wire does not
+    // carry and the daemon would have to ignore.
+    request: WorkflowDefinitionCreateBody;
+    value: {
+      readonly definitionId: string;
+      readonly versionNumber: number;
+      // Both additive-optional on this already-published shape, and present so an
+      // author can pin what it just wrote without a follow-up read. Absent from an
+      // older daemon, which is a version this console cannot address rather than one
+      // it may compose an id for.
+      readonly contentHash?: string;
+      readonly workflowVersionId?: string;
+      readonly createdAt: string;
+    };
   };
 }

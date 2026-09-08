@@ -540,6 +540,17 @@ export type { SettledReadRefusal } from "./readings/read-settlement.js";
 // registers the plane and `wire-shapes/workflow-projection.ts` is deleted with its
 // slate row.
 export { WORKFLOW_DEFINITION_SCOPES } from "./wire-shapes/workflow-projection.js";
+// The plane's EVENT taxonomy, beside its read shapes and from the module that
+// declares it. The run pane names these kinds to say when its snapshot goes stale;
+// `wire-shapes/workflow-events.ts` states why a kind set is safe to arm against an
+// unregistered wire where a payload shape would not be.
+// Beside it, the one payload MEMBER a reader of those kinds needs: which run the frame
+// is about. The run pane scopes its live-round reading on it, so a phase advancing in
+// one run does not re-read every pane showing another.
+export {
+  WORKFLOW_EVENT_TYPES,
+  workflowRunIdOfEventPayload,
+} from "./wire-shapes/workflow-events.js";
 export type {
   WorkflowDefinitionScope,
   WorkflowDefinitionSummary,
@@ -548,6 +559,34 @@ export type {
   WorkflowRunSnapshot,
   WorkflowVersionChainEntry,
 } from "./wire-shapes/workflow-projection.js";
+
+// The definition BODY, on the same terms and for the same family: a detail surface
+// renders the phase sequence, the entry record, the content hash and the schema
+// marker, and composes the one write all five authoring acts ride. Declared beside the
+// projection rather than inside it because a definition's BODY and a run's PROJECTION
+// are two subjects — the first is what an author edits and the second is what an
+// engine reports — and they go when their own slate rows land, which are two rows.
+export type {
+  McpServerBindingRef,
+  WorkflowDefinitionCreateBody,
+  WorkflowDefinitionReadResult,
+  WorkflowPhaseDefinition,
+  WorkflowVersionBody,
+} from "./wire-shapes/workflow-definition-body.js";
+
+// The file form's two sides, through the door because the surface that offers an
+// export and an import is a view family and the READING side is a validator — pasted
+// text narrowed against closed vocabularies into a typed request.
+//
+// THE TWO FUNCTIONS AND NEITHER OF THEIR TYPES. A caller composes the import target as
+// a literal and reads the reading's `status` where it stands, so the two type names
+// have no production importer and a door line for one would be a name published for
+// symmetry — which the barrel census fails, and rightly: the module that declares them
+// is where its own test reads them from.
+export {
+  parseWorkflowDefinitionFile,
+  serializeWorkflowDefinitionFile,
+} from "./wire-shapes/workflow-definition-file-form.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

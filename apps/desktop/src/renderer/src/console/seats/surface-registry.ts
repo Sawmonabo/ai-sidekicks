@@ -44,6 +44,14 @@ import { type ConsoleSurfaceContext } from "./surface-context.js";
 export const CONSOLE_SURFACE_SLOTS = [
   "sessions",
   "workspace",
+  // The workspace address that names a phase of a run, which is a different surface
+  // from a bare one and the same DESTINATION as it — the rail still lights `sessions`
+  // and the palette's scope row still names the session, because the address is still
+  // the session's. A slot rather than a branch inside `workspace`'s renderer, because
+  // the two bodies belong to two different families: the workspace seat is the
+  // participant roster's until a console-authored workspace lands, and the run pane a
+  // phase address opens is the workflows family's.
+  "workflow-phase",
   "workflows",
   "settings",
   "timeline",
@@ -187,13 +195,22 @@ export function registerConsoleSurface(registration: ConsoleSurfaceRegistration)
   consoleSurfaceRegistry.register(registration);
 }
 
-/** Which slot a route mounts. `undefined` for routes that mount no surface. */
+/**
+ * Which slot a route mounts. `undefined` for routes that mount no surface.
+ *
+ * The workspace arm is the one that answers with two slots, and the member it reads is
+ * the one the address grammar carries: a phase focus names a run and a phase, which is
+ * a subject the participant roster on the bare workspace slot cannot show. Read through
+ * the arm rather than through `routeWorkflowPhase`, because the switch has already
+ * narrowed to the arm that declares it and a second reading would be an accessor
+ * consulted where the type already answered.
+ */
 export function surfaceSlotFor(route: ConsoleRoute): ConsoleSurfaceSlot | undefined {
   switch (route.kind) {
     case "sessions":
       return "sessions";
     case "workspace":
-      return "workspace";
+      return route.workflowPhase === undefined ? "workspace" : "workflow-phase";
     case "workflows":
       return "workflows";
     case "settings":

@@ -98,6 +98,12 @@ export {
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
   surfaceSlotFor,
+  type ConsoleSurfaceDescriptor,
+  // What a family hands `register`, published for the same reason
+  // `ConsolePaneRegistration` is: a family claiming more than one slot keeps its
+  // claims in a table, and a table needs the type its rows are. The workflows family
+  // is the first with two — the rail's destination and the phase deep link.
+  type ConsoleSurfaceRegistration,
 } from "./surface-registry.js";
 
 // The frame-lifetime binding seat, beside the four that mount bodies. It is on this

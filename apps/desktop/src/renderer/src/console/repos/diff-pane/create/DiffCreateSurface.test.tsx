@@ -25,7 +25,7 @@ import {
   SESSION_ID,
 } from "../../../bridge/scenarios/repos-fixture-data.js";
 import { SessionStore } from "../../../store/index.js";
-import { advanceScenarioUntil } from "../../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import type { ConsoleDiffModel } from "../diff-model.js";
 import { DiffCreateSurface } from "./DiffCreateSurface.js";
 import type { DiffCreateSubject } from "./diff-create-subject.js";

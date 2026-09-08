@@ -135,7 +135,7 @@ describe("the workflows scenario — what a caller is answered with", () => {
     // the ledger that refused it, and nothing between the two would have caught it.
     //
     // Two claims, and the second is the one that bites. Every `workflow.`-prefixed
-    // call this scenario scripts is some operation's registered method — so the three
+    // call this scenario scripts is some operation's registered method — so the five
     // transcriptions stay transcriptions — and the enumeration, which has no method to
     // transcribe, wears a key no daemon method can: the operation id under a `growth:`
     // prefix. On the old code the enumeration failed the first claim and the second.
@@ -150,7 +150,7 @@ describe("the workflows scenario — what a caller is answered with", () => {
 
     // The zero-match guard: a scenario that scripted no workflow reply at all would
     // satisfy the filter below vacuously.
-    expect(workflowCalls).toHaveLength(3);
+    expect(workflowCalls).toHaveLength(5);
     expect(workflowCalls.filter((call) => !registeredWorkflowMethods.has(call))).toStrictEqual([]);
 
     expect(GROWTH_OPERATIONS.workflowRunList.expectedWireMethod).toBeUndefined();
@@ -169,6 +169,11 @@ describe("the workflows scenario — what a caller is answered with", () => {
       "workflow.gateResolve",
       "workflow.humanFormSubmit",
       "workflow.runStart",
+      // The definition plane's own write, and the one that is easiest to script by
+      // accident now that its two READS are scripted beside it: a create that answered
+      // would put a version in the reply the browser's enumeration a line above cannot
+      // list.
+      "workflow.definitionCreate",
     ]) {
       expect(await settleScriptedReply(engine, call)).toStrictEqual({ status: "unscripted" });
     }

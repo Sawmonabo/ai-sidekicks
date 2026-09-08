@@ -1,4 +1,4 @@
-// The four workflow reads the scenario answers by COMPUTING rather than by tabling.
+// The six workflow reads the scenario answers by COMPUTING rather than by tabling.
 //
 // The sibling `workflow-fixture-*.ts` modules hold the session's records; this one
 // holds the reading of them, which is a different job and moves for different reasons.
@@ -32,6 +32,7 @@
 // already hold — and rides `workflow-run-enumeration`. Both are fixture-only, and the
 // port refuses both under a live bridge.
 
+import { workflowDefinitionReadFor, workflowVersionBodyFor } from "./workflow-fixture-bodies.js";
 import {
   WORKFLOWS_SCENARIO_DEFINITIONS,
   WORKFLOWS_SCENARIO_VERSION_CHAINS,
@@ -43,7 +44,11 @@ import {
 import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
 import { WORKFLOWS_CHANNEL_ID } from "./workflow-fixture-ids.js";
 import { workflowSubjectNotFound } from "../fixture/fixture-workflow-scope.js";
-import { readUnknownStringMember } from "../scenario-runtime/index.js";
+import { readUnknownNumberMember, readUnknownStringMember } from "../scenario-runtime/index.js";
+import type {
+  WorkflowDefinitionReadResult,
+  WorkflowVersionBody,
+} from "../wire-shapes/workflow-definition-body.js";
 import type {
   WorkflowDefinitionSummary,
   WorkflowRunListEntry,
@@ -228,4 +233,63 @@ export function versionChainFor(
     throw workflowSubjectNotFound("version", requestedVersionId);
   }
   return { versions: chain };
+}
+
+/**
+ * The definition this scenario answers `workflow.definitionRead` with, for the
+ * definition asked about.
+ *
+ * Composed out of the summary table the browser is served from, so every row a person
+ * can press opens on the definition that row named rather than on a second copy that
+ * agrees today. A definition this fixture states nothing about refuses through the one
+ * constructor the scope module owns, under the workflow namespace's only registered
+ * not-found code.
+ *
+ * THE OPTIONAL `version` MEMBER IS NOT READ, and that is a statement about this
+ * fixture rather than about the wire. The request may name an older version; this
+ * fixture holds one body per definition — its latest — so a read that named another
+ * would have to be refused here, and refusing the DEFINITION read for a definition
+ * that plainly exists is the wrong refusal. The version read below is where a version
+ * this fixture holds no body for is refused, which is where a caller asked for one.
+ */
+export function definitionReadFor(request: unknown): WorkflowDefinitionReadResult | undefined {
+  const requestedDefinitionId = readUnknownStringMember(request, "definitionId");
+  if (requestedDefinitionId === undefined) {
+    return undefined;
+  }
+  const definition = workflowDefinitionReadFor(requestedDefinitionId);
+  if (definition === undefined) {
+    throw workflowSubjectNotFound("definition", requestedDefinitionId);
+  }
+  return definition;
+}
+
+/**
+ * The body this scenario answers `workflow.versionRead` with, for both of the
+ * identifiers that read is addressed by.
+ *
+ * BOTH, because the read is keyed by `(definitionId, versionNumber)` and either half
+ * arriving different is a body this fixture cannot answer. Served under the wrong
+ * number, one version's phases and content hash would read as another version's — and
+ * a content hash is the one value on this shape a person might copy somewhere it
+ * matters.
+ *
+ * The refused subject is named as the VERSION rather than as the definition, because
+ * a definition this fixture describes and a version of it whose bytes it does not hold
+ * are different absences and the second is the one a caller has hit.
+ */
+export function versionReadFor(request: unknown): WorkflowVersionBody | undefined {
+  const requestedDefinitionId = readUnknownStringMember(request, "definitionId");
+  const requestedVersionNumber = readUnknownNumberMember(request, "versionNumber");
+  if (requestedDefinitionId === undefined || requestedVersionNumber === undefined) {
+    return undefined;
+  }
+  const body = workflowVersionBodyFor(requestedDefinitionId, requestedVersionNumber);
+  if (body === undefined) {
+    throw workflowSubjectNotFound(
+      "version",
+      `${requestedDefinitionId} version ${String(requestedVersionNumber)}`,
+    );
+  }
+  return body;
 }

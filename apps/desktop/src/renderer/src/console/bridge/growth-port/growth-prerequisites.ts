@@ -163,6 +163,18 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "daemon-producer",
       "the daemon-side mount-health projection that derives the identity verdict, and the handler namespace that would carry a mount read to a client",
     ),
+    // A member that exists on exactly one side of its own plane. The create request
+    // carries `parentContentHash` — the hash of the `shared` definition an author
+    // branched from — and NEITHER read reply returns it, so a definition that was
+    // forked is indistinguishable on the wire from one written from scratch. The
+    // detail pane therefore renders the copy-on-write provenance as a fact the wire
+    // does not carry rather than as an empty field, which is what this row is for.
+    workflowParentContentHashMember: prerequisite(
+      "workflowParentContentHashMember",
+      "workflow-definition-authoring",
+      "type-member",
+      "the copy-on-write parent content hash on a definition or version read reply, which only the authoring write carries today",
+    ),
   };
 
 function prerequisite(

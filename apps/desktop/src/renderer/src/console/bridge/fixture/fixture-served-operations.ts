@@ -496,9 +496,10 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  * A WRITE: there is no such thing as "the attach that happened and produced nothing",
  * and serving a synthesized receipt would tell a surface the daemon did something no
  * author said it did. And a READ ADDRESSED BY A SUBJECT: a run's snapshot, a finished
- * phase's outputs, a definition's version chain — each answers with facts ABOUT a
- * named thing, so an empty form would assert that the thing exists and holds nothing,
- * which for a run no author declared is the same invention as a receipt. The
+ * phase's outputs, a definition's version chain, a definition, one version's body —
+ * each answers with facts ABOUT a named thing, so an empty form would assert that the
+ * thing exists and holds nothing, which for a run no author declared is the same
+ * invention as a receipt. The
  * enumerations beside them stay out of this set: a list of none is a real answer to
  * "what does this session hold". So these are implemented, and refuse by name under a
  * scenario that does not script them.
@@ -520,6 +521,8 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "workflowDefinitionRead",
+  "workflowVersionRead",
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",

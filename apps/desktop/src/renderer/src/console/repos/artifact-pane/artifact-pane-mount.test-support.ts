@@ -21,7 +21,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
-import { scenarioManualClock } from "../scenario-clock.test-support.js";
+import { scenarioManualClock } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
 import { artifactBridgeAnswering } from "./artifact-pane.test-support.js";
 import { paneContext } from "../pane-contexts.test-support.js";
