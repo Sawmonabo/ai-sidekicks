@@ -67,3 +67,12 @@ export type {
   WorkflowRunState,
   WorkflowVersionChainEntry,
 } from "./workflow-projection.js";
+
+// The two durable run records the corpus registers as columns and no read returns.
+export type {
+  GrowthInterventionDirective,
+  GrowthInterventionKind,
+  GrowthInterventionOrigin,
+  GrowthInterventionRecord,
+  GrowthQueueItemRunBinding,
+} from "./run-record-projections.js";

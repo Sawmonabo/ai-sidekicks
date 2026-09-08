@@ -109,4 +109,6 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "mcp-governance-plane": "MCP servers settings page",
   "node-self-declaration": "settings runtime-nodes page (the attach control)",
   "workflow-human-form-schema": "workflow-run pane (the human form a parked phase opens)",
+  "intervention-history-read": "runs pane intervention history",
+  "queue-item-run-binding": "runs pane queue list, composer queue shelf",
 };

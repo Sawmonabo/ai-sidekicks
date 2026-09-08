@@ -47,6 +47,7 @@ import { fixtureCollaborationReads } from "../collaboration/collaboration-reads.
 import type { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
 import { fixtureOnboardingAnswers } from "../settings/onboarding-answers.js";
 import { fixtureProviderAccountWrites } from "../settings/provider-account-writes.js";
+import { fixtureRunRecordReads } from "./run-record-reads.js";
 import { answerFromScriptedReply, answerScriptOnly } from "./scripted-answer.js";
 import { fixtureShellAnswers } from "../shell/shell-answers.js";
 import { fixturePresenceAnswers } from "../shell/presence-answers.js";
@@ -370,6 +371,9 @@ export function createFixtureGrowthPort(
     // set. Two answer under any scenario and three refuse without a script; that
     // module's header carries the whole of why.
     ...fixtureDiagnosticsReads(engine),
+    // The two durable run records — the run's intervention history and the queue's
+    // run bindings.
+    ...fixtureRunRecordReads(engine),
     // provider accounts — the three verbs of the brokered sign-in handoff, all three
     // script-only. The registry READ they act on is not here at all: it is
     // `providerAccount.list` over the bound call door.

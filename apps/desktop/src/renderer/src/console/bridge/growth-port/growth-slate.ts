@@ -471,6 +471,20 @@ const GROWTH_SLATE_ROWS_BY_ID: {
       "Spec-017 §Park surfacing on the read model (SA-44) (the live-scoped phase-state members this pair joins, and the one-response rule a separately-fetched prompt would break) + §Human phase — HumanPhaseConfig (SA-10, SA-11, SA-12) (the prompt and the JSON Schema a human phase asks with); Plan-017 (the shared-contracts and client-SDK registration these members would join)",
     wireRegistered: false,
   },
+  "intervention-history-read": {
+    id: "intervention-history-read",
+    wire: "a run-scoped read of the durable intervention rows — the `origin` discriminator, the `admitting_principal_id` required exactly on the participant arm, the admitted queue item's row-anchored linkage, and the decrypted directive body, with a body-unavailable answer where the authoring participant's key has been shredded",
+    owningDocument:
+      "Spec-004 \u00a7Required Behavior + \u00a7State And Data Implications (the durable columns and the resolution rule); Plan-004 (the read seam, which no method string, event payload, or code package carries)",
+    wireRegistered: false,
+  },
+  "queue-item-run-binding": {
+    id: "queue-item-run-binding",
+    wire: "the run each queued item is bound to \u2014 `queue_items.target_run_id`, which the registered `QueueItemSummary` carries no member for and its `.strict()` parse rejects",
+    owningDocument:
+      "Spec-004 \u00a7Required Behavior (the run-bound delivery redesign); `docs/architecture/contracts/api-payload-contracts.md` \u00a7Plan-004 (the summary shape that omits it)",
+    wireRegistered: false,
+  },
 };
 
 /**

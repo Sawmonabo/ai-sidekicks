@@ -317,7 +317,13 @@ export type GrowthOperationId =
   // `growth-operations/index.test.ts` holds every entry to.
   | "mcpList"
   | "mcpSetEnabled"
-  | "mcpSetTrust";
+  | "mcpSetTrust"
+  // The two durable run records the corpus registers as COLUMNS with no read: the
+  // intervention row's origin and admitting principal, and the queue row's binding to
+  // a run. Both are asked by a run surface rather than by a plane of their own, which
+  // is why they share one plane rather than joining the session or agent tables.
+  | "runRecordInterventionHistoryRead"
+  | "runRecordQueueRunBindingRead";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

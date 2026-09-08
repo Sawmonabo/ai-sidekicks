@@ -83,7 +83,9 @@ export type GrowthSlateRowId =
   | "provider-account-signin-and-token"
   | "mcp-governance-plane"
   | "node-self-declaration"
-  | "workflow-human-form-schema";
+  | "workflow-human-form-schema"
+  | "intervention-history-read"
+  | "queue-item-run-binding";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;

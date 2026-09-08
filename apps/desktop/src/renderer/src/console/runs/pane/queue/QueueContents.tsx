@@ -4,10 +4,15 @@
 // line per item, with anything secondary one click away and never expanded by
 // default — the shape `Spec-023 §Meridian, the design language` rule 7 gives every
 // console surface, where "secondary controls live one click away — a row's hover
-// footer or its context menu". Here there is nothing secondary to fold: the
-// registered summary carries no payload and no run member, so the line carries what
-// the wire supplies — id, state, priority, channel, and the two timestamps — and
-// nothing it does not.
+// footer or its context menu". Here there is nothing secondary to fold: the line
+// carries what the wire supplies — id, state, priority, channel, the two timestamps,
+// and the run the row is bound to — and nothing it does not.
+//
+// THE RUN BINDING IS THE ONE FIGURE THE SUMMARY DOES NOT CARRY. `QueueItemSummary`
+// registers no run member, so the durable `queue_items.target_run_id` arrives as its
+// own projection on the feed and is folded onto the row here. A row the projection
+// does not name is unbound and draws no target; a projection that refused says so
+// beside the rows rather than in place of them, on the partial-reading rule below.
 //
 // THE ORDER IS RENDERED, NEVER REORDERED. `bridge/queue/queue-feed.ts` owns the fold that keeps
 // the snapshot's canonical FIFO order; this file maps over it. There is no sort
@@ -26,6 +31,7 @@
 
 import {
   DerivedFigure,
+  InlineRefusal,
   Nothing,
   PartialRead,
   RefusalCard,
@@ -94,11 +100,18 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   return (
     <div className="meridian-queue">
       <PartialRead states={[deliveries]} subject="the queue" />
+      {feed.bindingRefusal === undefined ? null : (
+        // Beside the rows and never in place of them: the rows are still the best
+        // reading there is, and they are no longer offered as one that says which run
+        // each is bound to.
+        <InlineRefusal code={feed.bindingRefusal.code} detail={feed.bindingRefusal.detail} />
+      )}
       <ol className="meridian-queue__rows">
         {rendered.map((item) => (
           <QueueRow
             key={item.id}
             item={item}
+            targetRunId={feed.targetRunIdByItemId.get(item.id)}
             isCancelPending={feed.pendingCancelIds.has(item.id)}
             cancelRefusal={feed.cancelRefusalByItemId.get(item.id)}
             onCancel={feed.cancelItem}
