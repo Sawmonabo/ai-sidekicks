@@ -28,7 +28,7 @@ export function RevokeConfirmation(props: {
    *
    * One boolean rather than one per cause — a row's change in flight, the shell
    * closing every write — because the confirmation's only question is whether the act
-   * is available; the ledger says WHY, once, above the rows.
+   * is available; the members section says WHY, once, above everything under it.
    */
   readonly isClosed: boolean;
   readonly onConfirm: () => void;

@@ -83,7 +83,12 @@
 import { useEffect, useMemo } from "react";
 
 import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
-import { shellBlockForMethod, useShellState, type FrameStore } from "../../store/index.js";
+import {
+  currentShellBlock,
+  shellBlockForMethod,
+  useShellState,
+  type FrameStore,
+} from "../../store/index.js";
 import {
   WireMutationCoordinator,
   type CollaborationMutation,
@@ -149,7 +154,9 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   // Whether this window may send the revoke at all, from the shell state the frame
   // publishes. Asked of the one seam every dispatching control goes through, so the
   // ledger's own read stays live through the same outage — that seam answers about a
-  // method, never about the window.
+  // method, never about the window. This value draws the row's control and rides it as
+  // its disabled reason; whether a press is admitted is asked again at the dispatch
+  // site, off the store, because this one is as old as the last committed render.
   const revokeBlock = shellBlockForMethod(useShellState(frameStore), INVITE_REVOKE_METHOD);
 
   useEffect(() => {
@@ -174,8 +181,8 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
       {/* DISABLED WITH THE CAUSE BESIDE IT, never hidden, and the SENTENCE said once for
           the section: the block is the window's, and the send control below, every revoke
           control in the ledger, and the membership controls above are all closed by the
-          same condition. The one line naming it is the hosting section's — the members
-          ledger prints it above its rows — so this surface hands the block to its
+          same condition. The one line naming it is the hosting members section's, printed
+          above everything under that heading — so this surface hands the block to its
           controls as their disabled reason and prints no second copy of the same words
           under the same heading. */}
       <CreateInvite
@@ -198,7 +205,12 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
           }
           // Fail-closed at the dispatch site and not only on the control: the row's
           // control is disabled from this same block, so this is the guard.
-          if (revokeBlock !== undefined) {
+          //
+          // READ NOW rather than closed over. `revokeBlock` is the last committed
+          // render's answer, and a report landing between that render and this press
+          // leaves it `undefined` while the supervisor has stopped — so the store is
+          // asked at the moment the call would be put.
+          if (currentShellBlock(frameStore, INVITE_REVOKE_METHOD) !== undefined) {
             return;
           }
           void revokeCoordinator

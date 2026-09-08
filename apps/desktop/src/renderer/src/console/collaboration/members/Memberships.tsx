@@ -74,8 +74,9 @@
 import { useMemo } from "react";
 import { callDaemon } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
+import { InlineRefusal } from "../../primitives/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import { shellBlockForMethod, useShellState } from "../../store/index.js";
+import { currentShellBlock, shellBlockForMethod, useShellState } from "../../store/index.js";
 import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
@@ -139,6 +140,11 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
   // other read to settle — and asked per METHOD through the one seam that knows which
   // calls an outage closes, rather than read off the connection here, where a second
   // reading of that rule would be free to disagree with the banner above it.
+  //
+  // WHAT THIS VALUE IS FOR IS THE RENDER, and only the render: it draws the controls,
+  // it rides them as their disabled reason, and it is the sentence below. Whether a
+  // press is admitted is asked again at the dispatch site, off the store, because this
+  // one is as old as the last committed render.
   const updateBlock = shellBlockForMethod(
     useShellState(context.frameStore),
     MEMBERSHIP_UPDATE_METHOD,
@@ -154,6 +160,16 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
         </p>
       </header>
 
+      {/* THE ONE SENTENCE FOR THE WHOLE SECTION, and it is here rather than inside the
+          ledger because the block closes every control under this heading — the four
+          per row, the revoke on every pending invitation, and the mint below. Said by
+          the ledger it was said only where there were ROWS to say it above: a session
+          whose memberships have not been read returns its empty state first, and an
+          outage went unnamed beside three disabled controls. */}
+      {updateBlock === undefined ? null : (
+        <InlineRefusal code={updateBlock.code} detail={updateBlock.detail} />
+      )}
+
       <MembershipLedger
         rows={rows}
         rosterRefusal={props.rosterRefusal}
@@ -168,7 +184,12 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
           // sessions destination's precedent: the menu and the confirmation are
           // disabled from this same block, so this is the guard rather than the
           // affordance, and a press that reached here anyway must still put nothing.
-          if (updateBlock !== undefined) {
+          //
+          // READ NOW rather than closed over. `updateBlock` is the last committed
+          // render's answer, and a report landing between that render and this press
+          // leaves it `undefined` while the supervisor has stopped — so the store is
+          // asked at the moment the call would be put.
+          if (currentShellBlock(context.frameStore, MEMBERSHIP_UPDATE_METHOD) !== undefined) {
             return;
           }
           void coordinator.run(row.membershipId, update);

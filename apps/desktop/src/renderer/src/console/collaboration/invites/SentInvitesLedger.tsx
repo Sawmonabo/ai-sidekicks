@@ -78,9 +78,8 @@ export function SentInvitesLedger(props: {
           a control this build does not have, and a disabled one with its sentence off
           screen reads as one that quietly stopped working. Every pending row's revoke
           carries the block as its disabled reason; the sentence itself is the hosting
-          members section's, said once above its rows for every control under its
-          heading — the cause is the window's, and the rows below are a read the outage
-          does not touch. */}
+          members section's, said once above everything under that heading — the cause
+          is the window's, and the rows below are a read the outage does not touch. */}
       {ledger.pending.length === 0 ? (
         <Nothing
           kind="empty"

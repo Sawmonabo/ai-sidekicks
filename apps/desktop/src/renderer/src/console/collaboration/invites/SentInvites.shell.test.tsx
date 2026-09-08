@@ -12,11 +12,15 @@
 // shipped supervisor binding uses, so what closes the control here is the fold a real
 // window runs rather than a state assembled by hand.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import {
+  withDaemonCall,
+  type RecordedDaemonCall,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { FrameStore } from "../../store/index.js";
-import { connectedShell, stoppedShell } from "../shell-condition.test-support.js";
+import { connectedShell, stopShell, stoppedShell } from "../shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   INVITE_1,
@@ -39,6 +43,33 @@ async function renderUnder(frameStore: FrameStore): Promise<HTMLElement> {
   return container;
 }
 
+/**
+ * The same surface over a bridge that records every call the console puts.
+ *
+ * The record is what a dispatch-time case reads: a revoke suppressed at the handler
+ * and one refused by the daemon look identical on screen, and only the wire says which
+ * happened.
+ */
+async function renderRecording(frameStore: FrameStore): Promise<{
+  readonly container: HTMLElement;
+  readonly calls: readonly RecordedDaemonCall[];
+}> {
+  const { bridge, calls } = withDaemonCall(
+    bridgeServing([invite({ inviteId: INVITE_1 })]),
+    async (_recorded, passThrough) => await passThrough(),
+  );
+  const { container } = render(
+    <SentInvites bridge={bridge} sessionId={SESSION_ID} frameStore={frameStore} />,
+  );
+  await settle();
+  return { container, calls };
+}
+
+/** How many revokes actually reached the daemon. */
+function revokesReaching(calls: readonly RecordedDaemonCall[]): number {
+  return calls.filter((recorded) => recorded.method === "invite.revoke").length;
+}
+
 /** The one revoke control the pending row draws. */
 function revokeControl(container: HTMLElement): HTMLButtonElement | null {
   return container.querySelector<HTMLButtonElement>(".meridian-invites__row-action");
@@ -59,9 +90,9 @@ describe("sent invites — a supervisor that is not serving", () => {
     expect(revoke?.disabled).toBe(true);
     // The cause reaches the control as its own disabled reason — half of "disabled
     // with its cause beside it". The other half, the one SENTENCE naming the cause, is
-    // the hosting members section's, said once above its rows for every control under
-    // its heading; this surface prints no second copy, which is what the count below
-    // holds. `Memberships.shell.test.tsx` holds the sentence itself.
+    // the hosting members section's, said once above everything under that heading;
+    // this surface prints no second copy, which is what the count below holds.
+    // `Memberships.shell.test.tsx` holds the sentence itself.
     expect(revoke?.getAttribute("title") ?? "").toContain("The local runtime has been stopped");
     expect(refusals(container).filter((line) => line.includes("shell-"))).toStrictEqual([]);
   });
@@ -84,5 +115,46 @@ describe("sent invites — a supervisor that is not serving", () => {
     expect(revokeControl(container)?.disabled).toBe(false);
     expect(revokeControl(container)?.getAttribute("title")).toBeNull();
     expect(refusals(container)).toStrictEqual([]);
+  });
+});
+
+describe("sent invites — a supervisor that stops between the render and the press", () => {
+  it("puts no revoke when the report landed after the render that offered it", async () => {
+    // The block the handler closed over is the one the last COMMITTED render derived.
+    // A report landing after that render and before the press reaches the closure
+    // leaves the guard reading `undefined` — so the control is still drawn open, the
+    // press is admitted, and `invite.revoke` goes out through a supervisor that has
+    // stopped. The handler therefore re-reads the shell where it dispatches.
+    const frameStore = connectedShell();
+    const { container, calls } = await renderRecording(frameStore);
+    const revoke = revokeControl(container);
+    expect(revoke?.disabled).toBe(false);
+
+    // Report and press inside ONE act, which is the order a press arriving on the
+    // heels of a report actually takes: the store publishes, React has not re-rendered
+    // yet, and the press reaches the handler the last committed render closed over.
+    // The assertion sits inside for that reason — read after the act it would be the
+    // re-rendered control, and the window this case is about would be invisible.
+    act(() => {
+      stopShell(frameStore);
+      expect(revoke?.disabled).toBe(false);
+      revoke?.click();
+    });
+    await settle();
+
+    expect(revokesReaching(calls)).toBe(0);
+  });
+
+  it("negative control: the same press does reach the daemon while it is serving", async () => {
+    // Without this the case above would pass over a surface whose revoke control
+    // dispatched nothing under any condition.
+    const { container, calls } = await renderRecording(connectedShell());
+
+    act(() => {
+      revokeControl(container)?.click();
+    });
+    await settle();
+
+    expect(revokesReaching(calls)).toBe(1);
   });
 });

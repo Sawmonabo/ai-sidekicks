@@ -5,22 +5,29 @@
 // that terminates in it, and `store/shell-mutation-block.ts` is where the console
 // registers that it is a write at all. This suite is the consequence of that
 // registration reaching the screen: every row's controls close while the runtime is
-// not serving, the cause is said once above them, and the projected rows stay — an
-// outage does not unproject a membership.
+// not serving, the cause is said once above everything under the heading, and the
+// projected rows stay — an outage does not unproject a membership.
 //
 // The shell is driven through `FrameStore.publishShellReport`, the same writer the
 // shipped supervisor binding uses, so what closes the controls here is the fold a real
 // window runs rather than a state assembled by hand.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import {
+  unscriptedScenario,
+  withDaemonCall,
+  type RecordedDaemonCall,
+} from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixtureBridge } from "../../bridge/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import type { FrameStore } from "../../store/index.js";
-import { connectedShell, stoppedShell } from "../shell-condition.test-support.js";
+import { connectedShell, stopShell, stoppedShell } from "../shell-condition.test-support.js";
 import {
   Memberships,
   OWNER_AND_COLLABORATOR,
+  type ProjectedMembership,
   contextFor,
   storeHolding,
 } from "./Memberships.test-support.js";
@@ -33,14 +40,52 @@ import {
  * started it. Left unsettled, every case here would assert against a tree React was
  * still moving.
  */
-async function renderUnder(frameStore: FrameStore): Promise<HTMLElement> {
+async function renderUnder(
+  frameStore: FrameStore,
+  memberships: readonly ProjectedMembership[] = OWNER_AND_COLLABORATOR,
+): Promise<HTMLElement> {
   const { container } = render(
-    <Memberships
-      context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), undefined, frameStore)}
-    />,
+    <Memberships context={contextFor(storeHolding(memberships), undefined, frameStore)} />,
   );
   await settle();
   return container;
+}
+
+/**
+ * The same section over a bridge that records every call the console puts.
+ *
+ * The record is what a dispatch-time case reads: a change suppressed at the handler
+ * and one refused by the daemon look identical on screen, and only the wire says which
+ * happened.
+ */
+async function renderRecording(frameStore: FrameStore): Promise<{
+  readonly container: HTMLElement;
+  readonly calls: readonly RecordedDaemonCall[];
+}> {
+  const { bridge, calls } = withDaemonCall(
+    createFixtureBridge({ scenario: unscriptedScenario("collaboration-members-shell-test") }),
+    async (_recorded, passThrough) => await passThrough(),
+  );
+  const { container } = render(
+    <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), bridge, frameStore)} />,
+  );
+  await settle();
+  return { container, calls };
+}
+
+/** How many membership changes actually reached the daemon. */
+function updatesReaching(calls: readonly RecordedDaemonCall[]): number {
+  return calls.filter((recorded) => recorded.method === "membership.update").length;
+}
+
+/** The first row's revoke trigger — the control a confirmation opens behind. */
+function revokeTrigger(container: HTMLElement): HTMLButtonElement | null {
+  return container.querySelector<HTMLButtonElement>(".meridian-members__revoke");
+}
+
+/** The confirmation's own act, which lives in the window's airspace and not in the row. */
+function confirmControl(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>(".meridian-confirm__confirm");
 }
 
 /** Every row's manage trigger and revoke trigger. */
@@ -67,7 +112,7 @@ function shellRefusals(container: HTMLElement): readonly string[] {
 }
 
 describe("memberships — a supervisor that is not serving", () => {
-  it("closes every row's controls and names the cause once above them", async () => {
+  it("closes every row's controls and names the cause once for the section", async () => {
     const container = await renderUnder(stoppedShell());
 
     const controls = rowControls(container);
@@ -84,7 +129,7 @@ describe("memberships — a supervisor that is not serving", () => {
   it("carries the cause on the manage trigger as its own disabled reason", async () => {
     // The revoke control's trigger is the shared confirmation primitive, which
     // renders no tooltip of its own — so the sentence a person meets on hover is the
-    // menu's, and the ledger's line is what covers the other control.
+    // menu's, and the section's line is what covers the other control.
     const container = await renderUnder(stoppedShell());
 
     const manage = container.querySelector<HTMLButtonElement>(".meridian-members__manage");
@@ -106,5 +151,74 @@ describe("memberships — a supervisor that is not serving", () => {
     expect(rowControls(container).every((control) => !control.disabled)).toBe(true);
     expect(container.querySelector(".meridian-members__manage")?.getAttribute("title")).toBeNull();
     expect(shellRefusals(container)).toStrictEqual([]);
+  });
+
+  it("says the cause once for the section even with no membership read", async () => {
+    // The sentence belongs to the SECTION and not to the row list, and this is the
+    // case that decides where it lives: with no row to print, a ledger that owned the
+    // sentence returned its empty state before saying anything, so the invitation
+    // controls this section hosts stood disabled under a heading that named no cause.
+    const container = await renderUnder(stoppedShell(), []);
+
+    expect(container.textContent ?? "").toContain("No membership has been read");
+    expect(shellRefusals(container)).toHaveLength(1);
+    expect(shellRefusals(container)[0] ?? "").toContain("shell-stopped");
+    const send = container.querySelector<HTMLButtonElement>(".meridian-invite-create__send");
+    expect(send?.disabled).toBe(true);
+    expect(send?.getAttribute("title") ?? "").toContain("The local runtime has been stopped");
+  });
+
+  it("negative control: an empty ledger under a serving supervisor says nothing", async () => {
+    // Without this the case above would pass over a section that printed a shell
+    // refusal above every empty ledger, whatever the supervisor had reported.
+    const container = await renderUnder(connectedShell(), []);
+
+    expect(container.textContent ?? "").toContain("No membership has been read");
+    expect(shellRefusals(container)).toStrictEqual([]);
+  });
+});
+
+describe("memberships — a supervisor that stops between the render and the press", () => {
+  it("puts no membership change when the report landed after the render", async () => {
+    // The block the handler closed over is the one the last COMMITTED render derived.
+    // A report landing after that render and before the press reaches the closure
+    // leaves the guard reading `undefined` — so the confirmation is still open, the
+    // press is admitted, and `membership.update` goes out through a supervisor that has
+    // stopped. The handler therefore re-reads the shell where it dispatches.
+    const frameStore = connectedShell();
+    const { container, calls } = await renderRecording(frameStore);
+    act(() => {
+      revokeTrigger(container)?.click();
+    });
+    expect(confirmControl()).not.toBeNull();
+
+    // Report and press inside ONE act, which is the order a press arriving on the heels
+    // of a report actually takes: the store publishes, React has not re-rendered yet,
+    // and the press reaches the handler the last committed render closed over. The
+    // assertion sits inside for that reason — read after the act it would be the
+    // re-rendered trigger, and the window this case is about would be invisible.
+    act(() => {
+      stopShell(frameStore);
+      expect(revokeTrigger(container)?.disabled).toBe(false);
+      confirmControl()?.click();
+    });
+    await settle();
+
+    expect(updatesReaching(calls)).toBe(0);
+  });
+
+  it("negative control: the same press does reach the daemon while it is serving", async () => {
+    // Without this the case above would pass over a section whose confirmation
+    // dispatched nothing under any condition.
+    const { container, calls } = await renderRecording(connectedShell());
+    act(() => {
+      revokeTrigger(container)?.click();
+    });
+    act(() => {
+      confirmControl()?.click();
+    });
+    await settle();
+
+    expect(updatesReaching(calls)).toBe(1);
   });
 });

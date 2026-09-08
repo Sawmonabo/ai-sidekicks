@@ -59,9 +59,11 @@
 // dispatched while the shell is starting, reconnecting, offline, stopped, or
 // version-incompatible is a write this window had no business putting. The
 // classification is NOT made here: the method name is bound to the store family's own
-// closed tuple at compile time and asked of `shellBlockForMethod`, the one seam every
+// closed tuple at compile time and asked of `currentShellBlock`, the one seam every
 // dispatching control goes through — which is also why the read beside it survives the
-// same outage, since that seam answers about a method and not about the window.
+// same outage, since that seam answers about a method and not about the window. It is
+// asked of the store at the moment of the ask rather than of a value some earlier
+// render captured, which is what makes a report landing mid-flow reach this act.
 //
 // SUPERSESSION IS THE FLOW'S RULE, AND THE TWO HALVES ANSWER IT DIFFERENTLY. A read
 // rides a round on a line addressed at the scope, so a newer read supersedes an older
@@ -88,7 +90,7 @@ import {
   NO_TRIGGERING_EVENT_KINDS,
   ReadScope,
   RefreshScheduler,
-  shellBlockForMethod,
+  currentShellBlock,
   shellBlocksAreEqual,
   type FrameStore,
   type ReadTriggerTarget,
@@ -277,7 +279,7 @@ export class ProviderReadinessModel implements ReadTriggerTarget {
 
   /** What the supervisor's condition currently costs a re-check. Derived, never held. */
   #currentRecheckBlock(): ShellMutationBlock | undefined {
-    return shellBlockForMethod(this.#frameStore.getState().shellState, RECHECK_METHOD);
+    return currentShellBlock(this.#frameStore, RECHECK_METHOD);
   }
 
   /**

@@ -56,8 +56,8 @@ export function MembershipActionsMenu(props: {
    * Why the shell closes every one of these acts, or `undefined` while nothing does.
    *
    * Both controls close on it for the reason `isAnyPending` closes them: an act the
-   * surface would refuse should not be offered. Its SENTENCE is the ledger's, said
-   * once above the rows.
+   * surface would refuse should not be offered. Its SENTENCE is the members section's,
+   * said once above everything under that heading.
    */
   readonly updateBlock: ShellMutationBlock | undefined;
   readonly onApply: (update: MembershipUpdate) => void;

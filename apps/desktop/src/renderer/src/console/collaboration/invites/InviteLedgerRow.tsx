@@ -19,8 +19,8 @@ export function InviteLedgerRow(props: {
    * Why the shell closes the revoke, or `undefined` while nothing does.
    *
    * The control carries it as its disabled reason; the SENTENCE is said once for the
-   * whole members section, above the membership rows, because the cause is the
-   * window's and one copy per invitation would be the same words repeated down a list.
+   * whole members section, above everything under that heading, because the cause is
+   * the window's and one copy per invitation would be the same words down a list.
    */
   readonly revokeBlock: ShellMutationBlock | undefined;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;

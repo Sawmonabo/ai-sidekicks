@@ -11,7 +11,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { growthRefusing, growthServing } from "../../bridge/fixture/fixture-bridge.test-support.js";
-import type { GrowthOutcome } from "../../bridge/index.js";
 import { quietShell } from "../shell-condition.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
 import {
@@ -22,6 +21,7 @@ import {
   SHORT_EXPIRY,
   bridgeFor,
   choose,
+  heldHostRead,
   mintsReaching,
   pressSend,
   scenarioMinting,
@@ -32,34 +32,6 @@ import {
 import { DEFAULT_JOIN_MODE } from "./invite-draft.js";
 import { SentInvites } from "./SentInvites.js";
 import { INVITE_1, SESSION_ID, VIEWING_PARTICIPANT, invite } from "./sent-invites.test-support.js";
-
-/**
- * The host read held open, with the means to answer it later.
- *
- * The window these cases have to observe is the one between the press and the
- * composed link, and a read that answers immediately closes it before a case can
- * look. `settleable` in the coordinator's own suite is this shape for the daemon
- * arm; this is the growth arm's, and it is local because one surface reads this
- * operation.
- */
-function heldHostRead(): {
-  readonly read: () => Promise<GrowthOutcome<{ readonly host: string }>>;
-  readonly answer: () => void;
-} {
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return {
-    read: async () => {
-      await held;
-      return { status: "served", value: { host: CONTROL_PLANE_HOST } };
-    },
-    answer: () => {
-      release();
-    },
-  };
-}
 
 describe("creating an invitation — what the request is composed from", () => {
   it("names the participant the identity read answered with, and never a guess", async () => {
