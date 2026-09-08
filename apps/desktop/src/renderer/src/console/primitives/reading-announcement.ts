@@ -39,6 +39,16 @@
 // comparison is a sentence a person hears twice with every test still green. So the
 // rule lives once, in `useAnnounceOncePerSentence` below, and each arity is the caller
 // that composes its own sentences and hands them over.
+//
+// AND THE THIRD ARITY IS WHAT THE DEDUP KEY IS FOR. A view family had written its own
+// ref, its own comparison and its own effect for a rule this module already owned,
+// because what it counts "once" by is not the sentence: two sessions holding the same
+// number of rows say the same words, and a sentence-keyed latch would announce the
+// first settlement and go silent on the second. That is a different KEY over the same
+// memory rather than a different rule, so the key becomes a parameter and the third
+// arity — `useReadSettlementAnnouncement` below — is another caller of the one latch.
+// The two memories are separate refs because a call site is in one mode for its whole
+// life: which mode it is in is decided by the arity that called, never by the pass.
 
 import { useEffect, useMemo, useRef } from "react";
 
@@ -67,6 +77,15 @@ function spokenSentenceFor(notice: PartialReadNotice): string | undefined {
 }
 
 /**
+ * What "once" is counted by, where the sentence itself is the wrong answer.
+ *
+ * Compared by IDENTITY, which is the same comparison for both members it admits — a
+ * read's state object is replaced once per settlement, and a session id is a different
+ * string once per scope change.
+ */
+export type AnnouncementDedupeKey = object | string;
+
+/**
  * Say each of a pass's sentences once, in the polite region. The one latch.
  *
  * @param sentences What this pass has to say, or `undefined` where it makes no claim at
@@ -76,16 +95,44 @@ function spokenSentenceFor(notice: PartialReadNotice): string | undefined {
  *   nothing is incomplete any more. `undefined` leaves the memory standing, which is
  *   what a surface whose read has not settled needs — it has nothing to say and nothing
  *   to retract, and forgetting there would make one settlement audible twice.
+ * @param dedupeKey What to count "once" by instead of the sentences, for a caller whose
+ *   distinct settlements can say identical words. A pass carrying a key it has not
+ *   announced under speaks every sentence it holds; a pass repeating a key says nothing,
+ *   whatever its sentences are. Omitted, the sentences are the key. A pass with no
+ *   sentences never reaches this comparison at all, so a caller that has nothing to say
+ *   is silent whether or not it also has an identity to say it under.
  */
-export function useAnnounceOncePerSentence(sentences: readonly string[] | undefined): void {
+export function useAnnounceOncePerSentence(
+  sentences: readonly string[] | undefined,
+  dedupeKey?: AnnouncementDedupeKey,
+): void {
   const announce = useAnnounce();
   // What this surface said last pass. A ref rather than state, because it must not
   // cause a render — and because what it guards is the effect's next run, which is
   // scheduled before any render it could trigger would land.
   const announcedSentencesRef = useRef<ReadonlySet<string>>(undefined);
+  // The keyed arity's memory, held beside the other rather than folded into it. A call
+  // site is in one mode for its whole life — the arity that called decided it — so one
+  // of these two is always the memory and the other is always untouched, and a single
+  // ref holding either shape would make which one it is a question about the last pass.
+  const announcedKeyRef = useRef<AnnouncementDedupeKey>(undefined);
 
   useEffect(() => {
     if (sentences === undefined) {
+      return;
+    }
+    if (dedupeKey !== undefined) {
+      if (announcedKeyRef.current === dedupeKey) {
+        return;
+      }
+      announcedKeyRef.current = dedupeKey;
+      // Said in full rather than filtered against what was said before, which is the
+      // whole point of the key: a settlement saying the words a previous settlement
+      // said is a second, real announcement, and filtering here would silence exactly
+      // the case the caller reached for a key to be heard on.
+      for (const sentence of new Set(sentences)) {
+        announce(sentence, "polite");
+      }
       return;
     }
     // Collected as a SET rather than deduplicated as the loop runs: two readings of one
@@ -101,7 +148,35 @@ export function useAnnounceOncePerSentence(sentences: readonly string[] | undefi
       announce(sentence, "polite");
     }
     announcedSentencesRef.current = spoken;
-  }, [sentences, announce]);
+  }, [sentences, dedupeKey, announce]);
+}
+
+/**
+ * Announce one read's settlement, once per settlement rather than once per sentence.
+ *
+ * The arity a view family had written for itself. `settlement` is what the read
+ * produced — whatever it is, its IDENTITY is what "once" is counted by — and it is
+ * optional because a scope that has settled on no session has nothing to be identified
+ * by either. `sentence` is what to say about it, or `undefined` while there is nothing
+ * settled to say; an unsettled read is recorded as unannounced, so the same object
+ * speaks the moment it has a sentence rather than being skipped forever.
+ *
+ * @param settlement The read's own state object, or the value it settled on.
+ * @param sentence What to say about it, or `undefined` while nothing has settled.
+ */
+export function useReadSettlementAnnouncement(
+  settlement: AnnouncementDedupeKey | undefined,
+  sentence: string | undefined,
+): void {
+  // An unidentified settlement is folded into the silent arm rather than announced
+  // under an absent key: a sentence said under no identity could not be counted, so it
+  // would speak on every pass that produced it. Every caller ties the two together
+  // already — a scope with no session composes no sentence about one.
+  const sentences = useMemo(
+    () => (settlement === undefined || sentence === undefined ? undefined : [sentence]),
+    [settlement, sentence],
+  );
+  useAnnounceOncePerSentence(sentences, settlement);
 }
 
 /**

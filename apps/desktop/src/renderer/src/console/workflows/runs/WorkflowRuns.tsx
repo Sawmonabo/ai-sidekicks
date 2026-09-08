@@ -24,7 +24,7 @@
 import { useId, useMemo } from "react";
 
 import type { GrowthPort } from "../../bridge/index.js";
-import { useReadSettlementAnnouncement } from "../read-announcement.js";
+import { useReadSettlementAnnouncement } from "../../primitives/index.js";
 import { RunListProjection, type WorkflowRunListRow } from "./run-list-projection.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
 import { WorkflowRunsReadState } from "./WorkflowRunsReadState.js";

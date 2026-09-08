@@ -87,7 +87,7 @@ import { useCallback } from "react";
 
 import type { GrowthPort } from "../../bridge/index.js";
 import type { TransportReconnectObservable } from "../../core/index.js";
-import { WireFigure } from "../../primitives/index.js";
+import { useReadSettlementAnnouncement, WireFigure } from "../../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../../store/index.js";
 import type { ConsolePaneOpener } from "../../seats/index.js";
 import {
@@ -97,7 +97,6 @@ import {
   type WorkflowsScopeState,
 } from "./destination-scope.js";
 import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
-import { useReadSettlementAnnouncement } from "../read-announcement.js";
 import type { WorkflowRunListRow } from "../runs/run-list-projection.js";
 import { WorkflowRuns } from "../runs/WorkflowRuns.js";
 import { WorkflowsBrowser } from "../browser/index.js";

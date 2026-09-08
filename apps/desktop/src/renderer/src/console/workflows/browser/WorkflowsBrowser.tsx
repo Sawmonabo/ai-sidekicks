@@ -48,10 +48,9 @@
 // browser passes none and the surface below declares none.
 
 import type { GrowthPort } from "../../bridge/index.js";
-import type { ReadingState } from "../../primitives/index.js";
+import { useReadSettlementAnnouncement, type ReadingState } from "../../primitives/index.js";
 import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
 import { WorkflowsSurface } from "../WorkflowsSurface.js";
-import { useReadSettlementAnnouncement } from "../read-announcement.js";
 import { refusedWorkflowStrip, type WorkflowStripState } from "../strip-state.js";
 import {
   useWorkflowDefinitionDirectory,

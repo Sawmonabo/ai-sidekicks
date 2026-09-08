@@ -27,11 +27,11 @@
 // the reading held for that participant, the writer built over it, and the one
 // sentence the settled chain says out loud.
 
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../../bridge/index.js";
 import type { ConsoleClock } from "../../../core/index.js";
-import { useAnnounce } from "../../../primitives/index.js";
+import { useSettlementAnnouncement } from "../../../primitives/index.js";
 import {
   useSubjectScopedResource,
   useSubjectScopedState,
@@ -106,7 +106,6 @@ export function useStoredAttentionPreferences(
 ): StoredPreferenceBinding {
   const { bridge, retainedSessionId } = context;
   const clock = usePinnedBridgeClock(bridge);
-  const announce = useAnnounce();
   // THE IDENTITY READ IS A SCHEDULED READ HELD FOR THE SESSION IT WAS MADE FOR. It was
   // a `useEffect` keyed on the bridge and the session, which is a read that runs ONCE:
   // a transport outage refused it, the dependencies never moved again, and the section
@@ -169,22 +168,13 @@ export function useStoredAttentionPreferences(
   // boolean here reported the first settlement and then went silent for the life of
   // the window, which was right while the identity read ran once and is wrong now that
   // it retries: an attempt that refused announced its refusal, and the focus that
-  // succeeded afterwards put a set on screen with nothing said about it. Held in a ref
-  // rather than in state so announcing never causes the render that would announce
-  // again.
-  const lastAnnouncedRef = useRef<string | undefined>(undefined);
-  const settledSentence = chainSentenceFor(participantReading, preferenceReading);
-  useEffect(() => {
-    if (settledSentence === undefined || lastAnnouncedRef.current === settledSentence) {
-      return;
-    }
-    // In an effect rather than inside a reply's own callback, because the readings are
-    // published by classes that hold no announcer: what is said is a property of the
-    // settled value, and this is the one place that value and the window's announcer
-    // are both in hand.
-    lastAnnouncedRef.current = settledSentence;
-    announce(settledSentence);
-  }, [announce, settledSentence]);
+  // succeeded afterwards put a set on screen with nothing said about it. Said through
+  // the console's own settlement latch rather than through a ref and an effect written
+  // here: this module had the second, and the place two copies of a latch drift is the
+  // comparison, where a drift is a sentence a person hears twice with every test still
+  // green. What is said is a property of the settled value, which is what that latch
+  // takes — the readings are published by classes that hold no announcer at all.
+  useSettlementAnnouncement(chainSentenceFor(participantReading, preferenceReading));
 
   // Rebuilt when the participant changes, because everything it holds — the queue,
   // the busy records, the refusals — belongs to one person's set. The old writer's
