@@ -19,7 +19,12 @@ import { describe, expect, it } from "vitest";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
-import { ModelledShell, refusingPlane, servingPort } from "./aux-handoff.test-support.js";
+import {
+  ModelledShell,
+  refusingPlane,
+  SERVED_WINDOW_ID,
+  servingPort,
+} from "./aux-handoff.test-support.js";
 import { type ConsoleAuxiliaryWindowPort } from "./aux-window-signal-watch.js";
 
 /** The pane these cases move into a window. */
@@ -126,7 +131,11 @@ describe("AuxiliaryHandoff — the orderly-return signal", () => {
           value: {
             events: (async function* deliver() {
               await Promise.resolve();
-              yield { paneId: PANE_ID, reason: "the window closed unexpectedly" };
+              yield {
+                windowId: SERVED_WINDOW_ID,
+                paneId: PANE_ID,
+                reason: "the window closed unexpectedly",
+              };
               await new Promise<void>(() => undefined);
             })(),
             close: () => undefined,

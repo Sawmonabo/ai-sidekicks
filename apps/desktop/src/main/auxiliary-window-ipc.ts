@@ -37,7 +37,11 @@
 //      asked to close reports a RETURN; a window whose renderer died reports an
 //      ERROR carrying the reason. Both reach the renderer that asked for the window,
 //      by its own `WebContents`, because a report broadcast to every window would tell
-//      three decks that a pane none of them holds has come back.
+//      three decks that a pane none of them holds has come back. Both name the WINDOW
+//      as well as the pane, for the reason property 2 gives: that renderer holds every
+//      session's hand-off and its decks all mint a `pane-1`, so a report naming only
+//      the pane reached every session holding that local id — and the ones whose
+//      windows were still open took their placeholders down over somebody else's crash.
 //
 // The reports travel as `webContents.send`, which is the only direction available: an
 // `ipcMain.handle` reply answers the call that asked, and a window closing is not a
@@ -208,7 +212,11 @@ class AuxiliaryWindowRegistry {
         held.requester.send(AUXILIARY_WINDOW_CHANNELS.paneReturn, report);
         return;
       }
-      const report: AuxiliaryWindowPaneError = { paneId: held.paneId, reason: lostReason };
+      const report: AuxiliaryWindowPaneError = {
+        windowId: held.windowId,
+        paneId: held.paneId,
+        reason: lostReason,
+      };
       held.requester.send(AUXILIARY_WINDOW_CHANNELS.paneError, report);
     });
   }

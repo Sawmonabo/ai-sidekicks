@@ -108,7 +108,7 @@ describe("the auxiliary window's return control", () => {
 
     // The shell's own act rather than the control's: nothing was pressed.
     expect(
-      handoff.noteWindowLost(PANE_ID, `the window ${windowId} closed unexpectedly`),
+      handoff.noteWindowLost(PANE_ID, windowId, `the window ${windowId} closed unexpectedly`),
     ).toBeDefined();
 
     expect(handoff.detached()).toStrictEqual([]);

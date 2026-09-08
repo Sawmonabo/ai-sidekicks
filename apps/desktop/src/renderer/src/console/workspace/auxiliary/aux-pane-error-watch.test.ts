@@ -9,12 +9,13 @@
 // is part of what has to hold: a lost window has to reach the same set a hand-written
 // `noteWindowLost` writes.
 
+import type { AuxiliaryWindowPaneError } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { lostWindowNotice, type LostAuxiliaryWindow } from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
-import { refusingPlane, servingPort } from "./aux-handoff.test-support.js";
+import { refusingPlane, SERVED_WINDOW_ID, servingPort } from "./aux-handoff.test-support.js";
 import { type ConsoleAuxiliaryWindowPort } from "./aux-window-signal-watch.js";
 
 describe("AuxiliaryHandoff — the crashed-window signal", () => {
@@ -29,7 +30,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
    * which is how it went unnoticed that the exit reported a stopped signal as calm.
    */
   function streamingPort(
-    paneErrors: readonly { paneId: string; reason: string }[],
+    paneErrors: readonly AuxiliaryWindowPaneError[],
     options: { readonly endsAfterDelivering: boolean } = { endsAfterDelivering: false },
   ): ConsoleAuxiliaryWindowPort {
     return {
@@ -58,7 +59,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // record below, it came back with nothing to say about why.
     const handoff = new AuxiliaryHandoff({
       auxiliaryWindows: streamingPort([
-        { paneId: "pane-1", reason: "the window closed unexpectedly" },
+        { windowId: SERVED_WINDOW_ID, paneId: "pane-1", reason: "the window closed unexpectedly" },
       ]),
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
@@ -82,7 +83,11 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // detached pane the moment any error arrived.
     const handoff = new AuxiliaryHandoff({
       auxiliaryWindows: streamingPort([
-        { paneId: "pane-other", reason: "the window closed unexpectedly" },
+        {
+          windowId: SERVED_WINDOW_ID,
+          paneId: "pane-other",
+          reason: "the window closed unexpectedly",
+        },
       ]),
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
@@ -191,7 +196,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
                 stream.drained = true;
                 // Never ends on its own: a watch is closed, not waited out.
                 await new Promise<void>(() => undefined);
-                yield { paneId: "pane-never", reason: "unreachable" };
+                yield { windowId: SERVED_WINDOW_ID, paneId: "pane-never", reason: "unreachable" };
               })(),
               close: () => {
                 stream.closed = true;

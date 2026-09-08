@@ -237,10 +237,42 @@ describe("what the shell tells the renderer when a window stops being open", () 
 
     expect(renderer.sender.sent).toHaveLength(1);
     expect(renderer.sender.sent[0]?.channel).toBe(AUXILIARY_WINDOW_CHANNELS.paneError);
+    // NAMED BY WINDOW AS WELL AS BY PANE, exactly as the return is. That renderer holds
+    // every session's hand-off and each of its decks mints a `pane-1`, so a crash report
+    // named by the pane alone reached sessions whose own windows were still open — and
+    // they took their placeholders down over somebody else's crash.
     expect(renderer.sender.sent[0]?.payload).toStrictEqual({
+      windowId: "auxiliary-window-1",
       paneId: "pane-timeline-1",
       reason: "The window's renderer stopped (crashed).",
     });
+  });
+
+  it("names the crashed window, so two sessions' reports are told apart", async () => {
+    // Both decks hold a `pane-1`, so the pane id is not what tells the reports apart:
+    // without the handle, a hand-off matching on the pane alone reads the second
+    // session's crash as its own.
+    const { detachPane } = await installedHandlers();
+    const renderer = requestingRenderer();
+    detachPane(renderer, { paneId: "pane-1", route: "timeline", sessionId: SESSION_ID });
+    detachPane(renderer, { paneId: "pane-1", route: "timeline", sessionId: SECOND_SESSION_ID });
+    const second = lastConstructedWindow();
+
+    second.webContents.handlers.get("render-process-gone")?.(
+      ...([{}, { reason: "crashed" }] as never[]),
+    );
+    second.onceHandlers.get("closed")?.();
+
+    expect(renderer.sender.sent).toStrictEqual([
+      {
+        channel: AUXILIARY_WINDOW_CHANNELS.paneError,
+        payload: {
+          windowId: "auxiliary-window-2",
+          paneId: "pane-1",
+          reason: "The window's renderer stopped (crashed).",
+        },
+      },
+    ]);
   });
 
   it("says nothing to a renderer that has gone, rather than throwing into the close", async () => {

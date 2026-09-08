@@ -13,6 +13,7 @@ import { AuxiliaryHandoff } from "./aux-handoff.js";
 import {
   ModelledShell,
   refusingPlane,
+  SERVED_WINDOW_ID,
   WIRE_REJECTION_MESSAGE,
   detachingThenRejectingPort,
   rejectingPort,
@@ -143,7 +144,11 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     // it belongs in, which is exactly how the crash detail used to disappear.
     const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
-    const lost = handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
+    const lost = handoff.noteWindowLost(
+      "pane-1",
+      SERVED_WINDOW_ID,
+      "the window closed unexpectedly",
+    );
     expect(lost?.lostReason).toBe("the window closed unexpectedly");
     expect(handoff.detached()).toHaveLength(0);
     expect(handoff.lostWindow("pane-1")?.lostReason).toBe("the window closed unexpectedly");
@@ -158,7 +163,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
       readsAtPublish.push(handoff.lostWindow("pane-1")?.lostReason);
     });
 
-    handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
+    handoff.noteWindowLost("pane-1", SERVED_WINDOW_ID, "the window closed unexpectedly");
     unsubscribe();
 
     // The record is stored BEFORE the publish, so the first read a subscriber takes
@@ -166,10 +171,24 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     expect(readsAtPublish).toStrictEqual(["the window closed unexpectedly"]);
   });
 
+  it("ignores a crash report about a window this pane is not in", async () => {
+    // The pane id is not what tells one report from another: one renderer holds every
+    // session's hand-off and each deck mints its own `pane-1`, so a report matched on
+    // the pane alone let a crash in one session's window take down another session's
+    // placeholder — and file a crash note about a window that never died.
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    expect(handoff.noteWindowLost("pane-1", "aux-window-9", "not this one")).toBeUndefined();
+
+    expect(handoff.detached()).toHaveLength(1);
+    expect(handoff.lostWindow("pane-1")).toBeUndefined();
+  });
+
   it("clears the crash record when the same pane is detached again", async () => {
     const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
-    handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
+    handoff.noteWindowLost("pane-1", SERVED_WINDOW_ID, "the window closed unexpectedly");
 
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
@@ -182,7 +201,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   it("clears the crash record when the person dismisses it, and publishes that", async () => {
     const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
-    handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
+    handoff.noteWindowLost("pane-1", SERVED_WINDOW_ID, "the window closed unexpectedly");
     let publishCount = 0;
     const unsubscribe = handoff.subscribe(() => {
       publishCount += 1;
@@ -231,7 +250,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     expect(await handoff.focus("pane-unknown")).toBeUndefined();
     expect(await handoff.returnToDeck("pane-unknown")).toBeUndefined();
-    expect(handoff.noteWindowLost("pane-unknown", "gone")).toBeUndefined();
+    expect(handoff.noteWindowLost("pane-unknown", SERVED_WINDOW_ID, "gone")).toBeUndefined();
   });
 });
 

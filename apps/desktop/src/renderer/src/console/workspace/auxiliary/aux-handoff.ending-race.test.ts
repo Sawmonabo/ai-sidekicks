@@ -28,7 +28,7 @@ async function detachedUnderModelledShell(): Promise<{
   const shell = new ModelledShell();
   const handoff = new AuxiliaryHandoff({ auxiliaryWindows: shell.plane });
   await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
-  const windowId = shell.windowFor("pane-1");
+  const windowId = shell.windowFor("pane-1", "session-1");
   expect(windowId).toBeDefined();
   return { handoff, shell, windowId: windowId ?? "" };
 }

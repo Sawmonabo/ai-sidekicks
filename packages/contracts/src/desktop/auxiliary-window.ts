@@ -95,10 +95,19 @@ export interface AuxiliaryWindowHandle {
 /**
  * A window that stopped being open without anybody asking, as the shell reports it.
  *
- * Keyed by PANE because the deck slot is what has to hear about it, and carrying
+ * It names the PANE because the deck slot is what has to hear about it, and carries
  * the reason because a pane that silently reappears tells the person nothing.
+ *
+ * IT NAMES THE WINDOW FOR THE REASON {@link AuxiliaryWindowPaneReturn} DOES, and the
+ * report used to carry only the pane. One renderer holds every session's hand-off and
+ * the shell reports to a renderer, so every hand-off in a window reads every report;
+ * every deck mints its panes as `pane-N` from its own layout, so a report naming only
+ * the pane matched a session that had nothing to do with the crash — and that session
+ * took its own still-open window's placeholder down and filed a crash note about a
+ * window that never died. The handle is what tells one report's subject from another.
  */
 export interface AuxiliaryWindowPaneError {
+  readonly windowId: string;
   readonly paneId: string;
   readonly reason: string;
 }
@@ -110,8 +119,8 @@ export interface AuxiliaryWindowPaneError {
  * the two report opposite facts, and folded into one shape with a nullable reason
  * the deck would have to read a member to tell a crash from a return.
  *
- * It carries the WINDOW as well as the pane, and the window is the load-bearing
- * half: a pane can be detached again into a second window, so a return naming only
+ * The two carry the same two identities, and the window is the load-bearing half of
+ * both: a pane can be detached again into a second window, so a return naming only
  * the pane cannot say which window it is about.
  */
 export interface AuxiliaryWindowPaneReturn {

@@ -42,8 +42,11 @@ import { type AuxiliaryHandoffRefusal } from "./aux-handoff-contract.js";
 
 export interface AuxiliaryEndingSignalsOptions {
   readonly auxiliaryWindows: ConsoleAuxiliaryWindowPort;
-  /** A window stopped being open without anybody asking, and why it says it did. */
-  readonly onWindowLost: (paneId: string, reason: string) => void;
+  /**
+   * A window stopped being open without anybody asking, named by the window as well
+   * as the pane, and why it says it did.
+   */
+  readonly onWindowLost: (paneId: string, windowId: string, reason: string) => void;
   /** A window gave its pane back, named by the window as well as the pane. */
   readonly onWindowReturned: (paneId: string, windowId: string) => void;
   /** A refusal changed. The hand-off publishes; this module never does. */

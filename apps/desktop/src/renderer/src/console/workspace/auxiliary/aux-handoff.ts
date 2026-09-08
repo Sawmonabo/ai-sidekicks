@@ -48,10 +48,12 @@
 // the SETS those reports are written into, and decides the one thing the pair cannot:
 // whether anything is still in a window at all.
 //
-// AND A RETURN IS MATCHED ON THE WINDOW, NOT ONLY THE PANE. A pane that came back can
-// be detached again into a second window, so a report about the FIRST arriving late
-// would otherwise suppress a body that is currently in the second. The handle recorded
-// at detach is what the report is checked against.
+// AND AN ENDING IS MATCHED ON THE WINDOW, NOT ONLY THE PANE. Two things make the pane id
+// alone ambiguous: a pane that came back can be detached again, so a late report about
+// the FIRST window would suppress a body now in the second; and one renderer holds every
+// session's hand-off while every deck mints its own `pane-1`, so a report named by the
+// pane alone reaches sessions that had nothing to do with it. The handle recorded at
+// detach is what both reports are checked against.
 //
 // AND THE CRASH ITSELF IS KEPT, NOT MERELY REPORTED ONCE. The pane goes back into the
 // deck the instant the signal arrives, so a reason held nowhere would be gone by the
@@ -122,8 +124,8 @@ export class AuxiliaryHandoff {
     this.#implementedRoutes = options.implementedRoutes ?? IMPLEMENTED_AUXILIARY_ROUTES;
     this.#endingSignals = new AuxiliaryEndingSignals({
       auxiliaryWindows: options.auxiliaryWindows,
-      onWindowLost: (paneId, reason) => {
-        this.noteWindowLost(paneId, reason);
+      onWindowLost: (paneId, windowId, reason) => {
+        this.noteWindowLost(paneId, windowId, reason);
       },
       onWindowReturned: (paneId, windowId) => {
         this.noteWindowReturned(paneId, windowId);
@@ -307,17 +309,19 @@ export class AuxiliaryHandoff {
    *
    * The pane returns to the deck — `Spec-023 §The surface set`: "a crashed auxiliary
    * window returns the pane to the deck with the crash noted in the pane's error slot"
-   * — and the reason is kept for that slot, because a pane
-   * that silently reappears tells the person nothing about why.
-   *
-   * The record is STORED before the placeholder is removed, and in the same act: a
-   * reason returned to the caller and nowhere else is a reason the slot never sees,
-   * which is what the second half of that sentence asks for and what this method
-   * used to leave undone.
+   * — and the reason is STORED for that slot in the same act, because a reason handed
+   * back to the caller and nowhere else is one the slot never sees, and a pane that
+   * reappears in silence tells the person nothing about why. Matched on the window as
+   * well as the pane, per this file's header — and this report used to carry no window
+   * to match on.
    */
-  public noteWindowLost(paneId: string, reason: string): LostAuxiliaryWindow | undefined {
+  public noteWindowLost(
+    paneId: string,
+    windowId: string,
+    reason: string,
+  ): LostAuxiliaryWindow | undefined {
     const detached = this.#detachedByPaneId.get(paneId);
-    if (detached === undefined) {
+    if (detached === undefined || detached.windowId !== windowId) {
       return undefined;
     }
     const lost: LostAuxiliaryWindow = { ...detached, lostReason: reason };
@@ -335,12 +339,10 @@ export class AuxiliaryHandoff {
    * pane came back because somebody asked for it, and a note about that would be a
    * report of a fault where there was none. The body simply stops being suppressed.
    *
-   * THE HANDLE IS CHECKED, NOT ONLY THE PANE. A report naming a window this pane is no
-   * longer in is ignored: the pane may have been detached again, and restoring it here
-   * would put a deck slot back while its body is in a window that is still open. A pane
-   * that is not detached at all is the ordinary case for the deck's own {@link
-   * returnToDeck}, which drops its record before the close it asked for is even
-   * acknowledged — so the report about it arrives to nothing, which is exactly right.
+   * MATCHED ON THE WINDOW AS WELL AS THE PANE, per this file's header. A pane that is
+   * not detached at all is the ordinary case for the deck's own {@link returnToDeck},
+   * which drops its record before the close it asked for is even acknowledged — so the
+   * report about it arrives to nothing, which is exactly right.
    */
   public noteWindowReturned(paneId: string, windowId: string): DetachedPane | undefined {
     const detached = this.#detachedByPaneId.get(paneId);

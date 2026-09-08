@@ -55,8 +55,14 @@ const PANE_ERROR_WATCH_KEY = "pane-error-watch";
 
 export interface PaneErrorWatchOptions {
   readonly auxiliaryWindows: ConsoleAuxiliaryWindowPort;
-  /** A window reported lost, by the pane it held and the reason it gave. */
-  readonly onWindowLost: (paneId: string, reason: string) => void;
+  /**
+   * A window reported lost, by the pane it held, the window it was, and its reason.
+   *
+   * The window handle is carried for the reason the sibling signal states: one
+   * renderer holds every session's hand-off, and its decks all mint a `pane-1`, so a
+   * report named by the pane alone reaches every session holding that local id.
+   */
+  readonly onWindowLost: (paneId: string, windowId: string, reason: string) => void;
   /** The refusal changed. The hand-off publishes; this module never does. */
   readonly onChanged: () => void;
 }
@@ -73,7 +79,7 @@ export function paneErrorWatch(options: PaneErrorWatchOptions): PaneErrorWatch {
     watchKey: PANE_ERROR_WATCH_KEY,
     open: async () => await options.auxiliaryWindows.subscribePaneErrors(),
     onEvent: (paneError) => {
-      options.onWindowLost(paneError.paneId, paneError.reason);
+      options.onWindowLost(paneError.paneId, paneError.windowId, paneError.reason);
     },
     onChanged: options.onChanged,
     endedDetail:

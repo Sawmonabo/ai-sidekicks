@@ -36,9 +36,12 @@ describe("Workspace — a pane moved into a window of its own", () => {
     return { ...createFixtureBridge({ scenario: SCENARIO }), auxiliaryWindows };
   }
 
+  /** The window these ports open, named once so a crash report can name the same one. */
+  const DETACHED_WINDOW_ID = "aux-1";
+
   const detachingPort = (): ConsoleAuxiliaryWindowPort => ({
     ...refusingPlane(),
-    detachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
+    detachPane: async () => ({ status: "served", value: { windowId: DETACHED_WINDOW_ID } }),
     closeAuxiliary: async () => ({ status: "served", value: undefined }),
   });
 
@@ -147,6 +150,9 @@ describe("Workspace — a pane moved into a window of its own", () => {
    * deck mints it, and a test that scraped it back would be asserting against an
    * attribute the layout library happens to render. Reported once, so a later detach
    * of the same pane opens a stream that reports nothing.
+   *
+   * The report names the window this port opened, because the hand-off matches on it:
+   * a report about a window a pane is not in belongs to some other session's deck.
    */
   function crashingPort(reason: string): ConsoleAuxiliaryWindowPort {
     let detachedPaneId: string | undefined;
@@ -164,7 +170,7 @@ describe("Workspace — a pane moved into a window of its own", () => {
             await Promise.resolve();
             if (detachedPaneId !== undefined && !hasReported) {
               hasReported = true;
-              yield { paneId: detachedPaneId, reason };
+              yield { windowId: DETACHED_WINDOW_ID, paneId: detachedPaneId, reason };
             }
           })(),
           close: () => undefined,
