@@ -39,11 +39,38 @@ export interface OverflowMeasurementBatchOptions {
   readonly clock: ConsoleClock;
   /** Run once per batched frame. Composed by the caller, opaque here. */
   readonly runPass: () => void;
+  /**
+   * Run SYNCHRONOUSLY on each resize observation, before the frame is armed.
+   *
+   * The seam exists because the two jobs the resize trigger used to share have
+   * different tolerances for being late. Re-measuring clamped rows may coalesce —
+   * that is what this module is for. Publishing the box may not: it is the only
+   * way a viewport height reaches the library's rect, so a window whose box
+   * changed and whose publication was deferred ranges against a box that no
+   * longer exists until something else happens to publish.
+   *
+   * DEFERRING IT WAS NOT MERELY LATE, IT WAS INDEFINITE. `ManualClock.advance`
+   * excludes frames deliberately — `runFrame` is a separate control, so that a
+   * frozen clock never reports a paint its holder did not release — and a fixture
+   * build hands the console exactly that clock (`bridge/console-bridge.ts`'s
+   * `consoleClockFor`). So in every fixture tier an armed frame waits for a call
+   * the workload has no reason to make: measured on the endurance run, the ledger
+   * published geometry ONCE, from `attach`, and spent two hundred churn cycles
+   * ranging a 149 px viewport against the 32 px box it had at mount.
+   *
+   * A read and a notify only. The three properties this publishes are the ones
+   * `scroll-chokepoint.ts` already declares affordable per scroll event at 60 Hz,
+   * and a resize observation is where the platform expects a layout read; a
+   * publication that reports the same box as the last one wakes nobody, which is
+   * what keeps a resize this causes from arming another.
+   */
+  readonly publishOnResize: () => void;
 }
 
 export class OverflowMeasurementBatch {
   readonly #clock: ConsoleClock;
   readonly #runPass: () => void;
+  readonly #publishOnResize: () => void;
 
   #resizeObserver: ResizeObserver | undefined;
   #armedFrame: ScheduledHandle | undefined;
@@ -52,6 +79,7 @@ export class OverflowMeasurementBatch {
   public constructor(options: OverflowMeasurementBatchOptions) {
     this.#clock = options.clock;
     this.#runPass = options.runPass;
+    this.#publishOnResize = options.publishOnResize;
   }
 
   /**
@@ -93,6 +121,10 @@ export class OverflowMeasurementBatch {
       return;
     }
     const observer = new ObserverConstructor(() => {
+      // Published first and armed second, which is the ordering the seam is about:
+      // the publication is what the window ranges against and must not wait on a
+      // frame, while the pass behind it may.
+      this.#publishOnResize();
       this.request();
     });
     observer.observe(candidate);

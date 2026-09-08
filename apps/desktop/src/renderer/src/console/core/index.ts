@@ -153,6 +153,14 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   type MalformedInstant,
 } from "./instant.js";
+// What one session's ledger viewport is showing, and the registry that carries it.
+// Declared at the floor for `TransportReconnectObservable`'s reason with the two ends
+// swapped: the producer is a VIEW family (the top of the DAG) and the consumer is
+// `frame/session-event-binder.ts` (below every view family), so neither can import the
+// other and the floor is the only home both can reach. The registry CLASS does not
+// leave — the singleton beside it is what both sides take, exactly as `reportTripwire`
+// is what a family takes rather than `TripwireRegistry`.
+export { consoleLedgerWindows, type LedgerWindowReading } from "./ledger-window-diagnostics.js";
 // The registry classes leave through this door; the two symbols only their own
 // suites read do not. `DuplicateRegistrationError` is what `KeyedRegistry` throws
 // and `consoleTripwires` is the singleton `reportTripwire` writes to, so a family

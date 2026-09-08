@@ -366,8 +366,10 @@ describe("the viewport controller — the tail glide and the height it lands aga
 describe("the viewport controller — teardown", () => {
   it("disposes terminally, and arms nothing afterwards", () => {
     const { controller, clock } = attachedController();
+    // An attach owes an overflow pass of its own (`scroll-chokepoint.ts` `attach`), so
+    // the publish is the SECOND armed frame and dispose has two subjects to clear.
     controller.schedulePublish();
-    expect(clock.pendingCount).toBe(1);
+    expect(clock.pendingCount).toBe(2);
     controller.dispose();
     expect(controller.isDisposed).toBe(true);
     expect(clock.pendingCount).toBe(0);

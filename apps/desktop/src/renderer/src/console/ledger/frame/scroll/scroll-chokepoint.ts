@@ -15,25 +15,24 @@
 //     subsystems want the offset (following, the reading anchor, find, replay), and
 //     when two want it in one frame the loser has to be identifiable. A write from
 //     an anonymous caller cannot be arbitrated, only overwritten.
-//   • **Quantization is LEARNED, never assumed.** Skipping a "no-op" write is safe
-//     on a display that rounds a written offset and wrong on one that does not, and
-//     nothing in the platform reports which. `scroll-quantization.ts` answers it by
-//     writing and reading back; this controller only consults the answer, and skips
-//     nothing while it is still open.
-//   • **Geometry is published, not polled.** A replayable, instance-bound
-//     subscription: a subscriber gets the last sample immediately rather than
-//     waiting for the next scroll, which is what lets a pane mount mid-stream
-//     already knowing whether it is at the tail. Nothing here arms a timer, and
-//     every sample says which of the numbers moved, because a box that changed
-//     size is not a reader who moved.
-//   • **Following costs no hit test.** The sample reads `scrollTop`,
-//     `clientHeight`, and `scrollHeight` and nothing else — no row rect, no
-//     `elementFromPoint` — because those three are the only reads a scroll event
-//     handler can afford at 60 Hz with four lanes streaming.
+//   • **Quantization is LEARNED, never assumed.** Skipping a "no-op" write is safe on a
+//     display that rounds a written offset and wrong on one that does not, and nothing in
+//     the platform reports which. `scroll-quantization.ts` answers it by writing and
+//     reading back; this controller consults the answer and skips nothing while it is open.
+//   • **Geometry is published, not polled.** A replayable, instance-bound subscription: a
+//     subscriber gets the last sample immediately rather than waiting for the next scroll,
+//     which lets a pane mount mid-stream already knowing whether it is at the tail. Nothing
+//     here arms a timer, and every sample says which number moved, because a box that
+//     changed size is not a reader who moved.
+//   • **Following costs no hit test.** The sample reads `scrollTop`, `clientHeight`, and
+//     `scrollHeight` and nothing else — no row rect, no `elementFromPoint` — because those
+//     three are the only reads a scroll event handler can afford at 60 Hz with four
+//     lanes streaming.
 //
-// Overflow measurement for clamped rows is batched and pre-paint, and the batching
-// is `overflow-measurement-batch.ts`': a scroll triggers none of it. What stays
-// here is which sink is installed, and what one pass reads and publishes.
+// Row overflow measurement is batched pre-paint by `overflow-measurement-batch.ts` and a
+// scroll triggers none of it, but the BOX is published the moment a resize is observed: a
+// coalescing frame may make a row measurement late and may not make the height the window
+// ranges against late. What stays here is which sink is installed, and what a pass reads.
 
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
 import { type LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
@@ -110,6 +109,9 @@ export class LedgerScrollController {
       runPass: () => {
         this.#runOverflowPass();
       },
+      publishOnResize: () => {
+        this.#publishGeometry("resize");
+      },
     });
     this.#frameWrites = new LedgerScrollFrameWrites({
       get lastGeometry(): LedgerGeometry | undefined {
@@ -126,6 +128,13 @@ export class LedgerScrollController {
    *
    * Re-attaching detaches the previous surface first: a pane that re-mounts must
    * not leave a listener on a node React has already dropped.
+   *
+   * AND IT ARMS ITS OWN OVERFLOW PASS. That detach cancelled the frame the outgoing
+   * attachment armed — right, since a pass on a detached controller samples nothing —
+   * but the obligation was the LEDGER's and not the departed node's, and an heir that
+   * inherited none waited on the next resize. Coalesced, so an attachment that is also
+   * resized still costs one pass. The BOX is not what this covers: that is published on
+   * the line above and again by `publishOnResize`, neither of which waits for a frame.
    */
   public attach(surface: LedgerScrollSurface): void {
     if (this.#disposed) {
@@ -141,15 +150,15 @@ export class LedgerScrollController {
     this.#overflowBatch.observeResize(surface);
     this.#overflowBatch.observeFontLoading();
     this.#publishGeometry("scroll");
+    this.#overflowBatch.request();
   }
 
   /**
    * Release the surface.
    *
-   * Every read here is null-safe (`frame/ErrorSlot.tsx`'s teardown rule): teardown
-   * runs on an unmount that may follow a
-   * failed attach, so the listener and everything the batch holds may each be
-   * absent independently.
+   * Every read here is null-safe (`frame/ErrorSlot.tsx`'s teardown rule): teardown runs
+   * on an unmount that may follow a failed attach, so the listener and everything the
+   * batch holds may each be absent independently.
    */
   public detach(): void {
     const surface = this.#surface;
@@ -174,9 +183,8 @@ export class LedgerScrollController {
   /**
    * Watch the geometry, and receive the last sample immediately.
    *
-   * The replay is the point: a pane mounted mid-stream needs to know whether it is
-   * at the tail before the next scroll event, and polling for that is exactly what
-   * the budgets forbid.
+   * The replay is the point: a pane mounted mid-stream needs to know whether it is at the
+   * tail before the next scroll event, and polling for that is what the budgets forbid.
    */
   public subscribeToGeometry(sink: (geometry: LedgerGeometry) => void): Unsubscribe {
     const unsubscribe = this.#geometryEmitter.subscribe(sink);
@@ -254,9 +262,8 @@ export class LedgerScrollController {
    * Ask for a write in the next frame's phase one, computed against that frame's one
    * clean geometry sample.
    *
-   * A gesture calls `glideTo` and lands in the frame the person acted in; a REACTIVE
-   * write comes here. `scroll-frame-writes.ts` states why, and this returns whether
-   * the request was taken.
+   * A gesture calls `glideTo` and lands in the frame the person acted in; a REACTIVE write
+   * comes here. `scroll-frame-writes.ts` states why, and this returns whether it was taken.
    *
    * @consumedBy T-023p-1C-2
    */
@@ -270,10 +277,9 @@ export class LedgerScrollController {
   /**
    * Whether a prune may land right now.
    *
-   * `window-cap.ts` gives the scroll controller a veto
-   * over prune, and this is it: removing rows above the fold while a programmatic
-   * write is mid-flight changes the content height under the offset that write
-   * just chose.
+   * `window-cap.ts` gives the scroll controller a veto over prune, and this is it:
+   * removing rows above the fold while a programmatic write is mid-flight changes the
+   * content height under the offset that write just chose.
    */
   public vetoesPrune(): boolean {
     return this.#writeDepth > 0;
@@ -356,11 +362,10 @@ export class LedgerScrollController {
   /**
    * Take a sample, record it, and emit it if it says anything new.
    *
-   * The emit feeds the anchor and both of the library's observers, so a sample
-   * identical to the one they already hold must not wake them. The compare is the
-   * three sampled numbers within the epsilon this frame already owns; `sampledAt`
-   * and the cause are provenance and decide nothing. Returns the sample, so a
-   * caller that needs the value does not take a second one.
+   * The emit feeds the anchor and both of the library's observers, so a sample identical
+   * to the one they already hold must not wake them. The compare is the three sampled
+   * numbers within the epsilon this frame already owns; `sampledAt` and the cause are
+   * provenance and decide nothing. Returns the sample, so a caller does not take a second.
    */
   #publishGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
     const geometry = this.#sampleGeometry(cause);
@@ -379,16 +384,12 @@ export class LedgerScrollController {
   /**
    * One batched pass: sample once, publish it, and hand the same sample to the sink.
    *
-   * PUBLISHED and not merely handed over, because a resize reaches the box through no
-   * other door: the batch's trigger is the only notice a size change gives, and the
-   * geometry emitter is the only way a viewport height reaches the library's rect. A
-   * pass that sampled privately left the virtualizer rendering, offsetting, and
-   * computing its tail against the height the pane used to have until somebody
-   * happened to scroll. One sample serves the batch, the anchor and the rect, so the
-   * pass still reads the surface exactly three times.
-   *
-   * A pass on a detached controller samples nothing and calls nobody, which is what
-   * makes a frame that outlived its surface harmless.
+   * PUBLISHED and not merely handed over: the emitter is the only way a viewport height
+   * reaches the library's rect. One sample serves the batch, the anchor and the rect,
+   * so the pass reads the surface exactly three times, and a pass on a DETACHED
+   * controller samples nothing and calls nobody. The resize path no longer DEPENDS on
+   * this publication — `publishOnResize` took that sample synchronously — and this one
+   * is what the font-loading and explicit triggers publish through.
    */
   #runOverflowPass(): void {
     const geometry = this.#publishGeometry("resize");
