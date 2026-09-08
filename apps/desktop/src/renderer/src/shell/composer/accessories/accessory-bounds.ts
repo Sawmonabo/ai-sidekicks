@@ -55,12 +55,10 @@ export const RATE_CHIP_RENDER_CAP = 6;
  */
 export const QUEUE_SHELF_ROW_CAP = 5;
 
-/**
- * Attachment chips one send may carry.
- *
- * Bound on the CARRIER rather than per file, which is what the design fixes: a
- * send is one act and the cap binds the act. The number is the console's own
- * until the ingest wire lands and publishes an effective one, at which point the
- * served figure replaces it and this bound becomes the pre-read default.
- */
-export const ATTACHMENT_CARRIER_COUNT_CAP = 10;
+// THE ATTACHMENT COUNT BOUND IS NOT HERE ANY MORE, and its removal is the rule this
+// file states applied to itself. It was declared here as the composer's own figure
+// while nothing else in the console knew what a carrier was; `Spec-014 §Bounds
+// (normative defaults; operator-tunable)` makes it the DAEMON's, `core/constants.ts`
+// holds it as `ATTACHMENTS_PER_CARRIER_CAP_DEFAULT`, and the repos family reads it
+// through `attachmentCarrierFill` for both surfaces that render a fill. A second
+// declaration beside a bound that has a home is a value with two answers.

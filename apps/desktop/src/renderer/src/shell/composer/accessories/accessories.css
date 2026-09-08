@@ -157,7 +157,8 @@
 }
 
 .meridian-compaction__action,
-.meridian-attachment-seat__action,
+.meridian-composer-picker__control,
+.meridian-attach-menu__action,
 .meridian-queue-shelf__cancel,
 .meridian-plus-menu__trigger {
   display: inline-flex;
@@ -174,7 +175,8 @@
 }
 
 .meridian-compaction__action:focus-visible,
-.meridian-attachment-seat__action:focus-visible,
+.meridian-composer-picker__control:focus-within,
+.meridian-attach-menu__action:focus-visible,
 .meridian-queue-shelf__cancel:focus-visible,
 .meridian-plus-menu__trigger:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
@@ -279,17 +281,9 @@
   border-radius: var(--meridian-radius-md);
 }
 
-.meridian-attachment-seat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-attachment-seat__hint {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
+/* The picker and the family rows inside the panel are dressed by
+   `attachments/composer-attachments.css`, which this directory owns and imports
+   through its own door beside this sheet. */
 
 /* --- Reserved seats ------------------------------------------------------ */
 

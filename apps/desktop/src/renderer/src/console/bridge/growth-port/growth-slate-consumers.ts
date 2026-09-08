@@ -49,8 +49,14 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "agent-provider-switch-terminal":
     "agent console (the switch settlement line), runs pane (the status row)",
   "gitflow-actions": "repos, diffs, and pull-request surfaces",
-  "artifact-ingest-and-crud": "artifact pane",
-  "artifact-allowlist-and-abort": "artifact pane",
+  // TWO SURFACES ON BOTH ROWS, WHICH IS WHAT THE COMPOSER'S AFFORDANCE ADDED. The
+  // artifact pane READS what was ingested; the composer's attachment strip is where a
+  // file becomes an ingest at all — drop, paste, or the `+` menu's picker — so the
+  // three-call trio and the abort are dispatched from the composer and their manifests
+  // are read in the pane. A row naming one of them would send a reader owed this wire
+  // to half the surfaces that stop working without it.
+  "artifact-ingest-and-crud": "composer attachment strip, artifact pane",
+  "artifact-allowlist-and-abort": "composer attachment strip, artifact pane",
   "worktree-setup-recipe": "repos surface",
   "workflow-event-registration": "workflow-run pane",
   "workflow-definition-scope": "workflow-builder pane",

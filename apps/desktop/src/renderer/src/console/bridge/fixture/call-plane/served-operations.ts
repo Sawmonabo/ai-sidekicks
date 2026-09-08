@@ -253,6 +253,7 @@
 // directory holds no answer module for.
 
 import { FIXTURE_SERVED_APPROVAL_OPERATION_IDS } from "../growth/approval-answers.js";
+import { FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS } from "../growth/attachment-ingest.js";
 import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "../collaboration/collaboration-reads.js";
 import { FIXTURE_SERVED_SESSION_OPERATION_IDS } from "../collaboration/session-answers.js";
 import { FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS } from "../settings/diagnostics-reads.js";
@@ -310,6 +311,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   ...typeof FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_PROVIDER_ACCOUNT_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_MCP_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS,
 ] = [
   // sessions — the two the console cannot function without and the viewer that resolves
   // a role against them, taken from the module that implements them so the ids and the
@@ -429,6 +431,11 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // and the two mutations refuse without a script, and the three are one plane rather
   // than three reply rows because the module holds the ledger that joins them.
   ...FIXTURE_SERVED_MCP_OPERATION_IDS,
+  // attachment ingest — the three-call protocol and its abort, from the module that
+  // keeps the spool. None of the four is script-only and none has an empty form: each
+  // answers from what the previous call did, which is the one thing a reply table
+  // cannot stand in for. That module states the whole of the reasoning.
+  ...FIXTURE_SERVED_ATTACHMENT_INGEST_OPERATION_IDS,
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */

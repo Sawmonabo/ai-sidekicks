@@ -156,13 +156,15 @@ export {
 } from "./pane/pane-kinds.js";
 
 export {
-  /** @consumedBy T-023p-1C-3 */
+  // Consumed by T-023p-1C-3: the composer's own attach-menu suite empties the registry
+  // between cases. Reached from a test rather than from a shipped module, so the line
+  // carries the claim and not the exemption — knip needs none.
   clearComposerAttachMenu,
-  /** @consumedBy T-023p-1C-3 */
   composerAttachMenuEntries,
   registerComposerAttachMenuEntry,
   /** @consumedBy T-023p-1C-3 */
   type ComposerAttachMenuContext,
+  type ComposerArtifactAttachment,
   type ComposerAttachMenuEntry,
   type ComposerAttachOutcome,
 } from "./composer/composer-attach-menu.js";

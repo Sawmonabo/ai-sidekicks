@@ -36,3 +36,34 @@ export function encodeBase64(bytes: Uint8Array): string {
   }
   return btoa(latin1);
 }
+
+/**
+ * How many raw bytes an RFC 4648 §4 base64 string decodes to, without decoding it.
+ *
+ * BESIDE THE ENCODER BECAUSE IT IS THE SAME SEAM READ THE OTHER WAY, which is this
+ * package's rule for a producer and its consumer: the stride, the padding, and the
+ * four-to-three ratio are one encoding's properties, and a length computed in another
+ * module would be a second reading of them that nothing holds to this one.
+ *
+ * IT COUNTS RATHER THAN DECODES, and the difference is memory. The one caller is the
+ * fixture standing in for the daemon's spool accounting, which needs the COUNT of the
+ * bytes a chunk carries and never the bytes: `atob` on a chunk-capped slice would
+ * materialize half a megabyte per call to produce a number four characters of
+ * arithmetic already answer.
+ *
+ * Malformed input answers `0` rather than throwing. A count is not a validator — the
+ * daemon's own decode is what rejects a bad chunk — and a length that threw would make
+ * every caller wrap arithmetic in a `try`.
+ */
+export function base64DecodedByteLength(encoded: string): number {
+  if (encoded.length === 0 || encoded.length % 4 !== 0) {
+    return 0;
+  }
+  let paddingCount = 0;
+  if (encoded.endsWith("==")) {
+    paddingCount = 2;
+  } else if (encoded.endsWith("=")) {
+    paddingCount = 1;
+  }
+  return (encoded.length / 4) * 3 - paddingCount;
+}

@@ -1,0 +1,143 @@
+/* The composer's attachment strip, its chips, and the two controls inside the `+`
+   menu that put something on a message.
+
+   ONE-LINE CHIPS AND NOT CARDS, which is the whole reason this surface exists beside
+   the artifact pane's: the composer has a message line under it and a carrier of
+   several attachments must not push it off the bottom of the workspace. Every rule
+   here is in service of that — a row that wraps only when it must, figures at the
+   chrome text size, and controls that are text rather than buttons with grounds.
+
+   THE DRAG STATE IS AN EDGE AND NOT A HUE. `Spec-023 §Console Design (Meridian)`'s
+   two-hue rule keeps colour for identity and attention, and a drag is neither: it is
+   this window telling a person where a file will land, so it is drawn as an edge and
+   a ground shift that carry no status meaning. */
+
+.meridian-composer-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-composer-attachments--drag {
+  border-color: var(--meridian-edge-strong);
+  border-style: dashed;
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-composer-attachments__drop,
+.meridian-composer-attachments__fill,
+.meridian-composer-attachments__hold {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-composer-attachments__fill-source {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-composer-attachments__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* --- One attachment ------------------------------------------------------ */
+
+.meridian-composer-attachment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-composer-attachment__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-composer-attachment__qualifier,
+.meridian-composer-attachment__note {
+  color: var(--meridian-text-muted);
+}
+
+/* Text rather than a button ground: a chip carrying two grounded controls reads as a
+   toolbar, and these are the least important controls on the surface until one of
+   them is the only thing left to do. */
+.meridian-composer-attachment__act {
+  padding: 0;
+  font: inherit;
+  color: var(--meridian-text);
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.meridian-composer-attachment__act:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-composer-attachment__progress {
+  inline-size: calc(var(--meridian-space-5) * 2);
+  block-size: var(--meridian-space-1);
+}
+
+/* --- The `+` menu's own two occupants ------------------------------------ */
+
+.meridian-composer-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* A label wrapping a visually-hidden file input, dressed as the control it is. The
+   shared button shape in `accessories.css` supplies the rest. */
+.meridian-composer-picker__control {
+  justify-content: center;
+}
+
+.meridian-attach-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-attach-menu__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-attach-menu__action {
+  flex-wrap: wrap;
+  inline-size: 100%;
+  text-align: start;
+}
+
+.meridian-attach-menu__action:disabled {
+  color: var(--meridian-text-muted);
+  cursor: progress;
+}
+
+.meridian-attach-menu__detail {
+  flex-basis: 100%;
+  color: var(--meridian-text-muted);
+}

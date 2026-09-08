@@ -153,7 +153,6 @@ export function registerComposerAttachMenuEntry(entry: ComposerAttachMenuEntry):
   composerAttachMenu.register(entry);
 }
 
-// Consumed by T-023p-1C-3
 /** Every contributed row, in registration order. The composer renders them as given. */
 export function composerAttachMenuEntries(): readonly ComposerAttachMenuEntry[] {
   return composerAttachMenu.entries();

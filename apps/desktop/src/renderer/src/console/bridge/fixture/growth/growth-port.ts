@@ -35,6 +35,7 @@
 //
 
 import { fixtureApprovalAnswers } from "./approval-answers.js";
+import { FixtureAttachmentIngest, fixtureAttachmentIngest } from "./attachment-ingest.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../../scenarios/browser.js";
 import { deriveAttentionProjection } from "./attention-derivation.js";
 import type { FixtureInviteLedger } from "../invites/invite-ledger.js";
@@ -93,6 +94,11 @@ export function createFixtureGrowthPort(
   channelLifecycle: FixtureChannelLifecycle,
   inviteLedger: FixtureInviteLedger,
 ): GrowthPort {
+  // The ingest spools, held for this port's life on the reason
+  // `invites/invite-answers.ts` states for its pending table: the three legs of one
+  // upload are three calls over one accumulating record, so a handler that minted its
+  // state per call could acknowledge no chunk and complete no stream.
+  const attachmentSpools = new FixtureAttachmentIngest();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow, collaboration, onboarding and shell — spread from the modules that
     // implement them, so the served ids in `call-plane/served-operations.ts` and the
@@ -114,6 +120,10 @@ export function createFixtureGrowthPort(
     ...fixtureApprovalAnswers(engine),
     ...fixtureInviteAnswers(engine, inviteLedger),
     ...fixturePresenceAnswers(engine),
+    // The attachment ingest trio and its abort. Answered from the spool rather than
+    // from the script, which is what makes every ingest state a surface renders
+    // reachable by attaching a file instead of by authoring a reply.
+    ...fixtureAttachmentIngest(attachmentSpools),
     // The header's identity, from the same scripted reply the base state comes from.
     // REFUSED rather than answered emptily for a session this scenario is not
     // playing or has said nothing about: a summary carries a required state, so
