@@ -391,14 +391,18 @@ describe("stylesheet edges — a sheet enters at the door of the directory that 
     // them.
     expect(
       moduleStylesheetImports("workflows/index.ts", readConsoleFile("workflows/index.ts")),
-      // The family door's three remaining sheets, in file order. Its own chrome moved to
+      // The family door's four remaining sheets, in file order. Its own chrome moved to
       // the three chunk roots when the last of its bodies went behind a loader; what
       // stays is the run list's sheet, whose cascade position is shared with the runs
-      // family, and the two the door's pinned region draws against on the first paint.
+      // family, the two the door's pinned region draws against on the first paint, and
+      // the seat body the composer's `+` menu mounts directly — that one is at the door
+      // for the same arithmetic, not as an exception: nothing defers it, so a sheet
+      // behind a chunk it does not have would paint the menu undressed.
     ).toStrictEqual([
       "./runs/run-list.css",
       "./parks/park-badge.css",
       "./channel-progress/channel-progress.css",
+      "./start/workflow-start-menu.css",
     ]);
     expect(
       stylesheetAtImports("workflows/workflows.css", readConsoleFile("workflows/workflows.css")),

@@ -153,14 +153,6 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
 ];
 
 /**
- * Claim this family's pane kinds against a registry.
- *
- * Takes the registry rather than reaching for the module-scope singleton, for
- * `registerConsolePanes`' reason: a test composes the same bodies into a registry it
- * owns, and an auxiliary window composes a different subset without a second code
- * path.
- */
-/**
  * The composer's workflow picker, for the seat its `+` menu reserves.
  *
  * A COMPONENT AND NOT AN ELEMENT, so the composer holds a stable type: a body composed
@@ -173,6 +165,14 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
  */
 export { WorkflowStartMenu } from "./start/WorkflowStartMenu.js";
 
+/**
+ * Claim this family's pane kinds against a registry.
+ *
+ * Takes the registry rather than reaching for the module-scope singleton, for
+ * `registerConsolePanes`' reason: a test composes the same bodies into a registry it
+ * owns, and an auxiliary window composes a different subset without a second code
+ * path.
+ */
 export function registerWorkflowPanes(registry: ConsolePaneRegistry): void {
   for (const descriptor of WORKFLOW_PANES) {
     registry.register(descriptor);
