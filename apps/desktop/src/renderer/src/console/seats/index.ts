@@ -97,6 +97,11 @@ export {
   consoleSurfaceRegistry,
   surfaceSlotFor,
   type ConsoleSurfaceDescriptor,
+  // What a family hands `register`, published for the same reason
+  // `ConsolePaneRegistration` is: a family claiming more than one slot keeps its
+  // claims in a table, and a table needs the type its rows are. The workflows family
+  // is the first with two — the rail's destination and the phase deep link.
+  type ConsoleSurfaceRegistration,
 } from "./surface-registry.js";
 
 // The frame-lifetime binding seat, beside the four that mount bodies. It is on this
@@ -411,8 +416,25 @@ export { subscribeDaemonEvent } from "./wire-access.js";
 // reaches them here like every other consumer.
 export {
   absorbedSurfaceAsks,
+  renderAbsorbedAttachFlow,
+  renderAbsorbedCapabilityDeclaration,
   renderAbsorbedInviteAcceptance,
+  renderAbsorbedMixedVersionStatus,
   renderAbsorbedNodeRoster,
   renderAbsorbedParticipantRoster,
   renderAbsorbedSessionProbe,
 } from "./absorbed-surfaces.js";
+
+// What the absorbed roster's own read answered, for a surface that renders beside it.
+//
+// The mount above is the only caller that needs the read SEAM, and it takes it by its
+// own specifier; what leaves this family is the OBSERVATION — a settings page renders a
+// node's declared capabilities and its version from the response that view already read,
+// rather than putting a second `runtimenode.roster` on the wire that could disagree with
+// what is on screen beside it.
+export { useNodeRosterObservation, type NodeRosterObservation } from "./node-roster-seam.js";
+
+// When that roster is asked to read again. Beside the observation because the settings
+// page takes both — it renders from the recorded read and owes that read the signals
+// the absorbed view's own presence channel does not carry.
+export { useNodeRosterReReadTriggers } from "./node-roster-triggers.js";

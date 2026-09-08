@@ -99,15 +99,36 @@
 //   Plan-023 Tier 8 wires the real IPC handler. The remaining gap is the
 //   bridge WIRING, not the contract.
 //
+// THE TRANSPORT IS SUBSTITUTABLE, and that is the one thing added to this view since
+// it shipped. `attach-request.ts` beside it declares `RuntimeNodeAttachReads`, the
+// seam this flow's single wire call goes through, and the optional `reads` prop below
+// hands one in. The DEFAULT is the arm this file has always used — the installed
+// preload bridge — so a caller that supplies nothing behaves exactly as before, which
+// is what makes this additive rather than a migration. What it buys is a host that
+// resolves its own transport: under a fixture build `window.sidekicks` is either
+// absent, and this view crashes into a surface boundary, or it is the live daemon
+// answering beside fixture data in the same window — so before the seam this flow
+// could not be rendered under any scenario at all. Mirrors `NodeRosterReads` on the
+// sibling roster, whose seam is required rather than optional for the same reason in
+// reverse: that one had a default and retired it, this one never had a second home
+// for its procedure name to drift into.
+//
+// AND A SUBSTITUTABLE TRANSPORT IS PART OF THIS VIEW'S IDENTITY, which is what the
+// addressing below states. A receipt is a fact about one attachment made over one
+// bridge, so a replaced bridge leaves the held receipt about something this view is no
+// longer looking at, and a reply still in flight from the replaced one about it too.
+// Both follow from stamping the held answer with the transport — not two guards.
+//
 // Renderer-untrusted boundary (Spec-023 §Trust Stance) — this file imports ONLY:
-//   • `react` — the renderer's UI engine; explicitly allowed.
 //   • Type-only from `@ai-sidekicks/contracts` — the contracts package is
 //     renderer-safe (no `node:*`, `electron`, or `fs`/`path`/`process` runtime
 //     imports); the type-only form emits NO JS runtime import, so only the
 //     type-graph view of the wire shapes reaches the renderer.
-//   • The sibling `./CapabilityDeclaration.js` — renderer-internal
-//     composition within this subtree (itself presentational and
-//     bridge-free).
+//   • The siblings `./attach-request.js` and `./CapabilityDeclaration.js` —
+//     renderer-internal composition within this subtree (the second one
+//     presentational, both bridge-free).
+//   • The console's store door, `../console/store/index.js`, for the one
+//     subject-scoped holder this view addresses its settled receipt through.
 // No `electron`, no `node:*`, no `./src/main/**`, no `./src/preload/**`, and no
 // `@ai-sidekicks/client-sdk` (the Node-side `runtimeNodeClient.ts` SDK) —
 // statically enforced via the `no-restricted-imports` rule in
@@ -116,16 +137,24 @@
 // manifest — the specifier no longer resolves here, per the SessionBootstrap
 // header.)
 
-import { useState } from "react";
-
 import type { SessionId } from "@ai-sidekicks/contracts";
 
 import {
+  attachmentTargetKeyOf,
+  installedBridgeAttachReads,
   settleAttachRequest,
+  ATTACH_IN_FLIGHT,
+  ATTACH_NOT_REQUESTED,
   type AttachViewState,
   type RuntimeNodeAttachDraft,
+  type RuntimeNodeAttachReads,
 } from "./attach-request.js";
 import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
+// The held-answer stamp, taken from the console's ONE implementation of the rule
+// rather than written a second time here. Through the door and never a deep
+// specifier: every layering rule that could object is `from`-scoped to `console/`,
+// so a deep import from out here reaches around a boundary nothing can see.
+import { useSubjectScopedState } from "../console/store/index.js";
 
 // The `window.sidekicks` ambient type lives in the renderer-wide
 // `sidekicks-bridge.d.ts` (Plan-002 Phase 6 T6.0; part of the renderer
@@ -159,6 +188,16 @@ import { CapabilityDeclaration } from "./CapabilityDeclaration.js";
 export interface AttachFlowProps {
   sessionId: SessionId;
   attachDraft: RuntimeNodeAttachDraft;
+  /**
+   * The transport this flow attaches through, or the installed preload bridge.
+   *
+   * OPTIONAL, so every caller that predates the seam is unchanged. A host that
+   * resolved its own bridge holds a different object from the installed one and
+   * cannot otherwise stand in for it — which is precisely what made this view
+   * unrenderable under a fixture — so it supplies the pair rather than reaching for
+   * the global on this view's behalf.
+   */
+  reads?: RuntimeNodeAttachReads;
 }
 
 /**
@@ -167,44 +206,46 @@ export interface AttachFlowProps {
  * (pending), the resolved attachment facts (resolved), or the rejection
  * envelope with a retry path (rejected).
  *
- * State primitive — manual `useState` discriminated union (NOT React 19
+ * State primitive — a subject-scoped discriminated union (NOT React 19
  * `useTransition`/`useActionState`), matching the shipped
  * `InviteAcceptView`/`SessionBootstrap`/`NodeRoster` precedent: it keeps the
  * renderer consumers structurally consistent and fits the Tier-1 sync-throw
- * normalization, which needs an explicit `try/catch` around the bridge call.
+ * normalization, which needs an explicit `try/catch` around the bridge call. It is
+ * the sibling roster's holder rather than that view's older `useState`, for the
+ * reason stated at the addressing below: the answer belongs to a (transport, target)
+ * address and a register that belongs to the MOUNT cannot say so.
  */
-export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.JSX.Element {
-  const [attachViewState, setAttachViewState] = useState<AttachViewState>({ kind: "idle" });
+export function AttachFlow({ sessionId, attachDraft, reads }: AttachFlowProps): React.JSX.Element {
+  // The transport resolved ONCE per render, so the default arm has an identity of its
+  // own rather than being reached for inside the settle. The seam is optional and the
+  // holder's subject is not: a caller that supplies nothing is still attaching through
+  // something, and that something is the installed bridge.
+  const transport = reads ?? installedBridgeAttachReads;
 
-  // Attachment-identity prop reset (React's "Adjusting some state when a prop
-  // changes" pattern — the same render-phase mechanism every shipped sibling
-  // uses). The flow's identity is the (sessionId, nodeId) PAIR — exactly the
-  // attachment-row identity (`UNIQUE(node_id, session_id)` — the `nodes` field
-  // note on `RuntimeNodeRosterResponseSchema`) — so when EITHER changes (a future Plan-023
-  // router reusing this mounted instance for another session or another node)
-  // the settled state resets to `idle`: the prior target's
-  // `resolved`/`rejected` branch must not survive under a new target.
-  // Deliberately NOT a comparison of the whole `attachDraft` object: object
-  // props are referentially unstable across parent re-renders, so a
-  // whole-draft check would spuriously reset settled state on every
-  // re-render; the two branded strings compare stably. The complete fix for
-  // instance reuse is the Tier-8 parent keying this view per attachment
-  // target; this render-phase reset is the narrower fallback until that
-  // keying lands, and the in-flight-IIFE race it does not cover is harmless
-  // for the same two reasons T6.1 documents (a late `setState` is a silent
-  // no-op; Tier-8 keying discards the instance —
-  // invite-accept-view.tsx:185-197).
-  const [previousAttachmentTarget, setPreviousAttachmentTarget] = useState({
-    sessionId,
-    nodeId: attachDraft.nodeId,
-  });
-  if (
-    sessionId !== previousAttachmentTarget.sessionId ||
-    attachDraft.nodeId !== previousAttachmentTarget.nodeId
-  ) {
-    setPreviousAttachmentTarget({ sessionId, nodeId: attachDraft.nodeId });
-    setAttachViewState({ kind: "idle" });
-  }
+  // THE SETTLED RECEIPT IS STAMPED WITH BOTH THINGS IT IS ABOUT, which is the whole of
+  // the reset rule and of the late-settlement rule at once. The flow's identity is the
+  // (session, node) PAIR — the attachment-row identity (`UNIQUE(node_id, session_id)`,
+  // the `nodes` field note on `RuntimeNodeRosterResponseSchema`) — AND the transport
+  // the attach was issued through, because the console's bridge provider REPLACES its
+  // resolution for the same session and node without remounting its children. Comparing
+  // the pair alone left the retired transport's receipt on screen under the replacement
+  // and let a request that transport had already dispatched install its settlement into
+  // the new one — a receipt naming an attachment made over a bridge this view is no
+  // longer on.
+  //
+  // The transport is the SUBJECT and the pair is the KEY, written in the holder's own
+  // terms, so the pass that first sees a new address already reads that address's own
+  // seed — before commit, so no frame paints the old answer under the new address — and
+  // `publish`, captured at render, drops a settlement published for an address this
+  // view has left. Deliberately NOT a comparison of the whole `attachDraft` object:
+  // object props are referentially unstable across parent re-renders, so a whole-draft
+  // key would re-address on every pass and discard a receipt nothing invalidated.
+  const { value: attachViewState, publish: publishAttachViewState } =
+    useSubjectScopedState<AttachViewState>(
+      transport,
+      attachmentTargetKeyOf(sessionId, attachDraft.nodeId),
+      () => ATTACH_NOT_REQUESTED,
+    );
 
   // Sync click handler (React's `onClick` contract); the async attach work
   // runs in a void IIFE inside it — the same shape the shipped click-flow
@@ -220,7 +261,7 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
   // — the difference (mount-effect race vs click no-op) is load-bearing in
   // both directions.
   const handleAttachClick = (): void => {
-    setAttachViewState({ kind: "pending" });
+    publishAttachViewState(ATTACH_IN_FLIGHT);
 
     // Every wire concern — the branded procedure cast, the request composition, the
     // synchronous-throw funnel, and the rejection normalization — is
@@ -228,7 +269,13 @@ export function AttachFlow({ sessionId, attachDraft }: AttachFlowProps): React.J
     // makes: pending on the way out, and whatever the request settled to on the way
     // back. `settleAttachRequest` settles on every path and rejects on none, so there
     // is deliberately no second failure route attached to this call.
-    void settleAttachRequest(sessionId, attachDraft).then(setAttachViewState);
+    //
+    // The transport travels EXPLICITLY rather than through the settle's own default,
+    // so the object the request is issued through is the same object the publisher
+    // above is addressed by. A settle resolving its own default would leave the two
+    // free to disagree, which is exactly the disagreement this addressing exists to
+    // make impossible.
+    void settleAttachRequest(sessionId, attachDraft, transport).then(publishAttachViewState);
   };
 
   // The node's attach declaration, rendered on EVERY branch — the four

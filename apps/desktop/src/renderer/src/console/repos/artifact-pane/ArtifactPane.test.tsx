@@ -3,7 +3,8 @@
 // is measured against.
 //
 // WHAT THE PANE DOES IS NEXT DOOR. `ArtifactPane.acts.test.tsx` drives the row acts —
-// the manifest read and the delete — and `ArtifactPane.reader-seam.test.tsx` drives how
+// the manifest read, the visibility change, and the delete — and
+// `ArtifactPane.reader-seam.test.tsx` drives how
 // the pane's reader is held: the clock it runs on and the subject-scoped seam that
 // re-mints it. The payload fetch is further along still, in
 // `ArtifactPayloadSection.test.tsx`, the section being its own component now.
@@ -22,7 +23,7 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import { SessionStore } from "../../store/index.js";
-import { scenarioManualClock } from "../scenario-clock.test-support.js";
+import { scenarioManualClock } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import {
   type GrowthPortAnswer,
   LISTED_ONE_ROW,
@@ -177,14 +178,33 @@ describe("artifact pane — the ingest bounds disclosure", () => {
     expect(container.textContent).not.toContain("contentTypes");
   });
 
-  it("negative control: the pane offers no visibility toggle", () => {
-    // The wire carries an `artifact.visibility_updated` event and
-    // `bridge/growth-port/growth-port.ts` registers no operation that could produce one. A
-    // control that could only fail is worse than a control that is not there, and a
-    // port entry is not this family's to add.
-    const { queryByRole } = renderPane(contextFor(ARTIFACT_ENTITY));
+  it("offers the visibility toggle on a listed row, named for the class it moves to", async () => {
+    // The claim this case used to make in reverse. It asserted the toggle was absent
+    // — correctly, when no growth operation could re-classify an artifact — against a
+    // pane that had not read a list, so it would have gone on passing over a listed
+    // row it never rendered. `artifactVisibilityUpdate` is registered now, so the
+    // control exists and the case is the assertion that it does, over a row.
+    const { paneClock, queryByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough(paneClock);
+    await settleAct();
+
+    // `SERVED_SUMMARY` is `shared`, so the label names the class the press moves TO.
+    expect(queryByRole("button", { name: "Make local-only" })).not.toBeNull();
     expect(queryByRole("button", { name: "Share with the session" })).toBeNull();
+  });
+
+  it("negative control: no toggle is drawn before a read has listed anything", async () => {
+    // Without this, a toggle rendered unconditionally would pass the case above while
+    // offering an act against a row the pane does not have.
+    const { queryByRole } = renderPane(contextFor(ARTIFACT_ENTITY));
+
     expect(queryByRole("button", { name: "Make local-only" })).toBeNull();
+    expect(queryByRole("button", { name: "Share with the session" })).toBeNull();
   });
 });
 

@@ -31,7 +31,7 @@ import {
 import type { ConsoleSessionEvent } from "./entities.js";
 import { OpenSessionEntry, type OpenSessionEntryOptions } from "./open-session-entry.js";
 import type { RefreshReason } from "./scheduling.js";
-import type { SessionStore } from "./session-store.js";
+import type { SessionDegradedCause, SessionStore } from "./session-store.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";
@@ -166,6 +166,31 @@ export class SessionStoreRegistry {
       return this.#sessionNotOpen(sessionId, "flush");
     }
     entry.applyQueue.flush();
+    return undefined;
+  }
+
+  /**
+   * Raise a degraded cause on one session's store, from outside the apply path.
+   *
+   * ROUTED HERE RATHER THAN REACHED FOR, and that is the whole reason the method
+   * exists. `degradation.ts` states that `markDegraded` has writers outside the
+   * chokepoint — a read that failed, a subscription that never opened — and the one
+   * object that observes the second of those, `frame/session-event-binder.ts`, holds
+   * no store and must not start: "this class never touches a store, holds no store
+   * reference, and has no way to write one" is the property that keeps the chokepoint
+   * structural. So the cause travels the same way an event and a refresh reason do,
+   * through the registry that owns which entry a session id names.
+   *
+   * Answers with a refusal rather than throwing when the session is not open, for
+   * `enqueue`'s reason: a cause raised for a session somebody just closed is
+   * ordinary, and a throw would break the caller that was reporting a wire fault.
+   */
+  public markDegraded(sessionId: string, cause: SessionDegradedCause): ConsoleRefusal | undefined {
+    const entry = this.#entriesBySessionId.get(sessionId);
+    if (entry === undefined) {
+      return this.#sessionNotOpen(sessionId, "mark degraded");
+    }
+    entry.store.markDegraded(cause);
     return undefined;
   }
 

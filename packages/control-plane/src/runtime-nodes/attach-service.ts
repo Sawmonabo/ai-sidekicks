@@ -991,7 +991,8 @@ export class AttachService {
    *   (`RuntimeNodeRosterRequestSchema.parse`) before any row is read — the
    *   same service-layer fail-fast as `attach` / `detach` /
    *   `updateCapabilities`.
-   * @returns the `RuntimeNodeRosterResponse` (`{nodes}`) projection — one
+   * @returns the `RuntimeNodeRosterResponse` (`{nodes, controlHolder}`)
+   *   projection — one
    *   entry per attachment row; EMPTY (`{nodes: []}`) both for a session with
    *   no attachments and for a non-existent session (session
    *   existence/authorization is the router tier's concern, mirroring
@@ -1057,7 +1058,17 @@ export class AttachService {
         attachedAt: toIsoString(row.attached_at),
       };
     });
-    return RuntimeNodeRosterResponseSchema.parse({ nodes });
+    // `controlHolder: null` is a READING and not a placeholder. The
+    // shared-terminal lease is projected from `session_terminal_leases`, whose
+    // table and its `runtimenode.leaseupdate` producer both belong to the
+    // Plan-024 Phase 3B lease leg; until that ships nothing writes a lease row
+    // for this session, so no live holder exists to advertise and `null` is
+    // exactly what a join against an empty relation would yield. The member is
+    // required on the wire so a client cannot read "nobody holds it" out of an
+    // absent key, and the two `null` readings — a free lease, and one suppressed
+    // behind an offline producer — are deliberately indistinguishable here as
+    // they are on every other path.
+    return RuntimeNodeRosterResponseSchema.parse({ nodes, controlHolder: null });
   }
 
   /**

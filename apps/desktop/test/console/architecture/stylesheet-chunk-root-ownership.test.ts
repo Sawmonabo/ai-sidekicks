@@ -35,7 +35,7 @@ import {
 } from "./stylesheet-edge-graph.js";
 import { consoleStylesheetTexts, crossFamilyCollisions } from "./stylesheet-selector-owners.js";
 import { declaredClassNames } from "./stylesheet-selectors.js";
-import { deferredSheetOffences } from "./stylesheet-static-reach.js";
+import { deferredSheetOffences, undressedEagerReaderOffences } from "./stylesheet-static-reach.js";
 
 /** Parsing the console's modules twice over; ~2s on the authoring machine. */
 vi.setConfig({ testTimeout: 60_000 });
@@ -74,9 +74,33 @@ function consoleOffences(): readonly string[] {
   ).map((offence) => `${offence.stylesheetPath} <- ${offence.importer}`);
 }
 
+/** The console's answer to the same rule read from the other side. */
+function consoleUndressedOffences(): readonly string[] {
+  const tree = CONSOLE_STYLESHEET_TREE;
+  const edges = collectStylesheetEdges(tree);
+  const chunkRoots = lazyChunkRoots(tree);
+  return undressedEagerReaderOffences(
+    tree,
+    (stylesheetPath) => edges.get(stylesheetPath)?.[0]?.owningBarrel,
+    (modulePath) => chunkRoots.has(modulePath),
+  ).map((offence) => `${offence.stylesheetPath} <- ${offence.importer} (${offence.eagerReader})`);
+}
+
 describe("the console's deferred stylesheets", () => {
   it("imports a door's unusable sheets from a chunk root instead", () => {
     expect(consoleOffences()).toStrictEqual(PINNED_MISPLACED_SHEETS);
+  });
+
+  // The converse, and the failure a person actually sees. The browser family's settings
+  // sheet entered through the pane's chunk root while `BrowserSettingsSection` renders
+  // from the settings route, which reaches it statically through `browser/index.ts` — so
+  // Settings → Browser opened before any browser pane had ever rendered painted its
+  // controls with no rules at all, and then started working once an unrelated pane was
+  // opened. A ban rather than a pin: no sheet is allowed to be in that state, and the
+  // remedy is always the same one the rule states — the sheet enters through the barrel
+  // of the directory that owns it.
+  it("leaves no sheet on a chunk root that the initial graph renders against", () => {
+    expect(consoleUndressedOffences()).toStrictEqual([]);
   });
 
   // The positive control. A census that resolved no importer at all would report an
@@ -181,5 +205,120 @@ describe("the deferred-sheet reader, against planted trees", () => {
     const tokensOnly = new Map(deferredFamily);
     tokensOnly.set("planted/pane/pane.css", ":root { --meridian-planted: 1px; }\n");
     expect(offencesIn(tokensOnly)).toStrictEqual([]);
+  });
+});
+
+describe("the undressed-reader reader, against planted trees", () => {
+  /**
+   * A family with two surfaces: one behind a loader, one the settings route mounts.
+   *
+   * A COMPOSITION ROOT AND NOT JUST A DOOR, because the eager graph is rooted at the
+   * modules a tree holds directly under `console/` and a planted tree with only a
+   * family in it has no such module — the walk would start nowhere, every set would be
+   * empty, and every case below would pass over a reader that answers nothing.
+   */
+  const mountedSection = new Map<string, string>([
+    ["planted-page.ts", 'import { PlantedSection } from "./planted/index.js";\n'],
+    [
+      "planted/index.ts",
+      'export { PlantedSection } from "./settings/PlantedSection.js";\nexport const register = () => import("./pane/planted-pane-body.js");\n',
+    ],
+    ["planted/settings/PlantedSection.tsx", 'const className = "meridian-planted-section";\n'],
+    ["planted/settings/settings.css", ".meridian-planted-section { top: 0; }\n"],
+    [
+      "planted/pane/planted-pane-body.ts",
+      'import "../settings/settings.css";\nimport "./pane.css";\n',
+    ],
+    ["planted/pane/pane.css", ".meridian-planted-pane { top: 0; }\n"],
+  ]);
+
+  function undressedIn(sources: ReadonlyMap<string, string>): readonly string[] {
+    const tree = syntheticStylesheetTree(sources);
+    const edges = collectStylesheetEdges(tree);
+    const chunkRoots = lazyChunkRoots(tree);
+    return undressedEagerReaderOffences(
+      tree,
+      (stylesheetPath) => edges.get(stylesheetPath)?.[0]?.owningBarrel,
+      (modulePath) => chunkRoots.has(modulePath),
+    ).map((offence) => `${offence.stylesheetPath} (${offence.eagerReader})`);
+  }
+
+  // The planted failure: the exact shape the browser family shipped.
+  it("reports a chunk-root sheet the initial graph renders against", () => {
+    expect(undressedIn(mountedSection)).toStrictEqual([
+      "planted/settings/settings.css (planted/settings/PlantedSection.tsx)",
+    ]);
+  });
+
+  // The fix, asserted as the fix: the same tree with the sheet moved to the door that
+  // owns it reports nothing, and the pane's own sheet is left exactly where it was.
+  it("reports nothing once the family door imports it", () => {
+    const moved = new Map(mountedSection);
+    moved.set(
+      "planted/index.ts",
+      'import "./settings/settings.css";\nexport { PlantedSection } from "./settings/PlantedSection.js";\nexport const register = () => import("./pane/planted-pane-body.js");\n',
+    );
+    moved.set("planted/pane/planted-pane-body.ts", 'import "./pane.css";\n');
+    expect(undressedIn(moved)).toStrictEqual([]);
+  });
+
+  // The RESTATEMENT pair, and the reason the reading subtracts what arrives eagerly
+  // rather than asking about one sheet at a time. `browser/pane/pane.css` carries
+  // `.meridian-browser-chrome .meridian-browser-action` — a rule scoped to a chrome bar
+  // the settings page has no ancestor of — so a per-sheet question calls the pane sheet
+  // misplaced, which is true of the token match and false of the defect. While nothing
+  // eagerly-arriving declares the class, BOTH are reported and the fix is one move.
+  it("reports a restating chunk sheet while no eagerly-arriving sheet declares the class", () => {
+    const restated = new Map(mountedSection);
+    restated.set(
+      "planted/pane/pane.css",
+      ".meridian-planted-pane { top: 0; }\n.meridian-planted-pane .meridian-planted-section { top: 1px; }\n",
+    );
+    // Reported in the tree's own order, which is what the console's own claim reads
+    // too: one line per sheet, and the fix is the single move both of them name.
+    expect(undressedIn(restated)).toStrictEqual([
+      "planted/settings/settings.css (planted/settings/PlantedSection.tsx)",
+      "planted/pane/pane.css (planted/settings/PlantedSection.tsx)",
+    ]);
+  });
+
+  // And the other half of that pair, which is the one the console's own tree needs: once
+  // the sheet that OWED the rules is at the door, the restatement is not a defect and
+  // reports nothing. A reader without the subtraction fails here, on a tree whose
+  // settings page is fully dressed.
+  it("admits the same restatement once the owing sheet is at the door", () => {
+    const dressed = new Map(mountedSection);
+    dressed.set(
+      "planted/index.ts",
+      'import "./settings/settings.css";\nexport { PlantedSection } from "./settings/PlantedSection.js";\nexport const register = () => import("./pane/planted-pane-body.js");\n',
+    );
+    dressed.set("planted/pane/planted-pane-body.ts", 'import "./pane.css";\n');
+    dressed.set(
+      "planted/pane/pane.css",
+      ".meridian-planted-pane { top: 0; }\n.meridian-planted-pane .meridian-planted-section { top: 1px; }\n",
+    );
+    expect(undressedIn(dressed)).toStrictEqual([]);
+  });
+
+  // The control that keeps the two cases above from passing for the wrong reason. A
+  // reader that asked "does ANY module name this class" rather than "does any module on
+  // the INITIAL graph name it" would report this sheet, whose only reader is on the far
+  // side of the loader — which is the arrangement the whole boundary exists to produce,
+  // and reporting it would fail every correctly deferred family in the console.
+  it("reports nothing for a sheet whose only reader is behind the loader", () => {
+    const deferredReader = new Map(mountedSection);
+    deferredReader.set(
+      "planted/index.ts",
+      'import "./settings/settings.css";\nexport { PlantedSection } from "./settings/PlantedSection.js";\nexport const register = () => import("./pane/planted-pane-body.js");\n',
+    );
+    deferredReader.set(
+      "planted/pane/planted-pane-body.ts",
+      'import "./pane.css";\nimport { PlantedPane } from "./PlantedPane.js";\n',
+    );
+    deferredReader.set(
+      "planted/pane/PlantedPane.tsx",
+      'const className = "meridian-planted-pane";\n',
+    );
+    expect(undressedIn(deferredReader)).toStrictEqual([]);
   });
 });

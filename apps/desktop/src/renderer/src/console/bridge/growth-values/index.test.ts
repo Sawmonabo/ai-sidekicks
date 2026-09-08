@@ -11,9 +11,11 @@
 // to it from both directions: nothing dropped, nothing silently added under cover of
 // a refactor that was supposed to move text and nothing else.
 //
-// TWO READINGS, BECAUSE ONE CANNOT SEE THE OTHER. A runtime `import *` sees the five
-// value exports and no type, since types are erased before this file runs; the
-// barrel's own source text carries all of them. The census is read off the source and
+// TWO READINGS, BECAUSE ONE CANNOT SEE THE OTHER. A runtime `import *` sees the value
+// exports and no type, since types are erased before this file runs; the barrel's own
+// source text carries all of them. Which values those are is `VALUE_EXPORTS` and not a
+// figure written here — this sentence said "the five" while the list held two, four of
+// the original five having been retired with nothing reporting that the prose moved. The census is read off the source and
 // the value half is then checked against the real module object, so a barrel whose
 // text and whose runtime disagree fails rather than passing on the text alone.
 
@@ -49,11 +51,14 @@ const barrelSource = Object.values(barrelSources)[0] ?? "";
  * preserve, and its whole job is to disagree with the barrel if a name is lost. A
  * name is added here only in the diff that adds the export, which is what keeps
  * "nothing silently added under cover of a refactor" a real claim rather than a
- * comment. Two such additions so far: `GrowthBranchContextReadRequest`, because the
- * registered branch-context read is keyed by one of two arms and the union naming
- * them earned a name once the signature table and the gate's read plan both read it,
- * and `GrowthNotificationPermission`, the shell reading that decides whether the
- * notification centre is the only surface an attention item reaches a person on.
+ * comment. Three such additions stand today, and each names the sibling that earned
+ * it: `GrowthBranchContextReadRequest`, because the registered branch-context read is
+ * keyed by one of two arms and the union naming them earned a name once the signature
+ * table and the gate's read plan both read it; `GrowthNotificationPermission`, the
+ * shell reading that decides whether the notification centre is the only surface an
+ * attention item reaches a person on; and `GrowthMcpLiveApplicationResult`, because the
+ * settings scenario computes each governance mutation's answer from the binding the
+ * request named and carries the per-leg outcomes of applying it on that answer.
  */
 const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -95,6 +100,34 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthTerminalChunk",
   "GrowthToolCall",
   "GrowthUnpricedFamilyCap",
+  // The diagnostics plane's six reply shapes, added with the page that reads them.
+  // Each name is added in the diff that adds the export, which is what keeps "nothing
+  // silently added under cover of a refactor" a real claim rather than a comment. The
+  // plane's vocabularies and row shapes are deliberately NOT here: no sibling inside
+  // this family reads them, so they leave through the family door instead.
+  "GrowthFailureDetail",
+  "GrowthHealthStatus",
+  "GrowthRecoveryAction",
+  "GrowthRecoveryReceipt",
+  "GrowthRedactionPolicy",
+  "GrowthStuckRunInspection",
+  // The governance plane's three shapes, added with the inventory the servers page
+  // renders: the binding reference both mutations are keyed by, the row the unified
+  // read answers with, and the per-leg result a mutation settles as. The status
+  // vocabulary and the leg and override shapes stay off this list for the reason the
+  // diagnostics plane's do — no sibling in this family reads them.
+  "GrowthMcpBindingRef",
+  "GrowthMcpInventoryEntry",
+  "GrowthMcpLiveApplicationResult",
+  "GrowthMcpMutationResult",
+  // And the key those bindings are compared by, added with the fixture ledger that
+  // serves the inventory read past a governance mutation. The one FUNCTION on this
+  // list, and it is here on the same sibling test the shapes above pass: the ledger
+  // lives in `fixture/` and keys its register by it, while the page that renders the
+  // grid takes it from the family door. Two readers on two sides of the family, one
+  // encoder — a second derivation of the same key is how the ledger and the page come
+  // to disagree about which row a mutation named.
+  "mcpBindingKeyOf",
 ];
 
 /**
@@ -149,12 +182,17 @@ const RETIRED_SINCE_SPLIT: readonly string[] = [
  * The page shapes are the browser strip and picker's one reading — a list of pages and
  * the context name that heads it, both named by the signature table next door on the
  * page subscription's reply — and the chord frame is the keyboard handback's, the
- * keystroke a page host claimed and handed back.
+ * keystroke a page host claimed and handed back. The two diff-artifact shapes are the
+ * mint's own request union and what it answers with: the diff pane composes the first
+ * from the subject its address resolved to, and reads the manifest id off the second to
+ * fetch the patch through the artifact plane.
  */
 const ADDED_SINCE_SPLIT: readonly string[] = [
   "GrowthAcceleratorChord",
   "GrowthBrowserPage",
   "GrowthBrowserPageList",
+  "GrowthDiffArtifactCreated",
+  "GrowthDiffArtifactCreateRequest",
 ];
 
 /** What the barrel is expected to publish today: the split's surface, less the retired, plus the added. */
@@ -166,8 +204,12 @@ const CURRENT_EXPORTS: readonly string[] = [
 /** The tail of the gitflow re-export clause, which the negative control cuts out. */
 const GITFLOW_CLAUSE_TAIL = '} from "./gitflow.js";';
 
-/** The two names that survive erasure, so the runtime module object carries them. */
-const VALUE_EXPORTS: readonly string[] = ["GROWTH_ARTIFACT_TYPES", "GROWTH_PR_PREPARATION_STATES"];
+/** The names that survive erasure, so the runtime module object carries them. */
+const VALUE_EXPORTS: readonly string[] = [
+  "GROWTH_ARTIFACT_TYPES",
+  "GROWTH_PR_PREPARATION_STATES",
+  "mcpBindingKeyOf",
+];
 
 /**
  * The names the barrel's export clauses actually list.

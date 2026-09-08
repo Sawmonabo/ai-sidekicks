@@ -134,6 +134,16 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "type-member",
       "the amendment arm on the approval decision input",
     ),
+    // NOT an operation, and the distinction is the module header's own. A port method
+    // here would be one nothing calls: the attach mount resolves a declaration off the
+    // bridge it already holds, synchronously, at the moment it renders — so the missing
+    // thing is a MEMBER on that bridge and not a callable the port could stand behind.
+    nodeSelfDeclarationCarrier: prerequisite(
+      "nodeSelfDeclarationCarrier",
+      "node-self-declaration",
+      "bridge-member",
+      "this node's own attach declaration — identity, contract version, self-reported health, and capability set — composed in main and handed to the renderer",
+    ),
     providerSessionImportSpec: prerequisite(
       "providerSessionImportSpec",
       "provider-session-import",
@@ -152,6 +162,18 @@ export const GROWTH_PREREQUISITES: Readonly<Record<GrowthPrerequisiteId, GrowthP
       "mount-health-identity-verdict",
       "daemon-producer",
       "the daemon-side mount-health projection that derives the identity verdict, and the handler namespace that would carry a mount read to a client",
+    ),
+    // A member that exists on exactly one side of its own plane. The create request
+    // carries `parentContentHash` — the hash of the `shared` definition an author
+    // branched from — and NEITHER read reply returns it, so a definition that was
+    // forked is indistinguishable on the wire from one written from scratch. The
+    // detail pane therefore renders the copy-on-write provenance as a fact the wire
+    // does not carry rather than as an empty field, which is what this row is for.
+    workflowParentContentHashMember: prerequisite(
+      "workflowParentContentHashMember",
+      "workflow-definition-authoring",
+      "type-member",
+      "the copy-on-write parent content hash on a definition or version read reply, which only the authoring write carries today",
     ),
   };
 

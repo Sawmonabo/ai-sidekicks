@@ -8,31 +8,50 @@
 // corpus registers no workflow types at all. Keeping them in one file put a wire the
 // contract owns and a wire the growth slate owes side by side under one header.
 //
-// AND SPLIT AGAIN, BY RESPONSIBILITY. The state itself is four independently
-// maintained tables — the definitions a browser groups, the four runs a list ranks,
-// the outputs a finished phase left behind, and the agents a phase dispatches to —
-// which shared one module until it passed the size a reader can hold. Each has its
-// own file now; what they share is this one, because an identifier two of them name
-// has to be one literal or the fixture proves nothing. The agents table is the one
-// that is not `workflow-projection.ts`-typed: it feeds the session's `agent.attached`
-// beats, so it sits beside neither the definitions nor the runs.
+// AND SPLIT AGAIN, BY RESPONSIBILITY. The state itself is five independently
+// maintained tables — the definitions a browser groups, the bodies a detail pane
+// reads, the four runs a list ranks, the outputs a finished phase left behind, and
+// the agents a phase dispatches to — which shared one module until it passed the size
+// a reader can hold. Each has its own file now; what they share is this one, because
+// an identifier two of them name has to be one literal or the fixture proves nothing.
+// The agents table is the one that is not `workflow-projection.ts`-typed: it feeds the
+// session's `agent.attached` beats, so it sits beside neither the definitions nor the
+// runs.
 //
 // WHICH NAMES CARRY THE SCENARIO PREFIX. One that leaves this directory does —
 // `WORKFLOWS_SESSION_ID` is read by a pane test four families away, where `SESSION_ID`
 // would say nothing about which session. One that is read only by a sibling here does
 // not: `PHASE_DRAFT` at a `phaseId:` is exactly as clear as the import above it.
 //
-// EVERYTHING HERE IS BEHIND ONE SLATE ROW. `workflow-run-control` owes nine of the
-// thirteen registered workflow method strings together with the run, phase,
-// definition, and output shapes they carry. Until it lands these are the console's
-// consumption shapes and nothing claims otherwise; when it lands they are replaced by
-// the registered types and this data is re-typed against them.
+// EVERYTHING HERE IS BEHIND A SLATE ROW, AND SINCE THE DEFINITION BODIES LANDED IT IS
+// TWO. `workflow-run-control` owes nine of the thirteen registered workflow method
+// strings together with the run, phase, definition, and output shapes they carry, and
+// `workflow-definition-authoring` owes the three the detail pane reads and writes
+// through together with the body shapes those carry. Until each lands these are the
+// console's consumption shapes and nothing claims otherwise; when one lands its shapes
+// are replaced by the registered types and this data is re-typed against them.
 
 /** The session every fact in this fixture belongs to. The scenario's own id, once. */
 export const WORKFLOWS_SESSION_ID = "019b7a10-0280-75e5-8510-ada11a5a3333";
 
 /** The person this window is, and the actor on every beat a person caused. */
 export const WORKFLOWS_PARTICIPANT_YOU = "019b7a10-0280-79a4-8110-cca0117a0110";
+
+// Definition ids, shared by the summaries a browser groups, the chains three of them
+// have, and the bodies a detail pane reads. They were local to the definitions table
+// while nothing else addressed a definition — a run carries a workflow VERSION id, not
+// a definition one — and the body table is what made a second module name them, which
+// is exactly the condition this file exists for.
+//
+// SCOPE-QUALIFIED BECAUSE TWO NAMES APPEAR TWICE. `Release checks` and `Ship pipeline`
+// each exist at two scopes so the browser's most-specific-first resolution mark says
+// something, and a bare `DEFINITION_SHIP_PIPELINE` would leave a reader of the body
+// table guessing which of the two it addressed.
+export const DEFINITION_RELEASE_CHECKS_SESSION = "019b7a10-0280-7c11-8100-def111150001";
+export const DEFINITION_RELEASE_CHECKS_PROJECT = "019b7a10-0280-7c11-8100-def111150004";
+export const DEFINITION_SHIP_PIPELINE_PROJECT = "019b7a10-0280-7c11-8100-def111150002";
+export const DEFINITION_SHIP_PIPELINE_SHARED = "019b7a10-0280-7c11-8100-def111150005";
+export const DEFINITION_INCIDENT_TRIAGE_SHARED = "019b7a10-0280-7c11-8100-def111150003";
 
 // Version ids, shared by the definitions table and the runs table because the
 // frozen-pin state is an INEQUALITY between two of them: a run pinned to `Ship

@@ -37,8 +37,10 @@
 /*
  * ONE CONTROL SHAPE FOR EVERY BUTTON THIS DIRECTORY ADDS, declared once. The attach,
  * re-attach, prepare, and disposal surfaces each carry a trigger, a cancel, a confirm,
- * and a retry, and a rule per class would have been sixteen copies of one declaration
- * — and sixteen chances for one of them to arrive without a focus ring.
+ * and a retry, and the open-changes control joins them — so a rule per class would have
+ * been a copy of one declaration per selector below, and one chance per copy for it to
+ * arrive without a focus ring. The list is read rather than counted here: a number in
+ * this sentence would go stale the next time this directory grows a control.
  */
 .meridian-repo-attach__trigger,
 .meridian-repo-attach__cancel,
@@ -56,7 +58,8 @@
 .meridian-root-disposal__trigger,
 .meridian-root-disposal__cancel,
 .meridian-root-disposal__confirm,
-.meridian-root-disposal__reread {
+.meridian-root-disposal__reread,
+.meridian-open-diff {
   font: inherit;
   font-size: var(--meridian-text-xs);
   padding: var(--meridian-space-1) var(--meridian-space-3);
@@ -71,7 +74,8 @@
 .meridian-bind__trigger:hover:enabled,
 .meridian-reattach__trigger:hover:enabled,
 .meridian-prepare-root__confirm:hover:enabled,
-.meridian-root-disposal__trigger:hover:enabled {
+.meridian-root-disposal__trigger:hover:enabled,
+.meridian-open-diff:hover:enabled {
   border-color: var(--meridian-edge-strong);
 }
 
@@ -96,9 +100,22 @@
 .meridian-prepare-root :focus-visible,
 .meridian-root-disposal :focus-visible,
 .meridian-root-disposal__dialog :focus-visible,
-.meridian-repo-section > .meridian-repo-attach__trigger:focus-visible {
+.meridian-repo-section > .meridian-repo-attach__trigger:focus-visible,
+.meridian-open-diff:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
+}
+
+/*
+ * The one thing the open-changes control does NOT share with the shape above: it
+ * carries a glyph beside its word, so the two need a baseline and a gap. Everything
+ * else about it — the border, the ground, the focus ring — comes from the rules above,
+ * which is why it is in their selector lists rather than restating any of them here.
+ */
+.meridian-open-diff {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
 }
 
 /* The three popups share one geometry: the members dialog's, which this follows. */

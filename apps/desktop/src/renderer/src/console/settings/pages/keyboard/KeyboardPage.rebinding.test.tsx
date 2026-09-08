@@ -141,6 +141,122 @@ describe("keyboard page — what it changes", () => {
     expect(recorderOf(container, "app.checkForUpdates").getAttribute("aria-pressed")).toBe("true");
     expect(politeText(container)).toBe("");
   });
+
+  it("draws the keys held so far while a chord is still incomplete", async () => {
+    // The section asks for "the keys held so far, and whether the chord is complete".
+    // Before this, a modifier press was read and discarded, so a person on the way to
+    // ⌥J saw nothing at all between arming the recorder and settling it.
+    const { container } = renderPage();
+    const recorder = recorderOf(container, "app.checkForUpdates");
+    fireEvent.click(recorder);
+    // Opening arm first: an armed recorder that had received nothing must say so
+    // rather than draw an empty holding hint.
+    expect(rowOf(container, "app.checkForUpdates").textContent ?? "").toContain("Nothing held yet");
+
+    await act(async () => {
+      fireEvent.keyDown(recorder, { key: "Alt", code: "AltLeft", altKey: true });
+      await crossMacrotaskBoundary();
+    });
+
+    const rowText = rowOf(container, "app.checkForUpdates").textContent ?? "";
+    expect(rowText).toContain("Holding");
+    expect(rowText).toContain("the chord is not complete");
+    // And nothing was bound: the hint is a reading of an unfinished press.
+    expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
+  });
+
+  it("stops saying a modifier is held once the person has released it", async () => {
+    // The hint is a reading of what is held RIGHT NOW, and a keydown alone cannot know
+    // that: a person who presses ⇧, changes their mind, and lets go left the row saying
+    // "Holding ⇧" for as long as the recorder stayed armed — a sentence about the
+    // present tense that was false and had no way of becoming true again.
+    const { container } = renderPage();
+    const recorder = recorderOf(container, "app.checkForUpdates");
+    fireEvent.click(recorder);
+
+    await act(async () => {
+      fireEvent.keyDown(recorder, { key: "Shift", code: "ShiftLeft", shiftKey: true });
+      await crossMacrotaskBoundary();
+    });
+    expect(rowOf(container, "app.checkForUpdates").textContent ?? "").toContain("Holding");
+
+    // The release, as the host reports one: the modifier's own flag is already false on
+    // the keyup that ends it.
+    await act(async () => {
+      fireEvent.keyUp(recorder, { key: "Shift", code: "ShiftLeft", shiftKey: false });
+      await crossMacrotaskBoundary();
+    });
+
+    const rowText = rowOf(container, "app.checkForUpdates").textContent ?? "";
+    expect(rowText).toContain("Nothing held yet");
+    expect(rowText).not.toContain("Holding");
+    // Still armed, so the release is a correction to the hint and not an end to the
+    // recording: the next press is still the chord.
+    expect(recorder.getAttribute("aria-pressed")).toBe("true");
+    expect(consoleKeybindingOverrides.overrides["app.checkForUpdates"]).toBeUndefined();
+  });
+
+  it("keeps the modifiers still down when one of several is released", async () => {
+    // The other direction, and the one a bare clear would get wrong: releasing ⇧ on the
+    // way to ⌥⇧J leaves ⌥ held, and a hint that emptied itself would be as false as one
+    // that never emptied at all.
+    const { container } = renderPage();
+    const recorder = recorderOf(container, "app.checkForUpdates");
+    fireEvent.click(recorder);
+
+    await act(async () => {
+      fireEvent.keyDown(recorder, {
+        key: "Shift",
+        code: "ShiftLeft",
+        altKey: true,
+        shiftKey: true,
+      });
+      await crossMacrotaskBoundary();
+    });
+    await act(async () => {
+      fireEvent.keyUp(recorder, {
+        key: "Shift",
+        code: "ShiftLeft",
+        altKey: true,
+        shiftKey: false,
+      });
+      await crossMacrotaskBoundary();
+    });
+
+    const rowText = rowOf(container, "app.checkForUpdates").textContent ?? "";
+    expect(rowText).toContain("Holding");
+    expect(rowText).not.toContain("Nothing held yet");
+  });
+
+  it("names the chord a per-row reset restores, rather than promising a default", async () => {
+    const { container } = renderPage();
+    await recordOnto(container, "frame.goToSessions", RECORDED_PRESS);
+    await waitFor(() => {
+      expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
+    });
+
+    const reset = rowOf(container, "frame.goToSessions").querySelector(".meridian-keymap__reset");
+    expect(reset?.textContent ?? "").toContain("Reset to");
+    // The SHIPPED chord and never the effective one, which is the shipped table with
+    // this very override already composed onto it.
+    expect(reset?.getAttribute("aria-label") ?? "").toContain("$mod+1");
+    expect(reset?.getAttribute("aria-label") ?? "").not.toContain("Alt+KeyJ");
+  });
+
+  it("names each default the reset-all control restores, beside the control", async () => {
+    await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
+    await consoleKeybindingOverrides.bind("app.checkForUpdates", "Alt+KeyK");
+    const { container } = renderPage();
+
+    const block = container.querySelector(".meridian-keymap__reset-all-block");
+    const blockText = block?.textContent ?? "";
+    // One row ships a chord and the other ships none, so both promises are on screen
+    // and neither is the other's wording.
+    expect(blockText).toContain("back to");
+    expect(blockText).toContain("back to no chord");
+    expect(blockText).toContain("frame.goToSessions");
+    expect(blockText).toContain("app.checkForUpdates");
+  });
 });
 
 describe("keyboard page — a chord kept for a command this build does not have", () => {

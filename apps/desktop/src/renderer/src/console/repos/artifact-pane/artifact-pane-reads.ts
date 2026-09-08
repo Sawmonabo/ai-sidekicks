@@ -30,8 +30,8 @@ import {
 import { replyUnreadableRefusal } from "../growth-call.js";
 import {
   SHIPPED_DEFAULT_ALLOWLIST,
-  type ArtifactAllowlistReading,
-} from "./artifact-pane-reading.js";
+  type AttachmentAllowlistReading,
+} from "../attachments/attachment-bounds.js";
 import { readGrowthAnswer } from "../growth-call.js";
 
 /** What each leg calls its read, in the sentence a refusal shows. */
@@ -106,7 +106,7 @@ function carriesBounds(
 export async function readArtifactAllowlist(
   bridge: ConsoleBridge,
   sessionId: string,
-): Promise<ArtifactAllowlistReading> {
+): Promise<AttachmentAllowlistReading> {
   const answer = await readGrowthAnswer("artifactAllowlistRead", ALLOWLIST_LEG, () =>
     bridge.growth.artifactAllowlistRead({ sessionId }),
   );

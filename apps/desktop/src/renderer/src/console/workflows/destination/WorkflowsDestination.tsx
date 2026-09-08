@@ -86,6 +86,7 @@
 import { useCallback } from "react";
 
 import type { GrowthPort } from "../../bridge/index.js";
+import type { TransportReconnectObservable } from "../../core/index.js";
 import { WireFigure } from "../../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../../store/index.js";
 import type { ConsolePaneOpener } from "../../seats/index.js";
@@ -104,6 +105,8 @@ import { WorkflowsScopePicker } from "../WorkflowsScopePicker.js";
 
 export interface WorkflowsDestinationProps {
   readonly growth: GrowthPort;
+  /** Handed to the scope picker, whose directory read is node-scoped. */
+  readonly transportReconnect: TransportReconnectObservable;
   /**
    * The window store, read for the one member this surface needs: the session this
    * window most recently had in hand.
@@ -173,6 +176,7 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
       <div className="meridian-workflows-destination">
         <WorkflowsScopePicker
           growth={props.growth}
+          transportReconnect={props.transportReconnect}
           registry={props.sessionStoreRegistry}
           onChoose={(chosenSessionId) => {
             props.onScopeChange(chosenScope(chosenSessionId));

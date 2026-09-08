@@ -39,6 +39,8 @@
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
+import type { RefusalRecoveryCopy } from "../../primitives/index.js";
+
 /**
  * Every daemon refusal code the repos mount surfaces can receive.
  *
@@ -80,11 +82,13 @@ export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
  * would read as a sequence of steps. An empty list is the ordinary shape — most codes
  * have exactly one move — and it is a real empty rather than an absent member, so a
  * renderer maps it without asking whether it is there.
+ *
+ * DERIVED FROM THE SHAPE THE SHELL RENDERS rather than restating its two members:
+ * `primitives/RefusalRecovery.tsx` is what puts one of these on screen, and a table
+ * whose entry type merely happened to be assignable would stay assignable right up to
+ * the rename that made it stop.
  */
-export interface MountRefusalRecovery {
-  readonly nextMove: string;
-  readonly distinctions: readonly string[];
-}
+export type MountRefusalRecovery = RefusalRecoveryCopy;
 
 /**
  * What the caller knows that the code alone does not.

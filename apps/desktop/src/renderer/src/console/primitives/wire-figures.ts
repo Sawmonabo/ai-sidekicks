@@ -36,7 +36,11 @@
 // rest of this module uses for a figure it cannot stand behind.
 
 import { parseInstant } from "../core/index.js";
-import { currencyMinorUnitDigits, relativeTimeFormatFor } from "./intl-formatter-cache.js";
+import {
+  currencyMinorUnitDigits,
+  dayDurationFormatFor,
+  relativeTimeFormatFor,
+} from "./intl-formatter-cache.js";
 
 /**
  * The closed unit set, ascending; the index IS the power of 1024.
@@ -207,6 +211,33 @@ export function formatDuration(milliseconds: number, locale?: string): string {
   return hours > 0
     ? `${bare.format(hours)}:${padded.format(minutes)}:${padded.format(seconds)}`
     : `${bare.format(minutes)}:${padded.format(seconds)}`;
+}
+
+/**
+ * A duration the wire states in whole days — a retention window, a re-login horizon.
+ *
+ * ITS OWN FUNCTION BECAUSE THE UNIT IS PART OF THE FIGURE, and two call sites were
+ * composing it themselves: `${formatCount(days)} days` renders `1 days` at one day
+ * and the English word `days` in every locale, which are two different lies about a
+ * figure the daemon did send. `Intl.NumberFormat` with `style: "unit"` knows both —
+ * it declines the plural at one and names the unit in the locale's own words — so
+ * the whole figure comes out of `Intl` and nothing is appended to it.
+ *
+ * NOT `formatDuration` WITH A CONVERSION. That reading is milliseconds and renders
+ * digital above a minute, which is right for how long a run took and wrong for how
+ * long a bucket is kept: 7 days would read `168:00:00`. The two are different
+ * questions about different quantities, and a day figure scaled into the other's
+ * input would answer the wrong one.
+ *
+ * A fractional input renders whole, because the wire states these in whole days and
+ * a fraction here would be arithmetic the console performed on a figure it was
+ * handed. Non-finite and negative inputs answer the same em dash as every sibling.
+ */
+export function formatDayDuration(days: number, locale?: string): string {
+  if (!Number.isFinite(days) || days < 0) {
+    return "—";
+  }
+  return dayDurationFormatFor(locale).format(days);
 }
 
 /** A rate the console derived, e.g. tokens per second. */

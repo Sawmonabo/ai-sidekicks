@@ -38,6 +38,7 @@ import "./ledger-row.css";
 import "./partial-read.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
+import "./confirmation-dialog.css";
 import "./posture/posture.css";
 import "./restore/restore.css";
 
@@ -120,6 +121,14 @@ export { useSettlementAnnouncement } from "./settlement-announcement.js";
 export { useLatestRef } from "./latest-ref.js";
 
 export { Nothing } from "./Nothing.js";
+
+// The confirming dialog, and the tone its confirming act wears. Through the door
+// because two view families were composing the same eight Base UI parts and neither
+// could import the other's — siblings do not reach across — so a shared composition
+// has nowhere to live but a layer below both. What the callers keep is their own copy
+// and their own trigger class; the parts are here.
+export type { ConfirmationTone } from "./ConfirmationDialog.js";
+export { ConfirmationDialog } from "./ConfirmationDialog.js";
 
 // The incomplete-reading vocabulary and its one notice. Through the door for the
 // reason every family lane needs them: six families each wrote their own notice for
@@ -217,6 +226,13 @@ export { RefusalCard } from "./RefusalCard.js";
 // refusals whose codes the remedy table answers for, and three surfaces looking a
 // code up themselves is three chances to answer one code differently.
 export { RemediedRefusal } from "./RemediedRefusal.js";
+// The shell every family's own recovery table renders through, and the shape those
+// tables produce. On this door for the same reason `RemediedRefusal` is: more than one
+// family answers a code with a next move, and a shell written per family is a rendering
+// one of them can change without the other noticing — which is what happened, under two
+// class names whose declarations were identical property for property.
+export { RefusalRecovery } from "./RefusalRecovery.js";
+export type { RefusalRecoveryCopy } from "./refusal-contract.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -319,6 +335,7 @@ export {
   formatClockTime,
   formatCount,
   formatDateTime,
+  formatDayDuration,
   formatDuration,
   formatMoney,
   formatPercent,

@@ -1,8 +1,10 @@
 // What every fixture-growth-port suite needs before it can ask the port anything.
 //
-// One home for the three helpers more than one of the sibling suites uses: the
-// operation caller that does not retype the signature table, the fixture's own
-// port, and the scenario finder each refusal premise rests on. It holds nothing a
+// One home for the helpers more than one of the sibling suites uses: the operation
+// caller that does not retype the signature table, the fixture's own port, the scenario
+// finder each refusal premise rests on, and the served-outcome narrowing every plane
+// suite performs. They are named rather than counted, because a helper reaching its
+// second reader joins them in a diff that never reads this header. It holds nothing a
 // single suite uses — a helper with one reader stays beside its reader.
 
 import { createFixtureBridge } from "./fixture-bridge.js";
@@ -10,8 +12,27 @@ import type { GrowthOperationId, GrowthOutcome } from "../growth-port/index.js";
 import type { GrowthPort } from "../index.js";
 import type { ConsoleScenario } from "../scenario-runtime/index.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../scenarios/workflow-fixture-definitions.js";
+import { DEFINITION_RELEASE_CHECKS_SESSION } from "../scenarios/workflow-fixture-ids.js";
 import { WORKFLOWS_COMPLETED_PHASE_ID } from "../scenarios/workflow-fixture-phase-outputs.js";
 import { WORKFLOWS_PARKED_RUN } from "../scenarios/workflow-fixture-runs.js";
+
+/**
+ * The definition the two body reads are probed at, resolved out of the summary table.
+ *
+ * Resolved rather than restated, so the probe's version ordinal is the one the fixture
+ * publishes: a literal here would go stale the first time that table moved a version
+ * and the probe would then be asserting a refusal it had caused itself.
+ */
+const PROBE_DEFINITION = (() => {
+  const definition = WORKFLOWS_SCENARIO_DEFINITIONS.find(
+    (candidate) => candidate.id === DEFINITION_RELEASE_CHECKS_SESSION,
+  );
+  if (definition === undefined) {
+    throw new Error("the workflows fixture no longer states the probed definition");
+  }
+  return definition;
+})();
 
 /**
  * Call one operation without knowing its request shape.
@@ -51,8 +72,15 @@ export async function callOperation(
  * supplies the workflows scenario's own identifiers and asks the question a caller
  * would ask. Operations addressed by a session alone stay absent from the table
  * rather than carrying an empty entry each.
+ *
+ * The values are not all strings: the version read is addressed by an ORDINAL beside
+ * its definition id, so the entry type admits a number rather than making the one
+ * numeric address here stringify into a request member the handler would then compare
+ * against a number and never match.
  */
-const PROBE_SUBJECTS: Partial<Record<GrowthOperationId, Readonly<Record<string, string>>>> = {
+const PROBE_SUBJECTS: Partial<
+  Record<GrowthOperationId, Readonly<Record<string, string | number>>>
+> = {
   workflowRunRead: { workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId },
   workflowPhaseOutputRead: {
     workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
@@ -63,6 +91,17 @@ const PROBE_SUBJECTS: Partial<Record<GrowthOperationId, Readonly<Record<string, 
   // naming a run or a session would be asking a question the request has no member
   // for.
   workflowVersionChainRead: { workflowVersionId: WORKFLOWS_PARKED_RUN.workflowVersionId },
+  // The definition plane's two reads, addressed at the one definition this fixture
+  // states a body for at the version the summary table publishes as its latest. A
+  // probe naming another version number is a question this fixture refuses on purpose
+  // — it holds one body per definition — so the ordinal is read from the same summary
+  // row rather than written as a literal that would go stale the first time the
+  // definition table moved a version.
+  workflowDefinitionRead: { definitionId: PROBE_DEFINITION.id },
+  workflowVersionRead: {
+    definitionId: PROBE_DEFINITION.id,
+    versionNumber: PROBE_DEFINITION.latestVersionNumber,
+  },
 };
 
 /** The flagship scenario's fixture port, which is the port under test. */
@@ -89,4 +128,18 @@ export function findScenariosNaming(
       return members.some((member) => serialised.includes(`"${member}"`));
     })
     .map((scenario) => scenario.id);
+}
+
+/**
+ * The value a served outcome carries, or a failure naming what the port answered.
+ *
+ * Hoisted here on its second reader rather than copied: the plane suites beside the
+ * port all narrow the same union the same way, and a second copy would report a
+ * refusal as an unhelpful `undefined` in whichever suite drifted.
+ */
+export function servedValueOf<TValue>(outcome: GrowthOutcome<TValue>): TValue {
+  if (outcome.status !== "served") {
+    throw new Error(`the fixture port answered ${outcome.status} rather than serving a value`);
+  }
+  return outcome.value;
 }

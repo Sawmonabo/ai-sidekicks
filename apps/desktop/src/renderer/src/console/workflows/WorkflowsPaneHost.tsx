@@ -126,6 +126,7 @@ export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Elem
     return (
       <WorkflowsDestination
         growth={context.bridge.growth}
+        transportReconnect={context.bridge.transportReconnect}
         frameStore={context.frameStore}
         sessionStoreRegistry={context.sessionStoreRegistry}
         scope={scope}

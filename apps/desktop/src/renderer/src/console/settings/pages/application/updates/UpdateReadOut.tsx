@@ -6,6 +6,7 @@ import {
   WireFigure,
   formatPercent,
 } from "../../../../primitives/index.js";
+import { LastCheckedLine } from "./LastCheckedLine.js";
 import { type UpdateReading } from "./updater-reading.js";
 
 /** The five arms, plus the conversation's own absence. One render per arm. */
@@ -33,7 +34,11 @@ export function UpdateReadOut(props: { readonly reading: UpdateReading }): React
   const { state } = reading;
   switch (state.status) {
     case "idle":
-      return <p className="meridian-settings-page__state">No update is waiting.</p>;
+      return (
+        <p className="meridian-settings-page__state">
+          No update is waiting. <LastCheckedLine lastCheckedAt={state.lastCheckedAt} />
+        </p>
+      );
     case "checking":
       return (
         <p className="meridian-settings-page__state" aria-busy="true">

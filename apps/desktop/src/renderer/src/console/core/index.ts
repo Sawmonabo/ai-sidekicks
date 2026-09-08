@@ -29,11 +29,13 @@ export {
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
+  DIFF_PATCH_CHARACTER_CAP,
   HIDDEN_INVITE_CAP,
   IDENTIFIER_MAX_LENGTH,
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
+  INTERRUPTED_RUN_IDS_NAMED_CAP,
   INTERVENTION_OUTCOME_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
@@ -74,10 +76,13 @@ export {
   SIDEBAR_DEFAULT_WIDTH_PX,
   SIDEBAR_MAX_WIDTH_PX,
   SIDEBAR_MIN_WIDTH_PX,
+  STUCK_RUN_ESCALATION_MS,
+  STUCK_RUN_NOTICE_MS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
   TERMINAL_LEASE_LEDGER_CAP,
   TERMINAL_WEBGL_POOL_CAP,
   TOOL_ALLOWLIST_NAMED_CAP,
+  UTILIZATION_BAR_FULL_SCALE,
   WHEN_CLAUSE_MAX_DEPTH,
   WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
@@ -147,6 +152,7 @@ export {
   type ExtendedConsoleRefusal,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4 */
   type WireRetryHint,
+  type WireReferencingArtifacts,
   readRefusalExtensions,
 } from "./refusal-extensions.js";
 // What a surface DOES about a named refusal, beside rendering the daemon's words:
@@ -158,6 +164,17 @@ export {
 // this family reads the answer's fields off the returned value, and a door line
 // nothing imports is a dead export the census fails.
 export { refusalRemedyFor } from "./refusal-remedies.js";
+// The one tuple-to-key encoder. At the floor because its two readers sit at different
+// heights on the DAG — `bridge/quotas/`'s `(accountId, limitId)` reading key and
+// `settings/`'s scope-qualified MCP binding key — and neither family may reach the
+// other, so the floor is the only home both can take it from.
+export { structuralKey } from "./structural-key.js";
+// The subscribe view of the console's one transport-reconnect signal. Declared at
+// the floor because its producer is `bridge/` and its consumer is `store/`, and the
+// DAG puts the consumer below the producer — so the floor is the only home both can
+// reach. The emitter itself stays in `bridge/`.
+export type { TransportReconnectObservable } from "./transport-reconnect.js";
+export { NO_TRANSPORT_RECONNECT } from "./transport-reconnect.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
@@ -179,6 +196,12 @@ export { readWireNumber, readWireString } from "./wire-strings.js";
 // it, so two view families reached five directories up past `core/` to the declaration
 // and the layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";
+// The shell's shutdown budget, on the same rule and for the same reason. It is
+// DECLARED in `src/shared/shutdown-budget.ts` because `src/main/sidecar-lifecycle.ts`
+// races the quit drain against it, and a value main reads cannot live in a console
+// file. The console's stake is one sentence, so it takes the figure through the floor
+// rather than reaching past the DAG to the cross-process leaf that holds it.
+export { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../../../../shared/shutdown-budget.js";
 // The console's one airspace: which overlays are on screen in a window, so a native
 // view yields to them (`Spec-023 §Console Design (Meridian)` 12.3, §4.3). At the DAG
 // floor because its registrants are `primitives/` and its reader is a view family,

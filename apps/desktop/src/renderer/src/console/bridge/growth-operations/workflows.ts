@@ -1,10 +1,11 @@
 // The workflow plane's ledger rows: definitions, runs, phase outputs, gates, the
-// gate-chain verification that audits them, and the two reads the registry does not
-// carry — the run enumeration and the version chain — each on a slate row of its own.
+// gate-chain verification that audits them, the two reads the registry does not carry
+// — the run enumeration and the version chain — and the definition plane's own three
+// registry rows, each group on a slate row of its own.
 //
-// One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. The section
-// comment below is the single table's own, kept with the rows it heads — and it is
-// the claim `index.test.ts` beside it checks by counting this block's entries.
+// One plane of `GROWTH_OPERATIONS`, composed into it by `index.ts`. Each section
+// comment below is that section's own, kept with the rows it heads — and the first is
+// the claim `index.test.ts` beside it checks by counting the rows on that row's id.
 
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { op } from "./operation-entry.js";
@@ -25,9 +26,10 @@ export const WORKFLOW_GROWTH_OPERATIONS: Readonly<
 > = {
   // workflow — the nine rows below are nine of the thirteen rows of the registered
   // method registry, in that registry's own order. The four it does not carry are
-  // named in the slate row's own wire text: the two authoring writes and the version
-  // read no console surface on this substrate calls, and the draft save, which is
-  // declared with no handler to reach.
+  // named in the slate row's own wire text: the definition read, the version read and
+  // the authoring write, which serve a different surface and are filed under
+  // `workflow-definition-authoring` at the foot of this table, and the draft save,
+  // which is declared with no handler to reach and is on no row at all.
   workflowDefinitionList: op(
     "workflowDefinitionList",
     "workflow-run-control",
@@ -111,5 +113,32 @@ export const WORKFLOW_GROWTH_OPERATIONS: Readonly<
     "workflow-version-chain",
     "method",
     "resolve the version chain one run's pinned version belongs to, so a resume can offer a re-pin target the operator chose rather than a version nobody read",
+  ),
+  // The definition plane's own three registry rows, on a slate row of their own. They
+  // are registered method strings exactly as the nine above are, and they are NOT on
+  // that row because its count — nine of thirteen — is the claim that the enumeration,
+  // the run operations, the gate, the outputs and the form submit are what a run pane
+  // needs and that opening a definition is a different surface's question. The fourth
+  // row neither block carries is the draft save, which is declared with no V1 handler.
+  workflowDefinitionRead: op(
+    "workflowDefinitionRead",
+    "workflow-definition-authoring",
+    "method",
+    "open one definition — its scope identity, its latest version, and the phase sequence that version holds — so a browser row leads somewhere rather than to a pane with nothing in it",
+    "workflow.definitionRead",
+  ),
+  workflowVersionRead: op(
+    "workflowVersionRead",
+    "workflow-definition-authoring",
+    "method",
+    "read one immutable version body with its content hash and schema marker, which is both what a detail pane shows and what an export serializes into the canonical file form",
+    "workflow.versionRead",
+  ),
+  workflowDefinitionCreate: op(
+    "workflowDefinitionCreate",
+    "workflow-definition-authoring",
+    "method",
+    "submit a definition body — the one write all five authoring acts ride, whose target scope and not whose gesture is what the daemon's operator-scope authorization keys on",
+    "workflow.definitionCreate",
   ),
 };

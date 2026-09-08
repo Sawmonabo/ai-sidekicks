@@ -27,13 +27,27 @@
 // (T-023p-1C-2) renders the seat; this family owns the body. The registration
 // below is the whole contact surface.
 //
-// WHAT THE SEAT HANDS OVER, AND WHAT IT CANNOT. `DiffInlineCardProps` carries a
-// `runId`, the `diffArtifactId` the registered diff result names itself by, and the
-// `artifactManifestId` that diff minted — and no diff, because there is no wire to
-// fetch one with: `gitflow.diffArtifactCreate` is a `Plan-023 §Console growth slate`
-// row and the growth port registers no operation for it. So the registered body
-// renders the honest absence, and the `diff` prop is the seam the fetch lands on
-// the day the wire exists. Nothing here fabricates a method name to call.
+// WHAT THE SEAT HANDS OVER, AND THE TWO DENSITIES IT SELECTS BETWEEN.
+// `DiffInlineCardProps` carries a `runId`, the `diffArtifactId` the registered diff
+// result names itself by, the `artifactManifestId` that diff minted, and — where the
+// row knows them — the pair of COMPARED STATES a diff was taken between. A unified
+// patch names neither of those states, so they can only arrive from the row, which is
+// why they are the seat's members and never a base and a head this card invented.
+//
+// THE PAIR IS WHAT SELECTS THE DENSITY, and the four clauses above are the rule for
+// the arm where it is absent. A row that names no comparison identifies a diff by its
+// artifact id alone, so what the card can honestly show is a GLANCE at its rows: the
+// capped renderer, one control, and the two escape hatches. A row that names both
+// states has said what the turn compared, and the honest rendering of a named
+// comparison is the CHANGE SET — `DiffChangeSet`, the same body the pane renders, so
+// the compared states are drawn and the changed files are reachable rather than being
+// facts the card holds and does not show.
+//
+// AND THE PAIR IS READ WHERE THERE IS NO MODEL TOO. `diff` stays the seam a fetch
+// lands on, and until one lands the absence says what was compared instead of only
+// that nothing was read — a row that knows the two states has already answered half
+// the question, and withholding that half would be the card reporting less than it
+// holds.
 
 import { useId, useRef, useState } from "react";
 
@@ -41,10 +55,17 @@ import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { Glyph, Nothing } from "../../primitives/index.js";
 import type { InlineCardSeatRegistry, DiffInlineCardProps } from "../../seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../core/index.js";
+import { DiffChangeSet } from "./DiffChangeSet.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "./DiffToolbar.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
 import { useDiffModelViewState } from "./diff-view-state.js";
+// TYPE-ONLY, AND THAT IS LOAD-BEARING RATHER THAN TIDY. `patch-parse.ts` is where the
+// adopted diff library is called, and this card is registered eagerly — a value import
+// of that module would put the parser on the initial import graph for every session,
+// including the ones that open no diff at all. A type import is erased, so the shape
+// the compared states travel in has one home and the graph does not move.
+import type { ComparedStates } from "./patch-parse.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_DIFF_CARD_OWNER = "repos";
@@ -53,6 +74,29 @@ export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
   /** The diff to render. Absent until a wire produces one — see the header. */
   readonly diff?: ConsoleDiffModel;
+}
+
+/**
+ * The comparison the row named, or `undefined` where it named neither.
+ *
+ * BOTH OR NOTHING, checked here rather than at each reader: half a comparison names no
+ * diff at all, so a base with no head is the same answer as no base — and a reader that
+ * tested one member would draw a subject bar with a blank on one side of it.
+ */
+function comparedStatesOf(card: DiffInlineCardProps): ComparedStates | undefined {
+  const { baseRef, headRef } = card;
+  if (baseRef === undefined || headRef === undefined) {
+    return undefined;
+  }
+  return { baseRef, headRef };
+}
+
+/** What the absence says about a comparison the row named but nothing has read. */
+function unreadDiffDetail(comparedStates: ComparedStates | undefined): string {
+  if (comparedStates === undefined) {
+    return "The diff is named on the turn that produced it, and its lines have not been read.";
+  }
+  return `This turn compared ${comparedStates.baseRef} to ${comparedStates.headRef}, and the lines of that comparison have not been read.`;
 }
 
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
@@ -65,6 +109,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   // keyed by the prop reference, dropped when that moves. The card narrows to no
   // file, so it reads only the expansion half.
   const { expansion, expandGapAt } = useDiffModelViewState(props.diff);
+  const comparedStates = comparedStatesOf(props.card);
   const [isCapped, setIsCapped] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const endSentinelRef = useRef<HTMLSpanElement | null>(null);
@@ -102,8 +147,14 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
               kind="not-checked"
               placement="surface"
               title="This diff has not been read."
-              detail="The diff is named on the turn that produced it, and the read that fetches its lines is not registered on the bridge yet."
+              detail={unreadDiffDetail(comparedStates)}
             />
+          ) : comparedStates !== undefined ? (
+            // THE CHANGE SET, because the row named what was compared. The same body
+            // the pane renders, so the compared states are drawn once and the changed
+            // files are reachable — see the header for why the seat's pair is what
+            // selects this arm.
+            <DiffChangeSet diff={props.diff} />
           ) : (
             <>
               <DiffRenderer

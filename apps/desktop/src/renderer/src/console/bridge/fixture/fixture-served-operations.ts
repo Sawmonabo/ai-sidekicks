@@ -251,7 +251,18 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
+// AND FIVE PLANES STATE THEIR OWN MEMBERSHIP, in the modules that implement them:
+// `fixture-diagnostics-reads.ts`, `fixture-provider-account-writes.ts`,
+// `fixture-mcp-governance.ts`, `fixture-onboarding-answers.ts` and
+// `fixture-shell-answers.ts`, on the rule `fixture-workflow-reads.ts` set. A plane that
+// owns its handlers owns the reasoning that admits them, so the ids and the argument for
+// them stay one unit — reasoning left here would go stale the first time a plane changed
+// what it answers, and nothing would report it.
+
+import { FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS } from "./fixture-diagnostics-reads.js";
+import { FIXTURE_SERVED_MCP_OPERATION_IDS } from "./fixture-mcp-governance.js";
 import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "./fixture-onboarding-answers.js";
+import { FIXTURE_SERVED_PROVIDER_ACCOUNT_OPERATION_IDS } from "./fixture-provider-account-writes.js";
 import { FIXTURE_SERVED_SHELL_OPERATION_IDS } from "./fixture-shell-answers.js";
 import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.js";
 
@@ -266,10 +277,8 @@ import { FIXTURE_SERVED_WORKFLOW_OPERATION_IDS } from "./fixture-workflow-reads.
  * Written as an annotated tuple rather than `as const`, on the
  * `GROWTH_PORT_REFUSAL_CODES` precedent: `isolatedDeclarations` cannot infer an array
  * carrying a spread, so each plane that owns its own module reaches the annotation as
- * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS`,
- * `...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS` and
- * `...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS`. Each is named in one place and
- * spread in the other, and the compiler holds the two to each other.
+ * `...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS` and its siblings. Each is named in
+ * one place and spread in the other, and the compiler holds the two to each other.
  */
 export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "sessionRead",
@@ -277,6 +286,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "attentionProjectionRead",
   ...typeof FIXTURE_SERVED_WORKFLOW_OPERATION_IDS,
   "gitflowBranchContextRead",
+  "gitflowDiffArtifactCreate",
+  "artifactRead",
   "callerParticipantRead",
   "approvalProjectionRead",
   "approvalRuleList",
@@ -298,6 +309,9 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "providerSessionImportSubscribe",
   ...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS,
   ...typeof FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_PROVIDER_ACCOUNT_OPERATION_IDS,
+  ...typeof FIXTURE_SERVED_MCP_OPERATION_IDS,
 ] = [
   // The two the console cannot function without — a store admits nothing until a read
   // gives it a base state, and without the directory the only sessions a surface can
@@ -316,6 +330,15 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // row and refuses under every scenario, which is the rule above rather than an
   // omission: see the branch-context section of the header.
   "gitflowBranchContextRead",
+  // gitflow — the diff-artifact mint, and the artifact read its reply is only useful
+  // through. Both are script-only below: a create answers with ids for a change set the
+  // daemon computed, and a read answers with ONE named artifact's envelope and bytes, so
+  // neither has an empty form that would be true of a scenario saying nothing. They are
+  // served as a PAIR because a diff costs two calls — the mint carries no payload — so
+  // serving either alone leaves the pane with an id it cannot read or bytes nothing
+  // minted.
+  "gitflowDiffArtifactCreate",
+  "artifactRead",
   // identity — answered from a scenario that states its own viewer, refused from one
   // that does not.
   "callerParticipantRead",
@@ -380,6 +403,17 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // person answered a question nobody was asked — so each of them refuses by name
   // under a scenario that does not script it.
   ...FIXTURE_SERVED_ONBOARDING_OPERATION_IDS,
+  // diagnostics — the five reads the settings page is built from, taken from the module
+  // that implements them so the ids and the handlers cannot disagree. Two answer under
+  // any scenario and three are script-only; that module states which and why.
+  ...FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS,
+  // provider accounts — the three verbs the bound registry read and its live tail do
+  // not cover, from the same kind of module. All three are script-only.
+  ...FIXTURE_SERVED_PROVIDER_ACCOUNT_OPERATION_IDS,
+  // MCP governance — the inventory read answers the empty inventory under any scenario
+  // and the two mutations refuse without a script, and the three are one plane rather
+  // than three reply rows because the module holds the ledger that joins them.
+  ...FIXTURE_SERVED_MCP_OPERATION_IDS,
 ];
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -394,9 +428,10 @@ export type FixtureServedGrowthOperationId = (typeof FIXTURE_SERVED_GROWTH_OPERA
  * A WRITE: there is no such thing as "the attach that happened and produced nothing",
  * and serving a synthesized receipt would tell a surface the daemon did something no
  * author said it did. And a READ ADDRESSED BY A SUBJECT: a run's snapshot, a finished
- * phase's outputs, a definition's version chain — each answers with facts ABOUT a
- * named thing, so an empty form would assert that the thing exists and holds nothing,
- * which for a run no author declared is the same invention as a receipt. The
+ * phase's outputs, a definition's version chain, a definition, one version's body —
+ * each answers with facts ABOUT a named thing, so an empty form would assert that the
+ * thing exists and holds nothing, which for a run no author declared is the same
+ * invention as a receipt. The
  * enumerations beside them stay out of this set: a list of none is a real answer to
  * "what does this session hold". So these are implemented, and refuse by name under a
  * scenario that does not script them.
@@ -418,6 +453,8 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "workflowRunRead",
   "workflowPhaseOutputRead",
   "workflowVersionChainRead",
+  "workflowDefinitionRead",
+  "workflowVersionRead",
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
@@ -429,4 +466,14 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "onboardingComplete",
   "onboardingPresentChoice",
   "onboardingTelemetryPrompt",
+  "healthFailureDetailRead",
+  "healthStuckRunInspect",
+  "healthRecoveryActionRequest",
+  "providerAccountLogin",
+  "providerAccountLoginCancel",
+  "providerAccountRegister",
+  "mcpSetEnabled",
+  "mcpSetTrust",
+  "gitflowDiffArtifactCreate",
+  "artifactRead",
 ];

@@ -1155,7 +1155,8 @@ describe("RuntimeNodeCapabilityUpdatedPayloadSchema (C7: reduced base + {capabil
 // Backstops the roster wire shape (`docs/architecture/contracts/api-payload-contracts.md §Tier 3: Plan-003 — Runtime Node Attach (Task 4.4)`; registry
 // row in `docs/architecture/contracts/api-payload-contracts.md §Runtime-Node Method-Name Registry (Tier 3)`) pinned in Spec-003 §Interfaces And Contracts (2026-06-09
 // amendment): request `{ sessionId }`, the nine-field both-axes
-// entry, and response `{ nodes: RuntimeNodeRosterEntry[] }`. Spec coverage:
+// entry, and response `{ nodes: RuntimeNodeRosterEntry[]; controlHolder }`. Spec
+// coverage:
 // `Spec-003 §Default Behavior` (both health axes carried verbatim — no collapsed scalar),
 // `Spec-003 §Acceptance Criteria` AC2 (`degraded`/`offline` representable and distinguishable on
 // the wire) + AC3 (multiple nodes coexist in one roster), and `Spec-003 §Required Behavior`
@@ -1178,6 +1179,15 @@ const buildValidRosterEntry = () => ({
   capabilities: { ptyHost: true, maxConcurrentRuns: 4 },
   clientVersion: CLIENT_VERSION,
   attachedAt: "2026-06-09T11:55:00.000Z",
+});
+
+// The response builder, holder-free by default so each case below states the
+// holder reading it is actually about. `controlHolder` is REQUIRED and nullable,
+// so a builder that omitted it would make every case below a test of the missing
+// -key arm rather than of the arm it names.
+const buildValidRosterResponse = () => ({
+  nodes: [buildValidRosterEntry()],
+  controlHolder: null,
 });
 
 describe("RuntimeNodeRosterRequestSchema (T5.0b: sessionId-only query input)", () => {
@@ -1331,9 +1341,10 @@ describe("RuntimeNodeRosterEntrySchema (T5.0b: nine-field both-axes entry)", () 
   });
 });
 
-describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes: RuntimeNodeRosterEntry[] })", () => {
+describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes, controlHolder })", () => {
   it("accepts a multi-entry roster (AC3 — multiple nodes coexist in one session)", () => {
     const roster = {
+      ...buildValidRosterResponse(),
       nodes: [
         buildValidRosterEntry(),
         {
@@ -1348,26 +1359,72 @@ describe("RuntimeNodeRosterResponseSchema (T5.0b: { nodes: RuntimeNodeRosterEntr
   });
 
   it("accepts an empty roster (a session with no attachments yet)", () => {
-    expect(RuntimeNodeRosterResponseSchema.safeParse({ nodes: [] }).success).toBe(true);
+    expect(
+      RuntimeNodeRosterResponseSchema.safeParse({ ...buildValidRosterResponse(), nodes: [] })
+        .success,
+    ).toBe(true);
   });
 
   it("rejects a roster containing an invalid entry (element schema is wired)", () => {
-    const broken = { nodes: [{ ...buildValidRosterEntry(), state: "bogus" }] };
+    const broken = {
+      ...buildValidRosterResponse(),
+      nodes: [{ ...buildValidRosterEntry(), state: "bogus" }],
+    };
     expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
   });
 
   it("rejects a non-array nodes value", () => {
     expect(
-      RuntimeNodeRosterResponseSchema.safeParse({ nodes: buildValidRosterEntry() }).success,
+      RuntimeNodeRosterResponseSchema.safeParse({
+        ...buildValidRosterResponse(),
+        nodes: buildValidRosterEntry(),
+      }).success,
     ).toBe(false);
   });
 
   it("rejects a response missing nodes", () => {
-    expect(RuntimeNodeRosterResponseSchema.safeParse({}).success).toBe(false);
+    expect(RuntimeNodeRosterResponseSchema.safeParse({ controlHolder: null }).success).toBe(false);
   });
 
   it("rejects an unknown extra key (.strict drift guard)", () => {
-    const broken = { nodes: [], bogusField: "nope" };
+    const broken = { ...buildValidRosterResponse(), nodes: [], bogusField: "nope" };
+    expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // The shared-terminal write-lease holder. Session-level rather than per entry —
+  // one lease per session — so it rides the response beside the node set.
+  it("accepts a held lease (controlHolder carries the holder's participant id)", () => {
+    const held = { ...buildValidRosterResponse(), controlHolder: PARTICIPANT_ID };
+    const parsed = RuntimeNodeRosterResponseSchema.safeParse(held);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.controlHolder).toBe(PARTICIPANT_ID);
+  });
+
+  it("accepts a null holder (a free lease, or one suppressed behind an offline producer)", () => {
+    expect(RuntimeNodeRosterResponseSchema.safeParse(buildValidRosterResponse()).success).toBe(
+      true,
+    );
+  });
+
+  // THE KEY IS REQUIRED, and this is the case that proves it. `.nullable()` and
+  // deliberately not `.optional()`: an omitted key is indistinguishable from a
+  // producer that never learned to project the lease, so a client reading it
+  // could not tell "nobody holds it" from "nobody asked". Omitting it FAILS
+  // CLOSED at the boundary rather than defaulting to a free lease.
+  it("rejects a reply omitting controlHolder (required key, nullable value)", () => {
+    const { controlHolder: _omittedHolder, ...withoutHolder } = buildValidRosterResponse();
+    expect(RuntimeNodeRosterResponseSchema.safeParse(withoutHolder).success).toBe(false);
+  });
+
+  it("rejects an undefined holder (the same fail-closed arm through an explicit key)", () => {
+    const broken = { ...buildValidRosterResponse(), controlHolder: undefined };
+    expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
+  });
+
+  // The brand is load-bearing: a corrupted stored holder must fail at the read
+  // boundary rather than reach a surface that would render it as an identity.
+  it("rejects a holder that is not a participant id", () => {
+    const broken = { ...buildValidRosterResponse(), controlHolder: "not-a-uuid" };
     expect(RuntimeNodeRosterResponseSchema.safeParse(broken).success).toBe(false);
   });
 });

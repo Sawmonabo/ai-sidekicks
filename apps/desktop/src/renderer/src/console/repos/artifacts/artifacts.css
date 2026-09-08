@@ -178,3 +178,35 @@
   display: flex;
   gap: var(--meridian-space-2);
 }
+
+/* ------------------------------- the manifests a blocked delete named */
+
+/*
+ * The shared half of this region is NOT declared here. The move and its exclusive cases
+ * are dressed by `primitives/refusal.css`'s `.meridian-refusal-recovery`, because the
+ * component that wears them is `primitives/RefusalRecovery.tsx` and the mounts family
+ * had the same block under a second prefix. What stays is the half only this family
+ * has: the list of manifests a blocked delete named, which the shell renders as its
+ * children inside that same region.
+ */
+
+.meridian-artifact-referencing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-artifact-referencing__head {
+  margin: 0;
+}
+
+.meridian-artifact-referencing__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  max-block-size: 12rem;
+  overflow-y: auto;
+}

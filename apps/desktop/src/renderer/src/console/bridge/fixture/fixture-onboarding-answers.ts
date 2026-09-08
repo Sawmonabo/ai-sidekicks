@@ -33,7 +33,7 @@
 // the preload boundary rather than the wire. `reply-walk.ts` admits exactly this shape
 // for a row with no name to transcribe.
 
-import { answerFromScriptedReply, answerScriptedWrite } from "./fixture-scripted-answer.js";
+import { answerFromScriptedReply, answerScriptOnly } from "./fixture-scripted-answer.js";
 import { mapGrowthServed, type GrowthOutcome, type GrowthPort } from "../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";
 import type { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
@@ -172,7 +172,7 @@ export function fixtureOnboardingAnswers(
     onboardingStepAdvance: async (request) =>
       ledger.recordStepResolved(
         request.stepId,
-        await answerScriptedWrite(
+        await answerScriptOnly(
           engine,
           "growth:onboardingStepAdvance",
           "onboardingStepAdvance",
@@ -182,34 +182,24 @@ export function fixtureOnboardingAnswers(
     onboardingStepSkip: async (request) =>
       ledger.recordStepResolved(
         request.stepId,
-        await answerScriptedWrite(
-          engine,
-          "growth:onboardingStepSkip",
-          "onboardingStepSkip",
-          request,
-        ),
+        await answerScriptOnly(engine, "growth:onboardingStepSkip", "onboardingStepSkip", request),
       ),
     onboardingComplete: async (request) =>
       ledger.recordCompleted(
-        await answerScriptedWrite(
-          engine,
-          "growth:onboardingComplete",
-          "onboardingComplete",
-          request,
-        ),
+        await answerScriptOnly(engine, "growth:onboardingComplete", "onboardingComplete", request),
       ),
     // The two writes that move nothing this fixture answers. Both prompts answer with
     // what a person typed in main's own window, so there is no state here for them to
     // record: what the script decides is only whether the call was accepted.
     onboardingPresentChoice: async (request) =>
-      await answerScriptedWrite(
+      await answerScriptOnly(
         engine,
         "growth:onboardingPresentChoice",
         "onboardingPresentChoice",
         request,
       ),
     onboardingTelemetryPrompt: async (request) =>
-      await answerScriptedWrite(
+      await answerScriptOnly(
         engine,
         "growth:onboardingTelemetryPrompt",
         "onboardingTelemetryPrompt",

@@ -6,8 +6,8 @@
 // and for most rows there is nothing to read: a browser or terminal operation names
 // no wire method because none is registered anywhere to name.
 //
-// Three blocks name one apiece for every operation they carry — workflow, sidekick,
-// and the session cost plane.
+// Four blocks name one apiece for every operation they carry — the workflow run row,
+// the workflow definition row, sidekick, and the session cost plane.
 // Those strings are transcriptions of registries the console does not import and
 // cannot, so the one defect worth catching here is the transcription's own failure
 // mode: a method paired with the wrong operation. That is invisible to every
@@ -21,7 +21,7 @@
 // production rule to reimplement, and the entry's own literal is what it checks.
 //
 // AND ONE PROPERTY THE SPLIT COSTS, BOUGHT BACK BY COUNTING. The table is composed
-// from eleven plane modules, so a key that appears in two of them is a silent override
+// from twelve plane modules, so a key that appears in two of them is a silent override
 // by the later spread rather than the compile error a duplicate inside one object
 // literal used to be. The last block below asserts the planes' key sets are pairwise
 // disjoint and that their sizes sum to the composed table's — against
@@ -35,6 +35,7 @@ import { GROWTH_OPERATION_PLANES, GROWTH_OPERATIONS } from "./index.js";
 import type { GrowthSlateRowId } from "../growth-port/growth-slate-row.js";
 
 const WORKFLOW_SLATE_ROW: GrowthSlateRowId = "workflow-run-control";
+const DEFINITION_SLATE_ROW: GrowthSlateRowId = "workflow-definition-authoring";
 const SIDEKICK_SLATE_ROW: GrowthSlateRowId = "sidekick-definition-registry";
 
 /** Every operation attributed to one slate row, read from the ledger itself. */
@@ -61,10 +62,10 @@ describe("the growth ledger's workflow block — one registered method per opera
     const workflowOperationIds = operationsServingRow(WORKFLOW_SLATE_ROW);
 
     // Nine of the registry's thirteen rows. The count is stated rather than derived
-    // because it is the claim: the row deliberately leaves out the two authoring
-    // writes, the version read, and the handler-less draft save, and a tenth
-    // operation appearing here without that decision being revisited is the drift
-    // worth failing on.
+    // because it is the claim: the row deliberately leaves out the definition read,
+    // the version read, the authoring write — all three on the definition row below —
+    // and the handler-less draft save, and a tenth operation appearing here without
+    // that decision being revisited is the drift worth failing on.
     expect(workflowOperationIds).toHaveLength(9);
     for (const operationId of workflowOperationIds) {
       expect(GROWTH_OPERATIONS[operationId].kind, operationId).toBe("method");
@@ -130,6 +131,64 @@ describe("the growth ledger's run-enumeration row — the boundary of that regis
     // `toBe` fold above true. Attributing it there instead would fail this and the
     // fold together, which is the drift worth catching twice.
     expect(operationsServingRow(WORKFLOW_SLATE_ROW)).not.toContain("workflowRunList");
+  });
+});
+
+describe("the growth ledger's definition-authoring row — the registry's other three", () => {
+  it("carries the three registered methods the run row leaves out", () => {
+    // The arithmetic the run row's own count depends on: nine there plus three here is
+    // twelve of the registry's thirteen, and the thirteenth is the draft save, which is
+    // declared with no V1 handler and so has nothing for a console to reach. A row
+    // growing a fourth operation would mean either a method appeared in the registry or
+    // this console minted one, and both are worth stopping at.
+    const operationIds = operationsServingRow(DEFINITION_SLATE_ROW);
+
+    expect(operationIds).toHaveLength(3);
+    for (const operationId of operationIds) {
+      expect(GROWTH_OPERATIONS[operationId].kind, operationId).toBe("method");
+    }
+  });
+
+  it("names the registered method its own id folds to, so no entry is mispaired", () => {
+    // The same instrument the run block uses, and it has to be applied here too: the
+    // three ids fold to `workflow.definitionRead`, `workflow.versionRead` and
+    // `workflow.definitionCreate`, and a create pointed at the read's method is a
+    // surface that would submit a body to a read.
+    for (const operationId of operationsServingRow(DEFINITION_SLATE_ROW)) {
+      expect(GROWTH_OPERATIONS[operationId].expectedWireMethod, operationId).toBe(
+        wireMethodFoldedFrom(operationId, "workflow"),
+      );
+    }
+  });
+
+  it("shares no operation and no method with the run row", () => {
+    // Read from both directions, because a row attributed twice is the defect the
+    // structural sweep cannot see: both rows exist, both have entries, and the only
+    // thing wrong is that one operation is counted on the wrong one — which would move
+    // the run row's own nine without anybody deciding to.
+    const runOperations = new Set<string>(operationsServingRow(WORKFLOW_SLATE_ROW));
+    const definitionOperations = operationsServingRow(DEFINITION_SLATE_ROW);
+
+    for (const operationId of definitionOperations) {
+      expect(runOperations.has(operationId), operationId).toBe(false);
+    }
+
+    const methods = [...operationsServingRow(WORKFLOW_SLATE_ROW), ...definitionOperations].map(
+      (operationId) => GROWTH_OPERATIONS[operationId].expectedWireMethod,
+    );
+    expect(new Set(methods).size).toBe(methods.length);
+  });
+
+  it("negative control: the fold rejects the create pointed at the read's method", () => {
+    // Without this the pairing check above holds over a ledger where all three carried
+    // one string. This is what a wrong one looks like here: a real registered method of
+    // this very row, on the wrong operation.
+    const mispaired = {
+      ...GROWTH_OPERATIONS.workflowDefinitionCreate,
+      expectedWireMethod: GROWTH_OPERATIONS.workflowDefinitionRead.expectedWireMethod,
+    };
+
+    expect(mispaired.expectedWireMethod).not.toBe(wireMethodFoldedFrom(mispaired.id, "workflow"));
   });
 });
 
@@ -264,7 +323,7 @@ describe("the growth ledger's two identity-and-registry rows — no method to na
   });
 });
 
-describe("the composed ledger — eleven planes, one key space", () => {
+describe("the composed ledger — twelve planes, one key space", () => {
   /** Every key that appears in more than one plane, in the order planes are spread. */
   function keysCarriedByTwoPlanes(
     planes: readonly Readonly<Record<string, unknown>>[],

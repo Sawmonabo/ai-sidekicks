@@ -162,7 +162,7 @@ describe("the pane's chrome acts", () => {
       acts.clearSiteData();
     });
     expect(harness.dispatched[0]).toEqual({
-      operation: "browserClearSiteData",
+      operation: "browserSiteDataClear",
       request: { sessionId: SESSION_ID },
     });
   });

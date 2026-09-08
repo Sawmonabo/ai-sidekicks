@@ -143,7 +143,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "gitflow-actions": {
     id: "gitflow-actions",
-    wire: "the branch-context read, the PR-preparation call, the git action-execute vocabulary, and the gitflow error namespace",
+    wire: "the branch-context read, the diff-artifact create, the PR-preparation call, the git action-execute vocabulary, and the gitflow error namespace",
     owningDocument: "Spec-011",
     consumingSurface: "repos, diffs, and pull-request surfaces",
     wireRegistered: false,
@@ -355,8 +355,9 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "notification-permission-read",
     wire: "the shell's own reading of whether this machine will display an OS notification for this application. `native.showNotification` is on the preload contract and returns void, so the renderer cannot observe a denial through it, and no bridge member reports the permission",
     owningDocument:
-      "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects)",
-    consumingSurface: "notification centre (the OS-notifications-denied arm)",
+      "Spec-023 §Preload Bridge Contract + §Main Process Responsibilities (which own OS notification emission and the do-not-disturb honouring, and register no permission read); Spec-019 §Fallback Behavior (the in-app-only fallback the reading selects), §Required Behavior (which requires in-app attention to survive a denied permission, and never says how a surface learns of one)",
+    consumingSurface:
+      "notification centre (the OS-notifications-denied arm); notifications settings page (the permission notice)",
     wireRegistered: false,
   },
   "shell-status-signals": {
@@ -374,6 +375,48 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-023 §Preload Bridge Contract (which admits `onboarding` by name); Spec-026 §Desktop Surface",
     consumingSurface: "first-run onboarding (group A)",
+    wireRegistered: false,
+  },
+  "workflow-definition-authoring": {
+    id: "workflow-definition-authoring",
+    wire: "the three remaining registered workflow method strings — workflow.definitionRead, workflow.versionRead, and the single workflow.definitionCreate all five authoring acts ride — with the definition body they carry: the phase records, the four phase types and four gate types, the entry record, and the reference-only tool bindings. Three of the four rows the run-control row deliberately leaves out; the fourth is the draft save, which is declared with no V1 handler and so has nothing to reach. The write additionally carries a copy-on-write parent pointer no read reply returns, which is this row's own type-member prerequisite",
+    owningDocument:
+      "Spec-017 §Interfaces And Contracts (the definition read, the version read, and the create) + Spec-017 §Definition scope in the builder (SA-36) (the copy-on-write consequence and the operator-scope authorization a shared-target create clears) + Spec-017 §Definition file form — export and import (C-17) (the canonical file form export serializes into and import parses from); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
+    consumingSurface:
+      "workflow-builder pane (the definition detail and its authoring acts), definitions browser",
+    wireRegistered: false,
+  },
+  "health-diagnostics-reads": {
+    id: "health-diagnostics-reads",
+    wire: "the five `health.*` reads — the machine's status projection, one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The health SUBSCRIPTION is a separate row and a separate wire: this page is forbidden to consume one",
+    owningDocument:
+      "Spec-020 §Required Behavior (the health, failure-classification, stuck-run, recovery, and redaction-policy surfaces); api-payload-contracts.md §Plan-020 — Observability And Failure Recovery and §Health Method-Name Registry (the five method strings and their request/reply shapes, registered there and in no code package — `packages/contracts/src/health/health.ts` is named as their eventual home and does not exist)",
+    consumingSurface: "diagnostics settings page",
+    wireRegistered: false,
+  },
+  "provider-account-signin-and-token": {
+    id: "provider-account-signin-and-token",
+    wire: "the brokered sign-in, its cancel, and the registration that carries the one write-only non-interactive token member — the three account-plane verbs the registry read and its live tail do not cover",
+    owningDocument:
+      "Spec-029 §Node provider readiness and the sign-in handoff and §Non-interactive token registration; ADR-028 §Decision (D1 brokered sign-in, D2 bounded token custody); api-payload-contracts.md §Plan-029 (the three method strings, whose request and reply shapes `packages/contracts/src/provider-account.ts` already publishes and which no bridge namespace serves)",
+    consumingSurface:
+      "provider-accounts settings page (the sign-in card and the write-only token field)",
+    wireRegistered: false,
+  },
+  "mcp-governance-plane": {
+    id: "mcp-governance-plane",
+    wire: "the MCP governance namespace — the unified server inventory read and the enablement and trust mutations, with the binding identity, the redacted configuration read-back, the per-leg live status, the tool overrides, and the per-leg application outcomes they carry. Eight further operations are registered on the same namespace (upsert, remove, the two override verbs, OAuth login, reconnect, the per-binding get, and the live-status subscription) and are the owning plan's to call from the body it mounts",
+    owningDocument:
+      "Spec-028 §The operator surface and §Unified Inventory; api-payload-contracts.md §Plan-028 — MCP Governance Contract Surfaces (the eleven method strings and every shape above, registered there and in no code package)",
+    consumingSurface: "MCP servers settings page",
+    wireRegistered: false,
+  },
+  "node-self-declaration": {
+    id: "node-self-declaration",
+    wire: "a read delivering this node's own attach declaration — its identity, contract version, self-reported health, and capability set — to the renderer. Registered nowhere: the trust stance puts the declaration's composition in the main process and no bridge namespace carries it, so the attach control mounts against the fixture only",
+    owningDocument:
+      "Spec-023 §Preload Bridge Contract (the shell namespace a node self-declaration would join, on the shell-config carrier's precedent); Spec-023 §Trust Stance (which puts the composition in main)",
+    consumingSurface: "settings runtime-nodes page (the attach control)",
     wireRegistered: false,
   },
 };

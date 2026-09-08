@@ -29,6 +29,7 @@ import type { RunQueueSubscribeRequest, RunStateSubscribeRequest } from "@ai-sid
 
 import { ConsoleRefusalError, refuse, type Unsubscribe } from "../../core/index.js";
 import type { ConsoleBridge } from "../console-bridge.js";
+import { openObservedSubscription } from "../transport/observed-subscription.js";
 
 /** The queue's replay-then-tail stream. Session-scoped; the client fans out per run. */
 export const QUEUE_SUBSCRIBE_STREAM = "run.subscribeQueue";
@@ -126,7 +127,14 @@ export function subscribeDaemon(
   return openStream(bridge, stream.method, handler);
 }
 
-/** The one widening of `daemon.subscribe`, shared by both scoped entry points. */
+/**
+ * The one widening of `daemon.subscribe`, shared by both scoped entry points.
+ *
+ * The open is REPORTED as well as taken. Every stream this door opens is a reading of
+ * the same transport, and `transport/observed-subscription.ts` holds what such a
+ * reading proves — a node-scoped tail opening is the returning edge a window with no
+ * bindable session has no other way to observe.
+ */
 function openStream(
   bridge: ConsoleBridge,
   streamName: string,
@@ -136,5 +144,5 @@ function openStream(
     event: string,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;
-  return subscribe(streamName, handler);
+  return openObservedSubscription(bridge.transportReconnect, () => subscribe(streamName, handler));
 }

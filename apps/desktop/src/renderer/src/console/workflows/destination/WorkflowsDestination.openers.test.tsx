@@ -18,6 +18,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../bridge/index.js";
+import { NO_TRANSPORT_RECONNECT } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { FrameStore, type SessionStoreRegistry } from "../../store/index.js";
 import type { ConsolePaneAddress, ConsolePaneOpener } from "../../seats/index.js";
@@ -67,6 +68,7 @@ function destination(openPane: ConsolePaneOpener): React.JSX.Element {
     <LiveAnnouncerProvider>
       <WorkflowsDestination
         growth={{} as GrowthPort}
+        transportReconnect={NO_TRANSPORT_RECONNECT}
         frameStore={new FrameStore({})}
         sessionStoreRegistry={{} as SessionStoreRegistry}
         scope={chosenScope(PROBE_SESSION_ID)}

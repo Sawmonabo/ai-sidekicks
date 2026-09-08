@@ -58,9 +58,10 @@
 // 4 s by default, but a runaway `PtyHost.shutdown()` promise (host
 // implementation regression, dropped IPC frame, deadlocked future) MUST
 // NOT block Electron quit indefinitely. The drain is raced against a
-// 5 s `setTimeout`-backed promise (`HARD_QUIT_CAP_MS`). On hard-cap
-// expiry the handler logs loudly and still falls through to
-// `app.quit()` so the user is not stranded. The cap is `.unref()`'d so
+// `setTimeout`-backed promise bounded by
+// `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS`. On hard-cap expiry the handler
+// logs loudly and still falls through to `app.quit()` so the user is
+// not stranded. The cap is `.unref()`'d so
 // the timer never keeps the Node event loop alive past `app.quit()`,
 // and exposed as a `SidecarLifecycleDeps.hardCapMs` injection seam so
 // the test can exercise the cap branch without a wall-clock wait.
@@ -80,6 +81,12 @@
 import type { App } from "electron";
 
 import type { PtyHost, DrainResult } from "@ai-sidekicks/contracts";
+
+// The wall-clock ceiling this drain is raced against, and the figure the console's
+// restart confirmation quotes to a person before they agree to a restart. One
+// declaration in `src/shared/`, read from both processes — see that module's header
+// for the two-value state this replaced.
+import { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "../shared/shutdown-budget.js";
 
 /**
  * Timeout budgets (milliseconds) passed to `PtyHost.shutdown()` from
@@ -119,20 +126,6 @@ export const DEFAULT_SIDECAR_LIFECYCLE_TIMEOUTS: SidecarLifecycleTimeouts = {
 };
 
 /**
- * Hard wall-clock cap (milliseconds) on the will-quit drain. Defense
- * in depth — the underlying per-session + host budgets total 4 s by
- * default, but a runaway `PtyHost.shutdown()` promise must not block
- * Electron's quit indefinitely. On expiry the handler logs an error
- * and proceeds with `app.quit()` so the user is not stranded.
- *
- * Module-internal (no `export`) per the T5.3 round-3 constraint that
- * only `SidecarLifecycleDeps` gains a new field on this round trip.
- * Overridable per-call via `SidecarLifecycleDeps.hardCapMs` (used by
- * tests to exercise the cap branch without a wall-clock wait).
- */
-const HARD_QUIT_CAP_MS = 5_000 as const;
-
-/**
  * Lazy getter shape — returns the active `PtyHost` instance if one has
  * been provisioned, or `null` if the daemon has not yet constructed
  * one at the moment the will-quit handler fires.
@@ -168,8 +161,8 @@ export interface SidecarLifecycleDeps {
   readonly logger?: Pick<Console, "warn" | "error" | "info">;
   /**
    * Override the hard wall-clock cap (ms) on the drain. Defaults to
-   * `HARD_QUIT_CAP_MS` (5_000). Tests pass small values (e.g. 50 ms)
-   * to exercise the hard-cap branch without a real-time 5 s wait.
+   * `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS`. Tests pass small values (e.g.
+   * 50 ms) to exercise the hard-cap branch without a real-time wait.
    */
   readonly hardCapMs?: number;
 }
@@ -198,8 +191,8 @@ export interface SidecarLifecycleDeps {
  *   2. The handler is async, but Electron's `will-quit` is a sync
  *      EventEmitter event — to keep quit-blocking semantics correct,
  *      the handler calls `event.preventDefault()` synchronously, runs
- *      the async drain (raced against a 5 s hard wall-clock cap so a
- *      runaway shutdown() promise cannot block quit indefinitely), and
+ *      the async drain (raced against the shared hard wall-clock cap so
+ *      a runaway shutdown() promise cannot block quit indefinitely), and
  *      re-issues `app.quit()` on completion via `process.nextTick` so
  *      the next-iteration emit progresses past this handler. This is
  *      the canonical Electron pattern for async work in `will-quit` —
@@ -239,8 +232,8 @@ export interface SidecarLifecycleDeps {
  *   `null` if no host has been provisioned yet). See `PtyHostGetter`
  *   rustdoc for the bootstrap-ordering rationale.
  * @param deps - Optional dependency-injection seam for tests. Default
- *   timeouts + `console` logger + `HARD_QUIT_CAP_MS` hard cap when
- *   omitted.
+ *   timeouts + `console` logger + `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS`
+ *   hard cap when omitted.
  */
 export function registerSidecarLifecycle(
   app: App,
@@ -249,7 +242,7 @@ export function registerSidecarLifecycle(
 ): void {
   const timeouts: SidecarLifecycleTimeouts = deps.timeouts ?? DEFAULT_SIDECAR_LIFECYCLE_TIMEOUTS;
   const logger: Pick<Console, "warn" | "error" | "info"> = deps.logger ?? console;
-  const hardCapMs: number = deps.hardCapMs ?? HARD_QUIT_CAP_MS;
+  const hardCapMs: number = deps.hardCapMs ?? DAEMON_SHUTDOWN_FLUSH_BUDGET_MS;
 
   // Closure-local one-shot guard for the canonical re-entry case:
   // the async-drain branch's `finally` flips `drainCompleted = true`

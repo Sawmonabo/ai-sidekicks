@@ -67,6 +67,7 @@ import {
   Glyph,
   Nothing,
   RefusalCard,
+  RefusalRecovery,
   WireFigure,
   formatClockTime,
 } from "../../primitives/index.js";
@@ -82,13 +83,13 @@ import { BindWorkspaceDialog } from "./bind/BindWorkspaceDialog.js";
 import { ProposalGateDisclosure } from "../proposals/ProposalGateDisclosure.js";
 import { branchRootGateSubject } from "../proposals/proposal-gate-model.js";
 import { mountRefusalRecovery } from "./mount-refusal-copy.js";
-import { RefusalRecovery } from "./RefusalRecovery.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import {
   workspaceRefusalFor,
   workspaceSelectionModeFor,
   type WorkspaceRefusals,
 } from "./repo-mounts-model.js";
+import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { WorktreeGateRow } from "../proposals/WorktreeGateRow.js";
 import {
@@ -134,6 +135,14 @@ export interface MountCardProps {
   /** Read the section again, because a participant's act minted a mount it has not seen. */
   readonly onRequestRead: () => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
+  /**
+   * Open a change set over one of this card's rows.
+   *
+   * ONE CALLBACK FOR BOTH ROW KINDS, taking the subject rather than being bound to
+   * one: a workspace and an execution root open the same pane at different addresses,
+   * and two props would have let a caller wire one of them and forget the other.
+   */
+  readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
 
 export function MountCard(props: MountCardProps): React.JSX.Element {
@@ -287,6 +296,13 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                   props.onSelectExecutionMode(workspace.id, executionMode);
                 }}
               />
+              {/* Beside the card and not inside it, for the reason the root row
+                  below takes the same decision: a card renders what its own read
+                  said, and opening a pane is the deck's act rather than a column. */}
+              <OpenDiffControl
+                subject={{ kind: "workspace", id: workspace.id }}
+                onOpenDiff={props.onOpenDiff}
+              />
               {/*
                 THE IN-PLACE ROOT'S GATE, drawn on the workspace card because that IS
                 the root: `branch` mode executes in the mount's own checkout and mints
@@ -353,6 +369,7 @@ function renderRoots(props: MountCardProps): React.JSX.Element | null {
           sessionStore={props.sessionStore}
           nowMilliseconds={props.nowMilliseconds}
           onRequestRead={props.onRequestRead}
+          onOpenDiff={props.onOpenDiff}
         />
       ))}
     </>

@@ -75,10 +75,44 @@ export const IMPLEMENTER_RUN_ID: string = "9f2c4a10-0000-4000-8000-000000000030"
 export const IMPLEMENTER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000040";
 export const REVIEWER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000041";
 export const PREPARED_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000042";
+
+/**
+ * The two branch names three replies state, and the diff plane compares between.
+ *
+ * HERE BECAUSE THREE MODULES NAME THEM, which is this file's own rule: the branch
+ * context carries the base and the head, the worktree row carries the same head as its
+ * `branchName` — a comment there already says the two must be one string — and the diff
+ * plane scripts the run-attributed change set as the comparison BETWEEN them. Written
+ * as literals in three places they drift in exactly the direction nothing catches: a
+ * fixture whose diff is taken over a base its own branch context denies.
+ *
+ * Only these two are hoisted. The reviewer's branch and the two clones' are named by
+ * one reply each, and a constant with one reader is a level of indirection rather than
+ * a defence against drift.
+ */
+export const GIT_MOUNT_BASE_BRANCH: string = "develop";
+export const IMPLEMENTER_BRANCH: string = "feat/rate-limit-wiring";
 export const DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000050";
 export const PINNED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000051";
 export const REPLICATING_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000052";
 export const EXPIRED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000053";
+// The MANIFEST each diff artifact hangs off, and the second diff a workspace-level
+// create mints.
+//
+// TWO IDS PER DIFF, BECAUSE THE CREATE MINTS TWO ROWS. `DiffArtifactCreateResponse`
+// answers with a `diffArtifactId` AND the `artifactManifestId` its computed payload was
+// written under, and the bytes are reached by the manifest — so a fixture carrying one
+// id for both could not answer the payload read at all without teaching a surface that
+// a diff artifact and its manifest are the same row.
+//
+// AND TWO DIFFS, BECAUSE THE CREATE HAS TWO ARMS. The run-attributed arm is the diff the
+// implementer's run produced — the one the `diff.created` beat above already names — and
+// the workspace-fallback arm is a diff taken over the git workspace with no run to
+// attribute it to. A scenario answering both arms with one change set could not show
+// that the console tells the two attributions apart.
+export const DIFF_MANIFEST_ID: string = "9f2c4a10-0000-4000-8000-000000000054";
+export const WORKSPACE_DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000055";
+export const WORKSPACE_DIFF_MANIFEST_ID: string = "9f2c4a10-0000-4000-8000-000000000056";
 
 /**
  * Where the git workspace's runs execute, and the checkout that encloses it.

@@ -32,10 +32,10 @@ import {
   InlineRefusal,
   Nothing,
   OverlayDialogPopup,
+  RefusalRecovery,
   WireFigure,
 } from "../../../primitives/index.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
-import { RefusalRecovery } from "../RefusalRecovery.js";
 import { useAttachController, type AttachReading } from "./attach-controller.js";
 import { EMPTY_ATTACH_FORM, resolveAttachForm, type AttachFormState } from "./attach-model.js";
 import { NodePicker } from "./NodePicker.js";

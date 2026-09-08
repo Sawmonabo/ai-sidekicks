@@ -14,6 +14,14 @@ import type { ConsoleRoute } from "./routes.js";
 export const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
   { kind: "sessions" },
   { kind: "workspace", sessionId: "session-1" },
+  // The same arm carrying its optional focus — the phase deep link a park banner
+  // hands out. Listed beside the bare workspace so both suites are asked about the
+  // pair rather than about whichever one somebody remembered.
+  {
+    kind: "workspace",
+    sessionId: "session-1",
+    workflowPhase: { workflowRunId: "run-1", phaseId: "review" },
+  },
   { kind: "workflows" },
   { kind: "settings", page: undefined },
   { kind: "settings", page: "providers" },

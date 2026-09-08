@@ -26,6 +26,7 @@ import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.j
 import { SessionStoreRegistry } from "../store/index.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
 import { settle } from "./workflows-probe.test-support.js";
+import { NO_TRANSPORT_RECONNECT } from "../core/index.js";
 
 const OPEN_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
@@ -49,7 +50,12 @@ function registryHolding(sessionId: string): SessionStoreRegistry {
 
 function renderPicker(growth: GrowthPort, registry: SessionStoreRegistry): HTMLElement {
   return render(
-    <WorkflowsScopePicker growth={growth} registry={registry} onChoose={() => undefined} />,
+    <WorkflowsScopePicker
+      growth={growth}
+      registry={registry}
+      transportReconnect={NO_TRANSPORT_RECONNECT}
+      onChoose={() => undefined}
+    />,
   ).container;
 }
 
