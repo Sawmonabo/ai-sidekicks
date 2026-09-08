@@ -8,10 +8,9 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SidekicksBridgeProvider, createFixtureBridge } from "../bridge/index.js";
+import { createFixtureBridge } from "../bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { DraftStore } from "../persistence/index.js";
-import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStore } from "../store/index.js";
 import { registerActorFollowHandler, unregisterActorFollowHandler } from "../seats/index.js";
 import { ACTOR_FOLLOW_ANNOUNCEMENTS } from "./cast-bar/actor-follow.js";
@@ -24,6 +23,7 @@ import {
   renderWorkspace,
   sessionStore,
   testRegistry,
+  underWindowProviders,
 } from "./Workspace.test-support.js";
 
 /** A store whose log already carries rows for the participant on the wheel. */
@@ -89,23 +89,24 @@ describe("Workspace — the sidebar it composes beside the deck", () => {
   it("negative control: a route with no session store composes no sidebar", async () => {
     // Without this the cases above would pass over a workspace that rendered the column
     // whether or not there was a session for its sections to be a view of.
-    // The two providers the frame mounts above every surface, over one bridge: the
-    // deck reads the window's clock off the resolved one.
+    // Through the family's own mount shape rather than a copy of it: what a window
+    // puts above a workspace — the bridge providers, the announcer, and the
+    // frame-lifetime binding — is one thing, and a second spelling of it here rendered
+    // a workspace with no binding above it.
     const bridge = createFixtureBridge({ scenario: SCENARIO });
     const { container } = render(
-      <SidekicksBridgeProvider bridge={bridge}>
-        <LiveAnnouncerProvider>
-          <Workspace
-            bridge={bridge}
-            frameStore={new FrameStore({ initialRoute: { kind: "sessions" } })}
-            sessionStore={undefined}
-            uiStateStore={memoryStore()}
-            draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
-            route={{ kind: "sessions" }}
-            paneRegistry={testRegistry()}
-          />
-        </LiveAnnouncerProvider>
-      </SidekicksBridgeProvider>,
+      underWindowProviders(
+        bridge,
+        <Workspace
+          bridge={bridge}
+          frameStore={new FrameStore({ initialRoute: { kind: "sessions" } })}
+          sessionStore={undefined}
+          uiStateStore={memoryStore()}
+          draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
+          route={{ kind: "sessions" }}
+          paneRegistry={testRegistry()}
+        />,
+      ),
     );
     await waitFor(() => {
       expect(container.querySelector(".meridian-workspace__split")).not.toBeNull();

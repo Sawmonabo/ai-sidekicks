@@ -56,7 +56,7 @@ import { useConsoleClock } from "../../bridge/index.js";
 import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../primitives/index.js";
 import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
-import { deckActsOn } from "./commands/deck-acts.js";
+import { deckActsOn, paneDetachmentReadingFor } from "./commands/deck-acts.js";
 import { useMountedDeck } from "./commands/deck-command-seat.js";
 import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./deck-model.js";
 import { type DeckDensity } from "../workspace-bounds.js";
@@ -126,6 +126,9 @@ export interface DeckProps {
 /** No pane came back from a lost window, once — a stable identity for the default. */
 const NO_LOST_WINDOW_NOTICES: ReadonlyMap<string, ConsoleRefusal> = new Map();
 
+/** No pane is in a window of its own, once — a stable identity for the default. */
+const NO_DETACHED_PANE_IDS: readonly string[] = [];
+
 export function Deck(props: DeckProps): React.JSX.Element {
   const { layout } = props;
   const state = useDeckLayoutState(layout);
@@ -168,11 +171,21 @@ export function Deck(props: DeckProps): React.JSX.Element {
   const [deckRootElement, setDeckRootElement] = useState<HTMLElement | null>(null);
   useSidebarRowDeckDropTarget(deckRootElement);
 
-  // The five acts, built once per (layout, announcer) pair and shared by the two
-  // things that dispatch them: this component's own key handler below, and the
-  // palette rows `commands/deck-command-seat.ts` contributes. One implementation, so
-  // a chord and a palette row can never mean two different moves.
-  const acts = useMemo(() => deckActsOn(layout, announce), [layout, announce]);
+  // ONE derivation, read by the acts here and by the slots below: a second `??` would
+  // be a second default the acts memoise on, re-minting all five on every render.
+  const detachedPaneIds = props.detachedPaneIds ?? NO_DETACHED_PANE_IDS;
+  const isPaneDetached = useMemo(
+    () => paneDetachmentReadingFor(detachedPaneIds),
+    [detachedPaneIds],
+  );
+  // The five acts, built once per (layout, announcer, detachment) triple and shared by
+  // the two things that dispatch them: this component's own key handler below, and the
+  // palette rows `commands/deck-command-seat.ts` contributes. One implementation, so a
+  // chord and a palette row cannot mean two moves — a detached pane's refusal included.
+  const acts = useMemo(
+    () => deckActsOn(layout, announce, isPaneDetached),
+    [layout, announce, isPaneDetached],
+  );
   useMountedDeck(acts);
 
   /**
@@ -296,7 +309,6 @@ export function Deck(props: DeckProps): React.JSX.Element {
   }, [tracker]);
 
   const refusals = props.restoreRefusals ?? [];
-  const detachedPaneIds = props.detachedPaneIds ?? [];
   const lostWindowNotices = props.lostWindowNoticesByPaneId ?? NO_LOST_WINDOW_NOTICES;
   const defaultLayout = useMemo(() => toPaneSizePercentages(state.panes), [state.panes]);
 

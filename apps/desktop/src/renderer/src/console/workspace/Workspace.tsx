@@ -192,7 +192,7 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
-  const auxiliaryPanes = useAuxiliaryPanes({ bridge: props.bridge, sessionId, onRefused: raise });
+  const auxiliaryPanes = useAuxiliaryPanes({ sessionId, onRefused: raise });
   const onFollow = useActorFollow({ layout, sessionStore, announce });
   // The deck's half of Step in, filled for as long as this workspace is mounted. The
   // run controls that press it live in another view family and reach this deck through

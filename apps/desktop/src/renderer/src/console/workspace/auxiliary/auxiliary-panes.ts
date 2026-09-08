@@ -8,6 +8,16 @@
 // calls. Neither half reads the other's state, which is why the cut is here rather
 // than at a line count.
 //
+// AND IT NO LONGER OWNS THE HAND-OFF'S LIFE, WHICH IS THE HALF THAT MOVED. A surface
+// is unmounted the moment a route leaves it, and a pane that is in a window of its own
+// is still in one — so a hand-off held for this mount lost its detached set on every
+// navigation while the shell kept the windows open. The registry lives at the window's
+// lifetime on the frame-binding seat (`DetachedPaneBinding.tsx`), this module RESOLVES
+// one from it by session, and the two subscriptions are the hand-off's own —
+// `aux-handoff.ts` opens them before it asks for a window and closes them when its
+// last pane comes back, which a reader of the published projection could only ever do
+// one commit late.
+//
 // WHAT IT PUBLISHES, AND WHY THE TWO SETS NEVER OVERLAP. A pane whose body is in a
 // window of its own is in `paneIds`; a pane whose window was LOST is not — its body
 // is back in the deck — and carries a notice instead. One slot renders both, so a
@@ -17,15 +27,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { type ConsoleBridge } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
-import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
 import {
   lostWindowNotice,
   refuseHandoffFromRejection,
   type AuxiliaryHandoffRefusal,
 } from "./aux-handoff-contract.js";
-import { AuxiliaryHandoff } from "./aux-handoff.js";
+import { type AuxiliaryHandoff } from "./aux-handoff.js";
+import { useAuxiliaryHandoffRegistry } from "./DetachedPaneBinding.js";
 import type { DeckPane } from "../deck/deck-model.js";
 
 /**
@@ -36,25 +45,6 @@ import type { DeckPane } from "../deck/deck-model.js";
  * not re-render four pane bodies for one event.
  */
 const NO_LOST_WINDOW_NOTICES: ReadonlyMap<string, ConsoleRefusal> = new Map();
-
-/**
- * What a retired hand-off gives back: its two window subscriptions, and nothing else.
- *
- * THE RELEASING ARM, BECAUSE THE HAND-OFF SURVIVES ITS OWN DISPOSAL. Stopping the
- * watches is what `watchWindowSignals` restarts when the next pane goes into a window,
- * so there is no closed state to read and no way for the holder to be handed a corpse
- * — which is exactly what the two arms distinguish, and why supplying a reading here
- * would be a claim about a lifetime that does not end.
- *
- * Declared once at module scope rather than minted per render — the hook holds the
- * disposal on a dependency of its own, so a fresh literal every pass would be churn
- * and never a lifetime.
- */
-const HANDOFF_DISPOSAL: SubjectScopedDisposal<AuxiliaryHandoff> = {
-  release: (retired) => {
-    retired.stopWatchingWindowSignals();
-  },
-};
 
 /** Which panes are showing in windows of their own, and what a signal refused. */
 export interface DetachedPaneProjection {
@@ -96,22 +86,16 @@ export interface AuxiliaryPaneWiring extends DetachedPaneProjection {
  * this module renders nothing.
  */
 export function useAuxiliaryPanes(options: {
-  readonly bridge: ConsoleBridge;
   readonly sessionId: string | undefined;
   readonly onRefused: (refusal: ConsoleRefusal) => void;
 }): AuxiliaryPaneWiring {
-  const { bridge, onRefused, sessionId } = options;
-  // THE BRIDGE IS THE SUBJECT, not a value a mount-lifetime cell captured once. A
-  // hand-off holds a subscription opened over one bridge's auxiliary-window plane, so
-  // a scenario switch that replaces the bridge has to retire it: a cell seeded on the
-  // first render would keep plumbing the retired resolution, and the watch it holds
-  // would go on draining a signal nothing reads.
-  const { value: handoff } = useSubjectScopedResource(
-    bridge,
-    undefined,
-    () => new AuxiliaryHandoff({ auxiliaryWindows: bridge.auxiliaryWindows }),
-    HANDOFF_DISPOSAL,
-  );
+  const { onRefused, sessionId } = options;
+  // RESOLVED, NEVER CONSTRUCTED. The registry is the window's and its subject is the
+  // bridge — a scenario switch that replaces the transport retires the whole registry,
+  // which is where that reasoning belongs — and this surface asks it for the hand-off
+  // for the session it is a view of. A hand-off minted here instead would be one per
+  // mount, which is the state every navigation used to throw away.
+  const handoff = useAuxiliaryHandoffRegistry().handoffFor(sessionId);
   const projection = useDetachedPanes(handoff);
 
   // Every act below is dispatched from an event handler, so a promise that rejects
@@ -182,13 +166,12 @@ export function useAuxiliaryPanes(options: {
 }
 
 /**
- * Follow the hand-off's published state, and watch both window signals while something
- * is detached.
+ * Follow the hand-off's published state.
  *
- * They are opened on the first detach and closed when the last pane comes back, rather
- * than held for the surface's lifetime: a subscription over an empty set can report
- * nothing, and its refusal would sit on screen as a permanent notice about a hazard
- * this window does not currently have.
+ * READ-ONLY OVER A LIFETIME IT DOES NOT OWN. The hand-off may already be holding
+ * detached panes when this surface mounts — that is what the window-lifetime registry
+ * buys — so the first read happens immediately rather than waiting for a change, and
+ * nothing here starts or stops a subscription.
  */
 function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
   const [projection, setProjection] = useState<DetachedPaneProjection>({
@@ -211,25 +194,13 @@ function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
     };
     const unsubscribe = handoff.subscribe(read);
     read();
-    // The watches themselves are NOT stopped here: they are the resource's own
-    // disposal, run by `HANDOFF_DISPOSAL` whether this hand-off is retired by a bridge
-    // that moved or by the surface unmounting. Stopping them here too would be a second
-    // place that decides when a subscription ends.
+    // The watches are NOT opened or closed here, and that is the whole correction. They
+    // are the hand-off's own — opened before it asks the shell for a window, closed in
+    // the same act that empties its detached set — so nothing decides a subscription's
+    // life from a projection that is always one commit behind the act. This effect only
+    // follows what is published, and it unsubscribes from that.
     return unsubscribe;
   }, [handoff]);
-
-  const hasDetachedPane = projection.paneIds.length > 0;
-  useEffect(() => {
-    if (!hasDetachedPane) {
-      handoff.stopWatchingWindowSignals();
-      return;
-    }
-    // No arm here, and that is the design rather than the omission this used to be:
-    // the watches install from an effect with no surface to refuse into, so each
-    // settles its own failures into the placeholder's refusal slot and resolves either
-    // way. An arm on a promise that cannot reject would be a branch nothing can reach.
-    void handoff.watchWindowSignals();
-  }, [handoff, hasDetachedPane]);
 
   return projection;
 }

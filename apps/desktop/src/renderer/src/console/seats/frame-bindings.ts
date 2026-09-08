@@ -45,7 +45,7 @@ import type { ReactNode } from "react";
  * closed sets that agree until someone widens one, and a slot in the union but not
  * the array is a slot `registeredSlots` can never report.
  */
-export const FRAME_BINDING_SLOTS = ["session-attention"] as const;
+export const FRAME_BINDING_SLOTS = ["session-attention", "detached-panes"] as const;
 
 /** One frame-lifetime binding. Derived from the enumeration, never restated. */
 export type FrameBindingSlot = (typeof FRAME_BINDING_SLOTS)[number];
