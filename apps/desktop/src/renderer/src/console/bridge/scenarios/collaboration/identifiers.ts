@@ -64,10 +64,52 @@ export const CHANNEL_HANDOFF = "019b7904-8ce0-7c11-8130-cca0117a0395";
 export const CHANNEL_DIRECT = "019b7904-8ce0-7c11-8135-cca0117a0396";
 export const INVITE_EXPIRING = "019b7904-8ce0-7f22-8110-cca0117a03a0";
 export const INVITE_ACCEPTED = "019b7904-8ce0-7f22-8120-cca0117a03b0";
-// The one this scenario MINTS, when a person fills the create form in and presses
-// send. It is not in the ledger above: it does not exist until the act, which is
+// The ones this scenario MINTS, when a person fills the create form in and presses
+// send. They are not in the ledger above: they do not exist until the act, which is
 // the whole difference between a row the read returns and a row the create makes.
-export const INVITE_MINTED = "019b7904-8ce0-7f22-8130-cca0117a03b8";
+//
+// A SEQUENCE AND NOT A CONSTANT, because a person sends more than one invitation: a
+// fixed receipt handed the second mint the first one's identity, so the ledger held
+// two rows under one key, the list drew duplicate keys, and revoking either moved
+// both. The mint's ordinal comes off the engine — see `ScenarioComputedReply` — and
+// the last field of the UUID carries it, which keeps every id in the sequence a
+// well-formed v7 the registered `InviteCreateResponseSchema` accepts. The token moves
+// with it for the same reason and one more: a token is handed out exactly once, so two
+// invitations sharing one would be teaching a control plane that reissues credentials.
+const MINTED_INVITE_ID_PREFIX = "019b7904-8ce0-7f22-8130-";
+const MINTED_INVITE_TOKEN_PREFIX = "v4.local.V0hBVEVWRVIgVEhFIENPTlRST0wgUExBTkUgTUlOVEVE";
+/**
+ * The UUID node field, which the ordinal takes whole.
+ *
+ * Twelve hex digits, so the ordinal cannot overflow the field and make an id the
+ * schema would reject — the fixture would exhaust memory long before it exhausted
+ * this. The four groups ahead of it already mark this room and this brand of id, so
+ * the node carries nothing else and the sequence reads as one at a glance.
+ */
+const MINTED_ORDINAL_WIDTH = 12;
+
+/** The invite id this room's `mintOrdinal`-th `invite.create` answers with. */
+export function collaborationMintedInviteId(mintOrdinal: number): string {
+  return `${MINTED_INVITE_ID_PREFIX}${mintedOrdinalDigits(mintOrdinal)}`;
+}
+
+/**
+ * The plaintext token that mint hands back, in the base64url-ish shape the wire uses.
+ *
+ * Hex digits are all base64url characters, so the ordinal rides the blob's tail
+ * without teaching the reveal a shape a PASETO string could not have.
+ */
+export function collaborationMintedInviteToken(mintOrdinal: number): string {
+  return `${MINTED_INVITE_TOKEN_PREFIX}${mintedOrdinalDigits(mintOrdinal)}`;
+}
+
+/** The ordinal as fixed-width hex, which both spellings above append. */
+function mintedOrdinalDigits(mintOrdinal: number): string {
+  return mintOrdinal.toString(16).padStart(MINTED_ORDINAL_WIDTH, "0");
+}
+
+/** The id the FIRST mint of a playback answers with. Every consumer derives it. */
+export const INVITE_MINTED: string = collaborationMintedInviteId(1);
 
 // The deep link's own identifiers. The references are opaque by contract, so they are
 // spelled as something no reader could mistake for a token or an id — which is the

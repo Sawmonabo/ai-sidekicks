@@ -143,7 +143,16 @@ export async function settleScriptedReply(
     // asked at the moment its answer is delivered, so a reply parked on a scripted
     // latency answers for the tick it comes due at and not the tick it was asked at.
     // The engine's own clock, so the reply and the beats share one timeline.
-    const computed = reply.resultFor(request, engine.clock.now());
+    //
+    // The ordinal is taken in the same breath, and it counts ASKINGS of this call's
+    // computed reply rather than answers to it: a reply that answers `undefined` for
+    // the entity it was asked about has still been asked, and a count that stepped
+    // back over it would hand a later mint an identity an earlier one could have had.
+    const computed = reply.resultFor(
+      request,
+      engine.clock.now(),
+      engine.nextComputedReplyOrdinal(call),
+    );
     // A request the scenario does not answer for is `unscripted` and not an empty
     // resolution: the scenario scripts the METHOD and not this entity, which is the
     // authoring gap that arm exists to name.

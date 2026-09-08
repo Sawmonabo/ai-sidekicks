@@ -134,6 +134,9 @@ export class ScenarioEngine {
   // Where a delivered frame's position comes from, and the record a late subscriber is
   // replayed. One line for scripted beats and appended frames alike.
   readonly #log = new ScenarioSessionLog();
+  // How many computed answers this playback has produced for each call name.
+  // `nextComputedReplyOrdinal` below is the whole of the rule.
+  readonly #computedRepliesByCall = new Map<string, number>();
   #elapsedMs = 0;
   #deliveredBeatCount = 0;
   #disposed = false;
@@ -220,7 +223,14 @@ export class ScenarioEngine {
    * The sink is handed the tick the clock now stands at, and walks its own rule for
    * what that made due. It is called on EVERY advance, including one that delivered
    * no beat and one that moved the clock by zero — a caller that advanced by nothing
-   * is asking what is due now, and answering it costs one comparison.
+   * is asking what is due now, and answering it costs one comparison. It is called
+   * AFTER that advance's beats have landed, and a disposed engine calls it not at
+   * all, both on `advance`'s own rule.
+   *
+   * THE ONE ADVANCE SUBSCRIPTION, and singular for `apps/desktop/AGENTS.md` §Shared
+   * code's reason: a second method over this same emitter split the fixture's callers
+   * between two identical names for a while, on the class whose whole job is to be the
+   * single source of scenario time.
    *
    * No replay, deliberately, and the asymmetry with the whole-session stream beside
    * it is the point: a beat is a position in a log a late subscriber has to be caught
@@ -276,21 +286,6 @@ export class ScenarioEngine {
    */
   public deliveredEvents(): readonly ConsoleSessionEvent[] {
     return this.#log.delivered();
-  }
-
-  /**
-   * Subscribe to the frozen clock's own movement. Returns an idempotent unsubscribe.
-   *
-   * Delivered AFTER the advance's beats, with the elapsed scenario time the advance
-   * landed on, and delivered on every advance including the ones no beat fell due
-   * on — which is the whole reason it exists: a scripted fact that is not an event
-   * has no beat to ride, and a schedule that only woke when the log moved would fire
-   * late or never depending on where the author happened to put a beat.
-   *
-   * A disposed engine delivers nothing, on `advance`'s own rule.
-   */
-  public subscribeToAdvance(sink: EmitterSink<number>): Unsubscribe {
-    return this.#advances.subscribe(sink);
   }
 
   /** Advance one tick. A no-op after teardown, reported rather than silent. */
@@ -406,6 +401,24 @@ export class ScenarioEngine {
   /** The canned reply for one call, or `undefined` if the scenario scripts none. */
   public replyFor(call: string): ScenarioReply | undefined {
     return this.#scenario.replies.find((reply) => reply.call === call);
+  }
+
+  /**
+   * The ordinal of the computed answer about to be produced for `call`, from one.
+   *
+   * What lets a computed reply mint a DISTINCT identity each time it answers, and the
+   * settled instant it is handed beside this cannot stand in: two calls parked on the
+   * frozen clock together are released by one advance and read the same tick, so a
+   * receipt keyed on the instant collides exactly where a second mint has to differ.
+   *
+   * Engine state rather than a counter in the reply table, on `scenario.ts`'s rule that
+   * a reply is a computation over what it is handed — the same calls in the same order
+   * are handed the same ordinals, so a playback stays replayable tick-for-tick.
+   */
+  public nextComputedReplyOrdinal(call: string): number {
+    const ordinal = (this.#computedRepliesByCall.get(call) ?? 0) + 1;
+    this.#computedRepliesByCall.set(call, ordinal);
+    return ordinal;
   }
 
   /** How many sinks are attached. Read by tests and by the diagnostics surface. */

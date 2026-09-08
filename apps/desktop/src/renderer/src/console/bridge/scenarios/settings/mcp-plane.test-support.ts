@@ -33,7 +33,15 @@ import { SETTINGS_MCP_PLANE_REPLIES } from "./mcp-plane.js";
  * the request alone, so the default is scenario tick zero and every caller today takes
  * it. Written down rather than hard-coded at the one call site, because the day one of
  * these arms starts reading the clock a suite has to be able to say when.
+ *
+ * THE ORDINAL IS THE FIRST ANSWER'S, for the same reason and with the other half of
+ * it: a reader that asks the table twice is asking what it answers, not driving a
+ * playback, so every ask here is that call's first. A plane whose arms started minting
+ * from the ordinal would need a suite that says which mint it is asking about, which is
+ * a driven playback and belongs on the real port.
  */
+const FIRST_COMPUTED_REPLY_ORDINAL = 1;
+
 export function settingsMcpAnswerFor(
   call: string,
   request: unknown,
@@ -45,7 +53,7 @@ export function settingsMcpAnswerFor(
   }
   return reply.resultFor === undefined
     ? reply.result
-    : reply.resultFor(request, settledAtMilliseconds);
+    : reply.resultFor(request, settledAtMilliseconds, FIRST_COMPUTED_REPLY_ORDINAL);
 }
 
 /**

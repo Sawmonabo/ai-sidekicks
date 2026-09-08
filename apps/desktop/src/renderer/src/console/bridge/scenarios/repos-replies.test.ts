@@ -108,14 +108,23 @@ function scriptedAnswers(): readonly unknown[] {
  *
  * The settle instant is bound here rather than taken per request, so every computed
  * answer this walk collects is the one the scenario would serve at its own start.
+ *
+ * The ORDINAL is not bound, because it is the one argument that has to differ between
+ * two asks of the same reply: a walk that handed every request the first ordinal would
+ * collect one identity from a table that mints a fresh one per call. The position in
+ * the request list is that ordinal, which `Array.prototype.map` already supplies.
  */
 function answerOf(
-  resultFor: (request: unknown, settledAtMilliseconds: number) => unknown,
+  resultFor: (
+    request: unknown,
+    settledAtMilliseconds: number,
+    computedReplyOrdinal: number,
+  ) => unknown,
   settledAtMilliseconds: number,
-): (request: unknown) => unknown {
-  return (request) => {
+): (request: unknown, requestIndex: number) => unknown {
+  return (request, requestIndex) => {
     try {
-      return resultFor(request, settledAtMilliseconds);
+      return resultFor(request, settledAtMilliseconds, requestIndex + 1);
     } catch {
       return undefined;
     }

@@ -32,10 +32,11 @@ import {
   COLLABORATION_PARTICIPANTS,
   INVITE_ACCEPTED,
   INVITE_EXPIRING,
-  INVITE_MINTED,
   PARTICIPANT_PRIYA,
   PARTICIPANT_TOMAS,
   PARTICIPANT_YOU,
+  collaborationMintedInviteId,
+  collaborationMintedInviteToken,
 } from "./identifiers.js";
 import { collaborationGrowthReplies } from "./growth-replies.js";
 import { collaborationPresenceRowsAt } from "./presence-timeline.js";
@@ -133,6 +134,13 @@ export const COLLABORATION_REPLIES: ConsoleScenario["replies"] = [
     // blob rather than a sentence: a fixture that scripted a readable string here
     // would be teaching the reveal a shape the wire cannot send.
     //
+    // ONE RECEIPT PER MINT, off the ordinal the reply seam hands in. A person who
+    // dismisses the first reveal and sends a second invitation used to get the first
+    // one's identity back: the ledger appends a row per served mint, so two rows
+    // arrived under one key, the list drew them with duplicate keys, and a revoke on
+    // that key — recorded in a map keyed by id — moved both at once. The identity is
+    // the mint's, and `identifiers.ts` is where the sequence is spelled.
+    //
     // THE REFUSAL ARMS ARE NOT REACHABLE FROM HERE, and that is the reply table's
     // shape rather than a gap: it answers one call one way, so a scenario cannot
     // both mint an invitation and refuse the next mint. The pending-cap sentence
@@ -140,11 +148,11 @@ export const COLLABORATION_REPLIES: ConsoleScenario["replies"] = [
     // against the codes `Spec-021` registers.
     call: "invite.create",
     afterMs: 250,
-    resultFor: (request) => {
+    resultFor: (request, _settledAtMilliseconds, mintOrdinal) => {
       const asked = request as { readonly expiresAt?: unknown };
       return {
-        inviteId: INVITE_MINTED,
-        token: "v4.local.V0hBVEVWRVIgVEhFIENPTlRST0wgUExBTkUgTUlOVEVE",
+        inviteId: collaborationMintedInviteId(mintOrdinal),
+        token: collaborationMintedInviteToken(mintOrdinal),
         expiresAt:
           typeof asked.expiresAt === "string" ? asked.expiresAt : "2026-01-08T10:05:00.000Z",
       };
