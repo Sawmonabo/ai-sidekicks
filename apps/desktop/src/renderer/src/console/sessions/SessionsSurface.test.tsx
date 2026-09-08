@@ -27,13 +27,8 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  contextWith,
-  listAbsenceKinds,
-  renderSurface,
-  settle,
-  storeHolding,
-} from "./session-surface.test-support.js";
+import { contextWith, storeHolding } from "./session-surface.context.test-support.js";
+import { listAbsenceKinds, renderSurface, settle } from "./session-surface.test-support.js";
 import {
   UNREPORTED_SHELL_STATE,
   shellMutationBlock,

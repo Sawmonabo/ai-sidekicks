@@ -15,7 +15,8 @@
 import { act, screen } from "@testing-library/react";
 import { describe, expect, it, vi, afterEach } from "vitest";
 
-import { contextWith, renderSurface, settle } from "../session-surface.test-support.js";
+import { contextWith } from "../session-surface.context.test-support.js";
+import { renderSurface, settle } from "../session-surface.test-support.js";
 import {
   CREATED_SESSION_ID,
   installProbeBridge,

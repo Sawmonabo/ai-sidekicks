@@ -19,7 +19,8 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { contextWith, renderSurface, settle } from "../session-surface.test-support.js";
+import { contextWith } from "../session-surface.context.test-support.js";
+import { renderSurface, settle } from "../session-surface.test-support.js";
 import {
   CREATED_SESSION_ID,
   installProbeBridge,
