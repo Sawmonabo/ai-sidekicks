@@ -1,15 +1,21 @@
-// The ledger's own rules, driven without a stream.
+// The ledger's own rules and the composer it takes, driven without a stream.
 //
-// Both consumers reach it through a bridge, a subscription, and a React hook, so the
-// three claims that are the ledger's own — the count rises per delivery, only the
-// newest refusal is kept, and a clear resets both together — are asserted here rather
-// than through three layers that have nothing to do with them.
+// Both consumers reach the ledger through a bridge, a subscription, and a React hook,
+// so the three claims that are its own — the count rises per delivery, only the newest
+// refusal is kept, and a clear resets both together — are asserted here rather than
+// through three layers that have nothing to do with them.
+//
+// AND THE COMPOSER IS ASSERTED HERE TOO, because it is now one function rather than
+// the two identical ones `queue/` and `quotas/` each wrote. What each stream still
+// owns is its own origin and its own sentence; what this module owns is the code and
+// the shape, and the cases below are what say which is which.
 
 import { describe, expect, it } from "vitest";
 
 import { refuse, refusedMemberPaths, type ConsoleRefusal } from "../../core/index.js";
 import {
   UnreadableDeliveryLedger,
+  unreadableDeliveryRefusalComposerFor,
   type UnreadableDeliveryIssues,
 } from "./unreadable-deliveries.js";
 
@@ -71,5 +77,53 @@ describe("UnreadableDeliveryLedger", () => {
 
     expect(ledger.reading.unreadableDeliveryCount).toBe(1);
     expect(ledger.reading.unreadableRefusal?.detail).toBe("channelId");
+  });
+});
+
+describe("unreadableDeliveryRefusalComposerFor", () => {
+  it("carries the stream's own origin and its own words", () => {
+    const composed = unreadableDeliveryRefusalComposerFor({
+      origin: "session-queue",
+      sentence:
+        "A queue delivery did not match the registered row shape, so it changed no row here",
+    })([{ path: ["state"] }, { path: ["rows", 0, "priority"] }]);
+
+    expect(composed).toStrictEqual({
+      origin: "session-queue",
+      code: "delivery-unreadable",
+      detail:
+        "A queue delivery did not match the registered row shape, so it changed no row here: state, rows.0.priority.",
+    });
+  });
+
+  it("says the same thing about a different stream, in that stream's words", () => {
+    // The two composers this replaced differed in exactly these two members and in
+    // nothing else, which is the whole reason there is one function here now.
+    const composed = unreadableDeliveryRefusalComposerFor({
+      origin: "provider-account-quota",
+      sentence:
+        "A provider-account delivery did not match the registered notification shape, so it moved no account or quota here",
+    })([{ path: ["kind"] }]);
+
+    expect(composed.origin).toBe("provider-account-quota");
+    expect(composed.code).toBe("delivery-unreadable");
+    expect(composed.detail).toBe(
+      "A provider-account delivery did not match the registered notification shape, so it moved no account or quota here: kind.",
+    );
+  });
+
+  it("negative control: it names the members and never the payload", () => {
+    // Without this the composer could quote what failed to parse — an unbounded and
+    // unvalidated value on screen to explain why an unvalidated value was refused —
+    // and every case above would still read the same.
+    const composed = unreadableDeliveryRefusalComposerFor({
+      origin: "session-queue",
+      sentence:
+        "A queue delivery did not match the registered row shape, so it changed no row here",
+    })([{ path: [] }]);
+
+    expect(composed.detail).toBe(
+      "A queue delivery did not match the registered row shape, so it changed no row here: the payload.",
+    );
   });
 });

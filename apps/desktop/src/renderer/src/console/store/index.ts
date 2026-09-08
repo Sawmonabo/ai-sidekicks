@@ -68,10 +68,16 @@ export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 // The handover a pane performs when its refusal stops being its own business: a
 // whole-workspace code reaches the frame's banner rather than a line inside one pane.
-// The selector beside it is for the surfaces whose refusals arrive as a collection —
-// one per resolved request, one per control settlement — so no surface writes its own
-// reading of which member rule 9 puts across the frame.
-export { bannerClassRefusalAmong, useRefusalBannerEscalation } from "./refusal-escalation.js";
+// The two selectors beside it are for the surfaces whose refusals arrive as a
+// collection — one per resolved request, one per control settlement, one per
+// concurrent read — so no surface writes its own reading of which member rule 9 puts
+// across the frame. Which one a surface takes is what its ORDER means: appended, so
+// the last is newest; or listed in the order it wants them preferred.
+export {
+  newestBannerClassRefusalAmong,
+  preferredBannerClassRefusalAmong,
+  useRefusalBannerEscalation,
+} from "./refusal-escalation.js";
 
 // The window-scoped modal's half of the shell's `inert` guard. Through this door
 // rather than either overlay's, because its callers are sibling VIEW families —

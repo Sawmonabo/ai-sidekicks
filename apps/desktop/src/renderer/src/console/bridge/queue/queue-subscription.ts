@@ -75,7 +75,7 @@ import {
   type UnreadableDeliveryReading,
   type WireReadState,
 } from "../readings/index.js";
-import { QUEUE_REFUSAL_ORIGIN, unreadableDeliveryRefusal } from "./queue-refusals.js";
+import { QUEUE_REFUSAL_ORIGIN, unreadableQueueDeliveryRefusal } from "./queue-refusals.js";
 import { QueueOrder } from "./queue-order.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 
@@ -114,7 +114,7 @@ export class SessionQueueSubscription {
   readonly #sessionId: string;
   readonly #onChanged: () => void;
   readonly #order = new QueueOrder();
-  readonly #unreadable = new UnreadableDeliveryLedger(unreadableDeliveryRefusal);
+  readonly #unreadable = new UnreadableDeliveryLedger(unreadableQueueDeliveryRefusal);
   /**
    * The phase, the newest read's refusal, and whether the tail is up.
    *
