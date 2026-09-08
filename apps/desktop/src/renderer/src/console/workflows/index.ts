@@ -8,13 +8,22 @@
 // the vocabulary it is built from was another's. Each body has its own sub-module
 // door, reached from here by a deep intra-family specifier.
 //
-// WHAT LEAVES THE FAMILY IS TWO REGISTRATIONS AND NOTHING ELSE. Not the surface,
+// WHAT LEAVES THE FAMILY IS TWO REGISTRATIONS AND ONE SEAT BODY. Not the surface,
 // not the panes, not the chrome: the console composes this family by calling
 // `registerWorkflowPanes` at its pane seat and `registerWorkflowSurfaces` at its
 // surface seat, and nothing above needs a handle on a body. An export beyond those
 // would be an invitation for another family to mount a workflows surface itself,
 // which is the coupling the deck's and the frame's single mount doors exist to
 // prevent.
+//
+// THE ONE EXCEPTION IS A SEAT SOMEBODY ELSE OWNS, WHICH IS THE OPPOSITE SHAPE. The
+// composer's `+` menu holds a reserved place for "Start a workflow" — the seat is the
+// composer's, the position and the session are the composer's, and what goes inside is
+// this family's enumeration and this family's start. A board cannot carry it: the deck
+// keys registrations by pane kind and the frame by surface slot, and a menu entry is
+// neither. So the body leaves through this door as a component and the composer mounts
+// it in one line, which is the same direction as a registration — this family handing
+// something to a seat above it — written the only way a menu entry can be written.
 //
 // TWO SEATS BECAUSE THERE ARE TWO BOARDS. The deck's board is keyed by pane kind
 // and the frame's by surface slot; this family occupies one seat on each — the two
@@ -61,6 +70,10 @@
 import "./runs/run-list.css";
 import "./parks/park-badge.css";
 import "./channel-progress/channel-progress.css";
+// The composer's picker is mounted directly rather than behind a loader, so its sheet
+// enters here beside the pinned region's two for the same reason theirs do: what draws
+// on the first paint is dressed on the first paint.
+import "./start/workflow-start-menu.css";
 
 import { createElement } from "react";
 
@@ -147,6 +160,19 @@ const WORKFLOW_PANES: readonly ConsolePaneRegistration[] = [
  * owns, and an auxiliary window composes a different subset without a second code
  * path.
  */
+/**
+ * The composer's workflow picker, for the seat its `+` menu reserves.
+ *
+ * A COMPONENT AND NOT AN ELEMENT, so the composer holds a stable type: a body composed
+ * inline on each render is a new type each time and React remounts it, losing the read
+ * it had just settled.
+ *
+ * Its sheet enters at this door rather than behind a chunk, because the composer mounts
+ * it directly and nothing defers it — the header above says why that is the arithmetic
+ * rather than an exception to this family's own rule.
+ */
+export { WorkflowStartMenu } from "./start/WorkflowStartMenu.js";
+
 export function registerWorkflowPanes(registry: ConsolePaneRegistry): void {
   for (const descriptor of WORKFLOW_PANES) {
     registry.register(descriptor);

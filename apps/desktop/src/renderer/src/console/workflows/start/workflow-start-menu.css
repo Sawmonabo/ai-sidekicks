@@ -1,0 +1,117 @@
+/*
+ * The composer's workflow picker: the definition rows and the receipt of what a press
+ * did.
+ *
+ * IT ENTERS AT THE FAMILY DOOR AND NOT AT A CHUNK ROOT, which is the opposite of every
+ * other sheet this family owns and is the arithmetic rather than a preference. The
+ * composer mounts this body directly — a menu is not a pane and is reached through no
+ * `import()` — so nothing defers it and a sheet parked behind a chunk boundary would
+ * leave the picker undressed until some unrelated workflows surface happened to open.
+ * It is small, and it declares only classes this menu draws.
+ *
+ * IT DECLARES ITS OWN ACTION CLASSES rather than borrowing the family's, for the same
+ * reason: `workflows.css` rides the deferred chunks, so a control on the initial paint
+ * that drew one of its classes would be styled or not depending on whether a pane had
+ * been opened.
+ *
+ * Meridian tokens only.
+ */
+
+.meridian-workflow-start-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+}
+
+.meridian-workflow-start-menu__lede {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-start-menu__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-workflow-start-menu__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * The definition's name IS the control: pressing it starts that definition, so the row
+ * carries one target rather than a label beside a button, which would leave a person
+ * pressing the name and having nothing happen.
+ */
+.meridian-workflow-start-menu__start,
+.meridian-workflow-start-menu__more {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  text-align: start;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  cursor: pointer;
+}
+
+.meridian-workflow-start-menu__start:hover,
+.meridian-workflow-start-menu__more:hover {
+  background: var(--meridian-surface-raised);
+  border-color: var(--meridian-edge);
+}
+
+.meridian-workflow-start-menu__more {
+  align-self: flex-start;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The receipt of a start that landed. The run id is the wire's, so it is set in mono. */
+.meridian-workflow-start-menu__started {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-start-menu__refusal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/*
+ * The public role matrix, beside a denial and nowhere else. Set quietly, because it is
+ * a reading of the rule rather than a second refusal.
+ */
+.meridian-workflow-start-menu__roles {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow-start-menu__role {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-workflow-start-menu__role dt {
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-workflow-start-menu__role dd {
+  margin: 0;
+}

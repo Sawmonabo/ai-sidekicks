@@ -48,18 +48,24 @@
 // compact and offers nothing, which is the absent-not-disabled discipline rather
 // than a `not-checked` block on every session composer in the console.
 //
-// THE SLOTS ARE `body: undefined` BY CONSTRUCTION, NOT BY OVERSIGHT. None of the
-// five seats has a registry to be read out of: a body arrives by its owning plan
-// mounting it here, and until then the seat renders the reserved state.
+// FOUR OF THE FIVE SLOTS ARE `body: undefined` BY CONSTRUCTION, NOT BY OVERSIGHT. A
+// body arrives by its owning family mounting it here, and until then the seat renders
+// the reserved state — there is no registry to read one out of.
 //
-// FIVE SEATS, AND WHAT EACH RESERVED STATE LOOKS LIKE. The two plan-owned seats at
-// the ends of this rail — the edit-and-resend editor and the workflow picker — have
-// no shell behind them, so their reserved state is the "not built yet" absence. The
-// three the usage plan owns — the context meter, the rate-limit indicator, and the
-// compaction control — have a FIXTURE SHELL behind them, so what a person meets
-// today is a real meter drawn from real readings and what arrives later replaces the
-// shell rather than filling a hole. Either way the composer's half is the same: the
-// placement, the framing, and the readings this file folds. It authors no body.
+// THE FIFTH IS FILLED NOW. The workflow picker's body is the workflows family's, and
+// that family has landed the definition enumeration the picker lists from and the start
+// it dispatches — so the seat takes the real body through that family's door instead of
+// the "not built yet" absence it stood at while there was nothing to put there. What
+// this file supplies is unchanged and is the whole of its half: the menu position, the
+// session the run starts in, and the channel this composer is addressed within where it
+// is addressed at one. It authors no body.
+//
+// WHAT EACH REMAINING RESERVED STATE LOOKS LIKE. The edit-and-resend editor has no
+// shell behind it, so its reserved state is the "not built yet" absence. The three the
+// usage plan owns — the context meter, the rate-limit indicator, and the compaction
+// control — have a FIXTURE SHELL behind them, so what a person meets today is a real
+// meter drawn from real readings and what arrives later replaces the shell rather than
+// filling a hole.
 
 import { useMemo } from "react";
 import {
@@ -76,6 +82,10 @@ import {
   type ReadingState,
 } from "../../../console/primitives/index.js";
 import type { ComposerSeatProps } from "../../../console/seats/index.js";
+// Through the workflows family's own door, which is how a renderer subtree outside the
+// console reaches a console family at all. The body is that family's; this file supplies
+// the seat, the session and — where this composer is addressed at one — the channel.
+import { WorkflowStartMenu } from "../../../console/workflows/index.js";
 import {
   useDeadlineWake,
   useSessionStore,
@@ -231,13 +241,21 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
           )}
         </div>
         <div className="meridian-composer__actions">
-          {/* `body: undefined` is not a lookup this file skipped — the workflow
-              picker arrives by its owning plan mounting it, so the seat renders the
-              reserved state until it does. */}
+          {/* The channel is read off the address this rail already resolved, never
+              composed here: a start from a channel is chat-borne and says so, and a
+              start at a running turn carries none rather than a guessed one. */}
           <PlusMenu
             bridge={props.bridge}
             sessionId={props.sessionStore.sessionId}
-            workflowStartBody={undefined}
+            workflowStartBody={
+              <WorkflowStartMenu
+                growth={props.bridge.growth}
+                sessionId={props.sessionStore.sessionId}
+                channelId={
+                  address.target.path === "channel-message" ? address.target.channelId : undefined
+                }
+              />
+            }
           />
         </div>
       </div>

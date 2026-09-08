@@ -1,15 +1,19 @@
-// The two plan-owned seats, and the `+` menu.
+// The one plan-owned seat still standing, and the `+` menu.
 //
 // Both claims are about what the rail must NOT be: a seat another plan owns says it
 // is reserved rather than looking broken or half-built, and the menu's contents are
 // absent from the tree while it is closed rather than merely hidden.
+//
+// The workflow entry used to be the second reserved seat and is a mounted body now, so
+// what this file asserts about it is that the menu holds it — the body's own states are
+// its family's to cover, beside the body.
 
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { mountRail } from "./rail.test-support.js";
 
-describe("ComposerAccessoryRail — the reserved seats and the menu", () => {
+describe("ComposerAccessoryRail — the reserved seat and the menu", () => {
   it("renders the edit-and-resend seat as reserved rather than as an editor", () => {
     const container = mountRail([]);
     const seat = container.querySelector(".meridian-composer__edit-resend");
