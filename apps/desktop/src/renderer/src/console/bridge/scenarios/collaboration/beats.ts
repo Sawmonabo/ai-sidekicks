@@ -9,11 +9,12 @@
 // Every `kind` below is a registered wire event type (`packages/contracts/src/event.ts`
 // `SessionEventType`) CARRYING THE REGISTERED PAYLOAD, and `scenarios/wire-truth.ts`
 // holds this file to both. Every subset but the session's own opening frame is DERIVED
-// from the cast tables rather than written out — the memberships and the presence
-// transitions from the roster, the channel-created frames and the one archival from the
-// channel table — so the event and the read it is later answered by are two views of
-// one row and cannot drift apart. The archival was the last one written by hand, and it
-// said 340ms beside a table that already claimed the channel archived at zero.
+// from the cast tables rather than written out — the memberships from the roster, the
+// presence moves from the schedule `presence-timeline.ts` declares, the channel-created
+// frames and the one archival from the channel table — so the event and the read it is
+// later answered by are two views of one row and cannot drift apart. The presence moves
+// were the last ones to reach that shape, and until they did the read answered every
+// one of them before its frame had been released.
 
 import {
   COLLABORATION_CHANNELS,
@@ -21,8 +22,9 @@ import {
   PARTICIPANT_YOU,
   RUNTIME_NODE_SCRIPT,
   SESSION_ID,
-  type CollaborationParticipant,
+  SESSION_STARTED_AT_ISO,
 } from "./identifiers.js";
+import { COLLABORATION_PRESENCE_TRANSITIONS } from "./presence-timeline.js";
 import { collaborationRuntimeNodeBeats } from "./runtime-nodes.js";
 import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
@@ -40,15 +42,6 @@ const COLLABORATION_ARCHIVALS: readonly { channelId: string; atMs: number }[] =
       ? []
       : [{ channelId: channel.channelId, atMs: channel.archivedAtMs }],
   );
-
-/** The people this script moves through a `presence.*` transition. Never the opener. */
-const COLLABORATION_PRESENCE_MOVES: readonly Exclude<
-  CollaborationParticipant,
-  { presenceState: "online" }
->[] = COLLABORATION_PARTICIPANTS.filter(
-  (participant): participant is Exclude<CollaborationParticipant, { presenceState: "online" }> =>
-    participant.presenceState !== "online",
-);
 
 // WHERE EACH SUBSET STARTS IN THE LOG. `wire-truth/beat-order.ts` requires the whole
 // script to be strictly contiguous from the session's first position, and these four
@@ -71,7 +64,7 @@ export const COLLABORATION_BEATS: ConsoleScenario["beats"] = [
       sessionId: SESSION_ID,
       sequence: 1,
       kind: "session.created",
-      occurredAt: "2026-01-01T10:05:00.000Z",
+      occurredAt: SESSION_STARTED_AT_ISO,
       actorId: PARTICIPANT_YOU,
       payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
     },
@@ -138,20 +131,25 @@ export const COLLABORATION_BEATS: ConsoleScenario["beats"] = [
       payload: { sessionId: SESSION_ID, channelId: archival.channelId },
     },
   })),
-  ...COLLABORATION_PRESENCE_MOVES.map((participant, presenceIndex) => ({
-    atMs: 380 + presenceIndex * 20,
+  // The presence moves, from the schedule `presence-timeline.ts` declares rather than
+  // from a tick written here. That module is also what `presence.read` answers from,
+  // which is the whole point of it being one table: the frame that signals a change
+  // and the read the roster answers it with are two views of one row, so the read
+  // AFTER a beat can no longer return what the read before it did.
+  ...COLLABORATION_PRESENCE_TRANSITIONS.map((transition, presenceIndex) => ({
+    atMs: transition.atMs,
     event: {
-      id: participant.presenceEventId,
+      id: transition.eventId,
       sessionId: SESSION_ID,
       sequence: FIRST_PRESENCE_SEQUENCE + presenceIndex,
-      kind: `presence.${participant.presenceState}` as const,
-      occurredAt: participant.lastSeenIso,
-      actorId: participant.participantId,
+      kind: `presence.${transition.state}` as const,
+      occurredAt: transition.lastSeenIso,
+      actorId: transition.participantId,
       // Opaque BY CONTRACT. The roster treats every presence push as a change
       // signal and answers it with a fresh `presence.read`, so this payload is
       // never decoded by anything — which is exactly why it carries the two
       // identifiers the envelope is about and no third member.
-      payload: { sessionId: SESSION_ID, participantId: participant.participantId },
+      payload: { sessionId: SESSION_ID, participantId: transition.participantId },
     },
   })),
   // The machines number their own frames from the position this script declares, and

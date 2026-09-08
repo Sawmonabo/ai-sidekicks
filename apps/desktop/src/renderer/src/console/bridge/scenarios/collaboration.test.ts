@@ -21,7 +21,6 @@ import { COLLABORATION_SENT_INVITES } from "./collaboration/replies.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { CHANNEL_HANDOFF, PARTICIPANT_YOU } from "./collaboration/identifiers.js";
 import type { ConsoleBridge } from "../console-bridge.js";
-import type { ScenarioReply, ScenarioResolvingReply } from "../scenario-runtime/scenario.js";
 
 /** Past every beat this room plays, so an advance leaves nothing due. */
 const PAST_EVERY_BEAT_MS = 10_000;
@@ -44,6 +43,15 @@ function room(): { readonly bridge: ConsoleBridge; readonly advance: (ms: number
   };
 }
 
+/** The presence state each person reads as, right now, through the real call door. */
+async function presenceStatesFrom(bridge: ConsoleBridge): Promise<readonly string[]> {
+  const reply = await bridge.sidekicks.daemon.call("presence.read" as DaemonMethod, {
+    sessionId: COLLABORATION_SCENARIO.sessionId,
+  });
+  const { participants } = reply as { readonly participants: readonly { state: string }[] };
+  return participants.map((participant) => participant.state);
+}
+
 /** What `channel.list` reports for one channel through the real call door. */
 async function channelStateOf(bridge: ConsoleBridge, channelId: string): Promise<unknown> {
   const reply = await bridge.sidekicks.daemon.call("channel.list" as DaemonMethod, {
@@ -53,23 +61,18 @@ async function channelStateOf(bridge: ConsoleBridge, channelId: string): Promise
   return channels.find((channel) => channel.id === channelId)?.state;
 }
 
-/** The resolving reply for one call, or a failure naming the call that is missing. */
-function resolvingReplyFor(call: string): ScenarioResolvingReply {
-  const reply: ScenarioReply | undefined = COLLABORATION_SCENARIO.replies.find(
-    (candidate) => candidate.call === call,
-  );
-  expect(reply, `the scenario scripts no "${call}" reply`).toBeDefined();
-  const resolving = reply as ScenarioResolvingReply;
-  expect(resolving.result, `"${call}" refuses rather than resolving`).toBeDefined();
-  return resolving;
-}
-
 describe("the collaboration scenario", () => {
-  it("covers every presence state the roster renders", () => {
-    const { participants } = resolvingReplyFor("presence.read").result as {
-      participants: readonly { state: string }[];
-    };
-    const covered = new Set(participants.map((participant) => participant.state));
+  it("covers every presence state the roster renders, once its moves have played", async () => {
+    // Read PAST every beat, because the read is now a function of the clock: the four
+    // states are what this room ENDS in, and a case that read at tick zero would be
+    // asserting the room's opening — where everybody is `online` and three of the four
+    // renderings are correctly unreachable. The transition itself is driven in
+    // `collaboration/presence-timeline.test.ts`, which is where that schedule lives.
+    const { bridge, advance } = room();
+
+    advance(PAST_EVERY_BEAT_MS);
+
+    const covered = new Set(await presenceStatesFrom(bridge));
     expect([...covered].sort()).toStrictEqual([...PRESENCE_STATE_RENDER_ORDER].sort());
   });
 
@@ -158,11 +161,15 @@ describe("the collaboration scenario", () => {
     expect(parseInstant(onlyPendingInvite?.expiresAt ?? "").kind).toBe("instant");
   });
 
-  it("scripts no reply for a call it does not make", () => {
-    // The negative control for every assertion above: `resolvingReplyFor` reports a
-    // missing call rather than returning a reply that happens to be `undefined`, so
-    // a scenario that quietly lost `presence.read` would fail those tests instead of
-    // vacuously passing them.
-    expect(() => resolvingReplyFor("presence.detail")).toThrow();
+  it("negative control: the room OPENS with nobody moved, so the four states are earned", async () => {
+    // Without this the presence case above passes over the defect it was written
+    // against: a reply that answered each joiner's eventual state at every instant
+    // covers all four the moment the window opens, and the advance that case performs
+    // would be decorative. A room where nothing has happened yet has one state in it.
+    const { bridge } = room();
+
+    await expect(presenceStatesFrom(bridge)).resolves.toStrictEqual(
+      COLLABORATION_SCENARIO.participantIdsInJoinOrder.map(() => "online"),
+    );
   });
 });

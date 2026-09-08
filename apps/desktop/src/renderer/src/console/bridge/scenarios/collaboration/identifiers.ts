@@ -7,7 +7,7 @@
 // one of them would be a value the other three could only match by copying it, which
 // is how a fixture comes to answer a read about a person no beat admitted.
 //
-// THE ROSTER IS A TWO-ARM UNION AND THAT IS LOAD-BEARING. `beats.ts`
+// THE ROSTER IS A TWO-ARM UNION AND THAT IS LOAD-BEARING. `presence-timeline.ts`
 // narrows it to the rows that are not `online` — through `Exclude` over
 // {@link CollaborationParticipant}, resolving to {@link CollaborationJoiner} — so the
 // three presence transitions are derived from the roster rather than written a second
@@ -34,6 +34,17 @@ import type { GrowthInviteAttempt } from "../../growth-values/index.js";
 // The assertion is a claim, and the bridge seam's test discharges it by parsing
 // every shipped frame with the registered `RuntimeNodeRosterResponseSchema`.
 export const SESSION_ID = "019b7904-8ce0-75e5-8510-ada11a5a33a5";
+/**
+ * The instant this room's frozen clock starts at — the scenario's own zero.
+ *
+ * ONE HOME, because two parts of the scenario measure time in different units and
+ * meet here. `ScenarioEngine` builds its `ManualClock` from `startedAtIso`, so what a
+ * computed reply is handed is an ABSOLUTE instant, while every beat's `atMs` is an
+ * OFFSET from this one — and `presence-timeline.ts` converts between them. Written
+ * twice, the two spellings of the room's zero would be free to disagree, and the
+ * symptom would be a schedule every read considered either due or never due.
+ */
+export const SESSION_STARTED_AT_ISO = "2026-01-01T10:05:00.000Z";
 export const PARTICIPANT_YOU = "019b7904-8ce0-79a4-8110-cca0117a0330" as ParticipantId;
 export const PARTICIPANT_PRIYA = "019b7904-8ce0-79a4-8120-cca0117a0340" as ParticipantId;
 export const PARTICIPANT_TOMAS = "019b7904-8ce0-79a4-8130-cca0117a0350" as ParticipantId;
@@ -83,6 +94,17 @@ export const INVITED_SESSION_INCIDENT = "019b7904-8ce0-7f22-8190-cca0117a0460";
 // frames below, which say why an unresolved run id is the case worth scripting.
 export const PEER_RUN_ID = "019b7904-8ce0-740e-8110-cca0117a03c0";
 
+/**
+ * The state a session member holds the moment their `membership.created` beat admits
+ * them, and holds until a `presence.*` transition says otherwise.
+ *
+ * DECLARED ONCE AND READ TWICE. The opener's row states it because that is where the
+ * opener stays, and `presence-timeline.ts` answers with it for every row whose
+ * transition is still ahead of the clock — so the state a read opens with and the
+ * state that pins the roster's joiner arm cannot become two different words.
+ */
+export const PRESENCE_STATE_AT_JOIN = "online" as const;
+
 /** What every person in this room has, whichever way they arrived. */
 interface CollaborationMember {
   readonly participantId: ParticipantId;
@@ -104,6 +126,16 @@ interface CollaborationMember {
   readonly membershipId: string;
   readonly joinedAtMs: number;
   readonly joinedAtIso: string;
+  /**
+   * The stamp this row carries once this person's presence has SETTLED.
+   *
+   * For a joiner it is the transition's own stamp — the `presence.*` frame's
+   * `occurredAt`, and what `lastSeen` reads once that frame is due. For the opener,
+   * whom no transition moves, it is the standing stamp their row carries for the life
+   * of the room. It is NOT what a read answers before a transition falls due:
+   * `presence-timeline.ts` answers those rows at their own join instant, because a
+   * stamp the script has not reached is a reading from the future.
+   */
   readonly lastSeenIso: string;
 }
 
@@ -125,8 +157,9 @@ interface CollaborationOpener extends CollaborationMember {
  * `presence.*` beat moved.
  *
  * Every member is required, which is the whole reason the two shapes are separate:
- * `beats.ts` filters the roster to exactly this arm for the presence
- * beats and then reads the event id with no optionality left to check.
+ * `presence-timeline.ts` filters the roster to exactly this arm to build the schedule
+ * the beats and the presence read both fold, and then reads the event id and the
+ * stamp with no optionality left to check.
  */
 interface CollaborationJoiner extends CollaborationMember {
   readonly presenceEventId: string;
@@ -161,9 +194,13 @@ export const COLLABORATION_PARTICIPANTS: readonly CollaborationParticipant[] = [
     // The session's own instant: the creator's admission is emitted immediately after
     // `session.created` rather than at a tick of its own, so the two share a moment.
     joinedAtMs: 0,
-    joinedAtIso: "2026-01-01T10:05:00.000Z",
-    presenceState: "online",
-    lastSeenIso: "2026-01-01T10:05:00.400Z",
+    joinedAtIso: SESSION_STARTED_AT_ISO,
+    presenceState: PRESENCE_STATE_AT_JOIN,
+    // The session's own instant again, and for the reason the join carries it: no
+    // transition ever moves this row, so its settled stamp IS its join stamp. It read
+    // 400ms while the presence reply was a fixed table, which put the opener's last
+    // sighting four hundred milliseconds after a read taken at tick zero.
+    lastSeenIso: SESSION_STARTED_AT_ISO,
   },
   {
     participantId: PARTICIPANT_PRIYA,
