@@ -11,6 +11,13 @@
 // opened none has nothing to attach into. The control is ABSENT rather than disabled,
 // and the column says why once rather than every row saying it.
 //
+// AN OFFER IS FOR ONE SESSION, AND THE ROW HAS TO AGREE WITH THE CLAIM ABOUT WHICH.
+// The handoff honours an offer only for the session it names, so a page that matched
+// on the definition alone would hide this window's own action and report the offer as
+// waiting in a session it was never made for — reachable by offering for one session,
+// moving the window to another, and reopening this page before the first session's
+// attach form has claimed it. The cases below drive exactly that.
+//
 // The page's other properties are its two sibling suites; the registry, the announcer,
 // and the presses come from the support module all three share.
 
@@ -32,6 +39,9 @@ import {
 
 /** The session a window that has one is working in. */
 const SESSION_ID = "session-9";
+
+/** A second session, which the window is NOT working in. */
+const OTHER_SESSION_ID = "session-4";
 
 /** A registry answering with one row, and the bridge that serves it. */
 function registryBridge(): ConsoleBridge {
@@ -130,5 +140,125 @@ describe("the sidekicks page — offering a definition to this window's session"
     await settle();
 
     expect(container.querySelector(".meridian-sidekicks__attach-note")).toBeNull();
+  });
+});
+
+describe("the sidekicks page — an offer standing for a session this window is not in", () => {
+  /**
+   * A window whose handoff already holds an offer for {@link OTHER_SESSION_ID}.
+   *
+   * Placed on the handoff directly rather than by rendering the page twice, which is
+   * this suite's established shape for the other end of the same seam: what is being
+   * driven is a window that MOVED, and the offer is the only thing that survives the
+   * move.
+   */
+  async function pageOverAnOfferMadeElsewhere(): Promise<{
+    readonly bridge: ConsoleBridge;
+    readonly container: HTMLElement;
+  }> {
+    const bridge = registryBridge();
+    attachHandoffFor(bridge).offer({
+      sessionId: OTHER_SESSION_ID,
+      definitionId: "definition-1",
+      definitionName: "Reviewer",
+    });
+    const { container } = renderPage(bridge, SESSION_ID);
+    await settle();
+    return { bridge, container };
+  }
+
+  it("names the session the offer was actually made for, not the one the window is in", async () => {
+    const { container } = await pageOverAnOfferMadeElsewhere();
+
+    const saved = savedRegionOf(container);
+    expect(saved.textContent ?? "").toContain("Waiting in");
+    expect(saved.textContent ?? "").toContain(OTHER_SESSION_ID);
+    expect(saved.textContent ?? "").not.toContain(`Waiting in ${SESSION_ID}`);
+  });
+
+  it("still offers this window's own session, because the offer is not its offer", async () => {
+    const { container } = await pageOverAnOfferMadeElsewhere();
+
+    // The row keeps the way back, because the offer is real and withdrawable from
+    // here — and it keeps its own action, because one press would make this session's
+    // offer instead.
+    expect(buttonNamed(container, "Stop attaching Reviewer")).not.toBeUndefined();
+    expect(
+      savedRegionOf(container).querySelector(
+        `[aria-label="Attach Reviewer from here, moving the offer waiting in ${OTHER_SESSION_ID}"]`,
+      ),
+    ).not.toBeNull();
+  });
+
+  it("says out loud that pressing it would displace the standing offer", async () => {
+    const { container } = await pageOverAnOfferMadeElsewhere();
+
+    // Both registers, because DOM order puts the note after the control: the prose for
+    // a person reading the card, the accessible name for one who reaches the control by
+    // tab and would otherwise meet the consequence after the press.
+    expect(savedRegionOf(container).textContent ?? "").toContain(
+      "this window holds one offer at a time",
+    );
+    expect(
+      buttonNamed(
+        container,
+        `Attach Reviewer from here, moving the offer waiting in ${OTHER_SESSION_ID}`,
+      ),
+    ).not.toBeUndefined();
+  });
+
+  it("supersedes the standing offer with this window's session on the press", async () => {
+    const { bridge, container } = await pageOverAnOfferMadeElsewhere();
+
+    await press(
+      buttonNamed(
+        container,
+        `Attach Reviewer from here, moving the offer waiting in ${OTHER_SESSION_ID}`,
+      ),
+    );
+
+    expect(attachHandoffFor(bridge).standingOffer).toEqual({
+      sessionId: SESSION_ID,
+      definitionId: "definition-1",
+      definitionName: "Reviewer",
+    });
+    expect(savedRegionOf(container).textContent ?? "").toContain(SESSION_ID);
+    expect(savedRegionOf(container).textContent ?? "").not.toContain(
+      "this window holds one offer at a time",
+    );
+  });
+
+  it("negative control: an offer for another definition claims no row at all", async () => {
+    const bridge = registryBridge();
+    attachHandoffFor(bridge).offer({
+      sessionId: SESSION_ID,
+      definitionId: "definition-elsewhere",
+      definitionName: "Auditor",
+    });
+    const { container } = renderPage(bridge, SESSION_ID);
+    await settle();
+
+    const saved = savedRegionOf(container);
+    expect(saved.textContent ?? "").not.toContain("Waiting in");
+    expect(buttonNamed(container, "Attach Reviewer from here")).not.toBeUndefined();
+  });
+
+  it("keeps the way back on a row whose window has no session of its own", async () => {
+    // The offer is still real, so withdrawing it is still an act — and there is no
+    // session to offer it to from here, so nothing says a press would move it.
+    const bridge = registryBridge();
+    attachHandoffFor(bridge).offer({
+      sessionId: OTHER_SESSION_ID,
+      definitionId: "definition-1",
+      definitionName: "Reviewer",
+    });
+    const { container } = renderPage(bridge);
+    await settle();
+
+    const saved = savedRegionOf(container);
+    expect(saved.textContent ?? "").toContain(OTHER_SESSION_ID);
+    expect(buttonNamed(container, "Stop attaching Reviewer")).not.toBeUndefined();
+    expect(saved.querySelector('[aria-label^="Attach Reviewer from here"]')).toBeNull();
+    expect(saved.textContent ?? "").not.toContain("this window holds one offer at a time");
   });
 });

@@ -17,6 +17,25 @@
 // THE OFFER CARRIES THE ID AND THE NAME TRAVELS FOR DISPLAY ONLY. `definitionId` is
 // what the attach form resolves against its own read; the name is the word this row
 // showed at the moment of the press, so the sentence reads as one.
+//
+// AND IT CARRIES THE SESSION, WHICH IS HALF OF WHETHER IT IS THIS ROW'S OFFER. The
+// handoff holds one offer per window and honours it only for the session it names —
+// `AttachHandoff.claim` refuses a mismatched session outright — so a row that matched
+// on the definition alone would disagree with the rule that decides the outcome. That
+// is reachable without doing anything strange: offer a definition for one session,
+// move the window to another, and reopen this page before the first session's attach
+// form has claimed it. What the row asks is therefore the claim's own question — is
+// this the offer the session this window is working in would take — and the note
+// names the OFFER's session rather than the window's, so the sentence stays true from
+// whichever session the page is read.
+//
+// AN OFFER STANDING FOR ANOTHER SESSION LEAVES BOTH ACTS ON THE ROW. The offer is
+// real and withdrawable from here, so the note and its way back stay; and this
+// window's own session can still be offered to, because the handoff holds ONE offer
+// and a press replaces the standing one. That supersession is stated rather than
+// performed silently — in the note for a person reading the card, and in the action's
+// accessible name because DOM order puts the note after the control, so somebody
+// arriving by keyboard meets it before the press instead of after it.
 
 import type { ConsoleRefusal } from "../../core/index.js";
 import { DerivedFigure, InlineRefusal, WireFigure } from "../../primitives/index.js";
@@ -50,7 +69,31 @@ export function SavedSidekickRow(props: {
 }): React.JSX.Element {
   const { row, isArmed, isDeleting, isAnyDeleteInFlight, isOpenInEditor, refusal, view } = props;
   const { handoff, attachTargetSessionId } = props;
-  const isOfferedForAttach = handoff.standingOffer?.definitionId === row.definitionId;
+  const { standingOffer } = handoff;
+  // The window's one offer, where it names THIS definition — whichever session it was
+  // made for. It is what the note and the way back are about.
+  const offerForThisDefinition =
+    standingOffer?.definitionId === row.definitionId ? standingOffer : undefined;
+  // ...and whether that offer is the one this window's session would claim. Written as
+  // a conjunction rather than as a comparison of two possibly-undefined values,
+  // because `undefined === undefined` would call a row with no offer at all offered.
+  const isOfferedToTargetSession =
+    offerForThisDefinition !== undefined &&
+    offerForThisDefinition.sessionId === attachTargetSessionId;
+  // The move a press from here would make, where it would make one: an offer for this
+  // definition standing in another session, and this window's own session it would go
+  // to. THE PAIR RATHER THAN EITHER HALF, because the sentence and the accessible name
+  // each need one of them and a row missing a session has neither — so one binding
+  // decides whether the supersession is real and both readers narrow off it.
+  const offerSupersession =
+    offerForThisDefinition === undefined ||
+    isOfferedToTargetSession ||
+    attachTargetSessionId === undefined
+      ? undefined
+      : {
+          standingInSessionId: offerForThisDefinition.sessionId,
+          movingToSessionId: attachTargetSessionId,
+        };
   return (
     <article
       className={
@@ -127,7 +170,7 @@ export function SavedSidekickRow(props: {
           >
             {isDeleting ? "Deleting…" : "Delete"}
           </button>
-          {attachTargetSessionId === undefined || isOfferedForAttach ? null : (
+          {attachTargetSessionId === undefined || isOfferedToTargetSession ? null : (
             <button
               type="button"
               className="meridian-sidekick-row__action"
@@ -138,18 +181,30 @@ export function SavedSidekickRow(props: {
                   definitionName: row.name,
                 });
               }}
-              aria-label={`Attach ${row.name} from here`}
+              aria-label={
+                offerSupersession === undefined
+                  ? `Attach ${row.name} from here`
+                  : `Attach ${row.name} from here, moving the offer waiting in ${offerSupersession.standingInSessionId}`
+              }
             >
               Attach from here
             </button>
           )}
         </div>
       )}
-      {isOfferedForAttach ? (
+      {offerForThisDefinition === undefined ? null : (
         <div className="meridian-sidekick-row__handoff" role="group">
           <p className="meridian-sidekick-row__handoff-note">
-            Waiting in <WireFigure value={attachTargetSessionId ?? ""} />. That session&rsquo;s
+            Waiting in <WireFigure value={offerForThisDefinition.sessionId} />. That session&rsquo;s
             attach form opens on this sidekick.
+            {offerSupersession === undefined ? null : (
+              <>
+                {" "}
+                Attaching from here moves it to{" "}
+                <WireFigure value={offerSupersession.movingToSessionId} /> instead — this window
+                holds one offer at a time.
+              </>
+            )}
           </p>
           <button
             type="button"
@@ -162,7 +217,7 @@ export function SavedSidekickRow(props: {
             Not now
           </button>
         </div>
-      ) : null}
+      )}
       {refusal === undefined ? null : (
         <InlineRefusal
           code={refusal.code}

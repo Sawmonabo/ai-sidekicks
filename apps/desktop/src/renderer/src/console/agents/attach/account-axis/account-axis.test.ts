@@ -10,14 +10,16 @@
 // object rather than standing up a bridge: a state a live reading reaches only through
 // a particular sequence of pushes is one literal here.
 
-import type {
-  ProviderAccount,
-  ProviderAccountId,
-  ProviderReadiness,
+import {
+  PROVIDER_ACCOUNT_HEALTH_STATES,
+  type ProviderAccount,
+  type ProviderAccountId,
+  type ProviderReadiness,
 } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../../core/index.js";
+import { formatDateTime } from "../../../primitives/index.js";
 
 import {
   accountAdvisoriesFor,
@@ -236,8 +238,99 @@ describe("the attach form's account axis — what it says about one account", ()
     const chosen = chosenAccountIn(reading, "acct-team");
 
     expect(chosen === undefined ? [] : accountAdvisoriesFor(chosen)).toEqual([
-      "No stored observation has decided about this account.",
+      "This account has never been observed.",
     ]);
+  });
+});
+
+describe("the attach form's account axis — what the stored reading is allowed to claim", () => {
+  /** The stored-health sentence for one account, which is always the first line. */
+  function storedReadingFor(
+    overrides: Partial<ProviderAccount> = {},
+    locale?: string,
+  ): string | undefined {
+    const reading = attachAccountAxisReadingFor(served([account(overrides)]), "claude");
+    const chosen = chosenAccountIn(reading, "acct-team");
+    return chosen === undefined ? undefined : accountAdvisoriesFor(chosen, locale)[0];
+  }
+
+  it("claims credential presence and local health, never that the provider is accepting it", () => {
+    // The defect this case exists for: four things write this state and the weakest of
+    // them — the background observer — reads LOCAL credential state and never asks the
+    // provider anything, so a server-revoked credential sits in this arm untouched. A
+    // sentence saying the account was "found signed in" reports that observer's reading
+    // as a confirmation nobody obtained.
+    const stored = storedReadingFor({ healthState: "authenticated" }) ?? "";
+
+    expect(stored).toContain("found a credential in this account's home");
+    expect(stored).toContain("nothing local reporting it dead");
+    expect(stored).toContain("decided when a run starts");
+    expect(stored).not.toContain("signed in.");
+  });
+
+  it("names what a reauth-required account needs rather than who asked for it", () => {
+    // A terminal authentication refusal on a token-mode account lands in this arm and
+    // the provider asked for nothing there — the remedy is a token minted at the
+    // provider and re-supplied, so wording it as a request the provider made would be
+    // false of one of its producers.
+    const stored = storedReadingFor({ healthState: "reauth_required" }) ?? "";
+
+    expect(stored).toContain("needing a fresh sign-in");
+    expect(stored).not.toContain("The provider asked");
+  });
+
+  it("says when the observation was taken, in every arm that has one", () => {
+    const instant = formatDateTime(OBSERVED_AT);
+
+    for (const healthState of PROVIDER_ACCOUNT_HEALTH_STATES) {
+      expect(storedReadingFor({ healthState, healthObservedAt: OBSERVED_AT }) ?? "").toContain(
+        instant,
+      );
+    }
+  });
+
+  it("tells a never-observed account apart from one an observation could not decide", () => {
+    // The two facts the timestamp exists to separate: both project `indeterminate`, so
+    // a sentence keyed on the state alone reports "we looked and could not tell" over
+    // an account nothing has ever looked at.
+    const neverObserved = storedReadingFor({
+      healthState: "indeterminate",
+      healthObservedAt: null,
+    });
+    const undecided = storedReadingFor({
+      healthState: "indeterminate",
+      healthObservedAt: OBSERVED_AT,
+    });
+
+    expect(neverObserved).toBe("This account has never been observed.");
+    expect(undecided).toContain("did not decide about this account");
+    expect(undecided).not.toBe(neverObserved);
+  });
+
+  it("renders the instant through the console's one date formatter and no second one", () => {
+    // Asserted against the chokepoint's own output rather than against a spelling this
+    // file writes out: a second `Intl.DateTimeFormat` here would agree with the field
+    // today and drift from it the moment the chokepoint's field list moves.
+    const britishInstant = formatDateTime(OBSERVED_AT, "en-GB");
+    const germanInstant = formatDateTime(OBSERVED_AT, "de-DE");
+
+    // The two readings differ, so a `locale` this model accepted and then dropped could
+    // not pass both of the assertions below.
+    expect(germanInstant).not.toBe(britishInstant);
+    expect(storedReadingFor({}, "en-GB") ?? "").toContain(britishInstant);
+    expect(storedReadingFor({}, "de-DE") ?? "").toContain(germanInstant);
+  });
+
+  it("costs the sentence its reading and never the field when the stamp is unreadable", () => {
+    // `healthObservedAt` is parsed at the bridge door, so this is the belt: the
+    // formatter answers an em dash for a stamp it cannot read, and the advisory still
+    // says which state was stored.
+    const readAdvisory = (): string | undefined =>
+      storedReadingFor({ healthObservedAt: "the day before yesterday" });
+
+    expect(readAdvisory).not.toThrow();
+    expect(readAdvisory() ?? "").toContain("\u2014");
+    expect(readAdvisory() ?? "").toContain("found a credential in this account's home");
   });
 });
 
