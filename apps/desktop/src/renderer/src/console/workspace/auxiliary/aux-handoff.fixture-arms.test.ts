@@ -21,6 +21,7 @@ import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
 import { AUXILIARY_WINDOW_CHANNELS } from "@ai-sidekicks/contracts";
 
+import { SIDEKICKS_BRIDGE_NAMESPACES } from "../../bridge/bridge-shape.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
@@ -42,13 +43,22 @@ interface ShellCallLog {
 }
 
 /**
- * Install a `window` namespace the way a preload does, and record what reaches it.
+ * Put a bridge on the window the way a preload does, with one real `window` namespace.
  *
  * ONLY THE NAMESPACE UNDER TEST IS REAL. `readInstalledBridge` probes that every
  * contract namespace is an object and nothing more, so the rest are empty objects —
  * a fuller stand-in would be a second declaration of the preload contract, which is
  * the thing `bridge-shape.test.ts` exists to compare against rather than duplicate.
+ * The namespace NAMES are read off the contract's own table for the same reason: a
+ * hand-written list here went stale the moment the contract grew a namespace, and
+ * the probe then read these cases' shell as absent.
  */
+function installBridgeWith(namespace: SidekicksBridge["window"]): void {
+  const bridge = Object.fromEntries(SIDEKICKS_BRIDGE_NAMESPACES.map((name) => [name, {}]));
+  (globalThis as { sidekicks?: unknown }).sidekicks = { ...bridge, window: namespace };
+}
+
+/** Install a `window` namespace the way a preload does, and record what reaches it. */
 function installShell(): ShellCallLog {
   const log: ShellCallLog = { detached: [], focused: [] };
   const namespace: SidekicksBridge["window"] = {
@@ -63,15 +73,7 @@ function installShell(): ShellCallLog {
     subscribePaneErrors: () => () => undefined,
     subscribePaneReturns: () => () => undefined,
   };
-  (globalThis as { sidekicks?: unknown }).sidekicks = {
-    daemon: {},
-    controlPlane: {},
-    native: {},
-    webAuthn: {},
-    window: namespace,
-    update: {},
-    app: {},
-  };
+  installBridgeWith(namespace);
   return log;
 }
 
@@ -99,15 +101,7 @@ function installShellWithNoHandlers(): void {
     subscribePaneErrors: () => () => undefined,
     subscribePaneReturns: () => () => undefined,
   };
-  (globalThis as { sidekicks?: unknown }).sidekicks = {
-    daemon: {},
-    controlPlane: {},
-    native: {},
-    webAuthn: {},
-    window: namespace,
-    update: {},
-    app: {},
-  };
+  installBridgeWith(namespace);
 }
 
 function handoffOverFixture(): AuxiliaryHandoff {
