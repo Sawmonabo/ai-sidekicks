@@ -246,7 +246,9 @@ describe("launched bodies charge every bounded wait to the allowance", () => {
   it("finds the tiers, and finds waits in them", () => {
     // Without this, a wrong directory or a needle that matches nothing would
     // scan an empty set and every assertion below would pass over it.
-    expect(sources.map((source) => source.path)).toContain("e2e/frame-boot.test.ts");
+    expect(sources.map((source) => source.path)).toContain(
+      "e2e/colour-scheme-lost-on-reload.test.ts",
+    );
     expect(sources.map((source) => source.path)).toContain("endurance/console-workload.ts");
     // The shared half. Without it the list above would be satisfied by a scan that
     // dropped every flat module, which is the state that let a body's waits sit

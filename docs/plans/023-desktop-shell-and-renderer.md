@@ -1305,7 +1305,10 @@ shipped:
       - apps/desktop/test/console/budget/heap-budget.test.ts
       - apps/desktop/test/console/budget/release-absence.test.ts
       - apps/desktop/test/console/console-harness.tsx
-      - apps/desktop/test/console/e2e/frame-boot.test.ts
+      - apps/desktop/test/console/e2e/colour-scheme-lost-on-reload.test.ts
+      - apps/desktop/test/console/e2e/console-came-up-blank.test.ts
+      - apps/desktop/test/console/e2e/node-globals-reached-the-renderer.test.ts
+      - apps/desktop/test/console/e2e/palette-opened-without-focus.test.ts
       - apps/desktop/test/console/electron-harness.ts
       - apps/desktop/test/console/endurance/console-workload.ts
       - apps/desktop/test/console/endurance/heap-at-rest.test.ts

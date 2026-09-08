@@ -69,8 +69,10 @@ const AGGREGATE_EXEMPT_PROJECTS: ReadonlyMap<string, string> = new Map([
   ],
   [
     "console-bench",
-    "Not one of the nine tiers: it records timings into a ledger a person reads. A benchmark " +
-      "that can fail a gate is a gate that fails on someone else's noisy laptop.",
+    "Each run appends its absolutes to `test/console/bench/ledger.json`, a curated record a " +
+      "person reads, and no `pnpm test` should rewrite one as a side effect of running the " +
+      "suite. CI runs it in its own step with `CONSOLE_BENCH_LEDGER_PATH` pointed at the " +
+      "runner's temp directory, so the tier is still required there.",
   ],
 ]);
 
@@ -80,13 +82,15 @@ const AGGREGATE_EXEMPT_PROJECTS: ReadonlyMap<string, string> = new Map([
  * Strictly smaller than the aggregate exemptions, and it has to be: a tier can be
  * too platform-bound for an arbitrary developer machine and still be required on
  * a runner class the workflow pins.
+ *
+ * EMPTY since 2026-09-08, and that is the claim: every project this package declares
+ * runs in a required check. It held `console-bench` on the ground that the tier gated
+ * nothing by construction — which was true of an unwired tier and is not an argument
+ * that it should stay unwired. Both of its arms assert a ratio with a wide margin
+ * rather than an absolute timing, so a noisy runner cannot fail one; the workflow now
+ * runs it in its own step with the ledger redirected to the runner's temp directory.
  */
-const REQUIRED_CI_EXEMPT_PROJECTS: ReadonlyMap<string, string> = new Map([
-  [
-    "console-bench",
-    "It gates nothing by construction, so there is no required check for it to be named in.",
-  ],
-]);
+const REQUIRED_CI_EXEMPT_PROJECTS: ReadonlyMap<string, string> = new Map();
 
 /** Escape a literal for embedding in a `RegExp`. One implementation, two callers. */
 function escapeForRegExp(literal: string): string {

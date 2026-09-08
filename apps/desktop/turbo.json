@@ -268,10 +268,21 @@
       "cache": false
     },
     "test:console-bench": {
-      // Not one of the nine tiers and deliberately not on the `test` aggregate:
-      // it records timings into a ledger a person reads. A benchmark that can
-      // fail a gate is a gate that fails on someone else's noisy laptop.
-      "inputs": ["test/console/bench/**", "vitest.config.*"],
+      // Not one of the nine tiers and deliberately not on the `test` aggregate,
+      // because each run APPENDS its absolutes to `test/console/bench/ledger.json`
+      // — a curated record a person reads, which no test run should rewrite as a
+      // side effect. It does gate: CI runs it in its own step with the ledger
+      // pointed at the runner's temp directory, and both arms assert a RATIO with
+      // a wide margin rather than a millisecond count, so a noisy runner cannot
+      // fail it and an apply path that lost its partitioning can.
+      //
+      // `passThroughEnv` is what makes that redirection reach the runner: Turborepo
+      // 2's default `strict` env mode filters out every variable no task declares,
+      // so without this line CI would append to the checked-in ledger instead.
+      // Not `env`: the value is a path that differs per machine and says nothing
+      // about what the task computes, and this task is uncached anyway.
+      "inputs": ["src/renderer/src/console/**", "test/console/bench/**", "vitest.config.*"],
+      "passThroughEnv": ["CONSOLE_BENCH_LEDGER_PATH"],
       "outputs": [],
       "cache": false
     },
