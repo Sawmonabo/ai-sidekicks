@@ -303,6 +303,12 @@
   cursor: pointer;
 }
 
+/*
+ * What the daemon answered the last press. Declared here beside the act it settles,
+ * rendered by the run pane's submit channel BENEATH the form rather than inside it:
+ * the settlement is the seat's reading of the daemon's reply and not part of the answer,
+ * so a body supplied by another plan gets it drawn without owning a line of it.
+ */
 .meridian-schema-answer__settlement {
   display: flex;
   align-items: center;

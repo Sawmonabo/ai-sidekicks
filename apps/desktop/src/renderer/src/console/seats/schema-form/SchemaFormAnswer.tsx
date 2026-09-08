@@ -65,15 +65,6 @@ export interface SchemaFormAnswerProps {
   readonly inputSchema: unknown;
   /** Send the composed answer. Called with whatever input mode composed it. */
   readonly onSubmit: (answer: unknown) => void;
-  /**
-   * Where the last press got to, rendered beside the control that made it.
-   *
-   * A node rather than a settlement type, because what a settlement MEANS is the
-   * mounting surface's — this form owns what a schema draws and the act that sends it,
-   * and the run pane owns what the daemon said back. Beside the button rather than
-   * under the form, so nothing changed reads where the act was asked for.
-   */
-  readonly children?: React.ReactNode;
 }
 
 /** The label the one act carries. Written once, read by the control and by its tests. */
@@ -123,7 +114,6 @@ export function SchemaFormAnswer(props: SchemaFormAnswerProps): React.JSX.Elemen
             <button type="submit" className="meridian-schema-answer__submit">
               {SUBMIT_LABEL}
             </button>
-            {props.children}
           </div>
         </>
       )}
