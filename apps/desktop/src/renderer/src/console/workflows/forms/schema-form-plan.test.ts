@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SCHEMA_FIELD_KINDS, type SchemaFormPlan } from "./schema-fields.js";
+import { leafPathOf, SCHEMA_FIELD_KINDS, type SchemaFormPlan } from "./schema-fields.js";
 import { planSchemaForm } from "./schema-form-plan.js";
 
 /** One object schema over the given members, with the given ones required. */
@@ -200,7 +200,7 @@ describe("the schema field mapper", () => {
     if (plan.shape !== "raw") {
       return;
     }
-    expect(plan.fallback.cause).toBe("group-default-undrawable");
+    expect(plan.fallback.cause).toBe("default-undrawable");
     expect(plan.fallback.memberPath).toEqual(["release"]);
     expect(plan.fallback.detail).toContain("/release");
   });
@@ -214,7 +214,7 @@ describe("the schema field mapper", () => {
 
     expect(plan).toMatchObject({
       shape: "raw",
-      fallback: { cause: "group-default-undrawable", memberPath: ["release"] },
+      fallback: { cause: "default-undrawable", memberPath: ["release"] },
     });
   });
 
@@ -230,7 +230,7 @@ describe("the schema field mapper", () => {
 
     expect(plan).toMatchObject({
       shape: "raw",
-      fallback: { cause: "group-default-undrawable", memberPath: ["release"] },
+      fallback: { cause: "default-undrawable", memberPath: ["release"] },
     });
   });
 
@@ -246,7 +246,7 @@ describe("the schema field mapper", () => {
 
     expect(plan).toMatchObject({
       shape: "raw",
-      fallback: { cause: "group-default-undrawable", memberPath: ["release"] },
+      fallback: { cause: "default-undrawable", memberPath: ["release"] },
     });
   });
 
@@ -261,17 +261,102 @@ describe("the schema field mapper", () => {
     expect(entry?.form === "group" ? entry.group.defaultValue : undefined).toEqual({ tag: "v1" });
   });
 
+  it("sends a root combinator that can require a member no control draws to the raw editor", () => {
+    // Drawn, this form offers one control for `kind` and none for either member the
+    // constraint can ask for — so the root finding is visible and there is nothing on the
+    // screen a person could do about it.
+    const plan = planSchemaForm({
+      ...objectSchema({ kind: { type: "string" } }),
+      oneOf: [{ required: ["email"] }, { required: ["phone"] }],
+    });
+
+    expect(plan.shape).toBe("raw");
+    if (plan.shape !== "raw") {
+      return;
+    }
+    expect(plan.fallback.cause).toBe("root-constraint-undrawable");
+    expect(plan.fallback.memberPath).toEqual(["email"]);
+    expect(plan.fallback.detail).toContain("/email");
+  });
+
+  it("negative control: a root combinator requiring only drawn members stays a drawn form", () => {
+    const plan = planSchemaForm({
+      ...objectSchema({ email: { type: "string" }, phone: { type: "string" } }),
+      oneOf: [{ required: ["email"] }, { required: ["phone"] }],
+    });
+
+    const [email, phone] = drawnEntries(plan);
+
+    expect(email?.form === "field" ? email.field.memberPath : undefined).toEqual(["email"]);
+    expect(phone?.form === "field" ? phone.field.memberPath : undefined).toEqual(["phone"]);
+  });
+
+  it("sends a dependency that can require an undrawn member to the raw editor", () => {
+    const plan = planSchemaForm({
+      ...objectSchema({ card: { type: "string" } }),
+      dependentRequired: { card: ["billingAddress"] },
+    });
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "root-constraint-undrawable", memberPath: ["billingAddress"] },
+    });
+  });
+
+  it("sends a scalar default its own control could not display to the raw editor", () => {
+    const plan = planSchemaForm(objectSchema({ retries: { type: "number", default: "auto" } }));
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "default-undrawable", memberPath: ["retries"] },
+    });
+  });
+
+  it("sends a collection default that is not a list of drawable entries to the raw editor", () => {
+    for (const declared of ["ada", [7]]) {
+      expect(
+        planSchemaForm(
+          objectSchema({
+            reviewers: { type: "array", items: { type: "string" }, default: declared },
+          }),
+        ),
+      ).toMatchObject({
+        shape: "raw",
+        fallback: { cause: "default-undrawable", memberPath: ["reviewers"] },
+      });
+    }
+  });
+
+  it("sends a repeated control's own default its entry could not display to the raw editor", () => {
+    // The item's `default` is what EVERY added entry opens holding, so a value of another
+    // kind is the same divergence repeated once per press of the add control.
+    const plan = planSchemaForm(
+      objectSchema({ scores: { type: "array", items: { type: "number", default: "high" } } }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "default-undrawable", memberPath: ["scores"] },
+    });
+  });
+
+  it("negative control: declared values their own controls can show are drawn and carried", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        retries: { type: "number", default: 3 },
+        reviewers: { type: "array", items: { type: "string", default: "ada" }, default: ["ada"] },
+      }),
+    );
+    const [retries, reviewers] = drawnEntries(plan);
+
+    expect(retries?.form === "field" ? retries.field.defaultValue : undefined).toBe(3);
+    expect(reviewers?.form === "list" ? reviewers.list.defaultValue : undefined).toEqual(["ada"]);
+    expect(reviewers?.form === "list" ? reviewers.list.item.defaultValue : undefined).toBe("ada");
+  });
+
   it("never refuses: a schema it cannot read at all still resolves to the raw arm", () => {
     for (const unreadable of [undefined, null, 42, "a schema", [], { $ref: "#/x" }]) {
       expect(planSchemaForm(unreadable).shape).toBe("raw");
     }
   });
 });
-
-/** One leaf's addressed path, whichever of the two forms it took. */
-function leafPathOf(
-  leaf: { readonly form: "field" | "list" } & Record<string, unknown>,
-): readonly string[] {
-  const held = leaf.form === "field" ? leaf["field"] : leaf["list"];
-  return (held as { readonly memberPath: readonly string[] }).memberPath;
-}

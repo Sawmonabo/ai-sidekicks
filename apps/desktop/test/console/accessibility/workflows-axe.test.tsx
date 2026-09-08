@@ -133,7 +133,7 @@ describe("accessibility — the workflows surfaces", () => {
         onSubmit={() => undefined}
       />,
     );
-    const addEntry = screen.getByRole("button", { name: "Add an entry" });
+    const addEntry = screen.getByRole("button", { name: "Add an entry to Reviewers" });
     fireEvent.click(addEntry);
     fireEvent.click(addEntry);
     // Stated before it is measured: an audit of a list with no entries is an audit of

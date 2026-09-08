@@ -1,13 +1,22 @@
 // The mapper: what a human phase's input schema turns into, and where it stops turning into
 // one. The vocabulary it produces — the six kinds, the descriptors, the fallback causes — lives
-// in `schema-fields.ts`; this module is the walk from an untyped schema to that vocabulary.
+// in `schema-fields.ts`; what one member schema DECLARES is read in `schema-declarations.ts`;
+// this module is the walk between them.
 //
-// EVERYTHING ELSE FALLS BACK, AND NOTHING REFUSES. `$ref`, `oneOf`, a tuple's
-// positional `items`, a nullable union, an object nested two deep: each of them is a
-// schema this mapper cannot draw richly, and the answer is the raw editor beside the
-// schema rather than a phase nobody can answer. The fallback carries WHICH member sent
-// it there, because "this form could not be drawn" with no member named is a sentence
-// an author cannot act on.
+// EVERYTHING ELSE FALLS BACK, AND NOTHING REFUSES. `$ref`, a tuple's positional
+// `items`, a nullable union, an object nested two deep: each of them is a schema this
+// mapper cannot draw richly, and the answer is the raw editor beside the schema rather
+// than a phase nobody can answer. The fallback carries WHICH member sent it there,
+// because "this form could not be drawn" with no member named is a sentence an author
+// cannot act on.
+//
+// AND TWO OF THE FALLBACKS ARE ABOUT A FORM THAT WOULD HAVE DRAWN PERFECTLY. A declared
+// value no control could display, and a root constraint that can require a member
+// `properties` never declared, both produce controls that render and an answer nobody can
+// make valid — the first by seeding a value the control does not show, the second by
+// reporting a finding no control on the screen can clear. Both are decided here, before
+// the plan says "fields", because deciding them later means deciding them after somebody
+// has started typing.
 //
 // THE INPUT IS `unknown` BY CONSTRUCTION. A phase definition carries its config as an
 // untyped record — the wire declares no shape for it — so every read here is a probe
@@ -15,126 +24,24 @@
 
 import { encodeMemberPointer, type SchemaMemberPath } from "../../bridge/index.js";
 import {
-  ARTIFACT_REFERENCE_FORMAT,
-  LONG_TEXT_FORMAT,
+  asRecord,
+  declaredType,
+  descriptionOf,
+  fieldDescriptor,
+  fieldKindOf,
+  labelOf,
+  requiredKeysOf,
+} from "./schema-declarations.js";
+import {
+  leafKeyOf,
+  leafPathOf,
   type SchemaFallback,
-  type SchemaFieldDescriptor,
-  type SchemaFieldKind,
   type SchemaFormEntry,
   type SchemaFormPlan,
   type SchemaLeafEntry,
   valueSuitsFieldKind,
 } from "./schema-fields.js";
-
-/** A JSON value read as a record, or nothing where it is not one. */
-function asRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : undefined;
-}
-
-/** The declared `type`, as the one string draft-07 spells it with. */
-function declaredType(schema: Readonly<Record<string, unknown>>): string | undefined {
-  return typeof schema["type"] === "string" ? schema["type"] : undefined;
-}
-
-/** The enum's members where every one of them is a string, else nothing. */
-function stringEnumOf(schema: Readonly<Record<string, unknown>>): readonly string[] | undefined {
-  const members = schema["enum"];
-  if (!Array.isArray(members) || members.length === 0) {
-    return undefined;
-  }
-  return members.every((member) => typeof member === "string")
-    ? (members as readonly string[])
-    : undefined;
-}
-
-/** The schema's `format`, which is where the two string-shaped kinds are declared. */
-function declaredFormat(schema: Readonly<Record<string, unknown>>): string | undefined {
-  return typeof schema["format"] === "string" ? schema["format"] : undefined;
-}
-
-/**
- * Which of the six a member schema is, or nothing where it is none of them.
- *
- * Order matters in one place and only one: `enum` is read BEFORE `type`, because an
- * enumerated string carries both and the choice control is the richer reading of it.
- */
-function fieldKindOf(schema: Readonly<Record<string, unknown>>): SchemaFieldKind | undefined {
-  if (stringEnumOf(schema) !== undefined) {
-    return "choice";
-  }
-  const type = declaredType(schema);
-  if (type === "boolean") {
-    return "checkbox";
-  }
-  if (type === "number" || type === "integer") {
-    return "number";
-  }
-  if (type !== "string") {
-    return undefined;
-  }
-  const format = declaredFormat(schema);
-  if (format === ARTIFACT_REFERENCE_FORMAT) {
-    return "artifact-reference";
-  }
-  return format === LONG_TEXT_FORMAT ? "long-text" : "text";
-}
-
-/** What a person reads above a control: the schema's `title`, else the member's key. */
-function labelOf(schema: Readonly<Record<string, unknown>>, key: string): string {
-  return typeof schema["title"] === "string" && schema["title"].length > 0 ? schema["title"] : key;
-}
-
-/** The schema's own sentence about this member, where it wrote one. */
-function descriptionOf(schema: Readonly<Record<string, unknown>>): string | undefined {
-  return typeof schema["description"] === "string" && schema["description"].length > 0
-    ? schema["description"]
-    : undefined;
-}
-
-/** The keys this object schema declares required, as a set that answers by key. */
-function requiredKeysOf(schema: Readonly<Record<string, unknown>>): ReadonlySet<string> {
-  const required = schema["required"];
-  return new Set(
-    Array.isArray(required) ? required.filter((key): key is string => typeof key === "string") : [],
-  );
-}
-
-/** One control, composed from the member schema and where it sits. */
-function fieldDescriptor(
-  schema: Readonly<Record<string, unknown>>,
-  kind: SchemaFieldKind,
-  memberPath: readonly string[],
-  key: string,
-  isRequired: boolean,
-): SchemaFieldDescriptor {
-  return {
-    memberPath,
-    label: labelOf(schema, key),
-    description: descriptionOf(schema),
-    kind,
-    isRequired,
-    choices: kind === "choice" ? stringEnumOf(schema) : undefined,
-    isInteger: declaredType(schema) === "integer",
-    multipleOf: multipleOfOf(schema),
-    defaultValue: schema["default"],
-  };
-}
-
-/**
- * The schema's `multipleOf`, or nothing where it declared none worth stepping by.
- *
- * JSON Schema requires it to be strictly positive; a zero, a negative, or a non-finite
- * value is a schema the validator will refuse on its own terms, and a control given
- * that as a step would refuse every answer before the validator could say why.
- */
-function multipleOfOf(schema: Readonly<Record<string, unknown>>): number | undefined {
-  const declared = schema["multipleOf"];
-  return typeof declared === "number" && Number.isFinite(declared) && declared > 0
-    ? declared
-    : undefined;
-}
+import { membersRootConstraintsCanRequire } from "./schema-root-constraints.js";
 
 /** The raw-editor answer for one member that could not be drawn. */
 function outOfSet(memberPath: SchemaMemberPath): SchemaFallback {
@@ -145,12 +52,21 @@ function outOfSet(memberPath: SchemaMemberPath): SchemaFallback {
   };
 }
 
-/** The raw-editor answer for a group whose declared value its controls could not show. */
-function undrawableGroupDefault(memberPath: SchemaMemberPath): SchemaFallback {
+/** The raw-editor answer for a declared value the control at that member could not show. */
+function undrawableDefault(memberPath: SchemaMemberPath): SchemaFallback {
   return {
-    cause: "group-default-undrawable",
+    cause: "default-undrawable",
     memberPath,
     detail: `The schema declares a value for ${encodeMemberPointer(memberPath)} that these controls could not show, so the whole answer is given as JSON instead.`,
+  };
+}
+
+/** The raw-editor answer for a root constraint that can require a member nothing draws. */
+function undrawableRootConstraint(memberPath: SchemaMemberPath): SchemaFallback {
+  return {
+    cause: "root-constraint-undrawable",
+    memberPath,
+    detail: `The schema can require ${encodeMemberPointer(memberPath)}, which it declares no member for, so the whole answer is given as JSON instead.`,
   };
 }
 
@@ -165,13 +81,6 @@ function valueSuitsLeaf(leaf: SchemaLeafEntry, value: unknown): boolean {
   return (
     Array.isArray(value) && value.every((entry) => valueSuitsFieldKind(leaf.list.item.kind, entry))
   );
-}
-
-/** The key one leaf answers under inside its group: the last segment of its own path. */
-function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
-  const memberPath = leaf.form === "field" ? leaf.field.memberPath : leaf.list.memberPath;
-  const last = memberPath[memberPath.length - 1];
-  return last === undefined ? undefined : String(last);
 }
 
 /**
@@ -207,6 +116,34 @@ function planLeaf(
   if (schema === undefined) {
     return outOfSet(memberPath);
   }
+  const leaf = planLeafShape(schema, memberPath, key, isRequired);
+  if (isFallback(leaf)) {
+    return leaf;
+  }
+  // ASKED OF THE LEAF THAT WAS JUST BUILT, and through the one predicate a group's own
+  // declared value is read by: the schema's `default` is what this control opens holding,
+  // so a value of another kind is a control rendering its empty state over an answer that
+  // already carries something. Seeding it silently is how `{ type: "number",
+  // default: "auto" }` sent a string nobody had seen and nobody could clear.
+  const declaredDefault = schema["default"];
+  return declaredDefault !== undefined && !valueSuitsLeaf(leaf, declaredDefault)
+    ? undrawableDefault(memberPath)
+    : leaf;
+}
+
+/**
+ * Which of the two leaf shapes a member schema draws as.
+ *
+ * The MEMBER's own declared value is the caller's, because both shapes read it the same
+ * way. The list ITEM's is read here, because it is the only value with no leaf of its own
+ * to be asked about — one descriptor stands for every entry a person adds.
+ */
+function planLeafShape(
+  schema: Readonly<Record<string, unknown>>,
+  memberPath: readonly string[],
+  key: string,
+  isRequired: boolean,
+): SchemaLeafEntry | SchemaFallback {
   const kind = fieldKindOf(schema);
   if (kind !== undefined) {
     return { form: "field", field: fieldDescriptor(schema, kind, memberPath, key, isRequired) };
@@ -220,6 +157,13 @@ function planLeaf(
     // A tuple's positional `items`, an array of objects, an array of arrays: each is a
     // repetition of something this form has no control for, so the array goes with it.
     return outOfSet(memberPath);
+  }
+  // The ITEM's own declared value, which is what every added entry opens holding. Its
+  // control is the repeated one, so the same reading applies one level in — and the
+  // member named is the collection's, because that is the control a person can see.
+  const declaredEntryValue = items["default"];
+  if (declaredEntryValue !== undefined && !valueSuitsFieldKind(itemKind, declaredEntryValue)) {
+    return undrawableDefault(memberPath);
   }
   return {
     form: "list",
@@ -268,7 +212,7 @@ function planGroup(
   if (declaredDefault !== undefined) {
     const declaredMembers = asRecord(declaredDefault);
     if (declaredMembers === undefined || !groupDefaultIsDrawable(declaredMembers, entries)) {
-      return undrawableGroupDefault(memberPath);
+      return undrawableDefault(memberPath);
     }
   }
   return {
@@ -281,6 +225,35 @@ function planGroup(
       defaultValue: declaredDefault,
     },
   };
+}
+
+/** The root key each drawn entry answers under, whichever form it took. */
+function drawnRootMemberNames(entries: readonly SchemaFormEntry[]): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const entry of entries) {
+    const memberPath = entry.form === "group" ? entry.group.memberPath : leafPathOf(entry);
+    const rootSegment = memberPath[0];
+    if (rootSegment !== undefined) {
+      names.add(String(rootSegment));
+    }
+  }
+  return names;
+}
+
+/**
+ * The first member the root's constraints can require and these controls do not draw.
+ *
+ * ONE NAME AND NOT THE SET, because the fallback shows a person one sentence and that
+ * sentence names one member — the first met walking the schema as written, which is the
+ * one an author reading their own document would look for first. The rest are the same
+ * defect and are found again the moment this one is declared.
+ */
+function undrawnConstraintMember(
+  schema: Readonly<Record<string, unknown>>,
+  entries: readonly SchemaFormEntry[],
+): string | undefined {
+  const drawn = drawnRootMemberNames(entries);
+  return membersRootConstraintsCanRequire(schema).find((memberName) => !drawn.has(memberName));
 }
 
 /**
@@ -329,6 +302,13 @@ export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
       return { shape: "raw", fallback: planned };
     }
     entries.push(planned);
+  }
+  // LAST, BECAUSE IT IS ASKED OF THE CONTROLS THAT WERE ACTUALLY DRAWN. Every member the
+  // root's own constraints can require has to reach one of them; a name that reaches none
+  // is a finding reported against the whole answer with nothing on the screen to clear it.
+  const undrawnMember = undrawnConstraintMember(schema, entries);
+  if (undrawnMember !== undefined) {
+    return { shape: "raw", fallback: undrawableRootConstraint([undrawnMember]) };
   }
   return { shape: "fields", entries };
 }

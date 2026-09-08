@@ -52,18 +52,13 @@ import {
   issuesForMember,
   ROOT_MEMBER_PATH,
 } from "./schema-field-control.js";
-import type { SchemaFormEntry, SchemaLeafEntry } from "./schema-fields.js";
-import { encodeMemberPointer, type SchemaMemberPath } from "../../bridge/index.js";
+import { leafPathOf, type SchemaFormEntry, type SchemaLeafEntry } from "./schema-fields.js";
+import { encodeMemberPointer } from "../../bridge/index.js";
 import type { SchemaFormState } from "./use-schema-form.js";
 
 export interface SchemaFormProps {
   /** The whole of the form's state, held by the caller so it outlives a re-render. */
   readonly form: SchemaFormState;
-}
-
-/** The path a leaf entry addresses, whichever of the two forms it takes. */
-function leafPath(entry: SchemaLeafEntry): SchemaMemberPath {
-  return (entry.form === "field" ? entry.field : entry.list).memberPath;
 }
 
 /** The schema-derived form, drawn or raw. */
@@ -88,7 +83,7 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
   }
 
   const renderLeaf = (entry: SchemaLeafEntry): React.ReactNode => {
-    const memberPath = leafPath(entry);
+    const memberPath = leafPathOf(entry);
     const issues = issuesForMember(form.report, memberPath);
     if (entry.form === "list") {
       return (
@@ -143,7 +138,7 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
         <div
           className="meridian-schema-form__entry"
           key={encodeMemberPointer(
-            entry.form === "group" ? entry.group.memberPath : leafPath(entry),
+            entry.form === "group" ? entry.group.memberPath : leafPathOf(entry),
           )}
         >
           {renderEntry(entry)}

@@ -16,6 +16,14 @@
 // never a wait and never an absence, because a person who has added nothing yet has an
 // empty list and not an unread one.
 //
+// THE TWO CONTROLS THAT CHANGE HOW MANY ARE SPOKEN WITH THE COLLECTION AND DRAWN WITHOUT
+// IT. The legend names the collection to a reader moving down the form and is no part of
+// a button's accessible name, so a form with two lists offered two controls called "Add
+// an entry" and two called "Remove entry 1" — identical to anybody moving between
+// buttons, and each of them changing a collection that person had not chosen. Both names
+// are composed in `schema-fields.ts` beside the entry label they are built from, and the
+// visible text is unchanged: inside the fieldset the short one is already unambiguous.
+//
 // TWO KINDS OF FINDING AND TWO PLACES FOR THEM. What the schema says about the COLLECTION
 // — how few entries, how many, whether two of them are the same — is about this fieldset
 // and is drawn against it. What it says about one entry is about that entry, is addressed
@@ -27,7 +35,7 @@ import { useId } from "react";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaListEntry } from "./SchemaListEntry.js";
 import { describedByOf } from "./schema-field-control.js";
-import type { SchemaListDescriptor } from "./schema-fields.js";
+import { listAppendLabel, listRemoveLabel, type SchemaListDescriptor } from "./schema-fields.js";
 
 export interface SchemaFieldListProps {
   readonly list: SchemaListDescriptor;
@@ -80,6 +88,7 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
             <button
               type="button"
               className="meridian-workflow__action"
+              aria-label={listRemoveLabel(list, index)}
               onClick={() => {
                 props.onRemove(index);
               }}
@@ -89,7 +98,12 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
           </li>
         ))}
       </ol>
-      <button type="button" className="meridian-workflow__action" onClick={props.onAppend}>
+      <button
+        type="button"
+        className="meridian-workflow__action"
+        aria-label={listAppendLabel(list)}
+        onClick={props.onAppend}
+      >
         Add an entry
       </button>
       <SchemaFieldIssues issues={props.issues} issuesId={issuesId} />

@@ -42,6 +42,7 @@
 // added an entry and removed it again.
 
 import {
+  leafKeyOf,
   type SchemaFieldDescriptor,
   type SchemaFieldKind,
   type SchemaFormPlan,
@@ -199,13 +200,6 @@ function openingEntryValue(item: SchemaFieldDescriptor, declaredValue: unknown):
  */
 function declaredEntries(declared: unknown): readonly unknown[] | undefined {
   return Array.isArray(declared) ? (declared as readonly unknown[]) : undefined;
-}
-
-/** Which member of an enclosing group's declared value belongs to this leaf. */
-function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
-  const memberPath = leaf.form === "field" ? leaf.field.memberPath : leaf.list.memberPath;
-  const last = memberPath[memberPath.length - 1];
-  return last === undefined ? undefined : String(last);
 }
 
 /**
