@@ -93,6 +93,16 @@ describe("surface registry — the slot set is one declaration", () => {
     const routes: readonly ConsoleRoute[] = [
       { kind: "sessions" },
       { kind: "workspace", sessionId: "s-1" },
+      // The same workspace address with a phase focus on it, which is a DIFFERENT
+      // surface: the run pane a phase link opens is the workflows family's body and
+      // the bare workspace seat is somebody else's. Without this row the table below
+      // passes over a `surfaceSlotFor` that reads the focus and does nothing with it,
+      // which is exactly the state the address grammar shipped in.
+      {
+        kind: "workspace",
+        sessionId: "s-1",
+        workflowPhase: { workflowRunId: "r-1", phaseId: "p-1" },
+      },
       { kind: "workflows" },
       { kind: "settings", page: undefined },
       { kind: "auxiliary", route: "timeline" },
@@ -103,6 +113,7 @@ describe("surface registry — the slot set is one declaration", () => {
     expect(slots).toStrictEqual([
       "sessions",
       "workspace",
+      "workflow-phase",
       "workflows",
       "settings",
       "timeline",

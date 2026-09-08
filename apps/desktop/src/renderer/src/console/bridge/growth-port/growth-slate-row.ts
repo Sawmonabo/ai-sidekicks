@@ -63,6 +63,7 @@ export type GrowthSlateRowId =
   | "notification-permission-read"
   | "shell-status-signals"
   | "onboarding-desktop-surface"
+  | "workflow-definition-authoring"
   | "health-diagnostics-reads"
   | "provider-account-signin-and-token"
   | "mcp-governance-plane"

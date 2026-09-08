@@ -78,7 +78,7 @@ import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";
 import { registerRepos } from "../../../src/renderer/src/console/repos/index.js";
-import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../src/renderer/src/console/bridge/scenario-runtime/scenario-clock.test-support.js";
 import { sectionContext } from "../../../src/renderer/src/console/repos/pane-contexts.test-support.js";
 import {
   InlineCardSeatRegistry,

@@ -36,46 +36,12 @@
 // and absent by default: the run list renders the same card for a phase in another
 // pane's run and has nowhere to send anybody.
 
-import { Chip, WireFigure, type ChipTone } from "../../primitives/index.js";
+import { Chip, WireFigure } from "../../primitives/index.js";
 import { ParkFormRoute, type WorkflowParkFormRoute } from "./ParkFormRoute.js";
+import { PARK_REASON_LABELS, parkAttentionTone } from "./park-presentation.js";
 import { ParkSchedule } from "./ParkSchedule.js";
 import { parkAwaitsPerson } from "../runs/run-list-rows.js";
-import type {
-  WorkflowParkedPhase,
-  WorkflowParkReason,
-  WorkflowParkSchedule,
-} from "../runs/run-list-rows.js";
-
-/**
- * What each reason is called on screen.
- *
- * Total over the closed reason set, so a third reason is a compile error here
- * rather than a phase that parks and says nothing. The labels are the console's
- * prose — the wire value is `waiting-human`, and a person reading a list wants the
- * sentence — so they are NOT mono and the wire string travels in the badge's title.
- */
-const PARK_REASON_LABELS: Readonly<Record<WorkflowParkReason, string>> = {
-  "waiting-human": "Waiting on a person",
-  "provider-usage-limited": "Waiting on provider capacity",
-};
-
-/**
- * The tone a park wears, decided by whether anything will end the wait on its own.
- *
- * Amber is spent on "a person is needed" and on nothing else (`Spec-023 §Console
- * Design (Meridian)` rule 3), which is every park that did not arm a boundary this
- * console can read. A scheduled park is a machine waiting for a machine and earns no
- * colour; an unreadable boundary earns the amber, because nothing legible says the
- * run will resume itself.
- *
- * The reading itself is `parkAwaitsPerson`'s and is not made here. The phase graph
- * beside this badge draws the SAME phase and spends the same amber on it, and a badge
- * that decided for itself is how one park came to read as needing nobody in a card
- * and as needing somebody on the node above it.
- */
-function parkTone(schedule: WorkflowParkSchedule): ChipTone {
-  return parkAwaitsPerson(schedule) ? "attention" : "neutral";
-}
+import type { WorkflowParkedPhase } from "../runs/run-list-rows.js";
 
 export interface ParkBadgeProps {
   /**
@@ -102,7 +68,12 @@ export function ParkBadge(props: ParkBadgeProps): React.JSX.Element {
     <div className="meridian-park">
       <div className="meridian-park__head">
         <Chip
-          tone={parkTone(schedule)}
+          // The reading is `parkAwaitsPerson`'s and the tone that follows from it is
+          // `park-presentation.ts`'s, so this badge and the run list's attention fold
+          // spend amber on the same answer. A badge deciding either for itself is how
+          // one park came to read as needing nobody in a card and as needing somebody
+          // on the node above it.
+          tone={parkAttentionTone(parkAwaitsPerson(schedule))}
           glyph={schedule.kind === "armed" ? "clock" : "member"}
           label={PARK_REASON_LABELS[park.parkReason]}
         />

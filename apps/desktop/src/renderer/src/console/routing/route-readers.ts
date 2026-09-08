@@ -123,6 +123,55 @@ export function routeSessionId(route: ConsoleRoute): string | undefined {
   }
 }
 
+/**
+ * One phase of one run, as a workspace address names it.
+ *
+ * DERIVED FROM THE ARM RATHER THAN RESTATED BESIDE IT, which is the console's rule for
+ * a closed shape with more than one reader: a second declaration here would be a shape
+ * that agrees with the grammar until one of them grows a member, and the compiler
+ * reports neither.
+ */
+export type WorkflowPhaseFocus = NonNullable<
+  Extract<ConsoleRoute, { kind: "workspace" }>["workflowPhase"]
+>;
+
+/**
+ * The phase a route is focused on, or `undefined` where it names none.
+ *
+ * PUBLISHED, WHERE THE COMPARISON BELOW USED TO BE THE ONLY READER. The address
+ * `#/session/<sid>/workflow/<rid>/phase/<pid>` parsed into a route nothing outside this
+ * family consumed, so following the link changed the hash and the route identity and
+ * left the window on an unfocused workspace — the phase was addressable and still
+ * unreachable. The surface that mounts it asks this question, and asking it through one
+ * accessor is what keeps the arm's optionality answered in one place rather than at
+ * each consumer.
+ *
+ * TOTAL OVER THE UNION, like {@link routeSessionId} beside it: every other arm answers
+ * `undefined` rather than being narrowed away at the call site, because a caller
+ * holding a `ConsoleRoute` is exactly the caller that does not yet know which arm it is.
+ */
+export function routeWorkflowPhase(route: ConsoleRoute): WorkflowPhaseFocus | undefined {
+  return route.kind === "workspace" ? route.workflowPhase : undefined;
+}
+
+/**
+ * The workspace arm's focus, compared field by field.
+ *
+ * Both-absent is EQUAL and one-absent is not, which is the whole content of the
+ * comparison: a bare workspace address and one focused on a phase of it are two
+ * different places, and treating them as one would make navigating from a run row to
+ * its phase cost no transition and render nothing new.
+ */
+function workflowPhaseFocusesAreEqual(
+  left: WorkflowPhaseFocus | undefined,
+  right: WorkflowPhaseFocus | undefined,
+): boolean {
+  if (left === undefined || right === undefined) {
+    return left === right;
+  }
+  return left.workflowRunId === right.workflowRunId && left.phaseId === right.phaseId;
+}
+
 /** The agent a route is scoped to. Module-private: only the comparison below asks. */
 function routeAgentId(route: ConsoleRoute): string | undefined {
   return route.kind === "auxiliary" && "agentId" in route ? route.agentId : undefined;
@@ -146,7 +195,11 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
     case "workflows":
       return true;
     case "workspace":
-      return right.kind === "workspace" && left.sessionId === right.sessionId;
+      return (
+        right.kind === "workspace" &&
+        left.sessionId === right.sessionId &&
+        workflowPhaseFocusesAreEqual(left.workflowPhase, right.workflowPhase)
+      );
     case "pane-harness":
       return (
         right.kind === "pane-harness" &&
