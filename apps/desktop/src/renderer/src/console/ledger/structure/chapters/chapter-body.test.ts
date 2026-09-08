@@ -12,6 +12,7 @@ import {
   CHAPTER_BODY_FALLBACK_VIEWPORT_HEIGHT,
   CHAPTER_BODY_INTRINSIC_VIEWPORT_HEIGHT,
   ChapterBodyRowWindow,
+  chapterClippedHeadRowCount,
   chapterClippedHeadRowIds,
   resolveChapterBodyViewportHeight,
 } from "./chapter-body.js";
@@ -66,6 +67,36 @@ describe("where the clip falls", () => {
 
   it("returns one identity for every empty head, so a memo over it does not re-run", () => {
     expect(chapterClippedHeadRowIds(["a"])).toBe(chapterClippedHeadRowIds(["b", "c"]));
+  });
+
+  it("counts the clip from the chapter's length alone, without building the list", () => {
+    // The count is what a sealed chapter carries, and it is arithmetic rather than
+    // the length of a list nobody keeps: a chapter of ten thousand rows used to be
+    // sliced into a ten-thousand-element array so that a number could be read off
+    // it and the array thrown away.
+    expect(chapterClippedHeadRowCount(CHAPTER_VISIBLE_ROW_CAP - 1)).toBe(0);
+    expect(chapterClippedHeadRowCount(CHAPTER_VISIBLE_ROW_CAP)).toBe(0);
+    expect(chapterClippedHeadRowCount(CHAPTER_VISIBLE_ROW_CAP + 7)).toBe(7);
+    // A negative length is not reachable, and the floor says what happens anyway
+    // rather than leaving a caller to subtract past zero.
+    expect(chapterClippedHeadRowCount(0)).toBe(0);
+  });
+
+  it("counts exactly what the list form would have listed, at every boundary", () => {
+    // The two forms are one rule with two shapes, and this is what keeps them from
+    // drifting: the arithmetic answer and the sliced answer agree on both sides of
+    // the cap and on the cap itself.
+    for (const length of [
+      0,
+      1,
+      CHAPTER_VISIBLE_ROW_CAP - 1,
+      CHAPTER_VISIBLE_ROW_CAP,
+      CHAPTER_VISIBLE_ROW_CAP + 1,
+      CHAPTER_VISIBLE_ROW_CAP * 2,
+    ]) {
+      const rowIds = Array.from({ length }, (_unused, index) => String(index));
+      expect(chapterClippedHeadRowIds(rowIds)).toHaveLength(chapterClippedHeadRowCount(length));
+    }
   });
 });
 

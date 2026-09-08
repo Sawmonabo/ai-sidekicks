@@ -43,12 +43,26 @@
  * container and a percentage-height chain through a block would collapse the moment
  * the pane's own body wanted to scroll instead. `minmax(0, 1fr)` in both axes is what
  * lets the feed inside be the thing that scrolls.
+ *
+ * AND `max-height` IS WHAT MAKES THAT TRUE RATHER THAN INTENDED. `min-height: 100%`
+ * is a floor and this box has no `height`, so a session whose log outgrew the window
+ * grew the surface instead of scrolling inside it: the frame's own scroller took the
+ * overflow, the ledger's track resolved to its content, and the viewport mounted a
+ * row for every entry in the session — a virtualized list laying out and painting the
+ * whole log every frame, with a cost that grew with the session rather than with the
+ * screen. Measured on the endurance workload, 51 of 51 rows mounted in a 5 541-pixel
+ * track inside a 768-pixel window.
+ *
+ * A CEILING AND NOT A `height`, deliberately: the two produce the same box for a
+ * surface that overflows and differ for one that does not, and only this one leaves
+ * every already-fitting surface exactly where it was.
  */
 .meridian-ledger-surface {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 100%;
+  max-height: 100%;
 }
 
 /* --- The loaded ledger -------------------------------------------------- */

@@ -32,7 +32,7 @@
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../../core/index.js";
+import { CHAPTER_BODY_RETAINED_ROW_CAP, CHAPTER_VISIBLE_ROW_CAP } from "../../../core/index.js";
 
 /**
  * The chapter body's height, as a CSS length.
@@ -99,6 +99,23 @@ export function resolveChapterBodyViewportHeight(
  */
 const EMPTY_HEAD: readonly string[] = Object.freeze([]);
 
+/** The same nothing for the row window below, which answers in rows rather than ids. */
+const EMPTY_HEAD_ROWS: readonly TimelineRow[] = Object.freeze([]);
+
+/**
+ * How many rows of a chapter fall outside the cap, from the chapter's own length.
+ *
+ * THE ONE RULE, AND THE COUNT IS ASKED WITHOUT CUTTING. The figure beside a chapter's
+ * header is a count and the body's list is a selection, and until this existed the
+ * count was taken by cutting the selection and reading its length — which allocated an
+ * array of every clipped id, per chapter, on every pass of a fold that runs once per
+ * admitted event, to answer a subtraction. A ten-thousand-row session paid that
+ * allocation for rows nothing was going to look at.
+ */
+export function chapterClippedHeadRowCount(chapterRowCount: number): number {
+  return Math.max(0, chapterRowCount - CHAPTER_VISIBLE_ROW_CAP);
+}
+
 /**
  * The row ids outside the cap — the chapter's older head, in log order.
  *
@@ -106,12 +123,13 @@ const EMPTY_HEAD: readonly string[] = Object.freeze([]);
  * are the chapter's rows and neither drops one. It is derived from the ids the CALLER
  * holds rather than from the sealed chapter, which is what keeps it right under a
  * narrowing: a filtered chapter carries the admitted ids, so the head this returns is
- * the admitted head and never the whole run's.
+ * the admitted head and never the whole run's. Where the cut falls is
+ * {@link chapterClippedHeadRowCount}'s to say, so the count and the selection cannot
+ * disagree about which rows are outside.
  */
 export function chapterClippedHeadRowIds(rowIds: readonly string[]): readonly string[] {
-  return rowIds.length <= CHAPTER_VISIBLE_ROW_CAP
-    ? EMPTY_HEAD
-    : rowIds.slice(0, rowIds.length - CHAPTER_VISIBLE_ROW_CAP);
+  const clippedCount = chapterClippedHeadRowCount(rowIds.length);
+  return clippedCount === 0 ? EMPTY_HEAD : rowIds.slice(0, clippedCount);
 }
 
 /**
@@ -121,40 +139,57 @@ export function chapterClippedHeadRowIds(rowIds: readonly string[]): readonly st
  * archive: it holds the rows immediately older than the ones the outer list mounted,
  * which is what a person scrolls up into. Keeping every row of a 4,000-row run so a
  * 120-row window could be cut from it would double the fold's per-chapter references
- * to hold rows nothing can draw. Two bounded arrays hold what the body needs and the
- * chapter's own `clippedRowCount` says how much older history there is beyond them,
- * so the body can name what it does not hold rather than implying it does not exist.
+ * to hold rows nothing can draw. One bounded ring holds what the body needs and the
+ * chapter's own `clippedRowCount` says how much older history there is beyond it, so
+ * the body can name what it does not hold rather than implying it does not exist.
+ *
+ * ONE RING AND NOT TWO QUEUES, WHICH IS A COST RULE AND NOT A STYLE ONE. The first
+ * shape held the mounted screen and the displaced head in two arrays and moved a row
+ * between them with `shift()`, which is linear in the array it empties from the front:
+ * every row past the cap paid two 120-element moves, so a ten-thousand-row fold spent
+ * about two and a half milliseconds moving rows it had already placed. The rows this
+ * window keeps are exactly the newest two caps of the chapter, so ONE ring of that
+ * length holds them with a single write per row and no movement at all, and the head
+ * is cut out of it once, at the seal, where the caller asks for it.
  */
 export class ChapterBodyRowWindow {
-  /** The newest rows, which the outer list mounts. Bounded by the chapter's cap. */
-  readonly #mounted: TimelineRow[] = [];
-  /** The rows the mounted window pushed out, newest last. Bounded by the same cap. */
-  readonly #head: TimelineRow[] = [];
+  /** The newest rows, in ring order. Never longer than the retained cap. */
+  readonly #retained: TimelineRow[] = [];
+  /** Where the oldest retained row sits. Zero until the ring has filled once. */
+  #oldestIndex = 0;
 
-  /** Admit one row of the chapter, in log order. */
+  /** Admit one row of the chapter, in log order. Constant cost, whatever the run. */
   public admit(row: TimelineRow): void {
-    this.#mounted.push(row);
-    if (this.#mounted.length <= CHAPTER_VISIBLE_ROW_CAP) {
+    if (this.#retained.length < CHAPTER_BODY_RETAINED_ROW_CAP) {
+      this.#retained.push(row);
       return;
     }
-    const displaced = this.#mounted.shift();
-    if (displaced === undefined) {
-      return;
-    }
-    this.#head.push(displaced);
-    if (this.#head.length > CHAPTER_VISIBLE_ROW_CAP) {
-      this.#head.shift();
-    }
+    this.#retained[this.#oldestIndex] = row;
+    this.#oldestIndex = (this.#oldestIndex + 1) % CHAPTER_BODY_RETAINED_ROW_CAP;
   }
 
   /**
    * The head rows this window still holds, oldest first.
    *
-   * The array itself, not a copy: it is sealed onto the chapter and read, never
-   * written, and a copy per seal would allocate a second bounded array per chapter on
-   * every pass of a fold that already runs once per admitted event.
+   * Cut here rather than maintained on every admit: the caller asks once, when it
+   * seals the chapter, and the ring already holds the rows in the order this walks
+   * them in. A chapter under the cap answers the shared empty value, so a memo over an
+   * empty head does not re-run when the log grows.
    */
   public get headRows(): readonly TimelineRow[] {
-    return this.#head;
+    const retainedCount = this.#retained.length;
+    const headCount = Math.max(0, retainedCount - CHAPTER_VISIBLE_ROW_CAP);
+    if (headCount === 0) {
+      return EMPTY_HEAD_ROWS;
+    }
+    const head: TimelineRow[] = [];
+    for (let offset = 0; offset < headCount; offset += 1) {
+      const row = this.#retained[(this.#oldestIndex + offset) % retainedCount];
+      if (row === undefined) {
+        throw new Error("A chapter body's row ring held a gap where a row was admitted");
+      }
+      head.push(row);
+    }
+    return head;
   }
 }

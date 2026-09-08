@@ -14,6 +14,8 @@
 // as a second number, and never as a silent absence, which would leave a reader
 // treating a floor as a total.
 
+import { useMemo } from "react";
+
 import { WireFigure, formatCentsAsCurrency } from "../../primitives/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { type CastBarSpendReading } from "./cast-bar-readings.js";
@@ -28,7 +30,27 @@ export interface CastBarSpendProps {
 
 export function CastBarSpend(props: CastBarSpendProps): React.JSX.Element {
   const { spend } = props;
-  if (spend.status !== "served") {
+  // FORMATTED ONCE PER FIGURE, not once per paint.
+  //
+  // `formatCentsAsCurrency` reaches `Intl.NumberFormat` through `formatMoney`, which
+  // builds a fresh instance per call and additionally reads the currency's minor-unit
+  // digits to size its own fraction bounds. The cast bar sits above the whole console
+  // and re-renders on every reading any of its parts subscribes to — presence, run
+  // activity, the session's own state — and none of those move the committed spend.
+  // Keyed on the cents figure itself, which is the only member the string is a
+  // function of: a receipt re-read that returns the same total re-uses it.
+  //
+  // ABOVE THE UNSETTLED ARM, because a hook cannot sit behind a return, so the memo
+  // answers `undefined` for a read that has served no figure — which is also how the
+  // served arm is narrowed below, the two being `undefined` in exactly the same case.
+  const servedSpend = spend.status === "served" ? spend.value : undefined;
+  const committedSpendCents = servedSpend?.committedSpendCents;
+  const formattedCommittedSpend = useMemo(
+    () =>
+      committedSpendCents === undefined ? undefined : formatCentsAsCurrency(committedSpendCents),
+    [committedSpendCents],
+  );
+  if (servedSpend === undefined || formattedCommittedSpend === undefined) {
     // Both unsettled arms render the same absence, and that is exact rather than
     // lazy: "the console has not read a figure" is true while the read is in flight
     // and true when it was refused, and the difference between them is a fact about
@@ -47,15 +69,15 @@ export function CastBarSpend(props: CastBarSpendProps): React.JSX.Element {
       />
     );
   }
-  const isPriced = spend.value.costStatus === PRICED_COST_STATUS;
+  const isPriced = servedSpend.costStatus === PRICED_COST_STATUS;
   return (
     <span className="meridian-cast-bar__spend">
       <WireFigure
-        value={formatCentsAsCurrency(spend.value.committedSpendCents)}
-        title={`${String(spend.value.committedSpendCents)} cents committed`}
+        value={formattedCommittedSpend}
+        title={`${String(servedSpend.committedSpendCents)} cents committed`}
       />
       {isPriced ? null : (
-        <span className="meridian-cast-bar__spend-qualifier" title={spend.value.costStatus}>
+        <span className="meridian-cast-bar__spend-qualifier" title={servedSpend.costStatus}>
           at least
         </span>
       )}

@@ -32,6 +32,7 @@ export {
   INPUT_ASK_SLOT,
   readDriverAsk,
   type DriverAskDelivery,
+  type DriverAskReading,
 } from "./input-ask.js";
 export { ReasoningSurface } from "./ReasoningSurface.js";
 export {

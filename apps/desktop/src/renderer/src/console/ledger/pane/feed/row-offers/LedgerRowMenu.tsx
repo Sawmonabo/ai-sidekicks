@@ -1,4 +1,4 @@
-// The one per-row control, and the offers behind it.
+// The one per-row control — the trigger, and nothing behind it.
 //
 // ONE CONTROL AND NOT FIVE BUTTONS. `Spec-023 §Console Design (Meridian)` rule 7 puts
 // a row at one line until it is opened, and five inline controls would be five lines'
@@ -12,25 +12,27 @@
 // the family owns what the thing is. Nothing here writes a hover rule, so the reveal
 // stays one decision rather than a question the cascade answers.
 //
-// THE ANCHORED PART OF THE MENU IS THE PRIMITIVE'S. The hoist this file used to wait
-// on has landed: `primitives/overlay/OverlayMenuPopup.tsx` owns the portal, the
-// positioner, and the popup, and registers the popup in the window's airspace
-// (`Spec-023 §Console Design (Meridian)` 12.3). A row that mounted its own portal
-// would be a menu a native browser-pane view paints over and takes the presses of —
-// and it would be invisible to the registry, because the consumer never touches the
-// registration at all. `Menu.Root`, `Menu.Trigger`, and the items stay here: which
-// offers a row has is this family's vocabulary.
+// THE MENU IS THE FEED'S AND THIS IS A DETACHED TRIGGER FOR IT, which is a cost rule
+// before it is a structural one. A `Menu.Root` builds a floating-tree node, a popup
+// store, a positioner and an interaction stack; mounting one per row builds all of it
+// for every row the viewport holds, for a menu at most one row ever has open — and it
+// called the offer builder on every render of every mounted row to fill a popup that
+// was not on screen. Measured on the endurance tier that machinery was megabytes of
+// retained heap. So the row names the window's one handle and carries the row's own
+// question as the trigger's `payload`; `LedgerRowOffersMenu.tsx` mounts the single
+// root that answers it, and the offers are built when a menu opens rather than when a
+// row renders.
 //
-// BASE UI OWNS THE BEHAVIOUR. The trigger's `aria-haspopup` and `aria-expanded`, the
-// popup's roles, arrow-key navigation, typeahead, Escape, outside press, and
-// returning focus to the trigger on close are the library's — an own build would be
-// re-deciding a solved accessibility contract row by row.
+// BASE UI OWNS THE BEHAVIOUR, and the detached trigger is its own published shape for
+// this rather than a way around it: the trigger's `aria-haspopup` and `aria-expanded`,
+// the popup's roles, arrow-key navigation, typeahead, Escape, outside press, and
+// returning focus to THIS trigger on close are all still the library's.
 
 import { Menu } from "@base-ui/react/menu";
 
 import type { FilePathRef, TimelineRow } from "@ai-sidekicks/contracts";
 
-import { Glyph, OverlayMenuPopup } from "../../../../primitives/index.js";
+import { Glyph } from "../../../../primitives/index.js";
 import { type TimelineRowDensity } from "../../../../seats/index.js";
 import { GLYPH_SIZE_CHROME } from "../../../../tokens/index.js";
 import { type LedgerRowOffersBinding } from "./ledger-row-offers-binding.js";
@@ -71,40 +73,29 @@ export interface LedgerRowMenuProps {
 
 /** The row's offers, behind one revealed control. */
 export function LedgerRowMenu(props: LedgerRowMenuProps): React.JSX.Element {
-  const offers = props.offers.offersFor({
-    row: props.row,
-    density: props.density,
-    chapterRunId: props.chapterRunId,
-    bodyText: props.bodyText,
-    pathReference: props.pathReference,
-  });
   return (
-    <Menu.Root>
-      <Menu.Trigger
-        className="meridian-ledger-row-menu__trigger meridian-ledger-row__revealed"
-        // Named by the row's own summary rather than by its id: a screen reader
-        // walking the window hears which entry the control belongs to, and the id
-        // is an opaque token that says nothing out loud. It is still one press
-        // away — "Copy entry id" is the first offer inside.
-        aria-label={`Offers for the entry ${props.row.summary}`}
-      >
-        <Glyph name="more" size={GLYPH_SIZE_CHROME} />
-      </Menu.Trigger>
-      <OverlayMenuPopup
-        positionerClassName="meridian-ledger-row-menu__positioner"
-        sideOffset={4}
-        className="meridian-ledger-row-menu"
-      >
-        {offers.map((offer) => (
-          <Menu.Item
-            key={offer.kind}
-            className="meridian-ledger-row-menu__item"
-            onClick={offer.perform}
-          >
-            {offer.label}
-          </Menu.Item>
-        ))}
-      </OverlayMenuPopup>
-    </Menu.Root>
+    <Menu.Trigger
+      handle={props.offers.menuHandle}
+      // WHAT THIS ROW IS ASKING, carried to the popup by the library rather than
+      // looked back up there. The popup opens for one trigger at a time, so the
+      // request that fills it is the one the pressed row composed — and a row that
+      // scrolled out of the mounted range while its menu was open still answers for
+      // the row the reader pressed.
+      payload={{
+        row: props.row,
+        density: props.density,
+        chapterRunId: props.chapterRunId,
+        bodyText: props.bodyText,
+        pathReference: props.pathReference,
+      }}
+      className="meridian-ledger-row-menu__trigger meridian-ledger-row__revealed"
+      // Named by the row's own summary rather than by its id: a screen reader
+      // walking the window hears which entry the control belongs to, and the id
+      // is an opaque token that says nothing out loud. It is still one press
+      // away — "Copy entry id" is the first offer inside.
+      aria-label={`Offers for the entry ${props.row.summary}`}
+    >
+      <Glyph name="more" size={GLYPH_SIZE_CHROME} />
+    </Menu.Trigger>
   );
 }

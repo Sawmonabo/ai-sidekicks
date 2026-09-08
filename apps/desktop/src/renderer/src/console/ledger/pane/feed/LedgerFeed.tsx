@@ -2,9 +2,9 @@
 //
 // WHAT THIS FILE ADDS TO THE PIECES IT MOUNTS: arrangement, and the four callbacks
 // that let one of them act on another. Every derivation it renders is
-// `ledger-window.ts`', every scroll it performs is the viewport binding's, and every
-// model it drives is `ledger/structure/`'s. Nothing here folds a log, measures a
-// row, or writes a `scrollTop`.
+// `ledger-feed-windows.ts`', every scroll it performs is the viewport binding's, and
+// every model it drives is `ledger/structure/`'s. Nothing here folds a log, measures
+// a row, or writes a `scrollTop`.
 //
 // WHY THE FEED IS A COMPONENT OF ITS OWN RATHER THAN THE PANE'S BODY. The pane owns
 // chrome — a header, a heading id, and the row seat's two absences — and can render
@@ -13,11 +13,17 @@
 // `undefined` arm as an ordinary render instead of as a conditional hook, which
 // React does not allow and which a single component would have forced.
 //
+// AND WHY THE WINDOW CHAIN IS A MODULE OF ITS OWN RATHER THAN THE TOP OF THIS ONE.
+// The stages between the store and the screen are only truthful in one order, and
+// three of them state why at their own call site — `ledger-feed-windows.ts` is where
+// that order lives, so the ordering has one home and this file has none of it. What
+// is left here is the arrangement and the seams.
+//
 // THE FOUR SEAMS BETWEEN THE PIECES:
 //
 //   • The rail's tick and find's walk both JUMP, and both jump through the
 //     viewport's `jumpToRow` — the ledger's one scroll writer. Neither touches an
-//     element. There is exactly ONE binding, minted here and handed to
+//     element. There is exactly ONE binding, minted by the chain and handed to
 //     `<LedgerViewport>`: a second one would leave the rail and the find walk
 //     reading a virtualizer with no element under it, which is a jump that reports
 //     success and scrolls nothing.
@@ -50,26 +56,13 @@
 // right-hand column is `LedgerFeedRail.tsx`', where the dock's reveal is a property
 // of the strip that reveals it. Both DERIVE NOTHING: every value they take is a
 // reading already held here, so neither can become a second answer to a question the
-// derivations below already answer. What is left in this file is the arrangement.
-//
-// AND ONE ENGINE THIS MOUNT OWNS. The reveal engine is per feed, minted here and
-// disposed with the feed, because a lane is a row of THIS window and a second engine
-// would publish a second answer for one row's text. It is not a fifth seam: nothing
-// mounted here reads it. Rows reach it through the frame's own per-row channel and the
-// viewport reads only its drain state.
+// derivations next door already answer.
 //
 // AND TWO SEATS THIS MOUNT CLAIMS, both for callers composed before it existed: the
 // palette's, so a ledger chord acts on the feed that is up when it fires, and the
 // workspace's follow seat, so a cast chip scrolls this ledger through this ledger's
 // own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
 // follow seat in `ledger-actor-follow-seat.ts`.
-//
-// AND ONE WALK THIS MOUNT OWNS, which is the OTHER end of the log. The store's window
-// begins wherever this participant's stream was last acknowledged, and everything
-// below that head was never delivered — so the ledger reaches it by asking rather than
-// by scrolling. `useLedgerEarlierPaging` is that walk, minted here because this is the
-// mount holding the session store, and handed to the viewport, where the head control
-// is placed beside the tail's.
 //
 // THE TWO STRUCTURAL CONTROLS STILL TAKE NO `onLoadEarlier` HANDLER, and the reason is
 // that they are about a different absence. `ledger-visible-window.ts` sets
@@ -81,44 +74,30 @@
 // draws its dotted segment and the find result still carries its boundary over a
 // window the cap has truncated.
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useConsoleClock } from "../../../bridge/index.js";
 import {
   LedgerRowLeaseProvider,
   LedgerRowRevealProvider,
   LedgerViewport,
-  useLedgerEarlierPaging,
-  useLedgerFrameCoordinator,
-  useLedgerReveal,
-  useLedgerViewport,
   type LedgerScope,
 } from "../../frame/index.js";
 import { LedgerFeedHeader } from "./LedgerFeedHeader.js";
 import { LedgerFeedRail } from "./LedgerFeedRail.js";
-import {
-  LedgerWindowAbsences,
-  LedgerWindowReadState,
-  useLedgerFirstReadSettled,
-  useLedgerProjection,
-  useRailGeometry,
-  useVisibleLedgerWindow,
-} from "../window/index.js";
+import { LedgerWindowAbsences, LedgerWindowReadState, useRailGeometry } from "../window/index.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
-import { usePeerInvocationProjection, type SessionStore } from "../../../store/index.js";
+import { type SessionStore } from "../../../store/index.js";
 import { type TimelineRowRenderer } from "../../../seats/index.js";
 import { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
 import { buildReplayFromRowAct, useLedgerStructureActs } from "./ledger-feed-acts.js";
-import { useLedgerRowOffers } from "./row-offers/index.js";
-import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
-import { useFoldedSupersededBands, useSupersededBandDisclosure } from "./ledger-superseded-fold.js";
-import { useChildRunDisclosure } from "../../structure/child-runs/index.js";
+import { LedgerRowOffersMenu, useLedgerRowOffers } from "./row-offers/index.js";
+import { useLedgerFeedWindows } from "./ledger-feed-windows.js";
 import {
   useLedgerFindAndJump,
   useReplayDockConcealOnFocusLeaving,
 } from "./ledger-feed-find-jump.js";
-import { useFilteredLedgerWindow, useLedgerFilter } from "../find/index.js";
-import { useLedgerReplay, useReplayAnchorRowId, useReplayRevealedRows } from "../replay/index.js";
+import { useReplayAnchorRowId } from "../replay/index.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
@@ -150,125 +129,31 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // say something about the window as a whole. Every sentence either of them can
   // print names a subject, and the subject is this.
   const scope: LedgerScope = props.channelId === undefined ? "session" : "channel";
-  // WHY THE GRANT IS READ HERE. A session whose sidekicks may not reach each other
-  // produces no handoff row at all — every peer invocation is adjudicated per call
-  // against this projected member and answers denied — so an empty log in such a
-  // session is not the absence of activity it reads as. The empty window says so,
-  // and this is the mount that holds the store to read it from. Subscribed rather
-  // than read once: the grant is a durable session fact anybody in the session can
-  // change, and a value latched at mount would keep saying so after it was turned on.
-  const peerInvocation = usePeerInvocationProjection(props.sessionStore);
-  // The same reading `<LedgerWindowReadState>` below draws its shells from, so the
-  // empty sentence and the loading shells cannot both be on screen.
-  const firstReadSettled = useLedgerFirstReadSettled(props.sessionStore);
-  // The fold is this MOUNT's, not the log's: which finished chapters a person has
-  // opened is a fact about who is reading, so it is held here and handed to the
-  // derivation rather than folded into it.
-  const chapterDisclosure = useChapterDisclosure(props.sessionStore.sessionId);
-  // Held beside the chapter's, at the same scope and for the same reason: a mount
-  // that followed a navigation would otherwise carry one session's expansions into
-  // the next one's rows.
-  const childRunDisclosure = useChildRunDisclosure(props.sessionStore.sessionId);
-  // And beside both, at the same scope: which rewound bands this reader has folded
-  // away. It starts empty on purpose — a band is dimmed and present until somebody
-  // asks for it to be folded, which is the rule `superseded-bands.ts` states.
-  const supersededBandDisclosure = useSupersededBandDisclosure(props.sessionStore.sessionId);
-  // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
-  const unfurledWindow = useLedgerProjection(props.sessionStore, props.channelId);
-  // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
-  // below — the chapter fold, the replay engine, the viewport, the visible window,
-  // find and the rail — is built over the narrowed model, so no piece has to
-  // remember that a filter exists. The facets the bar offers are the exception, and
-  // deliberately so: they are derived from the WHOLE unfurled projection, or
-  // admitting one participant would take away the chip that widens back.
-  //
-  // AND THE FOLD RUNS AFTER IT, which is the ordering the filter needs to be
-  // truthful at all: folded first, a closed terminal chapter reaches the filter as
-  // one receipt, so its messages and tools are absent from the facet counts and
-  // unreachable by narrowing until somebody expands the chapter by hand.
-  //
-  // AND EACH STAGE REPORTS WHAT IT REMOVED, which is what the four counts beside the
-  // find field are made of: the stage that separated the rows is the one that has
-  // them, and re-deriving the difference downstream re-walked the whole projection on
-  // every appended row for as long as a query sat in the field.
-  const ledgerFilter = useLedgerFilter(unfurledWindow);
-  const narrowing = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
-  const narrowedWindow = narrowing.window;
-  const fold = useFoldedChapters(
-    narrowedWindow,
-    chapterDisclosure.openedTerminalRunIds,
-    props.sessionStore.sessionId,
-  );
-  // AND THE BAND FOLD RUNS AFTER THE CHAPTER'S, so a folded chapter has already
-  // reduced itself to a header and a receipt and there is nothing left in it for this
-  // pass to hide a second time. It reports what it removed for the same reason every
-  // stage above it does: the four counts beside the find field are made of exactly
-  // these separations, and re-deriving one downstream would re-walk the projection.
-  const bandFold = useFoldedSupersededBands(
-    fold.window,
-    supersededBandDisclosure.foldedBandKeys,
-    props.sessionStore.sessionId,
-  );
-  const ledgerWindow = bandFold.window;
-  const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
-  // What the replay position has reached. The whole window while nobody is
-  // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
-  const revealedViewportRows = useReplayRevealedRows(ledgerWindow, replay.position);
-
-  // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
-  // publishes reaches a row through the frame's own channel below; what it is DOING
-  // reaches the viewport as the drain state, which used to be the literal `false` —
-  // a default standing in for a reading of a scheduler nothing had mounted.
-  // THE FRAME IS MINTED HERE, above both holders, because that is the only place one
-  // object can order the whole paint: phase one is the viewport's scroll writes and
-  // phase two is the reveal drain, and a coordinator minted inside either would order
-  // that half against nothing.
-  const frameCoordinator = useLedgerFrameCoordinator(clock);
-  const reveal = useLedgerReveal({ frameCoordinator });
-  const viewport = useLedgerViewport({
+  const windows = useLedgerFeedWindows({
+    sessionStore: props.sessionStore,
+    channelId: props.channelId,
     clock,
-    rows: revealedViewportRows,
-    hasActiveTurn: ledgerWindow.hasActiveTurn,
-    isRevealDraining: reveal.isDraining,
   });
-  // The walk back past the window's head. Read against the STORE rather than against
-  // any of the windows above, because what it can reach is a property of the log this
-  // console was given and not of whichever narrowing this pane happens to be applying.
-  const earlierPaging = useLedgerEarlierPaging(props.sessionStore);
-
-  // A lane whose row this window no longer holds, or holds only inside a chapter that
-  // has reached its terminal, is a turn that is over: the engine drops it so a
-  // finished lane stops costing memory. Asked of the engine's own lanes, which are at
-  // most one per streaming row — walking the window instead would be a pass over the
-  // whole log on every event.
-  const retireRevealLanes = reveal.retireLanes;
-  useEffect(() => {
-    retireRevealLanes(
-      (laneId) => !ledgerWindow.rowsByKey.has(laneId) || ledgerWindow.collapsedRowIds.has(laneId),
-    );
-  }, [retireRevealLanes, ledgerWindow]);
-
-  // Read back off the viewport's own reconciled snapshot, so find and the rail are
-  // looking at the window on screen rather than at the log behind it. The revealed
-  // set goes in beside it so the two absences stay separable: what the cap took is
-  // the difference between the two, and what replay is holding back is everything
-  // the revealed set never carried.
-  const visible = useVisibleLedgerWindow(
+  const {
+    chapterDisclosure,
+    ledgerFilter,
     ledgerWindow,
-    revealedViewportRows,
-    viewport.snapshot.rows,
-  );
+    replay,
+    supersededBandDisclosure,
+    viewport,
+    visible,
+  } = windows;
   const jumpToRow = viewport.jumpToRow;
   // THE FIELD, THE CLASSIFICATION, AND THE ACT — one seam, wired next door.
   // Every window between the loaded log and the screen goes in, because the answer
   // is not whether a row is on screen but which narrowing is the reason it is not.
   const findAndJump = useLedgerFindAndJump({
-    unfurledWindow,
-    narrowedWindow,
+    unfurledWindow: windows.unfurledWindow,
+    narrowedWindow: windows.narrowing.window,
     foldedWindow: ledgerWindow,
-    filteredAwayRows: narrowing.removedRows,
-    foldedAwayRows: fold.removedRows,
-    bandFoldedAwayRows: bandFold.removedRows,
+    filteredAwayRows: windows.narrowing.removedRows,
+    foldedAwayRows: windows.chapterFold.removedRows,
+    bandFoldedAwayRows: windows.bandFold.removedRows,
     openSupersededBandOfRow: supersededBandDisclosure.openBandKey,
     visible,
     openedTerminalRunIds: chapterDisclosure.openedTerminalRunIds,
@@ -319,7 +204,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     toggleChapter,
     rowLease,
     renderTimelineRow,
-    childRunDisclosure,
+    childRunDisclosure: windows.childRunDisclosure,
     supersededBandDisclosure,
     rowOffers,
   });
@@ -361,16 +246,16 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       />
       <div className="meridian-ledger__body">
         <LedgerRowLeaseProvider channel={rowLeaseChannel}>
-          <LedgerRowRevealProvider channel={reveal.channel}>
+          <LedgerRowRevealProvider channel={windows.reveal.channel}>
             <LedgerViewport
               binding={viewport}
               renderRow={renderRow}
               feedLabel={props.feedLabel}
               scope={scope}
-              peerInvocationEnabled={peerInvocation.enabled}
-              firstReadSettled={firstReadSettled}
+              peerInvocationEnabled={windows.peerInvocationEnabled}
+              firstReadSettled={windows.firstReadSettled}
               hasActiveTurn={ledgerWindow.hasActiveTurn}
-              earlierPaging={earlierPaging}
+              earlierPaging={windows.earlierPaging}
             />
           </LedgerRowRevealProvider>
         </LedgerRowLeaseProvider>
@@ -389,6 +274,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           onReplayFromRowInView={structureActs.replayFromRowInView}
         />
       </div>
+      {/*
+        THE WINDOW'S ONE ROW MENU, mounted beside the list rather than inside each row
+        — `row-offers/LedgerRowOffersMenu.tsx` owns why. It draws no element here: the
+        root renders none of its own and the popup leaves through the overlay portal,
+        so this line adds a machine and not a box.
+      */}
+      <LedgerRowOffersMenu offers={rowOffers} />
       <LedgerWindowReadState sessionStore={props.sessionStore} />
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}

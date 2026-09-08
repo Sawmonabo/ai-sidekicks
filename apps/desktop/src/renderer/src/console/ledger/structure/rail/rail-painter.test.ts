@@ -31,6 +31,8 @@ interface StubCanvas {
   readonly fills: readonly RecordedFill[];
   readonly clears: readonly RecordedFill[];
   readonly transforms: readonly RecordedTransform[];
+  /** How many times the painter has asked the host for the rendered box. */
+  readonly measurementCount: () => number;
 }
 
 function stubCanvas(box: { readonly width: number; readonly height: number }): StubCanvas {
@@ -58,13 +60,17 @@ function stubCanvas(box: { readonly width: number; readonly height: number }): S
   // like one: the painter resolves its tone colours through the host's computed
   // style, which only answers for something the document actually holds.
   const canvas = document.createElement("canvas");
+  let measurements = 0;
   Object.defineProperty(canvas, "getBoundingClientRect", {
-    value: () => ({ width: box.width, height: box.height }) as DOMRect,
+    value: () => {
+      measurements += 1;
+      return { width: box.width, height: box.height } as DOMRect;
+    },
   });
   Object.defineProperty(canvas, "getContext", {
     value: () => context as unknown as CanvasRenderingContext2D,
   });
-  return { canvas, fills, clears, transforms };
+  return { canvas, fills, clears, transforms, measurementCount: () => measurements };
 }
 
 function tickAt(
@@ -103,6 +109,7 @@ describe("rail painter — the backing store follows the rendered box", () => {
     new RailPainter({ readDevicePixelRatio: () => 1 }).paint(surface.canvas, {
       ticks: [tickAt(0.5)],
       pointerFraction: undefined,
+      surfaceRevision: 0,
     });
     expect(surface.canvas.width).toBe(32);
     expect(surface.canvas.height).toBe(800);
@@ -113,6 +120,7 @@ describe("rail painter — the backing store follows the rendered box", () => {
     new RailPainter({ readDevicePixelRatio: () => 2 }).paint(surface.canvas, {
       ticks: [tickAt(0.5)],
       pointerFraction: undefined,
+      surfaceRevision: 0,
     });
     expect(surface.canvas.width).toBe(64);
     expect(surface.canvas.height).toBe(1600);
@@ -127,6 +135,7 @@ describe("rail painter — the backing store follows the rendered box", () => {
     new RailPainter({ readDevicePixelRatio: () => 2 }).paint(surface.canvas, {
       ticks: [tickAt(0.5)],
       pointerFraction: undefined,
+      surfaceRevision: 0,
     });
     expect(surface.fills).toHaveLength(1);
     expect(surface.fills[0]?.y).toBeCloseTo(399, 0);
@@ -138,12 +147,82 @@ describe("rail painter — the backing store follows the rendered box", () => {
     // rather than keeping the extent the first paint sized it to.
     const surface = stubCanvas({ width: 32, height: 400 });
     const painter = new RailPainter({ readDevicePixelRatio: () => 1 });
-    painter.paint(surface.canvas, { ticks: [tickAt(1)], pointerFraction: undefined });
+    painter.paint(surface.canvas, {
+      ticks: [tickAt(1)],
+      pointerFraction: undefined,
+      surfaceRevision: 0,
+    });
     expect(surface.canvas.height).toBe(400);
     const grown = stubCanvas({ width: 32, height: 900 });
-    painter.paint(grown.canvas, { ticks: [tickAt(1)], pointerFraction: undefined });
+    // The SAME revision, deliberately: a remount hands the painter a different
+    // element without the watch reporting anything, and the box it holds belongs
+    // to the canvas it measured.
+    painter.paint(grown.canvas, {
+      ticks: [tickAt(1)],
+      pointerFraction: undefined,
+      surfaceRevision: 0,
+    });
     expect(grown.canvas.height).toBe(900);
     expect(grown.fills[0]?.y).toBeCloseTo(899, 0);
+  });
+
+  it("measures the rendered box once per surface revision, not once per paint", () => {
+    // The cost rule this cache exists for: `getBoundingClientRect` forces a
+    // synchronous layout, and a streaming ledger repaints this strip every frame.
+    // Three paints at one revision are one measurement, and the marks still land.
+    const surface = stubCanvas({ width: 32, height: 800 });
+    const painter = new RailPainter({ readDevicePixelRatio: () => 1 });
+    for (const position of [0.25, 0.5, 0.75]) {
+      painter.paint(surface.canvas, {
+        ticks: [tickAt(position)],
+        pointerFraction: undefined,
+        surfaceRevision: 7,
+      });
+    }
+    expect(surface.measurementCount()).toBe(1);
+    expect(surface.fills).toHaveLength(3);
+    expect(surface.fills[2]?.y).toBeCloseTo(599, 0);
+    // Sized once and scaled once: the store was never reassigned, so the transform
+    // set with it is still the one in force.
+    expect(surface.transforms).toStrictEqual([{ horizontalScale: 1, verticalScale: 1 }]);
+  });
+
+  it("negative control: a moved revision measures again, so a resize is not missed", () => {
+    // The failing half of the case above. Without it the cache would be a defect
+    // rather than an optimisation: the rail would keep painting into the extent it
+    // was first measured at for the life of the mount.
+    const surface = stubCanvas({ width: 32, height: 800 });
+    const painter = new RailPainter({ readDevicePixelRatio: () => 1 });
+    painter.paint(surface.canvas, {
+      ticks: [tickAt(0.5)],
+      pointerFraction: undefined,
+      surfaceRevision: 1,
+    });
+    painter.paint(surface.canvas, {
+      ticks: [tickAt(0.5)],
+      pointerFraction: undefined,
+      surfaceRevision: 2,
+    });
+    expect(surface.measurementCount()).toBe(2);
+  });
+
+  it("negative control: a box with no extent is not remembered as one", () => {
+    // A collapsed pane reports zero at whatever revision it is asked at, and the
+    // pane opening is not a resize of the canvas the watch would report. Caching
+    // the zero would leave the rail measured at nothing for the life of the mount.
+    const surface = stubCanvas({ width: 0, height: 0 });
+    const painter = new RailPainter({ readDevicePixelRatio: () => 1 });
+    painter.paint(surface.canvas, {
+      ticks: [tickAt(0.5)],
+      pointerFraction: undefined,
+      surfaceRevision: 3,
+    });
+    painter.paint(surface.canvas, {
+      ticks: [tickAt(0.5)],
+      pointerFraction: undefined,
+      surfaceRevision: 3,
+    });
+    expect(surface.measurementCount()).toBe(2);
   });
 
   it("negative control: a box with no extent paints nothing and leaves the store alone", () => {
@@ -153,6 +232,7 @@ describe("rail painter — the backing store follows the rendered box", () => {
     new RailPainter({ readDevicePixelRatio: () => 3 }).paint(surface.canvas, {
       ticks: [tickAt(0.5)],
       pointerFraction: undefined,
+      surfaceRevision: 0,
     });
     expect(surface.fills).toStrictEqual([]);
     expect(surface.clears).toStrictEqual([]);
@@ -171,6 +251,7 @@ describe("rail painter — an actor tick carries its actor's hue", () => {
     new RailPainter({ readDevicePixelRatio: () => 1 }).paint(surface.canvas, {
       ticks,
       pointerFraction: undefined,
+      surfaceRevision: 0,
       ...(actorHue === undefined ? {} : { actorHue }),
     });
     return surface.fills.map((fill) => fill.fillStyle);
