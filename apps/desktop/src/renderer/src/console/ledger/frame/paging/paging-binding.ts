@@ -14,6 +14,12 @@
 // reconnect, a second window's own instance, the fixture's scenario switch — retires
 // every call in flight through it.
 //
+// AND IT IS A RESOURCE RATHER THAN A VALUE, which is the half a plain holder cannot
+// serve: the reader owns a read line, and a line has an ENDING. Held as a value, a
+// walk whose pane left went on decoding a page nobody would ever see and then grew a
+// log the console had moved off; held through `useSubjectScopedResource`, the same
+// re-address that mints the next walk abandons this one's line.
+//
 // AND THE STATE IS DERIVED, NEVER MIRRORED. The reader answers from its own fields and
 // the store's, so there is nothing here to keep in step: the memo below re-asks
 // whenever either could have moved. A published mirror would be a second copy of a
@@ -22,8 +28,12 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { useConsoleBridge } from "../../../bridge/index.js";
-import { useSessionStore, type SessionStore } from "../../../store/index.js";
-import { useSessionScopedState } from "../../../seats/index.js";
+import {
+  useSessionStore,
+  useSubjectScopedResource,
+  type SessionStore,
+  type SubjectScopedDisposal,
+} from "../../../store/index.js";
 import {
   LedgerEarlierWindowReader,
   type LedgerEarlierWindowState,
@@ -43,6 +53,24 @@ export interface LedgerEarlierPaging extends LedgerEarlierWindowState {
 }
 
 /**
+ * How a walk ends, stated once so the render below hands over a stable pair.
+ *
+ * TERMINAL RATHER THAN RELEASING, because a reader holds a read line and a line that
+ * was let go of is not a line that can be handed to the next render: the session this
+ * walk was addressed at is gone, its outstanding page belongs to nobody, and a page
+ * landing afterwards must not grow a log the console has moved off. `isClosed` is what
+ * makes React's double-mount survivable — the disposed reader is recognised and a
+ * fresh one minted, rather than the pane spending its life pressing a control on a
+ * line that can never open a live round again.
+ */
+const EARLIER_WINDOW_READER_DISPOSAL: SubjectScopedDisposal<LedgerEarlierWindowReader> = {
+  dispose: (reader: LedgerEarlierWindowReader): void => {
+    reader.abandonReads();
+  },
+  isClosed: (reader: LedgerEarlierWindowReader): boolean => reader.isAbandoned,
+};
+
+/**
  * Bind one session's backward walk to a React tree.
  *
  * The store is the subject rather than a parameter of the act, because the walk's base
@@ -51,10 +79,11 @@ export interface LedgerEarlierPaging extends LedgerEarlierWindowState {
  */
 export function useLedgerEarlierPaging(sessionStore: SessionStore): LedgerEarlierPaging {
   const bridge = useConsoleBridge();
-  const held = useSessionScopedState(
+  const held = useSubjectScopedResource(
     bridge,
     sessionStore.sessionId,
     () => new LedgerEarlierWindowReader(),
+    EARLIER_WINDOW_READER_DISPOSAL,
   );
   const reader = held.value;
   // A settled read changes the reader's fields and nothing React watches, so the

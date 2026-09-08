@@ -1,92 +1,40 @@
-// The two calls the shell's rows make, over a real bridge whose answer a case decides.
+// The reasoning read the shell's rows make, over a real bridge whose answer a case
+// decides.
 //
 // `bridgeAnswering` rather than a hand-built port, for `child-run-expansion.test.ts`'
-// reason: both hooks reach the console's own call door, so a stand-in would prove the
+// reason: the hook reaches the console's own call door, so a stand-in would prove the
 // case answers itself rather than that a refusal off the wire reaches the state a
 // surface renders.
 //
-// BOTH SUBJECTS ARE THE SAME DEFECT WEARING TWO SHAPES: a reply that was consulted for
-// its success arm and discarded otherwise. The reasoning read stored its refusal and
-// then admitted no second press, so a transport that was down for one moment took the
-// read away for the row's whole life; the ask answer stored nothing at all, so a
-// refused delivery left a blocked run and an emptied draft. What every case below asks
-// is what a SECOND press does, and what the hook is holding when it is pressed.
+// TWO SUBJECTS, AND THEY ARE DIFFERENT FACTS. What a SECOND press does — the read
+// stored its refusal and then admitted no second press, so a transport that was down
+// for one moment took the read away for the row's whole life — and what an answer for
+// a row that has moved on does, which is nothing.
 //
 // A `.tsx` FILE FOR A `.ts` MODULE, because the wrapper `renderHook` mounts is a
-// component and both hooks resolve their bridge from context — there is no way to
-// drive them that does not render one.
+// component and the hook resolves its bridge from context — there is no way to drive
+// it that does not render one.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts";
 
-import { SidekicksBridgeProvider } from "../../../bridge/index.js";
 import {
   bridgeAnswering,
   type BridgeUnderTest,
 } from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
-import { useDriverAskAnswer, useReasoningSurfaceRead } from "./shell-row-reads.js";
+import { bridgeFailingUntilCleared, callsTo, inBridge } from "./shell-hook-bridges.test-support.js";
+import { useReasoningSurfaceRead } from "./shell-row-reads.js";
 
 const SAMPLE_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
-const SAMPLE_ASK_ID = "ask-01";
+/** A second run, for the cases about a row re-addressed while a read is in flight. */
+const OTHER_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150092" as RunId;
 const REASONING_READ = "timeline.reasoningSurfaceRead";
-const ASK_ANSWER = "driver.respondToRequest";
 
 /** One `ReasoningSurfaceReadResponse` on the arm that carries no entries. */
 const UNAVAILABLE_REASONING: Record<string, unknown> = { availability: "unavailable" };
-
-/** The empty envelope `driver.respondToRequest` acknowledges with. */
-const DRIVER_ACK: Record<string, unknown> = {};
-
-/** A bridge whose one scripted method fails until the case clears the flag. */
-interface RecoverableBridge {
-  readonly held: BridgeUnderTest;
-  /** Stop refusing, so the NEXT call is the one that succeeds. */
-  readonly recover: () => void;
-}
-
-/**
- * A bridge that answers one method as the case says, and rejects it while a flag is set.
- *
- * The flag is read at CALL time rather than closed over at build time, because every
- * case here is about a second press: the first call has to be able to fail and the
- * second to succeed without the case rebuilding the bridge between them.
- */
-function bridgeFailingUntilCleared(
-  method: string,
-  reply: Record<string, unknown>,
-): RecoverableBridge {
-  let isFailing = true;
-  const held = bridgeAnswering(async (call, passThrough) => {
-    if (call.method !== method) {
-      return passThrough();
-    }
-    if (isFailing) {
-      throw new Error("the daemon is not reachable");
-    }
-    return reply;
-  });
-  return {
-    held,
-    recover: () => {
-      isFailing = false;
-    },
-  };
-}
-
-/** How many times the case's method reached the wire. */
-function callsTo(held: BridgeUnderTest, method: string): number {
-  return held.calls.filter((call) => call.method === method).length;
-}
-
-/** A wrapper mounting a hook under one bridge, which is what both hooks resolve. */
-function inBridge(held: BridgeUnderTest) {
-  return function BridgeWrapper(props: { readonly children: React.ReactNode }): React.JSX.Element {
-    return <SidekicksBridgeProvider bridge={held.bridge}>{props.children}</SidekicksBridgeProvider>;
-  };
-}
 
 describe("useReasoningSurfaceRead — a refusal is retryable and an answer is not", () => {
   it("holds the door's own refusal rather than discarding it", async () => {
@@ -167,101 +115,76 @@ describe("useReasoningSurfaceRead — a refusal is retryable and an answer is no
   });
 });
 
-describe("useDriverAskAnswer — an answer is a settled act", () => {
-  it("holds the refusal when the answer never reached the driver", async () => {
-    // THE DEFECT, EXERCISED. The reply was discarded, so a run blocked on an ask the
-    // daemon never received looked exactly like one waiting for somebody to type.
-    const { held } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
+/** What a case holds a scripted reasoning read with, and the act that answers it. */
+interface HeldReasoningRead {
+  readonly held: BridgeUnderTest;
+  /** Let the read this bridge is holding answer. */
+  readonly release: () => void;
+}
+
+/**
+ * A bridge whose reasoning read answers only when the case says so.
+ *
+ * The window between the press and the reply is the whole subject below — a row
+ * re-addressed at another run while its answer is on the wire — and it is not
+ * observable without a reply the case releases.
+ */
+function bridgeHoldingReasoningRead(): HeldReasoningRead {
+  let releaseReply = (): void => undefined;
+  const untilReleased = new Promise<void>((resolve) => {
+    releaseReply = resolve;
+  });
+  const held = bridgeAnswering(async (call, passThrough) => {
+    if (call.method !== REASONING_READ) {
+      return passThrough();
+    }
+    await untilReleased;
+    return UNAVAILABLE_REASONING;
+  });
+  return {
+    held,
+    release: () => {
+      releaseReply();
+    },
+  };
+}
+
+describe("useReasoningSurfaceRead — the row moves while the answer is on the wire", () => {
+  it("never lands one run's reasoning on a row addressed at another", async () => {
+    // THE DEFECT, EXERCISED. The read carried no signal, so a row re-addressed at a
+    // second run went on parsing the FIRST run's answer and folded it into the state
+    // the surface renders — a reasoning surface belonging to a run nobody was looking
+    // at, presented as this one's. Re-addressing the line abandons the read, so the
+    // reply installs nothing.
+    const { held, release } = bridgeHoldingReasoningRead();
+    const { result, rerender } = renderHook((runId: RunId) => useReasoningSurfaceRead(runId), {
+      initialProps: SAMPLE_RUN_ID,
       wrapper: inBridge(held),
     });
 
     act(() => {
-      result.current.answer("develop");
+      result.current.expand();
     });
+    rerender(OTHER_RUN_ID);
+    release();
     await settle();
 
-    expect(result.current.delivery.status).toBe("refused");
-    expect(result.current.delivery).toMatchObject({
-      response: "develop",
-      refusal: { code: "call-rejected" },
-    });
+    expect(result.current.reading.status).toBe("reading");
   });
 
-  it("settles as accepted when the driver acknowledges it", async () => {
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
+  it("negative control: the same held read lands when the row stays put", async () => {
+    const { held, release } = bridgeHoldingReasoningRead();
+    const { result } = renderHook((runId: RunId) => useReasoningSurfaceRead(runId), {
+      initialProps: SAMPLE_RUN_ID,
       wrapper: inBridge(held),
     });
 
     act(() => {
-      result.current.answer("develop");
+      result.current.expand();
     });
+    release();
     await settle();
 
-    expect(result.current.delivery).toStrictEqual({ status: "accepted", response: "develop" });
-    expect(held.calls.find((call) => call.method === ASK_ANSWER)?.params).toEqual({
-      runId: SAMPLE_RUN_ID,
-      requestId: SAMPLE_ASK_ID,
-      response: "develop",
-    });
-  });
-
-  it("dispatches again when a refused answer is retried", async () => {
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
-
-    act(() => {
-      result.current.answer("develop");
-    });
-    await settle();
-    recover();
-    act(() => {
-      result.current.answer("develop");
-    });
-    await settle();
-
-    expect(callsTo(held, ASK_ANSWER)).toBe(2);
-    expect(result.current.delivery.status).toBe("accepted");
-  });
-
-  it("negative control: an acknowledged ask is not answered twice", async () => {
-    // A second delivery would be a second answer to a question that has one, and the
-    // ask's terminal is the `driver_ask.responded` row's to state rather than a press's.
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
-
-    act(() => {
-      result.current.answer("develop");
-    });
-    await settle();
-    act(() => {
-      result.current.answer("main");
-    });
-    await settle();
-
-    expect(callsTo(held, ASK_ANSWER)).toBe(1);
-  });
-
-  it("negative control: a row carrying no ask id sends nothing", async () => {
-    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, ""), {
-      wrapper: inBridge(held),
-    });
-
-    act(() => {
-      result.current.answer("develop");
-    });
-    await settle();
-
-    expect(callsTo(held, ASK_ANSWER)).toBe(0);
-    expect(result.current.delivery.status).toBe("unsent");
+    expect(result.current.reading.status).toBe("read");
   });
 });

@@ -30,7 +30,7 @@ import {
   useLedgerAskTerminal,
   type DriverAskReading,
 } from "../bodies/index.js";
-import { useDriverAskAnswer } from "./shell-row-reads.js";
+import { useDriverAskAnswer } from "./shell-ask-answer.js";
 import type { RunId } from "@ai-sidekicks/contracts";
 
 export interface FixtureShellAskRowProps {

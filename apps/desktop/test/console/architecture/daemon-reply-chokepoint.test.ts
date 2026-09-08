@@ -186,10 +186,10 @@ function isBridgeFamilyModule(module: string): boolean {
  *  17. `console/workspace/new-session/new-session-send.ts` — the new-session send: the
  *      draft module composes the request and imports the door nowhere, so the one
  *      module here is the one that dispatches it.
- *  18. `console/ledger/cards/shell/shell-row-reads.ts` — the two calls the ledger's
- *      fixture shell rows make: the run-scoped reasoning-surface read a reasoning row
- *      offers, and the answer an input-ask row delivers. It dies with the shell, and
- *      the change that deletes that directory moves this number back down.
+ *  18. `console/ledger/cards/shell/shell-row-reads.ts` — the run-scoped
+ *      reasoning-surface read a reasoning row of the ledger's fixture shell offers. It
+ *      dies with the shell, and the change that deletes that directory moves this
+ *      number back down.
  *  19. `console/ledger/structure/child-runs/child-run-expansion.ts` — the child-run
  *      expansion's own read.
  *  20. `console/workspace/deck/take-the-floor.ts` — the deck's half of "Step in": the
@@ -205,6 +205,12 @@ function isBridgeFamilyModule(module: string): boolean {
  *      END the stream does not append to, and the one place `timeline.read` is sent
  *      from: the store owns where the page lands and this owns where the next one
  *      starts.
+ *  23. `console/ledger/cards/shell/shell-ask-answer.ts` — the answer an input-ask row
+ *      of that same shell delivers. TWO ENTRIES FOR ONE DIRECTORY AND NOT A WIDENED
+ *      EIGHTEENTH, on entry 16's reading and for a sharper reason: the answer is a
+ *      run-changing method and the reasoning read is a read on a line that ends, so a
+ *      module holding both would be a dispatcher naming an abort — which
+ *      `read-cancellation-chokepoint.test.ts` fails. It dies with the shell too.
  *
  * Every surface in these families that reaches the wire, each through `callDaemon` and
  * none around it. TWICE now the number has come DOWN because a surface stopped taking
@@ -241,7 +247,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * the console grew a wire — and a surface QUIETLY LEAVING the door, which is the
  * regression this pin exists for, fails it just as loudly.
  */
-const CALL_DOOR_CONSUMER_COUNT = 22;
+const CALL_DOOR_CONSUMER_COUNT = 23;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

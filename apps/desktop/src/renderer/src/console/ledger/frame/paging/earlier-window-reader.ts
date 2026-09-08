@@ -56,7 +56,12 @@ import { type EventCursor, type SessionId } from "@ai-sidekicks/contracts";
 
 import { LEDGER_EARLIER_PAGE_ROWS, type ConsoleRefusal } from "../../../core/index.js";
 import { callDaemon, readEarlierTimelinePage, type ConsoleBridge } from "../../../bridge/index.js";
-import { type CurrentGenerationClaim, type SessionStore } from "../../../store/index.js";
+import {
+  isReadAbandoned,
+  ReadScope,
+  type CurrentGenerationClaim,
+  type SessionStore,
+} from "../../../store/index.js";
 
 /** What a surface renders about the rows before this window. */
 export interface LedgerEarlierWindowState {
@@ -94,12 +99,41 @@ export class LedgerEarlierWindowReader {
    * base state — whichever position that read was performed from.
    */
   #baseWindowGeneration: CurrentGenerationClaim | undefined;
+  /**
+   * The line every backward page is read on, and the one thing that can stop one.
+   *
+   * OWNED HERE RATHER THAN TAKEN FROM THE PRESS, because the round has to be opened
+   * AFTER the single-flight guard has admitted the press: a round opened by the caller
+   * would abort the page already in flight on exactly the double press this walk drops,
+   * and the reader would then install the door's own `read-abandoned` refusal beside a
+   * control that had done nothing wrong. The walk's owner ends the line through
+   * {@link abandonReads}, which is what `paging-binding.ts` hands the holder as its
+   * disposal — so a pane that leaves stops its outstanding page rather than only
+   * ignoring it.
+   */
+  readonly #readLine = new ReadScope();
   /** Where the next page starts. `undefined` means there is nowhere to ask from. */
   #nextBeforeCursor: string | undefined;
   #exhausted = true;
   #isReading = false;
   #refusal: ConsoleRefusal | undefined;
   #admittedRowCount = 0;
+
+  /** Whether this walk's read line is over. True once and never false again. */
+  public get isAbandoned(): boolean {
+    return this.#readLine.isAbandoned;
+  }
+
+  /**
+   * End the read line: an outstanding page stops, and no later one is live.
+   *
+   * The walk's own fields are left exactly as they stand. A holder that hands this
+   * reader back — React's double-mount does — is handed a corpse its `isClosed`
+   * reading recognises, and a fresh reader is minted rather than this one revived.
+   */
+  public abandonReads(): void {
+    this.#readLine.abandon();
+  }
 
   /**
    * What a surface should render, read against the store as it stands.
@@ -134,18 +168,32 @@ export class LedgerEarlierWindowReader {
     }
     this.#isReading = true;
     this.#refusal = undefined;
+    const round = this.#readLine.openRound();
     try {
-      const reply = await callDaemon(bridge, "timeline.read", {
-        // BOTH BRANDS ARE FORWARDED, NEVER MINTED. `SessionId` and `EventCursor` are
-        // compile-time markers over opaque wire strings, and both of these values came
-        // off the wire: the id is the one the store was opened under, and the cursor is
-        // whatever the daemon last issued. `repos/repo-reads.ts` re-narrows the first
-        // the same way and for the same reason, and the two casts stay local because a
-        // view family may import no other view family.
-        sessionId: sessionStore.sessionId as SessionId,
-        beforeCursor: beforeCursor as EventCursor,
-        limit: LEDGER_EARLIER_PAGE_ROWS,
-      });
+      const reply = await callDaemon(
+        bridge,
+        "timeline.read",
+        {
+          // BOTH BRANDS ARE FORWARDED, NEVER MINTED. `SessionId` and `EventCursor` are
+          // compile-time markers over opaque wire strings, and both of these values
+          // came off the wire: the id is the one the store was opened under, and the
+          // cursor is whatever the daemon last issued. `repos/repo-reads.ts` re-narrows
+          // the first the same way and for the same reason, and the two casts stay
+          // local because a view family may import no other view family.
+          sessionId: sessionStore.sessionId as SessionId,
+          beforeCursor: beforeCursor as EventCursor,
+          limit: LEDGER_EARLIER_PAGE_ROWS,
+        },
+        { signal: round.signal },
+      );
+      if (isReadAbandoned(round.signal)) {
+        // NOTHING IS WAITING, so nothing installs — not the page and not the refusal
+        // the door composes for an abandoned read. The reading is taken here rather
+        // than left to the window generation because the two answer different
+        // questions: that one says the window moved under this page, and this one says
+        // there is no longer a surface offering the control the page was pressed on.
+        return;
+      }
       if (reply.status === "refused") {
         // Through the round as well, and for the same reason the page is: a refusal
         // installed after the window moved is a failure reported against a read the

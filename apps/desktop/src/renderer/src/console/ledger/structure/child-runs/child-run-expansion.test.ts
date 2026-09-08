@@ -9,16 +9,23 @@ import { describe, expect, it } from "vitest";
 import { type RunId } from "@ai-sidekicks/contracts";
 
 import { bridgeAnswering } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { type ConsoleBridge } from "../../../bridge/index.js";
 import { ChildRunExpansionState } from "./child-run-expansion.js";
 import { FIXTURE_SESSION_ID } from "../timeline-rows.test-support.js";
 
 const CHILD_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150091" as RunId;
 const PARENT_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150092" as RunId;
+/** A second child of the same parent, for the cases about two lines at once. */
+const SECOND_CHILD_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150093" as RunId;
 
 /** One registered `ChildRunExpandResponse`, on the terminal arm. */
-function expansionReply(entryCount: number, hasMore = false): Record<string, unknown> {
+function expansionReply(
+  entryCount: number,
+  hasMore = false,
+  childRunId: RunId = CHILD_RUN_ID,
+): Record<string, unknown> {
   return {
-    runId: CHILD_RUN_ID,
+    runId: childRunId,
     parentRunId: PARENT_RUN_ID,
     state: "running",
     hasMore,
@@ -32,11 +39,46 @@ function expansionReply(entryCount: number, hasMore = false): Record<string, unk
       summary: "the child ran",
       timestamp: new Date(Date.UTC(2026, 0, 1, 9, 0, index)).toISOString(),
       kind: "run",
-      runId: CHILD_RUN_ID,
+      runId: childRunId,
       position: index,
       epoch: 0,
       payload: {},
     })),
+  };
+}
+
+/** What a case holds a scripted expansion with, and the act that lets it answer. */
+interface HeldExpansions {
+  readonly bridge: ConsoleBridge;
+  /** Let every expansion this bridge is holding answer. */
+  readonly release: () => void;
+}
+
+/**
+ * A bridge whose expansions answer only when the case says so.
+ *
+ * The window between the request and the reply is where every claim below lives — an
+ * expansion abandoned mid-flight, and two children reading at once — and it is not
+ * observable without a reply the case releases.
+ */
+function bridgeHoldingExpansions(): HeldExpansions {
+  let releaseReplies = (): void => undefined;
+  const untilReleased = new Promise<void>((resolve) => {
+    releaseReplies = resolve;
+  });
+  const { bridge } = bridgeAnswering(async (call, passThrough) => {
+    if (call.method !== "timeline.childRunExpand") {
+      return passThrough();
+    }
+    await untilReleased;
+    const requestedRunId = (call.params as { readonly runId: RunId }).runId;
+    return expansionReply(1, false, requestedRunId);
+  });
+  return {
+    bridge,
+    release: () => {
+      releaseReplies();
+    },
   };
 }
 
@@ -131,6 +173,60 @@ describe("child-run expansion — what a press leaves on screen", () => {
     await expansions.expand(bridge, CHILD_RUN_ID);
     expansions.collapse(CHILD_RUN_ID);
     expect(expansions.expansionFor(CHILD_RUN_ID).entries).toEqual([]);
+    expect(expansions.trackedChildRunIds.size).toBe(0);
+  });
+});
+
+describe("child-run expansion — one read line per child, and what ends one", () => {
+  it("expands two children at once rather than one superseding the other", async () => {
+    // WHY THE LINES ARE PER CHILD. A single line per session would make the second
+    // press the supersession of the first, and the first child's row — already showing
+    // `expanding` — would never be settled by anything. Both settle here, which is the
+    // property the per-child guard was always claiming and nothing was holding it to.
+    const { bridge, release } = bridgeHoldingExpansions();
+    const expansions = new ChildRunExpansionState();
+
+    const first = expansions.expand(bridge, CHILD_RUN_ID);
+    const second = expansions.expand(bridge, SECOND_CHILD_RUN_ID);
+    release();
+
+    expect((await first).status).toBe("expanded");
+    expect((await second).status).toBe("expanded");
+    expect(expansions.trackedChildRunIds.size).toBe(2);
+  });
+
+  it("puts an abandoned press back rather than leaving the row expanding", async () => {
+    // THE TWO HALVES, TOGETHER. Nothing installs — the entries belong to a disclosure
+    // nobody is rendering — and the row does not stay frozen mid-press either, because
+    // a row stuck on `expanding` is a control that can never be pressed again. The
+    // control is "holds the entries the daemon served" above: same call, same reply,
+    // and it installs when the line is still somebody's.
+    const { bridge, release } = bridgeHoldingExpansions();
+    const expansions = new ChildRunExpansionState();
+
+    const settling = expansions.expand(bridge, CHILD_RUN_ID);
+    expect(expansions.expansionFor(CHILD_RUN_ID).status).toBe("expanding");
+
+    expansions.abandonReads();
+    release();
+    const settled = await settling;
+
+    expect(expansions.isAbandoned).toBe(true);
+    expect(settled.status).toBe("summarized");
+    expect(settled.entries).toEqual([]);
+    expect(expansions.expansionFor(CHILD_RUN_ID).status).toBe("summarized");
+    expect(expansions.trackedChildRunIds.size).toBe(0);
+  });
+
+  it("answers a press that arrives after the disclosure is over with a read that never lands", async () => {
+    const { bridge, release } = bridgeHoldingExpansions();
+    const expansions = new ChildRunExpansionState();
+    expansions.abandonReads();
+
+    const settling = expansions.expand(bridge, CHILD_RUN_ID);
+    release();
+
+    expect((await settling).status).toBe("summarized");
     expect(expansions.trackedChildRunIds.size).toBe(0);
   });
 });

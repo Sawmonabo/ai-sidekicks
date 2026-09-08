@@ -1,39 +1,39 @@
-// The two calls the fixture shell's rows make, and the state each one holds.
+// The read the fixture shell's rows make, and the state it holds.
 //
-// AND IT DIES WITH THE SHELL. Both hooks exist so the shell's rows are real against
-// the fixture scenarios before the timeline subtree's own rows land; the change that
-// registers those rows deletes this module with the rest of `shell/`.
+// A READ AND NOTHING ELSE, which is why the ask row's delivery moved to
+// `shell-ask-answer.ts` beside it. That call is a run-changing method and a dispatcher
+// of one may name no abort anywhere; this one is a read on a line that ENDS, and it
+// names the round that ends it. Splitting them is what lets either module's whole
+// relationship with cancellation be read off its imports.
 //
-// BOTH METHODS ARE REGISTERED WIRES, which is why they are reached through
-// `callDaemon` and not through the growth port: `timeline.reasoningSurfaceRead` and
-// `driver.respondToRequest` both have request and response schemas the contracts
-// package publishes, so a refusal here is a real refusal from a real parse rather
-// than the growth port's "no wire exists" refusal. The reasoning read additionally
-// answers a CLOSED four-arm discriminant, so there is nothing for a surface above to
-// narrow by hand — the parse either produces one of the four arms or refuses.
+// AND IT DIES WITH THE SHELL. This hook exists so the shell's reasoning rows are real
+// against the fixture scenarios before the timeline subtree's own rows land; the
+// change that registers those rows deletes this module with the rest of `shell/`.
 //
-// NO SUBSCRIPTION, NO POLL, NO PREFETCH. The reasoning read is issued when a reader
-// asks for it and never before: it is a per-run read whose answer is policy-decided
-// daemon-side, and issuing one per rendered row would put a call on every reasoning
-// row in a scrolled window for an answer nobody asked to see.
+// THE METHOD IS A REGISTERED WIRE, which is why it is reached through `callDaemon` and
+// not through the growth port: `timeline.reasoningSurfaceRead` has request and
+// response schemas the contracts package publishes, so a refusal here is a real
+// refusal from a real parse rather than the growth port's "no wire exists" refusal. It
+// additionally answers a CLOSED four-arm discriminant, so there is nothing for a
+// surface above to narrow by hand — the parse either produces one of the four arms or
+// refuses.
 //
-// AND NEITHER CALL IS FIRE-AND-FORGET, which is the property both hooks now share and
-// neither had. `callDaemon` answers `served` or `refused` for every outcome a
-// transport can have, so a caller that ignores the reply has decided that a refusal
-// looks exactly like a success — a reasoning read that was refused offered no way to
-// ask again, and an answer that never reached the driver left the run blocked with
-// nothing on screen saying so. Each hook holds what came back, and the surface above
-// renders it.
+// NO SUBSCRIPTION, NO POLL, NO PREFETCH. The read is issued when a reader asks for it
+// and never before: it is a per-run read whose answer is policy-decided daemon-side,
+// and issuing one per rendered row would put a call on every reasoning row in a
+// scrolled window for an answer nobody asked to see.
+//
+// AND IT IS NOT FIRE-AND-FORGET. `callDaemon` answers `served` or `refused` for every
+// outcome a transport can have, so a caller that ignored the reply would have decided
+// that a refusal looks exactly like a success — a read that was refused offered no way
+// to ask again. This hook holds what came back, and the surface above renders it.
 
 import { useCallback, useState } from "react";
 
 import { callDaemon, useConsoleBridge } from "../../../bridge/index.js";
+import { useReadScope } from "../../../store/index.js";
 import type { RunId } from "@ai-sidekicks/contracts";
-import {
-  ASK_ANSWER_UNSENT,
-  type DriverAskDelivery,
-  type ReasoningSurfaceReading,
-} from "../bodies/index.js";
+import { type ReasoningSurfaceReading } from "../bodies/index.js";
 
 /** The reading a row holds, and the call that advances it. */
 export interface ReasoningSurfaceRead {
@@ -57,10 +57,22 @@ export interface ReasoningSurfaceRead {
  * all, and its causes include a transport that was down for the moment the press
  * landed in — so the guard admits it, the refusal stays beside the control, and
  * pressing again issues a second read.
+ *
+ * AND THE READ IS ON A LINE THE ROW OWNS. A reasoning surface is read because somebody
+ * pressed for it, and that somebody can leave the pane or move the ledger to another
+ * run before the answer lands — at which point the reply is still parsed against its
+ * registered schema and folded into a state nothing renders. The line is addressed at
+ * `(bridge, runId)`, which is the pairing this reading is ABOUT: a transport
+ * replacement retires every call in flight through it, and a row re-addressed at
+ * another run is not asking the question the outstanding read answers. `round.settle`
+ * is what replaces the bare publish, so neither a superseded answer nor the door's own
+ * `read-abandoned` refusal reaches the control — a departure is not a refusal a reader
+ * should be offered a retry for.
  */
 export function useReasoningSurfaceRead(runId: RunId | undefined): ReasoningSurfaceRead {
   const bridge = useConsoleBridge();
   const [reading, setReading] = useState<ReasoningSurfaceReading>({ status: "not-asked" });
+  const readScope = useReadScope(bridge, runId);
 
   const expand = useCallback(() => {
     // Stated as the two states that REFUSE a press rather than as the two that admit
@@ -70,82 +82,26 @@ export function useReasoningSurfaceRead(runId: RunId | undefined): ReasoningSurf
     if (runId === undefined || reading.status === "reading" || reading.status === "read") {
       return;
     }
+    // OPENING THE ROUND IS THE SUPERSESSION, so it happens after the guard and not
+    // before it: a press this hook DROPS must not end the read already in flight,
+    // which is exactly what a round opened ahead of the guard would do.
+    const round = readScope.openRound();
     setReading({ status: "reading" });
-    void callDaemon(bridge, "timeline.reasoningSurfaceRead", { runId }).then((reply) => {
-      setReading(
-        reply.status === "served"
-          ? { status: "read", response: reply.value }
-          : { status: "refused", refusal: reply.refusal },
-      );
-    });
-  }, [bridge, reading.status, runId]);
-
-  return { reading, expand };
-}
-
-/** Where one ask's answer has got to, and the call that dispatches one. */
-export interface DriverAskAnswer {
-  readonly delivery: DriverAskDelivery;
-  /** Deliver an answer, or do nothing where this row has none to deliver. */
-  readonly answer: (response: string) => void;
-}
-
-/**
- * Deliver an answer to a provider-raised ask, and hold what the wire said about it.
- *
- * The response travels as the `unknown`-typed member the contract declares, so an
- * option's `value` and a participant's free text are one call rather than two paths.
- *
- * THE ACKNOWLEDGEMENT IS HELD AND THE TERMINAL IS NOT. `DriverAckResult` is an empty
- * envelope, so a served reply means exactly that the answer reached the driver — and
- * that is what `accepted` records. The ask's own terminal stays the
- * `driver_ask.responded` row's to state: this hook settles no ask, and the card reads
- * its state from the row rather than from here.
- *
- * SINGLE-FLIGHT, AND NO SECOND ANSWER AFTER ONE LANDED. A press while a call is in
- * flight is answered with the state already on screen; a press after the driver
- * acknowledged is refused too, because the ask is answered and a second delivery
- * would be a second answer to a question that has one. A REFUSED answer is the case
- * both of those exist to leave open — nothing reached the driver, so pressing again
- * dispatches again.
- */
-export function useDriverAskAnswer(runId: RunId | undefined, askId: string): DriverAskAnswer {
-  const bridge = useConsoleBridge();
-  const [delivery, setDelivery] = useState<DriverAskDelivery>(ASK_ANSWER_UNSENT);
-  const answer = useCallback(
-    (response: string) => {
-      // BOTH GUARDS ARE FAIL-CLOSED AND NEITHER IS A CONVENIENCE. A row with no run
-      // attribution names no run to answer for, and an empty ask id is what a caller
-      // holds when the row it is on is not an ask at all — this hook is armed on every
-      // row by the rules of hooks, so the empty id is the ordinary case rather than the
-      // exceptional one. Sending either would put a request on the wire naming an ask
-      // the daemon has no record of.
-      if (runId === undefined || askId.length === 0) {
-        return;
-      }
-      if (delivery.status === "delivering" || delivery.status === "accepted") {
-        return;
-      }
-      setDelivery({ status: "delivering", response });
-      // NO `catch` ARM ON EITHER CALL IN THIS MODULE, and its absence is the door's
-      // contract rather than an omission: `callDaemon` answers `served` or `refused`
-      // for every outcome a transport can have — a request the daemon would not
-      // accept, a rejected call, a reply the registered schema does not admit — so a
-      // `catch` here would be a branch nothing can reach.
-      void callDaemon(bridge, "driver.respondToRequest", {
-        runId,
-        requestId: askId,
-        response,
-      }).then((reply) => {
-        setDelivery(
+    void callDaemon(
+      bridge,
+      "timeline.reasoningSurfaceRead",
+      { runId },
+      { signal: round.signal },
+    ).then((reply) => {
+      round.settle(() => {
+        setReading(
           reply.status === "served"
-            ? { status: "accepted", response }
-            : { status: "refused", response, refusal: reply.refusal },
+            ? { status: "read", response: reply.value }
+            : { status: "refused", refusal: reply.refusal },
         );
       });
-    },
-    [askId, bridge, delivery.status, runId],
-  );
+    });
+  }, [bridge, readScope, reading.status, runId]);
 
-  return { delivery, answer };
+  return { reading, expand };
 }

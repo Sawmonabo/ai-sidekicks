@@ -14,6 +14,7 @@ import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { bridgeAnswering } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import { takeTheFloor, unregisterTakeTheFloorHandler } from "../../seats/index.js";
@@ -88,15 +89,57 @@ function storeWithBoundRun(agentId: string | undefined): SessionStore {
   return store;
 }
 
+/** The mounted seat: the deck its acts move, and the act that takes it off screen. */
+interface MountedDeck {
+  readonly layout: DeckLayout;
+  /** Unmount the workspace, which is what ends the seat's own read line. */
+  readonly unmount: () => void;
+}
+
 /** Mount the seat over one deck, and hand back the deck the acts move. */
-function mountedDeckOver(bridge: ConsoleBridge, sessionStore: SessionStore): DeckLayout {
+function mountedDeckOver(bridge: ConsoleBridge, sessionStore: SessionStore): MountedDeck {
   const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
   function FloorHost(): null {
     useTakeTheFloorSeat({ layout, bridge, sessionStore });
     return null;
   }
-  render(<FloorHost />);
-  return layout;
+  const { unmount } = render(<FloorHost />);
+  return { layout, unmount };
+}
+
+/** What a case holds the execution-root read with, and the act that answers it. */
+interface HeldWorktreeRead {
+  readonly bridge: ConsoleBridge;
+  /** Let the read this bridge is holding answer. */
+  readonly release: () => void;
+}
+
+/**
+ * A bridge whose execution-root read answers only when the case says so.
+ *
+ * The act's whole abandonment window is between the request and the reply, and it is
+ * not observable without a reply the case releases.
+ */
+function bridgeHoldingWorktreeRead(
+  worktrees: readonly Record<string, unknown>[],
+): HeldWorktreeRead {
+  let releaseReply = (): void => undefined;
+  const untilReleased = new Promise<void>((resolve) => {
+    releaseReply = resolve;
+  });
+  const { bridge } = bridgeAnswering(async (call, passThrough) => {
+    if (call.method !== "repo.worktreeStatusRead") {
+      return passThrough();
+    }
+    await untilReleased;
+    return { worktrees, ephemeralClones: [] };
+  });
+  return {
+    bridge,
+    release: () => {
+      releaseReply();
+    },
+  };
 }
 
 afterEach(() => {
@@ -152,7 +195,7 @@ describe("the deck's two acts", () => {
     // The ORDER is the claim: the composer resolves its address from the focused
     // pane, so a worktree pane focused last would leave the composer on the channel
     // path and make "you have the floor" false.
-    const layout = mountedDeckOver(
+    const { layout } = mountedDeckOver(
       bridgeServing([worktreeRow({ worktreeId: WORKTREE_MINE, createdByRunId: RUN_ID })]),
       storeWithBoundRun(AGENT_ID),
     );
@@ -176,7 +219,7 @@ describe("the deck's two acts", () => {
   });
 
   it("says the composer was not addressed when the store names no agent", async () => {
-    const layout = mountedDeckOver(
+    const { layout } = mountedDeckOver(
       bridgeServing([worktreeRow({ worktreeId: WORKTREE_MINE, createdByRunId: RUN_ID })]),
       storeWithBoundRun(undefined),
     );
@@ -210,7 +253,10 @@ describe("the deck's two acts", () => {
         },
       ],
     };
-    const layout = mountedDeckOver(createFixtureBridge({ scenario }), storeWithBoundRun(AGENT_ID));
+    const { layout } = mountedDeckOver(
+      createFixtureBridge({ scenario }),
+      storeWithBoundRun(AGENT_ID),
+    );
 
     const outcome = await takeTheFloor({ runId: RUN_ID });
 
@@ -223,7 +269,7 @@ describe("the deck's two acts", () => {
   });
 
   it("opens no pane and says why when the run names no checkout", async () => {
-    const layout = mountedDeckOver(bridgeServing([]), storeWithBoundRun(AGENT_ID));
+    const { layout } = mountedDeckOver(bridgeServing([]), storeWithBoundRun(AGENT_ID));
 
     const outcome = await takeTheFloor({ runId: RUN_ID });
 
@@ -233,5 +279,46 @@ describe("the deck's two acts", () => {
       worktree: "unnamed",
     });
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual(["agent-console"]);
+  });
+});
+
+describe("the deck's two acts — the workspace leaves while the read is on the wire", () => {
+  it("opens no pane and reports no deck rather than moving one that has gone", async () => {
+    // WHAT THE ROUND BUYS THIS ACT. The execution-root read is a prerequisite, and its
+    // answer arriving after the workspace unmounted used to open two panes on a deck
+    // nothing renders — and report `moved` for it. The line is addressed at the same
+    // pairing the handler is composed from, so unmounting abandons the read and the
+    // act settles on the seat's own reading of a deck that is not there to ask.
+    const { bridge, release } = bridgeHoldingWorktreeRead([
+      worktreeRow({ worktreeId: WORKTREE_MINE, createdByRunId: RUN_ID }),
+    ]);
+    const { layout, unmount } = mountedDeckOver(bridge, storeWithBoundRun(AGENT_ID));
+
+    const stepIn = takeTheFloor({ runId: RUN_ID });
+    unmount();
+    release();
+
+    expect(await stepIn).toStrictEqual({ status: "no-deck" });
+    expect(layout.snapshot().panes).toStrictEqual([]);
+  });
+
+  it("negative control: the same held read moves the deck while it is still mounted", async () => {
+    const { bridge, release } = bridgeHoldingWorktreeRead([
+      worktreeRow({ worktreeId: WORKTREE_MINE, createdByRunId: RUN_ID }),
+    ]);
+    const { layout } = mountedDeckOver(bridge, storeWithBoundRun(AGENT_ID));
+
+    const stepIn = takeTheFloor({ runId: RUN_ID });
+    release();
+
+    expect(await stepIn).toStrictEqual({
+      status: "moved",
+      composerAddressed: true,
+      worktree: "opened",
+    });
+    expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
+      "inspector",
+      "agent-console",
+    ]);
   });
 });

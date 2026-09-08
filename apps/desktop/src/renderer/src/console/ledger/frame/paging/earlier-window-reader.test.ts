@@ -279,3 +279,33 @@ describe("LedgerEarlierWindowReader — a refresh lands while a page is in fligh
     expect(reader.state(store).admittedRowCount).toBe(3);
   });
 });
+
+describe("LedgerEarlierWindowReader — the pane leaves while a page is in flight", () => {
+  it("stops the read and installs neither the page nor a refusal", async () => {
+    // WHAT THE ABANDONMENT HAS TO BUY, stated as both halves. The page must not land —
+    // it belongs to a walk nobody is offering a control for — and the door's own
+    // `read-abandoned` refusal must not land either, because a surface that left is
+    // not a failure to report. The control is the case directly above: the same
+    // scenario, the same latency, and the same page merges when the line is still
+    // anybody's, so what stops it here is the abandonment and not the wait.
+    const { bridge, engine } = createFixture(delayedPagingScenario());
+    const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
+    const reader = new LedgerEarlierWindowReader();
+
+    const heldPage = reader.loadEarlier(bridge, store);
+    await crossMacrotaskBoundary();
+    expect(engine.pendingReplyCount).toBe(1);
+
+    reader.abandonReads();
+    engine.advance(SCRIPTED_LATENCY_MS);
+    await heldPage;
+
+    expect(reader.isAbandoned).toBe(true);
+    expect(sequencesOf(store)).toStrictEqual([40, 41]);
+    expect(reader.state(store)).toMatchObject({
+      isReading: false,
+      refusal: undefined,
+      admittedRowCount: 0,
+    });
+  });
+});

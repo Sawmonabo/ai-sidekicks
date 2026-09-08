@@ -41,7 +41,12 @@ import {
   type TakeTheFloorHandler,
   type TakeTheFloorOutcome,
 } from "../../seats/index.js";
-import type { SessionStore } from "../../store/index.js";
+import {
+  isReadAbandoned,
+  useReadScope,
+  type ReadRound,
+  type SessionStore,
+} from "../../store/index.js";
 import type { DeckLayout } from "./deck-layout.js";
 
 /** The owner string the seat's refusal names. Reads as the surface, never as a task. */
@@ -92,9 +97,26 @@ interface FloorDeck {
   readonly sessionStore: SessionStore | undefined;
 }
 
-/** Perform the deck's two acts and say which of them landed. */
-async function handOverTheFloor(deck: FloorDeck, runId: string): Promise<TakeTheFloorOutcome> {
-  const worktree = await readRunWorktree(deck, runId);
+/**
+ * Perform the deck's two acts and say which of them landed.
+ *
+ * THE PREREQUISITE READ IS ON THE ACT'S OWN ROUND, and what that buys is the two panes
+ * this act opens. A workspace that unmounted while the execution-root read was on the
+ * wire has no deck to move, and a second Step in supersedes the first — in both cases
+ * the answer belongs to nobody, so it opens nothing and reports `no-deck` rather than
+ * moving a deck on the strength of a read another act has already replaced. That is
+ * the seat's own distinction used as it was written: "there was no deck to ask" is
+ * exactly the receipt for an act whose deck is gone by the time the answer arrives.
+ */
+async function handOverTheFloor(
+  deck: FloorDeck,
+  runId: string,
+  round: ReadRound,
+): Promise<TakeTheFloorOutcome> {
+  const worktree = await readRunWorktree(deck, runId, round.signal);
+  if (isReadAbandoned(round.signal)) {
+    return { status: "no-deck" };
+  }
   if (worktree.worktreeId !== undefined) {
     deck.layout.open({ kind: "inspector", entity: { kind: "worktree", id: worktree.worktreeId } });
   }
@@ -109,10 +131,17 @@ async function handOverTheFloor(deck: FloorDeck, runId: string): Promise<TakeThe
   };
 }
 
-/** Run the execution-root read, and read the refusal as its own disposition. */
+/**
+ * Run the execution-root read, and read the refusal as its own disposition.
+ *
+ * The signal is REQUIRED rather than optional, so there is no way to make this read
+ * from outside a round: the act that presses for it has an owner who may leave, and
+ * this is the one call on that path that reaches the daemon.
+ */
 async function readRunWorktree(
   deck: FloorDeck,
   runId: string,
+  signal: AbortSignal,
 ): Promise<{ readonly disposition: FloorWorktreeDisposition; readonly worktreeId?: string }> {
   const sessionId = deck.sessionStore?.sessionId;
   if (sessionId === undefined) {
@@ -122,9 +151,12 @@ async function readRunWorktree(
   }
   // The store holds the identifier as the plain string the wire sent; `SessionId` is a
   // compile-time marker over that same opaque value, and the console never mints one.
-  const reply = await callDaemon(deck.bridge, "repo.worktreeStatusRead", {
-    sessionId: sessionId as SessionId,
-  });
+  const reply = await callDaemon(
+    deck.bridge,
+    "repo.worktreeStatusRead",
+    { sessionId: sessionId as SessionId },
+    { signal },
+  );
   if (reply.status === "refused") {
     return { disposition: "unreadable" };
   }
@@ -137,12 +169,21 @@ async function readRunWorktree(
  * Withdrawn on unmount rather than left standing: the handler closes over one deck,
  * one transport and one session's store, and a handler outliving them would move a
  * deck that is no longer on screen.
+ *
+ * AND THE READ LINE IS WITHDRAWN WITH IT. Withdrawing the handler stops the NEXT act
+ * from being asked for and does nothing about the one already on the wire, so the
+ * line is addressed at the same `(bridge, sessionId)` pairing the handler is composed
+ * from: unmounting it, or re-addressing the workspace at another session, abandons the
+ * execution-root read this act was waiting on instead of leaving it to be parsed for a
+ * deck that has gone.
  */
 export function useTakeTheFloorSeat(deck: FloorDeck): void {
   const { layout, bridge, sessionStore } = deck;
+  const readScope = useReadScope(bridge, sessionStore?.sessionId);
   const handle = useCallback<TakeTheFloorHandler>(
-    (request) => handOverTheFloor({ layout, bridge, sessionStore }, request.runId),
-    [layout, bridge, sessionStore],
+    (request) =>
+      handOverTheFloor({ layout, bridge, sessionStore }, request.runId, readScope.openRound()),
+    [layout, bridge, sessionStore, readScope],
   );
   useEffect(() => {
     registerTakeTheFloorHandler(TAKE_THE_FLOOR_SEAT_OWNER, handle);
