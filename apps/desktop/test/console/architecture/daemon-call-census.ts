@@ -249,7 +249,7 @@ function readsDoorOffImportedNamespace(
  * Holding the namespace form to the stricter test would make one pinned number move
  * differently for two spellings of one consumption.
  */
-export function importsCallDoor(source: string, fileName = PROBE_MODULE): boolean {
+export function importsCallDoor(source: string, fileName: string = PROBE_MODULE): boolean {
   const parsed = parseSourceText(fileName, source);
   return callDoorLocalNames(parsed, fileName).size > 0 || readsCallDoorThroughNamespace(parsed);
 }
