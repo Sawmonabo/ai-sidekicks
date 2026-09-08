@@ -6,6 +6,7 @@
 
 import { Nothing, RefusalCard } from "../../../primitives/index.js";
 import { DurableInterventionRow } from "./DurableInterventionRow.js";
+import { InterventionSourceList } from "./InterventionSourceList.js";
 import type { DurableInterventionHistoryReading } from "./durable-intervention-history.js";
 
 /**
@@ -47,10 +48,10 @@ export function DurableInterventions(props: {
     );
   }
   return (
-    <ol className="meridian-interventions__rows" aria-label="The run's intervention record">
+    <InterventionSourceList caption="Everything directed at this run">
       {outcome.value.records.map((record) => (
         <DurableInterventionRow key={record.interventionId} record={record} />
       ))}
-    </ol>
+    </InterventionSourceList>
   );
 }

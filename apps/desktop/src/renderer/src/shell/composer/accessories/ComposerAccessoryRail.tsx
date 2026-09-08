@@ -256,6 +256,7 @@ export function ComposerAccessoryRail(props: ComposerAccessoryRailProps): React.
       <QueueShelf
         items={waitingItems}
         snapshotRead={queueFeed}
+        runBindings={queueFeed}
         pendingCancelIds={queueFeed.pendingCancelIds}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}

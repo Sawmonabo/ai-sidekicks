@@ -45,13 +45,18 @@
 
 import {
   DerivedFigure,
+  InlineRefusal,
   PartialRead,
   formatCount,
   unreadableDeliveryReading,
   type ReadingState,
 } from "../../../../console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
-import { readRefusalOf, type WireReadState } from "../../../../console/bridge/index.js";
+import {
+  readRefusalOf,
+  type QueueRunBindingState,
+  type WireReadState,
+} from "../../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../../console/core/index.js";
 import { QUEUE_SHELF_ROW_CAP } from "../accessory-bounds.js";
 import { QueueShelfRow } from "./QueueShelfRow.js";
@@ -71,6 +76,19 @@ export interface QueueShelfProps {
    * this surface answer "read" for a snapshot nobody asked about.
    */
   readonly snapshotRead: WireReadState;
+  /**
+   * Which run each queued row is bound to, straight off the same one reading.
+   *
+   * THE PAIR AND NOT ITS TWO HALVES, exactly as the snapshot read above: the map and
+   * the refusal are one statement, and a caller could otherwise hand this surface a
+   * stale map beside a refusal saying the read never landed.
+   *
+   * Required for the snapshot read's reason too — every caller of this shelf reads
+   * the feed that carries it, so a caller with nothing to pass is a caller that has
+   * stopped reading the queue, and an empty default would make this surface answer
+   * "unbound" for rows nobody asked about.
+   */
+  readonly runBindings: QueueRunBindingState;
   /** The ids whose cancel is in flight, straight off the session's one reading. */
   readonly pendingCancelIds: ReadonlySet<string>;
   readonly cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal>;
@@ -111,11 +129,25 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
   return (
     <section className="meridian-queue-shelf" aria-label="Queued messages">
       <PartialRead states={[snapshotReading(props.snapshotRead), deliveries]} subject="the queue" />
+      {props.runBindings.bindingRefusal === undefined ? null : (
+        // Above the rows and never in place of them, and rendered the way the runs
+        // pane's queue renders the same refusal: the rows are still the best reading
+        // there is, and they are no longer offered as ones that say which run each is
+        // bound to. It is not folded into the notice beside it because that primitive
+        // takes ONE subject for every reading it is handed, and the binding read's
+        // subject is not the queue — a sentence saying the queue could not be read
+        // would be false of a list that read fine.
+        <InlineRefusal
+          code={props.runBindings.bindingRefusal.code}
+          detail={props.runBindings.bindingRefusal.detail}
+        />
+      )}
       <ul className="meridian-queue-shelf__rows">
         {rendered.map((item) => (
           <QueueShelfRow
             key={item.id}
             item={item}
+            targetRunId={props.runBindings.targetRunIdByItemId.get(item.id)}
             isCancelPending={props.pendingCancelIds.has(item.id)}
             refusal={props.cancelRefusalByItemId.get(item.id)}
             onCancel={props.onCancel}

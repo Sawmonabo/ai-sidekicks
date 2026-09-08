@@ -73,16 +73,18 @@ function scenarioDeclaring(state: string): ConsoleScenario {
  * The served operations whose answer depends on what the playing scenario states.
  *
  * Membership in the served set says the PORT implements an operation, not that every
- * scenario has something for it to answer with. The branch-context read is the one
- * such operation under the flagship scenario, which scripts none: the registered reply
- * is flat and carries no absence, so there is nothing honest to serve and the read
- * refuses. Named rather than left implicit in the sweep, which reaches only the
- * operations the port does NOT serve: without this set nothing would say out loud
+ * scenario has something for it to answer with. Under the flagship, which scripts
+ * neither, the branch-context read has no context to serve — the registered reply is
+ * flat and carries no absence — and the run's durable intervention record has no run
+ * it states rows for; an empty answer from either would be a claim about a subject
+ * nobody described. Named rather than left implicit in the sweep, which reaches only
+ * the operations the port does NOT serve: without this set nothing would say out loud
  * that a served operation may still refuse, and the case below asserts that refusal
  * rather than merely leaving the operation unscanned.
  */
 const SCENARIO_CONDITIONAL_SERVED_OPERATIONS: ReadonlySet<GrowthOperationId> = new Set([
   "gitflowBranchContextRead",
+  "runRecordInterventionHistoryRead",
 ]);
 
 /**
@@ -247,10 +249,11 @@ describe("the fixture growth port — what it serves, and what it still refuses"
   it("refuses a served operation the playing scenario states nothing for", async () => {
     // The half the sweep above cannot make: an operation is in the served set because
     // the PORT implements it, and whether a given scenario has anything to answer with
-    // is the scenario's business. The branch-context read is that case — the registered
-    // reply is flat and carries no absence, so a scenario scripting none leaves nothing
-    // honest to serve and the read takes the "not checked" refusal instead of a
-    // fabricated empty context.
+    // is the scenario's business. The branch-context read is one such case — the
+    // registered reply is flat and carries no absence, so a scenario scripting none
+    // leaves nothing honest to serve and the read takes the "not checked" refusal
+    // instead of a fabricated empty context — and the durable intervention record is
+    // the other, refusing for a run no scenario wrote rows for.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 
     for (const operationId of SCENARIO_CONDITIONAL_SERVED_OPERATIONS) {

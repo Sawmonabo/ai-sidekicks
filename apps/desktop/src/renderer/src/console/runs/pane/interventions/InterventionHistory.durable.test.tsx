@@ -39,6 +39,13 @@ describe("the durable record is the run's, not this window's", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-interventions__row")).toHaveLength(4);
     });
+    // And under a name saying whose rows these are: the run's, not this window's.
+    // Unnamed, an intervention appearing in both lists reads as one listed twice.
+    const caption = container.querySelector(".meridian-interventions__source-name");
+    expect(caption?.textContent).toContain("Everything directed at this run");
+    expect(
+      container.querySelector(".meridian-interventions__rows")?.getAttribute("aria-labelledby"),
+    ).toBe(caption?.id);
   });
 
   it("names the origin on every row and the admitting principal on the participant arm", async () => {

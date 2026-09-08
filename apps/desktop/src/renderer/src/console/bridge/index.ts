@@ -189,6 +189,12 @@ export type { WireReadState } from "./readings/reading-lifecycle.js";
 // used to ask its own down its own subscription.
 export { useQueueFeed, useQueueRepairRead } from "./queue/queue-feed.js";
 export type { QueueFeed } from "./queue/queue-reading.js";
+// The run each queued row is bound to, published as the PAIR the reading writes and
+// never as its two halves. The map and the refusal move together — a settled read
+// writes exactly one of them — and the composer's shelf sits outside this family, so
+// it takes the pair through this door rather than two props a caller could pass out
+// of step. The runs pane reads the same two members off `QueueFeed`, which extends it.
+export type { QueueRunBindingState } from "./queue/queue-run-binding.js";
 
 // The node's provider-account quotas: one read, one tail, one fold per bridge.
 //
@@ -329,9 +335,10 @@ export {
 // The durable intervention row the corpus registers as columns and no read returns —
 // its origin, the admitting principal on the participant arm, the queue item it
 // admitted, and the directive where the key still opens it. Published from the module
-// that declares it, never through the sub-module door. The queue's run binding stays
-// off this door: it is folded onto the queue feed inside this family, so no surface
-// outside it names the shape.
+// that declares it, never through the sub-module door. Its sibling projection — the
+// queue row's run binding — stays off this door: it is folded onto the queue feed
+// inside this family, so what leaves is the reading's own pair above and no surface
+// outside names the wire shape.
 export type { GrowthInterventionRecord } from "./wire-shapes/run-record-projections.js";
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.

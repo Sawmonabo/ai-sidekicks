@@ -23,7 +23,7 @@ import {
 import {
   fixtureBridgeWithGrowth,
   withDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { AGENTS_SCENARIO } from "../../bridge/scenarios/agents.js";
 import { settleReads } from "../agent-console/agent-console.test-support.js";

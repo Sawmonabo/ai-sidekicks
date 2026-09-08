@@ -19,7 +19,7 @@ import {
   type ConsoleBridge,
   type GrowthPort,
 } from "../../../console/bridge/index.js";
-import { withDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScriptedRead } from "../../../console/bridge/readings/scheduled-read.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import {

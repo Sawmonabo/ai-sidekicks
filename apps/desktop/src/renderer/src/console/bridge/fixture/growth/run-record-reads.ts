@@ -18,9 +18,15 @@
 // this scenario declares no record for, and the history's own "not checked" absence is
 // then a true statement rather than a placeholder.
 //
+// AND THAT REFUSAL IS THE FIXTURE'S OWN, NEVER THE UNREGISTERED WIRE'S. This plane is
+// in the served set, so `wire-unregistered` would be false of it — the build DOES carry
+// the read — and a reader told that would be sent to the document owing a wire the
+// fixture already stands in for. `growthUnscriptedReply` is the code for the fact that
+// actually holds: the scenario states nothing for the subject asked about.
+//
 // The live bridge keeps refusing both, so nothing a release build renders moves.
 
-import { growthUnavailable } from "../../growth-port/index.js";
+import { growthUnscriptedReply } from "../../growth-port/index.js";
 import {
   RUNS_INTERVENTION_RECORDS,
   RUNS_QUEUE_RUN_BINDINGS,
@@ -62,7 +68,7 @@ export function fixtureRunRecordReads(
     runRecordInterventionHistoryRead: async (request) => {
       const records = scenarioInterventionRecords(engine, request.runId);
       return records === undefined
-        ? growthUnavailable("runRecordInterventionHistoryRead")
+        ? growthUnscriptedReply("runRecordInterventionHistoryRead", RUN_INTERVENTION_RECORD_SCRIPT)
         : { status: "served", value: { records } };
     },
     runRecordQueueRunBindingRead: async (request) => ({
@@ -104,6 +110,16 @@ function scenarioInterventionRecords(
 function scenarioQueueRunBindings(engine: ScenarioEngine): readonly GrowthQueueItemRunBinding[] {
   return engine.scenario.id === RUN_RECORD_SCENARIO_ID ? RUNS_QUEUE_RUN_BINDINGS : [];
 }
+
+/**
+ * What the refusal names as the thing this scenario states nothing for.
+ *
+ * A SCRIPT name and not a wire method, on `SHELL_STATUS_SCRIPT`'s rule: no method
+ * string exists for this read anywhere in the corpus — that absence is the whole
+ * reason the row is on the growth slate — so naming one here would put a wire string
+ * this build invented into a sentence a person reads.
+ */
+const RUN_INTERVENTION_RECORD_SCRIPT = "runInterventionRecord";
 
 /**
  * The one scenario that declares durable run records.

@@ -224,6 +224,19 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* The run a queued row is bound to. The figure inside is the wire value verbatim;
+   this slot is what keeps the row one line — a run id is 36 characters and the row
+   wraps, so the value is clamped here and carried whole in the row's own tooltip
+   rather than shortened into a string the daemon never sent. */
+.meridian-queue-shelf__run {
+  display: inline-block;
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .meridian-queue-shelf__fold {
   margin: var(--meridian-space-1) 0 0;
 }

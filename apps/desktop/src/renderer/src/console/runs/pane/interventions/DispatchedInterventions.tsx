@@ -5,6 +5,7 @@
 // the three dispositions that carry them, both never-silent file enumerations.
 
 import { InterventionRow } from "./InterventionRow.js";
+import { InterventionSourceList } from "./InterventionSourceList.js";
 import type { EnumeratedPathAction } from "../controls/enumerated-path-action.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
 
@@ -23,10 +24,10 @@ export function DispatchedInterventions(props: {
     return null;
   }
   return (
-    <ol className="meridian-interventions__rows" aria-label="Interventions this window dispatched">
+    <InterventionSourceList caption="Sent from this window, and how each settled">
       {props.rows.map((record) => (
         <InterventionRow key={record.recordId} record={record} pathAction={props.pathAction} />
       ))}
-    </ol>
+    </InterventionSourceList>
   );
 }

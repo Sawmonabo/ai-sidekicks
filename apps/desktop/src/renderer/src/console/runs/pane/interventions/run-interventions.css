@@ -24,6 +24,34 @@
   list-style: none;
 }
 
+/* One captioned list — the run's durable record, or what this window dispatched. */
+.meridian-interventions__source {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* Where a list's rows came from. Muted and quiet: it is a label over the rows, not a
+   figure among them, and the rows are what a reader is here for. */
+.meridian-interventions__source-name {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/* The rows of one list. The wrapper above carries the gap between a caption and its
+   rows; this carries the gap between the rows, and strips the list marker and the
+   indent a bare `ol` would otherwise draw around rows that already carry their own
+   left rule. */
+.meridian-interventions__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .meridian-interventions__row {
   display: flex;
   flex-direction: column;
@@ -43,6 +71,15 @@
 .meridian-interventions__reason {
   margin: 0;
   color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/* What a participant actually directed, at full text colour beside the muted figures
+   around it: the directive is the only line on a durable row a person WROTE, and
+   muting it would set someone's own words below the identifiers that locate them. */
+.meridian-interventions__directive {
+  margin: 0;
+  color: var(--meridian-text);
   font-size: var(--meridian-text-xs);
 }
 
