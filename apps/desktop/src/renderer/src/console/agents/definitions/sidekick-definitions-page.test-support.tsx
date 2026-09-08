@@ -159,14 +159,17 @@ export function served(definitions: readonly SidekickDefinitionRecord[]): ListOu
  * announcement from two. Advancing past the hold is what makes the difference
  * observable.
  */
-export function renderPage(bridge: ConsoleBridge): {
+export function renderPage(
+  bridge: ConsoleBridge,
+  retainedSessionId: string | undefined = undefined,
+): {
   readonly container: HTMLElement;
   readonly clock: ManualClock;
 } {
   const clock = new ManualClock();
   const { container } = render(
     <LiveAnnouncerProvider clock={clock}>
-      <SidekickDefinitionsPage bridge={bridge} />
+      <SidekickDefinitionsPage bridge={bridge} retainedSessionId={retainedSessionId} />
     </LiveAnnouncerProvider>,
   );
   return { container, clock };
