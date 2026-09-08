@@ -1,7 +1,12 @@
-// The renderer initial-bundle budget gate — Plan-023 Phase 1C (T-023p-1C-1).
+// The renderer initial-graph budget gates — Plan-023 Phase 1C (T-023p-1C-1).
 //
-// Gates `Spec-023 §Console Design (Meridian)` §Budgets row 1 (≤ 450 kB gzip,
-// excluding lazy chunks) against the built `out/renderer` tree.
+// One walk of the built `out/renderer` tree, held against two rows of
+// `budgets.json`: `renderer-initial-bundle` over the CODE it emits, gzipped
+// (`Spec-023 §Console Design (Meridian)` §Budgets row 1, ≤ 450 kB gzip excluding
+// lazy chunks), and `renderer-initial-fonts` over the font files on that same
+// graph, raw. The split is a change of unit rather than an exclusion, and the
+// two negative controls at the bottom are what make that a claim with evidence:
+// a seventh face fails the font row, and a font byte never reaches the code one.
 //
 // THIS TEST NEVER SKIPS ITSELF: a budget gate that turns itself off when its
 // subject is missing reports green for a bundle nobody measured. The console
@@ -10,7 +15,7 @@
 // clean checkout fails with the command that produces one. The refusal tests at
 // the bottom are what make that claim evidence rather than an assumption.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,20 +24,23 @@ import {
   ConsoleBudgetRegistry,
   evaluateBudget,
   formatUnavailableBudgetReport,
+  type ConsoleBudget,
 } from "../../../scripts/budget/budget-registry.mjs";
 import {
   DEFAULT_RENDERER_OUTPUT_DIRECTORY,
   RENDERER_BUNDLE_BUDGET_ID,
+  RENDERER_BUNDLE_GATES,
+  RENDERER_FONTS_BUDGET_ID,
   RENDERER_MANIFEST_RELATIVE_PATH,
   RendererBundleMeasurer,
   RendererBundleOutputMissingError,
   formatRendererBundleReport,
+  rendererBundleAssetClassOf,
   type RendererBundleMeasurement,
 } from "../../../scripts/budget/measure-bundle.mjs";
 import { TemporaryDirectoryTrail } from "../temporary-directory.js";
 
 const registry = ConsoleBudgetRegistry.load();
-const budget = registry.requireBudget(RENDERER_BUNDLE_BUDGET_ID);
 
 /** An escape for measuring an out-of-tree build; NOT an escape from measuring. */
 const rendererOutputDirectory: string =
@@ -68,32 +76,58 @@ afterEach(() => {
   plantedFixtures.removeAll();
 });
 
-/** A renderer out-dir holding exactly the manifest given, for the refusal paths. */
-function outputDirectoryWithManifest(name: string, manifest: unknown): string {
+/** A renderer out-dir holding a manifest and, optionally, the files it names. */
+function outputDirectoryWithManifest(
+  name: string,
+  manifest: unknown,
+  emittedFiles: ReadonlyMap<string, string> = new Map(),
+): string {
   const directory = plantedFixtures.create(`console-bundle-${name}-`);
   const manifestPath = path.join(directory, ...RENDERER_MANIFEST_RELATIVE_PATH.split("/"));
   mkdirSync(path.dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify(manifest), "utf8");
+  for (const [relativePath, sourcePath] of emittedFiles) {
+    const emittedPath = path.join(directory, ...relativePath.split("/"));
+    mkdirSync(path.dirname(emittedPath), { recursive: true });
+    copyFileSync(sourcePath, emittedPath);
+  }
   return directory;
 }
 
-describe("renderer initial-bundle budget", () => {
-  const measurement = measureOrFailLoudly();
-  const verdict = evaluateBudget(budget, measurement.gzipByteCount);
+/** A one-entry manifest over `assetPaths`, the shape Vite writes for the entry document. */
+function manifestNaming(assetPaths: readonly string[]): unknown {
+  const [entryFile, ...remaining] = assetPaths;
+  return { "index.html": { file: entryFile, isEntry: true, assets: remaining } };
+}
+
+/** One walk, read by both describes below — measuring twice is two readings that can disagree. */
+const measurement: RendererBundleMeasurement = measureOrFailLoudly();
+
+describe("renderer initial-graph budgets", () => {
+  const gateReadings = RENDERER_BUNDLE_GATES.map((gate) => {
+    const budget: ConsoleBudget = registry.requireBudget(gate.budgetId);
+    return {
+      budget,
+      verdict: evaluateBudget(budget, gate.compare(measurement)),
+      measuredDescription: gate.measuredDescription(measurement),
+    };
+  });
 
   it("measures a non-empty initial graph rooted in a manifest entry", () => {
     expect(measurement.entryKeys.length).toBeGreaterThan(0);
     expect(measurement.assets.length).toBeGreaterThan(0);
-    expect(measurement.rawByteCount).toBeGreaterThan(0);
     const relativePaths = measurement.assets.map((asset) => asset.relativePath);
     expect(new Set(relativePaths).size, "an asset counted twice").toBe(relativePaths.length);
   });
 
-  it("compresses every asset it counts, and totals exactly those assets", () => {
+  it("compresses every asset it counts", () => {
     for (const asset of measurement.assets) {
       expect(asset.gzipByteCount, `${asset.relativePath}: gzip`).toBeGreaterThan(0);
       expect(asset.brotliByteCount, `${asset.relativePath}: brotli`).toBeGreaterThan(0);
-      if (asset.rawByteCount >= COMPRESSION_ASSERTION_FLOOR_BYTES) {
+      if (asset.assetClass === "code" && asset.rawByteCount >= COMPRESSION_ASSERTION_FLOOR_BYTES) {
+        // Only code compresses. A `woff2` is a Brotli container already, which is
+        // the whole reason the font row is gated raw — asserting it here would be
+        // asserting the opposite of what this split was measured to establish.
         expect(asset.gzipByteCount, `${asset.relativePath}: gzip < raw`).toBeLessThan(
           asset.rawByteCount,
         );
@@ -102,29 +136,58 @@ describe("renderer initial-bundle budget", () => {
         );
       }
     }
-    const sumOf = (read: (asset: (typeof measurement.assets)[number]) => number): number =>
-      measurement.assets.reduce((total, asset) => total + read(asset), 0);
-    expect(measurement.rawByteCount).toBe(sumOf((asset) => asset.rawByteCount));
-    expect(measurement.gzipByteCount).toBe(sumOf((asset) => asset.gzipByteCount));
-    expect(measurement.brotliByteCount).toBe(sumOf((asset) => asset.brotliByteCount));
   });
 
-  it(`stays within ${budget.specTarget}`, () => {
-    console.log(formatRendererBundleReport(measurement, budget, verdict, registry));
-    expect(
-      verdict.withinBudget,
-      `Renderer initial bundle is ${verdict.measuredCanonicalValue.toLocaleString("en-US")} B gzip ` +
-        `against a ${verdict.limitCanonicalValue.toLocaleString("en-US")} B budget ` +
-        `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget). ` +
-        "Move code behind a dynamic import so it lands in a lazy chunk, or amend the budget in " +
-        "`Spec-023 §Console Design (Meridian)` §Budgets first — the registry mirrors the spec, it does not set it.",
-    ).toBe(true);
+  it("splits every asset into exactly one class, and totals exactly that class", () => {
+    for (const { assetClass, totals } of [
+      { assetClass: "code", totals: measurement.code },
+      { assetClass: "font", totals: measurement.fonts },
+    ] as const) {
+      const inClass = measurement.assets.filter((asset) => asset.assetClass === assetClass);
+      const sumOf = (read: (asset: (typeof inClass)[number]) => number): number =>
+        inClass.reduce((total, asset) => total + read(asset), 0);
+      expect(totals.assetCount, `${assetClass}: assets`).toBe(inClass.length);
+      expect(totals.rawByteCount, `${assetClass}: raw`).toBe(sumOf((asset) => asset.rawByteCount));
+      expect(totals.gzipByteCount, `${assetClass}: gzip`).toBe(
+        sumOf((asset) => asset.gzipByteCount),
+      );
+      expect(totals.brotliByteCount, `${assetClass}: brotli`).toBe(
+        sumOf((asset) => asset.brotliByteCount),
+      );
+    }
+    expect(measurement.code.assetCount + measurement.fonts.assetCount).toBe(
+      measurement.assets.length,
+    );
+  });
+
+  it.each(gateReadings.map((gateReading) => [gateReading.budget.id, gateReading] as const))(
+    "%s stays within its ceiling",
+    (_budgetId, gateReading) => {
+      expect(
+        gateReading.verdict.withinBudget,
+        `${gateReading.budget.label} is ` +
+          `${gateReading.verdict.measuredCanonicalValue.toLocaleString("en-US")} B ` +
+          `(${gateReading.measuredDescription}) against a ` +
+          `${gateReading.verdict.limitCanonicalValue.toLocaleString("en-US")} B budget ` +
+          `(${(gateReading.verdict.utilizationFraction * 100).toFixed(1)} % of budget). ` +
+          "Move code behind a dynamic import so it lands in a lazy chunk, or drop a face — and " +
+          "amend `budgets.json` only with the reasoning its row and `harnessBudgetDerivation` " +
+          "already carry, since the registry mirrors its sources rather than setting them.",
+      ).toBe(true);
+    },
+  );
+
+  it("reports both rows in one report", () => {
+    const report = formatRendererBundleReport(measurement, gateReadings, registry);
+    console.log(report);
+    expect(report).toContain(registry.requireBudget(RENDERER_BUNDLE_BUDGET_ID).label);
+    expect(report).toContain(registry.requireBudget(RENDERER_FONTS_BUDGET_ID).label);
   });
 });
 
-// Negative controls. Each is a way the measurement could report zero bytes
-// against a 450 kB ceiling; the harness must refuse rather than pass.
-describe("bundle measurement refusals", () => {
+// Negative controls. Each is a way a measurement could report green over bytes
+// nobody bounded; the harness must refuse or fail rather than pass.
+describe("initial-graph measurement refusals", () => {
   it("refuses a tree with no chunk manifest", () => {
     const directory = plantedFixtures.create("console-bundle-empty-");
     expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(
@@ -144,5 +207,97 @@ describe("bundle measurement refusals", () => {
       "index.html": { file: "assets/index.js", isEntry: true },
     });
     expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(/assets\/index\.js/);
+  });
+
+  it("refuses an asset whose extension belongs to neither class", () => {
+    // The fail-closed half of the split: an unclassified asset sums into neither
+    // row, which is the same silent under-count as a file that is not there.
+    expect(rendererBundleAssetClassOf("assets/logo.png")).toBeUndefined();
+    const directory = outputDirectoryWithManifest("unclassified", {
+      "index.html": { file: "assets/logo.png", isEntry: true },
+    });
+    expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(/asset class/);
+  });
+});
+
+describe("the two rows bound disjoint bytes", () => {
+  const fontAssets = measurement.assets.filter((asset) => asset.assetClass === "font");
+
+  it("classes every emitted face as a font and every script and sheet as code", () => {
+    expect(fontAssets.length, "the initial graph carries the self-hosted faces").toBeGreaterThan(0);
+    for (const asset of measurement.assets) {
+      expect(rendererBundleAssetClassOf(asset.relativePath), asset.relativePath).toBe(
+        asset.assetClass,
+      );
+      expect(asset.assetClass, asset.relativePath).toBe(
+        /\.woff2?$/u.test(asset.relativePath) ? "font" : "code",
+      );
+    }
+  });
+
+  it("negative control: a font byte never lands in the code row", () => {
+    // Planted: a tree holding one stylesheet and one real face. The code figure
+    // is the sheet's alone, so re-classing `woff2` as code fails this case.
+    const stylesheet = measurement.assets.find((asset) => asset.relativePath.endsWith(".css"));
+    const face = fontAssets[0];
+    expect(stylesheet, "a stylesheet on the initial graph").toBeDefined();
+    expect(face, "a face on the initial graph").toBeDefined();
+    if (stylesheet === undefined || face === undefined) {
+      return;
+    }
+    const directory = outputDirectoryWithManifest(
+      "one-of-each",
+      manifestNaming([stylesheet.relativePath, face.relativePath]),
+      new Map([
+        [stylesheet.relativePath, path.join(rendererOutputDirectory, stylesheet.relativePath)],
+        [face.relativePath, path.join(rendererOutputDirectory, face.relativePath)],
+      ]),
+    );
+    const planted = new RendererBundleMeasurer(directory).measure();
+    expect(planted.code.assetCount).toBe(1);
+    expect(planted.code.gzipByteCount).toBe(stylesheet.gzipByteCount);
+    expect(planted.fonts.assetCount).toBe(1);
+    expect(planted.fonts.rawByteCount).toBe(face.rawByteCount);
+  });
+
+  it("negative control: a seventh face fails the font row", () => {
+    // The property the 130 kB figure was chosen for, driven rather than asserted:
+    // the six shipped faces plus one more copy of the smallest, measured by the
+    // real measurer and judged by the real row.
+    const fontsBudget = registry.requireBudget(RENDERER_FONTS_BUDGET_ID);
+    const smallestFace = [...fontAssets].sort(
+      (left, right) => left.rawByteCount - right.rawByteCount,
+    )[0];
+    expect(smallestFace, "a face to duplicate").toBeDefined();
+    if (smallestFace === undefined) {
+      return;
+    }
+    const seventhFacePath = "assets/seventh-face-planted.woff2";
+    const emittedFaces = new Map(
+      fontAssets.map((asset) => [
+        asset.relativePath,
+        path.join(rendererOutputDirectory, asset.relativePath),
+      ]),
+    );
+    emittedFaces.set(
+      seventhFacePath,
+      path.join(rendererOutputDirectory, smallestFace.relativePath),
+    );
+    const directory = outputDirectoryWithManifest(
+      "seventh-face",
+      manifestNaming([...emittedFaces.keys()]),
+      emittedFaces,
+    );
+    const planted = new RendererBundleMeasurer(directory).measure();
+    expect(planted.fonts.assetCount).toBe(fontAssets.length + 1);
+    expect(
+      evaluateBudget(fontsBudget, measurement.fonts.rawByteCount).withinBudget,
+      "the six shipped faces are within the ceiling",
+    ).toBe(true);
+    expect(
+      evaluateBudget(fontsBudget, planted.fonts.rawByteCount).withinBudget,
+      `a seventh face measured ${planted.fonts.rawByteCount.toLocaleString("en-US")} B against a ` +
+        `${fontsBudget.limit.canonicalValue.toLocaleString("en-US")} B ceiling and still passed`,
+    ).toBe(false);
   });
 });

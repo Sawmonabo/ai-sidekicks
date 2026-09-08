@@ -40,11 +40,14 @@ const BUDGET_STATUS_VALUES: readonly ConsoleBudgetStatus[] = Object.freeze(["enf
  *
  * `product` rows are `Spec-023 §Console Design (Meridian)` §Budgets' own, and
  * their set is closed: the spec table names them all and nothing else may join.
- * `harness` rows are bounds the test scaffolding applies to itself, with no spec
- * figure behind them. They share this file rather than getting one of their own
- * because a budget with a second home is a budget that will disagree with
- * itself — and they are discriminated rather than merged so the completeness
- * claim over the spec table stays checkable by counting.
+ * `harness` rows are the complement — a bound with NO spec figure behind it,
+ * whether the scaffolding applies it to itself (the five launch slices) or a
+ * harness applies it to a shipped artifact the spec's table does not bound in
+ * that unit (`renderer-initial-fonts`, raw bytes beside a gzip row). They share
+ * this file rather than getting one of their own because a budget with a second
+ * home is a budget that will disagree with itself — and they are discriminated
+ * rather than merged so the completeness claim over the spec table stays
+ * checkable by counting, which is the property a ninth `product` id would cost.
  */
 type ConsoleBudgetScope = "product" | "harness";
 
