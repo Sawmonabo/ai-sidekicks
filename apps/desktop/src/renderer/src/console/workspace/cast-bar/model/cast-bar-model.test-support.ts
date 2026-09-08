@@ -12,10 +12,10 @@
 // that handed `deriveCastBar` a literal would be asserting against a ledger no session
 // produces, which is exactly the seam these cases exist to cover.
 
-import type { ConsoleSessionEvent, OutstandingAskLedger } from "../../store/index.js";
-import { SessionStore } from "../../store/index.js";
-import { eventOfKind } from "../../store/session-event.test-support.js";
-import { ParticipantHueAllocator } from "../../tokens/index.js";
+import type { ConsoleSessionEvent, OutstandingAskLedger } from "../../../store/index.js";
+import { SessionStore } from "../../../store/index.js";
+import { eventOfKind } from "../../../store/session-event.test-support.js";
+import { ParticipantHueAllocator } from "../../../tokens/index.js";
 import { deriveCastBar, type CastBarInput, type CastBarModel } from "./cast-bar-model.js";
 
 /** The session every event in this family is built under. */

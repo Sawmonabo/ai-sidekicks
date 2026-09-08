@@ -12,9 +12,9 @@
 // and saying so on the element is the difference between rendering a fact and
 // asserting a field that does not exist.
 
-import { type GrowthSessionSummary } from "../../bridge/index.js";
-import { WireFigure } from "../../primitives/index.js";
-import { type CastBarReadState } from "./cast-bar-reads.js";
+import { type GrowthSessionSummary } from "../../../bridge/index.js";
+import { WireFigure } from "../../../primitives/index.js";
+import { type CastBarReadState } from "../model/cast-bar-read-projection.js";
 
 export interface CastBarSessionTitleProps {
   readonly identity: CastBarReadState<GrowthSessionSummary>;

@@ -28,8 +28,8 @@
 // allocator's join-log order, which is the order rule 2 fixes and the order a
 // screenshot baseline depends on.
 
-import type { ConsoleSessionEvent, OutstandingAskLedger } from "../../store/index.js";
-import type { ParticipantHueAssignment } from "../../tokens/index.js";
+import type { ConsoleSessionEvent, OutstandingAskLedger } from "../../../store/index.js";
+import type { ParticipantHueAssignment } from "../../../tokens/index.js";
 import { foldOutstandingAsks, type OutstandingAsks } from "./outstanding-asks.js";
 
 /**

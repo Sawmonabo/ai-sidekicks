@@ -17,13 +17,8 @@
 import { describe, expect, it } from "vitest";
 
 import { CastBar } from "./CastBar.js";
-import {
-  PARTICIPANT_PRIYA,
-  SESSION_ID,
-  admittedMember,
-  renderBar,
-  storeWith,
-} from "./CastBar.test-support.js";
+import { PARTICIPANT_PRIYA } from "../../bridge/scenarios/flagship-cast.js";
+import { SESSION_ID, admittedMember, renderBar, storeWith } from "./CastBar.test-support.js";
 
 /** The opaque position a resumed read submits. Held unread, as the store holds it. */
 const ACKNOWLEDGED_CURSOR = "cursor-42";

@@ -4,7 +4,7 @@
 // whole of what it decides: a button when somebody can open the members section and a
 // plain count when nobody can.
 
-import { Chip } from "../../primitives/index.js";
+import { Chip } from "../../../primitives/index.js";
 
 export interface FoldedMembersProps {
   readonly count: number;

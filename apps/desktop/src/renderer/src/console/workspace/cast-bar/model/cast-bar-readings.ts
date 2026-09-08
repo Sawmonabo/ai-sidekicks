@@ -1,6 +1,6 @@
 // The three readings the bar renders, each named for the question it answers.
 //
-// Beside `cast-bar-reads.ts` rather than inside it, because that module owns HOW a
+// Beside `cast-bar-read-projection.ts` rather than inside it, because that module owns HOW a
 // read settles and this one owns WHICH reads the bar puts and what it takes from
 // each. The split is what keeps the shared projection free of any one wire's shape.
 //
@@ -16,8 +16,8 @@ import {
   type GrowthPort,
   type GrowthSessionSummary,
   type SettledReadRefusal,
-} from "../../bridge/index.js";
-import { useCastBarRead, type CastBarReadState } from "./cast-bar-reads.js";
+} from "../../../bridge/index.js";
+import { useCastBarRead, type CastBarReadState } from "./cast-bar-read-projection.js";
 
 /** What the health read answers with, folded to the two facts one line can hold. */
 interface CastBarHealthReading {

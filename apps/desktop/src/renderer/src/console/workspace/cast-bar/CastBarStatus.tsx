@@ -23,7 +23,7 @@
 // reader who cannot separate the hues.
 
 import { Chip, Nothing } from "../../primitives/index.js";
-import { type CastBarHealthVerdict } from "./cast-bar-readings.js";
+import { type CastBarHealthVerdict } from "./model/cast-bar-readings.js";
 
 export interface CastBarStatusProps {
   /**
