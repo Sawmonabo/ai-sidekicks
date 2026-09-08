@@ -6,14 +6,17 @@
 // every model it drives is `ledger/structure/`'s. Nothing here folds a log, measures
 // a row, or writes a `scrollTop`.
 //
-// TWO GROUPS BESIDE `row-offers/`, NEITHER WITH A DOOR. `../model/` is what the feed
-// works out — the chapter and superseded folds, the window chain, the palette's acts,
-// the find-and-jump system, and the workspace's follow seat — and `surface/` is what
-// draws it: this component, the header, the rail, the row and its footer, the row host
-// the pane mounts, and the replay notice. The log fixtures two of them share stay at
-// `feed/`, the directory that owns both. Every edge runs one way, surface to model, so
-// each is read by its own deep specifier rather than through a barrel neither side
-// needs — the intra-family import this package asks for.
+// TWO GROUPS BESIDE `row-offers/`, AND `../model/` CARRIES A DOOR. `../model/` is what
+// the feed works out — the chapter and superseded folds, the window chain, the
+// palette's acts, the find-and-jump system, and the workspace's follow seat — and
+// `surface/` is what draws it: this component, the header, the rail, the row and its
+// footer, the row host the pane mounts, and the replay notice. The log fixtures two of
+// them share stay at `feed/`, the directory that owns both. Every edge runs one way,
+// surface to model — measured with the parser, nine edges out of `surface/` and none
+// back — which is exactly the condition `apps/desktop/AGENTS.md` §Module shape puts a
+// sub-module door on, so this side reads through `../model/index.js` and `surface/`
+// stays doorless because nothing reads it. `model/index.ts` states what it publishes
+// and why nothing else is on it.
 //
 // WHY THE FEED IS A COMPONENT OF ITS OWN RATHER THAN THE PANE'S BODY. The pane owns
 // chrome — a header, a heading id, and the row seat's two absences — and can render
@@ -112,14 +115,15 @@ import {
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
 import { type SessionStore } from "../../../../store/index.js";
 import { type TimelineRowRenderer } from "../../../../seats/index.js";
-import { useActorFollowSeat } from "../model/ledger-actor-follow-seat.js";
-import { buildReplayFromRowAct, useLedgerStructureActs } from "../model/ledger-feed-acts.js";
-import { LedgerRowOffersMenu, useLedgerRowOffers } from "../row-offers/index.js";
-import { useLedgerFeedWindows } from "../model/ledger-feed-windows.js";
 import {
+  buildReplayFromRowAct,
+  useActorFollowSeat,
+  useLedgerFeedWindows,
   useLedgerFindAndJump,
+  useLedgerStructureActs,
   useReplayDockConcealOnFocusLeaving,
-} from "../model/ledger-feed-find-jump.js";
+} from "../model/index.js";
+import { LedgerRowOffersMenu, useLedgerRowOffers } from "../row-offers/index.js";
 import { useReplayAnchorRowId } from "../../replay/index.js";
 
 export interface LedgerFeedProps {
