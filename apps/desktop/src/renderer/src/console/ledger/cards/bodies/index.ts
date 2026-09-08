@@ -27,7 +27,12 @@ export { ParticipantBody } from "./ParticipantBody.js";
 // line with no reader outside the directory is a dead export the barrel census fails,
 // so this door is never widened for symmetry.
 export { InputAskCard } from "./InputAskCard.js";
-export { INPUT_ASK_SLOT, readDriverAsk } from "./input-ask.js";
+export {
+  ASK_ANSWER_UNSENT,
+  INPUT_ASK_SLOT,
+  readDriverAsk,
+  type DriverAskDelivery,
+} from "./input-ask.js";
 export { ReasoningSurface } from "./ReasoningSurface.js";
 export {
   REASONING_SURFACE_SLOT,

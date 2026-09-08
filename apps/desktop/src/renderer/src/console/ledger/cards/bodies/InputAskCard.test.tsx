@@ -1,9 +1,22 @@
-// The ask card: two answer arms, a countdown that settles nothing, and four terminals.
+// The ask card: two answer arms, a countdown that settles nothing, four terminals, and
+// what became of the answer a press dispatched.
+//
+// THE DELIVERY CASES READ WHAT A PARTICIPANT WOULD SEE AND WHAT THEY COULD STILL DO.
+// The defect was that a refused answer reached the screen nowhere: the free-text arm
+// emptied itself on dispatch, the option buttons changed not at all, and a run blocked
+// on an unanswered ask looked like one waiting to be typed into. So every case below
+// asserts on the rendered field or the rendered refusal, never on a callback count.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { INPUT_ASK_SLOT, type DriverAskReading } from "./input-ask.js";
+import {
+  ASK_ANSWER_UNSENT,
+  INPUT_ASK_SLOT,
+  type DriverAskDelivery,
+  type DriverAskReading,
+} from "./input-ask.js";
 import { InputAskCard } from "./InputAskCard.js";
 
 /**
@@ -29,10 +42,22 @@ function pendingAsk(overrides: Partial<DriverAskReading> = {}): DriverAskReading
   };
 }
 
+/** One refused delivery, carrying the door's own refusal shape. */
+const REFUSED_DELIVERY: DriverAskDelivery = {
+  status: "refused",
+  response: "develop",
+  refusal: {
+    code: "driver.request_not_found",
+    detail: "The driver has no record of this ask.",
+    origin: "daemon",
+  },
+};
+
 function renderCard(
   ask: DriverAskReading,
   overrides: {
     readonly nowEpochMilliseconds?: number;
+    readonly delivery?: DriverAskDelivery;
     readonly onAnswer?: (response: string) => void;
     readonly body?: (props: { readonly ask: DriverAskReading }) => React.ReactNode;
   } = {},
@@ -42,10 +67,26 @@ function renderCard(
       slot={{ contract: INPUT_ASK_SLOT, body: overrides.body }}
       ask={ask}
       nowEpochMilliseconds={overrides.nowEpochMilliseconds ?? NOW_MILLISECONDS}
+      delivery={overrides.delivery ?? ASK_ANSWER_UNSENT}
       onAnswer={overrides.onAnswer ?? (() => undefined)}
     />,
   );
   return container;
+}
+
+/** The free-text field, or a failure naming the card that drew none. */
+function fieldOf(container: HTMLElement): HTMLTextAreaElement {
+  const field = container.querySelector<HTMLTextAreaElement>(".meridian-input-ask__field");
+  if (field === null) {
+    throw new Error("the ask card drew no free-text field");
+  }
+  return field;
+}
+
+/** Type an answer into the free-text arm and submit it, as a participant would. */
+function sendFreeText(container: HTMLElement, text: string): void {
+  fireEvent.change(fieldOf(container), { target: { value: text } });
+  fireEvent.click(container.querySelector(".meridian-input-ask__send") as Element);
 }
 
 describe("the pending ask", () => {
@@ -151,6 +192,113 @@ describe("the terminals", () => {
     const container = renderCard(pendingAsk({ state: "expired" }));
     expect(container.querySelector(".meridian-input-ask__field")).toBeNull();
     expect(container.querySelector(".meridian-input-ask__option")).toBeNull();
+  });
+});
+
+/**
+ * The card inside a holder that owns the delivery, which is what the row is.
+ *
+ * The card is controlled — it dispatches and renders what it is handed — so a case
+ * about what a PRESS leaves on screen has to close that loop, or it is asserting over
+ * a component that decides nothing.
+ */
+function MountedWithDelivery(props: {
+  readonly ask: DriverAskReading;
+  readonly settled: DriverAskDelivery;
+}): React.JSX.Element {
+  const [delivery, setDelivery] = useState<DriverAskDelivery>(ASK_ANSWER_UNSENT);
+  return (
+    <InputAskCard
+      slot={{ contract: INPUT_ASK_SLOT, body: undefined }}
+      ask={props.ask}
+      nowEpochMilliseconds={NOW_MILLISECONDS}
+      delivery={delivery}
+      onAnswer={() => {
+        setDelivery(props.settled);
+      }}
+    />
+  );
+}
+
+describe("what became of the answer", () => {
+  it("keeps the participant's words on screen when the answer was refused", () => {
+    // THE DEFECT, EXERCISED. The arm cleared the field the instant the callback
+    // returned, so a delivery that never reached the driver left an empty box, a
+    // blocked run, and nothing to retry from.
+    const { container } = render(
+      <MountedWithDelivery ask={pendingAsk()} settled={REFUSED_DELIVERY} />,
+    );
+
+    sendFreeText(container, "land it on develop");
+
+    expect(fieldOf(container).value).toBe("land it on develop");
+    expect(container.textContent).toContain("driver.request_not_found");
+    expect(container.textContent).toContain("The driver has no record of this ask.");
+  });
+
+  it("leaves every answer control pressable after a refusal", () => {
+    // Rule 9: a refusal never hides the control that produced it. Without this the
+    // refusal would be readable and the retry unreachable.
+    const container = renderCard(
+      pendingAsk({ options: [{ value: "develop", label: undefined }] }),
+      { delivery: REFUSED_DELIVERY },
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>(".meridian-input-ask__option")?.disabled,
+    ).toBe(false);
+    expect(fieldOf(container).disabled).toBe(false);
+  });
+
+  it("clears the draft once the driver has acknowledged the answer", () => {
+    const { container } = render(
+      <MountedWithDelivery
+        ask={pendingAsk()}
+        settled={{ status: "accepted", response: "land it on develop" }}
+      />,
+    );
+
+    sendFreeText(container, "land it on develop");
+
+    expect(fieldOf(container).value).toBe("");
+    expect(container.textContent).toContain("The answer reached the driver.");
+  });
+
+  it("says it is waiting for the daemon rather than that the ask was answered", () => {
+    // The ask's terminal is the `driver_ask.responded` row's to state. A card that
+    // said "answered" here would settle an ask the daemon has not settled.
+    //
+    // Read off the BADGE, because that is where the words are: an inline absence
+    // carries its second line as the label's tooltip rather than as text — see
+    // `Nothing.tsx` — so a case reading `textContent` alone would report a wait this
+    // card never renders.
+    const container = renderCard(pendingAsk(), {
+      delivery: { status: "accepted", response: "develop" },
+    });
+    const badge = container.querySelector(".meridian-nothing__badge-label");
+    expect(badge?.textContent).toBe("The answer reached the driver.");
+    expect(badge?.getAttribute("title")).toContain("Waiting for this ask's own row");
+    expect(container.textContent).not.toContain("This ask was answered.");
+  });
+
+  it("dims every answer control while one answer is on the wire", () => {
+    const container = renderCard(
+      pendingAsk({ options: [{ value: "develop", label: undefined }] }),
+      { delivery: { status: "delivering", response: "develop" } },
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>(".meridian-input-ask__option")?.disabled,
+    ).toBe(true);
+    expect(fieldOf(container).disabled).toBe(true);
+    expect(container.textContent).toContain("Delivering this answer.");
+  });
+
+  it("negative control: an ask nobody has answered says nothing about a delivery", () => {
+    // Without this, a card that always drew a delivery line would print console
+    // bookkeeping under every open ask on the log.
+    const container = renderCard(pendingAsk());
+    expect(container.textContent).not.toContain("Delivering this answer.");
+    expect(container.textContent).not.toContain("reached the driver");
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
   });
 });
 

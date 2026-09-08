@@ -22,14 +22,43 @@
 // whatever came back; it decides no eligibility of its own, and a failed expansion
 // keeps the summary on screen with the refusal beside it — `Spec-013 §Fallback
 // Behavior`'s rule, drawn rather than merely obeyed.
+//
+// AND AN EXPANSION SHOWS THE CHILD'S OWN WORK, WHICH IS THE WHOLE POINT OF ASKING FOR
+// ONE. `timeline.childRunExpand` answers with the child run's rows, and this row used
+// to read that page only to count it — "12 entries read", with the twelve entries
+// nowhere on screen. So the entries are drawn, through the LEDGER'S OWN ROW BODY SEAT:
+// the renderer the feed dispatches its own rows through, handed down as a prop from
+// the same place the feed reads it. A second row renderer here would be a second
+// answer to "what does a timeline row look like", and the child's rows would drift
+// from the parent's the first time either moved.
+//
+// MOUNTED AS COMPONENTS AND NOT CALLED AS FUNCTIONS. The seat's renderer holds hooks,
+// and the page's length moves with each expansion, so calling it once per entry inside
+// this component's own body would make the hook order a function of how many rows the
+// daemon served. Each entry is its own element, so each gets its own hook list.
+
+import { useMemo } from "react";
 
 import { DerivedFigure, Glyph, LedgerRow, Nothing, WireFigure } from "../../../primitives/index.js";
 import { formatCount } from "../../../primitives/index.js";
-import { type RunId } from "@ai-sidekicks/contracts";
+import { type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
+import { type TimelineRowRenderer } from "../../../seats/index.js";
 import { type ParticipantHueAssignment } from "../../../tokens/index.js";
+// The ledger's own rollback ranking, taken from the module that declares it rather
+// than approximated here: an expanded page can hold the child's own rollback
+// boundaries, and rows past one are superseded in the child's log exactly as they are
+// in the parent's.
+import { SupersededIndex } from "../seams/superseded-bands.js";
 import { type ChildRunEntry } from "./child-run-entries.js";
 import { type ChildRunExpansion } from "./child-run-expansion.js";
+
+/** How the expanded page resolves each of the three decisions the seat is handed. */
+interface ChildRunEntryDecisions {
+  readonly renderTimelineRow: TimelineRowRenderer;
+  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
+  readonly superseded: SupersededIndex;
+}
 
 export interface ChildRunSummaryRowProps {
   readonly entry: ChildRunEntry;
@@ -41,6 +70,24 @@ export interface ChildRunSummaryRowProps {
   readonly isSuperseded?: boolean | undefined;
   readonly expansion: ChildRunExpansion;
   readonly onToggleExpansion: (childRunId: RunId) => void;
+  /**
+   * The ledger's row body seat, for the entries an expansion returned.
+   *
+   * STABLE FOR THE LIFE OF THE REGISTRATION, and handed down rather than read here for
+   * the reason the feed hands it down: the seat is filled by whichever plan owns a
+   * session's row bodies, and one lookup at the top of the list is what keeps every
+   * row — the parent's and a child's alike — drawn by the same renderer.
+   */
+  readonly renderTimelineRow: TimelineRowRenderer;
+  /**
+   * The session's hue allocation, asked per entry actor.
+   *
+   * The allocation is over the SESSION's join log rather than over a window, so a
+   * child run's entries carry the same author colours their actors wear in the parent
+   * log. Resolving them here rather than dropping them would be the same participant
+   * drawn two ways on one screen.
+   */
+  readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
 }
 
 /** One child run, as a summary row. */
@@ -48,6 +95,15 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
   const { entry, expansion } = props;
   const { summary } = entry;
   const isExpanded = expansion.status === "expanded";
+  // Over the PAGE and not over the window: the entries are the child's rows and the
+  // parent's boundaries rank none of them. Memoised on the page's identity, which the
+  // expansion state holds across renders until a fresh expansion replaces it.
+  const superseded = useMemo(() => new SupersededIndex(expansion.entries), [expansion.entries]);
+  const entryDecisions: ChildRunEntryDecisions = {
+    renderTimelineRow: props.renderTimelineRow,
+    hueForActor: props.hueForActor,
+    superseded,
+  };
   return (
     <LedgerRow
       participantHueStep={props.participantHue?.step ?? -1}
@@ -95,7 +151,7 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
         </button>
       </p>
       {renderIncompleteness(summary.completeness)}
-      {renderExpansion(expansion)}
+      {renderExpansion(expansion, entryDecisions)}
     </LedgerRow>
   );
 }
@@ -139,12 +195,20 @@ function renderIncompleteness(
 }
 
 /**
- * What the expansion left behind.
+ * What the expansion left behind: what it read, and the rows it read.
  *
  * The failure arm is the one this component exists to keep honest: the summary above
  * is still drawn, and the refusal is stated beside it rather than replacing it.
+ *
+ * The count line stays above the rows rather than being replaced by them, because it
+ * says something the rows cannot: how much of the child run this page IS. `hasMore`
+ * on the reply is a fact about the remainder, and a list that just stopped would read
+ * as the whole of the child's work.
  */
-function renderExpansion(expansion: ChildRunExpansion): React.JSX.Element | null {
+function renderExpansion(
+  expansion: ChildRunExpansion,
+  decisions: ChildRunEntryDecisions,
+): React.JSX.Element | null {
   if (expansion.status === "expand-failed") {
     return (
       <Nothing
@@ -159,16 +223,55 @@ function renderExpansion(expansion: ChildRunExpansion): React.JSX.Element | null
     return null;
   }
   return (
-    <p className="meridian-child-run-row__expansion">
-      <DerivedFigure text={formatCount(expansion.entries.length)} />
-      {expansion.entries.length === 1 ? " entry read" : " entries read"}
-      {expansion.hasUnreadEntries ? (
-        <Nothing
-          kind="not-loaded"
-          placement="inline"
-          title="This child run has entries beyond the ones read here."
-        />
-      ) : null}
-    </p>
+    <>
+      <p className="meridian-child-run-row__expansion">
+        <DerivedFigure text={formatCount(expansion.entries.length)} />
+        {expansion.entries.length === 1 ? " entry read" : " entries read"}
+        {expansion.hasUnreadEntries ? (
+          <Nothing
+            kind="not-loaded"
+            placement="inline"
+            title="This child run has entries beyond the ones read here."
+          />
+        ) : null}
+      </p>
+      {renderExpandedEntries(expansion.entries, decisions)}
+    </>
+  );
+}
+
+/**
+ * The child run's own rows, each through the ledger's row body seat.
+ *
+ * DENSITY IS `collapsed` FOR EVERY ONE OF THEM, and that is a reading of the design
+ * rather than a default taken for want of one: `Spec-013 §Default Behavior` keeps
+ * background work summarized, so a child run opened inside a parent's line shows its
+ * rows at the density the rule gives them. There is no lease to consult — the lease
+ * table is keyed by the rows of the list, and these rows are not in it.
+ *
+ * An expansion that read nothing draws no list at all; the count line above it has
+ * already said the page was empty, and an empty `ol` would be a heading over nothing.
+ */
+function renderExpandedEntries(
+  entries: readonly TimelineRow[],
+  decisions: ChildRunEntryDecisions,
+): React.JSX.Element | null {
+  if (entries.length === 0) {
+    return null;
+  }
+  const EntryBody = decisions.renderTimelineRow;
+  return (
+    <ol className="meridian-child-run-row__entries" aria-label="this child run's own entries">
+      {entries.map((row) => (
+        <li key={row.id} className="meridian-child-run-row__entry">
+          <EntryBody
+            row={row}
+            participantHue={row.actor === undefined ? undefined : decisions.hueForActor(row.actor)}
+            isSuperseded={decisions.superseded.isSuperseded(row.id)}
+            density="collapsed"
+          />
+        </li>
+      ))}
+    </ol>
   );
 }

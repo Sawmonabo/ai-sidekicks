@@ -191,20 +191,28 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
  * The one offer this surface makes.
  *
  * Absent where the read cannot address the row, and absent once the read has
- * answered: a second press would re-ask a question that has an answer on screen, and
+ * ANSWERED: a second press would re-ask a question that has an answer on screen, and
  * this surface holds no continuation cursor to spend on the bounded page's tail.
+ *
+ * A REFUSAL IS NOT AN ANSWER, so the control survives one. Rule 9 is explicit that "a
+ * refusal never hides the control that produced it", and this surface was hiding
+ * exactly that: a read refused by a transport that was down for a moment left the
+ * refusal on screen with no way to ask again, and the only route back was to scroll
+ * the row out of the mounted range and let the virtualizer discard the state. The
+ * label says which of the two presses this is, because "Show reasoning" over a
+ * refusal already on screen reads as an offer that was never taken.
  */
 function renderExpandControl(
   runId: RunId | undefined,
   reading: ReasoningSurfaceReading,
   onExpand: () => void,
 ): React.ReactNode {
-  if (runId === undefined || reading.status !== "not-asked") {
+  if (runId === undefined || reading.status === "reading" || reading.status === "read") {
     return null;
   }
   return (
     <button type="button" className="meridian-reasoning-surface__expand" onClick={onExpand}>
-      Show reasoning
+      {reading.status === "refused" ? "Try the read again" : "Show reasoning"}
     </button>
   );
 }

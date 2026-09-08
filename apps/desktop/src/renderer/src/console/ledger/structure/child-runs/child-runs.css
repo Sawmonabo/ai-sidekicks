@@ -66,6 +66,31 @@
   color: var(--meridian-text-muted);
 }
 
+/*
+ * THE EXPANDED CHILD'S OWN ROWS. Indented from the summary they hang under, so the
+ * nesting is visible at a glance rather than inferred from where a reader remembers
+ * pressing — the child's rows are the ledger's own rows, drawn by the same renderer,
+ * and the indent is the only thing that says whose log they belong to.
+ *
+ * The list markers are removed because the rows carry their own timestamps and kinds:
+ * an ordinal beside a row that already states its position would be a second numbering
+ * of one log. It stays an `ol` because the order is the daemon's and is meaningful.
+ */
+
+.meridian-child-run-row__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: var(--meridian-space-1) 0 0;
+  padding: 0 0 0 var(--meridian-space-3);
+  border-inline-start: 1px solid var(--meridian-edge);
+  list-style: none;
+}
+
+.meridian-child-run-row__entry {
+  min-width: 0;
+}
+
 /* --- The handoff row ------------------------------------------------------ */
 
 .meridian-handoff-row {

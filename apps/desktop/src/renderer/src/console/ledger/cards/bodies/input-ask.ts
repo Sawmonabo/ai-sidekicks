@@ -32,7 +32,7 @@
 // the daemon" once it reaches zero, which is a statement about what the surface is
 // doing rather than about what the ask has become.
 
-import { readWireString } from "../../../core/index.js";
+import { readWireString, type ConsoleRefusal } from "../../../core/index.js";
 import type { OwnerSlotContract } from "../../../seats/index.js";
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "../wire-payload.js";
@@ -48,7 +48,7 @@ import { projectedPayload } from "../wire-payload.js";
 export const INPUT_ASK_SLOT: OwnerSlotContract = {
   owningTask: "the timeline plan's input-ask card (the structured-input ask surface)",
   mountObligation:
-    "the ask row's body, given the ask read wire-verbatim off the row and a dispatcher for the registered driver answer method — the card composes the answer and never invents the ask's state",
+    "the ask row's body, given the ask read wire-verbatim off the row, a dispatcher for the registered driver answer method, and where the answer that dispatcher last sent has got to — the card composes the answer, renders what the wire said about it, and never invents the ask's state",
   deleteShellIn:
     "the change that authors the ask card deletes this shell rather than leaving it beside the body",
 };
@@ -98,6 +98,40 @@ export interface DriverAskReading {
   /** The delivered answer, rendered verbatim on the `responded` row alone. */
   readonly deliveredAnswer: string | undefined;
 }
+
+/**
+ * Where the answer this surface last dispatched has got to.
+ *
+ * A DIFFERENT FACT FROM `DriverAskState`, AND THE CARD MAY NEVER CONFUSE THE TWO. That
+ * state is read from the row's own event type and says what the DAEMON has recorded;
+ * this says what the console did with a press and what came back off the wire. So
+ * `accepted` means the answer reached the driver and the surface is waiting for the
+ * `driver_ask.responded` row — the same sentence the countdown says past zero, about
+ * the console rather than about the ask — and nothing here ever renders a terminal.
+ *
+ * WHY THE REPLY IS HELD AT ALL, which is the defect this shape answers. The dispatch
+ * used to be fire-and-forget: a refused call — a transport that was down, a daemon
+ * that rejected the request, a reply the registered schema does not admit — was
+ * discarded, the free-text arm cleared its draft the instant it dispatched, and an
+ * option press changed nothing on screen. The run stayed blocked on an ask nobody had
+ * answered and the participant was told none of it.
+ *
+ * THE RESPONSE TRAVELS ON EVERY ARM PAST `unsent` because two arms need it: `refused`
+ * is what a retry re-sends and what keeps a draft that was never delivered, and
+ * `delivering` is what a second press is refused against.
+ */
+export type DriverAskDelivery =
+  | { readonly status: "unsent" }
+  | { readonly status: "delivering"; readonly response: string }
+  | { readonly status: "accepted"; readonly response: string }
+  | {
+      readonly status: "refused";
+      readonly response: string;
+      readonly refusal: ConsoleRefusal;
+    };
+
+/** Nothing dispatched. The state every ask starts in, as one frozen value. */
+export const ASK_ANSWER_UNSENT: DriverAskDelivery = Object.freeze({ status: "unsent" });
 
 /**
  * Read one row as an input ask, or answer that it is not one.

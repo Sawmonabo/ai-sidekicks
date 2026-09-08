@@ -3,15 +3,22 @@
 // Every case reads the RENDERED line, because the defect this row answers was that
 // `childRunSummary` was carried on every row and drawn nowhere: a case over the
 // derivation would have passed against a console that showed none of it.
+//
+// AND THE SAME RULE GOVERNS THE EXPANSION. `timeline.childRunExpand` answers with the
+// child run's rows, and the row read that page only to count it — so the cases below
+// assert the entry BODIES are in the document, not that the page arrived.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { type ChildRunSummary, type RunId } from "@ai-sidekicks/contracts";
+import { type ChildRunSummary, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { ChildRunSummaryRow } from "./ChildRunSummaryRow.js";
+import { type TimelineRowSlotProps } from "../../../seats/index.js";
+import { ChildRunSummaryRow, type ChildRunSummaryRowProps } from "./ChildRunSummaryRow.js";
 import { CHILD_RUN_SUMMARIZED, type ChildRunExpansion } from "./child-run-expansion.js";
 import { type ChildRunEntry } from "./child-run-entries.js";
+import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 
 const CHILD_RUN_ID = "run-child" as RunId;
 
@@ -32,6 +39,42 @@ function entryWith(summary: Partial<ChildRunSummary>): ChildRunEntry {
   };
 }
 
+/**
+ * A row body seat that draws what it was handed, so a case can read it back.
+ *
+ * The real seat is whichever plan owns a session's row bodies, and it is handed down
+ * from the feed — so a case drives the row exactly as the feed does, with a renderer
+ * whose output it can assert against rather than a mount of the whole card family.
+ */
+function probeRowBody(props: TimelineRowSlotProps): React.JSX.Element {
+  return (
+    <p data-testid="entry-body" data-superseded={String(props.isSuperseded)}>
+      {props.row.summary}
+    </p>
+  );
+}
+
+/** A child run's own row, in the shape the expansion reply carries one. */
+function childEntryRow(sequence: number, summary: string): TimelineRow {
+  return runRow({
+    id: `child-${String(sequence)}`,
+    sequence,
+    type: "tool.invoked",
+    summary,
+    actor: "agent-reviewer",
+    runId: CHILD_RUN_ID,
+    position: sequence,
+  });
+}
+
+/** An `expanded` expansion holding the entries a case names. */
+function expandedWith(
+  entries: readonly TimelineRow[],
+  hasUnreadEntries = false,
+): ChildRunExpansion {
+  return { status: "expanded", entries, hasUnreadEntries, refusal: undefined };
+}
+
 function renderRow(
   entry: ChildRunEntry,
   expansion: ChildRunExpansion = CHILD_RUN_SUMMARIZED,
@@ -43,6 +86,8 @@ function renderRow(
       wireType="subagent.started"
       expansion={expansion}
       onToggleExpansion={onToggleExpansion}
+      renderTimelineRow={probeRowBody}
+      hueForActor={() => undefined}
     />,
   );
   const line = container.querySelector<HTMLElement>(".meridian-child-run-row");
@@ -50,6 +95,50 @@ function renderRow(
     throw new Error("the child-run row drew no line");
   }
   return line;
+}
+
+/** The whole row, for the cases that read what hangs BELOW the summary line. */
+function renderWhole(
+  expansion: ChildRunExpansion,
+  overrides: {
+    readonly hueForActor?: ChildRunSummaryRowProps["hueForActor"];
+    readonly renderTimelineRow?: ChildRunSummaryRowProps["renderTimelineRow"];
+  } = {},
+): HTMLElement {
+  const { container } = render(
+    <ChildRunSummaryRow
+      entry={entryWith({})}
+      wireType="subagent.started"
+      expansion={expansion}
+      onToggleExpansion={() => undefined}
+      renderTimelineRow={overrides.renderTimelineRow ?? probeRowBody}
+      hueForActor={overrides.hueForActor ?? (() => undefined)}
+    />,
+  );
+  return container;
+}
+
+/**
+ * The row inside a holder that owns its expansion, which is what the ledger is.
+ *
+ * The row is controlled — it offers the toggle and renders whatever state it is
+ * handed — so a case about what a PRESS leaves on screen has to close that loop, or
+ * it is asserting over a component that decides nothing.
+ */
+function MountedWithExpansion(props: { readonly settled: ChildRunExpansion }): React.JSX.Element {
+  const [expansion, setExpansion] = useState<ChildRunExpansion>(CHILD_RUN_SUMMARIZED);
+  return (
+    <ChildRunSummaryRow
+      entry={entryWith({})}
+      wireType="subagent.started"
+      expansion={expansion}
+      onToggleExpansion={() => {
+        setExpansion(props.settled);
+      }}
+      renderTimelineRow={probeRowBody}
+      hueForActor={() => undefined}
+    />
+  );
 }
 
 describe("the child-run summary row — state, count and producing node", () => {
@@ -107,23 +196,16 @@ describe("the expand control — one act, and every state of it", () => {
   });
 
   it("keeps the summary on screen and names the refusal when an expand fails", () => {
-    const { container } = render(
-      <ChildRunSummaryRow
-        entry={entryWith({})}
-        wireType="subagent.started"
-        expansion={{
-          status: "expand-failed",
-          entries: [],
-          hasUnreadEntries: false,
-          refusal: {
-            code: "ledger.child_run_expand_unreachable",
-            detail: "The child run could not be expanded.",
-            origin: "ledger",
-          },
-        }}
-        onToggleExpansion={() => undefined}
-      />,
-    );
+    const container = renderWhole({
+      status: "expand-failed",
+      entries: [],
+      hasUnreadEntries: false,
+      refusal: {
+        code: "ledger.child_run_expand_unreachable",
+        detail: "The child run could not be expanded.",
+        origin: "ledger",
+      },
+    });
     expect(container.querySelector(".meridian-child-run-row")?.textContent).toContain("run-child");
     expect(container.textContent).toContain("could not be expanded");
     const control = container.querySelector<HTMLButtonElement>(
@@ -133,21 +215,95 @@ describe("the expand control — one act, and every state of it", () => {
   });
 
   it("reports what an expansion read and whether more is unread", () => {
-    const { container } = render(
-      <ChildRunSummaryRow
-        entry={entryWith({})}
-        wireType="subagent.started"
-        expansion={{
-          status: "expanded",
-          entries: [],
-          hasUnreadEntries: true,
-          refusal: undefined,
-        }}
-        onToggleExpansion={() => undefined}
-      />,
-    );
+    const container = renderWhole(expandedWith([], true));
     const expansion = container.querySelector(".meridian-child-run-row__expansion");
     expect(expansion?.textContent).toContain("0");
     expect(expansion?.querySelector(".meridian-nothing")).not.toBeNull();
+  });
+});
+
+describe("the expansion draws the child run's own work", () => {
+  it("renders the returned entries through the row body seat after Expand", () => {
+    // THE DEFECT, EXERCISED. The row read `expansion.entries` only to print how many
+    // there were, so a person who pressed Expand was told a number and shown nothing
+    // — the whole point of expanding background work is seeing what it did.
+    const { container } = render(
+      <MountedWithExpansion
+        settled={expandedWith([
+          childEntryRow(1, "read the failing spec"),
+          childEntryRow(2, "patched the guard"),
+        ])}
+      />,
+    );
+    expect(container.querySelectorAll("[data-testid='entry-body']")).toHaveLength(0);
+
+    fireEvent.click(container.querySelector(".meridian-child-run-row__disclosure") as Element);
+
+    const bodies = [...container.querySelectorAll("[data-testid='entry-body']")].map(
+      (body) => body.textContent,
+    );
+    expect(bodies).toStrictEqual(["read the failing spec", "patched the guard"]);
+  });
+
+  it("draws each entry through the seat it was handed and never a renderer of its own", () => {
+    // Without this, a row that grew a private one-line renderer for the child's
+    // entries would pass the case above while drawing the child's log in a vocabulary
+    // the parent's rows do not use.
+    const renderTimelineRow = vi.fn(probeRowBody);
+    renderWhole(expandedWith([childEntryRow(1, "first"), childEntryRow(2, "second")]), {
+      renderTimelineRow,
+    });
+    expect(renderTimelineRow).toHaveBeenCalledTimes(2);
+    expect(renderTimelineRow.mock.calls.map(([props]) => props.row.id)).toStrictEqual([
+      "child-1",
+      "child-2",
+    ]);
+  });
+
+  it("keeps the unread-remainder marker beside the rows rather than instead of them", () => {
+    // A page that just stopped would read as the whole of the child's work.
+    const container = renderWhole(expandedWith([childEntryRow(1, "only page")], true));
+    expect(container.querySelectorAll("[data-testid='entry-body']")).toHaveLength(1);
+    expect(
+      container.querySelector(".meridian-child-run-row__expansion .meridian-nothing"),
+    ).not.toBeNull();
+  });
+
+  it("ranks the child's own rollback against the child's page and not the parent's", () => {
+    // The page can hold the child run's own boundary, and a row past one is superseded
+    // in the child's log exactly as it is in the parent's. Asserted through the seat's
+    // own prop, so a row drawn undimmed is a red check rather than a styling question.
+    // The row AT the cutoff survives — `Spec-013`'s "exceeds" — which is what makes
+    // this a ranking rather than "everything before a boundary".
+    const container = renderWhole(
+      expandedWith([
+        childEntryRow(1, "the turn it rewound to"),
+        childEntryRow(2, "rewound away"),
+        rollbackBoundaryRow({
+          id: "child-3",
+          sequence: 3,
+          runId: CHILD_RUN_ID,
+          position: 3,
+          targetPosition: 1,
+        }),
+      ]),
+    );
+    const superseded = [...container.querySelectorAll("[data-testid='entry-body']")].map((body) =>
+      body.getAttribute("data-superseded"),
+    );
+    expect(superseded).toStrictEqual(["false", "true", "true"]);
+  });
+
+  it("asks the session's allocator for each entry's own author hue", () => {
+    // Without this the child's rows would be drawn unattributed while the same actor
+    // carries a hue two lines above, in the parent's log.
+    const hueForActor = vi.fn(() => undefined);
+    renderWhole(expandedWith([childEntryRow(1, "did the work")]), { hueForActor });
+    expect(hueForActor).toHaveBeenCalledWith("agent-reviewer");
+  });
+
+  it("draws no list at all for an expansion that read nothing", () => {
+    const container = renderWhole(expandedWith([]));
+    expect(container.querySelector(".meridian-child-run-row__entries")).toBeNull();
   });
 });

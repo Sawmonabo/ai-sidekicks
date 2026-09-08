@@ -14,6 +14,13 @@
 // unanswerable. Both arms travel the same already-registered answer method, so
 // neither is a second ingress.
 //
+// AN ANSWER IS A SETTLED ACT AND NOT A KEYSTROKE THAT VANISHED. Both arms dispatch
+// through one method and one reply, so the card draws what became of that reply once,
+// under both of them: the call is out, the driver acknowledged it, or it was refused
+// and the participant's words never left this machine. The refused arm is why this
+// exists — the reply used to be discarded, so a run blocked on an unanswered question
+// looked exactly like one waiting for somebody to type. Neither arm settles the ask.
+//
 // THE COUNTDOWN DISPLAYS A STAMP AND SETTLES NOTHING. The remaining interval is
 // computed from the daemon's stamped deadline against a clock the MOUNT supplies —
 // this card holds no timer, starts no interval, and reaches zero without changing
@@ -35,14 +42,16 @@
 // choice means. A row carrying both is a different row, not a second copy of that one.
 
 import { parseInstant } from "../../../core/index.js";
-import { Nothing, WireFigure, formatDuration } from "../../../primitives/index.js";
+import { InlineRefusal, Nothing, WireFigure, formatDuration } from "../../../primitives/index.js";
 import type { OwnerSlotProps } from "../../../seats/index.js";
 import { AskFreeTextArm } from "./AskFreeTextArm.js";
-import type { DriverAskReading } from "./input-ask.js";
+import type { DriverAskDelivery, DriverAskReading } from "./input-ask.js";
 
 /** What the row hands the body the timeline plan authors. */
 export interface InputAskBodyProps {
   readonly ask: DriverAskReading;
+  /** Where the answer this card last dispatched has got to. */
+  readonly delivery: DriverAskDelivery;
   readonly onAnswer: (response: string) => void;
 }
 
@@ -62,6 +71,13 @@ export interface InputAskCardProps {
    * decides how often a countdown moves.
    */
   readonly nowEpochMilliseconds: number;
+  /**
+   * Where the answer this card last dispatched has got to.
+   *
+   * Held by the row rather than here, because the dispatch is a wire call and this
+   * card constructs none — the same split the countdown makes with the clock.
+   */
+  readonly delivery: DriverAskDelivery;
   /** Deliver an answer on the registered driver answer method. */
   readonly onAnswer: (response: string) => void;
 }
@@ -70,7 +86,7 @@ export function InputAskCard(props: InputAskCardProps): React.JSX.Element {
   if (props.slot.body !== undefined) {
     return (
       <div className="meridian-input-ask">
-        {props.slot.body({ ask: props.ask, onAnswer: props.onAnswer })}
+        {props.slot.body({ ask: props.ask, delivery: props.delivery, onAnswer: props.onAnswer })}
       </div>
     );
   }
@@ -81,7 +97,7 @@ export function InputAskCard(props: InputAskCardProps): React.JSX.Element {
       {isPending ? (
         <>
           {renderCountdown(props.ask.expiresAt, props.nowEpochMilliseconds)}
-          {renderAnswerArms(props.ask, props.onAnswer)}
+          {renderAnswerArms(props.ask, props.delivery, props.onAnswer)}
         </>
       ) : (
         renderTerminal(props.ask)
@@ -157,11 +173,23 @@ function renderCountdown(
   );
 }
 
-/** The option group where one was declared, and the free-text field on every ask. */
+/**
+ * The option group where one was declared, and the free-text field on every ask.
+ *
+ * THE DELIVERY IS DRAWN ONCE, BELOW BOTH ARMS, because it is one fact about one ask
+ * rather than one per control: an option press and a free-text send travel the same
+ * method and produce the same reply, so a reader who pressed either meets the same
+ * sentence in the same place. Two renderings would be two vocabularies for one wire.
+ */
 function renderAnswerArms(
   ask: DriverAskReading,
+  delivery: DriverAskDelivery,
   onAnswer: (response: string) => void,
 ): React.ReactNode {
+  // The two statuses in which no further answer may be dispatched: one is on the wire,
+  // or one has already reached the driver. A refusal deliberately leaves the controls
+  // live, which is rule 9's "a refusal never hides the control that produced it".
+  const isSettling = delivery.status === "delivering" || delivery.status === "accepted";
   return (
     <div className="meridian-input-ask__arms">
       {ask.options.length === 0 ? null : (
@@ -171,6 +199,7 @@ function renderAnswerArms(
               <button
                 type="button"
                 className="meridian-input-ask__option"
+                disabled={isSettling}
                 onClick={() => {
                   onAnswer(option.value);
                 }}
@@ -184,9 +213,50 @@ function renderAnswerArms(
           ))}
         </ul>
       )}
-      <AskFreeTextArm askId={ask.askId} onAnswer={onAnswer} />
+      <AskFreeTextArm askId={ask.askId} delivery={delivery} onAnswer={onAnswer} />
+      {renderDelivery(delivery)}
     </div>
   );
+}
+
+/**
+ * What became of the answer this card dispatched, and nothing about the ask itself.
+ *
+ * `unsent` renders nothing at all, which is every ask nobody has answered yet. The
+ * other three are the console's own report: the call is out, the driver took it, or
+ * the call did not land — and the last one is the reason this exists, because a
+ * discarded refusal left a blocked run looking like an unanswered question.
+ *
+ * `accepted` says the surface is WAITING and never that the ask is settled: only the
+ * `driver_ask.responded` row may say that, and the card reads the ask's state from
+ * the row's own event type. The refusal renders inline, which is rule 9's shape for
+ * "nothing changed" — the arms above it stay exactly where they were.
+ */
+function renderDelivery(delivery: DriverAskDelivery): React.ReactNode {
+  switch (delivery.status) {
+    case "unsent":
+      return null;
+    case "delivering":
+      return (
+        <Nothing
+          kind="computing"
+          placement="inline"
+          title="Delivering this answer."
+          detail="The answer is on the wire and has not been acknowledged yet."
+        />
+      );
+    case "accepted":
+      return (
+        <Nothing
+          kind="empty"
+          placement="inline"
+          title="The answer reached the driver."
+          detail="Waiting for this ask's own row to record it."
+        />
+      );
+    case "refused":
+      return <InlineRefusal code={delivery.refusal.code} detail={delivery.refusal.detail} />;
+  }
 }
 
 /**
