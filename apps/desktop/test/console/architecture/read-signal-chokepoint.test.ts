@@ -19,9 +19,10 @@
 // pattern: `daemon-call-sites.ts` reads a call off the syntax tree,
 // `daemon-method-bindings.ts` resolves what the names it passes are bound to, and
 // `daemon-read-signal-census.ts` holds the partition and the four offender readings.
-// The first two are driven against planted sources in `daemon-call-sites.test.ts` and
-// the last in `daemon-read-signal-census.test.ts`, which is where the offending shapes
-// can be written; what stays here is the claim over the real tree.
+// The first is driven against planted sources in `daemon-call-sites.test.ts`, the
+// second in `daemon-method-resolution.test.ts` and the last in
+// `daemon-read-signal-census.test.ts`, which is where the offending shapes can be
+// written; what stays here is the claim over the real tree.
 
 import { describe, expect, it } from "vitest";
 

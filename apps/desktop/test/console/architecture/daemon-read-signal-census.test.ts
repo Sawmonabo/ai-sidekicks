@@ -8,8 +8,9 @@
 // the offending shapes included, which is why they cannot be written in the gate
 // itself.
 //
-// WHAT A CALL SAYS IS THE NEIGHBOURING BENCH'S SUBJECT. `daemon-call-sites.test.ts`
-// pins the method resolution and the signal-value reading; this file starts from a
+// WHAT A CALL SAYS IS THE NEIGHBOURING BENCHES' SUBJECT.
+// `daemon-method-resolution.test.ts` pins the method resolution and
+// `daemon-signal-argument.test.ts` the signal-value reading; this file starts from a
 // site and asks what the registry's partition makes of it, and what each of the four
 // readings then owes. The two share one planted corpus so neither drifts from the
 // other, and each site is owned by exactly one reading — which is itself a claim the

@@ -71,13 +71,23 @@
 // and they sat here until the scope chain grew the declaration forms a hoisted
 // `function` binds — at which point one file was holding the two subjects its own header
 // says it does not.
+//
+// A VARIABLE IS DECLARED FROM ITS LIST AND NEVER FROM ITSELF, which is the one shape of
+// this walk that a `const` rule dictates rather than the scope chain. `const` is a flag on
+// the declaration LIST and the declarations under it carry none, and the shared parse
+// leaves parent pointers off — so a walk that recorded each `VariableDeclaration` as it
+// reached it could not see the keyword that binds it, and recorded `let method =
+// "session.join"` as that method for the whole scope however many times the module wrote
+// it afterwards. Matching the list and declaring its own declarations is what puts the
+// keyword and the name in one place; the reduction itself, and the reason a scanner that
+// FOLLOWED the writes was not built instead, are `daemon-method-literals.ts`'.
 
 import ts from "typescript";
 
 import {
-  literalInitializerBinding,
   literalTypesIn,
   moduleLiteralUnionAliases,
+  variableDeclarationBinding,
   type MethodBinding,
 } from "./daemon-method-literals.js";
 
@@ -209,15 +219,24 @@ export class ModuleBindingScopes {
    * what it is bound to is not a method this parse can reduce, which is what unreadable
    * says.
    *
+   * A variable is matched at its LIST and its own declarations are recorded from there,
+   * for the reason this module's header gives; the declaration itself is still what the
+   * binding carries, because that is what the readings this module does not answer are
+   * asked of.
+   *
    * Imports are not among them — they are declared from the statement list before this
    * walk starts, for the reason this module's header gives.
    */
   #declare(node: ts.Node, enclosing: BindingScope, opened: BindingScope): void {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      enclosing.bindingsByName.set(node.name.text, {
-        method: literalInitializerBinding(node.initializer),
-        declaration: node,
-      });
+    if (ts.isVariableDeclarationList(node)) {
+      for (const declaration of node.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          enclosing.bindingsByName.set(declaration.name.text, {
+            method: variableDeclarationBinding(node, declaration),
+            declaration,
+          });
+        }
+      }
       return;
     }
     if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {

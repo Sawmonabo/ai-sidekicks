@@ -1,9 +1,10 @@
-// The planted corpus both daemon-call benches drive their needles against.
+// The planted corpus every daemon-call bench drives its needles against.
 //
-// TWO BENCHES, ONE FIXTURE, AND THE ROLE HAS ONE HOME. `daemon-call-sites.test.ts`
-// asks what a call SAYS and `daemon-read-signal-census.test.ts` asks what that makes
-// of it; both need the same two-row registry and the same planting helper, and a
-// second copy of either would be two registries that agree today. The registry is
+// ONE FIXTURE, AND THE ROLE HAS ONE HOME. `daemon-call-sites.test.ts` asks which door a
+// call reaches, `daemon-method-resolution.test.ts` what method it names, and
+// `daemon-read-signal-census.test.ts` what the registry's partition makes of it; each
+// needs the same two-row registry and the same planting helper, and a second copy of
+// either would be two registries that agree today. The registry is
 // deliberately two rows and not thirty: a control names the row it is about, and a
 // fixture that mirrored the real table would go stale the first time the real one
 // moved.
@@ -109,6 +110,45 @@ export const PLANTED_REGISTRY: string = [
 /** The partition those two rows make, read by the real table reader. */
 export const PLANTED_READINGS: ReadonlyMap<string, boolean> =
   daemonMethodReadings(PLANTED_REGISTRY);
+
+/**
+ * The door's own name under each transparent wrapper, one spelling per member.
+ *
+ * THE CLOSED LIST IS `daemon-method-literals.ts`', and this is one call written through
+ * each of its five: a parenthesis, `as`, `satisfies`, an angle-bracket `<T>` assertion and
+ * a non-null `!`. Every one of them is a callee the emitter hands the same function, and a
+ * scan that resolved the WRAPPER instead of what it wraps found no door in any of them —
+ * so the module stayed a counted consumer through its named import while the call it makes
+ * contributed no site and passed every signal check by not existing.
+ *
+ * Declared here rather than in one bench because two of them ask it — the site scan and
+ * the consumer census — and a bench spelling its own would prove the reading for the
+ * spelling it happened to write.
+ */
+export const TRANSPARENTLY_WRAPPED_DOOR_CALLEES: readonly string[] = [
+  "(callDaemon)",
+  "(callDaemon as typeof callDaemon)",
+  "(callDaemon satisfies typeof callDaemon)",
+  "(<typeof callDaemon>callDaemon)",
+  "callDaemon!",
+];
+
+/**
+ * The same wrappers around the NAMESPACE a door read steps off, which is the other
+ * position a callee resolves a binding at.
+ *
+ * `daemonDoor.callDaemon` is a member read, and the object it reads off is resolved
+ * exactly as a bare callee is — so a wrapper there was the same hole one node deeper, and
+ * `(daemonDoor as typeof daemonDoor).callDaemon(…)` reached no scan at all. Written
+ * against the namespace clause above, whose local name is a fixture spelling and not a
+ * rule.
+ */
+export const WRAPPED_NAMESPACE_DOOR_CALLEES: readonly string[] = [
+  "(daemonDoor).callDaemon",
+  "(daemonDoor as typeof daemonDoor).callDaemon",
+  "daemonDoor!.callDaemon",
+  '(daemonDoor satisfies typeof daemonDoor)["callDaemon"]',
+];
 
 /** An index over the two planted methods, with no constants folded in. */
 export function emptyIndex(): DaemonMethodConstantIndex {

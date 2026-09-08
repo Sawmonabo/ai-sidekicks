@@ -79,6 +79,18 @@
 // closed is every spelling that still says the member's name in the text, which is why
 // the key admitted is a string literal or the no-substitution template that is one.
 //
+// AND A TRANSPARENT WRAPPER IS NOT A DIFFERENT EXPRESSION. Every reading here resolves a
+// CALLEE or the OBJECT a member is read off, and the five wrappers `daemon-method-literals.ts`
+// peels — a parenthesis, `as`, `satisfies`, `<T>` and a non-null `!` — leave both exactly
+// what they were. A reader stopping at one saw no door in `(callDaemon as typeof
+// callDaemon)(…)`, so the module stayed a counted consumer under its named import while the
+// call it makes reached no scan at all — the namespace form's hole again, spelled with a
+// cast — and read `(bridge.sidekicks.daemon.call)(…)` as no reach whatsoever. So the
+// peeling runs at every one of those positions, through the ONE helper the method reading
+// already uses; a second peeler beside a reading here is how a closed list drifts apart.
+// It is never inside `readsMember`, which is a type guard: peeling there would hand back a
+// verdict about one node and a narrowing about another.
+//
 // THE REACH FORMS BELOW PARTITION BY SPELLING ON PURPOSE, which is why two readings
 // there stay dotted rather than taking the shared one. `namesDaemonNamespaceByDots` IS
 // the fully dotted spelling — the computed ones are reported as forms of their own,
@@ -93,6 +105,7 @@ import ts from "typescript";
 
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import { ModuleBindingScopes } from "./daemon-method-bindings.js";
+import { withoutTypeWrappers } from "./daemon-method-literals.js";
 
 /** The bridge namespace whose call door is governed. */
 const DAEMON_NAMESPACE = "daemon";
@@ -116,7 +129,8 @@ const CALL_DOOR_EXPORT = "callDaemon";
  * Whether `callee` names the call door, through the binding it has at `position`.
  *
  * The rule this module's header states, applied: an identifier resolving to the door's
- * own import specifier, or a member read of the door off a namespace import. Both go
+ * own import specifier, or a member read of the door off a namespace import, in either
+ * case under whatever transparent wrappers the callee was written with. Both go
  * through the scope chain the caller already built, so the answer is the one the
  * language would give at that position and a nearer binding of either name wins.
  *
@@ -129,10 +143,11 @@ export function namesCallDoor(
   position: number,
   bindings: ModuleBindingScopes,
 ): boolean {
-  if (ts.isIdentifier(callee)) {
-    return isCallDoorSpecifier(bindings.resolve(callee.text, position)?.declaration);
+  const named = withoutTypeWrappers(callee);
+  if (ts.isIdentifier(named)) {
+    return isCallDoorSpecifier(bindings.resolve(named.text, position)?.declaration);
   }
-  return readsDoorOffImportedNamespace(callee, position, bindings);
+  return readsDoorOffImportedNamespace(named, position, bindings);
 }
 
 /** Whether a declaration is the specifier that imported the door itself. */
@@ -157,10 +172,14 @@ function readsDoorOffImportedNamespace(
   position: number,
   bindings: ModuleBindingScopes,
 ): boolean {
-  if (!readsMember(node, CALL_DOOR_EXPORT) || !ts.isIdentifier(node.expression)) {
+  if (!readsMember(node, CALL_DOOR_EXPORT)) {
     return false;
   }
-  const declaration = bindings.resolve(node.expression.text, position)?.declaration;
+  const namespace = withoutTypeWrappers(node.expression);
+  if (!ts.isIdentifier(namespace)) {
+    return false;
+  }
+  const declaration = bindings.resolve(namespace.text, position)?.declaration;
   return declaration !== undefined && ts.isNamespaceImport(declaration);
 }
 
@@ -199,7 +218,7 @@ export function daemonCallReaches(source: string, fileName = "probe.ts"): readon
       namespaceReads.push(node);
     }
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      steppedThrough.add(node.expression);
+      steppedThrough.add(withoutTypeWrappers(node.expression));
     }
     if (
       (ts.isCallExpression(node) ||
@@ -218,10 +237,11 @@ export function daemonCallReaches(source: string, fileName = "probe.ts"): readon
       found.add("taken as a value");
     }
     if (ts.isElementAccessExpression(node)) {
-      if (readsMember(node.expression, BRIDGE_NAMESPACE)) {
+      const stepped = withoutTypeWrappers(node.expression);
+      if (readsMember(stepped, BRIDGE_NAMESPACE)) {
         found.add("namespace taken by computed key");
       }
-      if (readsMember(node.expression, DAEMON_NAMESPACE)) {
+      if (readsMember(stepped, DAEMON_NAMESPACE)) {
         found.add("called by computed key");
       }
     }
@@ -356,11 +376,15 @@ function readsMemberByDots(node: ts.Node, member: string): node is ts.PropertyAc
 function namesDaemonNamespaceByDots(node: ts.Node): boolean {
   return (
     readsMemberByDots(node, DAEMON_NAMESPACE) &&
-    readsMemberByDots(node.expression, BRIDGE_NAMESPACE)
+    readsMemberByDots(withoutTypeWrappers(node.expression), BRIDGE_NAMESPACE)
   );
 }
 
 /** Whether `node` is a read of the call door off the daemon namespace. */
-function readsCallDoor(node: ts.Node): boolean {
-  return readsMemberByDots(node, CALL_MEMBER) && readsMember(node.expression, DAEMON_NAMESPACE);
+function readsCallDoor(node: ts.Expression): boolean {
+  const read = withoutTypeWrappers(node);
+  return (
+    readsMemberByDots(read, CALL_MEMBER) &&
+    readsMember(withoutTypeWrappers(read.expression), DAEMON_NAMESPACE)
+  );
 }
