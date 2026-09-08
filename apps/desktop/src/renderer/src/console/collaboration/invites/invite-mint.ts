@@ -73,6 +73,19 @@ const INVITE_MINT_ORIGIN = "create-invite";
 const SHELL_ORIGIN = "shell";
 
 /**
+ * Whether a refusal is the act's own shell-block abort — the one reason the window
+ * already says, and the one the form therefore keeps no record of.
+ *
+ * Exported beside the arm that mints it rather than as the origin string, so the
+ * producer and the one consumer that declines to retain it read one predicate: a
+ * second spelling of the origin at the coordinator's option would be the seam split
+ * across two modules that `AGENTS.md` names.
+ */
+export function isShellBlockRefusal(refusal: ConsoleRefusal): boolean {
+  return refusal.origin === SHELL_ORIGIN;
+}
+
+/**
  * The three members the create reply carries, as this composition consumes them.
  *
  * A CONSTRAINT and not a second declaration of the wire's reply: the mint handed in
@@ -148,6 +161,14 @@ export function inviteMintWithLink<TRequest, TReply extends InviteMintReply>(
       // than in a refusal from the daemon, which is not reachable to give one — and
       // nothing has been spent, so pressing again once the runtime is back IS the
       // retry, exactly as it is for a host that could not be read.
+      //
+      // REFUSED, AND NOT RETAINED. The refused arm is what ends the act with nothing
+      // put; the refusal it carries is the shell's own words, which the store publishes
+      // and the hosting section prints once — so the act's coordinator is told, through
+      // `isShellBlockRefusal`, to keep no copy. A copy would be a second register of a
+      // condition the store owns, and the one that outlived it: the store clears when
+      // the runtime comes back, and a retained refusal would keep saying stopped beside
+      // a send control drawn open again.
       return {
         status: "refused",
         refusal: refuse(SHELL_ORIGIN, shellBlock.code, shellBlock.detail),

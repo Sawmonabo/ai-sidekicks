@@ -12,10 +12,20 @@
 // reading of the source rather than a partial re-implementation of the checker. A `const`
 // answers with its own string literal or with nothing; a parameter answers with the
 // literals its declared type admits, through the two indirections a narrowed method
-// argument is really spelled with — a type parameter's constraint and a module-level
-// alias for the union — and through no third. What reduces to no literal is not guessed
-// at: it is handed back as nothing, and the scope chain records it as a binding this
-// parse cannot reduce, which is the fail-closed direction both files run in.
+// argument is really spelled with — a type parameter's constraint and an alias for the
+// union — and through no third. What reduces to no literal is not guessed at: it is
+// handed back as nothing, and the scope chain records it as a binding this parse cannot
+// reduce, which is the fail-closed direction both files run in.
+//
+// AND AN ALIAS IS READ BY NAME AND NOT BY SCOPE, which is why a name declared twice in one
+// file reads as nothing. The alias map is one map for the file — an alias is the one
+// declaration form the scope chain does not track, since a call names a value and never a
+// type — so a function-scoped `type Method = "repo.workspaceList"` shadowing a module-level
+// `type Method = "session.join"` would be answered from whichever declaration the map kept,
+// and a parameter typed with the inner one would classify from the outer: a record where
+// the line makes a read. Rather than track type scopes for a spelling the console never
+// uses, the map refuses the name — every reader of it then takes the unreadable arm, and
+// the gate reports the site.
 //
 // AND AN INITIALIZER IS ONLY WHAT A BINDING HOLDS WHERE NOTHING CAN WRITE IT AGAIN, which
 // is why the reduction takes the declaration LIST rather than the initializer alone. The
@@ -130,18 +140,34 @@ export function literalTypesIn(
   return aliasedUnions.get(type.typeName.text) ?? [];
 }
 
-/** Every module-level `type NAME = "a" | "b"` in one file, by name. */
-export function moduleLiteralUnionAliases(
-  parsed: ts.SourceFile,
-): ReadonlyMap<string, readonly string[]> {
+/**
+ * Every `type NAME = "a" | "b"` in one file, by name, wherever it is declared.
+ *
+ * A name declared as a type alias MORE THAN ONCE in the file is absent from the map,
+ * whatever either declaration reduces to: this map is scope-blind, and the one case a
+ * scope-blind reading answers wrongly is the shadowed name, where it answers from the
+ * declaration the call cannot see. Absent means every parameter typed with the name
+ * reduces to nothing and the call is reported — the fail-closed arm — rather than
+ * classified from the wrong union.
+ */
+export function literalUnionAliases(parsed: ts.SourceFile): ReadonlyMap<string, readonly string[]> {
+  const declarationCounts = new Map<string, number>();
   const aliases = new Map<string, readonly string[]>();
-  for (const statement of parsed.statements) {
-    if (!ts.isTypeAliasDeclaration(statement)) {
-      continue;
+  const visit = (node: ts.Node): void => {
+    if (ts.isTypeAliasDeclaration(node)) {
+      const name = node.name.text;
+      declarationCounts.set(name, (declarationCounts.get(name) ?? 0) + 1);
+      const literals = literalTypesIn(node.type, new Map(), new Map());
+      if (literals.length > 0) {
+        aliases.set(name, literals);
+      }
     }
-    const literals = literalTypesIn(statement.type, new Map(), new Map());
-    if (literals.length > 0) {
-      aliases.set(statement.name.text, literals);
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  for (const [name, count] of declarationCounts) {
+    if (count > 1) {
+      aliases.delete(name);
     }
   }
   return aliases;

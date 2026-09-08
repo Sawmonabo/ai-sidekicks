@@ -30,6 +30,14 @@
 // act after the host read, which is a real await the runtime can stop across. What the
 // render-time block is for is the CONTROL: it draws it closed and rides it as its
 // disabled reason, and the section above says the sentence once.
+//
+// AND THE SHELL'S OWN ABORT LEAVES NO REFUSAL BEHIND. The act's second re-check ends the
+// press on the refused arm, but the reason it carries is the store's live condition and
+// not this press's outcome: the hosting section already prints it, and it stops being
+// true the moment the runtime comes back — which the store publishes and a retained
+// copy would not follow. So the coordinator is told to retain no shell-block refusal,
+// and what a person sees through the outage is the section's one sentence and a closed
+// control; what they see after it is an open control and nothing left over.
 
 import { useCallback, useEffect, useMemo } from "react";
 import type { JoinMode } from "@ai-sidekicks/contracts";
@@ -50,7 +58,7 @@ import {
   type ShellMutationBlock,
 } from "../../store/index.js";
 import { inviteExpiryChoice, inviteExpiryInstant } from "./invite-draft.js";
-import { inviteMintWithLink, type InviteMintReceipt } from "./invite-mint.js";
+import { inviteMintWithLink, isShellBlockRefusal, type InviteMintReceipt } from "./invite-mint.js";
 import {
   WireMutationCoordinator,
   type CollaborationMutation,
@@ -142,6 +150,12 @@ export function useInviteMintAct(options: InviteMintActOptions): InviteMintAct {
         currentShellBlock(frameStore, INVITE_CREATE_METHOD),
       ),
       describeWhat: "The invitation",
+      // The shell's abort ends the act and is recorded NOWHERE on this form: the block
+      // is the window's condition, published by the store and printed once by the
+      // hosting section, and `invite-mint.ts` says at the arm why a copy here would
+      // outlive it. Every other refusal — the host read's, the daemon's — stands
+      // against the control until the next press or a dismissal, as before.
+      retains: (refusal) => !isShellBlockRefusal(refusal),
     });
     // Keyed on the subject for the ledger's reason: an unsettled mint in the session
     // being left must not close the send control in the session being entered.

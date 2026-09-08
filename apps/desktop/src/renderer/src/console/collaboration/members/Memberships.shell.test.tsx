@@ -23,7 +23,21 @@ import {
 import { createFixtureBridge } from "../../bridge/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import type { FrameStore } from "../../store/index.js";
-import { connectedShell, stopShell, stoppedShell } from "../shell-condition.test-support.js";
+import {
+  MINTED_TOKEN,
+  bridgeFor,
+  heldHostRead,
+  mintsReaching,
+  pressSend,
+  scenarioMinting,
+  sendControl,
+} from "../invites/create-invite.test-support.js";
+import {
+  connectedShell,
+  serveShell,
+  stopShell,
+  stoppedShell,
+} from "../shell-condition.test-support.js";
 import {
   Memberships,
   OWNER_AND_COLLABORATOR,
@@ -220,5 +234,51 @@ describe("memberships — a supervisor that stops between the render and the pre
     await settle();
 
     expect(updatesReaching(calls)).toBe(1);
+  });
+});
+
+describe("memberships — a supervisor that stops across the invitation's host read, then serves again", () => {
+  it("says the cause once through the outage and leaves nothing behind once it is over", async () => {
+    // The invitation mint reads the control-plane host before it mints — a real await
+    // the supervisor can stop across — and the act's own re-check ends the press there.
+    // What this hierarchy holds is what that abort LEAVES. Through the outage the one
+    // shell sentence is this section's, and the form prints no refusal of its own under
+    // the same heading; once the runtime serves again the sentence goes, the send
+    // control re-opens, and the next press mints — because the shell's condition was
+    // never recorded on the form as a refusal that could outlive it.
+    const frameStore = connectedShell();
+    const host = heldHostRead();
+    const { bridge, calls } = bridgeFor(scenarioMinting(), { controlPlaneHostRead: host.read });
+    const { container } = render(
+      <Memberships
+        context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), bridge, frameStore)}
+      />,
+    );
+    await settle();
+
+    await pressSend(container);
+    act(() => {
+      stopShell(frameStore);
+    });
+    host.answer();
+    await settle();
+
+    expect(mintsReaching(calls)).toBe(0);
+    expect(shellRefusals(container)).toHaveLength(1);
+    expect(container.querySelector(".meridian-invite-create__refusal-dismiss")).toBeNull();
+    expect(sendControl(container)?.disabled).toBe(true);
+
+    act(() => {
+      serveShell(frameStore);
+    });
+    await settle();
+
+    expect(shellRefusals(container)).toStrictEqual([]);
+    expect(sendControl(container)?.disabled).toBe(false);
+
+    await pressSend(container);
+
+    expect(mintsReaching(calls)).toBe(1);
+    expect(container.textContent ?? "").toContain(MINTED_TOKEN);
   });
 });

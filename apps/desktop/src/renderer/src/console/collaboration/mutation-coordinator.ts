@@ -174,6 +174,7 @@ const MUTATION_ROUND_KEY = "mutation-round";
 export class WireMutationCoordinator<TRequest, TResponse> {
   readonly #perform: WireMutation<TRequest, TResponse>;
   readonly #describeWhat: string;
+  readonly #retains: (refusal: ConsoleRefusal) => boolean;
   readonly #changes = new Emitter<WireMutationSnapshot>("wire mutation change");
   /**
    * Which round of mutations the holder's SUBJECT is on.
@@ -194,9 +195,19 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     readonly perform: WireMutation<TRequest, TResponse>;
     /** One noun for the refusal sentence — "the role change", "the invite". */
     readonly describeWhat: string;
+    /**
+     * Which refusals STAND against their subject once the call has settled. Every one
+     * unless the holder says otherwise — and it does for a refusal restating a condition
+     * the window already publishes, the shell's block: the store says it and the hosting
+     * section prints it once, so a copy here is a second register of the same words and
+     * the one that outlives them. The call still settles on the refused arm; only the
+     * RECORD of the reason is declined.
+     */
+    readonly retains?: (refusal: ConsoleRefusal) => boolean;
   }) {
     this.#perform = options.perform;
     this.#describeWhat = options.describeWhat;
+    this.#retains = options.retains ?? (() => true);
   }
 
   public snapshot(): WireMutationSnapshot {
@@ -274,10 +285,16 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     // through `settle` installs and releases in one act, and answers whether the
     // install happened, so the superseded arm needs no second predicate.
     if (reply.status === "refused") {
+      // The attempt already dropped this subject's prior refusal, so a declined record
+      // leaves the map exactly as the attempt published it: no reason standing, no
+      // pending key, and the settlement still counted.
+      const retained = this.#retains(reply.refusal);
       round.settle(() => {
         this.#publish({
           pendingKey: undefined,
-          refusalByKey: { ...this.#snapshot.refusalByKey, [key]: reply.refusal },
+          refusalByKey: retained
+            ? { ...this.#snapshot.refusalByKey, [key]: reply.refusal }
+            : this.#snapshot.refusalByKey,
           revision: this.#snapshot.revision + 1,
         });
       });

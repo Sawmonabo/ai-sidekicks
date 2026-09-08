@@ -146,6 +146,32 @@ describe("wire mutation coordinator — whose refusal it was", () => {
     expect(refusal?.origin).toBe(DAEMON_REPLY_REFUSAL_ORIGIN);
   });
 
+  it("keeps no record of a refusal the holder declines to retain, and still settles", async () => {
+    // The shell's abort: the reason is the store's live condition, said once by the
+    // hosting section, so the holder declines the copy. What must still happen is the
+    // settlement — the pending key clears and the press resolves on the refused arm —
+    // because a declined RECORD is not an unsettled call.
+    const coordinator = new WireMutationCoordinator<string, string>({
+      perform: async () => await Promise.resolve(refusedWith("shell-stopped", "stopped")),
+      describeWhat: "The change",
+      retains: (refusal) => refusal.code !== "shell-stopped",
+    });
+    await expect(coordinator.run("membership-1", "request")).resolves.toBeUndefined();
+    expect(coordinator.snapshot().pendingKey).toBeUndefined();
+    expect(coordinator.snapshot().refusalByKey).toStrictEqual({});
+    expect(coordinator.heldRoundCount).toBe(0);
+  });
+
+  it("negative control: the same refusal is retained when the holder says nothing", async () => {
+    // Without this the case above would pass over a coordinator that retained no
+    // refusal at all, whatever the holder said.
+    const coordinator = coordinatorOver(
+      async () => await Promise.resolve(refusedWith("shell-stopped", "stopped")),
+    );
+    await coordinator.run("membership-1", "request");
+    expect(coordinator.snapshot().refusalByKey["membership-1"]?.code).toBe("shell-stopped");
+  });
+
   it("negative control: the refusal this family raises ITSELF wears this family's origin", async () => {
     // Without this, the case above would pass over a coordinator that stamped
     // every refusal it published with the door's origin.

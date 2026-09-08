@@ -68,3 +68,14 @@ export function stoppedShell(): FrameStore {
 export function stopShell(store: FrameStore): void {
   store.publishShellReport(STOPPED_REPORT);
 }
+
+/**
+ * Report the runtime serving again on a store that was stopped.
+ *
+ * The other half of {@link stopShell}, for the case that asks what an outage leaves
+ * behind once it is over: a control that re-opens, and a sentence that goes away — or
+ * one that does not, which is the defect a recovery case exists to catch.
+ */
+export function serveShell(store: FrameStore): void {
+  store.publishShellReport(CONNECTED_REPORT);
+}

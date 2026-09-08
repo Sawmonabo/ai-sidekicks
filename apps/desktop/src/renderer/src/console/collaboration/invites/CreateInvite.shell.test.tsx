@@ -13,6 +13,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { growthRefusing } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { connectedShell, stopShell } from "../shell-condition.test-support.js";
 import { CreateInvite } from "./CreateInvite.js";
 import {
@@ -91,13 +92,16 @@ describe("creating an invitation — a supervisor that stops between the render 
 });
 
 describe("creating an invitation — a supervisor that stops across the host read", () => {
-  it("refuses in the shell's own words and mints nothing", async () => {
+  it("ends the act with nothing minted and keeps no refusal of its own", async () => {
     // The act reads the control-plane host BEFORE it mints, which is a real await: a
     // supervisor that stops while that read is out was serving when the press was
     // admitted and is not serving when the mint would go out. Guarded only at the
     // press, `invite.create` reaches a stopped runtime; re-read after the read, the act
-    // ends where the host refusal would have ended it — nothing created, the reason on
-    // the control that was pressed, and pressing again the whole retry.
+    // ends where the host refusal would have ended it — nothing created, and pressing
+    // again the whole retry. What it does NOT leave is a refusal line of its own: the
+    // reason is the shell's, said once by the hosting section and carried on the
+    // control as its disabled reason, and a copy here would outlive the outage.
+    // `Memberships.shell.test.tsx` holds the section's sentence and the recovery.
     const frameStore = connectedShell();
     const host = heldHostRead();
     const { container, calls, onMinted } = await renderRecording(frameStore, {
@@ -115,10 +119,27 @@ describe("creating an invitation — a supervisor that stops across the host rea
 
     expect(mintsReaching(calls)).toBe(0);
     expect(onMinted).not.toHaveBeenCalled();
-    const text = container.textContent ?? "";
-    expect(text).toContain("shell-stopped");
-    expect(text).toContain("The local runtime has been stopped");
-    expect(text).not.toContain(MINTED_TOKEN);
+    const send = sendControl(container);
+    expect(send?.disabled).toBe(true);
+    expect(send?.getAttribute("title") ?? "").toContain("The local runtime has been stopped");
+    expect(container.querySelector(".meridian-refusal--inline")).toBeNull();
+    expect(container.querySelector(".meridian-invite-create__refusal-dismiss")).toBeNull();
+    expect(container.textContent ?? "").not.toContain(MINTED_TOKEN);
+  });
+
+  it("negative control: a refusal that is the press's own does stand on the form", async () => {
+    // Without this the case above would pass over a form that rendered no refusal
+    // under any condition. A host that cannot be read is this press's outcome and
+    // nobody else's sentence, so it stands beside the control with its dismissal.
+    const { container, calls } = await renderRecording(connectedShell(), {
+      controlPlaneHostRead: growthRefusing("controlPlaneHostRead"),
+    });
+
+    await pressSend(container);
+
+    expect(mintsReaching(calls)).toBe(0);
+    expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    expect(container.querySelector(".meridian-invite-create__refusal-dismiss")).not.toBeNull();
   });
 
   it("negative control: the same read answered under a serving supervisor mints once", async () => {

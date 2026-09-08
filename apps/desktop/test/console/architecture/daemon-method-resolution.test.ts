@@ -346,6 +346,31 @@ describe("the method a call names", () => {
     expect(site?.resolvedMethods).toStrictEqual(["session.join", "repo.attach"]);
   });
 
+  it("negative control: an alias shadowed inside a function resolves to nothing", () => {
+    // THE SHADOW THE ALIAS MAP CANNOT SEE. Aliases are read by NAME from one file-wide
+    // map — a call names a value, never a type, so the scope chain tracks no type
+    // declarations — and a map that kept either declaration would answer this
+    // parameter from the one the call cannot see: the module's record union, which is
+    // exempt from the signal rule, over the function's own read. So a name declared as
+    // an alias twice in one file is refused outright, and the site is reported as a
+    // method this parse cannot read — the fail-closed arm — rather than classified from
+    // whichever union the walk happened to keep.
+    const sites = plantedSites([
+      'type Method = "session.join";',
+      "export function dispatch(bridge, request) {",
+      '  type Method = "repo.workspaceList";',
+      "  function bind(innerBridge, innerRequest, method: Method) {",
+      "    return callDaemon(innerBridge, method, innerRequest);",
+      "  }",
+      "  return bind(bridge, request);",
+      "}",
+    ]);
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([[]]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
+      "console/planted/surface.ts:6 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
+    ]);
+  });
+
   it("negative control: an unconstrained generic resolves to nothing", () => {
     // The shape the collaboration binder used to carry. Its constraint was the whole
     // registry, which admits reads, so the call could bind one and hand it no signal.

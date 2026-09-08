@@ -274,7 +274,9 @@ function declareImportClause(
  *
  * Reached through TWO indirections that are how a narrowed method argument is really
  * spelled: a type parameter's constraint (`<MethodName extends DaemonMutationMethod>`)
- * and a module-level alias for the union itself. Both are declarations rather than
+ * and an alias for the union itself, read by name from `daemon-method-literals.ts`'s
+ * file-wide map — which is why a name that file saw declared twice reduces to nothing
+ * here rather than to either declaration. Both are declarations rather than
  * inferences, which is what keeps this a reading of the source rather than a partial
  * re-implementation of the checker. A parameter whose type reduces to no literal is
  * recorded as unreadable rather than left unbound — it IS the binding the call names,

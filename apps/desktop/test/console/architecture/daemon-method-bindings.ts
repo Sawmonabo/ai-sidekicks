@@ -75,7 +75,7 @@ import {
   type BindingScope,
   type NameBinding,
 } from "./daemon-method-binding-declarations.js";
-import { moduleLiteralUnionAliases } from "./daemon-method-literals.js";
+import { literalUnionAliases } from "./daemon-method-literals.js";
 
 /**
  * What a name at a position is bound to, re-exported from the scope chain that answers it.
@@ -101,7 +101,7 @@ export class ModuleBindingScopes {
 
   public constructor(parsed: ts.SourceFile) {
     this.#parsed = parsed;
-    this.#aliasedUnions = moduleLiteralUnionAliases(parsed);
+    this.#aliasedUnions = literalUnionAliases(parsed);
     const moduleScope = this.#openScope(0, parsed.end);
     declareImports(parsed, moduleScope);
     this.#walk(parsed, moduleScope, moduleScope);
