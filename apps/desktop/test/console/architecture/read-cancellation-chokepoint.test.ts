@@ -17,6 +17,12 @@
 // Neither suite subsumes the other: this one would pass over a scheduler that handed
 // out a dead round, and that one would pass over a scheduler that accepted one.
 //
+// THE COMPLEMENT OF THE THIRD CLAIM IS NOT HERE. `DaemonCallOptions.signal` is
+// optional by design, so a read that forgot one is the same source text as a mutation
+// that deliberately passes none, and that per-CALL claim lives next door in
+// `read-signal-chokepoint.test.ts` with its own model pair. This file's subject is the
+// SEAM, the scheduler, and the dispatcher module; that one's is every individual call.
+//
 // THE MUTATION CLAIM IS DERIVED, NOT LISTED — IN BOTH OF ITS HALVES. A hand-written
 // roster of run-control modules is a roster that goes stale the first time a control
 // moves, and the gate would keep passing while the module it was written about no
@@ -31,9 +37,9 @@
 // counted only because the module that dispatches it happens to name two other
 // controls beside it. Split that one function into its own module and the tripwire
 // goes blind to it, silently. So the needles are now derived from
-// `RUN_CHANGING_DAEMON_METHODS`, the registry's own classification of which methods
-// change a run, which is total over the method set and cannot omit a method the
-// contract names.
+// `RUN_CHANGING_DAEMON_METHODS`, the console's own classification of which methods
+// change a run (`bridge/daemon/daemon-method-classification.ts`), which is total over
+// the registry's method set and cannot omit a method the contract names.
 //
 // THE HONEST LIMIT, the one every source-text tripwire has. This reads text, so an
 // alias defeats it — a module that re-exported the controller under another name, or
@@ -52,7 +58,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RUN_CHANGING_DAEMON_METHODS } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply-registry.js";
+import { RUN_CHANGING_DAEMON_METHODS } from "../../../src/renderer/src/console/bridge/daemon/daemon-method-classification.js";
 import {
   consoleSourceModules,
   moduleNamed,

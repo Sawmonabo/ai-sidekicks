@@ -82,45 +82,82 @@
 
 import { useEffect, useMemo } from "react";
 
-import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
+import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  currentShellBlock,
+  shellBlockForMethod,
+  useShellState,
+  type FrameStore,
+} from "../../store/index.js";
 import {
   WireMutationCoordinator,
-  daemonMutation,
+  type CollaborationMutation,
+  type CollaborationMutationMethod,
   useWireMutation,
 } from "../mutation-coordinator.js";
 import { useSentInviteLedger } from "./sent-invites-reading.js";
 import { SentInvitesLedger } from "./SentInvitesLedger.js";
 import { CreateInvite } from "./CreateInvite.js";
 
-/** The wire method the revoke control calls, through the daemon gateway. */
-const INVITE_REVOKE_METHOD = "invite.revoke";
+/**
+ * The wire method the revoke control calls, through the daemon gateway.
+ *
+ * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
+ * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
+ * condition closes, so a revoke that ever left that tuple stops compiling here rather
+ * than quietly going back to being dispatchable through a stopped shell. The literal
+ * type survives it, which is what `callDaemon` needs to type the request and the
+ * reply; a wider annotation would take both.
+ */
+const INVITE_REVOKE_METHOD = "invite.revoke" satisfies CollaborationMutationMethod;
 
 export interface SentInvitesProps {
   readonly bridge: ConsoleBridge;
   /** The session whose invites these are. `undefined` means nothing was asked. */
   readonly sessionId: string | undefined;
+  /**
+   * Where this window's shell condition is published.
+   *
+   * Held rather than a derived block passed in, because the question this surface
+   * asks is per METHOD: `shellBlockForMethod` answers about `invite.revoke` and the
+   * read beside it survives the same outage, which a whole-window block handed down
+   * could not express.
+   */
+  readonly frameStore: FrameStore;
 }
 
 export function SentInvites(props: SentInvitesProps): React.JSX.Element {
-  const { bridge, sessionId } = props;
+  const { bridge, frameStore, sessionId } = props;
   const { reading, ledger, noteMinted, applySettledRevoke } = useSentInviteLedger(
     bridge,
     sessionId,
   );
 
-  const revokeCoordinator = useMemo(
-    () =>
-      new WireMutationCoordinator({
-        perform: daemonMutation(bridge, INVITE_REVOKE_METHOD),
-        describeWhat: "The invitation",
-      }),
+  const revokeCoordinator = useMemo(() => {
+    // The door call sits HERE, where exactly one method is named, rather than behind
+    // a binder generic over the family's methods: one call site naming one method is
+    // what lets the read-signal gate read the deliberate absence of a cancellation
+    // signal as deliberate. A revoke that has reached the daemon has HAPPENED, so
+    // there is nothing this window may abandon it with.
+    const revokeInvite: CollaborationMutation<typeof INVITE_REVOKE_METHOD> = async (request) =>
+      await callDaemon(bridge, INVITE_REVOKE_METHOD, request);
+    return new WireMutationCoordinator({
+      perform: revokeInvite,
+      describeWhat: "The invitation",
+    });
     // Keyed on the SUBJECT and not only on the transport: the coordinator's whole
     // state — what is in flight, whose refusal stands — is about one session's
     // rows, and a session's ledger inheriting another's is what closed every
     // control here on the frame after a move.
-    [bridge, sessionId],
-  );
+  }, [bridge, sessionId]);
   const revoke = useWireMutation(revokeCoordinator);
+  // Whether this window may send the revoke at all, from the shell state the frame
+  // publishes. Asked of the one seam every dispatching control goes through, so the
+  // ledger's own read stays live through the same outage — that seam answers about a
+  // method, never about the window. This value draws the row's control and rides it as
+  // its disabled reason; whether a press is admitted is asked again at the dispatch
+  // site, off the store, because this one is as old as the last committed render.
+  const revokeBlock = shellBlockForMethod(useShellState(frameStore), INVITE_REVOKE_METHOD);
 
   useEffect(() => {
     // The coordinator being retired is superseded rather than dropped: dropping the
@@ -141,16 +178,39 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         </p>
       </header>
 
-      <CreateInvite bridge={bridge} sessionId={sessionId} onMinted={noteMinted} />
+      {/* DISABLED WITH THE CAUSE BESIDE IT, never hidden, and the SENTENCE said once for
+          the section: the block is the window's, and the send control below, every revoke
+          control in the ledger, and the membership controls above are all closed by the
+          same condition. The one line naming it is the hosting members section's, printed
+          above everything under that heading — so this surface hands the block to its
+          controls as their disabled reason and prints no second copy of the same words
+          under the same heading. */}
+      <CreateInvite
+        bridge={bridge}
+        sessionId={sessionId}
+        frameStore={frameStore}
+        onMinted={noteMinted}
+      />
 
       <SentInvitesLedger
         sessionId={sessionId}
         reading={reading}
         ledger={ledger}
         pendingRevokeKey={revoke.pendingKey}
+        revokeBlock={revokeBlock}
         refusalByInviteId={revoke.refusalByKey}
         onRevoke={(inviteId) => {
           if (sessionId === undefined) {
+            return;
+          }
+          // Fail-closed at the dispatch site and not only on the control: the row's
+          // control is disabled from this same block, so this is the guard.
+          //
+          // READ NOW rather than closed over. `revokeBlock` is the last committed
+          // render's answer, and a report landing between that render and this press
+          // leaves it `undefined` while the supervisor has stopped — so the store is
+          // asked at the moment the call would be put.
+          if (currentShellBlock(frameStore, INVITE_REVOKE_METHOD) !== undefined) {
             return;
           }
           void revokeCoordinator

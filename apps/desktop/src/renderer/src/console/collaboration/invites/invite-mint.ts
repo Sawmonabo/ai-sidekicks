@@ -40,19 +40,50 @@
 // and the control re-opens. Pressing again IS the retry, and it costs nothing, because
 // the first press left nothing behind to reconcile.
 //
-// WHICH IS WHY A MINTED TOKEN IS NEVER HELD ANYWHERE. Past this abort a host has
+// AND THE SUPERVISOR IS ASKED AGAIN AT THAT SAME BOUNDARY, for the reason the ordering
+// argument above already establishes: the host read is a real round trip, so a runtime
+// that was serving when the press was admitted may have stopped by the time it answers.
+// A press is guarded where it is dispatched, and that guard reads a value as old as the
+// render that offered the control; this second reading is taken after the await and
+// before the mint, so a stopped runtime ends the act on the abort path the refusing host
+// already takes rather than receiving a write it cannot serve.
+//
+// WHICH IS WHY A MINTED TOKEN IS NEVER HELD ANYWHERE. Past both aborts a host has
 // answered, so {@link composeInviteLink} runs in the same turn the reply lands in,
 // with no await in front of it: the link exists by the time the receipt does, and the
 // plaintext leaves this module inside it and in no other form.
 
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { type ConsoleRefusal } from "../../core/index.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
+import { type ShellMutationBlock } from "../../store/index.js";
 import { composeInviteLink } from "./invite-draft.js";
 import { type WireMutation } from "../mutation-coordinator.js";
 
 /** Names a refusal the host read itself did not name. */
 const INVITE_MINT_ORIGIN = "create-invite";
+
+/**
+ * Names the shell's own refusal, when it is the shell that ends the act.
+ *
+ * The subsystem that refused, and it is not this form: a block is the supervisor's
+ * condition read through `store/shell-mutation-block.ts`, so a refusal wearing
+ * `create-invite` would attribute the window's outage to the invitation surface.
+ */
+const SHELL_ORIGIN = "shell";
+
+/**
+ * Whether a refusal is the act's own shell-block abort — the one reason the window
+ * already says, and the one the form therefore keeps no record of.
+ *
+ * Exported beside the arm that mints it rather than as the origin string, so the
+ * producer and the one consumer that declines to retain it read one predicate: a
+ * second spelling of the origin at the coordinator's option would be the seam split
+ * across two modules that `AGENTS.md` names.
+ */
+export function isShellBlockRefusal(refusal: ConsoleRefusal): boolean {
+  return refusal.origin === SHELL_ORIGIN;
+}
 
 /**
  * The three members the create reply carries, as this composition consumes them.
@@ -100,10 +131,18 @@ type ControlPlaneHostReading =
  * adds only the composition. Both type parameters are inferred from that argument:
  * the request travels through untouched, and the reply is held to
  * {@link InviteMintReply} at the call site.
+ *
+ * `readShellBlock` is the SECOND ask of a question the caller already asked once, and
+ * the await above is why there has to be one: the host read is a real round trip, and a
+ * supervisor that was serving when the press was admitted can have stopped by the time
+ * it answers. Read as a function rather than taken as a value for the same reason — a
+ * block handed in here is the caller's render-time answer, which is exactly the stale
+ * reading this re-check exists to replace.
  */
 export function inviteMintWithLink<TRequest, TReply extends InviteMintReply>(
   bridge: ConsoleBridge,
   mint: WireMutation<TRequest, TReply>,
+  readShellBlock: () => ShellMutationBlock | undefined,
 ): WireMutation<TRequest, InviteMintReceipt> {
   return async (request) => {
     const host = await readControlPlaneHost(bridge);
@@ -113,6 +152,27 @@ export function inviteMintWithLink<TRequest, TReply extends InviteMintReply>(
       // console's ledger, the session's pending cap, and the daemon are all left
       // exactly as this press found them.
       return { status: "refused", refusal: host.refusal };
+    }
+    const shellBlock = readShellBlock();
+    if (shellBlock !== undefined) {
+      // The same abort, for the same reason, at the other boundary this act crosses:
+      // the runtime stopped while the host read was out, so the mint below would be a
+      // write put through a supervisor that is no longer serving. It ends here rather
+      // than in a refusal from the daemon, which is not reachable to give one — and
+      // nothing has been spent, so pressing again once the runtime is back IS the
+      // retry, exactly as it is for a host that could not be read.
+      //
+      // REFUSED, AND NOT RETAINED. The refused arm is what ends the act with nothing
+      // put; the refusal it carries is the shell's own words, which the store publishes
+      // and the hosting section prints once — so the act's coordinator is told, through
+      // `isShellBlockRefusal`, to keep no copy. A copy would be a second register of a
+      // condition the store owns, and the one that outlived it: the store clears when
+      // the runtime comes back, and a retained refusal would keep saying stopped beside
+      // a send control drawn open again.
+      return {
+        status: "refused",
+        refusal: refuse(SHELL_ORIGIN, shellBlock.code, shellBlock.detail),
+      };
     }
     const reply = await mint(request);
     if (reply.status === "refused") {

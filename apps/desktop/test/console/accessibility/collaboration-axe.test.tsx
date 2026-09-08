@@ -77,7 +77,10 @@ import {
   channel,
   participant,
 } from "../surfaces/collaboration-fixtures.js";
-import { UNREPORTED_SHELL_STATE } from "../../../src/renderer/src/console/store/index.js";
+import {
+  FrameStore,
+  UNREPORTED_SHELL_STATE,
+} from "../../../src/renderer/src/console/store/index.js";
 
 /** Every destination this family owns, by the address a person types. */
 const FAMILY_DESTINATIONS: readonly { readonly label: string; readonly hash: string }[] = [
@@ -187,6 +190,7 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
       <SentInvites
         bridge={createFixtureBridge({ scenario: COLLABORATION_SCENARIO })}
         sessionId={COLLABORATION_SCENARIO.sessionId}
+        frameStore={new FrameStore()}
       />,
     );
 

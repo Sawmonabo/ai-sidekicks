@@ -10,6 +10,7 @@
 // mutating operations are blocked while the supervisor is not serving, and read-only
 // subscriptions continue.
 
+import type { FrameStore } from "./frame-store.js";
 import type { ShellState } from "./shell-state.js";
 
 /**
@@ -48,6 +49,17 @@ import type { ShellState } from "./shell-state.js";
  * `mutating: false`. What the gate cannot answer — a corpus-registered verb whose
  * handler has not landed — is what the paragraph above is for.
  *
+ * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `membership.update` and
+ * `invite.revoke` reach the control plane THROUGH the daemon rather than terminating in
+ * it, and a durable act is no less durable for having been forwarded — the roster it
+ * changes is the session's. `bridge/daemon/daemon-reply-registry.ts` says exactly that
+ * while classifying them for a different question: both are `false` on its
+ * `CHANGES_A_RUN` table, and its own prose names them "mutations all the same" that
+ * "change the session's own roster". That table answers whether a call moves a RUN and
+ * says in so many words that it is not the door's read-versus-mutation rule, so its
+ * `false` is no evidence against this tuple — it is the corroboration that the
+ * classification belongs here.
+ *
  * The table stays a closed tuple so "exactly these and no others" is countable, and so
  * an added mutating verb is a deliberate edit here rather than a control that silently
  * stays live through an outage.
@@ -55,18 +67,20 @@ import type { ShellState } from "./shell-state.js";
 export const MUTATING_DAEMON_METHODS = [
   "session.create",
   "session.join",
+  "membership.update",
+  "invite.create",
+  "invite.revoke",
   "driver.interruptRun",
   "driver.applyIntervention",
   "driver.respondToRequest",
   "driver.compactContext",
   "providerAccount.probe",
-  "membership.update",
 ] as const;
 
 /** One mutating method name. Derived from the tuple above. */
 export type MutatingDaemonMethod = (typeof MUTATING_DAEMON_METHODS)[number];
 
-/** Whether a method string is one of the eight. Total over every string. */
+/** Whether a method string is one of the ten. Total over every string. */
 export function isMutatingDaemonMethod(method: string): method is MutatingDaemonMethod {
   return (MUTATING_DAEMON_METHODS as readonly string[]).includes(method);
 }
@@ -165,4 +179,31 @@ export function shellBlockForMethod(
   method: string,
 ): ShellMutationBlock | undefined {
   return isMutatingDaemonMethod(method) ? shellMutationBlock(state) : undefined;
+}
+
+/**
+ * The block that applies to one method AT THE INSTANT OF THE ASK, off the window's store.
+ *
+ * THE DISPATCH-TIME READING, and it is a different question from the rendered one. A
+ * block a component derived is the block of its last COMMITTED render: a report landing
+ * after that render and before a press reaches the handler leaves the closure holding
+ * `undefined`, so the guard admits the press and the write goes out through a
+ * supervisor that has already stopped. Every surface that dispatches therefore reads
+ * BOTH — {@link shellBlockForMethod} over the subscribed state for what the control
+ * says and how it is drawn, and this where the call is actually put, and inside an act
+ * again after any await the shell can move across.
+ *
+ * ONE IMPLEMENTATION AND NOT AN INLINE `getState()` PER HANDLER. `getState().shellState`
+ * spelled at each dispatch site is the second reading of which cell carries the shell
+ * condition — the class of copy this family's own header warns about — and a surface
+ * that reached for the store directly would be free to read a different cell, or the
+ * same cell without the per-method rule above it. It takes the store rather than a
+ * state because that is what makes it CURRENT: handed a state, a caller would be
+ * handing over the one its render captured, which is the value this exists to bypass.
+ */
+export function currentShellBlock(
+  frameStore: FrameStore,
+  method: string,
+): ShellMutationBlock | undefined {
+  return shellBlockForMethod(frameStore.getState().shellState, method);
 }

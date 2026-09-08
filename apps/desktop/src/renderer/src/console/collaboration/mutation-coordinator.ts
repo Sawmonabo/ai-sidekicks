@@ -55,10 +55,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import { GenerationLatch } from "../store/index.js";
+import { GenerationLatch, type MutatingDaemonMethod } from "../store/index.js";
 import {
-  callDaemon,
-  type ConsoleBridge,
   type ConsoleDaemonMethod,
   type DaemonReply,
   type DaemonRequestOf,
@@ -66,10 +64,36 @@ import {
   type GrowthOperationId,
   type GrowthOperationSignatures,
   type GrowthOutcome,
+  type ConsoleBridge,
 } from "../bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
+
+/**
+ * One method a collaboration mutation may name.
+ *
+ * DERIVED FROM THE AUTHORITATIVE SET AND DECLARED NOWHERE. The read-versus-mutation
+ * line is `store/shell-mutation-block.ts`' to draw — that tuple is what a supervisor's
+ * condition closes, and it is held to the daemon's own `mutating: true` registrations
+ * by a gate — so this family derives from its exported type rather than repeating
+ * method literals. Written as a literal union here instead, the two declarations could
+ * disagree about whether a verb is a write, and adding a collaboration mutation would
+ * mean editing the classification twice.
+ *
+ * Intersected with the call door's own registry key type, so the constraint carries
+ * both halves of what a dispatch needs: the method is a WRITE, and the door binds
+ * request and response schemas for it. A mutating verb the registry does not bind —
+ * `driver.applyIntervention` and `driver.respondToRequest` are two today — fails to
+ * compile at the call rather than resolving to an untyped payload.
+ *
+ * DAEMON-AS-GATEWAY, per the shipped `invite-accept-view.tsx`: the renderer speaks one
+ * transport and the daemon proxies the control-plane `invite.*` and `membership.*`
+ * methods behind it. `controlPlane.call` is deliberately not used — it would open a
+ * second seam this client does not have, and the one shipped caller of these wires
+ * established which side of that line they sit on.
+ */
+export type CollaborationMutationMethod = MutatingDaemonMethod & ConsoleDaemonMethod;
 
 /**
  * The code a press refused for arriving while another mutation is unsettled.
@@ -94,6 +118,26 @@ const MUTATION_IN_FLIGHT_CODE = "mutation-in-flight";
 export type WireMutation<TRequest, TResponse> = (
   request: TRequest,
 ) => Promise<DaemonReply<TResponse>>;
+
+/**
+ * What a surface's own mutation is, typed off the method it names.
+ *
+ * The request and the response are READ OFF the door's registry rather than declared
+ * at a surface: a dispatch composing the wrong payload for its method does not
+ * compile, and the method itself is held to {@link CollaborationMutationMethod}, so a
+ * read cannot be bound here by mistake.
+ *
+ * The DISPATCH stays at the surface that names one method, and that placement is the
+ * gate's rule rather than this family's taste: a binder generic over several methods
+ * puts one door call in the source for a read and a write at once, which is precisely
+ * the shape `test/console/architecture/read-signal-chokepoint.test.ts` reports — a
+ * forgotten cancellation signal and a deliberate absence become the same line. One
+ * method per call site is what keeps the deliberate absence below legible as one.
+ */
+export type CollaborationMutation<MethodName extends CollaborationMutationMethod> = WireMutation<
+  DaemonRequestOf<MethodName>,
+  DaemonResponseOf<MethodName>
+>;
 
 /** What a surface renders the coordinator's state from. */
 export interface WireMutationSnapshot {
@@ -130,6 +174,7 @@ const MUTATION_ROUND_KEY = "mutation-round";
 export class WireMutationCoordinator<TRequest, TResponse> {
   readonly #perform: WireMutation<TRequest, TResponse>;
   readonly #describeWhat: string;
+  readonly #retains: (refusal: ConsoleRefusal) => boolean;
   readonly #changes = new Emitter<WireMutationSnapshot>("wire mutation change");
   /**
    * Which round of mutations the holder's SUBJECT is on.
@@ -150,9 +195,19 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     readonly perform: WireMutation<TRequest, TResponse>;
     /** One noun for the refusal sentence — "the role change", "the invite". */
     readonly describeWhat: string;
+    /**
+     * Which refusals STAND against their subject once the call has settled. Every one
+     * unless the holder says otherwise — and it does for a refusal restating a condition
+     * the window already publishes, the shell's block: the store says it and the hosting
+     * section prints it once, so a copy here is a second register of the same words and
+     * the one that outlives them. The call still settles on the refused arm; only the
+     * RECORD of the reason is declined.
+     */
+    readonly retains?: (refusal: ConsoleRefusal) => boolean;
   }) {
     this.#perform = options.perform;
     this.#describeWhat = options.describeWhat;
+    this.#retains = options.retains ?? (() => true);
   }
 
   public snapshot(): WireMutationSnapshot {
@@ -230,10 +285,16 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     // through `settle` installs and releases in one act, and answers whether the
     // install happened, so the superseded arm needs no second predicate.
     if (reply.status === "refused") {
+      // The attempt already dropped this subject's prior refusal, so a declined record
+      // leaves the map exactly as the attempt published it: no reason standing, no
+      // pending key, and the settlement still counted.
+      const retained = this.#retains(reply.refusal);
       round.settle(() => {
         this.#publish({
           pendingKey: undefined,
-          refusalByKey: { ...this.#snapshot.refusalByKey, [key]: reply.refusal },
+          refusalByKey: retained
+            ? { ...this.#snapshot.refusalByKey, [key]: reply.refusal }
+            : this.#snapshot.refusalByKey,
           revision: this.#snapshot.revision + 1,
         });
       });
@@ -314,28 +375,6 @@ export function useWireMutation<TRequest, TResponse>(
   );
   const read = useCallback(() => coordinator.snapshot(), [coordinator]);
   return useSyncExternalStore(subscribe, read, read);
-}
-
-/**
- * One registered daemon method, as the shape a coordinator consumes.
- *
- * DAEMON-AS-GATEWAY, per the shipped `invite-accept-view.tsx`: the renderer speaks
- * one transport and the daemon proxies the control-plane `invite.*` and
- * `membership.*` methods behind it. `controlPlane.call` is deliberately not used —
- * it would open a second seam this client does not have, and the one shipped caller
- * of these wires established which side of that line they sit on.
- *
- * The method is a member of the call door's own registry, so the request and the
- * response types are READ OFF IT rather than declared here: a caller naming a method
- * the registry does not bind does not compile, and one passing the wrong payload
- * does not either. Everything this adds is the binding — the bridge and the method
- * closed over — and nothing about what a reply means.
- */
-export function daemonMutation<MethodName extends ConsoleDaemonMethod>(
-  bridge: ConsoleBridge,
-  method: MethodName,
-): WireMutation<DaemonRequestOf<MethodName>, DaemonResponseOf<MethodName>> {
-  return async (request) => await callDaemon(bridge, method, request);
 }
 
 function withoutKey(

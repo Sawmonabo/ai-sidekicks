@@ -31,75 +31,43 @@
 // is the only moment the link exists. Putting the invitation away is therefore a
 // deliberate act with a sentence attached, never a settlement that fades.
 //
-// AND THE LINK IS COMPOSED FROM A SECOND READ, TAKEN INSIDE THE SAME ACT
-//
-// `Spec-002 §Invite Delivery` writes the link as
-// `https://<control-plane-host>/invite/<token>`, and nothing on the shipped bridge
-// tells this renderer its own control-plane host. That is the growth port's
-// `controlPlaneHostRead`, asked at the PRESS rather than on mount: a read performed
-// for every visit to this section would ask a question no one needed answered, and an
-// intent to invite somebody is what makes the answer worth having. It is asked as
-// part of the mint rather than after it, and `invite-mint.ts` is where that act lives
-// and where the ordering argument is written down — the short of it being that the
-// coordinator's latch has to cover the whole act, and that reading the host FIRST is
-// what lets a host that refuses end the act before a token exists. So a refused host
-// mints nothing at all: no row reaches the ledger, the read's own refusal renders on
-// the send control below like any other, and pressing again is the whole retry. Past
-// that abort the link is complete by the time the reveal has anything to show, which
-// is why nothing here holds a token — `use-minted-invite.ts` holds the invitation and
-// says why it is scoped to the session it was minted in.
+// AND WHAT A PRESS COSTS IS NOT THIS FILE'S. `create-invite-act.ts` beside it owns the
+// act — the second read the link is composed from, the single-flight latch over the
+// whole of it, and the two moments the supervisor is asked whether the mint may still
+// go out — so what is left here is the form: the two choices, the control, and where
+// each refusal renders. By the time the reveal has anything to show the link is already
+// complete, which is why nothing here holds a token — `use-minted-invite.ts` holds the
+// invitation and says why it is scoped to the session it was minted in.
 //
 // THE LEDGER IS RE-READ RATHER THAN WRITTEN INTO. `InviteCreateResponse` carries no
 // `state` and no `joinMode`, so folding a row in would mean the renderer composing
 // two members the wire did not send. One re-read at the moment a person acted is the
 // honest alternative, and it is not a scheduled refresh — nothing here polls.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 import type { JoinMode } from "@ai-sidekicks/contracts";
 
-import {
-  consoleClockFor,
-  heldIdAsWireId,
-  type ConsoleBridge,
-  type DaemonRequestOf,
-  type GrowthOutcome,
-  type GrowthReading,
-} from "../../bridge/index.js";
+import { type ConsoleBridge, type GrowthOutcome, type GrowthReading } from "../../bridge/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useGrowthReadOnMount } from "../../seats/index.js";
+import { type FrameStore } from "../../store/index.js";
+import { useInviteMintAct } from "./create-invite-act.js";
 import {
   DEFAULT_INVITE_EXPIRY_ID,
   DEFAULT_JOIN_MODE,
   INVITE_EXPIRY_CHOICES,
   JOIN_MODES,
   JOIN_MODE_NOTES,
-  inviteExpiryChoice,
-  inviteExpiryInstant,
 } from "./invite-draft.js";
-import { inviteMintWithLink } from "./invite-mint.js";
 import { inviteCreateRemedy } from "./invite-refusal-copy.js";
 import { InviteLinkReveal } from "./InviteLinkReveal.js";
 import { useMintedInvite } from "./use-minted-invite.js";
-import {
-  WireMutationCoordinator,
-  daemonMutation,
-  useWireMutation,
-} from "../mutation-coordinator.js";
-
-/** The wire method the send control calls, through the daemon gateway. */
-const INVITE_CREATE_METHOD = "invite.create";
-
-/** The coordinator's subject key. One mint at a time, so one key. */
-const CREATE_INVITE_KEY = "create-invite";
 
 /** Names a refusal the identity read itself did not name. */
 const CREATE_INVITE_ORIGIN = "create-invite";
-
-/** What one mint asks for, read off the call door's own registry rather than declared. */
-type InviteCreateRequest = DaemonRequestOf<typeof INVITE_CREATE_METHOD>;
 
 /** What one `callerParticipantRead` answers, and the arms around that answer. */
 type CallerIdentityReading = GrowthReading<GrowthOutcome<{ readonly participantId: string }>>;
@@ -136,10 +104,20 @@ export interface CreateInviteProps {
   readonly sessionId: string | undefined;
   /** Ask the ledger beside this form to read itself again. Called once per mint. */
   readonly onMinted: () => void;
+  /**
+   * Where this window's shell condition is published.
+   *
+   * Handed to the act beside this form rather than read here, and asked per METHOD of
+   * the one seam every dispatching control goes through — so the identity read beside
+   * the control survives the same outage that closes the send. The STORE and not a
+   * derived block, because the act reads it at each of the two moments it dispatches
+   * across; `create-invite-act.ts` says why one reading could not serve both.
+   */
+  readonly frameStore: FrameStore;
 }
 
 export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
-  const { bridge, sessionId, onMinted } = props;
+  const { bridge, frameStore, sessionId, onMinted } = props;
   const [joinMode, setJoinMode] = useState<JoinMode>(DEFAULT_JOIN_MODE);
   const [expiryId, setExpiryId] = useState<string>(DEFAULT_INVITE_EXPIRY_ID);
 
@@ -163,61 +141,25 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
   // stating rather than a `useState` a reader has to reconstruct.
   const { minted, hold: holdMinted, release } = useMintedInvite(bridge, sessionId);
 
-  const coordinator = useMemo(
-    () =>
-      new WireMutationCoordinator({
-        // The MINT AND ITS LINK, not the mint alone. The latch this coordinator holds
-        // is what closes the send control, so an act that settled halfway would
-        // re-open the control over a token still waiting to be revealed.
-        perform: inviteMintWithLink(bridge, daemonMutation(bridge, INVITE_CREATE_METHOD)),
-        describeWhat: "The invitation",
-      }),
-    // Keyed on the subject for the ledger's reason: an unsettled mint in the session
-    // being left must not close the send control in the session being entered.
-    [bridge, sessionId],
-  );
-  const mutation = useWireMutation(coordinator);
-
-  useEffect(() => {
-    // Superseded rather than dropped: an unsettled call whose caller has gone would
-    // otherwise resolve into whichever form is on screen now.
-    return () => {
-      coordinator.supersede();
-    };
-  }, [coordinator]);
-
-  const send = useCallback(() => {
-    if (sessionId === undefined || identity?.status !== "read") {
-      return;
-    }
-    const choice = inviteExpiryChoice(expiryId);
-    const expiresAt = inviteExpiryInstant(consoleClockFor(bridge).now(), choice.days);
-    const request: InviteCreateRequest = {
-      sessionId: heldIdAsWireId(sessionId),
-      inviter: heldIdAsWireId(identity.participantId),
-      joinMode,
-      expiresAt,
-    };
-    void coordinator.run(CREATE_INVITE_KEY, request).then((settlement) => {
-      // `undefined` is the refused arm and the superseded one. Either way the reason
-      // is on the coordinator's snapshot beside the control that asked, or there is
-      // no control left to put one beside.
-      if (settlement === undefined) {
-        return;
-      }
-      // NOTHING IS AWAITED HERE, and that is the guarantee rather than a tidiness:
-      // the token's link was composed inside the act the coordinator held its latch
-      // over, so the reveal is published in the same turn the control re-opens in and
-      // there is no window in which a minted token is neither on screen nor in flight.
+  const { block, dismissRefusal, isSending, refusal, send } = useInviteMintAct({
+    bridge,
+    frameStore,
+    sessionId,
+    inviterParticipantId: identity?.status === "read" ? identity.participantId : undefined,
+    joinMode,
+    expiryId,
+    // The reveal and the ledger are told in the same turn the act settles in, so a
+    // minted token is on screen before anything else can run.
+    onMinted: (receipt) => {
       holdMinted({
-        inviteId: settlement.inviteId,
-        expiresAt: settlement.expiresAt,
+        inviteId: receipt.inviteId,
+        expiresAt: receipt.expiresAt,
         joinMode,
-        link: settlement.link,
+        link: receipt.link,
       });
       onMinted();
-    });
-  }, [bridge, coordinator, expiryId, holdMinted, identity, joinMode, onMinted, sessionId]);
+    },
+  });
 
   if (sessionId === undefined) {
     return (
@@ -239,9 +181,6 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
       />
     );
   }
-
-  const refusal = mutation.refusalByKey[CREATE_INVITE_KEY];
-  const isSending = mutation.pendingKey !== undefined;
 
   return (
     <section className="meridian-invite-create" aria-label="Invite someone to this session">
@@ -295,7 +234,8 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
           type="button"
           className="meridian-invite-create__send"
           onClick={send}
-          disabled={isSending || identity?.status !== "read"}
+          disabled={isSending || identity?.status !== "read" || block !== undefined}
+          title={block?.detail}
         >
           {isSending ? "Minting…" : "Create a link"}
         </button>
@@ -320,9 +260,7 @@ export function CreateInvite(props: CreateInviteProps): React.JSX.Element {
               <button
                 type="button"
                 className="meridian-invite-create__refusal-dismiss"
-                onClick={() => {
-                  coordinator.dismiss(CREATE_INVITE_KEY);
-                }}
+                onClick={dismissRefusal}
               >
                 Dismiss
               </button>
