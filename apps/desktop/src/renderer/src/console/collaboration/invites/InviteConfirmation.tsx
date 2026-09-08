@@ -39,11 +39,21 @@
 //     now** and is retired rather than re-labelled: once every close path releases the
 //     reference, the two controls performed one act under two names, and a card that
 //     offers one act twice is a card that says the quieter one does less.
-//   • Once an answer has settled the close path is ACKNOWLEDGEMENT and not dismissal.
+//   • Once an answer has SETTLED the close path is ACKNOWLEDGEMENT and not dismissal.
 //     The reference is already spent, so there is nothing left to release and a
 //     `dismissPending` on it would be an act against a handle main no longer holds.
 //     The card owns that branch because it already makes it — it is the same test
 //     that chooses which of the two blocks below renders.
+//   • AN ANSWER THAT IS STILL RUNNING IS NOT A SETTLED ONE, and it closes the way
+//     everything before an answer closes. An acceptance waiting on authentication has
+//     main driving a ceremony and HOLDING the reference across it, so the reading
+//     carries an outcome while the handle is still main's: routed to the
+//     acknowledgement above, every close path put the card away without releasing
+//     anything, the lifecycle refused to clear a prompt whose terminal was still
+//     coming, and the ceremony and its reference could be backed out of from nowhere
+//     at all. So the branch below tests what main is HOLDING rather than whether an
+//     outcome exists, and the in-progress arm keeps the one dismissal — reached by
+//     the same three ways as before, and by no fourth control.
 //
 // AND IT RENDERS THE TWO PREVIEWS THAT PRODUCED NO INVITATION, which is the other
 // half of what the pending feed carries. A preview the control plane REFUSED and one
@@ -64,6 +74,7 @@ import { InlineRefusal, OverlayDialogPopup } from "../../primitives/index.js";
 import { InvitationReading } from "./InvitationReading.js";
 import { InvitePreviewFailureReading } from "./InvitePreviewFailureReading.js";
 import type { PendingInviteSnapshot } from "./pending-invite.js";
+import { isInviteReferenceHeld } from "./pending-invite-reading.js";
 
 export interface InviteConfirmationProps {
   readonly open: boolean;
@@ -111,14 +122,17 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
   const isActing = snapshot.actInFlight !== undefined;
   // The one close path, and the one branch that decides what closing MEANS. Closing
   // is a DISMISSAL — the wire act that releases what main is holding — on exactly the
-  // arm where main is holding something: an invitation whose attempt has not settled.
-  // A settled outcome has already spent its reference and a preview failure never had
-  // one, so on both of those the act is the local acknowledgement, and a
-  // `dismissPending` there would be an act against a handle main does not hold. The
-  // library hands this back for Escape and the backdrop as well as for the control,
-  // which is what makes every entry point one act.
+  // arm where main is holding something: an invitation whose acceptance has not
+  // reached a terminal, an answer still running included. A settled outcome has
+  // already spent its reference and a preview failure never had one, so on both of
+  // those the act is the local acknowledgement, and a `dismissPending` there would be
+  // an act against a handle main does not hold. Which answers are still running is the
+  // lifecycle's own predicate, consulted rather than re-derived — a card deciding it
+  // separately is how the two came to disagree in the first place. The library hands
+  // this back for Escape and the backdrop as well as for the control, which is what
+  // makes every entry point one act.
   const close =
-    previewFailure === undefined && snapshot.outcome === undefined
+    previewFailure === undefined && isInviteReferenceHeld(snapshot.outcome)
       ? props.onDismiss
       : props.onAcknowledge;
 

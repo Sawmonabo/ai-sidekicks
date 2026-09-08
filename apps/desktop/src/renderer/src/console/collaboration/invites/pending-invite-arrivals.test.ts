@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { GrowthPendingInviteState } from "../../bridge/index.js";
 import { PENDING_INVITE_QUEUE_MAX, PENDING_INVITE_RETAINED_REFUSAL_MAX } from "../../core/index.js";
 import { PendingInviteArrivals } from "./pending-invite-arrivals.js";
 import { readyPreview, refusedPreview, unavailablePreview } from "./pending-invite.test-support.js";
@@ -34,6 +35,53 @@ function releaseTheWholeQueue(arrivals: PendingInviteArrivals): void {
     arrivals.releaseHead();
   }
 }
+
+/** How a case names one arrival, whichever arm it arrived on. */
+function labelOf(arrival: GrowthPendingInviteState): string {
+  switch (arrival.status) {
+    case "ready":
+      return arrival.reference;
+    case "refused":
+      return arrival.detail;
+    case "unavailable":
+      return arrival.attempt;
+  }
+}
+
+/**
+ * Meet every prompt in turn, letting main re-deliver what it is still holding.
+ *
+ * The owner's loop in miniature, and the replay has to be in it: a release opens a
+ * slot, a release that owes a replay re-opens the feed, and the frames that come back
+ * are the ones the bound turned away — the queued ones dedupe. Draining without that
+ * step would assert the order of what the queue happened to be holding rather than
+ * the order a person actually meets prompts in.
+ */
+function drainWithReplay(
+  arrivals: PendingInviteArrivals,
+  mainStillHolds: readonly ReturnType<typeof readyPreview>[],
+): readonly string[] {
+  let outstanding = [...mainStillHolds];
+  const met: string[] = [];
+  for (let step = 0; step < DRAIN_STEP_MAX; step += 1) {
+    const head = arrivals.head;
+    if (head === undefined) {
+      return met;
+    }
+    met.push(labelOf(head));
+    arrivals.releaseHead();
+    if (arrivals.takeDeferredReplay()) {
+      for (const frame of outstanding) {
+        arrivals.admit(frame);
+      }
+      outstanding = outstanding.filter((frame) => !arrivals.holdsReference(frame.reference));
+    }
+  }
+  throw new Error("the queue never emptied");
+}
+
+/** Enough turns to empty any queue a case here builds, and a failure if it does not. */
+const DRAIN_STEP_MAX = 64;
 
 describe("the pending arrival queue — what it holds once", () => {
   it("holds one copy of a reference, however many times it arrives", () => {
@@ -125,7 +173,7 @@ describe("the pending arrival queue — a refusal that arrives past the bound", 
     expect(arrivals.waitingBehind).toBe(0);
   });
 
-  it("promotes them in arrival order, ahead of the invitations a replay would return", () => {
+  it("promotes them in the order they arrived in", () => {
     const arrivals = arrivalsAtTheBound();
     arrivals.admit(refusedPreview({ detail: "first refusal" }));
     arrivals.admit(refusedPreview({ detail: "second refusal" }));
@@ -153,6 +201,55 @@ describe("the pending arrival queue — a refusal that arrives past the bound", 
     releaseTheWholeQueue(arrivals);
 
     expect(arrivals.head).toMatchObject({ detail: "refusal-1" });
+  });
+
+  it("keeps one order across both registers, so a burst of them starves nothing", () => {
+    // THE DEFECT. The retained refusal took every freed slot on sight, so a queue
+    // that had just turned an INVITATION away filled straight back up with the
+    // refusal that arrived after it — and the replay that would have brought the
+    // invitation back was declined for want of room, once per refusal, until the
+    // whole burst had been dealt with. The feed came out backwards and the arrivals a
+    // person can actually act on waited longest.
+    const arrivals = arrivalsAtTheBound();
+    const deferred = readyPreview({ reference: "deferred-invitation" });
+    arrivals.admit(deferred);
+    arrivals.admit(refusedPreview({ detail: "first refusal" }));
+    arrivals.admit(refusedPreview({ detail: "second refusal" }));
+
+    const met = drainWithReplay(arrivals, [deferred]);
+
+    expect(met.slice(PENDING_INVITE_QUEUE_MAX)).toEqual([
+      "deferred-invitation",
+      "first refusal",
+      "second refusal",
+    ]);
+  });
+
+  it("leaves the freed slot open where the replay is owed something older", () => {
+    // The mechanism the case above rests on: promoting nothing is what leaves the
+    // room a replay needs, and a register that always promoted would find the queue
+    // full at exactly this moment.
+    const arrivals = arrivalsAtTheBound();
+    arrivals.admit(readyPreview({ reference: "deferred-invitation" }));
+    arrivals.admit(refusedPreview({ detail: "later refusal" }));
+
+    arrivals.releaseHead();
+
+    expect(arrivals.takeDeferredReplay()).toBe(true);
+  });
+
+  it("negative control: a refusal that arrived FIRST still takes the slot", () => {
+    // Without this the pair above would pass over a register that simply never
+    // promoted while any debt was outstanding — which would hold every refusal behind
+    // a replay that has no claim on the slot, the same starvation the other way round.
+    const arrivals = arrivalsAtTheBound();
+    arrivals.admit(refusedPreview({ detail: "earlier refusal" }));
+    arrivals.admit(readyPreview({ reference: "deferred-invitation" }));
+
+    arrivals.releaseHead();
+
+    expect(arrivals.takeDeferredReplay()).toBe(false);
+    expect(arrivals.hasDeferredArrivals).toBe(true);
   });
 
   it("negative control: an arrival main WOULD replay is still deferred, never retained", () => {

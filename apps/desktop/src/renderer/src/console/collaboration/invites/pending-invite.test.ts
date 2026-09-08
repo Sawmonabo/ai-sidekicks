@@ -133,6 +133,27 @@ describe("the deep-link lifecycle — an answer about the handle rather than the
 });
 
 describe("the deep-link lifecycle — putting one away", () => {
+  it("releases a reference the authentication detour is still holding", async () => {
+    // The way out of a ceremony that has stalled, and the reason the card routes
+    // Escape and the backdrop here rather than to the acknowledgement on this one
+    // arm: acknowledging is refused while a terminal is still to come, so a card that
+    // acknowledged left the prompt gone and the reference outstanding. The act that
+    // works is the wire's, and this is the port serving it mid-ceremony.
+    const adapter = await startedAdapter();
+    adapter.dismiss();
+    await settleFeeds();
+    adapter.confirm();
+    await settleFeeds();
+    expect(adapter.snapshot().outcome?.kind).toBe("authentication-required");
+
+    adapter.dismiss();
+    await settleFeeds();
+
+    expect(adapter.snapshot().actRefusal).toBeUndefined();
+    expect(adapter.snapshot().invite).toBeUndefined();
+    adapter.dispose();
+  });
+
   it("releases the reference and shows what was behind it", async () => {
     const adapter = await startedAdapter();
     adapter.dismiss();
