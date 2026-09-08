@@ -54,18 +54,21 @@ import { type ConsoleBridge } from "../bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
 import { CONSOLE_CHORD_PLATFORM, PaletteOverlay, consoleCommands } from "../palette/index.js";
 import { DraftStore } from "../persistence/index.js";
-import { parseRoute, railDestinationFor } from "../routing/index.js";
+import { isAuxiliaryRoute, parseRoute, railDestinationFor } from "../routing/index.js";
 import {
   consolePaneRegistry,
   consoleSurfaceRegistry,
   frameBindingRegistry,
   mountFrameBindings,
+  sessionOpenerFor,
   useShellComposerFocusRequests,
+  windowOverlayRenderer,
   type FrameBindingContext,
 } from "../seats/index.js";
 import {
   FrameStore,
   consoleEntityProjectorRegistry,
+  modalSurfaceClaimFor,
   shellMutationBlock,
   useFrameStore,
   useLocationHash,
@@ -268,6 +271,34 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
 
   const sessionStore = useActiveSessionStore(sessionStoreRegistry, activeSessionId);
 
+  // The window's one overlay body, read from the seat the composition filled.
+  //
+  // MOUNTED HERE RATHER THAN INSIDE A SURFACE because what it hosts is window-scoped:
+  // the deep-link invite lifecycle holds two subscriptions about a session this window
+  // is not in, so a mount under any route would open its channels only while that
+  // route was on screen. Read during render and rendered directly — the seat holds one
+  // occupant, so this is the whole of "exactly once per window".
+  //
+  // MAIN-WINDOW ONLY, and stated rather than left to chance. An auxiliary window is a
+  // single-purpose window with its own bridge instance and no shared store (I-023-12),
+  // and the operating system delivers a deep link to the main window; a second
+  // lifecycle in a detached timeline would open a second pair of channels and offer a
+  // second card for one invitation. `isAuxiliaryRoute` is the same test the rail uses
+  // to decide it does not belong there either.
+  const windowOverlay = windowOverlayRenderer();
+  // The frame's own navigation, handed down as an act. The overlay's terminal step is
+  // opening a session somebody has just joined, and where this window goes is the
+  // frame's decision — a view family reaching for the route store would be steering
+  // the window it is drawn in. Composed by the seat that declares the obligation
+  // rather than written out here, so the seam has one spelling.
+  const openSession = useMemo(() => sessionOpenerFor(frameStore), [frameStore]);
+  // The other half of the inert fold, for the one card the frame may not import. The
+  // overlay body's dialog is `modal="trap-focus"` like every other console dialog, so
+  // it has to tell the shell it is up — and it cannot reach this store, because the
+  // seat hands it acts. Composed once per store so the body's effect keeps its
+  // identity: an act rebuilt each render would release and re-hold on every pass.
+  const claimModalSurface = useMemo(() => modalSurfaceClaimFor(frameStore), [frameStore]);
+
   const surfaceContext: ConsoleSurfaceContext = {
     route,
     bridge: props.bridge,
@@ -356,6 +387,9 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
                 {...(shellBlock === undefined ? {} : { shellBlock })}
                 revision={commandSurface.commandRevision}
               />
+              {windowOverlay === undefined || isAuxiliaryRoute(route)
+                ? null
+                : windowOverlay({ bridge: props.bridge, openSession, claimModalSurface })}
               {props.renderOverlays === undefined ? null : props.renderOverlays(surfaceContext)}
             </>
           }

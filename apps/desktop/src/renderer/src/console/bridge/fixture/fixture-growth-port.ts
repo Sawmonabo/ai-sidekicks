@@ -14,6 +14,7 @@
 // `fixture-workflow-scope.ts` derives which workflow subjects a script can answer for,
 // `fixture-workflow-reads.ts` holds the workflow answers and the reasoning that governs
 // them, `fixture-auxiliary-windows.ts` models the shell's own window plane,
+// `fixture-collaboration-reads.ts` the channel and membership answers,
 // `fixture-diagnostics-reads.ts` the five the settings page's diagnostics regions
 // are built on, `fixture-provider-account-writes.ts` the three verbs of the sign-in
 // handoff, `fixture-mcp-governance.ts` the inventory read and the two mutations that
@@ -36,11 +37,16 @@ import {
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 import type { WireErrorEnvelope } from "../../core/index.js";
+import { readActivityFromScenario } from "./fixture-activity.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../scenarios/browser.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
+import type { FixtureInviteLedger } from "./fixture-invite-ledger.js";
+import { FixturePendingInvites } from "./fixture-pending-invites.js";
 import { fixtureDiagnosticsReads } from "./fixture-diagnostics-reads.js";
 import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
 import { fixtureMcpGovernance } from "./fixture-mcp-governance.js";
+import { fixtureCollaborationReads } from "./fixture-collaboration-reads.js";
+import type { FixtureChannelLifecycle } from "./fixture-channel-lifecycle.js";
 import { fixtureOnboardingAnswers } from "./fixture-onboarding-answers.js";
 import { fixtureProviderAccountWrites } from "./fixture-provider-account-writes.js";
 import { answerFromScriptedReply, answerScriptOnly } from "./fixture-scripted-answer.js";
@@ -82,16 +88,30 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  * against `GROWTH_OPERATIONS` by `failure-modes.test.ts`, and a spread that dropped
  * a method would fail that check rather than silently render `undefined is not a
  * function` in a surface.
+ *
+ * The CHANNEL LIFECYCLE arrives from the caller because two doors read it — these acts
+ * and the `channel.list` fold — and `fixture-bridge.ts` states why one serves both.
  */
-export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
+export function createFixtureGrowthPort(
+  engine: ScenarioEngine,
+  channelLifecycle: FixtureChannelLifecycle,
+  inviteLedger: FixtureInviteLedger,
+): GrowthPort {
+  // The deep link's whole lifecycle, held for this engine's life. An instance rather
+  // than five helpers, because the five operations share one table of references and
+  // one open outcome feed — the reasoning is that module's own.
+  const pendingInvites = new FixturePendingInvites(engine);
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
-    // workflow, onboarding and shell — spread from the modules that implement them, so
-    // the served ids next door and the handlers there are held to each other by the
-    // `Pick` above. The onboarding and shell planes also own the fixture's per-caller
+    // workflow, collaboration, onboarding and shell — spread from the modules that
+    // implement them, so the served ids next door and the handlers there are held to
+    // each other by the `Pick` above. The onboarding and shell planes own the per-caller
     // state, which is why each is a module and not a block here: the onboarding ledger
     // and the shell channel are both minted per port inside those calls, so a step
     // recorded — or a control pressed — in this window reaches no other.
     ...fixtureWorkflowReads(engine),
+    // Every channel and membership answer is script-only: the reasoning for each
+    // refusal lives in that module.
+    ...fixtureCollaborationReads(engine, channelLifecycle),
     ...fixtureOnboardingAnswers(engine),
     ...fixtureShellAnswers(engine),
     // The base state, and — for a scenario that declares it — the one refusal the
@@ -304,10 +324,18 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // callback-tool registry next door: an invite ledger with no rows is an ordinary
       // session, whereas a withheld tool registry and an empty one are different
       // answers to different questions.
-      answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => ({
-        status: "served",
-        value: [],
-      })),
+      //
+      // AND THE ANSWER FOLDS THROUGH THE LEDGER, which is what makes a mint reach the
+      // read that shows it: the two invite mutations settle on the OTHER door, and
+      // `fixture-invite-ledger.ts` is the holder both share. Through `mapGrowthServed`
+      // so a refusal travels back exactly as it arrived.
+      mapGrowthServed(
+        await answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => ({
+          status: "served",
+          value: [],
+        })),
+        (rows) => inviteLedger.foldOverScripted(rows),
+      ),
     // agent plane
     //
     // Each unscripted arm answers the EMPTY state of its own read rather than a
@@ -460,6 +488,38 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
     // three reply rows, because the module that implements them holds the per-port
     // ledger that makes a mutation's row what the next read serves.
     ...fixtureMcpGovernance(engine),
+    // presence — the session's live activity, resolved by the frame that has fallen
+    // due on the frozen clock. Not routed through the scripted-reply seam, for the
+    // runtime-node roster's reason: this answer is a function of the CLOCK, and the
+    // reply table answers each call with one fixed value.
+    presenceActivityRead: async (request) => readActivityFromScenario(engine, request),
+    // invite — the pending lifecycle. The two feeds are opened per subscribe, so a
+    // window that re-subscribes after a teardown is handed a live one rather than a
+    // stream somebody else already closed.
+    invitePendingSubscribe: async () => ({
+      status: "served",
+      value: pendingInvites.openPendingFeed(),
+    }),
+    inviteOutcomeSubscribe: async () => ({
+      status: "served",
+      value: pendingInvites.openOutcomeFeed(),
+    }),
+    inviteConfirmPending: async (request) => pendingInvites.confirm(request.reference),
+    inviteRetryPending: async (request) => pendingInvites.retry(request.attempt),
+    inviteDismissPending: async (request) => pendingInvites.dismiss(request.reference),
+    // The node's control-plane host, from the scenario's own declaration. Refused as
+    // the SCENARIO's gap where none is declared — this fixture serves the operation,
+    // so naming an unbuilt wire would send a reader to a document owing something
+    // that already has a stand-in — and never answered with a host this fixture
+    // chose, which would compose a link that opens nothing and looks exactly like
+    // one that works.
+    controlPlaneHostRead: async () => {
+      const { controlPlaneHost } = engine.scenario;
+      if (controlPlaneHost === undefined) {
+        return growthUnscriptedReply("controlPlaneHostRead", "this node's control-plane host");
+      }
+      return { status: "served", value: { host: controlPlaneHost } };
+    },
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

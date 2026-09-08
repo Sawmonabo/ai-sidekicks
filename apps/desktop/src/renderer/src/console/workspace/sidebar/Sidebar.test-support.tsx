@@ -21,7 +21,7 @@ import { useSyncExternalStore, type ReactElement } from "react";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore } from "../../store/index.js";
 import { SidebarSectionRegistry } from "../../seats/index.js";
 import { Sidebar } from "./Sidebar.js";
 import { MountedSidebarSeat } from "./commands/sidebar-command-seat.js";
@@ -45,6 +45,7 @@ function SidebarHost(props: {
   readonly seat: MountedSidebarSeat;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
+  readonly frameStore: FrameStore;
 }): ReactElement {
   const snapshot = useSyncExternalStore(
     (listener) => props.model.subscribe(listener),
@@ -54,6 +55,7 @@ function SidebarHost(props: {
     <Sidebar
       sessionStore={props.sessionStore}
       bridge={props.bridge}
+      frameStore={props.frameStore}
       openPane={() => undefined}
       model={props.model}
       snapshot={snapshot}
@@ -77,6 +79,7 @@ export function renderSidebar(
         seat={seat}
         bridge={bridge}
         sessionStore={new SessionStore({ sessionId: "session-sidebar" })}
+        frameStore={new FrameStore()}
       />
     </LiveAnnouncerProvider>,
   );

@@ -51,14 +51,20 @@ const barrelSource = Object.values(barrelSources)[0] ?? "";
  * preserve, and its whole job is to disagree with the barrel if a name is lost. A
  * name is added here only in the diff that adds the export, which is what keeps
  * "nothing silently added under cover of a refactor" a real claim rather than a
- * comment. Three such additions stand today, and each names the sibling that earned
- * it: `GrowthBranchContextReadRequest`, because the registered branch-context read is
- * keyed by one of two arms and the union naming them earned a name once the signature
- * table and the gate's read plan both read it; `GrowthNotificationPermission`, the
- * shell reading that decides whether the notification centre is the only surface an
- * attention item reaches a person on; and `GrowthMcpLiveApplicationResult`, because the
- * settings scenario computes each governance mutation's answer from the binding the
- * request named and carries the per-leg outcomes of applying it on that answer.
+ * comment. `GrowthBranchContextReadRequest` was the first such addition: the
+ * registered branch-context read is keyed by one of two arms, and the union naming
+ * them earned a name once the signature table and the gate's read plan both read it.
+ * The three invite names are the second: the pending feed carries a preview's state
+ * rather than an invitation, so the union and the pair of arms that mint no reference
+ * are named here, and the retry's attempt handle is a brand the signature table reads
+ * to keep it out of the two acts that spend a reference. The three arm types
+ * themselves are deliberately absent — no production module names an arm on its own,
+ * so a door line for one would be a dead export. `GrowthNotificationPermission` is
+ * the third: the shell reading that decides whether the notification centre is the
+ * only surface an attention item reaches a person on. `GrowthMcpLiveApplicationResult`
+ * is the fourth: the settings scenario computes each governance mutation's answer from
+ * the binding the request named and carries the per-leg outcomes of applying it on
+ * that answer.
  */
 const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -79,6 +85,14 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthArtifactVisibility",
   "GrowthAttachmentIngestCompletion",
   "GrowthAttentionPreference",
+  "GrowthActivitySnapshot",
+  "GrowthAgentActivityReading",
+  "GrowthComposingReading",
+  "GrowthInviteAttempt",
+  "GrowthInviteOutcome",
+  "GrowthPendingInvite",
+  "GrowthPendingInvitePreviewFailure",
+  "GrowthPendingInviteState",
   "GrowthBranchContext",
   "GrowthBranchContextReadRequest",
   "GrowthBudgetState",
@@ -127,6 +141,17 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   // encoder — a second derivation of the same key is how the ledger and the page come
   // to disagree about which row a mutation named.
   "mcpBindingKeyOf",
+  // Added by the channel and membership planes: the audience badge, the `direct`
+  // pair label, the create form's two closed choices, the four receipts the growth
+  // port answers with, and the membership identifier the ledger's controls are keyed
+  // by. Each is registered in a governing document and carried by no code package.
+  "GrowthChannelConfig",
+  "GrowthChannelCreateReceipt",
+  "GrowthChannelKind",
+  "GrowthChannelLifecycleReceipt",
+  "GrowthChannelRosterEntry",
+  "GrowthMembershipRosterEntry",
+  "GrowthPresenceDetail",
 ];
 
 /**
@@ -184,7 +209,10 @@ const RETIRED_SINCE_SPLIT: readonly string[] = [
  * keystroke a page host claimed and handed back. The two diff-artifact shapes are the
  * mint's own request union and what it answers with: the diff pane composes the first
  * from the subject its address resolved to, and reads the manifest id off the second to
- * fetch the patch through the artifact plane.
+ * fetch the patch through the artifact plane. The refused pending-invite arm joins its
+ * own union on the door because two siblings WRITE it rather than only reading it:
+ * `scenario-runtime/` derives what a scenario states about a refused deep link from it,
+ * and `fixture/` stamps the discriminant back on when one falls due.
  */
 const ADDED_SINCE_SPLIT: readonly string[] = [
   "GrowthAcceleratorChord",
@@ -192,6 +220,7 @@ const ADDED_SINCE_SPLIT: readonly string[] = [
   "GrowthBrowserPageList",
   "GrowthDiffArtifactCreated",
   "GrowthDiffArtifactCreateRequest",
+  "GrowthPendingInviteRefused",
 ];
 
 /** What the barrel is expected to publish today: the split's surface, less the retired, plus the added. */

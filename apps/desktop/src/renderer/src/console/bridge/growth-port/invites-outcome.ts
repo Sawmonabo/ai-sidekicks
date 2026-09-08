@@ -25,6 +25,7 @@
 // imported `../console-bridge.js` would close that path into a cycle `no-circular`
 // fails, so the next per-operation outcome derived from the bridge belongs here too.
 
+import { parseInstant } from "../../core/index.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 
 /** What one `invitesList` call answers: a served list, or the port's refusal. */
@@ -43,3 +44,28 @@ export type ServedInvite = Extract<
 
 /** The refusal arm. A `ConsoleRefusal`, so it renders through the one refusal grammar. */
 export type InvitesListRefusal = Extract<InvitesListOutcome, { readonly status: "unavailable" }>;
+
+/**
+ * When each of these invitations stops working, as instants a wake-up can be armed on.
+ *
+ * BOTH FAMILIES THAT READ THIS OPERATION NEED IT, which is why it sits beside the row
+ * shape rather than in either of them: `sessions/` arms on the invitations a person
+ * has RECEIVED and `collaboration/` on the ones a session has SENT, siblings that may
+ * not import each other, and the second copy of a parse-and-filter over one wire member
+ * is two families disagreeing about which stamps are armable with nothing to say so.
+ *
+ * Unreadable stamps are dropped rather than defaulted: an expiry this console cannot
+ * read is not evidence that the invitation has lapsed, and a `NaN` handed to the
+ * wake-up would arm a timer that fires immediately and forever. Such a row keeps
+ * rendering as its own state says and shows the wire's own spelling, which is the
+ * honest reading of a stamp nobody here could parse.
+ *
+ * WHICH ROWS ARE PASSED IN IS THE CALLER'S, and it is not the same question on both
+ * sides — the shelf arms on what is still waiting, the sent ledger on what the wire
+ * calls `pending` — so this filters nothing but unreadable stamps.
+ */
+export function expiryDeadlinesOf(invites: readonly ServedInvite[]): readonly number[] {
+  return invites
+    .map((invite) => parseInstant(invite.expiresAt).epochMilliseconds)
+    .filter((epochMilliseconds): epochMilliseconds is number => epochMilliseconds !== undefined);
+}

@@ -68,6 +68,7 @@ import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 import { z } from "zod";
 
+import { payloadNamesSession } from "../../core/index.js";
 import type { ConsoleEntityProjectorRegistry } from "../../store/index.js";
 import type {
   ConsoleSessionEvent,
@@ -243,9 +244,11 @@ export const projectApprovalFlowEvent: EntityProjector = (
   // First, and for every kind at once: the beat is folded into the store it was
   // delivered into, so a payload that names another session names an entity this
   // store must not hold. `sessionId` is a REQUIRED member of the registered shape,
-  // so an omission is malformed rather than terse, and the comparison is against the
-  // raw member so a non-string one fails here instead of reading as absence.
-  if (payload?.["sessionId"] !== event.sessionId) {
+  // so an omission is malformed rather than terse — which is the arm
+  // `core/wire-session-attribution.ts` names `payloadNamesSession`, and the rule is
+  // held there rather than here because three folds at three heights on the family DAG
+  // make the same claim.
+  if (!payloadNamesSession(payload, event.sessionId)) {
     return [];
   }
   const approvalRequestId = wireStringMember.safeParse(payload["approvalRequestId"]);

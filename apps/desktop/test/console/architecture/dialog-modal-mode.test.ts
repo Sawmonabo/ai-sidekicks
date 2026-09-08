@@ -14,7 +14,7 @@
 // reported it was a person reading the JSX beside the sign-in card's.
 //
 // A CLASS, NOT A ROSTER. The claim is about every `Dialog.Root` under `console/`
-// rather than about the four that exist today, because the next one is written by
+// rather than about the seven that exist today, because the next one is written by
 // copying one of them and the copy is where the prop goes missing.
 //
 // `AlertDialog.Root` IS DELIBERATELY OUT OF SCOPE, and by construction rather than by
@@ -27,7 +27,7 @@
 // as though it carried nothing.
 
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   CONSOLE_DIRECTORY,
@@ -42,12 +42,21 @@ const DIALOG_ROOT_TAG = "Dialog.Root";
 /** The one mode `Spec-023 §Console Libraries` adopts. */
 const REQUIRED_MODAL_MODE = "trap-focus";
 
+/** The budget this file states rather than inherits; `source-walk-chokepoint.ts`'s figure. */
+const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
+
+vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS, hookTimeout: CONSOLE_PARSE_ALLOWANCE_MS });
+
 /**
  * The floor the populated-tier claim is measured against.
  *
- * Four dialogs carry the prop today — the palette, the sign-in card, the sidekick
- * attach form, and the onboarding walkthrough. A gate asserting only "nobody omits it"
- * would also pass over a console that had stopped using the family at all.
+ * Seven dialogs carry the prop on this tree — the palette, the sign-in card, the
+ * sidekick attach form, the onboarding walkthrough, the repository attach and bind
+ * forms, and the invite confirmation. The floor sits BELOW that count on purpose: this
+ * is a use-at-all tripwire and not a census, so a family retiring one dialog does not
+ * fail a gate whose claim is about a different thing. What it refuses is the console
+ * that "omits nothing" because it stopped opening dialogs at all — a gate asserting
+ * only "nobody omits it" would pass over exactly that.
  */
 const DIALOG_SITE_FLOOR = 4;
 
@@ -106,8 +115,16 @@ function consoleDialogSites(): readonly LocatedDialogSite[] {
 }
 
 describe("the console's dialog mode", () => {
+  // Read ONCE for both claims. The walk parses every console module, and the two
+  // cases below are two readings of the same list — a second walk would double the
+  // one cost this file has, for nothing.
+  let sites: readonly LocatedDialogSite[] = [];
+  beforeAll(() => {
+    sites = consoleDialogSites();
+  });
+
   it("declares the adopted mode at every dialog it opens", () => {
-    const offenders = consoleDialogSites()
+    const offenders = sites
       .filter((site) => !site.declaresTrapFocus)
       .map((site) => `${site.displayPath}:${String(site.line)}`);
     expect(
@@ -120,7 +137,7 @@ describe("the console's dialog mode", () => {
   // The populated half. Without it the claim above is satisfied by a console with no
   // dialogs in it at all.
   it("still opens dialogs, in more than one family", () => {
-    expect(consoleDialogSites().length).toBeGreaterThanOrEqual(DIALOG_SITE_FLOOR);
+    expect(sites.length).toBeGreaterThanOrEqual(DIALOG_SITE_FLOOR);
   });
 });
 

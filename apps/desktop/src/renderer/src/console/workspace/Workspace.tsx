@@ -294,6 +294,7 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
               <Sidebar
                 sessionStore={props.sessionStore}
                 bridge={props.bridge}
+                frameStore={props.frameStore}
                 openPane={openPane}
                 model={sidebar.model}
                 snapshot={sidebar.snapshot}

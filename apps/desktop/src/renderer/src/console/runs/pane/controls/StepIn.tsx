@@ -8,7 +8,7 @@
 // ONE OF THE THREE BELONGS TO ANOTHER FAMILY, AND TRAVELS AS A SEAT. Which panes are
 // open and which one is focused are facts about the deck, and the composer resolves
 // what it is addressed to from the focused pane — so that act is the workspace's,
-// reached through `seats/take-the-floor-seat.ts` rather than through an import a
+// reached through `seats/single-slot/take-the-floor-seat.ts` rather than through an import a
 // sibling view family may not make. An unfilled seat means no deck is mounted in this
 // window, which the receipt states rather than swallowing.
 //

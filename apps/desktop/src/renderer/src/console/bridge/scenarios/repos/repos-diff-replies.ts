@@ -50,10 +50,10 @@
 // the DEFERRED arm — a handle and no bytes — which is a served answer the diff surface
 // has to be able to draw and which no other scenario reaches.
 
-import type { WireErrorEnvelope } from "../../../core/index.js";
 import type { GrowthArtifactSummary } from "../../growth-values/index.js";
 import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
+import { refuseAs } from "../computed-reply.js";
 import { scenarioInstant } from "./repos-beats.js";
 import { RUN_ATTRIBUTED_DIFF_PATCH, WORKSPACE_FALLBACK_DIFF_PATCH } from "./repos-diff-patches.js";
 import {
@@ -85,12 +85,6 @@ export const REPOS_DIFF_ARTIFACT_CREATE_CALL = "gitflow.diffArtifactCreate";
 
 /** The CAS handle the deferred arm hands back instead of bytes. */
 const DEFERRED_PAYLOAD_HANDLE = "sha256:6d1f0b8c2a4e7d3f9b5c0a1e8d2f4c6b";
-
-/** Refuse as the daemon would, in the shape the wire refuses in. */
-function refuseAs(code: string, message: string): never {
-  const envelope: WireErrorEnvelope = { code, message };
-  throw envelope;
-}
 
 /** The member of a request this module reads, without trusting the request's shape. */
 function requestedValue(request: unknown, member: string): unknown {

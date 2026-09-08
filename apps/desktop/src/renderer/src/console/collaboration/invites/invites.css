@@ -55,23 +55,31 @@
   color: var(--meridian-text-faint);
 }
 
-/* The confirmation is the whole section while it is up, so it takes the measure
- * and centres rather than sitting in the ledger's column. */
+/* The confirmation is modal: an invitation is one question, and the answer to it is
+ * the only thing on screen while it is being given. The measure stays narrow because
+ * the card is prose plus three facts, not a form. */
+.meridian-invite-confirmation__backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--meridian-surface-sunken);
+  opacity: 0.7;
+}
+
 .meridian-invite-confirmation {
+  position: fixed;
+  inset-block-start: 14vh;
+  inset-inline: 50%;
+  translate: -50% 0;
+  width: min(34rem, 92vw);
+  max-height: 72vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-4);
-  max-width: 52ch;
   padding: var(--meridian-space-5);
-  border: 1px solid var(--meridian-edge);
+  border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-lg);
   background: var(--meridian-surface-raised);
-}
-
-.meridian-invite-confirmation__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
 }
 
 .meridian-invite-confirmation__title {
@@ -118,4 +126,202 @@
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-faint);
+}
+
+/* ------------------------------------------------- minting an invitation */
+
+.meridian-invite-create,
+.meridian-invite-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  min-width: 0;
+}
+
+.meridian-invite-create__title,
+.meridian-invite-reveal__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+/* The two pickers share a shape and differ only in axis: what the invitation
+ * grants reads as a column of sentences, and how long it lasts is three words. */
+.meridian-invite-create__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-invite-create__choices--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-4);
+}
+
+.meridian-invite-create__choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  cursor: pointer;
+}
+
+.meridian-invite-create__control {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: 999px;
+  background: var(--meridian-surface-raised);
+  cursor: pointer;
+}
+
+.meridian-invite-create__control[data-checked] {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-invite-create__indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--meridian-accent);
+}
+
+.meridian-invite-create__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.meridian-invite-create__label {
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-invite-create__note {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  line-height: 1.5;
+}
+
+.meridian-invite-create__acts,
+.meridian-invite-reveal__acts,
+.meridian-invite-reveal__facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-invite-create__remedy {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The link is the point of the whole surface, so it gets the room: it wraps
+ * rather than truncating, because a truncated link is one a person cannot read
+ * back when the clipboard refuses. */
+.meridian-invite-reveal__link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.meridian-invite-reveal__footnote {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* ------------------------------------------- how one invitation ended */
+
+.meridian-invite-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-invite-outcome__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-invite-outcome__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-invite-outcome__lede,
+.meridian-invite-outcome__meaning {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The wire's own words, set apart from the console's sentence beneath them so a
+ * reader can tell which half the control plane said. */
+.meridian-invite-outcome__wire {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+}
+
+.meridian-invite-outcome__detail {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-invite-outcome__facts {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+}
+
+.meridian-invite-outcome__fact {
+  display: contents;
+}
+
+.meridian-invite-outcome__fact dt {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-invite-outcome__fact dd {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-invite-outcome__acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-3);
 }

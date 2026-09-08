@@ -30,7 +30,7 @@
 //     `run.provider_initialized` with no `provider`, each passed every leg they met
 //     and were then folded into a run entity built out of half a payload. This is the
 //     leg that holds them, and its table is keyed by the census's `run.` root LESS
-//     the kinds `session-event-streams.ts` puts on a narrowed stream — so a fifth
+//     the kinds `session-event-stream-kinds.ts` puts on a narrowed stream — so a fifth
 //     excluded kind is a compile error here rather than a hole nobody notices.
 //   • The projection the run-lifecycle stream delivers. The strict layer registers no
 //     variant for ANY run-lifecycle kind, so every rule about one of those payloads
@@ -112,7 +112,7 @@ type RunLifecycleKind = Extract<SessionEventType, `run.${string}`>;
 /**
  * The run kinds NO narrowed stream projects — the complement, taken as a type.
  *
- * `RunStateStreamKind` is `session-event-streams.ts`'s own union of the kinds
+ * `RunStateStreamKind` is `session-event-stream-kinds.ts`'s own union of the kinds
  * `run.subscribeState` carries, so this subtraction is the routing table read
  * backwards and never a second list. It is what makes the payload table below TOTAL:
  * a run kind that leaves that stream lands here and fails to compile until its
@@ -254,8 +254,8 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
  * would then have to take the row's state from the KIND alone, which is a summary
  * derived from half its own payload.
  *
- * The kind-to-state mapping is `session-event-streams.ts`'s, read here rather than
- * restated: that module is what routes these beats onto the queue stream in the
+ * The kind-to-state mapping is `session-event-stream-kinds.ts`'s, read here rather
+ * than restated: that module is what puts these kinds on the queue stream in the
  * first place, and a second copy of the table would let a scenario pass this leg
  * and fail the projection that consumes it. A kind it does not claim is not a queue
  * beat and is not this leg's business.

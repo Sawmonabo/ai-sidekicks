@@ -7,6 +7,13 @@
 // `fixture-session-directory.ts` derives what the node HAS; this one derives what one
 // session already CONTAINS at the moment a store opens on it.
 //
+// AND THAT MOMENT IS WHAT SCOPES IT. What a session contains LATER is a fold of the
+// delivered log over this base state, and it lives in `fixture-session-membership.ts`
+// beside the channel plane that reads it. The two are one reading in two halves rather
+// than two answers: that module's opening term is this module's snapshot, so a roster
+// this file derives and a roster the channel plane counts cannot disagree about who a
+// scenario declares — only about what has happened to them since.
+//
 // WHAT THE BASE STATE HONESTLY IS
 //
 // Cursor zero, the session's roster, and the memberships that roster holds. Zero

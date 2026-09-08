@@ -298,14 +298,53 @@
 // projection event the log will never grow. The refusal names Plan-016, which is the
 // true state of that wire.
 
-// AND FIVE PLANES STATE THEIR OWN MEMBERSHIP, in the modules that implement them:
-// `fixture-diagnostics-reads.ts`, `fixture-provider-account-writes.ts`,
-// `fixture-mcp-governance.ts`, `fixture-onboarding-answers.ts` and
-// `fixture-shell-answers.ts`, on the rule `fixture-workflow-reads.ts` set. A plane that
-// owns its handlers owns the reasoning that admits them, so the ids and the argument for
-// them stay one unit — reasoning left here would go stale the first time a plane changed
-// what it answers, and nothing would report it.
+// WHY THE ACTIVITY READ IS SERVED, AND WHY THE COMPOSER'S TWO WRITES ARE NOT
+//
+// The read is served so a scenario that states who is composing where can drive the
+// indicators at all: every one of them rendered permanently empty while the operation
+// refused, which is a surface whose only reachable state is its absence. Its
+// unscripted arm REFUSES rather than serving two empty lists, on the runtime-node
+// roster's rule — a scenario that has not said has left the question unasked, and
+// "nobody is composing" is a claim about the room that nothing checked.
+//
+// The composer's `presenceComposingSet` / `presenceComposingClear` are writes with no
+// empty state and no receipt, and there is a second reason beside that one: what a
+// publish PRODUCES is somebody else's reading, so the fixture serving them would have
+// to write into the very snapshot the read above answers from — a fixture publishing
+// to itself, which would show this window its own indicator, something no real
+// Awareness client ever does. They refuse, and the emitter's own fail-closed rule
+// (it stops after a refusal) is exercised by that refusal rather than around it.
+//
+// WHY THE PENDING-INVITE NAMESPACE IS SERVED IN FULL
+//
+// All five, because the surface is a lifecycle rather than a read: a confirmation
+// that could be shown but never confirmed, or confirmed but never answered, leaves
+// every one of its outcome arms unreachable from any scenario, screenshot, or
+// bridge-driven test — each of them is published by the act, never by the arrival. `fixture-pending-invites.ts` holds the whole of it and states
+// why the reference is spent where it is.
+//
+// WHY THE CONTROL-PLANE HOST READ IS SERVED FROM THE SCENARIO AND FROM NOWHERE ELSE
+//
+// A minted invitation is only sendable as a link, and the link is composed from this
+// host — so leaving the read refusing left the one-time reveal permanently unable to
+// show what a person would actually paste, which is the whole act. It is served from
+// a scenario member the author writes down, exactly as the caller-identity read is,
+// and refused by a scenario that names none. What it may never do is INVENT one: a
+// plausible hostname nobody declared would put a copyable link in front of a person
+// that opens nothing, and that is worse than the sentence saying the host has not
+// been read. A scenario declaring one is not that — it is a fixture stating a fact
+// about the node it stands for, like every other fact in it.
+//
+// AND SIX PLANES STATE THEIR OWN MEMBERSHIP, in the modules that implement them:
+// `fixture-collaboration-reads.ts`, `fixture-diagnostics-reads.ts`,
+// `fixture-provider-account-writes.ts`, `fixture-mcp-governance.ts`,
+// `fixture-onboarding-answers.ts` and `fixture-shell-answers.ts`, on the rule
+// `fixture-workflow-reads.ts` set. A plane that owns its handlers owns the reasoning
+// that admits them, so the ids and the argument for them stay one unit — reasoning left
+// here would go stale the first time a plane changed what it answers, and nothing would
+// report it.
 
+import { FIXTURE_SERVED_COLLABORATION_OPERATION_IDS } from "./fixture-collaboration-reads.js";
 import { FIXTURE_SERVED_DIAGNOSTICS_OPERATION_IDS } from "./fixture-diagnostics-reads.js";
 import { FIXTURE_SERVED_MCP_OPERATION_IDS } from "./fixture-mcp-governance.js";
 import { FIXTURE_SERVED_ONBOARDING_OPERATION_IDS } from "./fixture-onboarding-answers.js";
@@ -355,6 +394,14 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
+  ...typeof FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  "presenceActivityRead",
+  "invitePendingSubscribe",
+  "inviteOutcomeSubscribe",
+  "inviteConfirmPending",
+  "inviteRetryPending",
+  "inviteDismissPending",
+  "controlPlaneHostRead",
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",
   ...typeof FIXTURE_SERVED_SHELL_OPERATION_IDS,
@@ -435,6 +482,27 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // repos — the workspace's own execution context, answered from a scenario that
   // scripts one and refused for one that does not. See the header.
   "workspaceExecutionContextRead",
+  // channels and memberships — the four lifecycle verbs, the channel roster read, the
+  // membership roster read, and one participant's per-device presence, taken from the
+  // module that implements them so the ids and the handlers cannot disagree. Every one
+  // is script-only, and `fixture-collaboration-reads.ts` carries the reasoning for each.
+  ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  // presence — the activity read, answered from a scenario that states its own
+  // activity frames and refused from one that does not. The composer's two writes
+  // are deliberately absent: see the header.
+  "presenceActivityRead",
+  // invite — the whole pending-invite lifecycle, so the confirmation's six outcome
+  // arms are each reachable from a scenario rather than only from a unit case.
+  "invitePendingSubscribe",
+  "inviteOutcomeSubscribe",
+  "inviteConfirmPending",
+  "inviteRetryPending",
+  "inviteDismissPending",
+  // The node's own control-plane host, so a minted invitation can be revealed as the
+  // link it will be sent as. Answered from a scenario that names one; refused by a
+  // scenario that does not, which is the state a console that has not been told its
+  // own control plane is in.
+  "controlPlaneHostRead",
   // provider-session import — the opening call and the progress subscription it
   // mints a subject for, both answered from a scenario that scripts the import and
   // refused by one that does not.
@@ -524,6 +592,19 @@ export const FIXTURE_SCRIPT_ONLY_GROWTH_OPERATION_IDS: readonly FixtureServedGro
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
   "workspaceExecutionContextRead",
+  ...FIXTURE_SERVED_COLLABORATION_OPERATION_IDS,
+  // The three acts on a pending invitation. Each addresses a reference the scenario
+  // minted, so a scenario that scripted no invitation has no reference for any of
+  // them to name — and serving a receipt for one would tell the confirmation that
+  // main accepted an invitation no author ever wrote down.
+  "inviteConfirmPending",
+  "inviteRetryPending",
+  "inviteDismissPending",
+  // Neither has an honest empty answer. "Nobody is composing anywhere" is a claim
+  // about the room that nothing checked, and there is no empty host — a node either
+  // answers on one or this fixture has not been told which.
+  "presenceActivityRead",
+  "controlPlaneHostRead",
   "shellNotificationPermissionRead",
   "providerSessionImportBegin",
   "providerSessionImportSubscribe",

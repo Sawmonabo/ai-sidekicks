@@ -37,6 +37,7 @@ import {
   SESSION_ID,
 } from "./repos-fixture-data.js";
 import { secondsBeforeStart } from "./repos-beats.js";
+import { answerFor } from "../computed-reply.js";
 
 /**
  * What `repo.mountRead` answers, per mount.
@@ -179,26 +180,6 @@ const CAPABILITIES_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
     },
   },
 };
-
-/**
- * The answer this table holds for the entity one request names, or `undefined`.
- *
- * The request reaches a computed reply as `unknown` and is read rather than cast: a
- * fixture that trusted the shape would throw from inside the settlement seam on a
- * malformed call, where the fixture's own "scripts no reply" refusal is the answer a
- * surface can act on. `undefined` reaches the caller as exactly that refusal.
- */
-function answerFor(
-  answersByEntityId: Readonly<Record<string, unknown>>,
-  entityIdMember: string,
-  request: unknown,
-): unknown {
-  if (typeof request !== "object" || request === null) {
-    return undefined;
-  }
-  const requestedEntityId = (request as Readonly<Record<string, unknown>>)[entityIdMember];
-  return typeof requestedEntityId === "string" ? answersByEntityId[requestedEntityId] : undefined;
-}
 
 /**
  * The mount this scenario holds for the id one request names, or `undefined`.

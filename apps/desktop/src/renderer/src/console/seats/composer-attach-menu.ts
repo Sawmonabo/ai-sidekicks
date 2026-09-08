@@ -5,7 +5,7 @@
 // one back out. The first of those is an entry in the composer's `+` menu — which is
 // the composer family's surface, in a family that may not import the browser's.
 //
-// SO IT IS A SEAT, for `composer-seat.ts`'s own reason applied one level down. A view
+// SO IT IS A SEAT, for `single-slot/composer-seat.ts`'s own reason applied one level down. A view
 // family never imports a sibling, so the only two shapes available are a registration
 // (a call) and a composition root naming both families. A registration is the one that
 // does not put the composer's `+` menu in the frame's dependency graph, and it is the

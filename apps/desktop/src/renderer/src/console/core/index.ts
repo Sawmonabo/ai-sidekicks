@@ -23,6 +23,7 @@ export {
   AWAITING_RUN_IDS_NAMED_CAP,
   BOUNDED_ENUMERATION_MAX_ROWS,
   BROAD_ALLOW_LIST_THRESHOLD,
+  COMPOSING_IDLE_STOP_MS,
   CAPTURED_OBJECT_ROW_CAP,
   CAST_BAR_CHIP_CAP,
   CHAPTER_VISIBLE_ROW_CAP,
@@ -30,6 +31,7 @@ export {
   CODE_TOKEN_CACHE_BYTE_CAP,
   CODE_WORKER_THRESHOLD_BYTES,
   COMPOSING_NAMED_CAP,
+  COMPOSING_PUBLISH_INTERVAL_MS,
   COMPOSING_RECEIVED_STALE_MS,
   DECK_RESTORED_PANE_CAP,
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
@@ -61,6 +63,9 @@ export {
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
   PARTITION_FOLD_THRESHOLD,
+  PENDING_INVITE_DEFERRED_PLACE_MAX,
+  PENDING_INVITE_QUEUE_MAX,
+  PENDING_INVITE_RETAINED_REFUSAL_MAX,
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
@@ -211,20 +216,17 @@ export {
 // those cannot reach the third, so the floor is the only home all of them share.
 export { isWireRecord } from "./wire-record.js";
 export { readWireNumber, readWireString } from "./wire-strings.js";
-
-// The cross-process leaf's lossy renderer for a value that has no honest string,
-// re-published here rather than re-declared.
-//
-// `src/shared/` sits under no rung of the console DAG, so a VIEW family may not read
-// it and the console reaches it through the layer family that owns the concern. Three
-// modules in this family already read that leaf for its guarded property reads and its
-// rejection vocabulary, which makes the floor that family: a diagnostic string is the
-// same concern one step along, and a second reading of it above here would be the
-// drift the one-home rule exists to stop. `core/wire-rejection.ts` already states that
-// this layer — not that one — is the console's home for turning an unknown into
-// displayable text. Until this line existed the door published nothing for it, so two
-// view families reached five directories up past `core/` to the declaration and the
-// layering hole was invisible to every rule.
+// The other question a fold asks of an untyped payload, and it is about two members
+// rather than one: whether the session the payload states is the session the envelope
+// delivered it on. Here for the predicates' reason — its readers are `frame/`,
+// `bridge/`, and a VIEW family, and a view family may import neither of the others.
+export { payloadContradictsSession, payloadNamesSession } from "./wire-session-attribution.js";
+// The total stringifier, re-published rather than re-declared. It is DECLARED in
+// `src/shared/wire-errors.ts`, which both processes compile, and `core/wire-rejection.ts`
+// already states that this layer — not that one — is the console's home for turning an
+// unknown into displayable text. Until this line existed the door published nothing for
+// it, so two view families reached five directories up past `core/` to the declaration
+// and the layering hole was invisible to every rule.
 export { lossyStringify } from "../../../../shared/wire-errors.js";
 
 // The leaf's code-scoped envelope reader, re-published on exactly the reasoning above.

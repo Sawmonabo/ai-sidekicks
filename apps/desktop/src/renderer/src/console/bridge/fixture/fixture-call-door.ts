@@ -8,6 +8,7 @@
 
 import { daemonMethodBindingFor } from "../daemon/index.js";
 import { FixtureBridgeError } from "./fixture-refusal.js";
+import { foldSettledCall, type SettledCallFolds } from "./fixture-settled-call-folds.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
 import { settleScriptedReply } from "../scenario-runtime/index.js";
 
@@ -34,11 +35,24 @@ import { settleScriptedReply } from "../scenario-runtime/index.js";
  * `FixtureBridgeError` would replace the code a surface exists to show with a
  * fixture-scoped one and make the rendered refusal a thing the live bridge never
  * produces.
+ *
+ * AND A RESOLVED REPLY PASSES ITS PLANE ON THE WAY OUT. For a read the daemon derives
+ * from the session log, the scripted value is the state the session OPENS in and the
+ * frames delivered since are what moved it; for a mutation, the receipt is a fact a
+ * later read on the same plane owes — `fixture-settled-call-folds.ts` names that class
+ * and owns which calls are in it. Every other call is handed back exactly what the
+ * scenario scripts, which is what that table answering `undefined` means.
+ *
+ * The table is HANDED IN rather than reached for, which is what keeps this door generic
+ * over every plane: a fold may close over plane state its own namespace holds, and a
+ * door that imported one plane's holder to build it would be the first of a list that
+ * grows one plane at a time in the module that is supposed to know about none of them.
  */
 export async function resolveScriptedReply(
   engine: ScenarioEngine,
   call: string,
   request: unknown,
+  settledCallFolds: SettledCallFolds,
 ): Promise<unknown> {
   const settlement = await settleScriptedReply(engine, call, request);
   switch (settlement.status) {
@@ -53,7 +67,7 @@ export async function resolveScriptedReply(
     case "refused":
       throw settlement.refusal;
     case "resolved":
-      return settlement.value;
+      return foldSettledCall(settledCallFolds, engine, call, request, settlement.value);
   }
 }
 

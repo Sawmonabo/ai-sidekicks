@@ -10,26 +10,33 @@
 // rather than as an empty ledger: "the read is not registered" and "you have sent
 // nobody an invitation" are different facts.
 //
-// Two of this surface's three designed controls are NOT drawn, each for a reason
-// that is a missing input rather than a policy choice:
+// ALL THREE OF THIS SURFACE'S DESIGNED CONTROLS ARE NOW DRAWN, and the two that
+// were not each needed a read rather than a decision:
 //
 //   • CREATE. `InviteCreate` is `{sessionId, inviter, joinMode, expiresAt}` and
-//     `inviter` is the SENDER'S OWN participant id. No registered read tells this
-//     console who it is — `presence.read` answers other people's ids and their
-//     presence, `SessionReadResponse` carries a snapshot and cursors, and the
-//     store projects participants without marking which one is the operator. The
-//     request cannot be composed, so the region says which read would let it be
-//     rather than drawing a control that would compose a request with a guess in
-//     it. The all-sessions list sets the precedent in its own header: an offered
-//     control with no wire behind it is the capability-claimed-but-not-implemented
-//     shape, and drawing it disabled is the same claim with a tooltip.
+//     `inviter` is the SENDER'S OWN participant id, which no session read marks —
+//     `presence.read` answers other people's ids and their presence,
+//     `SessionReadResponse` carries a snapshot and cursors, and the store projects
+//     participants without saying which one is the operator. The growth port's
+//     `callerParticipantRead` is that read, and `CreateInvite.tsx` composes the
+//     request from it. A read still in flight closes the send control and a refused
+//     one says why, which is the request's own missing member rather than a
+//     permission this console decided.
 //
-//   • COPY LINK. The link is `https://<control-plane-host>/invite/<token>`, and
-//     the ledger row carries neither half: `GrowthInviteSummary` is
-//     `{inviteId, state, expiresAt}`, the plaintext token is returned exactly once
-//     by `invite.create` (which this console cannot call), and no read anywhere
-//     hands the renderer its control-plane host. A copy control would copy an
-//     identifier that opens nothing.
+//   • COPY LINK. `Spec-002 §Invite Delivery` writes the link as
+//     `https://<control-plane-host>/invite/<token>`. The token is returned exactly
+//     once by `invite.create` and by nothing else, so the copy control belongs to
+//     the moment of the mint and not to a ledger row — `InviteLinkReveal.tsx` is
+//     that moment. The host is the growth port's `controlPlaneHostRead`, taken
+//     BEFORE the mint; a host that refuses ends the act there and mints nothing, so
+//     no row this ledger could show is ever one whose link could not be written.
+//
+// WHEN THE LEDGER ASKS AGAIN IS NOT HERE. A mint re-reads, a pending row crossing
+// its expiry re-reads, and both of those overlap with each other and with the
+// receipt below — so the read line, its ordering, and the answer it holds are
+// `sent-invites-reading.ts`, and this file renders what that hook publishes. Still
+// no interval: `store/scheduling.ts` is where a periodic re-read would go and there
+// is none, which that module states with its reasons.
 //
 // REVOKE IS DRAWN, because both of its inputs exist: the session comes from the
 // store this section is scoped to, and the invite id is on the served row. It is
@@ -38,11 +45,12 @@
 // which is the row itself, so the ledger consumes that projection rather than
 // re-reading `invitesList`: a row left saying "pending" beside a re-enabled Revoke
 // control would be this surface contradicting the answer it just received.
-// `invite-ledger.ts` owns the fold and says why no second read is put. One revoke
-// runs at a time, so while one is unsettled EVERY pending row's control is closed
-// rather than only the row being revoked — the coordinator would refuse a second
-// press, and a control that leads only to that refusal is worse than a control
-// that waits.
+// `invite-ledger.ts` owns the fold and says why no second read is put, and the
+// reading hook applies it ON the read line — so a refresh that was already in flight
+// when the revoke settled cannot restore the row afterwards. One revoke runs at a
+// time, so while one is unsettled EVERY pending row's control is closed rather than
+// only the row being revoked — the coordinator would refuse a second press, and a
+// control that leads only to that refusal is worse than a control that waits.
 //
 // REVOCATION IS SILENT AND THE SENDER IS TOLD SO (`Spec-002 §Invite Revocation`).
 // There is no decline column either — `InviteState` is exactly
@@ -75,22 +83,17 @@
 import { useEffect, useMemo } from "react";
 
 import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
-import { consoleRefusalFrom } from "../../seats/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
-import { partitionInvites, withSettledInvite, type LedgerReading } from "./invite-ledger.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
   useWireMutation,
 } from "../mutation-coordinator.js";
+import { useSentInviteLedger } from "./sent-invites-reading.js";
 import { SentInvitesLedger } from "./SentInvitesLedger.js";
-import { InviteCreationAbsence } from "./InviteCreationAbsence.js";
+import { CreateInvite } from "./CreateInvite.js";
 
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
-
-/** Names this read in a refusal the call itself did not name. */
-const SENT_INVITES_ORIGIN = "sent-invites";
 
 export interface SentInvitesProps {
   readonly bridge: ConsoleBridge;
@@ -100,21 +103,10 @@ export interface SentInvitesProps {
 
 export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   const { bridge, sessionId } = props;
-  // One `invitesList` answer, held against the exact subject it was asked of.
-  //
-  // The bridge is the subject and the session is the key, because a window handed a
-  // replacement bridge for the same session is holding an answer from a transport
-  // that no longer exists, and the ledger's own control would dispatch through the
-  // replacement while showing the retired one's rows.
-  //
-  // Through the family's one holder rather than a `useState` and a render-time pair
-  // comparison: the pair is EQUAL on the first and third visit of an A to B to A
-  // round-trip and the holder's addressing is not, so the hand-written version rested
-  // on a per-effect-run flag whose correctness was not the holder's — a second copy of
-  // the primitive this family had just rebound onto.
-  const { value: reading, publish: publishReading } = useSubjectScopedState<
-    LedgerReading | undefined
-  >(bridge, sessionId, () => undefined);
+  const { reading, ledger, noteMinted, applySettledRevoke } = useSentInviteLedger(
+    bridge,
+    sessionId,
+  );
 
   const revokeCoordinator = useMemo(
     () =>
@@ -139,42 +131,6 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
     };
   }, [revokeCoordinator]);
 
-  useEffect(() => {
-    // One read, on mount, for the received shelf's reason: the wire behind this
-    // seam refuses today, so a repeat would re-ask a question with no answer, and
-    // `store/scheduling.ts` is where a real re-read will go when there is one.
-    if (sessionId === undefined) {
-      return;
-    }
-    // The publisher was captured during this render, so it names the subject that
-    // asked. A settlement arriving after a re-address publishes nowhere — including
-    // on the round-trip back to a subject this surface has already been on, which is
-    // the case an `isAttached` flag and a pair comparison both read as current.
-    void bridge.growth.invitesList({ sessionId }).then(
-      (outcome) => {
-        publishReading({ kind: "answered", outcome });
-      },
-      // The port's contract is that it RESOLVES with an outcome, so a rejection has
-      // no arm in that vocabulary. Left unhandled it published nothing and the
-      // ledger went on saying "Reading this session's invitations" for the life of
-      // the window over a call that had already failed.
-      (rejection: unknown) => {
-        publishReading({
-          kind: "unreadable",
-          refusal: consoleRefusalFrom(rejection, SENT_INVITES_ORIGIN),
-        });
-      },
-    );
-  }, [bridge, sessionId, publishReading]);
-
-  const ledger = useMemo(
-    () =>
-      reading?.kind === "answered" && reading.outcome.status === "served"
-        ? partitionInvites(reading.outcome.value)
-        : undefined,
-    [reading],
-  );
-
   return (
     <section className="meridian-invites" aria-label="Invitations you sent">
       <header className="meridian-invites__head">
@@ -185,7 +141,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         </p>
       </header>
 
-      <InviteCreationAbsence />
+      <CreateInvite bridge={bridge} sessionId={sessionId} onMinted={noteMinted} />
 
       <SentInvitesLedger
         sessionId={sessionId}
@@ -210,17 +166,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
               if (settlement === undefined) {
                 return;
               }
-              // Published through the holder's own updater, so the subject check
-              // that used to be written out here is the holder's: a settlement
-              // arriving after a re-address is dropped rather than folded into
-              // whichever ledger is on screen now.
-              publishReading((held) => {
-                const settled = withSettledInvite(held, settlement);
-                // `undefined` here would mean the ledger held no answer at all, and
-                // this one does; identity means the settlement named no row it
-                // holds. Both leave the ledger exactly as it stands.
-                return settled ?? held;
-              });
+              applySettledRevoke(settlement);
             });
         }}
         onDismissRefusal={(inviteId) => {

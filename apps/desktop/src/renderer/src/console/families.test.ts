@@ -40,6 +40,8 @@ import {
   frameBindingRegistry,
   InlineCardSeatRegistry,
   inlineCardSeatRegistry,
+  PinnedPaneRegionRegistry,
+  pinnedPaneRegionRegistry,
   SidebarSectionRegistry,
   sidebarSectionRegistry,
 } from "./seats/index.js";
@@ -73,7 +75,7 @@ const seatBoardSources = import.meta.glob("./families.ts", {
 /** The composition root's own source. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
-/** The six boards a case owns outright, so nothing it composes reaches production. */
+/** The seven boards a case owns outright, so nothing it composes reaches production. */
 function ownedRegistries(): {
   readonly surfaces: ConsoleSurfaceRegistry;
   readonly panes: ConsolePaneRegistry;
@@ -81,6 +83,7 @@ function ownedRegistries(): {
   readonly sidebar: SidebarSectionRegistry;
   readonly inlineCards: InlineCardSeatRegistry;
   readonly frameBindings: FrameBindingRegistry;
+  readonly pinnedRegions: PinnedPaneRegionRegistry;
 } {
   return {
     surfaces: new ConsoleSurfaceRegistry(),
@@ -89,6 +92,7 @@ function ownedRegistries(): {
     sidebar: new SidebarSectionRegistry(),
     inlineCards: new InlineCardSeatRegistry(),
     frameBindings: new FrameBindingRegistry(),
+    pinnedRegions: new PinnedPaneRegionRegistry(),
   };
 }
 
@@ -101,6 +105,7 @@ function composeInto(boards: ReturnType<typeof ownedRegistries>): void {
     boards.sidebar,
     boards.inlineCards,
     boards.frameBindings,
+    boards.pinnedRegions,
   );
 }
 
@@ -112,6 +117,7 @@ const PRODUCTION_BOARDS: readonly (readonly [string, () => readonly unknown[]])[
   ["sidebar sections", () => sidebarSectionRegistry.registeredSectionIds()],
   ["inline cards", () => inlineCardSeatRegistry.registeredCardKinds()],
   ["frame bindings", () => frameBindingRegistry.registeredSlots()],
+  ["pinned pane regions", () => pinnedPaneRegionRegistry.registeredPaneKinds()],
 ];
 
 describe("console families — composing every shipped family", () => {
@@ -177,7 +183,7 @@ describe("console families — the pane board a composition writes into", () => 
   // rather than about today's empty board, because today's empty board is exactly
   // what makes a behavioural assertion alone pass over the defect.
 
-  it("takes all six boards, so a composition names every board it writes into", () => {
+  it("takes all seven boards, so a composition names every board it writes into", () => {
     // Arity, asserted directly. Under the first signature this reads 1 and there was
     // no pane registry a caller could pass; under the second it reads 2 and the fold
     // a store opens with was a constant no family could add to; under the third it
@@ -186,9 +192,12 @@ describe("console families — the pane board a composition writes into", () => 
     // registrar and written into production from inside a composition. Under the
     // fifth, every seat a family could claim was a place to hand over a BODY, so a
     // read the frame renders had to be mounted by whichever destination happened to
-    // perform it and ended when a person navigated away from that destination. Each
-    // defect is one number.
-    expect(registerConsoleFamilies).toHaveLength(6);
+    // perform it and ended when a person navigated away from that destination. The
+    // seventh is the pinned region a pane wears above its body: a family filling one
+    // for a pane another family owns had nowhere to be handed a board, so it would
+    // have reached for that board's module-scope registrar and written into the
+    // running console from inside a composition. Each defect is one number.
+    expect(registerConsoleFamilies).toHaveLength(7);
   });
 
   it("forwards the pane registry it was handed and reaches for no singleton", () => {
@@ -215,6 +224,7 @@ describe("console families — the pane board a composition writes into", () => 
       "sidebarSectionRegistry",
       "inlineCardSeatRegistry",
       "frameBindingRegistry",
+      "pinnedPaneRegionRegistry",
     ]) {
       expect({ singleton, named: seatBoardSource.includes(singleton) }).toStrictEqual({
         singleton,
@@ -281,8 +291,8 @@ describe("console families — the pane board a composition writes into", () => 
     // seat board's own contract, so anything in one after this line arrived through
     // a composition that ignored what it was handed.
     //
-    // All five, derived from the list rather than spelled here, because the two that
-    // no family fills yet are the two a leak would reach FIRST — their module-scope
+    // All seven, derived from the list rather than spelled here, because the boards no
+    // family fills yet are the ones a leak would reach FIRST — their module-scope
     // registrars still exist, so they are the boards a landing family is most likely
     // to write into without passing through this composition at all.
     for (const [board, readClaims] of PRODUCTION_BOARDS) {

@@ -23,7 +23,7 @@ import { useId } from "react";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { DerivedFigure, Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
-import { type SessionStore } from "../../store/index.js";
+import { type FrameStore, type SessionStore } from "../../store/index.js";
 import { GLYPH_SIZE_CHROME, GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import {
   SIDEBAR_ROLLUP_GROUPS,
@@ -104,6 +104,8 @@ export interface SidebarSectionProps {
   readonly filterQuery: string;
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
+  /** This window's store, so a section can read whether a mutation may be sent. */
+  readonly frameStore: FrameStore;
   readonly openPane: ConsolePaneOpener;
   /** Press the header: put the cursor here, and open or shut this section. */
   readonly onPress: (sectionId: SidebarSectionId) => void;
@@ -198,6 +200,7 @@ export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
             props.render({
               sessionStore: props.sessionStore,
               bridge: props.bridge,
+              frameStore: props.frameStore,
               openPane: props.openPane,
               isOpen: true,
               filterQuery: props.filterQuery,

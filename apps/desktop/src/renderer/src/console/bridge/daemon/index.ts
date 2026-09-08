@@ -5,9 +5,10 @@
 // names what may be asked, the reply registry binds each method to the shape its
 // answer must match, the reply chokepoint is the one place an answer enters the
 // console and is parsed against that shape, the stream table names what a
-// subscription delivers, and the decoders narrow a delivered frame — a session event
-// payload, an entity body member, a reported node state — against the schema the
-// corpus registers.
+// subscription delivers and the kind tables under it name what each narrowed stream
+// carries, and the decoders narrow a delivered frame — a session event payload, an
+// entity body member, a reported node state — against the schema the corpus
+// registers.
 // Split across the bridge's top level they read as unrelated files; together they
 // are the single place that knows the wire, which is the property every family above
 // depends on. The roles are listed rather than counted: a family lands a module here
@@ -31,10 +32,14 @@ export { CONSOLE_DAEMON_METHODS, daemonMethodBindingFor } from "./daemon-reply-r
 export {
   RUN_QUEUE_EVENT_STREAM,
   RUN_STATE_EVENT_STREAM,
-  runQueueStreamStateFor,
   runStateForTransitionKind,
-  runStateStreamArmFor,
   sessionEventStreamFor,
   subscriptionDeliversEventKind,
-  type RunStateStreamKind,
+  type AwarenessSignalStream,
 } from "./session-event-streams.js";
+
+export {
+  runQueueStreamStateFor,
+  runStateStreamArmFor,
+  type RunStateStreamKind,
+} from "./session-event-stream-kinds.js";

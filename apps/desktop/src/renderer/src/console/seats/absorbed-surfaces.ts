@@ -1,24 +1,32 @@
-// The shipped Tier-1 families the console absorbed, and the guard two of them share.
+// The shipped Tier-1 families the console absorbed, and the guard one of them uses.
 //
 // Four families shipped before the console existed and were rendered by the
 // renderer root directly: the session probe, the participant roster, the runtime-node
 // roster, and the invite acceptance prompt. When the console took over the root they
 // stopped being rendered by anything, which is not a decision anybody made — it is
 // what happens when a new mount point lands before the old surfaces are re-homed.
-// This module re-homes THREE of them.
+// This module re-homes TWO of them. The other two are mounted by nothing at all, and
+// each is retired for its own reason rather than for one shared one.
 //
-// THE FOURTH IS SUPERSEDED RATHER THAN UNHOMED, which is why no mount for it is left
-// here waiting to be claimed. The participant roster held the `workspace` slot while
-// nothing else did; that surface is the ledger from T-023p-1C-2 on, and the roster's
-// console successor is the collaboration family's own members section, written against
-// the console's bridge rather than reaching past it. A mount kept for it would have
-// been a mount no surface can call, carrying a marker naming a lane that has landed.
+// THE PARTICIPANT ROSTER IS THE FIRST, and the reason is not that nowhere would take
+// it. It rendered presence for a session, and so does `collaboration/`, which means
+// one application drew one session's presence twice from two reads whose answers were
+// free to disagree. One of the two had to go, and it could only be this one: the
+// collaboration roster carries the role, the terminal-lease holder and the per-device
+// fan-out, and the shipped component has a seam for none of the three — so beside the
+// roster that draws all of them it has no fact left to contribute. It reads
+// `window.sidekicks` on mount besides, so it could never be handed the bridge the
+// console resolved and could not render under the fixture at all.
 //
-// ABSORBED BY IMPORT, NOT BY CALL. A plan-owned subtree whose owner MOUNTS INTO the
-// console reaches the frame by calling `registerConsoleSurface`; the console imports
-// it through no path, which is why the layering gate bans those subtrees outright.
-// These are the stated exception — they are shipped Tier-1 components with no owner
-// left to make the call, so the console absorbs them.
+// THE INVITE ACCEPTANCE PROMPT IS THE SECOND, AND ITS MOUNT IS GONE RATHER THAN
+// DORMANT. That component takes the raw invite token as a prop and issues
+// `invite.accept` with it, and the deep-link invariants confine that token to the
+// main process — the renderer holds an opaque reference instead. So there is no
+// caller left that could supply what the component's one prop requires, and the
+// acceptance it performs is performed by main behind the reference
+// (`collaboration/invites/pending-invite.ts`). Its own header records the same
+// reshape from the other side. Both components are untouched; nothing here mounts
+// either of them.
 //
 // IN `seats/` RATHER THAN IN `frame/`, WHICH IS WHERE THEY WERE WRITTEN. A mount here
 // reads a bridge source, two primitives, and a branded id, and nothing above
@@ -33,40 +41,35 @@
 //
 //   families.ts → <family>/index.ts → frame/index.ts → ConsoleRoot.tsx → families.ts
 //
-// WHAT THE FRAME KEEPS is the TABLE — which slot each family holds and who owns it —
-// because a slot is the frame's own vocabulary: an address the frame resolves, an
-// owner who answers at it, and a registry that is the frame's. It reaches these three
-// mounts through this family's door like every other consumer.
+// THE FRAME KEEPS NOTHING OF THEM NOW. It held a TABLE — which slot each family
+// holds and who owns it — for as long as one of these components claimed a slot
+// outright; the last one that did was the participant roster, and retiring it left
+// the table with no rows and the registrar with nothing to register. Every surviving
+// mount is called by the console surface that absorbed it, through this family's
+// door, like every other consumer.
 //
 // A SEAT MAY NOT HOLD A BODY, AND THIS HOLDS NONE. The rule this family is built on is
 // that no view family holds a SIBLING's body; every component mounted here is owned by
 // a renderer subtree OUTSIDE the console, absorbed by the console as a whole rather
 // than authored by any family in it.
 //
-// WHY TWO OF THE THREE MOUNTS ARE GUARDED ON THE BRIDGE SOURCE. The probe and the
-// acceptance prompt read `window.sidekicks` directly rather
-// than taking a bridge from context, so the console's fixture cannot stand in for the
-// preload the way it does for every console-authored surface. Under the fixture they
-// would reach past it: in a window with no preload at all they throw into the surface
-// boundary and read as a crash, and in the fixture build they would answer from the
-// live daemon beside fixture data in the same window, which is worse than answering
-// nothing. So the console says the question was not put, which is exactly what
-// happened.
+// WHY ONE OF THE FIVE MOUNTS IS GUARDED ON THE BRIDGE SOURCE. The probe reads
+// `window.sidekicks` directly rather than taking a bridge from context, so the
+// console's fixture cannot stand in for the preload the way it does for every
+// console-authored surface. Under the fixture it would reach past it: in a window
+// with no preload at all it throws into the surface boundary and reads as a crash,
+// and in the fixture build it would answer from the live daemon beside fixture data
+// in the same window, which is worse than answering nothing. So the console says the
+// question was not put, which is exactly what happened.
 //
-// THE NODE ROSTER IS NO LONGER ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
-// That view now takes an optional read seam and `runtime-node/node-roster-seam.ts` builds one
-// from the bridge the console has already resolved, so it asks whichever bridge this
+// THE NODE ROSTER IS NOT ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
+// That view now takes an optional read seam and `runtime-node/node-roster-seam.ts` builds
+// one from the bridge the console has already resolved, so it asks whichever bridge this
 // window is running on: the control plane under the preload, the scenario's own roster
 // frames under the fixture. There is no longer a window in which it could reach past the
 // console's bridge, so the condition the guard tested does not arise for it — and every fixture
 // build that used to render "the question was not put" where the roster belongs now
 // renders the roster.
-//
-// The suite that drives these is `absorbed-surfaces.test.ts` beside this file. It used
-// to be `frame/legacy-surfaces.test.ts`, because a mount was reached through the frame's
-// slot table and the table was half of every claim about it; each surviving mount is now
-// called by the console-authored family that hosts it, so the table holds no row and the
-// claim to make about a mount is what it renders under which bridge source.
 
 import { createElement, type ReactNode } from "react";
 
@@ -86,10 +89,6 @@ import {
   NodeRoster,
 } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap, type SessionBootstrapCreated } from "../../session-bootstrap/index.js";
-// Deep, because `session-members/` ships no barrel. The other two are reached
-// through theirs. Adding one is that family's own diff, not the console's — the
-// console does not author files inside a subtree it merely absorbs.
-import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
 
 /**
  * What a caller hears back from the session probe, and when.
@@ -203,8 +202,8 @@ export function renderAbsorbedNodeRoster(
  * health, and what it can run — in the main process, off the node registry. A caller
  * that could pass a draft in would be a caller that could compose one, and a renderer
  * composing one is a renderer vouching for a machine on its own word. So the draft is
- * RESOLVED here and invented nowhere: `runtime-node/node-attach-seam.ts` asks the running scenario
- * under the fixture, and answers nothing under the live bridge, where no registered
+ * RESOLVED here and invented nowhere: `runtime-node/node-attach-seam.ts` asks the running
+ * scenario under the fixture, and answers nothing under the live bridge, where no registered
  * read delivers such a declaration to this renderer yet.
  *
  * The absence it renders is therefore a statement about THIS window rather than about
@@ -245,15 +244,15 @@ export function renderAbsorbedAttachFlow(
 /**
  * One node's declared capability set, as the shipped view renders it.
  *
- * NO BRIDGE GUARD, AND THAT IS NOT AN EXEMPTION — the guard three mounts above carry
- * exists because those components read `window.sidekicks` themselves, so the console's
- * fixture cannot stand in for a preload they never ask it for. This one reads nothing:
- * it takes the map as a prop and formats it. There is no window in which it could reach
- * past the console's bridge, because it reaches for no bridge at all.
+ * NO BRIDGE GUARD, AND THAT IS NOT AN EXEMPTION — the guard the probe mount above
+ * carries exists because that component reads `window.sidekicks` itself, so the
+ * console's fixture cannot stand in for a preload it never asks it for. This one reads
+ * nothing: it takes the map as a prop and formats it. There is no window in which it
+ * could reach past the console's bridge, because it reaches for no bridge at all.
  *
  * The map arrives from the roster read the absorbed roster ALREADY performed, through
- * `runtime-node/node-roster-seam.ts`, so the capabilities on screen and the rows beside them are one
- * answer rather than two that can disagree.
+ * `runtime-node/node-roster-seam.ts`, so the capabilities on screen and the rows beside
+ * them are one answer rather than two that can disagree.
  */
 export function renderAbsorbedCapabilityDeclaration(
   capabilities: Record<string, unknown>,
@@ -276,22 +275,6 @@ export function renderAbsorbedCapabilityDeclaration(
  */
 export function renderAbsorbedMixedVersionStatus(rosterEntry: RuntimeNodeRosterEntry): ReactNode {
   return createElement(MixedVersionStatus, { rosterEntry, writeAttemptRejection: null });
-}
-
-/**
- * The invite acceptance prompt, mounted inside the console's invite confirmation.
- *
- * Takes the token rather than a route for the reason the slot table gives: no
- * address carries one, so a route could never supply it. The component performs
- * the acceptance itself — this console authors no second `invite.accept` caller —
- * and the guard travels with it, so a confirmation cannot mount the prompt past
- * the fixture check.
- */
-export function renderAbsorbedInviteAcceptance(
-  bridgeSource: ConsoleBridgeSource,
-  token: string,
-): ReactNode {
-  return mountAbsorbedSurface(bridgeSource, () => createElement(InviteAcceptView, { token }));
 }
 
 /**
@@ -321,9 +304,11 @@ function mountAbsorbedSurface(
 /**
  * The absence a session-scoped surface renders at an address that names none.
  *
- * Written once because two mounts reach it from opposite sides now — the guarded
- * path above, and the node roster, which has no guard left to reach it through —
- * and one sentence a person reads must not exist in two places to drift between.
+ * One mount reaches it today — the node roster, which resolves a session for itself
+ * and has no guard left to reach this through. It stays a named function rather than
+ * an inline block because the sentence a person reads at an address that names no
+ * session is the same sentence wherever it is said, and the next session-scoped mount
+ * absorbed here must not write a second wording of it.
  */
 function noSessionAbsence(): ReactNode {
   return centredAbsence({

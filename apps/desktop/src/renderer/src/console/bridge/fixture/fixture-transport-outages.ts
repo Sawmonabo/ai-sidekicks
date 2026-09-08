@@ -15,7 +15,7 @@
 // A transport outage is not an event in the session's log — no `SessionEventType` says
 // "the wire went away", and inventing a beat kind for one would put a fabricated row in
 // the store every surface reads. What an outage IS is a fact about scenario time, so it
-// rides `ScenarioEngine.subscribeToAdvance`, which reports the clock rather than the log
+// rides `ScenarioEngine.subscribeToAdvances`, which reports the clock rather than the log
 // and fires on advances that carry no beat at all. An outage scheduled between two beats
 // is exactly the case a beat-driven schedule would miss.
 //
@@ -189,7 +189,7 @@ export function playScenarioTransportOutages(
     return () => undefined;
   }
   const boundaries = new ScenarioTransportBoundaries(outages);
-  return engine.subscribeToAdvance((elapsedMs) => {
+  return engine.subscribeToAdvances((elapsedMs) => {
     for (const transition of boundaries.crossedThrough(elapsedMs)) {
       signal.observe(transition.reachability);
     }

@@ -74,12 +74,22 @@ export { FrameStore } from "./frame-store.js";
 export { bannerClassRefusalAmong, useRefusalBannerEscalation } from "./refusal-escalation.js";
 
 // The window-scoped modal's half of the shell's `inert` guard. Through this door
-// rather than either overlay's, because its two callers are sibling VIEW families —
-// `sign-in/` and `onboarding/` — which reach each other through nothing, and because
-// the cell it writes lives in this family's own store. Written twice before it was
-// hoisted, and the second copy was missing: a walkthrough that trapped focus and left
-// the whole route surface reachable behind it.
-export { useModalSurfaceLifetime } from "./modal/modal-surface-lifetime.js";
+// rather than either overlay's, because its callers are sibling VIEW families —
+// `sign-in/`, `onboarding/`, and the deep-link invite lifecycle in `collaboration/` —
+// which reach each other through nothing, and because the cell it writes lives in this
+// family's own store. Written twice before it was hoisted, and the second copy was
+// missing: a walkthrough that trapped focus and left the whole route surface reachable
+// behind it.
+//
+// The act and the act-taking hook are published beside the store-bound one because the
+// third caller cannot use that one: the window overlay seat hands its body acts and
+// never a store, and `seats/single-slot/window-overlay-seat.ts` types that prop from here.
+export {
+  modalSurfaceClaimFor,
+  useModalSurfaceClaim,
+  useModalSurfaceLifetime,
+  type ModalSurfaceClaimAct,
+} from "./modal/modal-surface-lifetime.js";
 
 // The shell's own condition, and the two derivations every reader of it shares.
 //

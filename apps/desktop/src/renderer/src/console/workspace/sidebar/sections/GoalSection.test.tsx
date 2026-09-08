@@ -17,7 +17,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.j
 import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { type ConsolePaneAddress, type SidebarSectionContext } from "../../../seats/index.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
+import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
 import { GoalSection } from "./GoalSection.js";
 import { GOAL_SECTION_ACTION_LABEL, GOAL_SECTION_COMMAND_ID } from "./goal-section-commands.js";
 
@@ -67,6 +67,7 @@ function renderSection(options: {
   const context: SidebarSectionContext = {
     sessionStore: store,
     bridge,
+    frameStore: new FrameStore(),
     openPane: (address) => openedPanes.push(address),
     isOpen: true,
     filterQuery: "",

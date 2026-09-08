@@ -28,9 +28,9 @@
 // which answers a GROWTH operation the corpus registers no shape for at all — and it is
 // keyed under the `growth:` prefix precisely so that nothing reads it as a wire method.
 
-import type { WireErrorEnvelope } from "../../../core/index.js";
 import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
+import { refuseAs, requestedIdentifier } from "../computed-reply.js";
 import { scenarioInstant } from "./repos-beats.js";
 import {
   ATTACHED_MOUNT_ID,
@@ -79,28 +79,6 @@ export const ATTACHED_CANONICAL_ROOT = "/Users/dev/code/telemetry-agent";
 /** Where this scenario's worktrees live, one directory up from the checkout. */
 const WORKTREE_PARENT = "/Users/dev/code/ai-sidekicks-worktrees";
 
-/** The member of a request this module reads, without trusting the request's shape. */
-function requestedString(request: unknown, member: string): string | undefined {
-  if (typeof request !== "object" || request === null) {
-    return undefined;
-  }
-  const value = (request as Readonly<Record<string, unknown>>)[member];
-  return typeof value === "string" ? value : undefined;
-}
-
-/**
- * Refuse as the daemon would, in the shape the wire refuses in.
- *
- * A thrown `WireErrorEnvelope` reaches the caller exactly as the `refusal` arm's does,
- * so a computed reply can hold a refusal and a success without the scenario needing two
- * entries for one call — which it could not have, since a second entry for one call is
- * unreachable.
- */
-function refuseAs(code: string, message: string): never {
-  const envelope: WireErrorEnvelope = { code, message };
-  throw envelope;
-}
-
 /**
  * What `repo.attach` answers, per entered path.
  *
@@ -118,7 +96,7 @@ function refuseAs(code: string, message: string): never {
  * minting a new mount row, which is exactly what the confirm says it will do.
  */
 function attachResultFor(request: unknown): unknown {
-  const localPath = requestedString(request, "localPath");
+  const localPath = requestedIdentifier(request, "localPath");
   if (localPath === GIT_CANONICAL_ROOT) {
     refuseAs(
       "repo.already_attached",
@@ -154,8 +132,8 @@ function attachResultFor(request: unknown): unknown {
  * makes that code's recovery, the mount's own restriction reason, reachable.
  */
 function bindResultFor(request: unknown): unknown {
-  const executionMode = requestedString(request, "executionMode");
-  const repoMountId = requestedString(request, "repoMountId");
+  const executionMode = requestedIdentifier(request, "executionMode");
+  const repoMountId = requestedIdentifier(request, "repoMountId");
   if (executionMode === undefined) {
     return undefined;
   }
@@ -202,7 +180,7 @@ function bindResultFor(request: unknown): unknown {
  * follows the transition. A mutation's own reply is not that road.
  */
 function executionRootPrepareResultFor(request: unknown): unknown {
-  const branchName = requestedString(request, "branchName");
+  const branchName = requestedIdentifier(request, "branchName");
   if (branchName === undefined) {
     refuseAs(
       "workspace.branch_name_required",
@@ -231,7 +209,7 @@ function executionRootPrepareResultFor(request: unknown): unknown {
  * other branch has no candidate, which is the complete, well-formed negative answer.
  */
 function reuseCheckResultFor(request: unknown): unknown {
-  const branchName = requestedString(request, "branchName");
+  const branchName = requestedIdentifier(request, "branchName");
   if (branchName === "feat/rate-limit-wiring") {
     return {
       available: true,
@@ -266,7 +244,7 @@ function reuseCheckResultFor(request: unknown): unknown {
  * because at the moment it is produced nothing has been cleaned.
  */
 function retireResultFor(request: unknown): unknown {
-  const worktreeId = requestedString(request, "worktreeId");
+  const worktreeId = requestedIdentifier(request, "worktreeId");
   if (worktreeId === IMPLEMENTER_WORKTREE_ID) {
     refuseAs(
       "worktree.retire_conflict",
@@ -287,7 +265,7 @@ function retireResultFor(request: unknown): unknown {
  * and the press. Every other clone disposes.
  */
 function disposeResultFor(request: unknown): unknown {
-  const cloneId = requestedString(request, "cloneId");
+  const cloneId = requestedIdentifier(request, "cloneId");
   if (cloneId === RECLAIMED_CLONE_ID) {
     refuseAs("clone.not_found", "This ephemeral clone no longer exists.");
   }
@@ -332,7 +310,7 @@ function disposeResultFor(request: unknown): unknown {
  * the unanswered question it is rather than as an absence of roots.
  */
 function executionContextResultFor(request: unknown): unknown {
-  const workspaceId = requestedString(request, "workspaceId");
+  const workspaceId = requestedIdentifier(request, "workspaceId");
   if (workspaceId === GIT_WORKSPACE_ID) {
     return {
       workspaceId,

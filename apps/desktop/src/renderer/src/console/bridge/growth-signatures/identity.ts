@@ -6,7 +6,11 @@
 // its contents, which is why the file's own `identity` section carries them
 // together. The section and row comments below are the file's own.
 
-import type { GrowthCallbackTool } from "../growth-values/index.js";
+import type {
+  GrowthCallbackTool,
+  GrowthMembershipRosterEntry,
+  GrowthPresenceDetail,
+} from "../growth-values/index.js";
 
 export interface IdentityGrowthSignatures {
   // identity
@@ -28,5 +32,22 @@ export interface IdentityGrowthSignatures {
   callbackToolRegistryRead: {
     request: { readonly sessionId: string };
     value: readonly GrowthCallbackTool[];
+  };
+  // The membership roster, session-scoped, answering one row per membership the
+  // caller may see. There is no per-participant form: a surface holding one
+  // participant id and asking for its membership would be asking a question whose
+  // refusal discloses whether that person is a member at all, and the ledger renders
+  // every row it is given rather than probing for one.
+  membershipRosterRead: {
+    request: { readonly sessionId: string };
+    value: readonly GrowthMembershipRosterEntry[];
+  };
+  // The per-device fan-out, which IS per-participant: the read is owner/operator-only
+  // and the surface asks for exactly the row a person opened. The reply carries the
+  // aggregate the summary already showed, so the detail and the summary can be told
+  // apart rather than reconciled.
+  participantPresenceDetailRead: {
+    request: { readonly sessionId: string; readonly participantId: string };
+    value: GrowthPresenceDetail;
   };
 }

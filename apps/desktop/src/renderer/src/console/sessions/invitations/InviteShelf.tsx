@@ -42,6 +42,7 @@
 
 import { useEffect, useMemo } from "react";
 
+import { expiryDeadlinesOf } from "../../bridge/index.js";
 import type { ConsoleClock } from "../../core/index.js";
 import { InlineRefusal, formatCount } from "../../primitives/index.js";
 import type { UiStateStore } from "../../persistence/index.js";
@@ -49,7 +50,6 @@ import { consoleRefusalFrom } from "../../seats/index.js";
 import { useDeadlineWake, useSubjectScopedState } from "../../store/index.js";
 import { useHiddenInvites } from "./hidden-invites.js";
 import {
-  expiryDeadlinesOf,
   isCompleteRead,
   readShelf,
   shelfReadingFromRejection,

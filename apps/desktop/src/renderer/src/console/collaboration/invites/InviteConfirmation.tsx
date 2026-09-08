@@ -1,167 +1,203 @@
-// One deliberate confirmation, and nothing else on screen while it is up.
+// One deliberate confirmation, over everything else, on a reference and never a token.
 //
-// WHAT ARRIVES HERE, AND WHAT THE DESIGN'S END STATE WANTS TO ARRIVE HERE
+// WHAT ARRIVES HERE. `Plan-023 §Invariants` I-023-5 confines the raw invite token to
+// the main process and I-023-10 makes what the renderer holds an opaque, single-use,
+// TTL-bounded REFERENCE. So this card is handed a `GrowthPendingInvite`, which has no
+// token member and nowhere for one to arrive — the confinement is a property of the
+// shape rather than a rule somebody has to remember — and every act it offers is
+// dispatched by `pending-invite.ts` on that reference. The main-side half of the
+// lifecycle is `T-023r-5-5`: the protocol handler, the bridge-event dispatcher, and
+// the reference table these references live in. `Plan-023 §Phase 6 — Renderer Shell,
+// Router, And Composer` T-023r-6-3 is the live-wiring leg over this body.
 //
-// The end state is an opaque, single-use, main-confined reference: main holds the
-// token from the operating-system deep link, hands the renderer a reference, and
-// `invite.confirmPending` / `invite.retryPending` / `invite.dismissPending` /
-// `invite.subscribePending` / `invite.subscribeOutcome` / `invite.preview` do the
-// rest. NONE of those six is registered anywhere the console can reach: they are
-// on no bridge namespace in `packages/contracts`, and — unlike the invites list —
-// they are on NO row of `Plan-023 §Console growth slate`, so the growth port has
-// no operation to refuse with either. A port entry for them is not this lane's to
-// mint.
+// WHY THE SHIPPED ACCEPTANCE COMPONENT IS NOT MOUNTED HERE. `session-members/
+// invite-accept-view.tsx` takes the raw `token` as a prop and issues `invite.accept`
+// itself, which is exactly what the invariant above forbids the renderer to hold; its
+// own header records that the reshape retires that prop. Mounting it under this
+// lifecycle would mean handing it a reference where it expects a credential, which a
+// live control plane would answer `invite.not_found`. So it is not mounted, and it is
+// not edited either — the acceptance it performs is performed by main, behind the
+// reference, and this card is the confirmation that asks for it.
 //
-// So this component takes what the shipped acceptance path actually takes: the
-// opaque token, from whichever caller holds one. That is a deviation from the
-// end-state contract on the TRANSPORT and on nothing else — the design's own note
-// says as much, that what changes around the shipped component is "the wiring on
-// either side of it, a main-confined reference in place of a renderer-held token
-// and a main-process acceptance in place of a direct daemon call".
+// WHAT THIS CARD WILL NOT DO
 //
-// WHAT IS PRESERVED FROM THE SHIPPED COMPONENT, BY IMPORTING IT
+//   • It never accepts on mount, on open, or on a key. Confirming is a press.
+//   • It never auto-focuses the confirm control. Base UI would focus the first
+//     focusable child, so the dismissal is deliberately first in the tree and the
+//     popup's `initialFocus` names it: a dialog that opens with the accepting control
+//     focused turns a stray return key into a single-use invitation spent.
+//   • It renders no fact it was not given. `sessionName` and `inviterDisplayName` are
+//     `null` where the preview answered and the fact was empty — a different reading
+//     from a preview never put — and each absent one renders as an absence rather
+//     than as a blank or a guess.
+//   • It has no decline verb, because the wire has none. What it has is ONE
+//     dismissal, reached three ways — **Not now**, Escape, and the backdrop — and all
+//     three release the reference main is holding and tell nobody, which is the only
+//     act the plane actually has. T-023r-6-3 states it as a requirement: "dismissal
+//     by escape, backdrop, or the decline control routes to `invite.dismissPending`,
+//     never to confirm." A separate **Discard it** control used to sit beside **Not
+//     now** and is retired rather than re-labelled: once every close path releases the
+//     reference, the two controls performed one act under two names, and a card that
+//     offers one act twice is a card that says the quieter one does less.
+//   • Once the reference is SPENT the close path is ACKNOWLEDGEMENT and not dismissal.
+//     There is nothing left to release and a `dismissPending` on it would be an act
+//     against a handle main no longer holds. The card owns that branch because it is
+//     the only place that can make it once — see the resolved `close` below, which is
+//     handed to every path rather than being decided again per control.
+//   • AN ANSWER IS NOT THE SAME FACT AS A SPENT REFERENCE, and conflating them is what
+//     this branch got wrong twice. An acceptance waiting on authentication has main
+//     driving a ceremony and HOLDING the reference across it; an acceptance that never
+//     reached the control plane settles `unavailable`, which the wire itself marks
+//     retryable — main is holding that one too, and the report even offers a second
+//     attempt on it. Both were read as settled, so **Done**, Escape and the backdrop
+//     alike put the card away and released nothing: the reference stayed allocated
+//     until its TTL, and reopening or replaying the pending feed surfaced the same
+//     invitation again after the person had put it away. So the branch tests what main
+//     is HOLDING — `isInviteReferenceHeld`, the lifecycle's own predicate, which the
+//     adapter's own local release is refused by — and never whether an outcome exists.
 //
-// Acceptance starts idle and is button-triggered, so no mount can burn a
-// single-use invite; and a synchronous throw from the bridge normalizes into the
-// same rejected state as an asynchronous rejection. Both are the shipped
-// component's, unaltered — the console mounts it through `seats/absorbed-surfaces.ts`,
-// which also carries the fixture guard, because that component reads the installed
-// bridge directly and the console's fixture cannot stand in for it.
-//
-// WHAT THIS COMPONENT WILL NOT DO
-//
-//   • It never accepts on mount. The only thing that accepts is the absorbed
-//     control, and a person presses it.
-//   • It never auto-focuses that control and never accepts a bare return key.
-//     Nothing here is a form, and no `autoFocus` is set anywhere below.
-//   • It never renders a raw inviter identifier when the display name is absent —
-//     the fallback is the session's own identity, which is what the confirmation
-//     identifies the session by.
-//   • It renders no facts it was not given. The session name, the inviter's
-//     display name, the join mode, and the expiry are each independently
-//     nullable, and each absent one renders as an absence naming the preview that
-//     would have carried it, never as a blank or a guess.
+// AND IT RENDERS THE TWO PREVIEWS THAT PRODUCED NO INVITATION, which is the other
+// half of what the pending feed carries. A preview the control plane REFUSED and one
+// that could not be put at all mint no reference, so neither has facts to confirm —
+// but a window that drew nothing for them would leave an expired link and an
+// unreachable control plane looking exactly like a link nobody followed, and the one
+// act either admits, the retry, would be offered by no surface at all. Those two arms
+// are `InvitePreviewFailureReading.tsx`, rendered inside this same dialog: it is the
+// same question about the same deep link, and a second overlay for it would be a
+// second card competing for one window's screen. On that branch every close path is
+// the ACKNOWLEDGEMENT above, for a stronger reason than a spent reference — there was
+// never a reference for `invite.dismissPending` to release.
 
-import type { JoinMode } from "@ai-sidekicks/contracts";
+import { Dialog } from "@base-ui/react/dialog";
+import { useRef } from "react";
 
-import { renderAbsorbedInviteAcceptance } from "../../seats/index.js";
-import type { ConsoleBridgeSource } from "../../bridge/index.js";
-import { Chip, Nothing, WireFigure, formatDateTime } from "../../primitives/index.js";
-
-/**
- * What a caller holding a pending invitation hands this surface.
- *
- * Everything but the token and the session is optional because the preview that
- * would supply it is unregistered, and every member of that preview is
- * independently nullable in the contract that describes it.
- */
-export interface PendingInviteConfirmation {
-  /** The opaque invite credential. Rendered nowhere; passed to the absorbed control. */
-  readonly token: string;
-  /** Wire-verbatim. The identity the confirmation falls back to naming. */
-  readonly sessionId: string;
-  readonly sessionName?: string | undefined;
-  readonly inviterDisplayName?: string | undefined;
-  readonly joinMode?: JoinMode | undefined;
-  readonly expiresAtIso?: string | undefined;
-}
+import { InlineRefusal, OverlayDialogPopup } from "../../primitives/index.js";
+import { InvitationReading } from "./InvitationReading.js";
+import { InvitePreviewFailureReading } from "./InvitePreviewFailureReading.js";
+import type { PendingInviteSnapshot } from "./pending-invite.js";
+import { isInviteReferenceHeld } from "./pending-invite-reading.js";
 
 export interface InviteConfirmationProps {
-  /** `undefined` renders nothing at all: no pending invite, no surface. */
-  readonly pending: PendingInviteConfirmation | undefined;
-  readonly bridgeSource: ConsoleBridgeSource;
+  readonly open: boolean;
+  /** The lifecycle's current reading. Rendered only where it names an invitation. */
+  readonly snapshot: PendingInviteSnapshot;
+  readonly onConfirm: () => void;
   /**
-   * **Not now** — a local hide that sends no decline verb anywhere, because
-   * declining is implicit and `InviteState` has no `declined` member to move to.
+   * Put a preview that could not be put to the control plane again.
+   *
+   * Offered on exactly one arm and gated by the reading's own `canRetry`, never by
+   * this card's reading of which state it is looking at. It is not a close path: a
+   * retry's answer arrives as a fresh pending state rather than in this card, and the
+   * head it was dispatched on is released by the lifecycle when the call is served.
+   */
+  readonly onRetry: () => void;
+  /**
+   * Release the reference and put the card away, telling nobody.
+   *
+   * The close act on every arm where main still holds the handle — nothing answered
+   * yet, a ceremony still running, or an acceptance that never reached the control
+   * plane — reached from the close control, Escape, and the backdrop alike. There is
+   * no decline to send. The lifecycle refuses it while an act on the same reference is
+   * unsettled, which is why the control that dispatches it closes for that lifetime.
    */
   readonly onDismiss: () => void;
+  /**
+   * Put a spent prompt away and move to whatever was waiting behind it.
+   *
+   * The close act on the arms where main holds nothing: a reference already consumed,
+   * refused, or no longer resolving, and a preview that minted none at all.
+   */
+  readonly onAcknowledge: () => void;
+  readonly overlayContainer?: HTMLElement | null | undefined;
 }
 
 export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.Element | null {
-  const { pending } = props;
-  if (pending === undefined) {
+  const { snapshot } = props;
+  const { invite, previewFailure } = snapshot;
+  // ONE REF FOR BOTH ARMS, because both name the same rule: the control that sends
+  // nothing is first in the tree and is the one the dialog opens with focused. Exactly
+  // one of the two arms is ever mounted, so exactly one control ever attaches to it.
+  const closeRef = useRef<HTMLButtonElement>(null);
+  if (invite === undefined && previewFailure === undefined) {
     return null;
   }
+  const isActing = snapshot.actInFlight !== undefined;
+  // THE ONE CLOSE ACT, RESOLVED ONCE AND HANDED TO EVERY PATH. Closing is a DISMISSAL
+  // — the wire act that releases what main is holding — on exactly the arms where main
+  // is holding something: an invitation nobody has answered yet, an acceptance whose
+  // ceremony is still running, and one that never reached the control plane and is
+  // therefore still retryable. A reference that was consumed, refused or has stopped
+  // resolving is spent, and a preview failure never minted one, so on those the act is
+  // the local acknowledgement — a `dismissPending` there would be an act against a
+  // handle main does not hold. What main holds is the lifecycle's own predicate,
+  // consulted rather than re-derived, because a card deciding it separately is how the
+  // two came to disagree in the first place.
+  //
+  // It travels DOWN as one callback rather than as the pair this card is handed. The
+  // bodies below draw the close under two labels — **Not now** before an answer,
+  // **Done** once there is one to read — and the library hands the same act back for
+  // Escape and the backdrop, so four entry points reach one function and no component
+  // beneath this one gets to decide what closing means.
+  const close =
+    previewFailure === undefined && isInviteReferenceHeld(snapshot.outcome)
+      ? props.onDismiss
+      : props.onAcknowledge;
+
   return (
-    <section
-      className="meridian-invite-confirmation"
-      aria-label="Confirm this invitation"
-      role="group"
+    <Dialog.Root
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) {
+          close();
+        }
+      }}
+      // The mode `Spec-023 §Console Libraries` adopts, and never the library default:
+      // fully modal locks body scroll and hangs `aria-hidden` on a background the
+      // shell was never told to inert. `trap-focus` keeps the keyboard inside this
+      // card and leaves the background to the shell — which has to be TOLD, and is
+      // told by whoever owns this card's open state. That is `InviteLifecycleOverlay`,
+      // on the palette's precedent: the owner of the boolean arms the guard, so this
+      // card stays a card and takes no window store.
+      modal="trap-focus"
     >
-      <header className="meridian-invite-confirmation__head">
-        <h2 className="meridian-invite-confirmation__title">
-          {pending.sessionName ?? "You have been invited to a session."}
-        </h2>
-        <p className="meridian-invite-confirmation__identity">
-          <WireFigure value={pending.sessionId} />
-        </p>
-      </header>
+      {/* The popup shell is the primitive's, which is what puts this card in the
+          window's airspace (`Spec-023 §Console Design (Meridian)` 12.3): a native
+          browser-pane view yields to what is registered there, and a decision it
+          painted over is the one thing 12.3 forbids outright. The card heads its body
+          with an ordinary element rather than a `Dialog.Title`, so the name travels as
+          the label — which is what the popup carried before the shell moved. */}
+      <OverlayDialogPopup
+        container={props.overlayContainer}
+        backdropClassName="meridian-invite-confirmation__backdrop"
+        className="meridian-invite-confirmation"
+        label={
+          previewFailure === undefined ? "Confirm this invitation" : "This invitation did not open"
+        }
+        initialFocus={closeRef}
+      >
+        {previewFailure === undefined ? (
+          <InvitationReading
+            snapshot={snapshot}
+            isActing={isActing}
+            closeRef={closeRef}
+            onConfirm={props.onConfirm}
+            onClose={close}
+          />
+        ) : (
+          <InvitePreviewFailureReading
+            failure={previewFailure}
+            canRetry={snapshot.canRetry}
+            isActing={isActing}
+            onRetry={props.onRetry}
+            onClose={close}
+            closeRef={closeRef}
+          />
+        )}
 
-      <dl className="meridian-invite-confirmation__facts">
-        <div className="meridian-invite-confirmation__fact">
-          <dt>Invited by</dt>
-          <dd>
-            {pending.inviterDisplayName ?? (
-              <Nothing
-                kind="not-checked"
-                placement="inline"
-                title="Not named"
-                detail="The preview that carries the inviter's display name is not registered, and the raw identifier is not a name."
-              />
-            )}
-          </dd>
-        </div>
-        <div className="meridian-invite-confirmation__fact">
-          <dt>Joining as</dt>
-          <dd>
-            {pending.joinMode === undefined ? (
-              <Nothing
-                kind="not-checked"
-                placement="inline"
-                title="Not read"
-                detail="The join mode comes from the anonymous invite preview, which is not registered on any transport this console has."
-              />
-            ) : (
-              <Chip label={pending.joinMode} mono />
-            )}
-          </dd>
-        </div>
-        <div className="meridian-invite-confirmation__fact">
-          <dt>Stops working</dt>
-          <dd>
-            {pending.expiresAtIso === undefined ? (
-              <Nothing
-                kind="not-checked"
-                placement="inline"
-                title="Not read"
-                detail="The expiry comes from the same unregistered preview."
-              />
-            ) : (
-              <WireFigure
-                value={formatDateTime(pending.expiresAtIso)}
-                title={pending.expiresAtIso}
-              />
-            )}
-          </dd>
-        </div>
-      </dl>
-
-      <div className="meridian-invite-confirmation__acts">
-        <div className="meridian-invite-confirmation__accept">
-          {renderAbsorbedInviteAcceptance(props.bridgeSource, pending.token)}
-        </div>
-        <button
-          type="button"
-          className="meridian-invite-confirmation__dismiss"
-          onClick={props.onDismiss}
-        >
-          Not now
-        </button>
-      </div>
-
-      <p className="meridian-invite-confirmation__footnote">
-        Not now simply puts this away. Nobody is told, because there is no decline to send.
-      </p>
-    </section>
+        {snapshot.actRefusal === undefined ? null : (
+          <InlineRefusal code={snapshot.actRefusal.code} detail={snapshot.actRefusal.detail} />
+        )}
+      </OverlayDialogPopup>
+    </Dialog.Root>
   );
 }

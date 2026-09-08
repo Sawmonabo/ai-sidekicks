@@ -1,6 +1,6 @@
 // The ledger claims its two slots, and mounts through the deck's one door.
 //
-// The elements are inspected rather than rendered, on `legacy-surfaces.test.ts`'
+// The elements are inspected rather than rendered, on `seats/absorbed-surfaces.test.ts`'
 // reasoning: the claim is about WIRING — which slot, which owner, and what the
 // surface hands the pane — and a React element carries all of that before anything
 // renders it. What the pane itself draws is that component's own test.

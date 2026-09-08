@@ -16,10 +16,10 @@
 // edge `structure:layering` forbids outright.
 //
 // WHY THE REGISTRATION LIVES IN THE BARREL RATHER THAN BESIDE IT. What follows is a
-// TABLE — which slot, which owner, and what mounts there — not a view, which is
-// `frame/legacy-surfaces.ts`' reason for the same shape. Split into a component file
-// it would be one element per file with the table itself spread across three places;
-// left here it is the one thing a reader opening this family wants first.
+// TABLE — which slot, which owner, and what mounts there — not a view, and a table is
+// not what a component file is for. Split into one it would be one element per file
+// with the table itself spread across three places; left here it is the one thing a
+// reader opening this family wants first.
 //
 // WHY THE SURFACE REGISTRY ARRIVES THROUGH `seats/index.js`. It used to live in the
 // frame, and a view family could reach it by no route at all: a deep specifier is a
@@ -49,7 +49,7 @@ import {
   type ConsolePaneContext,
   type ConsolePaneRegistry,
   type ConsoleSurfaceContext,
-  type ConsoleSurfaceDescriptor,
+  type ConsoleSurfaceRegistration,
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
@@ -113,7 +113,8 @@ const LEDGER_PANE_ID = "ledger-timeline";
  * `structure:layering`'s `console-view-family-isolation` rule reports the edge. The
  * component arrives as a parameter instead, named by `families.ts`, which sits above
  * every family and is the one file allowed to name more than one. That is the shape
- * `frame/legacy-surfaces.ts` already takes for the same reason, one layer down.
+ * `collaboration-family.ts` already takes for the same reason, one family along: the
+ * root names the sessions destination's composed control and that file hands it on.
  *
  * The COMPONENT rather than a built element: which component mounts is the root's
  * decision, and what it is handed is this file's — the surface context exists only when
@@ -134,7 +135,7 @@ export interface LedgerComposition {
 type WorkspaceMountProps = Omit<ConsoleSurfaceContext, "sessionStoreRegistry">;
 
 /** The two slots this family claims, given the body the root composed in. */
-function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurfaceDescriptor[] {
+function ledgerSurfaces(composition: LedgerComposition): readonly ConsoleSurfaceRegistration[] {
   return [
     {
       slot: "workspace",

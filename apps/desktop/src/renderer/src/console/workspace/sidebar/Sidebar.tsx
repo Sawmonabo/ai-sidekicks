@@ -62,7 +62,7 @@ import { useCallback, useId, useLayoutEffect, useMemo, useRef } from "react";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, useAnnounce } from "../../primitives/index.js";
-import { type SessionStore } from "../../store/index.js";
+import { type FrameStore, type SessionStore } from "../../store/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   sidebarSectionRegistry,
@@ -88,6 +88,14 @@ import { type AirspaceRegistry } from "../deck/rect-discipline.js";
 export interface SidebarProps {
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
+  /**
+   * This window's own store, handed to every section.
+   *
+   * A section reads it for one thing — whether a mutating call can be sent at all —
+   * and it is a prop for `openPane`'s reason: a sidebar rendered in an auxiliary
+   * window reports that window's shell rather than the main window's.
+   */
+  readonly frameStore: FrameStore;
   /**
    * How a section opens a pane. Handed down rather than imported, so a sidebar rendered
    * in an auxiliary window opens panes in THAT window's deck.
@@ -143,6 +151,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
     sectionRegistry,
     props.sessionStore,
     props.bridge,
+    props.frameStore,
   );
 
   // ONE SELECTION AND ONE SET OF DRAG SOURCES FOR THE COLUMN. A bulk act crosses
@@ -328,6 +337,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
             filterQuery={snapshot.filterQuery}
             sessionStore={props.sessionStore}
             bridge={props.bridge}
+            frameStore={props.frameStore}
             openPane={props.openPane}
             onPress={pressSection}
             registerDisclosure={registerDisclosure}

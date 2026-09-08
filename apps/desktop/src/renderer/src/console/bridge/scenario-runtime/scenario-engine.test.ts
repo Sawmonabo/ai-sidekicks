@@ -16,9 +16,17 @@
 // against the REAL store rather than against a count, because the gap is the store's
 // own rule and a test that restated it would be checking its own copy.
 //
-// WHAT IS NOT HERE. Teardown — the disposed engine's dropped ticks and abandoned
-// replies — is `failure-modes.test.ts`'s, and the scripted-latency queue is
-// `fixture-bridge.latency.test.ts`'s. This file owns beat delivery and nothing else.
+// The engine's other two answers are here for the same reason: they are the parts of
+// it a fixture namespace reaches that the session log does not carry. The ADVANCE
+// subscription is what a scripted fact with no beat to ride is delivered on, and its
+// first claim is that there is exactly ONE of it — two methods over that one emitter
+// shipped side by side for a while and split the fixture's callers between identical
+// names. The computed-reply ORDINAL is what lets a scripted reply mint a distinct
+// identity per call rather than hand every caller one fixed receipt.
+//
+// WHAT IS NOT HERE. Teardown — the disposed engine's dropped ticks, its abandoned
+// replies, and the advance sink it stops calling — is `failure-modes.test.ts`'s, and
+// the scripted-latency queue is `fixture-bridge.latency.test.ts`'s.
 
 import { describe, expect, it } from "vitest";
 
@@ -260,5 +268,93 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
     engine.dispose();
 
     expect(collectWithReplay(engine)).toStrictEqual([]);
+  });
+});
+
+describe("ScenarioEngine — the advance subscription", () => {
+  it("publishes exactly one method for it, so no caller can sit on a second name", () => {
+    // The finding: `subscribeToAdvances` and `subscribeToAdvance` shipped side by side
+    // over one emitter, and the fixture's schedule-driven namespaces were split between
+    // them — two identical wrappers, which is the duplicate-implementation drift
+    // `apps/desktop/AGENTS.md` §Shared code forbids. Read off the prototype rather than
+    // compared against a written list, so a second name added later fails here whatever
+    // it happens to be called.
+    const advanceSubscriptions = Object.getOwnPropertyNames(ScenarioEngine.prototype).filter(
+      (member) => member.startsWith("subscribeToAdvance"),
+    );
+
+    expect(advanceSubscriptions).toStrictEqual(["subscribeToAdvances"]);
+  });
+
+  it("hands the elapsed tick to its sink on every advance, after that advance's beats", () => {
+    // Both halves of what the one method promises, in one observation: an advance that
+    // crossed no beat still wakes the sink — which is the case a beat-driven schedule
+    // misses entirely — and an advance that did cross one wakes it AFTER the beat, so a
+    // subscriber walking its own due rule sees a log that has already moved.
+    const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([40]) });
+    const observed: string[] = [];
+    engine.subscribe(() => {
+      observed.push("beat");
+    });
+    engine.subscribeToAdvances((elapsedMs) => {
+      observed.push(`advance ${String(elapsedMs)}`);
+    });
+
+    engine.advance(10);
+    engine.advance(40);
+    engine.advance(0);
+
+    expect(observed).toStrictEqual(["advance 10", "beat", "advance 50", "advance 50"]);
+  });
+
+  it("negative control: an unsubscribed sink is handed no later advance", () => {
+    // Without it the case above would pass over a subscription that never released,
+    // which on this engine is a pane's schedule outliving the pane.
+    const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([40]) });
+    const ticks: number[] = [];
+    const unsubscribe = engine.subscribeToAdvances((elapsedMs) => {
+      ticks.push(elapsedMs);
+    });
+
+    engine.advance(10);
+    unsubscribe();
+    engine.advance(10);
+
+    expect(ticks).toStrictEqual([10]);
+  });
+});
+
+describe("ScenarioEngine — the computed-reply ordinal", () => {
+  it("steps for each answer one call produces, and counts each call apart", () => {
+    // What a scripted mint derives a distinct receipt from. Per CALL, because the
+    // identity a room mints is the Nth of its own kind — a playback-wide counter would
+    // hand the first mint whatever number the reads before it had reached.
+    const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
+
+    const minted = [
+      engine.nextComputedReplyOrdinal("invite.create"),
+      engine.nextComputedReplyOrdinal("invite.create"),
+      engine.nextComputedReplyOrdinal("invite.create"),
+    ];
+
+    expect(minted).toStrictEqual([1, 2, 3]);
+    expect(engine.nextComputedReplyOrdinal("invite.revoke")).toBe(1);
+  });
+
+  it("negative control: the frozen clock cannot stand in for it", () => {
+    // Why the ordinal exists at all rather than the settled instant a computed reply is
+    // already handed. Two answers produced without an advance between them read the
+    // same tick — which is exactly the shape two calls parked on one latency and
+    // released by one advance arrive in — so a receipt keyed on the instant collides
+    // precisely where a second mint has to differ.
+    const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
+
+    const firstInstant = engine.clock.now();
+    const firstOrdinal = engine.nextComputedReplyOrdinal("invite.create");
+    const secondInstant = engine.clock.now();
+    const secondOrdinal = engine.nextComputedReplyOrdinal("invite.create");
+
+    expect(secondInstant).toBe(firstInstant);
+    expect(secondOrdinal).not.toBe(firstOrdinal);
   });
 });

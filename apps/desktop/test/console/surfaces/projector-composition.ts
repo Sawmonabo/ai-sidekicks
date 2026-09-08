@@ -26,9 +26,9 @@
 // every store either mount opens names this constant.
 //
 // COMPOSED INTO BOARDS THIS MODULE OWNS, which is what makes it safe to do at module
-// scope. `registerConsoleFamilies` writes only into the six registries it is handed —
+// scope. `registerConsoleFamilies` writes only into the seven registries it is handed —
 // `console/families.test.ts` asserts exactly that against the process-wide ones — so
-// the five boards built here and dropped are the price of reading the sixth, and no
+// the six boards built here and dropped are the price of reading the seventh, and no
 // tier's window is touched by importing this file.
 //
 // A CONSTANT RATHER THAN A FACTORY, on `frame/run-lifecycle-projector.ts`'s precedent
@@ -44,6 +44,7 @@ import {
   ConsoleSurfaceRegistry,
   FrameBindingRegistry,
   InlineCardSeatRegistry,
+  PinnedPaneRegionRegistry,
   SidebarSectionRegistry,
 } from "../../../src/renderer/src/console/seats/index.js";
 import {
@@ -62,13 +63,13 @@ export const COMPOSED_CONSOLE_PROJECTORS: EntityProjectorRegistry = composeConso
 /**
  * Run the window's composition into boards this module owns, and keep the fold.
  *
- * The other five registries are built here and never read: they are what the
- * composition writes its surfaces, panes, sidebar sections, inline cards, and frame
- * bindings into, and a mount resolves each of those through its own family-scoped
- * registry (`pane-body-resolution.ts`) because a mount composes exactly the body it
- * captures. The fold is the one board that cannot work that way — a partition is read
- * by whichever surface names it, so the table a store opens with has to be the whole
- * one.
+ * The other six registries are built here and never read: they are what the
+ * composition writes its surfaces, panes, sidebar sections, inline cards, frame
+ * bindings, and pinned pane regions into, and a mount resolves each of those through
+ * its own family-scoped registry (`pane-body-resolution.ts`) because a mount composes
+ * exactly the body it captures. The fold is the one board that cannot work that way —
+ * a partition is read by whichever surface names it, so the table a store opens with
+ * has to be the whole one.
  */
 function composeConsoleProjectors(): EntityProjectorRegistry {
   const projectorBoard = new ConsoleEntityProjectorRegistry();
@@ -79,6 +80,7 @@ function composeConsoleProjectors(): EntityProjectorRegistry {
     new SidebarSectionRegistry(),
     new InlineCardSeatRegistry(),
     new FrameBindingRegistry(),
+    new PinnedPaneRegionRegistry(),
   );
   return projectorBoard.snapshot();
 }

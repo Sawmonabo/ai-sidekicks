@@ -12,7 +12,7 @@
 // there would print a paragraph of unbuilt-feature prose down the whole ledger, and
 // the honest reading of an absent offer is the absent offer, which is exactly what
 // `ProvenanceRail.tsx` says about its own load-earlier button. The three facts the
-// seat answers live in `seats/timeline-row-footer-seat.ts` for the developer who
+// seat answers live in `seats/single-slot/timeline-row-footer-seat.ts` for the developer who
 // needs them.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";

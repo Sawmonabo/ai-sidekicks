@@ -16,6 +16,7 @@ import { CollaborationSessionModelHolder, useSessionModels } from "./session-mod
 import {
   LeaseProbe,
   RENDER_FAILURE_MESSAGE,
+  SUBSCRIPTIONS_PER_MODEL_SET,
   countedFixtureBridge,
 } from "./session-models.test-support.js";
 import type { RenderPhaseReading } from "./session-models.test-support.js";
@@ -73,7 +74,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
     // And the effect that follows it does take one, so the case above is about
     // ORDER rather than about a hook that acquires nothing.
     expect(holder.outstandingLeaseCount).toBe(1);
-    expect(counted.liveSubscriptionCount()).toBe(1);
+    expect(counted.liveSubscriptionCount()).toBe(SUBSCRIPTIONS_PER_MODEL_SET);
   });
 
   it("gives the lease back when the only section holding it unmounts", () => {
@@ -109,7 +110,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
     );
 
     expect(holder.outstandingLeaseCount).toBe(1);
-    expect(counted.liveSubscriptionCount()).toBe(1);
+    expect(counted.liveSubscriptionCount()).toBe(SUBSCRIPTIONS_PER_MODEL_SET);
   });
 
   it("shares one set between two sections and disposes it on the last release", () => {
@@ -126,7 +127,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
     expect(holder.outstandingLeaseCount).toBe(2);
     // One set, not two: the second section joined the first section's subscription
     // rather than opening a rival projection of one session's presence.
-    expect(counted.liveSubscriptionCount()).toBe(1);
+    expect(counted.liveSubscriptionCount()).toBe(SUBSCRIPTIONS_PER_MODEL_SET);
 
     view.unmount();
 
@@ -155,7 +156,7 @@ describe("the sidebar's models — acquisition is an effect and never a render",
 
     expect(holder.heldSessionId).toBe("session-lease-f");
     expect(holder.outstandingLeaseCount).toBe(1);
-    expect(counted.liveSubscriptionCount()).toBe(1);
+    expect(counted.liveSubscriptionCount()).toBe(SUBSCRIPTIONS_PER_MODEL_SET);
   });
 });
 

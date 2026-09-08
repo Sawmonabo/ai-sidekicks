@@ -31,9 +31,8 @@
 
 import { KeyedRegistry, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { type SessionStore } from "../store/index.js";
-import { type ConsolePaneAddress } from "./pane-address.js";
-import { type ConsolePaneOpener } from "./pane-registry.js";
+import { type FrameStore, type SessionStore } from "../store/index.js";
+import { type ConsolePaneAddress, type ConsolePaneOpener } from "./pane-address.js";
 
 /**
  * Every sidebar section, in render order.
@@ -67,6 +66,24 @@ export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
+  /**
+   * This window's own store, for the one question a section cannot answer from the
+   * session's: whether a mutating call can leave the machine at all.
+   *
+   * `store/shell-state.ts` says why the value lives where it does — "a view family
+   * reads it to disable a control it is about to offer" — and this is the seat that
+   * makes that reachable from a section, which holds a SESSION store and a bridge and
+   * neither of those knows the supervisor's condition. Handed down rather than
+   * imported, for `openPane`'s reason: a sidebar rendered in an auxiliary window
+   * reports THAT window's shell.
+   *
+   * Required rather than additive-optional, unlike the two members below it. Those two
+   * narrow what a section renders and a section ignoring them simply does less; this
+   * one decides whether a control is offered, and a section handed no signal would
+   * either fail closed — disabling every mutation in a console that works — or fail
+   * open, which is the state this member was added to stop being the only option.
+   */
+  readonly frameStore: FrameStore;
   /**
    * How a section's cards open panes — "each a composition of its own read,
    * opening panes". Handed down rather than imported so a sidebar rendered in an

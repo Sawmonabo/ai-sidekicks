@@ -14,7 +14,11 @@ import {
   type SidebarSectionId,
   type SidebarSectionRegistry,
 } from "../../seats/index.js";
-import { useSessionProjectionRevision, type SessionStore } from "../../store/index.js";
+import {
+  useSessionProjectionRevision,
+  type FrameStore,
+  type SessionStore,
+} from "../../store/index.js";
 import { SIDEBAR_SECTION_LABELS } from "./model/sidebar-labels.js";
 import { foldSectionRollup, type SectionRollup } from "./model/section-rollup.js";
 import type {
@@ -63,6 +67,7 @@ export function useSectionAttention(
   sectionRegistry: SidebarSectionRegistry,
   sessionStore: SessionStore,
   bridge: ConsoleBridge,
+  frameStore: FrameStore,
 ): SidebarRollupBySectionId {
   const projectionRevision = useSessionProjectionRevision(sessionStore);
   const readings = useMemo<SidebarSectionReadings>(() => {
@@ -73,7 +78,7 @@ export function useSectionAttention(
       if (descriptor === undefined) {
         continue;
       }
-      const context = { sessionStore, bridge };
+      const context = { sessionStore, bridge, frameStore };
       const nodes = descriptor.rollup?.(context);
       const folded = nodes === undefined ? undefined : foldSectionRollup(nodes);
       if (folded !== undefined) {
@@ -87,7 +92,7 @@ export function useSectionAttention(
     return { attentionBySectionId: attention, rollupBySectionId };
     // `projectionRevision` is read by the readers above rather than by this body, which
     // is the whole of why it is here: it is the dependency that makes them re-run.
-  }, [sectionRegistry, sessionStore, bridge, projectionRevision]);
+  }, [sectionRegistry, sessionStore, bridge, frameStore, projectionRevision]);
 
   useEffect(() => {
     model.syncAttention(readings.attentionBySectionId);

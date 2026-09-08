@@ -24,6 +24,13 @@ export function InviteLedgerRow(props: {
       <div className="meridian-invites__row-facts">
         <WireFigure value={invite.inviteId} />
         <Chip label={invite.state} mono tone={invite.state === "pending" ? "accent" : "neutral"} />
+        {/*
+          The role this invitation grants, which is what the ledger's own empty state
+          promises a reader will be here. Neutral beside the state chip on purpose:
+          the state is what a person scans for and two accents would make neither of
+          them the one that stands out.
+        */}
+        <Chip label={invite.joinMode} mono tone="neutral" />
         <WireFigure value={formatDateTime(invite.expiresAt)} title={invite.expiresAt} />
       </div>
       {onRevoke === undefined ? null : (

@@ -35,30 +35,76 @@
 // holds every `Dialog.Root` under `console/` to it — a hook cannot state a prop for a
 // component it does not render, and a hook that returned one would be read as though
 // it had.
+//
+// AND THE STORE IS SPLIT OFF THE HOOK, because one caller cannot reach it. The window
+// overlay seat hands its body ACTS and never the window's store, so the deep-link
+// invite card — which is `modal="trap-focus"` like the other two and left the
+// background live exactly as the walkthrough did — has no `FrameStore` to pass. The
+// register's own two operations therefore travel as ONE act, `ModalSurfaceClaimAct`,
+// with the hook that owns the two easy-to-omit halves taking the act rather than the
+// store. `useModalSurfaceLifetime` is that same hook bound to a store, so a surface
+// that can reach one keeps the shorter call and there is one implementation of the
+// effect rather than two.
 
-import { useEffect, useId } from "react";
+import { useEffect, useId, useMemo } from "react";
 
 import type { FrameStore } from "../frame-store.js";
 
 /**
- * Publish a window-scoped dialog's open state for the shell's `inert` guard.
+ * Take or give up ONE claimant's claim on the window's modal surface.
+ *
+ * A function and not the register, so a body the frame seats can be handed what it may
+ * do without being handed the window it may do it to. The claim id is the caller's
+ * because the register is keyed on it; `useModalSurfaceClaim` is what mints one, and no
+ * caller writes an id of its own.
+ */
+export type ModalSurfaceClaimAct = (claimId: string, isHeld: boolean) => void;
+
+/**
+ * Bind the claim act to one window's register.
+ *
+ * A composed act's IDENTITY is load-bearing — {@link useModalSurfaceClaim} depends on
+ * it, so an act rebuilt on every render would release and re-hold on every pass and
+ * publish a change each time. Every caller composes it once, under the same `useMemo`
+ * the frame already gives `sessionOpenerFor`.
+ */
+export function modalSurfaceClaimFor(frameStore: FrameStore): ModalSurfaceClaimAct {
+  return (claimId, isHeld) => {
+    const claims = frameStore.modalSurfaceClaims;
+    if (isHeld) {
+      claims.hold(claimId);
+    } else {
+      claims.release(claimId);
+    }
+  };
+}
+
+/**
+ * Publish a window-scoped dialog's open state through a claim act.
  *
  * The caller passes the same boolean its `Dialog.Root` takes as `open`, so the two
  * cannot disagree: there is no second condition here to keep in step. The signature
  * carries no claim id — the hook mints its own, because an id a caller supplied could
  * be supplied twice and two surfaces would then be one claimant.
  */
-export function useModalSurfaceLifetime(frameStore: FrameStore, isOpen: boolean): void {
+export function useModalSurfaceClaim(claim: ModalSurfaceClaimAct, isOpen: boolean): void {
   const claimId = useId();
   useEffect(() => {
-    const claims = frameStore.modalSurfaceClaims;
-    if (isOpen) {
-      claims.hold(claimId);
-    } else {
-      claims.release(claimId);
-    }
+    claim(claimId, isOpen);
     return () => {
-      claims.release(claimId);
+      claim(claimId, false);
     };
-  }, [claimId, frameStore, isOpen]);
+  }, [claim, claimId, isOpen]);
+}
+
+/**
+ * The same publish, for a surface that already holds the window's store.
+ *
+ * The two overlays that reach a `FrameStore` through `ConsoleSurfaceContext` keep this
+ * call rather than composing an act each: what they have is the store, and a hook that
+ * made them bind it themselves would be the seam's producer written at every site.
+ */
+export function useModalSurfaceLifetime(frameStore: FrameStore, isOpen: boolean): void {
+  const claim = useMemo(() => modalSurfaceClaimFor(frameStore), [frameStore]);
+  useModalSurfaceClaim(claim, isOpen);
 }

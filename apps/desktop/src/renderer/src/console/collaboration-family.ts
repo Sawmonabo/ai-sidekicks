@@ -26,7 +26,12 @@
 // family into a registry it owns, and an auxiliary window composes a subset without
 // a second code path.
 
-import { registerCollaborationSections } from "./collaboration/index.js";
+import {
+  registerCollaborationProjectors,
+  registerCollaborationSections,
+  registerInviteLifecycleOverlay,
+} from "./collaboration/index.js";
+import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type {
   ConsoleSurfaceRegistry,
   FrameBindingRegistry,
@@ -41,15 +46,23 @@ import {
 import { registerSettingsSurface } from "./settings/index.js";
 
 /**
- * Claim every surface slot this family owns, fill the sidebar sections it fills, and
- * claim the frame-lifetime binding one of its subtrees keeps.
+ * Claim every surface slot this family owns, fill the sidebar sections it fills, fold
+ * the one event category whose partition it reads, and claim the frame-lifetime
+ * binding one of its subtrees keeps.
  *
- * Three boards, because they are three different seats: a surface slot is a whole
+ * Four boards, because they are four different seats: a surface slot is a whole
  * destination the frame mounts, a sidebar section is a body inside a sidebar another
- * family owns, and a frame binding is neither — it is a read this family performs for
+ * family owns, a projector claim is one event kind's fold into the store every family
+ * shares, and a frame binding is none of those — it is a read this family performs for
  * as long as the window is open, mounted around the frame's subtree rather than at a
- * destination, so the rail's count outlives a person navigating away from the
- * sessions list. All three are HANDED to this function rather than reached for.
+ * destination, so the rail's count outlives a person navigating away from the sessions
+ * list. All four are HANDED to this function rather than reached for.
+ *
+ * The projector board is what lets this family read `membership.created` ONCE. Without
+ * it the roster, the typing indicators, the direct-channel labels, and the membership
+ * ledger each had to reach the wire for a fact the store already had in front of it —
+ * or, as they in fact did, render a raw participant id and an absent membership
+ * identifier instead.
  * The sidebar board ships a module-scope singleton and the sections registrar used
  * to write straight into it, which is the one shape `registerConsoleFamilies` exists
  * to refuse: an independent composition would mutate the running console's sidebar,
@@ -57,7 +70,7 @@ import { registerSettingsSurface } from "./settings/index.js";
  * could not compose a subset however it asked. A board a caller supplies has none of
  * those failures, and a test composing this family owns what it asserts against.
  *
- * The fourth argument is a COMPOSITION rather than a board, on the terms `families.ts`
+ * The fifth argument is a COMPOSITION rather than a board, on the terms `families.ts`
  * names one under: the sessions destination offers a composed draft beside the shipped
  * probe, and that control is the workspace family's — a view family this one may not
  * import — so the root names which component fills the place and this file hands it on.
@@ -65,6 +78,7 @@ import { registerSettingsSurface } from "./settings/index.js";
 export function registerCollaborationFamily(
   surfaces: ConsoleSurfaceRegistry,
   sidebarSections: SidebarSectionRegistry,
+  projectors: ConsoleEntityProjectorRegistry,
   frameBindings: FrameBindingRegistry,
   sessionsComposition: SessionsSurfaceComposition,
 ): void {
@@ -79,4 +93,11 @@ export function registerCollaborationFamily(
   // everything else in this file is — naming two view families is what a composition
   // site is for.
   registerAgentsSidebarSection(sidebarSections);
+  registerCollaborationProjectors(projectors);
+  // The window's one overlay body: the deep-link invite lifecycle, which is
+  // bridge-scoped rather than session-scoped and therefore belongs to the window and
+  // not to any surface in it. The seat takes no board parameter because it holds one
+  // occupant rather than a keyed table — `seats/single-slot/window-overlay-seat.ts` says why — so
+  // the claim is this call and the frame reads whatever it left there.
+  registerInviteLifecycleOverlay();
 }

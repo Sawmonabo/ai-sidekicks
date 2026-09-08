@@ -30,14 +30,15 @@
 // only who, where, and since when. And nothing here is durable: composing mints no
 // event, so the registry is constructed per session and dies with it.
 //
-// WHERE THE ENTRIES COME FROM TODAY. The Awareness fields these model —
-// `activity.typing` and `activity.runs` — are registered in no contract and reached
-// through no bridge namespace or growth-port operation, so nothing writes to this
-// registry yet and every indicator surface renders its empty state, which is
-// exactly no indicator and no placeholder holding its space. The registry is the
-// seam that transport attaches to, and the bounds and the two mechanisms are
-// settled here rather than in the transport, because they are the part that is
-// ours.
+// WHERE THE ENTRIES COME FROM. `activity-feed.ts` is the one writer: it reads the
+// session's live activity through the growth port — the Awareness fields
+// `activity.typing` and `activity.runs`, which are registered in no contract and
+// reached through no bridge namespace, so the port refuses them under both bridges
+// and a scenario is what answers today — and folds each reading in here. It is
+// deliberately the only one, because two writers would be two answers to who is
+// composing where. The bounds and the two mechanisms are settled HERE rather than in
+// that feed, because they are the part that is ours: the feed decides what a reading
+// says, and this decides what an indicator's life is.
 
 import { useCallback, useSyncExternalStore } from "react";
 

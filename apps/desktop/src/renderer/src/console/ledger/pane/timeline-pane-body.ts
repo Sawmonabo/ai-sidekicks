@@ -25,7 +25,7 @@
 // ledger-axe.test.tsx` does).
 //
 // AND BOTH CALLS DIE WITH THE SHELL, exactly as they did at the door:
-// `seats/timeline-row-slot.ts` states the absorb-by-import rule, and the change that
+// `seats/single-slot/timeline-row-slot.ts` states the absorb-by-import rule, and the change that
 // registers the timeline subtree's real rows deletes these two lines with the modules
 // they name.
 //

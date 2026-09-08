@@ -42,7 +42,7 @@
 
 import type { ScenarioReply } from "../../scenario-runtime/index.js";
 import { isWireRecord } from "../../../core/index.js";
-import type { WireErrorEnvelope } from "../../../core/index.js";
+import { refuseAs } from "../computed-reply.js";
 import type {
   GrowthMcpBindingRef,
   GrowthMcpInventoryEntry,
@@ -219,21 +219,6 @@ const FILESYSTEM_ENABLEMENT_LIVE_RESULTS: readonly GrowthMcpLiveApplicationResul
  */
 const UNREACHABLE_BINDING_REFUSAL_MESSAGE =
   "This binding is never materialized into a run, so governance state recorded for it could never be enforced.";
-
-/**
- * Refuse as the daemon would, in the shape the wire refuses in.
- *
- * A thrown `WireErrorEnvelope` reaches the caller exactly as a `refusal` entry's does,
- * so one computed reply can hold a refusal and a success without the scenario needing
- * two entries for one call — which it could not have, since a second entry for one call
- * is unreachable. Written the way `repos-mutation-replies.ts` writes it, and separately
- * from it: that module's refusals are its own scenario's, and a shared thrower would
- * publish a scenario-authoring seam neither family reads from the other.
- */
-function refuseAs(code: string, message: string): never {
-  const envelope: WireErrorEnvelope = { code, message };
-  throw envelope;
-}
 
 /**
  * Whether a request addresses one scripted binding, member for member.

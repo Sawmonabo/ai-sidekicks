@@ -1,70 +1,27 @@
 // The roster: every row present, each in its own hue, none of them a control.
+//
+// The READ is this file's subject — the four wire states, the absences, the refusals,
+// and the work a re-render that moved nothing does. What a LOADED row then MARKS —
+// the role, the terminal-lease holder, the device fan-out behind it — is
+// `Roster.marks.test.tsx`, and the scaffolding both drive the component through is
+// `Roster.test-support.tsx`.
 
-import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
-import { frozenStartMilliseconds } from "../../core/frozen-instant.test-support.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
-import type { ChannelActivityLabels } from "../activity-model.js";
 import { rosterRowsFrom, type PresenceReading, type RosterRow } from "./presence-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
 import { Roster } from "./Roster.js";
-
-const NOW_MILLISECONDS = frozenStartMilliseconds();
-
-/** A stable no-op re-open. Fresh per render, it would defeat the memo the cases below drive. */
-const NO_REOPEN = (): void => undefined;
-
-const LABELS: ChannelActivityLabels = {
-  participantLabel: (participantId) => participantId.replace("participant-", ""),
-  runLabel: (runId) => runId,
-};
-
-function participant(
-  participantId: string,
-  state: PresenceReadResponseParticipant["state"],
-): PresenceReadResponseParticipant {
-  return {
-    participantId: participantId as PresenceReadResponseParticipant["participantId"],
-    state,
-    lastSeen: "2026-01-01T09:59:30.000Z",
-  };
-}
-
-function renderRoster(
-  participants: readonly PresenceReadResponseParticipant[],
-  overrides?: {
-    readonly allocator?: ParticipantHueAllocator;
-    readonly selfParticipantId?: string;
-    readonly composingChannelFor?: (participantId: string) => string | undefined;
-    readonly isLastKnown?: boolean;
-    readonly onReopen?: () => void;
-  },
-): ReturnType<typeof render> {
-  const allocator = overrides?.allocator ?? new ParticipantHueAllocator();
-  const rows: readonly RosterRow[] = rosterRowsFrom(
-    participants,
-    (participantId) => allocator.assignmentFor(participantId),
-    overrides?.selfParticipantId,
-  );
-  const state: PushDrivenReadState<PresenceReading> = {
-    kind: "loaded",
-    value: { participants, readAtMilliseconds: NOW_MILLISECONDS },
-  };
-  return render(
-    <Roster
-      state={state}
-      rows={rows}
-      nowMilliseconds={NOW_MILLISECONDS}
-      labels={LABELS}
-      composingChannelFor={overrides?.composingChannelFor ?? (() => undefined)}
-      isLastKnown={overrides?.isLastKnown ?? false}
-      onReopen={overrides?.onReopen ?? (() => undefined)}
-    />,
-  );
-}
+import {
+  LABELS,
+  NOW_MILLISECONDS,
+  NO_REOPEN,
+  READ_PROPS,
+  participant,
+  renderRoster,
+} from "./Roster.test-support.js";
 
 describe("roster — every row stays", () => {
   it("keeps an offline participant in the list and marks them", () => {
@@ -150,9 +107,17 @@ describe("roster — composing, and what the surface never offers", () => {
     expect(container.querySelector(".meridian-roster-row__composing")).toBeNull();
   });
 
-  it("offers no control at all — roles and invites live elsewhere", () => {
+  it("offers no control on the session — roles and invites live elsewhere", () => {
+    // Every button this surface draws acts on a READ: the device disclosure here, and
+    // the re-open on the failed arm. A control that acted on the SESSION — a role
+    // change, an invite, a lease claim — would be a second place to perform something
+    // that already has one, so the assertion counts the session controls at zero
+    // rather than counting buttons at zero and going stale the first time a read grew
+    // an affordance.
     const { container } = renderRoster([participant("participant-one", "online")]);
-    expect(container.querySelectorAll("button")).toHaveLength(0);
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.className).toContain("meridian-roster-row__detail-toggle");
   });
 });
 
@@ -165,6 +130,7 @@ describe("roster — the absences", () => {
         nowMilliseconds={NOW_MILLISECONDS}
         labels={LABELS}
         composingChannelFor={() => undefined}
+        {...READ_PROPS}
         isLastKnown={false}
         onReopen={() => undefined}
       />,
@@ -177,19 +143,48 @@ describe("roster — the absences", () => {
       <Roster
         state={{
           kind: "failed",
+          refusal: refuse("daemon", "presence.unavailable", "The presence service is down."),
+        }}
+        rows={[]}
+        nowMilliseconds={NOW_MILLISECONDS}
+        labels={LABELS}
+        composingChannelFor={() => undefined}
+        {...READ_PROPS}
+        isLastKnown={false}
+        onReopen={() => undefined}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("presence.unavailable");
+    expect(text).toContain("The presence service is down.");
+  });
+
+  it("claims no summary it is not showing, whatever code the read refused with", () => {
+    // The unauthorized default belongs to the PER-DEVICE gateway, and this is the
+    // roster's own read. An arm here that recognised that code answered a rows-less
+    // surface with a sentence saying the summary was on screen instead — and a failed
+    // read has no rows, so nothing was. The refusal is named and the retry is offered,
+    // like every other refusal on this read.
+    const { container } = render(
+      <Roster
+        state={{
+          kind: "failed",
           refusal: refuse("daemon", "presence.permission_denied", "Per-device detail is withheld."),
         }}
         rows={[]}
         nowMilliseconds={NOW_MILLISECONDS}
         labels={LABELS}
         composingChannelFor={() => undefined}
+        {...READ_PROPS}
         isLastKnown={false}
         onReopen={() => undefined}
       />,
     );
     const text = container.textContent ?? "";
+    expect(text).not.toContain("aggregated summary");
+    expect(container.querySelectorAll(".meridian-roster__row")).toHaveLength(0);
     expect(text).toContain("presence.permission_denied");
-    expect(text).toContain("Per-device detail is withheld.");
+    expect(container.querySelector(".meridian-refusal__action")).not.toBeNull();
   });
 
   it("offers a way back into a stream that refused to open", () => {
@@ -208,6 +203,7 @@ describe("roster — the absences", () => {
         nowMilliseconds={NOW_MILLISECONDS}
         labels={LABELS}
         composingChannelFor={() => undefined}
+        {...READ_PROPS}
         isLastKnown={false}
         onReopen={() => {
           reopenCount += 1;
@@ -266,6 +262,7 @@ describe("roster — a re-render that moved nothing does no work", () => {
         nowMilliseconds={NOW_MILLISECONDS}
         labels={LABELS}
         composingChannelFor={composingChannelFor}
+        {...READ_PROPS}
         isLastKnown={false}
         onReopen={NO_REOPEN}
       />
@@ -301,6 +298,7 @@ describe("roster — a re-render that moved nothing does no work", () => {
         nowMilliseconds={nowMilliseconds}
         labels={LABELS}
         composingChannelFor={composingChannelFor}
+        {...READ_PROPS}
         isLastKnown={false}
         onReopen={NO_REOPEN}
       />
