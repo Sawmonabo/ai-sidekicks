@@ -49,11 +49,10 @@
 // attribution cases below their independence — they drive planted paths and need no
 // build at all, while the census cases need one and read nothing else.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_RENDERER_OUTPUT_DIRECTORY,
@@ -62,6 +61,7 @@ import {
 } from "../../../scripts/budget/measure-bundle.mjs";
 import { readInitialGraphCensus } from "./initial-graph-census.js";
 import { OWNER_PATH_SEGMENT_LIMIT, initialGraphOwnerOf } from "./initial-graph-owners.js";
+import { TemporaryDirectoryTrail } from "./temporary-directory.js";
 
 /** An escape for censusing an out-of-tree build; NOT an escape from censusing. */
 const rendererOutputDirectory: string =
@@ -237,13 +237,28 @@ function censusOrFailLoudly(): ReturnType<typeof readInitialGraphCensus> {
   }
 }
 
+/** Every fixture tree the refusal cases plant, removed after each of them. */
+const plantedFixtures = new TemporaryDirectoryTrail();
+
+afterEach(() => {
+  plantedFixtures.removeAll();
+});
+
 /** A renderer out-dir holding exactly the manifest given, for the refusal paths. */
 function outputDirectoryWithManifest(name: string, manifest: unknown): string {
-  const directory = mkdtempSync(path.join(tmpdir(), `console-census-${name}-`));
+  const directory = plantedFixtures.create(`console-census-${name}-`);
   const manifestPath = path.join(directory, ...RENDERER_MANIFEST_RELATIVE_PATH.split("/"));
   mkdirSync(path.dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify(manifest), "utf8");
   return directory;
+}
+
+/** The chunk the manifest above names, so the measurer resolves and the census reads. */
+function plantInitialChunk(directory: string): string {
+  const chunkPath = path.join(directory, "assets", "index.js");
+  mkdirSync(path.dirname(chunkPath), { recursive: true });
+  writeFileSync(chunkPath, "export {};\n", "utf8");
+  return chunkPath;
 }
 
 describe("renderer initial-graph census", () => {
@@ -332,7 +347,7 @@ describe("census attribution", () => {
 
 describe("census refusals", () => {
   it("refuses a tree with no chunk manifest", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "console-census-empty-"));
+    const directory = plantedFixtures.create("console-census-empty-");
     expect(() => readInitialGraphCensus(directory)).toThrow(RendererBundleOutputMissingError);
   });
 
@@ -342,9 +357,47 @@ describe("census refusals", () => {
     const directory = outputDirectoryWithManifest("no-map", {
       "index.html": { file: "assets/index.js", isEntry: true },
     });
-    mkdirSync(path.join(directory, "assets"), { recursive: true });
-    writeFileSync(path.join(directory, "assets", "index.js"), "export {};\n", "utf8");
+    plantInitialChunk(directory);
     expect(() => readInitialGraphCensus(directory)).toThrow(/source map/u);
+  });
+
+  it("refuses a source map whose `sources` array holds a non-string member", () => {
+    // The reading that would otherwise be short by one module, and green: the owner set
+    // pins the directories that REMAIN and the non-empty checks are met by the other
+    // chunks, so a dropped member takes a family off the graph in silence. A good member
+    // either side of the bad one makes the drop the only difference.
+    const directory = outputDirectoryWithManifest("malformed-sources", {
+      "index.html": { file: "assets/index.js", isEntry: true },
+    });
+    const mapPath = `${plantInitialChunk(directory)}.map`;
+    writeFileSync(mapPath, JSON.stringify({ version: 3, sources: ["a.ts", 7, "b.ts"] }), "utf8");
+    expect(() => readInitialGraphCensus(directory)).toThrow(/at index 1 \(`number`\)/u);
+  });
+});
+
+describe("census fixture cleanup", () => {
+  // The floor under the `afterEach` above, and the only place a removal is observable:
+  // AFTER the hook has run. The first case plants a tree and records where, the second
+  // reads that path once the hook has had its turn — and without the hook it is still
+  // there, which is the finding: every run of the refusal suite left one behind.
+  let plantedForTheControl = "";
+
+  it("plants a fixture tree the refusal cases above drive", () => {
+    plantedForTheControl = outputDirectoryWithManifest("cleanup-control", {
+      "index.html": { file: "assets/index.js", isEntry: true },
+    });
+    expect(existsSync(plantedForTheControl)).toBe(true);
+    expect(plantedFixtures.plantedDirectories).toStrictEqual([plantedForTheControl]);
+  });
+
+  it("negative control: that tree is gone once the suite's hook has run", () => {
+    expect(plantedForTheControl, "the case above did not run").not.toBe("");
+    expect(
+      existsSync(plantedForTheControl),
+      "a census fixture outlived the test that planted it, so every local and CI run " +
+        "leaves another tree behind under the system temporary directory",
+    ).toBe(false);
+    expect(plantedFixtures.plantedDirectories).toStrictEqual([]);
   });
 });
 

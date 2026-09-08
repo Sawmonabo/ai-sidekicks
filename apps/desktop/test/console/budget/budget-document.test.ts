@@ -10,18 +10,26 @@
 // are measured against — without it a loader that refused every document would
 // pass this whole file.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 import {
   ConsoleBudgetRegistry,
   ConsoleBudgetRegistryError,
 } from "../../../scripts/budget/budget-registry.mjs";
+import { TemporaryDirectoryTrail } from "./temporary-directory.js";
 
 describe("registry validation (negative controls)", () => {
-  const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "console-budget-registry-"));
+  // ONE tree for the whole suite — every case writes its own fixture file into it — so
+  // the removal is `afterAll`: emptying the trail between cases would take the
+  // directory the next case writes into.
+  const plantedFixtures = new TemporaryDirectoryTrail();
+  const temporaryDirectory = plantedFixtures.create("console-budget-registry-");
+
+  afterAll(() => {
+    plantedFixtures.removeAll();
+  });
 
   const loadFixture = (name: string, document: unknown): (() => ConsoleBudgetRegistry) => {
     const fixturePath = path.join(temporaryDirectory, `${name}.json`);

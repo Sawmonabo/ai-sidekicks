@@ -60,9 +60,10 @@ function stableChunkName(relativePath: string): string {
 /**
  * The modules one emitted chunk holds, out of the map the build wrote beside it.
  *
- * REFUSES A MISSING MAP rather than reporting an empty chunk. A census that read no
- * modules would report a smaller initial graph than the one that shipped, and it would
- * do it while every assertion over that census passed.
+ * REFUSES A MISSING MAP rather than reporting an empty chunk, and refuses a malformed
+ * one rather than reading the members it recognises. A census that read no modules — or
+ * all but one of them — would report a smaller initial graph than the one that shipped,
+ * and it would do it while every assertion over that census passed.
  */
 function chunkSources(rendererOutputDirectory: string, relativePath: string): readonly string[] {
   const mapPath = path.join(
@@ -87,7 +88,24 @@ function chunkSources(rendererOutputDirectory: string, relativePath: string): re
       `${relativePath}.map carries no \`sources\` array`,
     );
   }
-  return sources.filter((entry): entry is string => typeof entry === "string");
+  // EVERY MEMBER IS CHECKED, AND A BAD ONE REFUSES THE MAP. Filtering one out is the
+  // same silence the arm above refuses one line earlier, only smaller: the census
+  // reports fewer modules than the chunk holds, and the membership pin stays green on
+  // what the other chunks contribute — so a bundler or plugin emitting a malformed map
+  // would take a family off this list without failing a single check.
+  const sourceMembers: readonly unknown[] = sources;
+  const modules: string[] = [];
+  for (const [index, member] of sourceMembers.entries()) {
+    if (typeof member !== "string") {
+      throw new RendererBundleOutputMissingError(
+        rendererOutputDirectory,
+        `${relativePath}.map carries a non-string \`sources\` member at index ${index} ` +
+          `(\`${typeof member}\`), so the modules that chunk holds cannot be read`,
+      );
+    }
+    modules.push(member);
+  }
+  return modules;
 }
 
 /**
@@ -97,7 +115,7 @@ function chunkSources(rendererOutputDirectory: string, relativePath: string): re
  *   escape from censusing one. Defaults to what the budget harness measures, so the two
  *   always describe the same tree.
  * @throws {RendererBundleOutputMissingError} when there is no build to read, or when a
- *   chunk on the initial graph has no map beside it.
+ *   chunk on the initial graph has no map beside it, or a map it cannot read whole.
  */
 export function readInitialGraphCensus(
   rendererOutputDirectory: string = DEFAULT_RENDERER_OUTPUT_DIRECTORY,
