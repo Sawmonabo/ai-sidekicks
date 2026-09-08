@@ -32,6 +32,21 @@
 // what produced the shadow bug: the fallback fires exactly when the local answer is
 // unavailable, which is exactly when guessing is least defensible.
 //
+// A DECLARED FUNCTION OR CLASS IS A BINDING TOO, AND ITS NAME IS HOISTED. Recording only
+// variables and binding elements left `function callDaemon(…) { … }` invisible, so a call
+// inside a scope holding one resolved past it to the module's import and was read as a
+// door call the program never makes — the same shadow the name index produced, one
+// declaration form later. A declaration's name binds in the scope that CONTAINS it and
+// binds over the whole of it, so a call written above the declaration resolves to it
+// exactly as the language runs it; every scope's bindings are recorded before any
+// position is resolved, which is what makes hoisting fall out rather than be arranged.
+//
+// AND AN EXPRESSION'S NAME IS SCOPED TO ITSELF, which is the same rule read the other
+// way. `const send = function callDaemon(…) { … }` binds that name inside its own body
+// and nowhere else, so recording it in the enclosing scope would invent a shadow the
+// language does not have — the opposite error, and the reason a class EXPRESSION opens a
+// scope here while a class DECLARATION does not need one.
+//
 // THE ONE INDEX THAT SURVIVES IS THE CROSS-MODULE ONE, and what a binding owes it is
 // the MODULE and not just the name. Two call sites name a constant
 // `agents/agent-wire.ts` declares, and the nearest binding for those is the import
@@ -49,23 +64,22 @@
 // would put three subjects in this module; handing the declaration back leaves the
 // scope chain with the one job it has, which is saying which declaration a name at a
 // position means.
+//
+// AND WHAT A DECLARATION REDUCES TO IS `daemon-method-literals.ts`', for that same
+// sentence's reason. An initializer's string literal and the literals a declared type
+// admits are questions about expressions and type nodes with nothing lexical in them,
+// and they sat here until the scope chain grew the declaration forms a hoisted
+// `function` binds — at which point one file was holding the two subjects its own header
+// says it does not.
 
 import ts from "typescript";
 
-/** What a name a call passes as its method is bound to, once the nearest binding is found. */
-export type MethodBinding =
-  /** A declaration this parse reduced to string literals — a parameter's union, or a `const`. */
-  | { readonly kind: "literals"; readonly literals: readonly string[] }
-  /** An import specifier: the cross-module index is asked for this export of this module. */
-  | {
-      readonly kind: "imported";
-      /** The name the specifier came from, which is the name the other module EXPORTS. */
-      readonly exportedName: string;
-      /** The specifier's own module, as the import spells it. */
-      readonly moduleSpecifier: string;
-    }
-  /** A declaration this parse cannot reduce. Resolving one answers nothing. */
-  | { readonly kind: "unreadable" };
+import {
+  literalInitializerBinding,
+  literalTypesIn,
+  moduleLiteralUnionAliases,
+  type MethodBinding,
+} from "./daemon-method-literals.js";
 
 /**
  * What one name is bound to, in every reading a call site takes of a binding.
@@ -132,11 +146,19 @@ export class ModuleBindingScopes {
     return scope;
   }
 
-  /** Descend, carrying the scope each child is declared in. */
+  /**
+   * Descend, carrying both scopes a child's own name could belong to.
+   *
+   * The enclosing one and the one the child OPENS, because which of them a name binds in
+   * is decided by the declaration form: a `function` or `class` DECLARATION names itself
+   * to the scope around it, and a function or class EXPRESSION names itself to its own
+   * body. Handing `#declare` only the opened scope put every declared function's name
+   * inside itself, which is a binding no caller can see.
+   */
   #walk(node: ts.Node, scope: BindingScope): void {
     node.forEachChild((child) => {
       const inner = this.#scopeOpenedBy(child, scope);
-      this.#declare(child, inner);
+      this.#declare(child, scope, inner);
       this.#walk(child, inner);
     });
   }
@@ -148,6 +170,10 @@ export class ModuleBindingScopes {
    * immediately, because their declared types are read against that same node's type
    * parameters. Its body block opens a scope of its own beneath this one, which is
    * what makes an inner `const` shadow an outer parameter.
+   *
+   * A CLASS EXPRESSION opens one for its own NAME, which is the one thing it binds that
+   * nothing outside it can see. A class DECLARATION needs none: its name binds in the
+   * scope around it and a reference from inside the body reaches that same binding.
    */
   #scopeOpenedBy(node: ts.Node, enclosing: BindingScope): BindingScope {
     if (ts.isFunctionLike(node)) {
@@ -164,7 +190,8 @@ export class ModuleBindingScopes {
       ts.isCatchClause(node) ||
       ts.isForStatement(node) ||
       ts.isForOfStatement(node) ||
-      ts.isForInStatement(node)
+      ts.isForInStatement(node) ||
+      ts.isClassExpression(node)
     ) {
       return this.#openScope(node.getStart(this.#parsed), node.end);
     }
@@ -172,25 +199,54 @@ export class ModuleBindingScopes {
   }
 
   /**
-   * Record one declaration form in the scope that contains it.
+   * Record one declaration form in the scope its own name belongs to.
+   *
+   * `enclosing` for the three forms that name the scope around them — a variable, a
+   * destructured element, and a hoisted `function` or `class` declaration — and `opened`
+   * for the two that name only themselves, a function or class EXPRESSION. A declared
+   * function is recorded as UNREADABLE rather than left unbound because it IS the binding
+   * a call in that scope names, and looking past it is the shadow this module refuses;
+   * what it is bound to is not a method this parse can reduce, which is what unreadable
+   * says.
    *
    * Imports are not among them — they are declared from the statement list before this
    * walk starts, for the reason this module's header gives.
    */
-  #declare(node: ts.Node, scope: BindingScope): void {
+  #declare(node: ts.Node, enclosing: BindingScope, opened: BindingScope): void {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      scope.bindingsByName.set(node.name.text, {
+      enclosing.bindingsByName.set(node.name.text, {
         method: literalInitializerBinding(node.initializer),
         declaration: node,
       });
       return;
     }
     if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {
-      scope.bindingsByName.set(node.name.text, {
-        method: { kind: "unreadable" },
-        declaration: node,
-      });
+      declareUnreadable(node.name, node, enclosing);
+      return;
     }
+    if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) {
+      declareUnreadable(node.name, node, enclosing);
+      return;
+    }
+    if (ts.isFunctionExpression(node) || ts.isClassExpression(node)) {
+      declareUnreadable(node.name, node, opened);
+    }
+  }
+}
+
+/**
+ * Record one name as a binding this parse cannot reduce, where the declaration has one.
+ *
+ * A default-exported `function` and an anonymous `class` expression each name nothing,
+ * and a form that binds no name shadows no name.
+ */
+function declareUnreadable(
+  name: ts.Identifier | undefined,
+  declaration: ts.Declaration,
+  scope: BindingScope,
+): void {
+  if (name !== undefined) {
+    scope.bindingsByName.set(name.text, { method: { kind: "unreadable" }, declaration });
   }
 }
 
@@ -258,41 +314,6 @@ function declareImportClause(
 }
 
 /**
- * An expression with its type-only wrappers peeled off.
- *
- * `satisfies`, `as`, an angle-bracket assertion and a parenthesis each wrap a value
- * without changing which one it is, and the console writes the first of them where it
- * matters most: the provider-readiness probe's method constant is
- * `"providerAccount.probe" satisfies MutatingDaemonMethod`, which is the store family's
- * classification checked at the declaration. A reader that stopped at the wrapper
- * reported that call as naming no method at all — an offender manufactured by the
- * instrument, from a module doing exactly the right thing.
- */
-export function withoutTypeWrappers(expression: ts.Expression): ts.Expression {
-  let inner = expression;
-  while (
-    ts.isSatisfiesExpression(inner) ||
-    ts.isAsExpression(inner) ||
-    ts.isTypeAssertionExpression(inner) ||
-    ts.isParenthesizedExpression(inner)
-  ) {
-    inner = inner.expression;
-  }
-  return inner;
-}
-
-/** What a `const` is bound to: its own string literal, or nothing this parse can read. */
-function literalInitializerBinding(initializer: ts.Expression | undefined): MethodBinding {
-  if (initializer === undefined) {
-    return { kind: "unreadable" };
-  }
-  const literal = withoutTypeWrappers(initializer);
-  return ts.isStringLiteralLike(literal)
-    ? { kind: "literals", literals: [literal.text] }
-    : { kind: "unreadable" };
-}
-
-/**
  * The string literals each of a function's parameters is declared to admit.
  *
  * Reached through TWO indirections that are how a narrowed method argument is really
@@ -328,42 +349,4 @@ function parameterBindings(
     });
   }
   return bindingsByParameterName;
-}
-
-/** The string literals a type node admits, following one constraint or alias hop. */
-function literalTypesIn(
-  type: ts.TypeNode,
-  constraints: ReadonlyMap<string, ts.TypeNode>,
-  aliasedUnions: ReadonlyMap<string, readonly string[]>,
-): readonly string[] {
-  if (ts.isLiteralTypeNode(type)) {
-    return ts.isStringLiteralLike(type.literal) ? [type.literal.text] : [];
-  }
-  if (ts.isUnionTypeNode(type)) {
-    const members = type.types.map((member) => literalTypesIn(member, constraints, aliasedUnions));
-    return members.some((member) => member.length === 0) ? [] : members.flat();
-  }
-  if (!ts.isTypeReferenceNode(type) || !ts.isIdentifier(type.typeName)) {
-    return [];
-  }
-  const constraint = constraints.get(type.typeName.text);
-  if (constraint !== undefined) {
-    return literalTypesIn(constraint, new Map(), aliasedUnions);
-  }
-  return aliasedUnions.get(type.typeName.text) ?? [];
-}
-
-/** Every module-level `type NAME = "a" | "b"` in one file, by name. */
-function moduleLiteralUnionAliases(parsed: ts.SourceFile): ReadonlyMap<string, readonly string[]> {
-  const aliases = new Map<string, readonly string[]>();
-  for (const statement of parsed.statements) {
-    if (!ts.isTypeAliasDeclaration(statement)) {
-      continue;
-    }
-    const literals = literalTypesIn(statement.type, new Map(), new Map());
-    if (literals.length > 0) {
-      aliases.set(statement.name.text, literals);
-    }
-  }
-  return aliases;
 }

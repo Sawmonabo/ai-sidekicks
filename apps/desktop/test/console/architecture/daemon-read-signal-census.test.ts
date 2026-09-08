@@ -18,6 +18,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DOOR_SHADOWED_BY_FUNCTION_DECLARATION,
+  NAMESPACE_DOOR_CALLEES,
   PLANTED_READINGS,
   PLANTED_REGISTRY,
   plantedSites,
@@ -145,21 +147,43 @@ describe("the four offender readings", () => {
     // held and be green here, in the reach scan, and in the pinned consumer count at
     // once. Both directions are asserted, because a reading that only refuses reads like
     // a rule nobody can satisfy and would be turned off within a week.
-    const unsignalled = plantedSitesThroughNamespace([
-      "export function useAdmittedRoots(bridge, sessionId) {",
-      '  const reply = await daemonDoor.callDaemon(bridge, "repo.workspaceList", { sessionId });',
-      "}",
-    ]);
-    expect(unstoppableReadOffenders(unsignalled, PLANTED_READINGS)).toStrictEqual([
-      'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
-    ]);
-    const signalled = plantedSitesThroughNamespaceInReadHelper([
-      'await daemonDoor.callDaemon(bridge, "repo.workspaceList", request, { signal });',
-      'await daemonDoor.callDaemon(bridge, "session.join", request);',
-    ]);
-    expect(signalled.map((site) => site.signalArgument)).toStrictEqual(["present", "absent"]);
-    expect(unstoppableReadOffenders(signalled, PLANTED_READINGS)).toStrictEqual([]);
-    expect(stoppableRecordOffenders(signalled, PLANTED_READINGS)).toStrictEqual([]);
+    //
+    // IN BOTH SPELLINGS OF THAT READ, from the corpus's own declared set: the bracketed
+    // key was outside this census for exactly the reason the dotted one had been, so a
+    // case written for one of them proves nothing about the other.
+    for (const door of NAMESPACE_DOOR_CALLEES) {
+      const unsignalled = plantedSitesThroughNamespace([
+        "export function useAdmittedRoots(bridge, sessionId) {",
+        `  const reply = await ${door}(bridge, "repo.workspaceList", { sessionId });`,
+        "}",
+      ]);
+      expect(unstoppableReadOffenders(unsignalled, PLANTED_READINGS), door).toStrictEqual([
+        'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
+      ]);
+      const signalled = plantedSitesThroughNamespaceInReadHelper([
+        `await ${door}(bridge, "repo.workspaceList", request, { signal });`,
+        `await ${door}(bridge, "session.join", request);`,
+      ]);
+      expect(
+        signalled.map((site) => site.signalArgument),
+        door,
+      ).toStrictEqual(["present", "absent"]);
+      expect(unstoppableReadOffenders(signalled, PLANTED_READINGS), door).toStrictEqual([]);
+      expect(stoppableRecordOffenders(signalled, PLANTED_READINGS), door).toStrictEqual([]);
+    }
+  });
+
+  it("negative control: a local function of the door's name is reported by no reading", () => {
+    // THE OFFENDER AN UNRECORDED DECLARATION MANUFACTURED. Both calls inside the helper
+    // are the nested `function callDaemon`'s, so neither is a daemon read at all — and a
+    // scope builder that skipped function declarations resolved both past it to the
+    // import and reported two reads that carry no signal, against a module whose only
+    // real door call carries one. A gate reporting a defect the program does not have is
+    // turned off as fast as one that misses the defect it does.
+    const sites = plantedSites(DOOR_SHADOWED_BY_FUNCTION_DECLARATION);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+    expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
   });
 
   it("negative control: a read handed a signal that is not its round's is reported", () => {

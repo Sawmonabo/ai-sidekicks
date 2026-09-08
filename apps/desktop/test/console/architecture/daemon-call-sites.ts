@@ -57,8 +57,9 @@ import ts from "typescript";
 
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import { namesCallDoor } from "./daemon-call-census.js";
-import { ModuleBindingScopes, withoutTypeWrappers } from "./daemon-method-bindings.js";
+import { ModuleBindingScopes } from "./daemon-method-bindings.js";
 import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
+import { withoutTypeWrappers } from "./daemon-method-literals.js";
 import { readSignalArgument, type SignalArgumentReading } from "./daemon-signal-argument.js";
 
 /** Where the method name sits in the door's argument list. */

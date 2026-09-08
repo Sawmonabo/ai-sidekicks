@@ -50,11 +50,8 @@
 
 import ts from "typescript";
 
-import {
-  withoutTypeWrappers,
-  type ModuleBindingScopes,
-  type NameBinding,
-} from "./daemon-method-bindings.js";
+import { type ModuleBindingScopes, type NameBinding } from "./daemon-method-bindings.js";
+import { withoutTypeWrappers } from "./daemon-method-literals.js";
 
 /** The member of a call's options that stops a read, and the member a round publishes it as. */
 const SIGNAL_MEMBER = "signal";

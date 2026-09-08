@@ -44,12 +44,12 @@
 // no third. An identifier is the door where it resolves to the import specifier that
 // imported it, under the exported spelling or whatever the clause aliased it to — the
 // `propertyName ?? name` reading the clause census below makes of the same element. A
-// property access `X.callDaemon` is the door where `X` resolves to a NAMESPACE import,
-// through the same scope chain at the same position, so a local `const daemonDoor = …`
-// shadows the namespace exactly as a parameter shadows a named import and neither is a
-// door call. The namespace's own local name is never matched: `import * as wire` reads
-// the same as `import * as daemonDoor`, because what a module called a binding is not
-// what the binding is.
+// MEMBER READ of the door — `X.callDaemon`, or `X["callDaemon"]` — is the door where `X`
+// resolves to a NAMESPACE import, through the same scope chain at the same position, so
+// a local `const daemonDoor = …` shadows the namespace exactly as a parameter shadows a
+// named import and neither is a door call. The namespace's own local name is never
+// matched: `import * as wire` reads the same as `import * as daemonDoor`, because what a
+// module called a binding is not what the binding is.
 //
 // AND THE MODULE A NAMESPACE NAMES IS DELIBERATELY NOT CONSULTED, for the reason the
 // named form does not consult it either: the door is identified by the EXPORT a call
@@ -59,6 +59,32 @@
 // file exists to refuse. `X.callDaemon` off a namespace of some other module is
 // therefore read as the door and reported, exactly as
 // `import { callDaemon } from "./anywhere.js"` has always been.
+//
+// AND A MEMBER READ IS ONE PREDICATE FOR BOTH SPELLINGS. `daemonDoor.callDaemon` and
+// `daemonDoor["callDaemon"]` are the same read of the same export off the same binding,
+// and the language resolves them identically — so `readsMember` reads the member however
+// the key was written, and `namesCallDoor` and `importsCallDoor` share it. Admitting only
+// the dotted form left the bracketed one matched by NEITHER: the site scan skipped the
+// callee and the clause census below skipped the module, so the pinned consumer count
+// did not move and an unsignalled read behind that spelling passed every gate at once,
+// which is the namespace form's own hole a second time under a different key.
+//
+// A COMPUTED KEY THAT IS NOT A LITERAL IS NOT RESOLVABLE AND STAYS A NON-MATCH.
+// `daemonDoor[name]` requires deciding what `name` holds, which is a value rather than a
+// binding — the depth limit `daemon-call-sites.ts` states, and the residual
+// `child-process-reach.ts` records for the loader names it reads the same way. What is
+// closed is every spelling that still says the member's name in the text, which is why
+// the key admitted is a string literal or the no-substitution template that is one.
+//
+// THE REACH FORMS BELOW PARTITION BY SPELLING ON PURPOSE, which is why two readings
+// there stay dotted rather than taking the shared one. `namesDaemonNamespaceByDots` IS
+// the fully dotted spelling — the computed ones are reported as forms of their own,
+// "namespace taken by computed key" and "called by computed key" — and the `.call` step
+// of `readsCallDoor` is dotted for the same reason: its bracketed spelling already has a
+// form name, and folding the two would fold two form names into one. Every OTHER member
+// read here takes the shared predicate, the computed-key form's own bridge step
+// included, so `bridge["sidekicks"]["daemon"]` is reported rather than falling between
+// two readings.
 
 import ts from "typescript";
 
@@ -117,7 +143,7 @@ function isCallDoorSpecifier(declaration: ts.Declaration | undefined): boolean {
 
 /**
  * Whether `node` reads the door's export off an IMPORTED MODULE NAMESPACE:
- * `daemonDoor.callDaemon`.
+ * `daemonDoor.callDaemon`, or `daemonDoor["callDaemon"]`, which is the same read.
  *
  * The namespace here is an `import * as` binding and never the bridge's own `daemon`
  * namespace, which `readsCallDoor` below is about — two senses of one word, held apart
@@ -192,7 +218,7 @@ export function daemonCallReaches(source: string, fileName = "probe.ts"): readon
       if (readsMember(node.expression, BRIDGE_NAMESPACE)) {
         found.add("namespace taken by computed key");
       }
-      if (namesDaemonNamespace(node.expression)) {
+      if (readsMember(node.expression, DAEMON_NAMESPACE)) {
         found.add("called by computed key");
       }
     }
@@ -231,7 +257,8 @@ const REACH_FORM_ORDER: readonly string[] = [
  * skipping the shape entirely let a module reach the door, contribute no calls to the
  * scan beside this one, and stay outside the pinned consumer count — every gate green
  * over a module none of them could see. `daemonDoor.callDaemon` is the door read and is
- * counted; `daemonDoor.formatRefusal` is not.
+ * counted, as is `daemonDoor["callDaemon"]`, through the one member reading the site
+ * scan makes; `daemonDoor.formatRefusal` is not.
  *
  * A READ AND NOT A CALL, because a named import that is never invoked is counted too:
  * this census asks what a module CONSUMES and the site scan asks what a call says.
@@ -289,27 +316,43 @@ function callDoorLocalNames(parsed: ts.SourceFile): ReadonlySet<string> {
   return localNames;
 }
 
-/** Whether `node` reads `<something>.<member>`. */
-function readsMember(node: ts.Node, member: string): node is ts.PropertyAccessExpression {
+/** A member read, in the two spellings that still say the member's name in the text. */
+type MemberRead = ts.PropertyAccessExpression | ts.ElementAccessExpression;
+
+/**
+ * Whether `node` reads `<something>.<member>`, however the key was spelled.
+ *
+ * The one reading this module's header states: `X.member` and `X["member"]` are the same
+ * read of the same member off the same object, so one predicate answers both and every
+ * consumer of it moves at once. A key that is not a literal is refused rather than
+ * guessed at, for the reason the header gives.
+ *
+ * The narrowing is what the callers need beyond the boolean: both spellings carry the
+ * object as `.expression`, which is the half a binding resolution is asked of.
+ */
+function readsMember(node: ts.Node, member: string): node is MemberRead {
+  return (
+    readsMemberByDots(node, member) ||
+    (ts.isElementAccessExpression(node) &&
+      ts.isStringLiteralLike(node.argumentExpression) &&
+      node.argumentExpression.text === member)
+  );
+}
+
+/** Whether `node` reads `<something>.<member>`, spelled with a dot. */
+function readsMemberByDots(node: ts.Node, member: string): node is ts.PropertyAccessExpression {
   return ts.isPropertyAccessExpression(node) && node.name.text === member;
 }
 
 /** `<bridge>.sidekicks.daemon`, spelled with dots the whole way. */
 function namesDaemonNamespaceByDots(node: ts.Node): boolean {
-  return readsMember(node, DAEMON_NAMESPACE) && readsMember(node.expression, BRIDGE_NAMESPACE);
-}
-
-/** The daemon namespace, however the last step was spelled. */
-function namesDaemonNamespace(node: ts.Expression): boolean {
   return (
-    readsMember(node, DAEMON_NAMESPACE) ||
-    (ts.isElementAccessExpression(node) &&
-      ts.isStringLiteralLike(node.argumentExpression) &&
-      node.argumentExpression.text === DAEMON_NAMESPACE)
+    readsMemberByDots(node, DAEMON_NAMESPACE) &&
+    readsMemberByDots(node.expression, BRIDGE_NAMESPACE)
   );
 }
 
 /** Whether `node` is a read of the call door off the daemon namespace. */
 function readsCallDoor(node: ts.Node): boolean {
-  return readsMember(node, CALL_MEMBER) && namesDaemonNamespace(node.expression);
+  return readsMemberByDots(node, CALL_MEMBER) && readsMember(node.expression, DAEMON_NAMESPACE);
 }
