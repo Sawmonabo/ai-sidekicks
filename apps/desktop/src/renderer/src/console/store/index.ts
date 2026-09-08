@@ -279,20 +279,13 @@ export type { PeerInvocationProjection } from "./peer-invocation-projection.js";
 // schedulers and the live announcer's hold.
 export { earliestFutureDeadline, useDeadlineWake } from "./deadline-wake.js";
 
-// THE TWO SUBJECT PRIMITIVES, and why they ship through this door rather than being
-// re-implemented per family. State that outlives its subject was the recurring defect
-// class across every console family: a pane rebound from one session to another kept
-// the previous one's editor text, busy flag, roster, or outcome for a frame, and a
-// call still in flight against the previous subject settled into the new one. Five
-// families each wrote their own holder and their own generation counter, and the
-// place copies of a guard drift is the predicate.
-//
-// `subject-scoped-holder.ts` holds the rule and `subject-scoped-state.ts` is its
-// React half, which together answer what a surface RENDERS for the subject it is
-// bound to; `generation-latch.ts` answers whether an act may be dispatched at all,
-// which a handler settles inside its own tick. `test/console/architecture/
+// THE TWO SUBJECT PRIMITIVES, published rather than re-implemented per family:
+// `subject-scoped-holder.ts` holds the rule and its own header carries what five
+// families each found separately, `subject-scoped-state.ts` is its React half, and
+// `generation-latch.ts` answers whether an act may be dispatched at all. What this
+// door adds is the enforcement — `test/console/architecture/
 // subject-state-chokepoint.test.ts` fails the build on a second implementation of
-// either.
+// either, which is why reaching them is a door line and not a deep import.
 //
 // The `@consumedBy` tags are the dead-code gate's one exemption, on this package's
 // terms: they name the task that imports the symbol, and they are deleted in the PR
@@ -320,21 +313,17 @@ export { useSubjectScopedResource } from "./subject-scoped-resource.js";
 export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
-// THE ACT PRIMITIVE, beside the two subject primitives and the latch it composes.
-// An act with a prerequisite read behind it — a roster before a node is named, the
-// modes a mount admits, whether a branch already has a checkout — was written three
-// times in one directory before this existed: three schedulers, three trigger
-// wirings, three emitters, three four-arm vocabularies, three overlap guards, and
-// three copies of the hook and its disposal constant. It ships through this door for
-// `RefreshScheduler`'s reason: a chokepoint reachable only by deep-importing past
-// this barrel is one a family would route around rather than through.
+// THE ACT PRIMITIVE, beside the two subject primitives and the latch it composes. It
+// ships through this door for `RefreshScheduler`'s reason: a chokepoint reachable only
+// by deep-importing past this barrel is one a family would route around rather than
+// through. `act-controller.ts`'s own header counts what three copies of it cost.
 //
 // WHAT LEAVES IS THE BASE CLASS AND NOT THE MACHINE, because the pass-through was the
-// last thing still being copied: `act-controller-base.ts` holds the `ActController`
-// and every family extends that. `ActController` itself therefore has no reader
-// outside this family, and a door line for it would be a name nothing outside
-// `store/` ever types — which the barrel census fails. It rejoins this door the day a
-// surface holds one directly.
+// last thing still being copied — `act-controller-base.ts` says why, and holds the
+// class every family extends. `ActController` itself therefore has no reader outside
+// this family, and a door line for it would be a name nothing outside `store/` ever
+// types — which the barrel census fails. It rejoins this door the day a surface holds
+// one directly.
 export { ActSurfaceController } from "./act-controller-base.js";
 // The three reading shapes travel with it because a controller composing one has to
 // NAME what it publishes: its own settled arm is its own, and the three arms around

@@ -6,8 +6,9 @@
 // `RouteSurface.tsx` resolves a route to a surface, `frame-commands.ts` carries the
 // frame's own commands and chords, `rail-navigation.ts` builds the rail,
 // `session-lifecycle.ts` owns the session registry, `ui-state-lifecycle.ts` owns the
-// durable store's life, and `scheme-preference.ts` owns the colour scheme end to
-// end — and every decision below is one the rest of the substrate depends on:
+// durable store's life, `window-focus-refresh.ts` owns the window's focus transition,
+// and `scheme-preference.ts` owns the colour scheme end to end — and every decision
+// below is one the rest of the substrate depends on:
 //
 //   • **One store per window, created once.** `useRef` rather than `useMemo`: a
 //     memo may be discarded and recomputed, and a recreated `SessionStore` would
@@ -48,7 +49,7 @@
 //     and down with it, so a destination that used to hold such a read is now a
 //     reader of it and navigating away no longer ends it.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 
 import { type ConsoleBridge } from "../bridge/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../core/index.js";
@@ -101,6 +102,7 @@ import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecy
 import { type ConsoleSurfaceContext } from "../seats/index.js";
 import { applyConsoleScheme } from "./token-installation.js";
 import { useUiStateStore } from "./ui-state-lifecycle.js";
+import { useWindowFocusRefresh } from "./window-focus-refresh.js";
 
 export interface ConsoleFrameProps {
   readonly bridge: ConsoleBridge;
@@ -217,36 +219,9 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     [railAttentionCount],
   );
 
-  // Window focus is a refresh reason, not a poll.
-  //
-  // The re-read rides the TRANSITION into focus rather than the event itself. A
-  // window that never lost focus missed nothing, so re-reading every open session
-  // on a focus event a person did not cause would be the poll this design refuses;
-  // a window that WAS blurred may have missed a delivery or a read while nobody was
-  // looking, and its open stores are stale until something asks for them again.
-  //
-  // Whether the window was focused is read back from the store rather than kept in
-  // a ref beside it. The store already holds that fact — `isWindowFocused` is what
-  // the scheduler's `window-focus` reason is named for — and a second copy would be
-  // the same value recorded twice, free to disagree.
-  useEffect(() => {
-    const onFocus = (): void => {
-      if (frameStore.getState().isWindowFocused) {
-        return;
-      }
-      frameStore.setWindowFocused(true);
-      sessionStoreRegistry.requestRefreshOfEverySession("window-focus");
-    };
-    const onBlur = (): void => {
-      frameStore.setWindowFocused(false);
-    };
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [frameStore, sessionStoreRegistry]);
+  // Window focus is a refresh reason, not a poll. `window-focus-refresh.ts` owns both
+  // edges and says why the re-read rides the TRANSITION rather than the event.
+  useWindowFocusRefresh(frameStore, sessionStoreRegistry);
 
   // What this console and the local runtime agreed to speak. One read per bridge, put
   // through the console's growth-read chokepoint and followed by no timer — see
