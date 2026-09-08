@@ -30,6 +30,7 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { registryListReply } from "../attach/account-axis/account-registry.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
 
@@ -80,6 +81,14 @@ export class HeldAttachDaemon {
   public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
     if (method === "sidekick.definitionList") {
       return [DEFINITION];
+    }
+    // The attach form's account axis is a registry axis, so opening the dialog opens
+    // this node's one account-plane reading. Answered here rather than left
+    // unscripted: an unread registry is a state the field renders honestly, but it is
+    // not the state these cases are about, and a throw would turn every one of them
+    // into a case about a refused read.
+    if (method === "providerAccount.list") {
+      return registryListReply();
     }
     if (method === "agent.attach") {
       this.#attachCallCount += 1;

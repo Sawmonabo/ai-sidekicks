@@ -13,10 +13,20 @@
 //
 // WHY THE TWO TERMINAL EVENTS ARE NOT RENDERED HERE. `agent.provider_switched` and
 // `agent.provider_switch_failed` are absent from the shipped `SessionEventType`
-// union, so no store admits them and no timeline row can carry one. What this
-// console can show today is the HELD-OPEN reply, which is what this renders. The
-// absence is stated rather than approximated with a row composed from the reply,
-// because a row in the timeline claims the log carried it.
+// union, so no fixture may script one — the scenario runtime holds every beat to the
+// registered census — and no timeline row can carry one. What this console can show
+// today is the HELD-OPEN reply, which is what this renders. The absence is stated
+// rather than approximated with a row composed from the reply, because a row in the
+// timeline claims the log carried it, and because only the client that ISSUED the
+// mutation ever sees that reply: a participant on another machine watching the same
+// agent switch has no reply and would get a row about a settlement nothing delivered
+// to them.
+//
+// THE DEBT IS ON THE LEDGER, NOT ONLY IN THIS COMMENT. Both terminals carry a row in
+// `bridge/growth-port/growth-slate.ts` — two rows, because the failed terminal is
+// waited on by the composer's target chip and the applied one by this line and the
+// runs pane's status row — and the gate beside that table fails the day the census
+// registers either, which is the day this file grows the fold.
 
 import { Chip } from "../../primitives/index.js";
 import { describeSwitchSettlement } from "./switch-settlement.js";

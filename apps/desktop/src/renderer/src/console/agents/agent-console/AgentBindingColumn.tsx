@@ -44,6 +44,7 @@ import { AgentCard } from "../AgentCard.js";
 import { AgentRosterEmpty } from "../AgentRosterEmpty.js";
 import { type ProviderAxis } from "../agent-wire.js";
 import { AttachSidekick } from "../attach/AttachSidekick.js";
+import { useAttachHandoffClaim } from "../attach/attach-handoff/index.js";
 import { AttachSidekickForm } from "../attach/attach-model.js";
 import { ProviderSwitch } from "../provider-switch/ProviderSwitch.js";
 import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
@@ -77,6 +78,13 @@ export interface AgentBindingColumnProps {
   readonly models: AgentConsoleModels;
   /** The agent this console is about. `undefined` shows the whole roster. */
   readonly agentId: string | undefined;
+  /**
+   * Open the page where definitions are kept, from the mount that can navigate.
+   *
+   * Handed down to the attach form's picker and read nowhere else here. `undefined`
+   * in a window with no settings rail, which draws no link rather than a dead one.
+   */
+  readonly onOpenDefinitions?: (() => void) | undefined;
 }
 
 /** What one binding submission was about, so its settlement can be shown under it. */
@@ -98,6 +106,11 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   const [attachForm] = useState(() => new AttachSidekickForm());
   const [, noteFormEdited] = useReducer((edits: number) => edits + 1, 0);
   const [isAttachOpen, setAttachOpen] = useState(false);
+  // STABLE, because the handoff claim's effect below names it: an inline arrow would
+  // carry a new identity on every render and re-arm that effect on every pass.
+  const openAttachForm = useCallback((): void => {
+    setAttachOpen(true);
+  }, []);
   // The latches, held for the life of this mount. Built by initializers for the
   // form's reason: a body would mint a fresh one on every discarded render pass,
   // and a latch that is replaced mid-flight admits the press it exists to refuse.
@@ -125,6 +138,20 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   >(models, sessionId, () => undefined);
 
   useEffect(() => attachForm.onChange(noteFormEdited), [attachForm, noteFormEdited]);
+
+  // A DEFINITION HANDED OVER FROM THE SETTINGS PAGE OPENS THIS FORM ON IT. The offer
+  // is this window's, made for one session, spent once, and resolved against the
+  // definition read this column already holds — so a definition deleted between the
+  // press and this mount opens nothing rather than a form pointed at a record that is
+  // gone. `setAttachOpen` is React's own setter and is stable, so the claim's effect
+  // is armed by the read moving and by nothing else.
+  useAttachHandoffClaim({
+    bridge: models.subject.bridge,
+    sessionId,
+    definitions: definitionsState,
+    form: attachForm,
+    onOpen: openAttachForm,
+  });
 
   // An attach is about the SESSION, so the session moving is what retires its round.
   // The agent the console is pointed at is not its subject: an attach outstanding
@@ -324,11 +351,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         />
       )}
 
-      <button
-        type="button"
-        className="meridian-agent-card__action"
-        onClick={() => setAttachOpen(true)}
-      >
+      <button type="button" className="meridian-agent-card__action" onClick={openAttachForm}>
         Attach a sidekick
       </button>
 
@@ -337,10 +360,17 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         onOpenChange={setAttachOpen}
         form={attachForm}
         sessionId={models.sessionId}
+        // The models' OWN bridge rather than a second prop on this column: the set
+        // holds the exact bridge its reads were built against, and a bridge threaded
+        // separately could be a different one from the one the roster is answering
+        // from. The account axis behind it opens the node's registry reading only
+        // while the dialog is mounted.
+        bridge={models.subject.bridge}
         catalog={catalogState}
         definitions={definitionsState}
         onCatalogReopen={reopenCatalog}
         onDefinitionsReopen={reopenDefinitions}
+        onOpenDefinitions={props.onOpenDefinitions}
         onSubmit={submitAttach}
         // The latch's own arm, projected onto the control. The form holds no flag
         // of its own, so what is disabled and what is refused cannot disagree.

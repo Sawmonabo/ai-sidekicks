@@ -20,10 +20,20 @@
 // TWO FIELDS ARE DELIBERATELY NOT RENDERED ANYWHERE: the admitting principal and the
 // interrupt-dispatch progress marker. Both live in the durable slot as recovery
 // inputs and reach no caller at all.
+//
+// `createdAt` IS RENDERED, AND IN THE HEAD RATHER THAN THE EFFECTIVE LINE. It is part
+// of the identity and lifecycle the roster reply carries, and it was being dropped —
+// a roster of several agents gave no way to tell the one attached this morning from
+// the one that has been in the session since it opened. It belongs beside the state
+// chip because both describe the agent's own lifecycle, and deliberately NOT on the
+// effective line, whose members are all provider axes: an instant sitting among them
+// would read as one more axis of the binding. It is labelled for the wire member it
+// is rather than glossed as "attached", because the roster reply states when the row
+// was created and says nothing about how it came to be.
 
 import { useId } from "react";
 import { type ConsoleRefusal } from "../core/index.js";
-import { InlineRefusal } from "../primitives/index.js";
+import { InlineRefusal, WireFigure, formatDateTime } from "../primitives/index.js";
 import { type AgentRosterEntry } from "../bridge/index.js";
 import { ResolvedConfigurationEcho } from "./ResolvedConfigurationEcho.js";
 import { BindingAxis } from "./BindingAxis.js";
@@ -73,6 +83,12 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
       <header className="meridian-agent-card__head">
         <h4 className="meridian-agent-card__name">{label}</h4>
         <AgentStateChip state={agent.state} defaultNodeId={agent.defaultNodeId} />
+        {agent.createdAt === undefined ? null : (
+          <span className="meridian-agent-card__created">
+            <span className="meridian-agent-card__line-label">Created</span>{" "}
+            <WireFigure value={formatDateTime(agent.createdAt)} title={agent.createdAt} />
+          </span>
+        )}
       </header>
 
       <p className="meridian-agent-card__effective">

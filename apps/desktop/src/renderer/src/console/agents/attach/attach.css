@@ -1,0 +1,128 @@
+/* Attaching a sidekick: the dialog, its two arms, the way out to the definitions page,
+ * and the confirmation.
+ *
+ * Beside the components rather than inside `agents.css`, on the
+ * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one
+ * file. Split out of that sheet verbatim and in order; that was a MOVE and not a
+ * restyle, and no pinned image may shift because of it. The definitions link's two
+ * selectors below arrived afterwards with the control that draws them, and they are
+ * the only rules here the split did not carry across.
+ *
+ * THE ACCOUNT AXIS THE ARM DRAWS IS NOT STYLED HERE. `attach/account-axis/` carries no
+ * door of its own, so this directory owns it and its rules would land in this file by
+ * the ownership rule alone — except that every selector that field sets is
+ * `.meridian-axis-field*`, a block `AxisCombobox.tsx` and the provider switch draw too.
+ * Filing them here would make the attach directory the reason the switch is styled, so
+ * they sit in `../axis-field.css` with the rest of the block, whose header records it.
+ *
+ * THE BLOCK IS `meridian-attach` AND THE REPOSITORY DIALOG'S IS `meridian-repo-attach`.
+ * That sheet (`repos/mounts/attach/attach.css`) records the rule and the reason: two
+ * families sharing a BEM block silently restyle each other, last sheet wins, so the
+ * block that shipped first keeps the name. This is that block, and it stays in this
+ * family.
+ *
+ * WHAT IS NOT HERE, AND WHY IT DID NOT TRAVEL WITH THE SURFACE. Two things. The shared
+ * control shape — the arm, the submit, the definition button's border, padding, focus
+ * ring, pressed state, and disabled state — is in `agents.css`, because it is one
+ * decision about how a control in this family looks and the card and both forms wear
+ * it too. And the bare-list reset naming `.meridian-attach__definitions` and
+ * `.meridian-attach__resolved` stays there for the same reason: it names a peer list
+ * and two linkage lists in the same breath.
+ *
+ * That leaves `.meridian-attach__definition-button` declared in both sheets, which is
+ * deliberate and is what the import order is for: `agents.css` gives it the family's
+ * control shape and this sheet gives it the layout only this dialog needs. Both import
+ * roots name `agents.css` first.
+ *
+ * Meridian tokens throughout. The literal lengths are the dialog's own geometry — the
+ * viewport-relative offsets and the width and height ceilings that keep it on screen. */
+
+.meridian-attach__backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--meridian-surface-sunken);
+  opacity: 0.7;
+}
+
+.meridian-attach__popup {
+  position: fixed;
+  inset-block-start: 12vh;
+  inset-inline: 50%;
+  translate: -50% 0;
+  width: min(38rem, 92vw);
+  max-height: 76vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  padding: var(--meridian-space-5);
+}
+
+.meridian-attach__title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+.meridian-attach__arms {
+  display: flex;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attach__definition-button {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+}
+
+.meridian-attach__definition-summary,
+.meridian-attach__incomplete {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The way to where definitions are kept reads as a link and not as a second action:
+   the arm's own controls choose a definition, and this one leaves for another
+   surface, so it takes no button treatment that would make the two look alike. That
+   is also why it carries its own focus ring rather than the family's: it is not one
+   of the controls the grouped rule in `agents.css` covers. */
+.meridian-attach__definitions-link {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-accent-text);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+  align-self: start;
+}
+
+.meridian-attach__definitions-link:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-attach__confirmation {
+  border-block-start: 1px solid var(--meridian-edge);
+  padding-block-start: var(--meridian-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-attach__confirmation-head,
+.meridian-attach__resolved-prose {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-attach__resolved-axis {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+}

@@ -1,0 +1,45 @@
+/* The peer-invocation grant: one switch, and what it means.
+ *
+ * Beside `PeerInvocation.tsx` rather than inside `agents.css`, on the
+ * `definitions/sidekick-definitions-page.css` precedent — one surface's rules in one
+ * file. Split out of that sheet verbatim and in order; this was a MOVE and not a
+ * restyle, and no pinned image may shift because of it.
+ *
+ * WHAT STAYED BEHIND. The tool list's reset (`.meridian-peer__tools`) and the
+ * visibility sentence (`.meridian-peer__visibility`) are both in grouped rules in
+ * `agents.css` that name other surfaces in the same selector list, and this family
+ * does not copy a grouped rule into the sheets of the surfaces it covers. The
+ * grant's action button wears the family control shape from there too.
+ *
+ * Meridian tokens throughout. No literal colour and no literal length. */
+
+.meridian-peer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-peer__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-peer__switch {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  cursor: pointer;
+}
+
+.meridian-peer__meaning {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-peer__tool {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+}

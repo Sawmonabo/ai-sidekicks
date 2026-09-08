@@ -46,7 +46,7 @@ const CAPTURE_HELPER = "captureSettled";
 /**
  * The floor the populated-tier claim is measured against.
  *
- * Six spec files call `captureSettled` today. A gate asserting only "nobody calls the
+ * Eight spec files call `captureSettled` today. A gate asserting only "nobody calls the
  * matcher directly" would also pass over a tier that had stopped capturing anything,
  * which is what a suite quietly switched off looks like from the outside.
  */
