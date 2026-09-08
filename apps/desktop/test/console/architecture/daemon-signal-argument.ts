@@ -90,12 +90,21 @@
 // taken through `daemon-method-literals.ts`' peeler rather than a second one written
 // here, and which wrappers that peels is that module's closed list rather than a
 // sentence this file would have to keep in step with it.
+//
+// AND WHAT THE ROUND WAS OPENED OFF IS `daemon-read-round-receiver.ts`', which is this
+// reading's own limit one hop out. A local arm that admitted any call named `openRound`
+// was making the mistake this file's header makes about `signal`: a member NAMED
+// `signal` is not a signal, and a factory named `openRound` on an unrelated helper is
+// not a round. Where that reading ends — at a name bound to a round — is where the
+// receiver's begins, and it is a module of its own because its answer is found in a
+// second chain this one does not build, the classes a field is declared on.
 
 import ts from "typescript";
 
 import { readsMember } from "./daemon-call-census.js";
 import { type ModuleBindingScopes, type NameBinding } from "./daemon-method-bindings.js";
 import { withoutTypeWrappers } from "./daemon-method-literals.js";
+import { type ModuleReadScopes } from "./daemon-read-round-receiver.js";
 
 /** The member of a call's options that stops a read, and the member a round publishes it as. */
 const SIGNAL_MEMBER = "signal";
@@ -105,9 +114,6 @@ const SIGNAL_TYPE = "AbortSignal";
 
 /** What a held round declares itself as, where it was handed in rather than opened. */
 const READ_ROUND_TYPE = "ReadRound";
-
-/** The scope's own factory, where a round is opened here rather than handed in. */
-const ROUND_FACTORY = "openRound";
 
 /**
  * What a call's options argument SHOWS about the signal.
@@ -139,6 +145,7 @@ export function readSignalArgument(
   options: ts.Expression | undefined,
   callStart: number,
   bindings: ModuleBindingScopes,
+  readScopes: ModuleReadScopes,
 ): SignalArgumentReading {
   if (options === undefined) {
     return "absent";
@@ -163,7 +170,7 @@ export function readSignalArgument(
   }
   return unreadable
     ? "unrecognised"
-    : readSignalValue(signalValueOf(signalMember), callStart, bindings);
+    : readSignalValue(signalValueOf(signalMember), callStart, bindings, readScopes);
 }
 
 /** Whether this member is named {@link SIGNAL_MEMBER}, in the two spellings a key has. */
@@ -220,6 +227,7 @@ function readSignalValue(
   value: ts.Expression | undefined,
   callStart: number,
   bindings: ModuleBindingScopes,
+  readScopes: ModuleReadScopes,
 ): SignalArgumentReading {
   if (value === undefined) {
     return "unrecognised";
@@ -230,7 +238,8 @@ function readSignalValue(
   }
   if (readsMember(named, SIGNAL_MEMBER)) {
     const holder = withoutTypeWrappers(named.expression);
-    return ts.isIdentifier(holder) && isHeldReadRound(bindings.resolve(holder.text, callStart))
+    return ts.isIdentifier(holder) &&
+      isHeldReadRound(bindings.resolve(holder.text, callStart), readScopes)
       ? "present"
       : "unrecognised";
   }
@@ -296,8 +305,12 @@ function isForwardedSignal(binding: NameBinding | undefined): boolean {
  * declaration that makes the initializer binding and `let` and `var` are refused whether
  * a write exists or not. The keyword is unreachable from the declaration node here —
  * `daemon-method-bindings.ts` reads it off the LIST and names it on the binding.
+ *
+ * AND WHAT THAT INITIALIZER OPENED THE ROUND OFF is asked of `ModuleReadScopes`, whose
+ * header states the rule: a factory named `openRound` is a round only where the thing
+ * it was called on is a read scope this parse can see.
  */
-function isHeldReadRound(binding: NameBinding | undefined): boolean {
+function isHeldReadRound(binding: NameBinding | undefined, readScopes: ModuleReadScopes): boolean {
   if (binding === undefined) {
     return false;
   }
@@ -310,7 +323,7 @@ function isHeldReadRound(binding: NameBinding | undefined): boolean {
   return (
     binding.form === "constant" &&
     ts.isVariableDeclaration(declaration) &&
-    opensRound(declaration.initializer)
+    readScopes.opensRound(declaration.initializer)
   );
 }
 
@@ -321,18 +334,5 @@ function namesType(type: ts.TypeNode | undefined, typeName: string): boolean {
     ts.isTypeReferenceNode(type) &&
     ts.isIdentifier(type.typeName) &&
     type.typeName.text === typeName
-  );
-}
-
-/** Whether an initializer opened a round off a scope: `<scope>.openRound()`. */
-function opensRound(initializer: ts.Expression | undefined): boolean {
-  if (initializer === undefined) {
-    return false;
-  }
-  const called = withoutTypeWrappers(initializer);
-  return (
-    ts.isCallExpression(called) &&
-    ts.isPropertyAccessExpression(called.expression) &&
-    called.expression.name.text === ROUND_FACTORY
   );
 }
