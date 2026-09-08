@@ -48,7 +48,7 @@ import {
   type EmitterSink,
   type ScheduledHandle,
   type Unsubscribe,
-} from "../core/index.js";
+} from "../../core/index.js";
 
 /**
  * The two speech channels, declared once.

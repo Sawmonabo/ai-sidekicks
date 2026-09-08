@@ -35,7 +35,7 @@
 // with and no daemon ever sent. An unreadable stamp now renders the same em dash the
 // rest of this module uses for a figure it cannot stand behind.
 
-import { parseInstant } from "../core/index.js";
+import { parseInstant } from "../../core/index.js";
 import {
   currencyMinorUnitDigits,
   dayDurationFormatFor,

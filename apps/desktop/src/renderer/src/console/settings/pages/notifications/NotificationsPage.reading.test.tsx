@@ -8,7 +8,7 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ATTENTION_TRIGGERS, growthUnavailable } from "../../../bridge/index.js";
-import { politeText } from "../../../primitives/live-region.test-support.js";
+import { politeText } from "../../../primitives/announce/live-region.test-support.js";
 import { registerNotificationsPage } from "./NotificationsPage.js";
 import type { AttentionPreference } from "./attention-preference-model.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";

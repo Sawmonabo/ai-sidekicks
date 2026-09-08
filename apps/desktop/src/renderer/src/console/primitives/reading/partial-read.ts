@@ -49,8 +49,8 @@
 // read of ${subject} was refused`), or keeps it out of the verb's way entirely. The
 // suite beside this file asserts it against both a singular and a plural subject.
 
-import type { ConsoleRefusal } from "../core/index.js";
-import { formatCount } from "./wire-figures.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import { formatCount } from "../figures/index.js";
 
 /**
  * Closed. The tuple is the declaration and `ReadingStateKind` follows from it, so a

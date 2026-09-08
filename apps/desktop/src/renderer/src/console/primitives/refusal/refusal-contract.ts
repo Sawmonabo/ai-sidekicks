@@ -33,7 +33,7 @@
 //      derivation. The renderer never computes eligibility, so it never computes a
 //      remedy either.
 
-import type { ConsoleRefusal } from "../core/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 
 /**
  * What every refusal shape renders, PICKED from the one refusal value rather than

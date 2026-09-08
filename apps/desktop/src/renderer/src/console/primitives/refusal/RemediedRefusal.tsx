@@ -19,7 +19,7 @@
 // most registered codes have no next move beyond what the daemon already said, and
 // inventing one would be the console explaining what the daemon meant.
 
-import { refusalRemedyFor, type ConsoleRefusal } from "../core/index.js";
+import { refusalRemedyFor, type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal } from "./InlineRefusal.js";
 import { RefusalCard } from "./RefusalCard.js";
 

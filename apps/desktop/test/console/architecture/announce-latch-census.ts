@@ -1,6 +1,6 @@
 // Which modules hold an announce-once latch, read out of the parse.
 //
-// A LATCH IS A PAIRING, not a name. `primitives/reading-announcement.ts` states the
+// A LATCH IS A PAIRING, not a name. `primitives/announce/reading-announcement.ts` states the
 // rule the console announces by — say a sentence when it is new, stay silent when it
 // is not, and remember what was said in a ref so remembering never causes a render —
 // and the shape that rule takes is always the same two things inside one `useEffect`:

@@ -53,7 +53,7 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { useAnnounce } from "./LiveAnnouncerProvider.js";
-import { partialReadNotices, type PartialReadNotice, type ReadingState } from "./partial-read.js";
+import { partialReadNotices, type PartialReadNotice, type ReadingState } from "../reading/index.js";
 
 /**
  * The words a notice is spoken as, or `undefined` where it says nothing aloud.

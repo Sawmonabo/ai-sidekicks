@@ -1,6 +1,6 @@
 // The announce-once latch has two homes, and the tree is held to exactly those two.
 //
-// `primitives/reading-announcement.ts` publishes the latch and says why: a second
+// `primitives/announce/reading-announcement.ts` publishes the latch and says why: a second
 // arity of one rule reached that directory, and two copies of a comparison drift into
 // a sentence a person hears twice with every test still green. Nothing enforced that.
 // Four copies were live when this gate was written — a workflows adapter whose own
@@ -39,7 +39,7 @@ import { announceLatchModules, declaresAnnounceLatch } from "./announce-latch-ce
  */
 const LATCH_HOMES: readonly string[] = [
   "console/frame/banner-announcements.ts",
-  "console/primitives/reading-announcement.ts",
+  "console/primitives/announce/reading-announcement.ts",
 ];
 
 /** A module's text as the reading takes it, named the way a failure names it. */

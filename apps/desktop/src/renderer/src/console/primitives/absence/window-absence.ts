@@ -50,7 +50,7 @@
 // line is a sentence and not a slot: that is the honest limit of the shape, and the
 // alternative is a second rendering of the one absence this console already has.
 
-import { formatCount } from "./wire-figures.js";
+import { formatCount } from "../figures/index.js";
 import { type NothingKind } from "./Nothing.js";
 
 /**

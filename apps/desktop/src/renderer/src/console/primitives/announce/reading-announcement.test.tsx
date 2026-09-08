@@ -7,7 +7,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../core/index.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { liveRegionText, politeText } from "./live-region.test-support.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
@@ -18,8 +18,8 @@ import {
   type AnnouncementDedupeKey,
 } from "./reading-announcement.js";
 import { useSettlementAnnouncement } from "./settlement-announcement.js";
-import { uncheckedCoverageReading, type ReadingState } from "./partial-read.js";
-import { PARSE_REFUSAL, READING_SUBJECT } from "./partial-read.test-support.js";
+import { uncheckedCoverageReading, type ReadingState } from "../reading/partial-read.js";
+import { PARSE_REFUSAL, READING_SUBJECT } from "../reading/partial-read.test-support.js";
 
 /** What one mounted surface hands back, whichever arity of the latch it drives. */
 interface AnnouncedRender<SurfaceProps> {

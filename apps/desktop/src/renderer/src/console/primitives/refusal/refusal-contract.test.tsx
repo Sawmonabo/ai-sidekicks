@@ -16,7 +16,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../core/index.js";
+import { refuse } from "../../core/index.js";
 import { InlineRefusal } from "./InlineRefusal.js";
 import { RefusalBanner } from "./RefusalBanner.js";
 import { RefusalCard } from "./RefusalCard.js";

@@ -4,11 +4,9 @@
 // props they share; this module decides only what "nothing changed" looks like —
 // one line beside the control, with the control still there.
 
-import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
-import { Glyph } from "./Glyph.js";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
+import { Glyph, WireFigure, formatWireString } from "../figures/index.js";
 import { type RefusalProps } from "./refusal-contract.js";
-import { WireFigure } from "./WireFigure.js";
-import { formatWireString } from "./wire-figures.js";
 
 /** Beside the control that was pressed. Nothing changed; the control stays. */
 export function InlineRefusal(props: RefusalProps): React.JSX.Element {

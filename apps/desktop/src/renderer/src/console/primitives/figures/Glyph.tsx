@@ -19,7 +19,7 @@ import {
   GLYPH_STROKE_WIDTH,
   GLYPH_VIEWBOX_SIZE,
   type GlyphName,
-} from "../tokens/index.js";
+} from "../../tokens/index.js";
 
 export type { GlyphName };
 

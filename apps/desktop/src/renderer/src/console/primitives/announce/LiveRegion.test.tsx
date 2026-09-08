@@ -13,7 +13,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "../core/index.js";
+import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { LiveRegion } from "./LiveRegion.js";
 import { regionsOf } from "./live-region.test-support.js";

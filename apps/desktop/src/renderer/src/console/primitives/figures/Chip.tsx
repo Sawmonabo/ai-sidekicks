@@ -17,7 +17,7 @@
 // signature as every other figure the daemon sent (rule 4). A chip whose label the
 // console composed leaves it off.
 
-import { GLYPH_SIZE_ROW, type GlyphName } from "../tokens/index.js";
+import { GLYPH_SIZE_ROW, type GlyphName } from "../../tokens/index.js";
 import { Glyph } from "./Glyph.js";
 import { formatWireString } from "./wire-figures.js";
 

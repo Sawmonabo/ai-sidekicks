@@ -19,7 +19,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-import { type ConsoleClock } from "../core/index.js";
+import { type ConsoleClock } from "../../core/index.js";
 import { LiveAnnouncer, type Announce } from "./live-announcer.js";
 import { LiveRegion } from "./LiveRegion.js";
 

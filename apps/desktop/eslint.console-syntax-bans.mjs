@@ -118,7 +118,7 @@ export const consoleSyntaxBans = [
     ],
     ignores: [
       "src/renderer/src/console/core/instant.test.ts",
-      "src/renderer/src/console/primitives/wire-figures.time.test.ts",
+      "src/renderer/src/console/primitives/figures/wire-figures.time.test.ts",
     ],
     rules: {
       "no-restricted-syntax": [

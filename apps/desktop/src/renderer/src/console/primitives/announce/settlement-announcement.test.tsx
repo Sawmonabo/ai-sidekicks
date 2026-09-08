@@ -11,7 +11,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../core/index.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
 import { liveRegionText, politeText } from "./live-region.test-support.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";

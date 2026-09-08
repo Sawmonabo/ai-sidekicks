@@ -5,11 +5,9 @@
 // joined the session's history — a block in the feed rather than a line beside a
 // control, and no live region of its own, because the feed announces its own rows.
 
-import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
-import { Glyph } from "./Glyph.js";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
+import { Glyph, WireFigure, formatWireString } from "../figures/index.js";
 import { type RefusalProps } from "./refusal-contract.js";
-import { WireFigure } from "./WireFigure.js";
-import { formatWireString } from "./wire-figures.js";
 
 /** In the ledger, when the refusal is now part of what happened. */
 export function RefusalCard(props: RefusalProps): React.JSX.Element {

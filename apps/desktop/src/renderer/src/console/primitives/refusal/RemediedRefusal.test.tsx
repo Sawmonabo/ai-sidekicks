@@ -11,7 +11,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse, refusalRemedyFor } from "../core/index.js";
+import { refuse, refusalRemedyFor } from "../../core/index.js";
 import { RemediedRefusal } from "./RemediedRefusal.js";
 
 const GONE_SESSION = refuse("runs", "session.not_found", "That session is not on this node.");

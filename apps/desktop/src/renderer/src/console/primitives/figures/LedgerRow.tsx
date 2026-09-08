@@ -38,7 +38,7 @@ import {
   type ParticipantRingTreatment,
   participantHueTokenName,
   tokenReference,
-} from "../tokens/index.js";
+} from "../../tokens/index.js";
 import { WireFigure } from "./WireFigure.js";
 import { formatClockTime } from "./wire-figures.js";
 

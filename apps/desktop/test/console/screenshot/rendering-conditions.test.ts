@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { formatClockTime } from "../../../src/renderer/src/console/primitives/wire-figures.js";
+import { formatClockTime } from "../../../src/renderer/src/console/primitives/figures/wire-figures.js";
 
 /** An instant with a distinct hour in every zone this could plausibly run in. */
 const FIXED_INSTANT = "2026-09-05T23:41:07.000Z";

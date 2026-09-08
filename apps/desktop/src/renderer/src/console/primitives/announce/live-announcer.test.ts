@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LIVE_ANNOUNCEMENT_QUEUE_CAP, ManualClock } from "../core/index.js";
+import { LIVE_ANNOUNCEMENT_QUEUE_CAP, ManualClock } from "../../core/index.js";
 import { LiveAnnouncer, type LiveAnnouncementState } from "./live-announcer.js";
 
 const HOLD_MS = 500;

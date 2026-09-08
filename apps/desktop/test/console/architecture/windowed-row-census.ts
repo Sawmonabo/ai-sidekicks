@@ -41,7 +41,7 @@ import { forEachDescendant, parseSourceText } from "../typescript-source.js";
  * Here rather than in either gate because both of them name it — one to assert it is
  * the sole writer, the other to resolve the row's own module out of the real tree.
  */
-export const WINDOWED_ROW_MODULE = "console/primitives/WindowedListRow.tsx";
+export const WINDOWED_ROW_MODULE = "console/primitives/windowing/WindowedListRow.tsx";
 
 /** The pair, as one claim. A row carrying one and not the other is half a statement. */
 export const POSITION_MEMBERS: readonly string[] = ["aria-setsize", "aria-posinset"];

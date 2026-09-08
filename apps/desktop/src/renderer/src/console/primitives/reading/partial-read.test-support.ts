@@ -14,7 +14,7 @@
 // so a copy that fell behind would walk a shorter set than the one under test and
 // report a pass over the kinds it still knew about.
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { type ReadingState, type ReadingStateKind } from "./partial-read.js";
 
 /** What the notices under test are notices ABOUT. */

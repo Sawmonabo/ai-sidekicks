@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { refuse } from "../core/index.js";
+import { refuse } from "../../core/index.js";
 import { RefusalBanner } from "./RefusalBanner.js";
 
 /** Room-wide, which is the blast radius the banner shape exists for. */
