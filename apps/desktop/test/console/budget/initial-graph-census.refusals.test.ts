@@ -9,11 +9,12 @@
 //
 // WHAT A REFUSAL BUYS THE PIN NEXT DOOR. Each case here is a reading that would otherwise be
 // GREEN while describing less than it claims — a tree with no manifest, a chunk with no source
-// map beside it, a map whose `sources` array drops a member. The owner pin catches none of
-// them, because it pins the directories that REMAIN: a census short by a module is a census
-// with a smaller set, and a smaller set reads as a diet that worked. The pin is therefore only
-// as good as this census's refusal to report a subject it could not read in full, and these
-// are the cases that hold it to that.
+// map beside it, a map whose `sources` array drops a member, a map that names no member at
+// all. The owner pin catches none of them, because it pins the directories that REMAIN: a
+// census short by a module — or short by a whole chunk — is a census with a smaller set, and a
+// smaller set reads as a diet that worked. The pin is therefore only as good as this census's
+// refusal to report a subject it could not read in full, and these are the cases that hold it
+// to that.
 //
 // AND THE FIXTURES ARE REMOVED. Every tree planted here goes on one trail an `afterEach`
 // empties, with a negative control below reading the removal from AFTER the hook has run,
@@ -81,6 +82,22 @@ describe("census refusals", () => {
     const mapPath = `${plantInitialChunk(directory)}.map`;
     writeFileSync(mapPath, JSON.stringify({ version: 3, sources: ["a.ts", 7, "b.ts"] }), "utf8");
     expect(() => readInitialGraphCensus(directory)).toThrow(/at index 1 \(`number`\)/u);
+  });
+
+  it("refuses a source map whose `sources` array names no members at all", () => {
+    // The reading that would otherwise take a WHOLE chunk off the census while staying
+    // green: the map parses, `Array.isArray` is met, the member loop runs zero times, and
+    // the chunk contributes nothing to `modulesByOwner`. The assertions over the census
+    // ask the graph AS A WHOLE to hold modules, and the other chunks meet that on their
+    // own — so a map that regressed to `sources: []` reads as a chunk that got smaller.
+    const directory = outputDirectoryWithManifest("empty-sources", {
+      "index.html": { file: "assets/index.js", isEntry: true },
+    });
+    const mapPath = `${plantInitialChunk(directory)}.map`;
+    writeFileSync(mapPath, JSON.stringify({ version: 3, sources: [], mappings: "" }), "utf8");
+    expect(() => readInitialGraphCensus(directory)).toThrow(
+      /assets\/index\.js\.map carries an empty `sources` array/u,
+    );
   });
 });
 
