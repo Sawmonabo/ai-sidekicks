@@ -15,9 +15,15 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { growthUnavailableFromRejection, type GrowthPort } from "../../bridge/index.js";
+import {
+  growthUnavailable,
+  growthUnavailableFromRejection,
+  type GrowthPort,
+} from "../../bridge/index.js";
+import { pagedGrowthPort } from "../definitions/definition-directory.test-support.js";
 import {
   PROBE_SESSION_ID,
+  SECOND_PAGE_CURSOR,
   definition,
   portAnswering,
   settle,
@@ -219,6 +225,78 @@ describe("the composer's workflow picker", () => {
     );
 
     expect(exhausted.textContent).not.toContain("Show more definitions");
+  });
+});
+
+describe("a continuation the daemon refused stays askable", () => {
+  /** The label the one continuation control wears, whichever arm it is rendered on. */
+  const MORE_CONTROL = "Show more definitions";
+
+  /**
+   * A first page carrying a cursor and a second page the daemon refuses, with every
+   * cursor the surface asked with.
+   *
+   * Through the family's own paged port so the answer is the registered one — a page
+   * this fixture serves is a page the wire could send — and through the port's own
+   * refusal builder rather than a literal, so the code rendered is the one the seam
+   * composes.
+   */
+  function refusedSecondPage(): { readonly growth: GrowthPort; readonly cursors: unknown[] } {
+    const cursors: unknown[] = [];
+    const growth = pagedGrowthPort((cursor) => {
+      cursors.push(cursor);
+      return cursor === undefined
+        ? {
+            status: "served",
+            value: { definitions: START_DEFINITIONS, nextCursor: SECOND_PAGE_CURSOR },
+          }
+        : growthUnavailable("workflowDefinitionList");
+    });
+    return { growth, cursors };
+  }
+
+  it("renders the refusal and asks the same page again when the retry is pressed", async () => {
+    const paged = refusedSecondPage();
+    const container = await mountMenu(paged.growth);
+
+    fireEvent.click(screen.getByRole("button", { name: MORE_CONTROL }));
+    await settle();
+
+    // The refused page is a fact about ONE page, so the rows already served stay and
+    // the refusal sits beside the control rather than replacing the whole directory.
+    expect(container.querySelector(".meridian-refusal")).not.toBeNull();
+    expect(container.querySelectorAll(".meridian-workflow-start-menu__row")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: MORE_CONTROL }));
+    await settle();
+
+    // The retained cursor and not a fresh first page: the refusal was about the page,
+    // never about the handle.
+    expect(paged.cursors).toStrictEqual([undefined, SECOND_PAGE_CURSOR, SECOND_PAGE_CURSOR]);
+  });
+
+  it("closes the continuation control while the page it asked for is in flight", async () => {
+    const paged = refusedSecondPage();
+    await mountMenu(paged.growth);
+
+    fireEvent.click(screen.getByRole("button", { name: MORE_CONTROL }));
+
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: MORE_CONTROL }).disabled).toBe(
+      true,
+    );
+    await settle();
+  });
+
+  it("negative control: nothing is refused and the control is open before the page is asked for", async () => {
+    // Without this the two cases above would be satisfied by a picker that rendered a
+    // refusal and a closed control from the first frame, which offers no page at all.
+    const paged = refusedSecondPage();
+    const container = await mountMenu(paged.growth);
+
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: MORE_CONTROL }).disabled).toBe(
+      false,
+    );
   });
 });
 

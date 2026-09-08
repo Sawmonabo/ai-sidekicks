@@ -77,12 +77,14 @@
  * nothing here answers. The hover treatment is withdrawn with the same rule, so a pointer
  * over a closed row does not advertise a press that will not happen.
  */
-.meridian-workflow-start-menu__start:disabled {
+.meridian-workflow-start-menu__start:disabled,
+.meridian-workflow-start-menu__more:disabled {
   color: var(--meridian-text-muted);
   cursor: default;
 }
 
-.meridian-workflow-start-menu__start:disabled:hover {
+.meridian-workflow-start-menu__start:disabled:hover,
+.meridian-workflow-start-menu__more:disabled:hover {
   background: none;
   border-color: transparent;
 }
