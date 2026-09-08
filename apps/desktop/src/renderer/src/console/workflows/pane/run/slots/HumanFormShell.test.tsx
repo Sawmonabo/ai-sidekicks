@@ -67,12 +67,11 @@ describe("a waiting phase is answerable where the pane shows it", () => {
     );
     // The three drawn kinds this fixture's schema names, read as controls rather than
     // as text: a form that rendered its schema as prose would pass a text assertion.
+    // The yes-or-no is a SELECT and not a box because this phase does not REQUIRE it,
+    // and only a three-state control has a state that leaves the member out.
     expect(screen.getByLabelText(/Decision/u).tagName).toBe("SELECT");
     expect(screen.getByLabelText(/Notes/u).tagName).toBe("TEXTAREA");
-    expect(screen.getByLabelText(/Post the outcome to the channel/u)).toHaveProperty(
-      "type",
-      "checkbox",
-    );
+    expect(screen.getByLabelText(/Post the outcome to the channel/u).tagName).toBe("SELECT");
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
@@ -133,9 +132,10 @@ describe("the press composes the registered submit", () => {
       {
         workflowRunId: mount.workflowRunId,
         phaseId: mount.phaseId,
-        // The wait's schema carries one optional yes-or-no, and an unchecked box is
-        // `false` rather than unanswered — so the seeded answer is what a press sends.
-        fields: { notifyChannel: false },
+        // The wait's schema carries one OPTIONAL yes-or-no, which opens unanswered
+        // rather than at the `false` a box would show — so an untouched form sends no
+        // member at all, and an absent member is not the same answer as a no.
+        fields: {},
         // The fixture's fresh attempt reads `0`, which is the value a falsy
         // discriminator would drop and the one the daemon adjudicates against.
         expectedRevision: 0,
