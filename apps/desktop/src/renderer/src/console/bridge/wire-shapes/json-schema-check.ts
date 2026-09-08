@@ -25,10 +25,18 @@
 // syntax and says plainly that the schema itself could not be checked. Two different
 // honesties, and the type keeps them apart.
 //
-// THE ISSUE PATH IS A STRING BECAUSE THAT IS WHAT A LABEL IS KEYED BY. The library
-// reports a path of property keys and array indices; the form addresses its controls by
-// the same dotted member path the mapper composes, so the join happens once, here, and
-// no surface re-derives it.
+// THE ISSUE PATH TRAVELS AS SEGMENTS, BECAUSE A JOINED PATH IS NOT INJECTIVE. The library
+// reports a path of property keys and array indices, and joining those with a dot
+// collapses members a schema keeps apart: a property literally named `items.0` and the
+// first entry of an array named `items` both spell `items.0`, and so do a property named
+// `a.b` and a `b` nested inside an `a`. A surface keyed on that string draws one member's
+// verdict under another member's control — or under both — which is a finding rendered
+// about a value the schema said nothing about. So the segments travel whole, the lookup
+// that matches a control to its findings compares them element by element through
+// `isSameMemberPath`, and the one place a path has to become a string — a React key, an
+// element id, a sentence naming the member — takes the RFC 6901 JSON Pointer that
+// `encodeMemberPointer` composes, which escapes rather than collapses. One representation,
+// one encoder, and no surface re-derives either.
 //
 // THE VERDICT DESCRIBES THE BYTES SENT, WHICH IS WHY IT CARRIES THEM. `safeParse` does
 // not answer about the value it was handed — it answers about the value the schema READS
@@ -54,10 +62,19 @@
 
 import * as zod from "zod";
 
+/**
+ * Where one member sits inside an answer: property keys and array positions, in order.
+ *
+ * `number` is not decoration. The reader reports an array position AS a number, and that
+ * is the only thing keeping it apart from a property whose name happens to be a digit —
+ * a distinction any single-string spelling of the path throws away.
+ */
+export type SchemaMemberPath = readonly (string | number)[];
+
 /** One thing wrong with an answer, addressed the way the form addresses its controls. */
 export interface SchemaValidationIssue {
-  /** The dotted member path, or the empty string for an issue about the whole answer. */
-  readonly memberPath: string;
+  /** Where the finding is, as segments. Empty for an issue about the whole answer. */
+  readonly memberPath: SchemaMemberPath;
   /** The library's own sentence, carried verbatim. */
   readonly message: string;
 }
@@ -93,9 +110,49 @@ export type SchemaValidator =
 /** The finding list a clean verdict carries. Held once; nothing ever writes to it. */
 const NOTHING_WRONG: readonly SchemaValidationIssue[] = [];
 
-/** A library issue path, in the console's own dotted spelling. */
-function memberPathOf(path: readonly PropertyKey[]): string {
-  return path.map((segment) => String(segment)).join(".");
+/**
+ * One segment as an RFC 6901 reference token.
+ *
+ * The escape character is replaced FIRST. Doing the separator first would then escape the
+ * `~` this step just wrote, turning `a/b` into `a~01b` — a token that decodes to something
+ * nobody wrote.
+ */
+function referenceTokenOf(segment: string | number): string {
+  return String(segment).replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+/**
+ * One member path as the RFC 6901 JSON Pointer that names it — the string spelling, where
+ * a string is what the platform takes.
+ *
+ * Reversible where a join is not: `/` and `~` are the two characters that grammar gives
+ * meaning to, so a segment carrying either is escaped rather than left to read as a
+ * boundary. The empty path encodes as the empty string, which is that grammar's own name
+ * for the whole document and is what an issue about the answer itself carries.
+ */
+export function encodeMemberPointer(path: SchemaMemberPath): string {
+  return path.map((segment) => `/${referenceTokenOf(segment)}`).join("");
+}
+
+/**
+ * Whether two member paths address the same member.
+ *
+ * Element by element and by identity, so a property named `"0"` and the array position `0`
+ * stay apart. This is the comparison every lookup makes, and it is here rather than beside
+ * one of them because a second comparison is how two readings of one path come apart.
+ */
+export function isSameMemberPath(left: SchemaMemberPath, right: SchemaMemberPath): boolean {
+  return left.length === right.length && left.every((segment, at) => segment === right[at]);
+}
+
+/**
+ * A library issue path, carried as segments and never as one joined string.
+ *
+ * A number stays a number, which is what the array position is. Everything else becomes a
+ * string, so the mapping is total over the `PropertyKey` the library declares.
+ */
+function memberPathOf(path: readonly PropertyKey[]): SchemaMemberPath {
+  return path.map((segment) => (typeof segment === "number" ? segment : String(segment)));
 }
 
 /**

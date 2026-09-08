@@ -14,7 +14,8 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SchemaChoiceField } from "./SchemaChoiceField.js";
-import { planSchemaForm, type SchemaFieldDescriptor } from "../schema-fields.js";
+import { type SchemaFieldDescriptor } from "../schema-fields.js";
+import { planSchemaForm } from "../schema-form-plan.js";
 
 afterEach(cleanup);
 

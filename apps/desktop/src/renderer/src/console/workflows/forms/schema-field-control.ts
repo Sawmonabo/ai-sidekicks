@@ -16,7 +16,11 @@
 // control narrows what it can use and falls back to its own empty state for the rest.
 
 import type { SchemaFieldDescriptor } from "./schema-fields.js";
-import type { SchemaValidationReport } from "../../bridge/index.js";
+import {
+  isSameMemberPath,
+  type SchemaMemberPath,
+  type SchemaValidationReport,
+} from "../../bridge/index.js";
 
 /** One control's whole world: what it is, what it holds, and how it reports a change. */
 export interface SchemaFieldControlProps {
@@ -44,36 +48,39 @@ export function textValueOf(value: unknown): string {
  * more thing to rebuild on every keystroke and one more thing to get out of step. A form
  * with a hundred controls and three issues walks three entries per control.
  *
- * The dotted join happens here and in `bridge/wire-shapes/json-schema-check.ts` and nowhere else, so the
- * two spellings of a member path cannot come apart.
+ * SEGMENT BY SEGMENT, AND NEVER ON A JOINED STRING. `["items", 0]` and `["items.0"]` are
+ * one string under a dotted join and two different members in the schema, so a match on
+ * the join draws an array entry's finding under a property that merely reads like one.
+ * The comparison itself is the validator's own — `isSameMemberPath`, beside the producer
+ * of the paths it compares — so there is no second reading of what "the same member" is.
  */
 export function issuesForMember(
   report: SchemaValidationReport | undefined,
-  memberPath: readonly string[],
+  memberPath: SchemaMemberPath,
 ): readonly string[] {
-  const dotted = memberPath.join(".");
   return (report?.issues ?? [])
-    .filter((issue) => issue.memberPath === dotted)
+    .filter((issue) => isSameMemberPath(issue.memberPath, memberPath))
     .map((issue) => issue.message);
 }
 
 /**
  * What the schema said about ONE ENTRY of a list, addressed by the position it sits at.
  *
- * The validator addresses an array member by the array's path followed by the index —
- * `reviewers.0` — so an entry's own findings are invisible to a lookup asking for
- * `reviewers` alone, and a form that made only that lookup drew a control the schema had
- * a complaint about and rendered the complaint nowhere.
+ * The validator addresses an array member by the array's path followed by the position —
+ * `["reviewers", 0]` — so an entry's own findings are invisible to a lookup asking for
+ * `["reviewers"]` alone, and a form that made only that lookup drew a control the schema
+ * had a complaint about and rendered the complaint nowhere.
  *
- * Composed here rather than at the surface, and by appending a segment to the same reader
- * above, so the dotted spelling of a member path still has exactly one home.
+ * The position is appended AS A NUMBER, which is what the reader reports and what keeps
+ * this lookup off a property whose name is the digit. Composed here rather than at the
+ * surface, and by appending to the same reader above, so one member path has one lookup.
  */
 export function issuesForListEntry(
   report: SchemaValidationReport | undefined,
-  memberPath: readonly string[],
+  memberPath: SchemaMemberPath,
   index: number,
 ): readonly string[] {
-  return issuesForMember(report, [...memberPath, String(index)]);
+  return issuesForMember(report, [...memberPath, index]);
 }
 
 /**

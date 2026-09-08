@@ -54,9 +54,11 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { planSchemaForm, type SchemaFallback, type SchemaFormPlan } from "./schema-fields.js";
+import { type SchemaFallback, type SchemaFormPlan } from "./schema-fields.js";
+import { planSchemaForm } from "./schema-form-plan.js";
 import {
   compileSchemaValidator,
+  type SchemaMemberPath,
   type SchemaValidationReport,
   type SchemaValidator,
 } from "../../bridge/index.js";
@@ -82,17 +84,17 @@ export interface SchemaFormState {
    */
   readonly answer: unknown;
   /** The value one drawn control is bound to. `undefined` where nothing was typed. */
-  readonly memberValue: (memberPath: readonly string[]) => unknown;
+  readonly memberValue: (memberPath: SchemaMemberPath) => unknown;
   /** Write one drawn control's value. */
-  readonly setMemberValue: (memberPath: readonly string[], value: unknown) => void;
+  readonly setMemberValue: (memberPath: SchemaMemberPath, value: unknown) => void;
   /** One list's entries, always an array so a control need not ask whether it is one. */
-  readonly listItems: (memberPath: readonly string[]) => readonly unknown[];
+  readonly listItems: (memberPath: SchemaMemberPath) => readonly unknown[];
   /** Write one entry of a list. */
-  readonly setListItem: (memberPath: readonly string[], index: number, value: unknown) => void;
+  readonly setListItem: (memberPath: SchemaMemberPath, index: number, value: unknown) => void;
   /** Add an empty entry to the end of a list. */
-  readonly appendListItem: (memberPath: readonly string[]) => void;
+  readonly appendListItem: (memberPath: SchemaMemberPath) => void;
   /** Drop one entry, keeping the order of the rest. */
-  readonly removeListItem: (memberPath: readonly string[], index: number) => void;
+  readonly removeListItem: (memberPath: SchemaMemberPath, index: number) => void;
   /** The raw editor's text, which is the input on the raw arm and unread on the other. */
   readonly rawText: string;
   readonly setRawText: (text: string) => void;
@@ -150,14 +152,14 @@ function asAnswerRecord(value: unknown): SchemaFormAnswer | undefined {
 }
 
 /** Read one member out of a nested answer without asserting the shape of what is there. */
-function memberAt(answer: SchemaFormAnswer, memberPath: readonly string[]): unknown {
+function memberAt(answer: SchemaFormAnswer, memberPath: SchemaMemberPath): unknown {
   let cursor: unknown = answer;
   for (const segment of memberPath) {
     const record = asAnswerRecord(cursor);
     if (record === undefined) {
       return undefined;
     }
-    cursor = record[segment];
+    cursor = record[String(segment)];
   }
   return cursor;
 }
@@ -170,13 +172,16 @@ function memberAt(answer: SchemaFormAnswer, memberPath: readonly string[]): unkn
  */
 function withMemberAt(
   answer: SchemaFormAnswer,
-  memberPath: readonly string[],
+  memberPath: SchemaMemberPath,
   value: unknown,
 ): SchemaFormAnswer {
-  const [head, ...rest] = memberPath;
-  if (head === undefined) {
+  const [leading, ...rest] = memberPath;
+  if (leading === undefined) {
     return answer;
   }
+  // A segment is a property key or an array position, and this walk descends through
+  // named members only, so the position spells itself once here rather than at each read.
+  const head = String(leading);
   if (rest.length === 0) {
     return { ...answer, [head]: value };
   }
@@ -185,7 +190,7 @@ function withMemberAt(
 }
 
 /** Whatever sits at this path, read as a list. Never `undefined`, so a map is safe. */
-function listAt(answer: SchemaFormAnswer, memberPath: readonly string[]): readonly unknown[] {
+function listAt(answer: SchemaFormAnswer, memberPath: SchemaMemberPath): readonly unknown[] {
   const held = memberAt(answer, memberPath);
   return Array.isArray(held) ? (held as readonly unknown[]) : [];
 }
@@ -256,28 +261,25 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
       : undefined
     : drawnAnswer;
 
-  const setMemberValue = useCallback((memberPath: readonly string[], value: unknown) => {
+  const setMemberValue = useCallback((memberPath: SchemaMemberPath, value: unknown) => {
     setDrawnAnswer((current) => withMemberAt(current, memberPath, value));
   }, []);
 
-  const setListItem = useCallback(
-    (memberPath: readonly string[], index: number, value: unknown) => {
-      setDrawnAnswer((current) => {
-        const items = [...listAt(current, memberPath)];
-        items[index] = value;
-        return withMemberAt(current, memberPath, items);
-      });
-    },
-    [],
-  );
+  const setListItem = useCallback((memberPath: SchemaMemberPath, index: number, value: unknown) => {
+    setDrawnAnswer((current) => {
+      const items = [...listAt(current, memberPath)];
+      items[index] = value;
+      return withMemberAt(current, memberPath, items);
+    });
+  }, []);
 
-  const appendListItem = useCallback((memberPath: readonly string[]) => {
+  const appendListItem = useCallback((memberPath: SchemaMemberPath) => {
     setDrawnAnswer((current) =>
       withMemberAt(current, memberPath, [...listAt(current, memberPath), ""]),
     );
   }, []);
 
-  const removeListItem = useCallback((memberPath: readonly string[], index: number) => {
+  const removeListItem = useCallback((memberPath: SchemaMemberPath, index: number) => {
     setDrawnAnswer((current) =>
       withMemberAt(
         current,

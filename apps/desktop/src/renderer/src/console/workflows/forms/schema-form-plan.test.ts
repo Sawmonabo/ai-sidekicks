@@ -2,13 +2,14 @@
 //
 // The cases are written against the field set the corpus fixes for a human phase, so a
 // kind that stopped resolving would fail by name rather than by a count. The fallback
-// cases are the ones this module exists for: each of the three causes is reachable, and
+// cases are the ones this module exists for: each cause the mapper itself minds is reachable, and
 // each of them names the member that sent it there, because "this could not be drawn"
 // with nothing named is a sentence nobody can act on.
 
 import { describe, expect, it } from "vitest";
 
-import { SCHEMA_FIELD_KINDS, planSchemaForm, type SchemaFormPlan } from "./schema-fields.js";
+import { SCHEMA_FIELD_KINDS, type SchemaFormPlan } from "./schema-fields.js";
+import { planSchemaForm } from "./schema-form-plan.js";
 
 /** One object schema over the given members, with the given ones required. */
 function objectSchema(
@@ -177,7 +178,7 @@ describe("the schema field mapper", () => {
     }
     expect(plan.fallback.cause).toBe("member-out-of-set");
     expect(plan.fallback.memberPath).toEqual(["nested", "deeper"]);
-    expect(plan.fallback.detail).toContain("nested.deeper");
+    expect(plan.fallback.detail).toContain("/nested/deeper");
   });
 
   it("sends an array of objects to the raw editor rather than repeating a shape it has no control for", () => {

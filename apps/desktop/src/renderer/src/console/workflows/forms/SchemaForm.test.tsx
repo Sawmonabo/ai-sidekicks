@@ -233,6 +233,29 @@ describe("the schema-derived form", () => {
     ).toBeNull();
   });
 
+  it("keeps an entry's finding off a member whose own name reads like that entry's position", () => {
+    // The negative control for the path representation. Joined with a dot, the property
+    // literally named `items.0` and the first entry of the array named `items` are ONE
+    // string, so the entry's finding was drawn under both controls — under a control whose
+    // value the schema had said nothing about.
+    const container = renderForm({
+      type: "object",
+      properties: {
+        "items.0": { type: "string", title: "A member named like a position" },
+        items: { type: "array", title: "Items", items: { type: "string", minLength: 3 } },
+      },
+    });
+    addListEntry();
+
+    const dottedControl = screen.getByLabelText("A member named like a position");
+    const entryControl = container.querySelector(".meridian-schema-list__item input");
+    const entryDescribedBy = entryControl?.getAttribute("aria-describedby") ?? "";
+
+    expect(document.getElementById(entryDescribedBy)?.textContent ?? "").not.toBe("");
+    expect(dottedControl.getAttribute("aria-describedby")).toBeNull();
+    expect(container.querySelectorAll(".meridian-schema-field__issues")).toHaveLength(1);
+  });
+
   it("opens the raw editor for a schema outside the drawn set, and never a refusal", () => {
     const container = renderForm({
       type: "object",

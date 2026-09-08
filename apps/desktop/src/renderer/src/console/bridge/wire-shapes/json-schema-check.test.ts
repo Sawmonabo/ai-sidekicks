@@ -2,9 +2,15 @@
 // it would take the pane down over a definition somebody authored.
 //
 // So the negative case is the point of this file. The positive ones establish that the
-// verdict is real — that an answer is checked, that the issues carry the console's own
-// dotted member path, and that a valid answer comes back clean — because a wrapper that
-// swallowed everything would pass the throwing case and be useless.
+// verdict is real — that an answer is checked, that the issues carry the member path as
+// segments, and that a valid answer comes back clean — because a wrapper that swallowed
+// everything would pass the throwing case and be useless.
+//
+// AND ONE PAIR IS ABOUT THE PATH REPRESENTATION ITSELF. A path joined with a dot is not
+// injective, so the cases below pin the two properties that replace it: that a property
+// whose own name reads like an array position stays apart from that position, and that
+// the pointer encoding escapes rather than collapses the two characters its grammar
+// reserves.
 //
 // AND ONE PAIR IS ABOUT WHAT A CLEAN VERDICT IS ABOUT. Checking reads an answer rather
 // than inspecting it, so a schema with a `default` accepts `{}` and accepts it as
@@ -14,7 +20,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { compileSchemaValidator } from "./json-schema-check.js";
+import { compileSchemaValidator, encodeMemberPointer } from "./json-schema-check.js";
 
 /** A schema over one required string and one optional number. */
 const TWO_MEMBER_SCHEMA = {
@@ -47,12 +53,15 @@ describe("the schema validator wrapper", () => {
     const report = validator.check({ count: "not a number" });
 
     expect(report.status).toBe("invalid");
-    expect(report.issues.map((issue) => issue.memberPath).sort()).toEqual(["count", "title"]);
+    expect(report.issues.map((issue) => encodeMemberPointer(issue.memberPath)).sort()).toEqual([
+      "/count",
+      "/title",
+    ]);
     // The library's own sentence, carried rather than paraphrased.
     expect(report.issues.every((issue) => issue.message.length > 0)).toBe(true);
   });
 
-  it("reports a nested finding with the dotted path the mapper composes", () => {
+  it("reports a nested finding with the segment path the mapper addresses controls by", () => {
     const validator = compileSchemaValidator({
       type: "object",
       properties: {
@@ -64,7 +73,44 @@ describe("the schema validator wrapper", () => {
       throw new Error("expected the schema to compile");
     }
 
-    expect(validator.check({ release: {} }).issues[0]?.memberPath).toBe("release.tag");
+    expect(validator.check({ release: {} }).issues[0]?.memberPath).toEqual(["release", "tag"]);
+  });
+
+  it("keeps a dotted property name and an array position apart, which one string cannot", () => {
+    // The whole reason a path is segments. Joined with a dot, the property literally named
+    // `items.0` and the first entry of the array named `items` are the same string, so a
+    // surface keyed on that string draws one member's finding under the other's control.
+    const validator = compileSchemaValidator({
+      type: "object",
+      properties: {
+        "items.0": { type: "number" },
+        items: { type: "array", items: { type: "number" } },
+      },
+    });
+    if (validator.status !== "compiled") {
+      throw new Error("expected the schema to compile");
+    }
+
+    const report = validator.check({ "items.0": "no", items: ["no"] });
+
+    expect(report.issues.map((issue) => encodeMemberPointer(issue.memberPath)).sort()).toEqual([
+      "/items.0",
+      "/items/0",
+    ]);
+    // The position is a NUMBER and the property name is a string, which is the distinction
+    // any single-string spelling of a path throws away.
+    expect(report.issues.map((issue) => issue.memberPath).sort()).toEqual([
+      ["items", 0],
+      ["items.0"],
+    ]);
+  });
+
+  it("escapes the two characters an RFC 6901 reference token cannot carry literally", () => {
+    // Order is what this pins: escaping the separator first would re-escape the tilde this
+    // step just wrote and turn `a/b` into `a~01b`, a token decoding to something nobody
+    // wrote. The empty path is the pointer grammar's own name for the whole document.
+    expect(encodeMemberPointer(["a/b", "c~d", 0])).toBe("/a~1b/c~0d/0");
+    expect(encodeMemberPointer([])).toBe("");
   });
 
   it("carries the value the schema accepted, which is not the value it was handed", () => {

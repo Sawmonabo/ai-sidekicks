@@ -10,7 +10,8 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SchemaNumberField } from "./SchemaNumberField.js";
-import { planSchemaForm, type SchemaFieldDescriptor } from "../schema-fields.js";
+import { type SchemaFieldDescriptor } from "../schema-fields.js";
+import { planSchemaForm } from "../schema-form-plan.js";
 
 afterEach(cleanup);
 
