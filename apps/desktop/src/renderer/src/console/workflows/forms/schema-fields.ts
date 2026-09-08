@@ -64,6 +64,12 @@ export interface SchemaFieldDescriptor {
   readonly choices: readonly string[] | undefined;
   /** True where the schema said `integer`, so the control steps by one. */
   readonly isInteger: boolean;
+  /**
+   * The schema's own `multipleOf`, where it declared a positive one — the step the
+   * numeric control takes, so what the platform refuses at the control is what the
+   * compiled validator refuses a moment later. Absent, the control steps by the type.
+   */
+  readonly multipleOf: number | undefined;
 }
 
 /** An array of one repeated control. The item's descriptor carries the array's path. */
@@ -224,7 +230,22 @@ function fieldDescriptor(
     isRequired,
     choices: kind === "choice" ? stringEnumOf(schema) : undefined,
     isInteger: declaredType(schema) === "integer",
+    multipleOf: multipleOfOf(schema),
   };
+}
+
+/**
+ * The schema's `multipleOf`, or nothing where it declared none worth stepping by.
+ *
+ * JSON Schema requires it to be strictly positive; a zero, a negative, or a non-finite
+ * value is a schema the validator will refuse on its own terms, and a control given
+ * that as a step would refuse every answer before the validator could say why.
+ */
+function multipleOfOf(schema: Readonly<Record<string, unknown>>): number | undefined {
+  const declared = schema["multipleOf"];
+  return typeof declared === "number" && Number.isFinite(declared) && declared > 0
+    ? declared
+    : undefined;
 }
 
 /** The raw-editor answer for one member that could not be drawn. */

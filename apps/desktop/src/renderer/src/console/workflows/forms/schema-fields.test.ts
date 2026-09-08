@@ -93,6 +93,26 @@ describe("the schema field mapper", () => {
     expect(entry?.form === "field" ? entry.field.isInteger : undefined).toBe(true);
   });
 
+  it("carries a declared multipleOf so its control steps by the schema's own step", () => {
+    const [entry] = drawnEntries(
+      planSchemaForm(objectSchema({ ratio: { type: "number", multipleOf: 0.25 } })),
+    );
+
+    expect(entry?.form === "field" ? entry.field.multipleOf : undefined).toBe(0.25);
+  });
+
+  it("carries no step for a multipleOf the schema could not mean", () => {
+    // Zero and a negative are schemas the validator refuses on its own terms; a control
+    // handed either as a step would refuse every answer before the verdict could say why.
+    for (const declared of [0, -1, Number.NaN, "2"]) {
+      const [entry] = drawnEntries(
+        planSchemaForm(objectSchema({ ratio: { type: "number", multipleOf: declared } })),
+      );
+
+      expect(entry?.form === "field" ? entry.field.multipleOf : "not drawn").toBeUndefined();
+    }
+  });
+
   it("draws an array of one primitive as a list keyed at the array's own path", () => {
     const [entry] = drawnEntries(
       planSchemaForm(objectSchema({ reviewers: { type: "array", items: { type: "string" } } })),

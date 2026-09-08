@@ -17,9 +17,12 @@
 // `integer` KEEPS ITS STEP OF ONE, and that is the same rule arriving earlier rather
 // than a second authority: the platform's whole-number constraint and the schema's
 // `integer` say one thing, so a control that refuses `1.5` refuses exactly what the
-// compiled validator refuses. Everything the two do NOT share — requiredness, ranges,
-// enum membership — stays the validator's alone, which is why this file reads one member
-// of the descriptor and nothing else.
+// compiled validator refuses. A declared `multipleOf` is the same shape of rule and
+// takes the same seat: the schema expressed a step, the validator enforces it, and the
+// control stepping by it refuses nothing the verdict would not. Everything the control
+// and the validator do NOT share — requiredness, ranges, enum membership — stays the
+// validator's alone, which is why this file reads two members of the descriptor and
+// nothing else.
 
 import { type SchemaFieldControlProps } from "../schema-field-control.js";
 
@@ -35,6 +38,17 @@ const INTEGER_STEP = "1";
  */
 const UNRESTRICTED_STEP = "any";
 
+/**
+ * What the control steps by: the schema's own step where it declared one, else the
+ * type's — one for a whole number, unrestricted for a number the schema left open.
+ */
+function stepOf(field: SchemaFieldControlProps["field"]): string {
+  if (field.multipleOf !== undefined) {
+    return String(field.multipleOf);
+  }
+  return field.isInteger ? INTEGER_STEP : UNRESTRICTED_STEP;
+}
+
 /** The text a numeric control shows for whatever the answer holds. */
 function numericTextOf(value: unknown): string {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
@@ -47,7 +61,7 @@ export function SchemaNumberField(props: SchemaFieldControlProps): React.JSX.Ele
       id={props.controlId}
       className="meridian-schema-field__input meridian-schema-field__input--figure"
       type="number"
-      step={props.field.isInteger ? INTEGER_STEP : UNRESTRICTED_STEP}
+      step={stepOf(props.field)}
       value={numericTextOf(props.value)}
       aria-describedby={props.describedById}
       onChange={(event) => {
