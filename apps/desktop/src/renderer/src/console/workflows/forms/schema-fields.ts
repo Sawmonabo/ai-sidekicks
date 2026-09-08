@@ -115,11 +115,20 @@ export type SchemaFormEntry =
   | SchemaLeafEntry
   | { readonly form: "group"; readonly group: SchemaGroupDescriptor };
 
-/** Why a schema is answered in the raw editor instead of in drawn controls. */
+/**
+ * Why a schema is answered in the raw editor instead of in drawn controls.
+ *
+ * `planSchemaForm` returns the first three and never the last: whether a schema COMPILES
+ * into something an answer can be checked against is a question this module holds no
+ * answer to, and the caller holding both readings composes it. The cause still lives
+ * here, because a surface reads one vocabulary and a second enumeration beside this one
+ * would be two closed sets describing one arm.
+ */
 export const SCHEMA_FALLBACK_CAUSES = [
   "root-not-an-object",
   "no-members",
   "member-out-of-set",
+  "schema-uncheckable",
 ] as const;
 
 /** One cause. Derived from the tuple for the reason every vocabulary here is. */
@@ -128,7 +137,7 @@ export type SchemaFallbackCause = (typeof SCHEMA_FALLBACK_CAUSES)[number];
 /** What sent this schema to the raw editor, and which member did it. */
 export interface SchemaFallback {
   readonly cause: SchemaFallbackCause;
-  /** The member that could not be drawn. Empty on the two whole-schema causes. */
+  /** The member that could not be drawn. Empty wherever the cause is the whole schema. */
   readonly memberPath: readonly string[];
   /** One sentence, written for the person looking at the form. */
   readonly detail: string;

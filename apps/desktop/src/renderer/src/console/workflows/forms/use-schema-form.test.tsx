@@ -177,4 +177,27 @@ describe("the schema form's state", () => {
     expect(form().validator.status).toBe("uncompilable");
     expect(form().report).toBeUndefined();
   });
+
+  it("reads the answer off the raw text when the drawable schema compiled nowhere", () => {
+    // The mapper is happy with this member; the schema READER refuses the root. An arm
+    // chosen from the mapper alone drew controls whose answer nothing would ever check —
+    // so what this pins is where the answer COMES FROM, which is the half a test of the
+    // drawn markup cannot reach.
+    const form = mountForm({
+      type: "object",
+      properties: { title: { type: "string" } },
+      if: { properties: { title: { const: "urgent" } } },
+      then: { required: ["title"] },
+    });
+    const plan = form().plan;
+
+    expect(form().validator.status).toBe("uncompilable");
+    expect(plan.shape === "raw" ? plan.fallback.cause : undefined).toBe("schema-uncheckable");
+
+    act(() => {
+      form().setRawText('{"title": "Ship it"}');
+    });
+
+    expect(form().answer).toEqual({ title: "Ship it" });
+  });
 });

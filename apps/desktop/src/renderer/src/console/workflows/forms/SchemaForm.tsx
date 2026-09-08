@@ -1,9 +1,17 @@
 // A human phase's form: the controls its schema declares, or the raw editor beside the
 // reason it has none.
 //
-// TWO ARMS AND NO THIRD. `planSchemaForm` is total over every input, so this component's
-// branch is exhaustive by construction: there is no "could not read the schema" state to
-// render, because that state IS the raw arm carrying its own reason.
+// TWO ARMS AND NO THIRD. The arm reaches this component already decided, from a hook that
+// read both the mapper and the compiled validator, and it is total over every input — so
+// this branch is exhaustive by construction: there is no "could not read the schema" and
+// no "drew controls nothing can check" state to render, because both ARE the raw arm,
+// each carrying its own reason.
+//
+// A FINDING IS ADDRESSED TO WHAT IT IS ABOUT, AND A GROUP IS SOMETHING. A schema requiring
+// a nested object reports the missing member at the group's own path, not at any of its
+// children's — so a form that asked only for leaf paths drew a fieldset of optional
+// controls with nothing wrong with any of them, over a report that was invalid. Every
+// path this component asks about is asked for the same way, through the one reader.
 //
 // THE LEAF RENDERER IS COMPOSED ONCE AND HANDED DOWN, which is what keeps a control inside
 // a group identical to a control at the root. Written twice — once here and once in the
@@ -92,7 +100,11 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
 
   const renderEntry = (entry: SchemaFormEntry): React.ReactNode =>
     entry.form === "group" ? (
-      <SchemaFieldGroup group={entry.group} renderLeaf={renderLeaf} />
+      <SchemaFieldGroup
+        group={entry.group}
+        renderLeaf={renderLeaf}
+        issues={issuesForMember(form.report, entry.group.memberPath)}
+      />
     ) : (
       renderLeaf(entry)
     );

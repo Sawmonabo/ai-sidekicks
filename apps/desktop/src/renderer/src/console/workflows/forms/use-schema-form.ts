@@ -1,10 +1,20 @@
 // The state one schema-derived form holds, and the single place its answer is composed.
 //
 // TWO INPUT MODES, ONE ANSWER. A schema the mapper drew controls for is answered by
-// those controls; a schema it could not is answered as JSON in the editor beside it.
-// Both compose the same value — the object a submission would carry — so the surface
-// that renders the verdict, and the owner plan that eventually sends it, read ONE member
-// rather than branching on which control a person happened to use.
+// those controls; a schema it could not — or one nothing could compile a check from — is
+// answered as JSON in the editor beside it. Both compose the same value — the object a
+// submission would carry — so the surface that renders the verdict, and the owner plan
+// that eventually sends it, read ONE member rather than branching on which control a
+// person happened to use.
+//
+// AND THE ARM IS DECIDED HERE, FROM BOTH READINGS. The mapper walks members and the
+// schema reader reads the whole schema, so they disagree on exactly one class: a root
+// carrying a construct the reader does not implement — `if`/`then`/`else`, a `$ref`,
+// `dependentRequired` — above members this form draws perfectly well. Drawing those
+// controls would put a form on screen whose only verdict is silence, and a drawn control
+// is a promise that a wrong value will be refused. So the two readings are ANDed below,
+// in the one place that holds both: the mapper compiles nothing, and a surface deciding
+// it would leave this hook composing an answer out of controls nobody can see.
 //
 // THE VALIDATION IS THE SCHEMA'S AND NEVER THIS HOOK'S. Requiredness, ranges, enum
 // membership: all of it is the compiled schema's answer, re-run over the whole answer
@@ -44,7 +54,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { planSchemaForm, type SchemaFormPlan } from "./schema-fields.js";
+import { planSchemaForm, type SchemaFallback, type SchemaFormPlan } from "./schema-fields.js";
 import {
   compileSchemaValidator,
   type SchemaValidationReport,
@@ -99,6 +109,32 @@ const EMPTY_RAW_TEXT = "{}";
 
 /** The answer an untouched form composes before its schema has said anything about it. */
 const NOTHING_ANSWERED: SchemaFormAnswer = {};
+
+/**
+ * Why a schema whose members are all drawable is answered as JSON anyway.
+ *
+ * One sentence, and deliberately not the reader's: the raw editor already renders the
+ * compiler's own detail beneath the document, so a reason repeating it would say one
+ * thing twice. This one says what that sentence does not — which arm this is and why the
+ * controls are absent rather than drawn and unchecked.
+ *
+ * Held once so the arm below returns a stable value: an object literal composed per
+ * render would hand the surface a new plan on every keystroke.
+ */
+const UNCHECKABLE_SCHEMA_FALLBACK: SchemaFallback = {
+  cause: "schema-uncheckable",
+  memberPath: [],
+  detail:
+    "This phase's schema could not be compiled here, so the answer is given as JSON rather than in controls that could check nothing you type.",
+};
+
+/** The arm this form opens on: the mapper's reading, unless nothing could check it. */
+function armFor(plan: SchemaFormPlan, validator: SchemaValidator): SchemaFormPlan {
+  if (plan.shape === "raw" || validator.status === "compiled") {
+    return plan;
+  }
+  return { shape: "raw", fallback: UNCHECKABLE_SCHEMA_FALLBACK };
+}
 
 /**
  * Whatever this is, read as a set of named values — or nothing where it is not one.
@@ -199,8 +235,12 @@ function readRawText(rawText: string): RawAnswerReading {
  * is why every caller in this tree reads the schema off a value the wire delivered.
  */
 export function useSchemaForm(inputSchema: unknown): SchemaFormState {
-  const plan = useMemo(() => planSchemaForm(inputSchema), [inputSchema]);
+  const mappedPlan = useMemo(() => planSchemaForm(inputSchema), [inputSchema]);
   const validator = useMemo(() => compileSchemaValidator(inputSchema), [inputSchema]);
+  // Memoised through its inputs rather than on its own: both arms this returns are values
+  // the two memos above already hold — the mapper's plan itself, or the one held fallback
+  // — so the result is stable across a re-render without a third cache to keep in step.
+  const plan = armFor(mappedPlan, validator);
   // Seeded from the schema's own reading of an untouched answer, and read once: the
   // header's reason, and why this is an initialiser rather than anything that re-runs.
   const [drawnAnswer, setDrawnAnswer] = useState<SchemaFormAnswer>(() =>

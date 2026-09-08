@@ -155,6 +155,32 @@ describe("the schema-derived form", () => {
     expect(group?.contains(screen.getByLabelText("Tag"))).toBe(true);
   });
 
+  it("renders a finding addressed to a group on the group's own fieldset", () => {
+    const container = renderForm({
+      type: "object",
+      properties: {
+        release: {
+          type: "object",
+          title: "Release",
+          properties: { tag: { type: "string", title: "Tag" } },
+        },
+      },
+      required: ["release"],
+    });
+
+    const groupIssues = container.querySelector(
+      ".meridian-schema-group > .meridian-schema-field__issues",
+    );
+
+    // Every child of this group is optional, so the ONLY thing wrong with the answer is
+    // addressed to the group itself: a form asking only for its leaves' paths reads clean
+    // while the report it was drawn from is invalid.
+    expect(groupIssues?.textContent ?? "").not.toBe("");
+    expect(
+      container.querySelector(".meridian-schema-group")?.getAttribute("aria-describedby"),
+    ).toBe(groupIssues?.id);
+  });
+
   it("draws a list with the control that adds an entry and none that removes one yet", () => {
     const container = renderForm({
       type: "object",
@@ -229,5 +255,23 @@ describe("the schema-derived form", () => {
     expect(container.querySelector(".meridian-schema-raw__uncheckable")?.textContent).toContain(
       "only the JSON itself is checked",
     );
+  });
+
+  it("answers a schema that compiled nowhere as JSON rather than in controls it cannot check", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { title: { type: "string", title: "Title" } },
+      // Drawable members and an unreadable ROOT construct: the mapper is happy, the
+      // schema reader is not, and the arm that used to be chosen from the mapper alone
+      // drew a control whose answer nothing could refuse.
+      if: { properties: { title: { const: "urgent" } } },
+      then: { required: ["title"] },
+    });
+
+    expect(container.querySelector(".meridian-schema-raw__editor")?.tagName).toBe("TEXTAREA");
+    expect(container.querySelector(".meridian-schema-raw__uncheckable")?.textContent).toContain(
+      "only the JSON itself is checked",
+    );
+    expect(screen.queryByLabelText("Title")).toBeNull();
   });
 });

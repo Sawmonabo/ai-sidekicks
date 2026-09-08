@@ -1,9 +1,12 @@
 // The schema's findings about one member, drawn where that member is.
 //
-// ONE LIST AND THREE PLACES THAT DRAW IT — a scalar field's chrome, one entry of a list,
-// and the list itself — which is why it is a module rather than the same markup written
-// three times. The three differ in WHAT they are about; none of them differs in how a
-// finding reads, and three copies would have drifted the first time one did.
+// ONE LIST AND FOUR PLACES THAT DRAW IT — a scalar field's chrome, one entry of a list,
+// the list itself, and a group's fieldset — which is why it is a module rather than the
+// same markup written four times. The four differ in WHAT they are about; none of them
+// differs in how a finding reads, and four copies would have drifted the first time one
+// did. The two containers on that list are there for one reason: a schema addresses a
+// collection and an object at their OWN paths, so a finding about either has no member
+// inside it to be drawn against.
 //
 // THE SENTENCES ARE THE SCHEMA'S, VERBATIM. Nothing here paraphrases a validation
 // message, ranks them, or shows only the first: a schema that says two things about one
