@@ -285,9 +285,17 @@ function isForwardedSignal(binding: NameBinding | undefined): boolean {
  * as its parameter, and a local the scope's own `openRound()` was opened into.
  *
  * The parameter arm takes the same requiredness test the signal arm does, and for the
- * same reason: a round the caller may omit is a round this line does not show. The
- * local arm needs no such test because it already reads the initializer and admits
- * exactly one — the scope's own `openRound()`.
+ * same reason: a round the caller may omit is a round this line does not show.
+ *
+ * AND THE LOCAL ARM TAKES THE BINDING FORM, because reading the initializer is not
+ * enough on its own. `let round = scope.openRound()` opens a round and then leaves the
+ * name writable, so the scope may rebind it — to a second round, or to anything at all —
+ * between that line and this call, and what the initializer said is then a claim about a
+ * value the call no longer receives. That the module happens not to rebind it is not the
+ * rule: this scan reads declarations rather than following writes, so `const` is the
+ * declaration that makes the initializer binding and `let` and `var` are refused whether
+ * a write exists or not. The keyword is unreachable from the declaration node here —
+ * `daemon-method-bindings.ts` reads it off the LIST and names it on the binding.
  */
 function isHeldReadRound(binding: NameBinding | undefined): boolean {
   if (binding === undefined) {
@@ -299,7 +307,11 @@ function isHeldReadRound(binding: NameBinding | undefined): boolean {
       requiredParameter(declaration) !== undefined && namesType(declaration.type, READ_ROUND_TYPE)
     );
   }
-  return ts.isVariableDeclaration(declaration) && opensRound(declaration.initializer);
+  return (
+    binding.form === "constant" &&
+    ts.isVariableDeclaration(declaration) &&
+    opensRound(declaration.initializer)
+  );
 }
 
 /** Whether a declared type names `typeName`, which is how both forms above declare. */

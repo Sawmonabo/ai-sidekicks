@@ -112,6 +112,33 @@ describe("the signal a call hands the door", () => {
     expect(defaultedRound?.signalArgument).toBe("unrecognised");
   });
 
+  it("negative control: a round bound to a name the scope may rebind is not held", () => {
+    // THE LOCAL ARM'S OWN REQUIREDNESS. Reading the initializer says what the name meant
+    // at the line that opened it; `let` says the scope may mean something else by the
+    // time the call runs, and the two together show nothing about what stops THIS line.
+    // Both writable keywords are planted, and `var` is deliberately one the console never
+    // writes: the rule is the binding FORM, so it holds over a keyword no module uses
+    // rather than over the two a reviewer happens to have seen.
+    const [rebindable] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  let round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    expect(rebindable?.signalArgument).toBe("unrecognised");
+    const [varBound] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  var round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    expect(varBound?.signalArgument).toBe("unrecognised");
+    // AND NO WRITE IS NEEDED TO REACH THE REFUSAL. Neither planted scope rebinds the
+    // name, which is the point: a scan that read declarations and then made an exception
+    // for the ones it saw no write against would be following values, and the write it
+    // could not see — through a closure, or a later edit — is the one that matters.
+  });
+
   it("takes a round's signal, off the parameter and off the local it was opened into", () => {
     // The other two shapes `store/read-cancellation.ts` produces. A performer is
     // handed the round; a reader that owns the line opens one on its own scope.
@@ -165,6 +192,16 @@ describe("the signal a call hands the door", () => {
       "}",
     ]);
     expect(parenthesized?.signalArgument).toBe("present");
+    // The fifth wrapper, pinned here because the peeler's list is the one that decides:
+    // `round!` asserts the round is not null and hands back the same binding, so it is
+    // the same round by exactly the reasoning the assertion and the parentheses are.
+    const [nonNull] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round!.signal });',
+      "}",
+    ]);
+    expect(nonNull?.signalArgument).toBe("present");
     // And the peel is a peel rather than a rule that admits everything: a wrapper around
     // something that is not a held round is still not one.
     const [wrappedStranger] = plantedSites([
