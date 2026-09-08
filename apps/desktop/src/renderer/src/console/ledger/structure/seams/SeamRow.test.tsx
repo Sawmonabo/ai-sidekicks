@@ -12,7 +12,8 @@ import { describe, expect, it } from "vitest";
 
 import { legacyStubRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import { SeamRow } from "./SeamRow.js";
-import { LedgerSeamIndex, SEAM_WIRE_BINDINGS, type LedgerSeam } from "./seams.js";
+import { SEAM_WIRE_BINDINGS } from "./seam-vocabulary.js";
+import { LedgerSeamIndex, type LedgerSeam } from "./seams.js";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 function seamOf(row: TimelineRow): LedgerSeam {

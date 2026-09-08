@@ -35,7 +35,7 @@ import {
   type PaneContextOf,
 } from "../../seats/index.js";
 import { LedgerShellConditionProvider } from "../frame/index.js";
-import { TimelineRowHost } from "./feed/TimelineRowHost.js";
+import { TimelineRowHost } from "./feed/surface/TimelineRowHost.js";
 
 /**
  * Who owns the rows, what this pane owes them, and where the shell dies.

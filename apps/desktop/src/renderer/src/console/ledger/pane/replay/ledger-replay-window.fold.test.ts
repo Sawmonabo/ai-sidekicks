@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 import { ReplayControls, type ReplayPosition } from "../../structure/index.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
-import { foldChapterHeaders } from "../feed/ledger-chapter-fold.js";
+import { foldChapterHeaders } from "../feed/model/ledger-chapter-fold.js";
 import { ledgerFixtureStampAt } from "../feed/ledger-feed-logs.test-support.js";
 import { isReplayEngaged } from "./ledger-replay-reveal.js";
 import {

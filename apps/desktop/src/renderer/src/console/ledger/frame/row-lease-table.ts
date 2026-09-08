@@ -94,7 +94,7 @@ export class LedgerRowLeaseTable {
    *
    * The TIME half of the bound this module already states in its header — "nobody
    * expects that of a row pruned an hour ago". The count cap above is unchanged; the
-   * idle trim (`viewport/idle-trim.ts`) calls this after a quiet period, by which
+   * idle trim (`viewport/cycle/idle-trim.ts`) calls this after a quiet period, by which
    * point every parked lease is a row nobody has paged back to.
    *
    * The LIVE table is deliberately untouched: those leases belong to rows the window

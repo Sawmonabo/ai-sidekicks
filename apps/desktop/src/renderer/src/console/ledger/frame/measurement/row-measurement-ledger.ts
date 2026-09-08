@@ -177,7 +177,7 @@ export class RowMeasurementLedger {
    * this module's own `~repeat-` projection and which no caller can name, and a row
    * the window let go without a prune. The table is bounded, so none of that grows
    * without limit; it simply stays resident on a session that has gone quiet, which
-   * is what the idle trim in `../viewport/idle-trim.ts` releases.
+   * is what the idle trim in `../viewport/cycle/idle-trim.ts` releases.
    *
    * SAFE BY CONSTRUCTION, which is why the argument is the retained set rather than
    * a count or an age: a prior for a row still in the window is never dropped, so

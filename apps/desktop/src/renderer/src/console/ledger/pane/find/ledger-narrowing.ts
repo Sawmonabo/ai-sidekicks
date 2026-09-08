@@ -18,7 +18,7 @@ import {
   type LedgerFacets,
   type LedgerFilter,
 } from "../../structure/index.js";
-import { narrowChapterToAdmittedRows } from "../feed/ledger-chapter-fold.js";
+import { narrowChapterToAdmittedRows } from "../feed/model/ledger-chapter-fold.js";
 import {
   NO_ROWS_REMOVED,
   type LedgerPipelineStage,

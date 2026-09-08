@@ -35,7 +35,8 @@
 
 import { Glyph, LedgerRow, Nothing } from "../../../primitives/index.js";
 import { type ParticipantHueAssignment } from "../../../tokens/index.js";
-import { SEAM_WIRE_BINDINGS, SWITCH_CONTINUITY_MEMO, type LedgerSeam } from "./seams.js";
+import { SEAM_WIRE_BINDINGS, SWITCH_CONTINUITY_MEMO } from "./seam-vocabulary.js";
+import { type LedgerSeam } from "./seams.js";
 
 export interface SeamRowProps {
   readonly seam: LedgerSeam;

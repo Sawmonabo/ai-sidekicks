@@ -27,7 +27,7 @@
 // `barrel-census` and the dead-code gate both fail.
 //
 // The pieces are separately testable and jointly useless, which is why
-// `viewport/viewport-controller.ts` exists and why it is the only module that holds the
+// `viewport/cycle/viewport-controller.ts` exists and why it is the only module that holds the
 // four the feed needs at once — the chokepoint, the anchor, the measurement ledger, and
 // the cap, with `@tanstack/react-virtual` bound underneath them all.
 // A surface that wanted, say, the reading anchor without the chokepoint would be
@@ -79,18 +79,21 @@ export { LedgerRowRevealProvider, useLedgerRowReveal } from "./reveal/RowRevealP
 // backward walk and hands all three to the arrangement has to name what it returns,
 // which the feed itself never had to while it held them as locals.
 export { useLedgerReveal, type LedgerRevealBinding } from "./reveal/reveal-binding.js";
-export { LedgerViewport } from "./viewport/LedgerViewport.js";
+export { LedgerViewport } from "./viewport/surface/LedgerViewport.js";
 // From the module that DECLARES it rather than through the component that renders
 // it: the scope is what an empty window's sentence turns on, and the rule that
 // picks the sentence is the lowest consumer of the union.
-export { type LedgerScope } from "./viewport/empty-window-words.js";
+export { type LedgerScope } from "./viewport/surface/empty-window-words.js";
 export { type LedgerRowRenderer } from "./LedgerRowMount.js";
-export { useLedgerViewport, type LedgerViewportBinding } from "./viewport/viewport-binding.js";
+export {
+  useLedgerViewport,
+  type LedgerViewportBinding,
+} from "./viewport/surface/viewport-binding.js";
 // The walk back into the rows before this window's head. Published because the FEED
 // mints it — it is the mount that holds the session store — and hands the value to
 // the viewport, which is where the head control is placed.
 export { useLedgerEarlierPaging, type LedgerEarlierPaging } from "./paging/paging-binding.js";
-export { type LedgerViewportRow } from "./viewport/viewport-snapshot.js";
+export { type LedgerViewportRow } from "./viewport/surface/viewport-snapshot.js";
 export { type LedgerRowLease } from "./row-lease-table.js";
 
 // The hook that mints the frame's own scheduler. Published because the FEED mints it

@@ -18,7 +18,7 @@ import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "../../structure/
 // Deeply, and only here: the tuple's one consumer outside its own directory is this
 // suite's totality case, so a door line for it would be a door widened for testing.
 import { LEDGER_JUMP_ABSENCES } from "../../structure/narrowing/filters.js";
-import { foldChapterHeaders } from "../feed/ledger-chapter-fold.js";
+import { foldChapterHeaders } from "../feed/model/ledger-chapter-fold.js";
 import { TERMINAL_RUN_ID, projectedRowId } from "../feed/ledger-feed-logs.test-support.js";
 import { foldedMessageChapterLog } from "../feed/ledger-chapter-logs.test-support.js";
 import { jumpOutcomeRowId, useDeferredRowJump, useLedgerJumpReach } from "./ledger-jump.js";

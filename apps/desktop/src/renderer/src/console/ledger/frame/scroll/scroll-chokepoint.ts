@@ -258,14 +258,13 @@ export class LedgerScrollController {
     this.#frameWrites.adopt(frameCoordinator);
   }
 
+  // Consumed by T-023p-1C-2
   /**
    * Ask for a write in the next frame's phase one, computed against that frame's one
    * clean geometry sample.
    *
    * A gesture calls `glideTo` and lands in the frame the person acted in; a REACTIVE write
    * comes here. `scroll-frame-writes.ts` states why, and this returns whether it was taken.
-   *
-   * @consumedBy T-023p-1C-2
    */
   public requestGlide(
     caller: LedgerScrollCaller,
