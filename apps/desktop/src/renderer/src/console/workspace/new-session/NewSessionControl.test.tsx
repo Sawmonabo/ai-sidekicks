@@ -31,6 +31,7 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {
   CREATED_SESSION_ID,
+  NOTHING_BLOCKS_THE_ACT,
   bridgeAnsweringCreateUnreadably,
   bridgeFor,
   bridgeHoldingCreate,
@@ -42,6 +43,9 @@ import {
   renderControlOn,
 } from "./NewSessionControl.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+
+/** The directory re-read no case in this file presses. Named so a render reads as one. */
+const recordNoRecheck = (): void => undefined;
 
 describe("the composed new-session draft — reachable, and only on an act", () => {
   afterEach(cleanup);
@@ -239,7 +243,9 @@ describe("the composed new-session draft — what a completed send hands out", (
       <LiveAnnouncerProvider>
         <NewSessionControl
           bridge={bridge}
+          blockedAct={NOTHING_BLOCKS_THE_ACT}
           onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
+          onSessionDirectoryRecheck={recordNoRecheck}
         />
       </LiveAnnouncerProvider>,
     );
@@ -250,7 +256,9 @@ describe("the composed new-session draft — what a completed send hands out", (
         <LiveAnnouncerProvider>
           <NewSessionControl
             bridge={bridge}
+            blockedAct={NOTHING_BLOCKS_THE_ACT}
             onSessionCreated={(sessionId) => settledSessionIds.push(sessionId)}
+            onSessionDirectoryRecheck={recordNoRecheck}
           />
         </LiveAnnouncerProvider>,
       );

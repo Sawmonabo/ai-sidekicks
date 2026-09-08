@@ -237,6 +237,16 @@ function projectOneStore(store: SessionStore): readonly SessionListRow[] {
 export interface OpenSessionProjectionReading {
   readonly rows: readonly SessionListRow[];
   readonly degradedCause: SessionDegradedCause | undefined;
+  /**
+   * The same cause, asked at DISPATCH rather than read off this render.
+   *
+   * The projection's own live read, published rather than re-derived: a control that
+   * fails closed has to ask again the moment a press reaches it, because the cause can
+   * land in the frame between the render that enabled the control and the click. The
+   * function identity is the projection's and therefore stable for the life of the
+   * registry, so a caller may hold it.
+   */
+  readonly readDegradedCause: () => SessionDegradedCause | undefined;
 }
 
 /**
@@ -269,5 +279,5 @@ export function useOpenSessionProjection(
     projection.readDegradedCause,
     projection.readDegradedCause,
   );
-  return { rows, degradedCause };
+  return { rows, degradedCause, readDegradedCause: projection.readDegradedCause };
 }

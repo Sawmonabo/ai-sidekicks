@@ -16,6 +16,7 @@ import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import {
   CREATE_REPLY,
+  NOTHING_BLOCKS_THE_ACT,
   bridgeFor,
   bridgeQueueingCreates,
   openDraftWithPosture,
@@ -158,14 +159,24 @@ describe("the composed new-session draft — the transport it would send through
     const live = bridgeCountingCreates();
     const { rerender } = render(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={retired.bridge} onSessionCreated={recordNothing} />
+        <NewSessionControl
+          bridge={retired.bridge}
+          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          onSessionCreated={recordNothing}
+          onSessionDirectoryRecheck={recordNothing}
+        />
       </LiveAnnouncerProvider>,
     );
     await openDraftWithPosture();
 
     rerender(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={live.bridge} onSessionCreated={recordNothing} />
+        <NewSessionControl
+          bridge={live.bridge}
+          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          onSessionCreated={recordNothing}
+          onSessionDirectoryRecheck={recordNothing}
+        />
       </LiveAnnouncerProvider>,
     );
 
@@ -185,7 +196,12 @@ describe("the composed new-session draft — the transport it would send through
     const composed = bridgeCountingCreates();
     render(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={composed.bridge} onSessionCreated={recordNothing} />
+        <NewSessionControl
+          bridge={composed.bridge}
+          blockedAct={NOTHING_BLOCKS_THE_ACT}
+          onSessionCreated={recordNothing}
+          onSessionDirectoryRecheck={recordNothing}
+        />
       </LiveAnnouncerProvider>,
     );
     await openDraftWithPosture();

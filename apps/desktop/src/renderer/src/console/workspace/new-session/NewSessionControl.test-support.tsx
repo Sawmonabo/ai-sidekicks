@@ -13,9 +13,29 @@ import { withDaemonCall } from "../../bridge/fixture/fixture-bridge.test-support
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
+import type { NewSessionBlockedAct } from "../../seats/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
+
+/**
+ * The destination putting acts normally — what every case that is not about the block
+ * mounts against.
+ *
+ * Both halves say the same thing, which is the reading's own rule: the render-time
+ * sentence and the dispatch-time reader are one fact asked at two moments, and a
+ * harness whose halves disagreed would be scripting a state the destination cannot
+ * produce.
+ */
+export const NOTHING_BLOCKS_THE_ACT: NewSessionBlockedAct = {
+  sentence: undefined,
+  readSentence: () => undefined,
+};
+
+/** The destination refusing every act, with the cause a control renders. */
+export function blockedActSaying(sentence: string): NewSessionBlockedAct {
+  return { sentence, readSentence: () => sentence };
+}
 
 /**
  * The WHOLE registered create response.
@@ -98,11 +118,13 @@ export function renderControlOn(
   bridge: ConsoleBridge,
   onSessionCreated: (sessionId: string) => void = () => undefined,
   onSessionDirectoryRecheck: () => void = () => undefined,
+  blockedAct: NewSessionBlockedAct = NOTHING_BLOCKS_THE_ACT,
 ): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
       <NewSessionControl
         bridge={bridge}
+        blockedAct={blockedAct}
         onSessionCreated={onSessionCreated}
         onSessionDirectoryRecheck={onSessionDirectoryRecheck}
       />

@@ -39,7 +39,18 @@
 // one, so it is the sentence a control carries when both stand. Neither cause is
 // derived here: `store/shell-state.ts` owns the one that is the shell's, which is what
 // keeps this destination's disabled controls and the palette's read-only line from
-// naming two different reasons for one state.
+// naming two different reasons for one state, and `acts/session-act-block.ts` owns the
+// ranking — for every act on this destination, the composed draft's Send included,
+// which is what stopped that control being the one affordance still live through an
+// outage. Every act here is a WRITE, so the whole-window derivation answers for all of
+// them, and each is guarded again at DISPATCH: a block can land in the frame between
+// the render that enabled a control and the press that reaches its handler.
+//
+// THE DAEMON'S OWN LIFECYCLE CONTROLS ARE NOT ON THIS RULE, and must not be: stopping
+// and restarting the local runtime are how a stopped shell is recovered, and they are
+// shell acts rather than daemon calls. Blocking them because the shell is stopped would
+// close the only way back. `frame/shell-state/shell-status-binding.ts` says the same
+// thing from the side that performs one.
 //
 // STARTING A SESSION IS AN ACT, NEVER A SIDE EFFECT OF LOOKING AT THE LIST
 //
@@ -92,21 +103,18 @@
 import { useMemo, useState } from "react";
 
 import type { ConsoleSurfaceContext, NewSessionControlComponent } from "../seats/index.js";
-import { useConsoleClock, type AttentionItem, type GrowthPort } from "../bridge/index.js";
+import { useConsoleClock, type GrowthPort } from "../bridge/index.js";
 import { NotificationCenter, useAttentionSettlementAnnouncement } from "./notifications/index.js";
 import { InlineRefusal } from "../primitives/index.js";
-import {
-  absorbedSurfaceAsks,
-  renderAbsorbedSessionProbe,
-  requestSessionDirectoryRead,
-} from "../seats/index.js";
-import { shellMutationBlock, useOpenSessionIds, useShellState } from "../store/index.js";
+import { absorbedSurfaceAsks, renderAbsorbedSessionProbe } from "../seats/index.js";
+import { useOpenSessionIds } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionProjection } from "./rows/open-session-rows.js";
 import { useSessionPreferences } from "./rows/session-preferences.js";
 import { sessionListDegradation } from "./session-list-degradation.js";
 import { SessionActs } from "./acts/SessionActs.js";
-import { settleSessionStart } from "./acts/session-start.js";
+import { useSessionActBlock } from "./acts/session-act-block.js";
+import { sessionDestinationActs } from "./acts/session-destination-acts.js";
 import {
   SESSION_CREATE_OUTSTANDING_SENTENCE,
   useSessionStartFlight,
@@ -161,28 +169,12 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   const openSessions = useOpenSessionProjection(context.sessionStoreRegistry);
   const projectedRows = openSessions.rows;
   // Whether this window is still following the daemon, and what that costs. The fold
-  // rides the projection's own subscription rather than a second one, and the two
-  // sentences are composed once from the cause — a control deciding for itself
-  // whether it is allowed would be a second source of truth for the store's fact.
+  // rides the projection's own subscription rather than a second one, and both
+  // sentences it produces are composed once from the cause — a control deciding for
+  // itself whether it is allowed would be a second source of truth for the store's
+  // fact. The line above the list is read here; the half every control carries is
+  // `acts/session-act-block.ts`, which ranks it against the shell's own cause.
   const degradation = sessionListDegradation(openSessions.degradedCause);
-  // Whether this window may write to the local runtime at all, from the shell state
-  // the frame publishes. `store/shell-state.ts` owns the derivation and every reader
-  // shares it — the palette's read-only line and every control disabled here name one
-  // cause, because a destination that decided for itself would be a second answer to a
-  // question the store already answers.
-  //
-  // ONE READ FOR ALL THREE ACTS. `shellBlockForMethod` is the per-method seam, for a
-  // surface whose controls mix reads and writes; every act this destination offers is
-  // a write — `session.create` behind the start control, `session.join` behind the
-  // form, and the provider import, which is the same class of act on a wire the growth
-  // slate still owes — so the whole-window derivation answers for all of them.
-  //
-  // THE DAEMON'S OWN LIFECYCLE CONTROLS ARE NOT ON THIS RULE, and must not be: stopping
-  // and restarting the local runtime are how a stopped shell is recovered, and they are
-  // shell acts rather than daemon calls. Blocking them because the shell is stopped
-  // would close the only way back. `frame/shell-state/shell-status-binding.ts` says the
-  // same thing from the side that performs one.
-  const shellBlock = shellMutationBlock(useShellState(context.frameStore));
   // Said once per settlement, here rather than inside the center: this destination is
   // where the read lives, and the center is handed a reading and mounted in two other
   // harnesses that render it with no announcer above them. The panel draws the same
@@ -208,6 +200,17 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     context.bridge,
     absorbedSurfaceAsks(context.bridge.source),
   );
+
+  // Why no act may be put, and why the start act alone may not — one reading, asked at
+  // render for the affordances and again at dispatch for the guards behind them.
+  const actBlock = useSessionActBlock({
+    frameStore: context.frameStore,
+    degradedCause: openSessions.degradedCause,
+    readDegradedCause: openSessions.readDegradedCause,
+    startOutstandingSentence: startFlight.isOutstanding
+      ? SESSION_CREATE_OUTSTANDING_SENTENCE
+      : undefined,
+  });
 
   // The invites read is scoped to one session on the wire and this destination is
   // not, so it fans out over THE SAME session set the attention read asks about —
@@ -239,62 +242,11 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // identity belongs.
   const shelfClock = useConsoleClock();
 
-  // Both navigations are the same act — open the session this thing belongs to — and
-  // they are declared together so neither surface can drift into a second answer for
-  // "where does pressing this go". An attention item resolves nothing by being
-  // opened: `Spec-019 §Required Behavior` puts resolution in the daemon, and the
-  // centre offers no dismiss precisely because a client-side one would be a heuristic
-  // standing in for it.
-  const openSession = sessionOpenerFor(context.frameStore);
-  const openAttentionItem = (item: AttentionItem): void => {
-    openSession(item.sessionId);
-  };
-
-  // What a session started HERE settles into, for both ways of starting one.
-  //
-  // ONE SITE, because there is one act. The probe creates immediately and the draft
-  // creates on its own send, and the difference ends at the moment a session exists:
-  // from there both are a start this window authored, and `acts/session-start.ts` is
-  // the four things that follow. Two call sites composing the same settlement would be
-  // two answers to what a start produces, and the second one is where a marker gets
-  // forgotten.
-  const settleStartedSession = (sessionId: string): void => {
-    settleSessionStart({
-      bridge: context.bridge,
-      sessionStoreRegistry: context.sessionStoreRegistry,
-      openSession,
-      sessionId,
-    });
-  };
-
-  // Declare the node's directory stale, so this destination's own list re-reads it.
-  //
-  // The same act the settled join performs one screen down, through the same seat —
-  // and the composed draft's only remaining move after a create whose reply could not
-  // be read: a session may exist under a name nothing in this window holds, and the
-  // directory is the read that would answer.
-  const recheckSessionDirectory = (): void => {
-    requestSessionDirectoryRead(growth);
-  };
-
-  // Why no act may be put right now, in the words the control carries.
-  //
-  // THE SHELL'S CAUSE OUTRANKS THE LIST'S. A window that cannot reach the runtime
-  // cannot put the act at all; a degraded list is a window that lost the stream and
-  // could still send. Both are real, one sentence fits on a control, and the stronger
-  // fact is the one a person needs in order to know what to do next.
-  const blockedActSentence = shellBlock?.detail ?? degradation.blockedActSentence;
-
-  // Why the START control in particular may not be pressed right now.
-  //
-  // THE SHELL'S AND THE LIST'S CAUSES STILL OUTRANK IT. A window that cannot reach the
-  // runtime cannot put the act at all; an outstanding create is a window that CAN and
-  // already has. So the whole-destination sentence is asked first and this is the
-  // sentence a start control carries when nothing else closes it — the join form and
-  // the import are not on this rule, because neither is the act that is running.
-  const startBlockedSentence =
-    blockedActSentence ??
-    (startFlight.isOutstanding ? SESSION_CREATE_OUTSTANDING_SENTENCE : undefined);
+  // Every act a press on this destination performs, bound to the context above.
+  // `acts/session-destination-acts.ts` owns what each one DOES; this file owns where
+  // they are drawn and what closes them.
+  const { openSession, openAttentionItem, settleStartedSession, recheckSessionDirectory } =
+    sessionDestinationActs(context);
 
   // Both ways to have a session, offered together in the one place the list draws a
   // control: compose one, or take one of the acts this family owns. The composed draft
@@ -307,6 +259,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     <>
       <ComposedNewSession
         bridge={context.bridge}
+        blockedAct={actBlock.act}
         onSessionCreated={settleStartedSession}
         onSessionDirectoryRecheck={recheckSessionDirectory}
       />
@@ -319,7 +272,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
           // affordance: an enable predicate is a projection of the rule and a press that
           // reached here anyway must still put nothing, because what it mounts creates a
           // session from its own mount effect.
-          if (blockedActSentence !== undefined) {
+          if (actBlock.act.readSentence() !== undefined) {
             return;
           }
           // And the same rule for the act that is already running, decided by taking the
@@ -342,8 +295,8 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
           recheckSessionDirectory();
           openSession(sessionId);
         }}
-        blockedReason={blockedActSentence}
-        startBlockedReason={startBlockedSentence}
+        blockedReason={actBlock.act.sentence}
+        startBlockedReason={actBlock.startBlockedSentence}
       />
     </>
   );
@@ -429,23 +382,4 @@ function inviteShelfReaderFor(
 ): InviteShelfReader {
   return async () =>
     await Promise.all(sessionIds.map(async (sessionId) => await growth.invitesList({ sessionId })));
-}
-
-/**
- * The navigation both surfaces perform, bound to one frame store.
- *
- * Module-level and NOT a `useCallback`, on the rule `SessionAttentionBinding.tsx`'s
- * own `sessionIdOf` states: a mount-lifetime cell naming a session is the shape the
- * console holds through its one subject-keyed holder, so a callback capturing a
- * session id is the shape a reader — and
- * `test/console/architecture/subject-state-chokepoint.test.ts` — has to stop and
- * check. Nothing here needs a stable identity either: both consumers are rendered by
- * this surface on every pass regardless.
- */
-function sessionOpenerFor(
-  frameStore: ConsoleSurfaceContext["frameStore"],
-): (sessionId: string) => void {
-  return (sessionId: string): void => {
-    frameStore.navigate({ kind: "workspace", sessionId });
-  };
 }
