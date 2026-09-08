@@ -19,6 +19,8 @@ import { ChildRunSummaryRow, type ChildRunSummaryRowProps } from "./ChildRunSumm
 import { CHILD_RUN_SUMMARIZED, type ChildRunExpansion } from "./child-run-expansion.js";
 import { type ChildRunEntry } from "./child-run-entries.js";
 import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
+import { useLedgerAskTerminal } from "../../cards/bodies/AskTerminalProvider.js";
+import { readDriverAsk, type DriverAskReading } from "../../cards/bodies/input-ask.js";
 
 const CHILD_RUN_ID = "run-child" as RunId;
 
@@ -305,5 +307,79 @@ describe("the expansion draws the child run's own work", () => {
   it("draws no list at all for an expansion that read nothing", () => {
     const container = renderWhole(expandedWith([]));
     expect(container.querySelector(".meridian-child-run-row__entries")).toBeNull();
+  });
+});
+
+// AN EXPANDED PAGE IS ITS OWN WINDOW FOR AN ASK'S TERMINAL.
+//
+// The entries a child run's expansion returns are the child's rows, and the outer
+// ledger's terminal map holds only the parent window's. Rendered under that map a
+// child's request found no terminal, kept offering its answer controls, and let a
+// participant re-answer an ask the log had already settled — so the page provides its
+// own fold, over its own entries.
+//
+// The probe is a seat filler and not a stand-in: it reads the REAL reader and the REAL
+// hook, which is the pair the fix wires up.
+
+const ASK_ID_IN_CHILD_PAGE = "ask-1";
+const CHILD_ASK_PROBE = "[data-child-ask-probe]";
+
+function ChildAskProbe(props: { readonly ask: DriverAskReading }): React.JSX.Element {
+  const terminal = useLedgerAskTerminal(props.ask);
+  return (
+    <span data-child-ask-probe={props.ask.askId} data-ask-terminal={terminal?.state ?? "none"} />
+  );
+}
+
+function askProbeRowBody(props: TimelineRowSlotProps): React.JSX.Element {
+  const ask = readDriverAsk(props.row);
+  return ask === undefined ? probeRowBody(props) : <ChildAskProbe ask={ask} />;
+}
+
+/** One `driver_ask.*` row of the child's own page. */
+function childAskRow(
+  sequence: number,
+  type: string,
+  payload: Record<string, unknown>,
+): TimelineRow {
+  return runRow({
+    id: `child-ask-${String(sequence)}`,
+    sequence,
+    type,
+    summary: type,
+    actor: "agent-reviewer",
+    runId: CHILD_RUN_ID,
+    position: sequence,
+    payload: { kind: "input", askId: ASK_ID_IN_CHILD_PAGE, ...payload },
+  });
+}
+
+describe("a child run's expanded page settles its own asks", () => {
+  it("finds the terminal for a request the same page answered", () => {
+    const container = renderWhole(
+      expandedWith([
+        childAskRow(1, "driver_ask.requested", { prompt: "Which branch?" }),
+        childAskRow(2, "driver_ask.responded", { response: "develop" }),
+      ]),
+      { renderTimelineRow: askProbeRowBody },
+    );
+
+    const probes = [...container.querySelectorAll<HTMLElement>(CHILD_ASK_PROBE)];
+    expect(probes.map((probe) => probe.dataset["askTerminal"])).toStrictEqual([
+      "responded",
+      "responded",
+    ]);
+  });
+
+  // Without this the case above would pass over a probe that reported "responded" for
+  // any row, and over a fold that invented a terminal for an ask nothing settled.
+  it("negative control: a page holding only the request reports no terminal", () => {
+    const container = renderWhole(
+      expandedWith([childAskRow(1, "driver_ask.requested", { prompt: "Which branch?" })]),
+      { renderTimelineRow: askProbeRowBody },
+    );
+
+    const probe = container.querySelector<HTMLElement>(CHILD_ASK_PROBE);
+    expect(probe?.dataset["askTerminal"]).toBe("none");
   });
 });

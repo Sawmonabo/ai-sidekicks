@@ -250,10 +250,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           <LedgerRowRevealProvider channel={windows.reveal.channel}>
             {/* INSIDE the two row channels and around the viewport, because it is read
                 by one row body and not by the list: the ask card asks for its own ask's
-                terminal, and every other row consumes nothing here. */}
-            <LedgerAskTerminalProvider
-              terminalsByAskIdentity={ledgerWindow.askTerminalByAskIdentity}
-            >
+                terminal, and every other row consumes nothing here.
+
+                THE CHAIN'S FOLD AND NOT THIS WINDOW'S. `ledgerWindow` is what the facet
+                bar, the chapter fold and the band fold left, and a narrowing that admits
+                a request row while excluding the row that answered it must not be able
+                to take the terminal with it — the card would then offer answer controls
+                for an ask the log had already settled. */}
+            <LedgerAskTerminalProvider terminalsByAskIdentity={windows.askTerminalByAskIdentity}>
               <LedgerViewport
                 binding={viewport}
                 renderRow={renderRow}

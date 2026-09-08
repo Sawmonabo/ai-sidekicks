@@ -30,6 +30,7 @@
 // each one against the contracts census, so an ask keyed on a kind the wire does not
 // have cannot ship.
 
+import { driverAskIdentitySegments, structuralKey } from "../../core/index.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
 
 /**
@@ -65,6 +66,9 @@ export const RUN_STATE_KINDS: readonly string[] = [
   "run.failed",
 ];
 
+/** The payload member a run event carries its run's identity on. */
+const RUN_CORRELATION_MEMBER = "runId";
+
 /**
  * One request-scoped lifecycle: what opens it, what closes it, and where its id is.
  *
@@ -78,6 +82,22 @@ export interface RequestLifecycle {
   readonly closedBy: readonly string[];
   /** The payload member every event in this lifecycle carries the request id on. */
   readonly correlationMember: string;
+  /**
+   * The payload member that SCOPES that id, where the wire's id is not unique on its
+   * own — absent where it is.
+   *
+   * Exactly one lifecycle carries one today and that is not a coincidence: an approval
+   * request id and an intervention id are DAEMON-minted and unique within the session,
+   * while an `askId` is the PROVIDER's, minted per provider session, so two runs
+   * blocked at once legitimately raise the same one. Keyed on that id alone, either
+   * run's terminal deleted the single entry both had opened, and the bar printed its
+   * all-clear line over a run still waiting on somebody.
+   *
+   * A second scoped lifecycle would be a second wire whose ids the daemon does not
+   * mint, and the module that composes ITS segments would be named the way
+   * `core/driver-ask-identity.ts` is.
+   */
+  readonly scopeMember?: string;
 }
 
 export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
@@ -90,6 +110,10 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
     openedBy: "driver_ask.requested",
     closedBy: ["driver_ask.responded", "driver_ask.expired", "driver_ask.canceled"],
     correlationMember: "askId",
+    // `Spec-006` makes `runId` required on all four `driver_ask.*` shapes, which is
+    // what makes the scope readable off the payload here rather than off a row this
+    // fold never sees.
+    scopeMember: RUN_CORRELATION_MEMBER,
   },
   {
     openedBy: "intervention.requested",
@@ -104,9 +128,6 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
   },
 ];
 
-/** The payload member a run event carries its run's identity on. */
-const RUN_CORRELATION_MEMBER = "runId";
-
 /**
  * Read one correlation id off a payload, or `undefined`.
  *
@@ -120,16 +141,55 @@ function correlationIdOf(event: ConsoleSessionEvent, member: string): string | u
 }
 
 /**
- * The key an opening event takes when the wire named no id for it.
+ * The key an opening event takes when the wire named nothing that identifies it.
  *
- * FAIL-CLOSED, and the direction matters. An ask that arrived without a correlation
- * id cannot be matched to its own terminal, so it is held open under a key of its own
- * — its position in the log, which is unique. Dropping it instead would clear a block
- * the console never saw resolved, which is the exact failure this fold exists to end.
- * A resolution event with no id closes nothing, for the same reason: it names no ask.
+ * FAIL-CLOSED, and the direction matters. An ask that arrived without a correlation id
+ * — or, on a scoped lifecycle, without its scope — cannot be matched to its own
+ * terminal, so it is held open under a key of its own: its position in the log, which
+ * is unique. Dropping it instead would clear a block the console never saw resolved,
+ * which is the exact failure this fold exists to end. A resolution event missing either
+ * closes nothing, for the same reason: it names no ask.
+ *
+ * Through the same encoder every other key here takes, so an unidentified ask and an
+ * identified one cannot collide however a session id or an ask id happens to be spelt.
  */
 function uncorrelatedKey(event: ConsoleSessionEvent): string {
-  return `uncorrelated:${event.sessionId}:${String(event.sequence)}`;
+  return structuralKey(["uncorrelated", event.sessionId, String(event.sequence)]);
+}
+
+/**
+ * The key one request of this lifecycle is filed under, or `undefined` where the wire
+ * named nothing that identifies it.
+ *
+ * NAMESPACED BY THE EVENT THAT OPENS THE LIFECYCLE, because the three id spaces are
+ * three wires: nothing says a daemon-minted intervention id and a provider-minted ask
+ * id cannot spell the same string, and this one map holds all three.
+ *
+ * AND SCOPED WHERE THE LIFECYCLE SAYS ITS ID IS NOT UNIQUE ON ITS OWN. Which segments
+ * a driver ask is identified by, and in which order, is `core/driver-ask-identity.ts`'
+ * and is deliberately not spelled here — the ledger's ask card keys its own terminal
+ * fold on the same pair, and one surface answering that question differently from the
+ * other is how an answer given in one run settles a card in another.
+ *
+ * The refusal is returned rather than resolved, because the two arms of the fold owe
+ * it different things: an opener is held open under {@link uncorrelatedKey}, and a
+ * resolution closes nothing at all.
+ */
+function identifiedRequestKeyOf(
+  event: ConsoleSessionEvent,
+  lifecycle: RequestLifecycle,
+): string | undefined {
+  const requestId = correlationIdOf(event, lifecycle.correlationMember);
+  if (lifecycle.scopeMember === undefined) {
+    return requestId === undefined ? undefined : structuralKey([lifecycle.openedBy, requestId]);
+  }
+  const identitySegments = driverAskIdentitySegments(
+    correlationIdOf(event, lifecycle.scopeMember),
+    requestId,
+  );
+  return identitySegments === undefined
+    ? undefined
+    : structuralKey([lifecycle.openedBy, ...identitySegments]);
 }
 
 /**
@@ -186,14 +246,11 @@ export function foldOutstandingAsks(timeline: readonly ConsoleSessionEvent[]): O
     if (lifecycle === undefined) {
       continue;
     }
-    const requestId = correlationIdOf(event, lifecycle.correlationMember);
+    const requestKey = identifiedRequestKeyOf(event, lifecycle);
     if (event.kind === lifecycle.openedBy) {
-      openerByRequestKey.set(
-        `${lifecycle.openedBy}:${requestId ?? uncorrelatedKey(event)}`,
-        event.actorId,
-      );
-    } else if (requestId !== undefined) {
-      openerByRequestKey.delete(`${lifecycle.openedBy}:${requestId}`);
+      openerByRequestKey.set(requestKey ?? uncorrelatedKey(event), event.actorId);
+    } else if (requestKey !== undefined) {
+      openerByRequestKey.delete(requestKey);
     }
   }
 

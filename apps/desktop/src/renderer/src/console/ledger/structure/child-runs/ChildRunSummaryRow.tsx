@@ -32,6 +32,14 @@
 // answer to "what does a timeline row look like", and the child's rows would drift
 // from the parent's the first time either moved.
 //
+// AND AN EXPANDED PAGE IS ITS OWN WINDOW FOR AN ASK'S TERMINAL. A driver ask is opened
+// by one row and settled by a later one, so whether a request still needs answering is
+// a fact about the window holding both — which for these entries is `expansion.entries`
+// and never the parent ledger the outer provider folded. Rendered under that outer map
+// the child's request found no terminal, kept offering its answer controls, and let a
+// participant re-answer an ask the log had already settled. The fold is the one the
+// ledger's card family declares; what this row supplies is the window it runs over.
+//
 // MOUNTED AS COMPONENTS AND NOT CALLED AS FUNCTIONS. The seat's renderer holds hooks,
 // and the page's length moves with each expansion, so calling it once per entry inside
 // this component's own body would make the hook order a function of how many rows the
@@ -50,14 +58,27 @@ import { type ParticipantHueAssignment } from "../../../tokens/index.js";
 // boundaries, and rows past one are superseded in the child's log exactly as they are
 // in the parent's.
 import { SupersededIndex } from "../seams/superseded-bands.js";
+// Deeply rather than through `cards/index.ts`, which is what an intra-family import
+// is for — and the two halves of the ask seam are taken from the modules that declare
+// them, so this row publishes no second answer about what settles an ask.
+import { LedgerAskTerminalProvider } from "../../cards/bodies/AskTerminalProvider.js";
+import { deriveDriverAskTerminals, type DriverAskReading } from "../../cards/bodies/input-ask.js";
 import { type ChildRunEntry } from "./child-run-entries.js";
 import { type ChildRunExpansion } from "./child-run-expansion.js";
 
-/** How the expanded page resolves each of the three decisions the seat is handed. */
+/**
+ * How the expanded page resolves each of the three decisions the seat is handed, and
+ * the terminal map the ask rows among those entries read.
+ *
+ * The map travels beside them rather than being folded where the list is drawn, for
+ * the reason every other derivation on this row travels: it is derived once per page
+ * in the component, so a re-render of the parent does not re-fold the child's log.
+ */
 interface ChildRunEntryDecisions {
   readonly renderTimelineRow: TimelineRowRenderer;
   readonly hueForActor: (participantId: string) => ParticipantHueAssignment | undefined;
   readonly superseded: SupersededIndex;
+  readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
 }
 
 export interface ChildRunSummaryRowProps {
@@ -99,10 +120,18 @@ export function ChildRunSummaryRow(props: ChildRunSummaryRowProps): React.JSX.El
   // parent's boundaries rank none of them. Memoised on the page's identity, which the
   // expansion state holds across renders until a fresh expansion replaces it.
   const superseded = useMemo(() => new SupersededIndex(expansion.entries), [expansion.entries]);
+  // Over the PAGE and not over the parent window, for the same reason the ranking above
+  // is: the request and the row that answered, expired or cancelled it are both the
+  // child's, and the parent's map holds neither.
+  const askTerminalByAskIdentity = useMemo(
+    () => deriveDriverAskTerminals(expansion.entries),
+    [expansion.entries],
+  );
   const entryDecisions: ChildRunEntryDecisions = {
     renderTimelineRow: props.renderTimelineRow,
     hueForActor: props.hueForActor,
     superseded,
+    askTerminalByAskIdentity,
   };
   return (
     <LedgerRow
@@ -261,17 +290,21 @@ function renderExpandedEntries(
   }
   const EntryBody = decisions.renderTimelineRow;
   return (
-    <ol className="meridian-child-run-row__entries" aria-label="this child run's own entries">
-      {entries.map((row) => (
-        <li key={row.id} className="meridian-child-run-row__entry">
-          <EntryBody
-            row={row}
-            participantHue={row.actor === undefined ? undefined : decisions.hueForActor(row.actor)}
-            isSuperseded={decisions.superseded.isSuperseded(row.id)}
-            density="collapsed"
-          />
-        </li>
-      ))}
-    </ol>
+    <LedgerAskTerminalProvider terminalsByAskIdentity={decisions.askTerminalByAskIdentity}>
+      <ol className="meridian-child-run-row__entries" aria-label="this child run's own entries">
+        {entries.map((row) => (
+          <li key={row.id} className="meridian-child-run-row__entry">
+            <EntryBody
+              row={row}
+              participantHue={
+                row.actor === undefined ? undefined : decisions.hueForActor(row.actor)
+              }
+              isSuperseded={decisions.superseded.isSuperseded(row.id)}
+              density="collapsed"
+            />
+          </li>
+        ))}
+      </ol>
+    </LedgerAskTerminalProvider>
   );
 }

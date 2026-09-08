@@ -44,7 +44,7 @@
 // store is, and handed on to the viewport, where the head control is placed beside
 // the tail's.
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import { consoleLedgerWindows, type ConsoleClock } from "../../../core/index.js";
 import {
@@ -56,6 +56,7 @@ import {
   type LedgerRevealBinding,
   type LedgerViewportBinding,
 } from "../../frame/index.js";
+import { deriveDriverAskTerminals, type DriverAskReading } from "../../cards/index.js";
 import {
   useChildRunDisclosure,
   type ChildRunDisclosure,
@@ -121,6 +122,23 @@ export interface LedgerFeedWindows {
   readonly bandFold: LedgerPipelineStage;
   /** The last model window: narrowed, chapter-folded, band-folded. */
   readonly ledgerWindow: LedgerWindowModel;
+  /**
+   * The terminal each settled ask in this ledger reached, keyed by run AND ask id.
+   *
+   * A MEMBER OF THE CHAIN AND NOT OF A WINDOW, which is the whole of the fix. Whether
+   * a request still needs answering is a fact about everything this pane is a log of,
+   * and every stage below the projection is a NARROWING somebody chose — a facet chip,
+   * a folded chapter, a folded band. A participant filter that admits a request row
+   * and excludes the row that answered it must not be able to take the terminal with
+   * it: the ask would find none, and the card would offer answer controls for an ask
+   * the log had already settled. Carried on `LedgerWindowModel` the fold was rebuilt
+   * by each of those stages and read off the last of them, which is one spread away
+   * from exactly that defect at all times; carried here it is derived once, from the
+   * unfurled channel-scoped projection, and no narrowing can reach it.
+   *
+   * The key belongs to `input-ask.ts` and is never spelled here.
+   */
+  readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
   readonly replay: LedgerReplayState;
   readonly reveal: LedgerRevealBinding;
   readonly viewport: LedgerViewportBinding;
@@ -182,6 +200,14 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
     inputs.sessionStore.sessionId,
   );
   const ledgerWindow = bandFold.window;
+  // OVER THE UNFURLED PROJECTION, never over `ledgerWindow`. It is channel-scoped
+  // already — so an ask settled in another channel's log does not silence a request
+  // this pane is showing — and it is upstream of every narrowing a person can apply,
+  // which is what keeps a filtered-away terminal from un-settling a visible request.
+  const askTerminalByAskIdentity = useMemo(
+    () => deriveDriverAskTerminals(unfurledWindow.rows),
+    [unfurledWindow.rows],
+  );
   const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
@@ -259,6 +285,7 @@ export function useLedgerFeedWindows(inputs: LedgerFeedWindowsInputs): LedgerFee
     chapterFold,
     bandFold,
     ledgerWindow,
+    askTerminalByAskIdentity,
     replay,
     reveal,
     viewport,

@@ -220,6 +220,67 @@ export function openSessionStoreWithFilterableLog(): SessionStore {
   return sessionStore;
 }
 
+/** The provider-local id the ask fixtures below are raised under. */
+export const FIXTURE_ASK_ID = "ask-1";
+
+/**
+ * A driver ask raised by one participant and settled by ANOTHER, on one run.
+ *
+ * The split actor is the instrument: a participant facet admitting the requester
+ * admits the request row and excludes the row that answered it, which is the exact
+ * shape a terminal fold taken downstream of the facet bar gets wrong — the request
+ * finds no terminal and offers answer controls for an ask the log has already
+ * settled. With one actor throughout, a fold at either position would agree.
+ *
+ * `settled` false leaves the request standing with no terminal anywhere, which is what
+ * makes an assertion that a terminal was FOUND non-vacuous.
+ */
+export function openSessionStoreWithSplitActorAsk(settled: boolean): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: FILTERABLE_SESSION_ID });
+  sessionStore.initialise({
+    cursor: -1,
+    entities: [],
+    participantJoinLog: [EARLY_JOINER, LATE_JOINER],
+  });
+  sessionStore.applyBatch([
+    {
+      id: ledgerFixtureEventId(0),
+      sessionId: FILTERABLE_SESSION_ID,
+      sequence: 0,
+      kind: "driver_ask.requested",
+      occurredAt: ledgerFixtureStampAt(0),
+      actorId: EARLY_JOINER,
+      payload: {
+        sessionId: FILTERABLE_SESSION_ID,
+        runId: LIVE_RUN_ID,
+        askId: FIXTURE_ASK_ID,
+        kind: "input",
+        prompt: "Which branch should this land on?",
+      },
+    },
+    ...(settled
+      ? [
+          {
+            id: ledgerFixtureEventId(1),
+            sessionId: FILTERABLE_SESSION_ID,
+            sequence: 1,
+            kind: "driver_ask.responded",
+            occurredAt: ledgerFixtureStampAt(1),
+            actorId: LATE_JOINER,
+            payload: {
+              sessionId: FILTERABLE_SESSION_ID,
+              runId: LIVE_RUN_ID,
+              askId: FIXTURE_ASK_ID,
+              kind: "input",
+              response: "develop",
+            },
+          },
+        ]
+      : []),
+  ]);
+  return sessionStore;
+}
+
 /**
  * A live run whose rows are tool rows, which are the ones that carry a disclosure.
  *

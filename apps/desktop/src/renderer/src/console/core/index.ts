@@ -205,6 +205,11 @@ export { refusalRemedyFor } from "./refusal-remedies.js";
 // `settings/`'s scope-qualified MCP binding key — and neither family may reach the
 // other, so the floor is the only home both can take it from.
 export { structuralKey } from "./structural-key.js";
+// Which two members name one provider ask. At the floor because its readers are two
+// sibling VIEW families — the ledger's ask card and the workspace's cast bar — so
+// neither may reach the other, and an ask filed under two spellings of its identity is
+// an answer landing on the wrong run's card.
+export { driverAskIdentitySegments } from "./driver-ask-identity.js";
 // The subscribe view of the console's one transport-reconnect signal. Declared at
 // the floor because its producer is `bridge/` and its consumer is `store/`, and the
 // DAG puts the consumer below the producer — so the floor is the only home both can

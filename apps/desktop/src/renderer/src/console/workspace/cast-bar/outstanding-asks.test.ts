@@ -57,6 +57,14 @@ describe("the lifecycles this fold keys on — wire truth", () => {
     expect(ATTENTION_RUN_STATE_KINDS.every((kind) => RUN_STATE_KINDS.includes(kind))).toBe(true);
   });
 
+  it("scopes exactly the lifecycle whose ids the daemon does not mint", () => {
+    expect(
+      REQUEST_LIFECYCLES.filter((lifecycle) => lifecycle.scopeMember !== undefined).map(
+        (lifecycle) => [lifecycle.openedBy, lifecycle.correlationMember, lifecycle.scopeMember],
+      ),
+    ).toStrictEqual([["driver_ask.requested", "askId", "runId"]]);
+  });
+
   it("negative control: the census is a real set, and a made-up kind is not in it", () => {
     expect(REGISTERED_EVENT_TYPES.size).toBeGreaterThan(100);
     expect(REGISTERED_EVENT_TYPES.has("run.started")).toBe(false);
@@ -111,15 +119,110 @@ describe("foldOutstandingAsks — an ask closes on its own terminal and nothing 
   });
 
   it("attributes an ask to whoever opened it, never to whoever resolved it", () => {
+    // Every `driver_ask.*` row carries its `runId`, which is what the wire requires of
+    // all four shapes — a fixture that omitted it would be asserting over a payload no
+    // daemon emits.
     const outstanding = foldOutstandingAsks(
       logOf([
-        { kind: "driver_ask.requested", actor: "agent-scout", payload: { askId: "ask-1" } },
-        { kind: "driver_ask.requested", actor: "agent-scout", payload: { askId: "ask-2" } },
-        { kind: "driver_ask.responded", actor: "participant-you", payload: { askId: "ask-2" } },
+        {
+          kind: "driver_ask.requested",
+          actor: "agent-scout",
+          payload: { runId: "run-a", askId: "ask-1" },
+        },
+        {
+          kind: "driver_ask.requested",
+          actor: "agent-scout",
+          payload: { runId: "run-a", askId: "ask-2" },
+        },
+        {
+          kind: "driver_ask.responded",
+          actor: "participant-you",
+          payload: { runId: "run-a", askId: "ask-2" },
+        },
       ]),
     );
     expect([...outstanding.participantIds]).toStrictEqual(["agent-scout"]);
     expect(outstanding.count).toBe(1);
+  });
+
+  // THE PROVIDER'S ASK ID IS NOT AN IDENTITY. It is minted per provider session, so
+  // two runs blocked at once legitimately raise `ask-1` each. Keyed on that id alone
+  // both openers wrote one entry, either terminal deleted it, and the bar said nothing
+  // needed anybody while the other run was still waiting.
+  it("keeps run B's ask outstanding when run A answers the same provider ask id", () => {
+    const outstanding = foldOutstandingAsks(
+      logOf([
+        {
+          kind: "driver_ask.requested",
+          actor: "agent-scout",
+          payload: { runId: "run-a", askId: "ask-1" },
+        },
+        {
+          kind: "driver_ask.requested",
+          actor: "agent-architect",
+          payload: { runId: "run-b", askId: "ask-1" },
+        },
+        {
+          kind: "driver_ask.responded",
+          actor: "participant-you",
+          payload: { runId: "run-a", askId: "ask-1" },
+        },
+      ]),
+    );
+    expect(outstanding.count).toBe(1);
+    expect([...outstanding.participantIds]).toStrictEqual(["agent-architect"]);
+  });
+
+  it("does not let one run's ask terminal close another run's ask of the same id", () => {
+    const outstanding = foldOutstandingAsks(
+      logOf([
+        {
+          kind: "driver_ask.requested",
+          actor: "agent-scout",
+          payload: { runId: "run-a", askId: "ask-1" },
+        },
+        {
+          kind: "driver_ask.canceled",
+          actor: "participant-you",
+          payload: { runId: "run-b", askId: "ask-1" },
+        },
+      ]),
+    );
+    expect(outstanding.count).toBe(1);
+    expect([...outstanding.participantIds]).toStrictEqual(["agent-scout"]);
+  });
+
+  it("holds a provider ask that named no run open rather than clearing it", () => {
+    // The scope is as load-bearing as the id: without it the ask cannot be matched to
+    // its own terminal, so it is held under a key of its own — the same fail-closed
+    // direction an uncorrelated request takes.
+    const outstanding = foldOutstandingAsks(
+      logOf([
+        { kind: "driver_ask.requested", actor: "agent-scout", payload: { askId: "ask-1" } },
+        { kind: "driver_ask.responded", actor: "participant-you", payload: { askId: "ask-1" } },
+      ]),
+    );
+    expect(outstanding.count).toBe(1);
+    expect([...outstanding.participantIds]).toStrictEqual(["agent-scout"]);
+  });
+
+  it("still closes an ask on its own run's terminal, which is what makes the scope a key and not a wall", () => {
+    const outstanding = foldOutstandingAsks(
+      logOf([
+        {
+          kind: "driver_ask.requested",
+          actor: "agent-scout",
+          payload: { runId: "run-a", askId: "ask-1" },
+        },
+        {
+          kind: "driver_ask.responded",
+          actor: "participant-you",
+          payload: { runId: "run-a", askId: "ask-1" },
+        },
+      ]),
+    );
+    expect(outstanding.count).toBe(0);
+    expect(outstanding.participantIds.size).toBe(0);
   });
 
   it("does not let an approval's own askId open a provider ask nothing can close", () => {

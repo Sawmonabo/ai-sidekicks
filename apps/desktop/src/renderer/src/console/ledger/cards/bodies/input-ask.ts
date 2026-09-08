@@ -32,7 +32,12 @@
 // the daemon" once it reaches zero, which is a statement about what the surface is
 // doing rather than about what the ask has become.
 
-import { readWireString, type ConsoleRefusal } from "../../../core/index.js";
+import {
+  driverAskIdentitySegments,
+  readWireString,
+  structuralKey,
+  type ConsoleRefusal,
+} from "../../../core/index.js";
 import type { OwnerSlotContract } from "../../../seats/index.js";
 import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "../wire-payload.js";
@@ -184,24 +189,29 @@ export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
 }
 
 /**
- * The identity one ask is known by inside a window: its run AND its ask id.
+ * The key one ask is filed under inside a window: its run AND its ask id.
  *
- * PRIVATE, AND THE ONE PLACE THE KEY IS SPELLED. The fold below writes with it and
- * {@link askTerminalIn} reads with it, so the two halves of the seam cannot disagree
- * about what "the same ask" is — which is the whole defect a second spelling causes
- * here, silently, on a screen that then removes a blocked run's answer controls.
+ * PRIVATE, AND THE ONE PLACE THIS FAMILY'S KEY IS COMPOSED. The fold below writes with
+ * it and {@link askTerminalIn} reads with it, so the two halves of the seam cannot
+ * disagree about what "the same ask" is — which is the whole defect a second spelling
+ * causes here, silently, on a screen that then removes a blocked run's answer controls.
  *
- * `undefined` where the row attributed no run, which is a REFUSAL to identify rather
- * than a run-less key: an ask nothing attributes cannot be answered — the registered
- * answer request names a run — so filing one would make an unanswerable ask able to
- * settle an answerable one.
+ * WHICH MEMBERS, AND IN WHICH ORDER, IS NOT THIS FAMILY'S QUESTION. It is
+ * `core/driver-ask-identity.ts`', because the cast bar keys driver asks in a fold of
+ * its own and a second answer there is the same defect pointing the other way. What is
+ * this family's is the ENCODING, and it goes through `structuralKey` — the console's
+ * one tuple-to-key encoder — rather than through a join of its own: a separator is
+ * injective only while no segment can contain it, and both segments here are wire
+ * strings this console did not author.
  *
- * Joined on the unit separator, `deck-model.ts`' rule for a composite key and for its
- * reason: the field before the last is a schema-validated `RunId`, so the one
- * free-form field is last and a key cannot be re-parsed into a different pair.
+ * `undefined` where the row attributed no run, which is that module's REFUSAL to
+ * identify rather than a run-less key: an ask nothing attributes cannot be answered —
+ * the registered answer request names a run — so filing one would make an unanswerable
+ * ask able to settle an answerable one.
  */
 function driverAskIdentity(ask: DriverAskReading): string | undefined {
-  return ask.runId === undefined ? undefined : `${ask.runId}\u001f${ask.askId}`;
+  const segments = driverAskIdentitySegments(ask.runId, ask.askId);
+  return segments === undefined ? undefined : structuralKey(segments);
 }
 
 /**
