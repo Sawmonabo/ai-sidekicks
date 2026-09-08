@@ -87,11 +87,11 @@ import {
   openSettingsRoute,
   readAppliedEventCount,
   readBoundSessionIds,
-  readLedgerWindow,
   readPlayingScenarioId,
   SETTINGS_SURFACE_SELECTOR,
   WORKSPACE_SURFACE_SELECTOR,
 } from "./console-workload.js";
+import { readLedgerWindow } from "./ledger-window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 // The real overscan the viewport is constructed with, so the bound below is the
@@ -317,10 +317,14 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         }
         process.stdout.write(
           `[console-endurance] ledger window ${String(ledgerWindow.mountedRowCount)} mounted / ` +
+            `${String(ledgerWindow.virtualItemCount)} windowed / ` +
             `${String(ledgerWindow.visibleRowCount)} visible of ` +
-            `${String(ledgerWindow.totalRowCount)} rows, viewport ` +
-            `${String(ledgerWindow.viewportClientHeightPx)} px of ` +
-            `${String(ledgerWindow.viewportScrollHeightPx)} px of content\n`,
+            `${String(ledgerWindow.totalRowCount)} rows ` +
+            `(${String(ledgerWindow.indexableRowCount)} indexable), viewport ` +
+            `${String(ledgerWindow.viewportClientHeightPx)} px ` +
+            `(ranged against ${String(ledgerWindow.rangedAgainstClientHeightPx)} px) showing ` +
+            `${String(ledgerWindow.viewportScrollHeightPx)} px of a ` +
+            `${String(ledgerWindow.totalContentHeightPx)} px log\n`,
         );
 
         expect(

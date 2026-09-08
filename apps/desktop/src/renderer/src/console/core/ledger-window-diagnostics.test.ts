@@ -18,11 +18,15 @@ const SESSION_ID = "session-under-test";
 
 function reading(mountedRowCount: number): LedgerWindowReading {
   return {
+    virtualItemCount: mountedRowCount,
     mountedRowCount,
     totalRowCount: 200,
+    indexableRowCount: 200,
     visibleRowCount: 5,
+    totalContentHeightPx: 10_000,
     viewportClientHeightPx: 400,
     viewportScrollHeightPx: 10_000,
+    rangedAgainstClientHeightPx: 400,
   };
 }
 

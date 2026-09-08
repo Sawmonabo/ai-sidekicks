@@ -28,15 +28,36 @@ import { type Unsubscribe } from "./emitter.js";
 /**
  * What a ledger viewport is showing for one session, at one instant.
  *
- * The whole point of the shape is that four of the five figures are the VIEWPORT's
- * and one is the LOG's, so a reader can state the windowing claim as a relation
- * between them rather than against a count from somewhere else entirely.
+ * NINE FIGURES, EACH READING EXACTLY ONE THING, and the shape is that wide because
+ * the states it has to separate are not orderings of one number. A windowed ledger
+ * that shows nothing can be: a viewport the browser measured at no height, a window
+ * whose rows the view could not index, a sizer that never received the log's height,
+ * or a log that genuinely has nothing in it — and any single count answers all four
+ * the same way. Read together they are a set of equations a reader can check:
+ * `virtualItemCount` should equal `mountedRowCount`, `totalContentHeightPx` should
+ * equal `viewportScrollHeightPx`, `totalRowCount` should equal `indexableRowCount`,
+ * and `viewportClientHeightPx` should equal `rangedAgainstClientHeightPx`. A break in
+ * any one of them names its own defect — the last one is not hypothetical, and is how
+ * the frozen-clock starvation `scroll-chokepoint.ts`' `publishOnResize` closes was
+ * found: every other figure agreed while the window ranged against a box from mount.
  */
 export interface LedgerWindowReading {
-  /** Rows the virtualizer has mounted — the visible range widened by the overscan. */
+  /** Rows the virtualizer INTENDS on screen: `getVirtualItems().length`. */
+  readonly virtualItemCount: number;
+  /**
+   * Rows actually in the document, counted under the scroll surface.
+   *
+   * Not the same question as `virtualItemCount` and the pair is the point: the view
+   * maps a virtual item to a row and renders NOTHING where it cannot index one, so a
+   * window can intend seven rows and mount none. Counted by the index attribute the
+   * virtualizer itself resolves an element back through, which is the only marker
+   * both sides of that seam agree on.
+   */
   readonly mountedRowCount: number;
   /** Rows the window holds and could mount: the virtualizer's own `count`. */
   readonly totalRowCount: number;
+  /** Rows the VIEW can index — the published snapshot's own row array length. */
+  readonly indexableRowCount: number;
   /**
    * How many rows the box itself intersects, WITHOUT the overscan.
    *
@@ -45,8 +66,33 @@ export interface LedgerWindowReading {
    * intersects no row, and reporting one would invent a window.
    */
   readonly visibleRowCount: number;
+  /**
+   * The height the log occupies: the virtualizer's `getTotalSize()`.
+   *
+   * The sizer is supposed to CARRY this, written to its inline height by the
+   * library under `directDomUpdates`, so this figure against
+   * `viewportScrollHeightPx` is the one reading that says whether the scrollbar is
+   * describing the log or describing whatever happens to be in flow.
+   */
+  readonly totalContentHeightPx: number;
+  /** The scroll element's `clientHeight` — the box the virtualizer ranges against. */
   readonly viewportClientHeightPx: number;
+  /** The scroll element's `scrollHeight` — what the browser thinks it contains. */
   readonly viewportScrollHeightPx: number;
+  /**
+   * The viewport height the VIRTUALIZER is ranging against — the chokepoint's last
+   * published sample, which is the only box the library ever sees.
+   *
+   * Beside `viewportClientHeightPx` rather than instead of it, and the pair is a
+   * ninth figure earned the hard way: this reading first took both heights from the
+   * sample and reported a 32 px box over 97 px of content while the element was
+   * 149 px over 5 085 px. A reading taken from the sample can only ever agree with
+   * the window — including when both describe a box that stopped existing — so the
+   * instrument was reporting the defect as health. Split, the gap was the defect:
+   * the sample was old because nothing was re-publishing it, which is the
+   * starvation `scroll-chokepoint.ts`' `publishOnResize` now closes.
+   */
+  readonly rangedAgainstClientHeightPx: number;
 }
 
 /** One mounted viewport's live answer. Called by a reader, never by the ledger. */

@@ -43,6 +43,16 @@
  * having moved on its own.
  */
 .meridian-ledger-viewport__surface {
+  /* PLACED, not auto-placed. The two tracks above were written for an error slot over
+     a scroll surface, but `ErrorSlot.tsx` returns null with no entries and both
+     affordances are out of flow — so in the ordinary case the surface is the only
+     in-flow child, auto-places into track 1, and is sized by its CONTENT while the
+     `1fr` track it was meant for sits empty and absorbs the free space. Measured: zero
+     pixels inside a 600 px viewport, which is the box the virtualizer then ranges
+     against, and at zero `calculateRange` returns null and no row ever mounts to grow
+     it back. Naming the track makes the placement a property of this element rather
+     than of whether an unrelated sibling happens to be rendering. */
+  grid-row: 2;
   position: relative;
   overflow-y: auto;
   overscroll-behavior: contain;

@@ -105,13 +105,13 @@ export interface LedgerViewportBinding {
   /**
    * What this window is showing, read at the instant it is asked.
    *
-   * A FUNCTION and not a snapshot member, because four of its five figures are scroll
-   * geometry or a computation over it, and this binding deliberately keeps those off
-   * the React snapshot — publishing them there would notify the tree on every
-   * scrolled pixel. Nothing in the console renders from it: the endurance tier reads
-   * it through the fixture handle, where "the ledger mounted nothing" and "the ledger
-   * has nothing to mount" are two different findings and a row count cannot tell them
-   * apart. Stable across renders, so a registration keyed on it registers once.
+   * A FUNCTION and not a snapshot member, because most of what it reports is layout
+   * or a computation over it, and this binding deliberately keeps that off the React
+   * snapshot — publishing it there would notify the tree on every scrolled pixel.
+   * Nothing in the console renders from it: the endurance tier reads it through the
+   * fixture handle, where the several ways a ledger can show nothing are different
+   * findings that one row count answers identically. Stable across renders, so a
+   * registration keyed on it registers once.
    */
   readonly readWindowDiagnostics: () => LedgerWindowReading;
 }
@@ -327,20 +327,28 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
       // reading `virtualizer.range` before it would report the window as it was at
       // the last render rather than as it is now, and the two disagree exactly when
       // this reading is worth taking.
-      const mountedItems = virtualizer.getVirtualItems();
+      const virtualItems = virtualizer.getVirtualItems();
       const range = virtualizer.range;
-      // The chokepoint's last sample rather than a fresh element read: it is the same
-      // number the library's own rect holds, so a reading that disagreed with the
-      // window would be reporting a box the window never saw.
-      const geometry = controller.scroll.geometry;
+      // The ELEMENT, and not the chokepoint's last sample. The sample is what the
+      // library was told the box is, so a reading taken from it could only ever
+      // agree with the window — including when both are describing a box that has
+      // since collapsed. Read here, a disagreement between the two is visible.
+      const surface = surfaceElementRef.current;
       return {
-        mountedRowCount: mountedItems.length,
+        virtualItemCount: virtualItems.length,
+        // Counted under the SURFACE rather than the sizer, so a row the view placed
+        // outside the sizer is still counted and the figure cannot be flattered by
+        // asking only where rows are supposed to be.
+        mountedRowCount: surface?.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`).length ?? 0,
         totalRowCount: virtualizer.options.count,
+        indexableRowCount: snapshot.rows.length,
         visibleRowCount: range === null ? 0 : range.endIndex - range.startIndex + 1,
-        viewportClientHeightPx: geometry?.viewportHeight ?? 0,
-        viewportScrollHeightPx: geometry?.contentHeight ?? 0,
+        totalContentHeightPx: virtualizer.getTotalSize(),
+        viewportClientHeightPx: surface?.clientHeight ?? 0,
+        viewportScrollHeightPx: surface?.scrollHeight ?? 0,
+        rangedAgainstClientHeightPx: controller.scroll.geometry?.viewportHeight ?? 0,
       };
-    }, [controller, virtualizer]),
+    }, [controller, snapshot, virtualizer]),
     jumpToRow: useCallback(
       (rowKey: string) => {
         const index = snapshot.rows.findIndex((candidate) => candidate.key === rowKey);

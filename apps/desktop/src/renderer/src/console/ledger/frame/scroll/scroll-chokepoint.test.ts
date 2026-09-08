@@ -335,4 +335,36 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
     controller.detach();
     expect(clock.pendingCount).toBe(0);
   });
+
+  it("re-arms the pass for the surface a re-attach brought, not the one it cancelled", () => {
+    // THE STARVATION THIS RULES OUT. `attach` detaches first, and detach cancels the
+    // armed frame — correctly, since a pass on a detached controller samples nothing.
+    // But the obligation the cancelled frame carried belongs to the LEDGER and not to
+    // the surface that has gone: under a frozen fixture clock a remount arrives before
+    // the frame it armed ever runs, so every cycle armed one and cancelled it, and the
+    // box was never re-measured for any of them. A re-attach owes its own pass.
+    const outgoing = countingSurface({ clientHeight: 300, scrollHeight: 4000 });
+    const incoming = countingSurface({ clientHeight: 640, scrollHeight: 9000 });
+    const measuredViewportHeights: number[] = [];
+    controller.observeOverflow((geometry) => {
+      measuredViewportHeights.push(geometry.viewportHeight);
+    });
+
+    controller.attach(outgoing);
+    controller.requestOverflowMeasurement();
+    controller.attach(incoming);
+    clock.runFrame();
+
+    expect(measuredViewportHeights).toStrictEqual([640]);
+  });
+
+  it("negative control: a detach with no re-attach still arms nothing", () => {
+    // Which is what keeps the rule above a re-ATTACH rule rather than a refusal to
+    // cancel: a pane that closed for good must leave no frame behind it.
+    controller.attach(surface);
+    controller.requestOverflowMeasurement();
+    controller.detach();
+
+    expect(clock.pendingCount).toBe(0);
+  });
 });
