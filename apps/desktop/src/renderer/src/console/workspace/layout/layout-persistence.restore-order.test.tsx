@@ -8,86 +8,26 @@
 //
 // Every case drives the real hook against a real `DeckLayout` and a real store, because
 // the failure is in how the two effects interleave and neither half shows it alone.
-// `layout-writer.test.ts` holds the writer's own claims; this file holds the pair's.
+// `layout-writer.test.ts` holds the writer's own claims, and
+// `layout-persistence.read-failure.test.tsx` holds what the pair does when the read
+// never landed; this file holds the pair's own ordering. All three mount through
+// `layout-persistence.test-support.tsx`.
 
-import { act, render } from "@testing-library/react";
-import { StrictMode } from "react";
+import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
-import { type UiStateStore } from "../../persistence/index.js";
 import { memoryStore } from "../Workspace.test-support.js";
-import { DeckLayout } from "../deck/deck-layout.js";
-import { DECK_LAYOUT_RECORD_KEY, useDeckPersistence } from "./layout-persistence.js";
-import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-
-const RESTORE_SESSION = "session-restore";
-
-function deckLayout(): DeckLayout {
-  return new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
-}
-
-/** A saved arrangement, written through the grammar that reads it back. */
-async function saveDeck(
-  store: UiStateStore,
-  kinds: readonly ("timeline" | "runs" | "approvals")[],
-): Promise<void> {
-  const layout = deckLayout();
-  for (const kind of kinds) {
-    layout.open({ kind, entity: undefined });
-  }
-  const result = await store.write(
-    RESTORE_SESSION,
-    DECK_LAYOUT_RECORD_KEY,
-    "layout",
-    layout.toSnapshot(),
-  );
-  expect(result.outcome).toBe("written");
-}
-
-/**
- * Mount the hook against one layout and one store.
- *
- * The read the effect starts is already in flight when `render` returns, so an act
- * performed on the layout before the first `await` is an act performed DURING the read
- * — no gate to install, no timer to advance, and nothing for a later reader to
- * disbelieve about what the fixture was doing.
- */
-function mountPersistence(
-  layout: DeckLayout,
-  store: UiStateStore,
-  options: { readonly underStrictMode: boolean } = { underStrictMode: false },
-): void {
-  function Harness(): React.JSX.Element {
-    useDeckPersistence({
-      layout,
-      uiStateStore: store,
-      sessionId: RESTORE_SESSION,
-      onSaveRefused: () => undefined,
-    });
-    return <div />;
-  }
-  render(
-    options.underStrictMode ? (
-      <StrictMode>
-        <Harness />
-      </StrictMode>
-    ) : (
-      <Harness />
-    ),
-  );
-}
-
-/** Let the read, the restore, and the write pump settle, without advancing a timer. */
-async function drain(): Promise<void> {
-  await act(async () => {
-    await crossMacrotaskBoundary();
-  });
-}
-
-function paneKinds(layout: DeckLayout): readonly string[] {
-  return layout.snapshot().panes.map((pane) => pane.kind);
-}
+import { type DeckLayout } from "../deck/deck-layout.js";
+import { DECK_LAYOUT_RECORD_KEY } from "./layout-persistence.js";
+import {
+  RESTORE_SESSION,
+  deckLayout,
+  drain,
+  mountPersistence,
+  paneKinds,
+  saveDeck,
+  savedPaneCount,
+} from "./layout-persistence.test-support.js";
 
 /** The widths on screen, in the order the panes sit in. */
 function paneWidths(layout: DeckLayout): readonly number[] {
@@ -96,15 +36,6 @@ function paneWidths(layout: DeckLayout): readonly number[] {
 
 /** A width floor loose enough that nothing in these fixtures is clamped by it. */
 const UNCLAMPED_WIDTH_FLOOR_PERMILLE = 100;
-
-/** How many panes the saved record holds. Its one non-pane key is `$deck`. */
-async function savedPaneCount(store: UiStateStore): Promise<number> {
-  const record = await store.read(RESTORE_SESSION, DECK_LAYOUT_RECORD_KEY);
-  if (record === undefined) {
-    return 0;
-  }
-  return Object.keys(record.value as Record<string, unknown>).length - 1;
-}
 
 describe("useDeckPersistence — an arrangement made while the record was being read", () => {
   it("writes nothing while the read is still in flight", async () => {

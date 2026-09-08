@@ -5,6 +5,13 @@
 // fired before the restore completed would file the sidebar's opening defaults over
 // the arrangement it was about to read, and the result looks identical to a first run.
 //
+// AND A READ THAT FAILED IS NOT A FIRST RUN, which is that module's other rule and the
+// same one word for word: the store's `readOutcome` separates a record that was never
+// written from a read the adapter could not perform, the opening defaults are imposed
+// on both — there is no arrangement to adopt either way — and they are FILED only on
+// `absent`. Filing them on `failed` replaced a saved sidebar with its defaults because
+// one read did not land.
+//
 // AND THE SAVE COALESCES THROUGH THE SAME WRITER THE DECK USES. Dragging the
 // workspace's separator commits a width per frame; one durable write per frame would
 // spend the store's whole budget on a gesture.
@@ -99,14 +106,14 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
     restore.start();
     let superseded = false;
     void (async () => {
-      const record = await uiStateStore.read(sessionId, SIDEBAR_LAYOUT_RECORD_KEY);
+      const readOutcome = await uiStateStore.readOutcome(sessionId, SIDEBAR_LAYOUT_RECORD_KEY);
       if (superseded) {
         return;
       }
       const decoded =
-        record === undefined
-          ? { state: INITIAL_SIDEBAR_LAYOUT_STATE, refusals: [] }
-          : decodeSidebarLayout(record.value);
+        readOutcome.outcome === "present"
+          ? decodeSidebarLayout(readOutcome.record.value)
+          : { state: INITIAL_SIDEBAR_LAYOUT_STATE, refusals: [] };
       const differsFromRecord = model.restore(decoded);
 
       // OPENED ONLY NOW, WHICH IS THE DECK'S ORDERING AND NOT A SECOND ONE. `restore`
@@ -115,6 +122,12 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
       // had just read, and every session a person opened would spend a durable write
       // echoing that record back.
       restore.settle();
+      if (readOutcome.outcome === "failed") {
+        // The deck's rule, at its own site: nothing is filed over a record this read
+        // could not reach. Saving is not disabled — the restore has settled, so the
+        // subscription below files the person's next deliberate change.
+        return;
+      }
       if (differsFromRecord) {
         // ONCE, and only where what the person is looking at is not what the record
         // held: an act made during the read, or an arrangement the decode narrowed.
