@@ -30,8 +30,13 @@ const wordDiffCalls = vi.hoisted(() => vi.fn());
 // The adopted library, with its one expensive call counted on the way through. The
 // real implementation still runs, so every segmentation asserted below is the one the
 // console would render rather than a stub's answer.
-vi.mock("diff", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("diff")>();
+//
+// THE SUBPATH AND NOT THE PACKAGE ROOT, because that is the specifier the module under
+// test resolves — see `patch-parse.ts`, which takes the published `./lib/*.js` entries
+// so the package's other differs stay off the initial import graph. A mock of the root
+// would load, intercept nothing, and leave every call below uncounted.
+vi.mock("diff/lib/diff/word.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("diff/lib/diff/word.js")>();
   return {
     ...actual,
     diffWordsWithSpace: (

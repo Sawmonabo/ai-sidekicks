@@ -10,22 +10,38 @@
 // rather than inside either family, where `console-view-family-isolation` would fail
 // the edge in whichever direction it was written.
 //
-// EACH FAMILY IS REACHED THROUGH ITS DOOR. `./browser/index.js` for the section, and
-// the settings family for exactly one declared thing — `SettingsPageRegistrar`, the
-// one-method view of its registry. Not the registry class, not the section vocabulary,
-// and not the descriptor shape, so nothing here can read the rail or unregister a
-// sibling lane's page. That import is deep rather than through `settings/index.js`
-// because the settings door composes this file's registration, and a type line back
-// through it closes a module cycle `no-circular` fails on.
+// THE BROWSER FAMILY IS REACHED AS A CHUNK ROOT, NOT THROUGH ITS DOOR
+//
+// This file named `./browser/index.js` and mounted the section component, which is what
+// a cross-family import is supposed to look like — and it is exactly what put the page
+// on every launch. That door is imported EAGERLY by `console/panes/index.ts`, which
+// calls `registerBrowserPanes` to claim the deck's `browser` kind, so everything the
+// door statically reaches is in the entry chunk; the page, its policy rows, its
+// partition table and the clear control's arming rounds rode there whether or not
+// anybody ever opened settings. Naming the door from a LOADER would have changed
+// nothing either: a module already assigned to the static chunk is what a dynamic
+// import of it resolves to.
+//
+// So the specifier below names a module the eager graph does not reach —
+// `./browser/settings/browser-settings-page-body.js`, the page's own chunk root, which
+// owns the sheet that dresses it. That it is a deep path is not this file bending the
+// door rule, for the reason `sidekicks-settings-page.ts` states: a chunk root is not a
+// symbol a barrel can publish, and `console-cross-family-deep-import` is scoped to
+// importers inside a family directory — a composition site directly under `console/`,
+// which this file is, is not one of them.
+//
+// THE SETTINGS FAMILY IS REACHED for exactly one declared thing — `SettingsPageRegistrar`,
+// the one-method view of its registry. Not the registry class, not the section
+// vocabulary, and not the descriptor shape, so nothing here can read the rail or
+// unregister a sibling lane's page. That import is deep rather than through
+// `settings/index.js` because the settings door composes this file's registration, and a
+// type line back through it closes a module cycle `no-circular` fails on.
 //
 // THE PAGE WAS BUILT AND MOUNTED NOWHERE. Every part of chapter 13.16 shipped —
 // the policy rows, the partition table, the two-step clear and its arming rounds —
 // and no board registered it, so the `browser` section stood on the rail's reserved
 // arm and the whole surface was unreachable. This file is that registration.
 
-import { createElement } from "react";
-
-import { BrowserSettingsSection } from "./browser/index.js";
 import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
@@ -39,7 +55,14 @@ const OWNER = "collaboration-settings-browser";
  * neither the retained session nor the section opener is threaded: a page that
  * navigated nowhere and asked nothing per-session has no use for either, and handing
  * them over would suggest the answers were scoped to whichever session this window
- * happens to hold.
+ * happens to hold. The chunk root declares exactly that narrower parameter, which is
+ * what keeps the browser family from naming the settings family's context type to
+ * satisfy this registration.
+ *
+ * `label` and `keywords` stay HERE rather than travelling with the body, and that is
+ * what makes the loader form usable at all: the rail lists every registered section and
+ * the search index ranks them before a person has opened any of them, so a page whose
+ * name arrived with its chunk would be unfindable until it had already been found.
  */
 export function registerBrowserSettingsPage(registry: SettingsPageRegistrar): void {
   registry.register({
@@ -56,6 +79,6 @@ export function registerBrowserSettingsPage(registry: SettingsPageRegistrar): vo
       "page tools",
       "clear",
     ],
-    render: (context) => createElement(BrowserSettingsSection, { bridge: context.bridge }),
+    body: () => import("./browser/settings/browser-settings-page-body.js"),
   });
 }
