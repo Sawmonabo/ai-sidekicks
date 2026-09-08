@@ -22,15 +22,15 @@
 //   • **Paying account** — NOT CHECKED. The bar's one cost reading is
 //     `orchestrationBudgetRead`, which serves the committed figure and no
 //     decomposition; the per-paying-account axis lives on the receipt, which this
-//     surface deliberately does not call (`cast-bar-readings.ts` says why). A label
+//     surface deliberately does not call (`model/cast-bar-readings.ts` says why). A label
 //     composed from anything else would be the renderer deciding who pays.
 //
 // THE TWO ABSENCES ARE STATED HERE AND RENDERED AS ABSENCES, never as blanks: a card
 // that simply omitted them would read as "this participant has no paying account".
 
-import { membershipRoleOf } from "../../bridge/index.js";
-import { useSessionEntity, useSessionPartition, type ConsoleEntity } from "../../store/index.js";
-import { compareInstants, parseInstant } from "../../core/index.js";
+import { membershipRoleOf } from "../../../bridge/index.js";
+import { useSessionEntity, useSessionPartition, type ConsoleEntity } from "../../../store/index.js";
+import { compareInstants, parseInstant } from "../../../core/index.js";
 
 /**
  * The run states that mean a run is still going.

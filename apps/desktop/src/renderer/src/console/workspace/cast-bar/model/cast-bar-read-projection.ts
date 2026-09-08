@@ -24,7 +24,7 @@ import {
   useSettledGrowthRead,
   type GrowthPort,
   type SettledReadRefusal,
-} from "../../bridge/index.js";
+} from "../../../bridge/index.js";
 
 /**
  * What the bar knows about one of its reads at one moment.

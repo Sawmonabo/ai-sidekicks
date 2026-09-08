@@ -12,9 +12,9 @@
 // stated in the module that obeys them — `CastBarSessionTitle.tsx` and
 // `CastBarSessionState.tsx`. This module arranges the three and decides nothing.
 
-import { type GrowthSessionSummary } from "../../bridge/index.js";
-import { Nothing, WireFigure } from "../../primitives/index.js";
-import { type CastBarReadState } from "./cast-bar-reads.js";
+import { type GrowthSessionSummary } from "../../../bridge/index.js";
+import { Nothing, WireFigure } from "../../../primitives/index.js";
+import { type CastBarReadState } from "../model/cast-bar-read-projection.js";
 import { CastBarSessionState } from "./CastBarSessionState.js";
 import { CastBarSessionTitle } from "./CastBarSessionTitle.js";
 

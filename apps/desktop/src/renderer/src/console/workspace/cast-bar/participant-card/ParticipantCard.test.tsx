@@ -13,7 +13,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionStore, type ConsoleEntity } from "../../store/index.js";
+import { SessionStore, type ConsoleEntity } from "../../../store/index.js";
 import { ParticipantCard } from "./ParticipantCard.js";
 
 const SESSION_ID = "session-participant-card";

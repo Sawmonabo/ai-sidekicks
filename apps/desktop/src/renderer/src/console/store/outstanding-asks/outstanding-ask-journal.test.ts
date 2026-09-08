@@ -8,7 +8,7 @@
 // never been delivered to a resumed one.
 //
 // The BAR's reading of this ledger is a different claim and lives with the bar, in
-// `workspace/cast-bar/outstanding-asks.test.ts`.
+// `workspace/cast-bar/model/outstanding-asks.test.ts`.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";

@@ -18,8 +18,8 @@ import { useMemo } from "react";
 
 import { WireFigure, formatCentsAsCurrency } from "../../primitives/index.js";
 import { Nothing } from "../../primitives/index.js";
-import { type CastBarSpendReading } from "./cast-bar-readings.js";
-import { type CastBarReadState } from "./cast-bar-reads.js";
+import { type CastBarSpendReading } from "./model/cast-bar-readings.js";
+import { type CastBarReadState } from "./model/cast-bar-read-projection.js";
 
 /** What the accountant calls a figure it could price in full. */
 const PRICED_COST_STATUS = "priced";

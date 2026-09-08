@@ -11,13 +11,13 @@
 // spelling of it that goes stale silently. The chip's own attributes are written after
 // the spread so nothing the library passes can displace the hue, the label, or the act.
 
-import { Glyph, WireFigure } from "../../primitives/index.js";
-import { GLYPH_SIZE_DENSE } from "../../tokens/index.js";
+import { Glyph, WireFigure } from "../../../primitives/index.js";
+import { GLYPH_SIZE_DENSE } from "../../../tokens/index.js";
 import {
   CAST_ATTENTION_CLAUSE,
   castChipAccessibleName,
   type CastMember,
-} from "./cast-bar-model.js";
+} from "../model/cast-bar-model.js";
 
 /** Carries one participant's hue into the chip's ring, without a style attribute per rule. */
 export interface CastChipStyle extends React.CSSProperties {

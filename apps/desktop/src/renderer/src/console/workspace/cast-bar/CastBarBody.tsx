@@ -11,13 +11,13 @@ import { Tooltip } from "@base-ui/react/tooltip";
 import { CAST_BAR_CHIP_CAP } from "../../core/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { useSessionStore, type SessionStore } from "../../store/index.js";
-import { CastChip } from "./CastChip.js";
-import { ParticipantCardHost } from "./ParticipantCardHost.js";
+import { CastChip } from "./chips/CastChip.js";
+import { ParticipantCardHost } from "./participant-card/ParticipantCardHost.js";
 import { CastBarSpend } from "./CastBarSpend.js";
-import { FoldedMembers } from "./FoldedMembers.js";
-import { type CastBarSpendReading } from "./cast-bar-readings.js";
-import { type CastBarReadState } from "./cast-bar-reads.js";
-import { deriveCastBar, type CastMember } from "./cast-bar-model.js";
+import { FoldedMembers } from "./chips/FoldedMembers.js";
+import { type CastBarSpendReading } from "./model/cast-bar-readings.js";
+import { type CastBarReadState } from "./model/cast-bar-read-projection.js";
+import { deriveCastBar, type CastMember } from "./model/cast-bar-model.js";
 
 export interface CastBarBodyProps {
   readonly sessionStore: SessionStore;

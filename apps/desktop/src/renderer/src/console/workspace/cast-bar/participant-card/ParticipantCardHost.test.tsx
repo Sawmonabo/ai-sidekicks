@@ -16,16 +16,15 @@
 import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CastBar } from "./CastBar.js";
+import { CastBar } from "../CastBar.js";
+import { AGENT_ARCHITECT, PARTICIPANT_PRIYA } from "../../../bridge/scenarios/flagship-cast.js";
 import {
-  AGENT_ARCHITECT,
-  PARTICIPANT_PRIYA,
   SESSION_ID,
   admittedMember,
   attachedAgent,
   renderBar,
   storeWith,
-} from "./CastBar.test-support.js";
+} from "../CastBar.test-support.js";
 
 /**
  * Past the library's own hover delay.

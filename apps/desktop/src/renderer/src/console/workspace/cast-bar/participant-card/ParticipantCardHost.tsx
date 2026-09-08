@@ -22,10 +22,10 @@
 
 import { Tooltip } from "@base-ui/react/tooltip";
 
-import { OverlayTooltipPopup } from "../../primitives/index.js";
-import { type SessionStore } from "../../store/index.js";
+import { OverlayTooltipPopup } from "../../../primitives/index.js";
+import { type SessionStore } from "../../../store/index.js";
 import { ParticipantCard } from "./ParticipantCard.js";
-import { type CastMember } from "./cast-bar-model.js";
+import { type CastMember } from "../model/cast-bar-model.js";
 
 /**
  * How far the card sits off the chip.

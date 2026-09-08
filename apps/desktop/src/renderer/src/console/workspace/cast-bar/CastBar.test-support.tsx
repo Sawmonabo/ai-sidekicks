@@ -9,16 +9,11 @@
 import { render } from "@testing-library/react";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { PARTICIPANT_PRIYA } from "../../bridge/scenarios/flagship-cast.js";
 import { SessionStore, type ConsoleEntity } from "../../store/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
 
 export const SESSION_ID = "session-cast";
-
-// UUID v7 values, spelled the way the wire spells them and minted at one instant —
-// which is the whole of the naming problem: the two below share a fifteen-character
-// prefix, and the chip's own ellipsis truncates both to the same visible string.
-export const PARTICIPANT_PRIYA = "019b79ee-0280-79a4-8120-cca0117a0120";
-export const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
 
 export interface TimelineRow {
   readonly sequence: number;

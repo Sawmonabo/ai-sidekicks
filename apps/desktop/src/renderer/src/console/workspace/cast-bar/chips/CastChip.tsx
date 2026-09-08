@@ -10,8 +10,8 @@
 
 import { Tooltip } from "@base-ui/react/tooltip";
 
-import { tokenReference } from "../../tokens/index.js";
-import { type CastMember } from "./cast-bar-model.js";
+import { tokenReference } from "../../../tokens/index.js";
+import { type CastMember } from "../model/cast-bar-model.js";
 import { CastChipButton, type CastChipStyle } from "./CastChipButton.js";
 
 export interface CastChipProps {

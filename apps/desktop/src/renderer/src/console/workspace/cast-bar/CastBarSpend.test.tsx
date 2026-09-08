@@ -16,8 +16,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { formatCentsAsCurrency } from "../../primitives/index.js";
 import { CastBarSpend } from "./CastBarSpend.js";
-import { type CastBarSpendReading } from "./cast-bar-readings.js";
-import { type CastBarReadState } from "./cast-bar-reads.js";
+import { type CastBarSpendReading } from "./model/cast-bar-readings.js";
+import { type CastBarReadState } from "./model/cast-bar-read-projection.js";
 
 vi.mock(import("../../primitives/wire-figures.js"), { spy: true });
 

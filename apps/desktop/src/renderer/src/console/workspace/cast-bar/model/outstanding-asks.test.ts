@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
+import { SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
 import { foldOutstandingAsks, type OutstandingAsks } from "./outstanding-asks.js";
 
 const FOLD_SESSION_ID = "session-1";

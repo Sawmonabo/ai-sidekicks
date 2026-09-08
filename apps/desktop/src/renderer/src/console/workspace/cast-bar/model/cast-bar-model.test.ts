@@ -15,7 +15,7 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleSessionEvent } from "../../store/index.js";
+import type { ConsoleSessionEvent } from "../../../store/index.js";
 import {
   CAST_LABEL_SOURCE_BY_EVENT_KIND,
   CAST_VERB_BY_EVENT_KIND,

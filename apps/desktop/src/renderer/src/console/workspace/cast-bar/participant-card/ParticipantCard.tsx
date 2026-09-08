@@ -15,8 +15,8 @@
 // the answer is nothing. Collapsing the two is what `Spec-023 §Meridian, the design
 // language` rule 8 forbids.
 
-import { DerivedFigure, Nothing, WireFigure } from "../../primitives/index.js";
-import { type SessionStore } from "../../store/index.js";
+import { DerivedFigure, Nothing, WireFigure } from "../../../primitives/index.js";
+import { type SessionStore } from "../../../store/index.js";
 import { useParticipantCardReading } from "./participant-card-model.js";
 
 export interface ParticipantCardProps {

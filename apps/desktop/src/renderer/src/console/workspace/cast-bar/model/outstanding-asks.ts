@@ -15,7 +15,7 @@
 // them, which is why they are derived in the cast bar's own family rather than
 // published from the store as a fourth thing the register knows.
 
-import type { OutstandingAskLedger } from "../../store/index.js";
+import type { OutstandingAskLedger } from "../../../store/index.js";
 
 /**
  * What the session still has open, and how much of it the console could read.

@@ -49,7 +49,7 @@
 
 import { type SessionStore } from "../../store/index.js";
 import { CastBarBody } from "./CastBarBody.js";
-import { CastBarIdentity } from "./CastBarIdentity.js";
+import { CastBarIdentity } from "./identity/CastBarIdentity.js";
 import { CastBarSkeleton } from "./CastBarSkeleton.js";
 import { CastBarStatus } from "./CastBarStatus.js";
 import {
@@ -57,7 +57,7 @@ import {
   useCastBarHealth,
   useCastBarIdentity,
   useCastBarSpend,
-} from "./cast-bar-readings.js";
+} from "./model/cast-bar-readings.js";
 
 export interface CastBarProps {
   /** `undefined` on a route that names no session — rendered as an absence. */

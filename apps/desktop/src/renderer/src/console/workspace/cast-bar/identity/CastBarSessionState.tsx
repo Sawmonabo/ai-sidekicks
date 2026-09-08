@@ -11,9 +11,9 @@
 // value, which the figure rules forbid; a chip in mono is the shape that carries an
 // unedited wire word without looking like a typo.
 
-import { type GrowthSessionSummary } from "../../bridge/index.js";
-import { Chip, InlineRefusal, Nothing } from "../../primitives/index.js";
-import { type CastBarReadState } from "./cast-bar-reads.js";
+import { type GrowthSessionSummary } from "../../../bridge/index.js";
+import { Chip, InlineRefusal, Nothing } from "../../../primitives/index.js";
+import { type CastBarReadState } from "../model/cast-bar-read-projection.js";
 
 export interface CastBarSessionStateProps {
   readonly identity: CastBarReadState<GrowthSessionSummary>;
