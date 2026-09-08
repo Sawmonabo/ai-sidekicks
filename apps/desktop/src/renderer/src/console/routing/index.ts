@@ -23,10 +23,12 @@ export {
   railDestinationFor,
   routeAuxiliaryWindowId,
   routeSessionId,
+  routeWorkflowPhase,
   routesAreEqual,
   settingsRoute,
   settingsSelection,
   type RailDestination,
+  type WorkflowPhaseFocus,
 } from "./route-readers.js";
 
 // The auxiliary-route grammar, declared in `src/shared/auxiliary-routes.ts` because

@@ -1,12 +1,20 @@
-// How a case moves the fixture's frozen clock, for every surface in this family that
-// schedules a read.
+// How a case moves the fixture's frozen clock, for every surface that schedules a read.
 //
-// WHY A CASE HAS TO MOVE ANYTHING AT ALL. Every read this family performs is routed
-// through the console's one `RefreshScheduler`, which arms its debounce on the clock it
-// was handed; the readers take that clock from the bridge, and under the fixture the
-// bridge's clock is the scenario's frozen one. So real time moves none of these
-// surfaces, and a case that polled it — `waitFor` and its five-second budget — would be
-// polling a still picture until the budget ran out.
+// WHY A CASE HAS TO MOVE ANYTHING AT ALL. Every read a console surface performs is
+// routed through the console's one `RefreshScheduler`, which arms its debounce on the
+// clock it was handed; the readers take that clock from the bridge, and under the
+// fixture the bridge's clock is the scenario's frozen one. So real time moves none of
+// those surfaces, and a case that polled it — `waitFor` and its five-second budget —
+// would be polling a still picture until the budget ran out.
+//
+// IT LIVES BESIDE THE ENGINE THAT OWNS THE CLOCK. The clock these two functions move
+// is `ScenarioEngine`'s, declared one module over, and the surfaces that need moving
+// are in every view family: the repo mounts, the artifact pane, the workflow run pane.
+// Parked in any one of those families it would be a helper a sibling may not import —
+// `console-view-family-isolation` fails that edge — so a second family reaching for it
+// would either copy it or reach around the rule. Here it is a `bridge/` module like
+// `fixture/fixture-bridge.test-support.ts` and `readings/scheduled-read.test-support.ts`,
+// which every family above `bridge/` already takes by its own specifier.
 //
 // ONE HOME FOR BOTH HALVES, because the two are one act done wrong in two ways. An
 // advance performed outside `act` lands its state updates untracked, and React reports
@@ -18,9 +26,9 @@
 
 import { act } from "@testing-library/react";
 
-import type { ConsoleBridge } from "../bridge/index.js";
-import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
-import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
+import type { ConsoleBridge } from "../console-bridge.js";
+import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 
 /**
  * The frozen clock a fixture bridge hands every subsystem a surface composes.
@@ -50,8 +58,11 @@ export function scenarioManualClock(bridge: ConsoleBridge): ManualClock {
  * How many debounce intervals a case may drive before giving up.
  *
  * A COUNT OF ADVANCES RATHER THAN A DURATION, because the budget being spent is
- * scenario time and not the runner's. Twenty-four intervals carries the repos scenario
- * past its last beat, which is the furthest anything in this family can be waiting on.
+ * scenario time and not the runner's. Twenty-four intervals is 2880 ms of scenario
+ * time — `REFRESH_MAX_WAIT_MS`, the longest a coalescing scheduler can hold a read,
+ * spent nearly three times over. A caller still waiting past that is waiting on a
+ * scenario BEAT rather than on a scheduler, and raising this number would hide which
+ * of the two it was.
  */
 const SCENARIO_SETTLE_PASSES = 24;
 

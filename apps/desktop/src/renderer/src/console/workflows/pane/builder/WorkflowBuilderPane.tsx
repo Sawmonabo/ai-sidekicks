@@ -58,22 +58,25 @@
 // place for someone to persist a viewport into the definition it is editing.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so the whole
-// plane lives on the growth port behind the workflow slate row. The definition read,
-// the version read and the submission that saves are not on that port at all, which
-// is why every arm of this pane renders an absence and calls nothing: this file puts
-// no read of its own, on any address, in this build.
+// plane lives on the growth port behind two slate rows. The definition read, the
+// version read and the create are on it now, under `workflow-definition-authoring` —
+// which is what changed the addressed arm from an absence into a read. This file still
+// puts no read of its own: it mounts `definitions/detail/`, which composes the three
+// and renders whichever of the four states it is in, and the pane keeps deciding only
+// which of its three bodies stands inside the frame.
 
-import { InlineRefusal, Nothing } from "../../../primitives/index.js";
+import { InlineRefusal } from "../../../primitives/index.js";
 import { WorkflowStateStrip } from "../../WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../../strip-state.js";
 import { ConsolePaneChrome, type PaneContextOf } from "../../../seats/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
+import { DefinitionDetail } from "../../definitions/detail/index.js";
 import {
   WORKFLOW_BUILDER_PRIMARY_ACT,
   WORKFLOW_BUILDER_SUBJECT_KIND,
   misaddressedBuilderPane,
+  reservedCanvasAct,
   unaddressedBuilderPane,
-  unregisteredAuthoringAct,
 } from "./builder-authoring.js";
 import { DraftsSlot } from "./slots/DraftsSlot.js";
 import { NodeGraphSlot } from "./slots/NodeGraphSlot.js";
@@ -85,10 +88,10 @@ const SUMMARY = "A definition as a graph, refused at the point a refused shape i
  * The one act rule 7 lets this surface draw, in the state this build leaves it in.
  *
  * Computed once at module scope rather than per render: the refusal is a constant
- * of the build — no wire carries the operation — so recomputing it on every render
+ * of the build — no canvas composes a body to save — so recomputing it on every render
  * would be work whose result cannot differ.
  */
-const UNREACHABLE_PRIMARY_ACT = unregisteredAuthoringAct(WORKFLOW_BUILDER_PRIMARY_ACT);
+const UNREACHABLE_PRIMARY_ACT = reservedCanvasAct(WORKFLOW_BUILDER_PRIMARY_ACT);
 
 export interface WorkflowBuilderPaneProps {
   readonly context: PaneContextOf<"workflow-builder">;
@@ -96,7 +99,7 @@ export interface WorkflowBuilderPaneProps {
 
 /** The builder pane's body. The canvas and the inspector inside it are Plan-017's. */
 export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.Element {
-  const { uiStateStore, draftStore, sessionStore, focusHue } = props.context;
+  const { bridge, uiStateStore, draftStore, sessionStore, focusHue } = props.context;
   // WIDENED ON PURPOSE, and the annotation is the whole of it. This arm's `entity` is
   // declared as a definition reference, but `paneBodyForKind` narrows a context on its
   // `kind` ALONE — the entity underneath is unverified — and a pane address is also
@@ -139,11 +142,10 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
 
     return (
       <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="This definition has not been read in this window."
-          detail="The definition body and its version chain arrive from the daemon; nothing was asked of it here."
+        <DefinitionDetail
+          bridge={bridge}
+          workflowDefinitionId={definition.id}
+          sessionId={sessionStore?.sessionId}
         />
         <NodeGraphSlot workflowDefinitionId={definition.id} uiStateStore={uiStateStore} />
         <DraftsSlot workflowDefinitionId={definition.id} draftStore={draftStore} />

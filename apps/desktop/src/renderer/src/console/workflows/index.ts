@@ -55,6 +55,7 @@ import "./runs/run-list.css";
 import {
   type ConsolePaneRegistration,
   type ConsolePaneRegistry,
+  type ConsoleSurfaceRegistration,
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 
@@ -133,19 +134,21 @@ export function registerWorkflowPanes(registry: ConsolePaneRegistry): void {
 }
 
 /**
- * Claim the rail's workflows destination against a registry.
+ * Both surface slots this family claims.
  *
- * Takes the registry rather than the module-scope singleton, for
- * `registerWorkflowPanes`' reason: a test composes the same surface into a registry
- * it owns, and an auxiliary window composes a different subset without a second code
- * path.
+ * A TABLE NOW, because there are two of them. It was written out inline while there was
+ * exactly one, on the reasoning that a one-row table invites a second row nobody decided
+ * to add — and the second row is decided: the rail's destination, and the workspace
+ * address that names one phase of one run.
  *
- * The descriptor is built here rather than kept in a table beside the pane
- * descriptors: there is exactly one of it, and a one-row table is a shape that
- * invites a second row nobody decided to add.
+ * TWO SLOTS AND NOT ONE SURFACE THAT BRANCHES, because the two are reached differently
+ * and mount different things. `#/workflows` is a rail destination with no session, so it
+ * resolves a scope before it can read anything; a phase address carries its session and
+ * its run already and has nothing to resolve. Folding them together would put a
+ * destination's scope picker above a link somebody followed to one run.
  */
-export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void {
-  registry.register({
+const WORKFLOW_SURFACES: readonly ConsoleSurfaceRegistration[] = [
+  {
     slot: "workflows",
     owner: WORKFLOWS_OWNER,
     // A LOADER, and the seat's reasoning about WHICH component to mount moved with it
@@ -154,5 +157,28 @@ export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void
     // the scope picker, the definitions browser and the run list on every session's
     // initial graph and left `preload("workflows")` with nothing to fetch.
     body: () => import("./workflows-surface-body.js"),
-  });
+  },
+  {
+    slot: "workflow-phase",
+    owner: WORKFLOWS_OWNER,
+    // A LOADER for the same test: this surface is reached by following a link — a park
+    // banner, a run row, a notification raised somewhere else — and is painted before
+    // nobody. Its chunk carries the surface and not the pane, which is a loader-backed
+    // registration of its own on the board above.
+    body: () => import("./phase-link-surface-body.js"),
+  },
+];
+
+/**
+ * Claim this family's surface slots against a registry.
+ *
+ * Takes the registry rather than the module-scope singleton, for
+ * `registerWorkflowPanes`' reason: a test composes the same surfaces into a registry
+ * it owns, and an auxiliary window composes a different subset without a second code
+ * path.
+ */
+export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void {
+  for (const descriptor of WORKFLOW_SURFACES) {
+    registry.register(descriptor);
+  }
 }

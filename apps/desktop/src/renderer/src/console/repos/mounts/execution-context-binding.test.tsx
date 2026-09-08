@@ -25,7 +25,7 @@ import {
 } from "../../bridge/scenarios/repos/repos-fixture-data.js";
 import { ATTACHED_CANONICAL_ROOT } from "../../bridge/scenarios/repos/repos-mutation-replies.js";
 import { SessionStore } from "../../store/index.js";
-import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { ExecutionContextDisclosure } from "./ExecutionContextDisclosure.js";
 import {
   BOUND_ROOT_LABEL,

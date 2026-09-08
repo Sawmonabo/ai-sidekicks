@@ -21,7 +21,7 @@ import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import type { ConsolePaneOpener } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";
-import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { sectionContext } from "../pane-contexts.test-support.js";
 import { RepoSection } from "./RepoSection.js";
 

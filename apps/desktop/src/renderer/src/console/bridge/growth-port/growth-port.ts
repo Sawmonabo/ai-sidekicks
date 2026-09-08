@@ -249,6 +249,9 @@ export function createRefusingGrowthPort(): GrowthPort {
     workflowGateChainVerify: async () => growthUnavailable("workflowGateChainVerify"),
     workflowRunList: async () => growthUnavailable("workflowRunList"),
     workflowVersionChainRead: async () => growthUnavailable("workflowVersionChainRead"),
+    workflowDefinitionRead: async () => growthUnavailable("workflowDefinitionRead"),
+    workflowVersionRead: async () => growthUnavailable("workflowVersionRead"),
+    workflowDefinitionCreate: async () => growthUnavailable("workflowDefinitionCreate"),
     // gitflow
     gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
     gitflowDiffArtifactCreate: async () => growthUnavailable("gitflowDiffArtifactCreate"),

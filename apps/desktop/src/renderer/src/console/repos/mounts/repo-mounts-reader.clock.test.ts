@@ -23,7 +23,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { RealClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
-import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { useRepoMounts } from "./repo-mounts-binding.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
 import { trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";

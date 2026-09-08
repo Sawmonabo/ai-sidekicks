@@ -16,7 +16,7 @@ const ALREADY_ATTACHED_ROOT = "/Users/dev/code/ai-sidekicks";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../core/index.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
-import { advanceScenarioUntil } from "../../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { AttachController, useAttachController, type AttachBinding } from "./attach-controller.js";
 
 const controllers: AttachController[] = [];

@@ -23,7 +23,7 @@ import {
   GIT_WORKSPACE_ID,
 } from "../../../bridge/scenarios/repos/repos-fixture-data.js";
 import { SessionStore } from "../../../store/index.js";
-import { advanceScenarioUntil } from "../../scenario-clock.test-support.js";
+import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-clock.test-support.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 import { REUSE_UNANSWERED_COPY } from "./root-act-model.js";
