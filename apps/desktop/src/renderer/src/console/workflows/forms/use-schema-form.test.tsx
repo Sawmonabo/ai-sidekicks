@@ -77,7 +77,9 @@ describe("the schema form's state", () => {
     });
 
     expect(form().memberValue(["title"])).toBe("Ship it");
-    expect(form().answer).toEqual({ title: "Ship it" });
+    // The drawn collection is in the answer from the mount, because it is on the screen
+    // from the mount: an empty list is what its control is already showing.
+    expect(form().answer).toEqual({ title: "Ship it", reviewers: [] });
   });
 
   it("writes a member one level down without disturbing its siblings", () => {
@@ -90,7 +92,7 @@ describe("the schema form's state", () => {
       form().setMemberValue(["release", "tag"], "v2");
     });
 
-    expect(form().answer).toEqual({ title: "Ship it", release: { tag: "v2" } });
+    expect(form().answer).toEqual({ title: "Ship it", release: { tag: "v2" }, reviewers: [] });
   });
 
   it("keeps a list in order when an entry leaves the middle of it", () => {
@@ -236,6 +238,58 @@ describe("the schema form's state", () => {
     });
 
     expect(form().listItems(["flags"])).toEqual([false]);
+  });
+
+  it("adds a repeated number entry the schema reads as unanswered rather than as text", () => {
+    const form = mountForm({
+      type: "object",
+      properties: { scores: { type: "array", items: { type: "number" } } },
+    });
+
+    act(() => {
+      form().appendListItem(["scores"]);
+    });
+
+    // The control shows a blank number box, so the answer holds no value for it — and the
+    // schema reports the entry rather than accepting a string the box cannot display.
+    expect(form().listItems(["scores"])).toEqual([undefined]);
+    expect(form().report?.status).toBe("invalid");
+    expect(
+      form().report?.issues.some((issue) => isSameMemberPath(issue.memberPath, ["scores", 0])),
+    ).toBe(true);
+  });
+
+  it("answers a required collection that accepts none with the empty list it is showing", () => {
+    // Before, the member was omitted while the control drew an empty collection, so a
+    // required array legally satisfied by zero entries opened invalid and could only be
+    // submitted by adding an entry and taking it away again.
+    const form = mountForm({
+      type: "object",
+      properties: { reviewers: { type: "array", items: { type: "string" } } },
+      required: ["reviewers"],
+    });
+
+    expect(form().listItems(["reviewers"])).toEqual([]);
+    expect(form().answer).toEqual({ reviewers: [] });
+    expect(form().report?.status).toBe("valid");
+  });
+
+  it("opens a control at the value its enclosing group declared for it", () => {
+    const form = mountForm({
+      type: "object",
+      properties: {
+        release: {
+          type: "object",
+          default: { tag: "v1" },
+          properties: { tag: { type: "string" } },
+        },
+      },
+    });
+
+    // Read off the CONTROL and not only off the answer: the value reaches the submission
+    // by being visible in the control it belongs to, which is this seed's whole rule.
+    expect(form().memberValue(["release", "tag"])).toBe("v1");
+    expect(form().answer).toEqual({ release: { tag: "v1" } });
   });
 
   it("negative control: a text list entry is still added empty rather than as false", () => {

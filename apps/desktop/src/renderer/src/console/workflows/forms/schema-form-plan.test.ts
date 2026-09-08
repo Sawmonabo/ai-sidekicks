@@ -189,6 +189,78 @@ describe("the schema field mapper", () => {
     expect(plan).toMatchObject({ shape: "raw", fallback: { memberPath: ["rows"] } });
   });
 
+  it("sends a group default that is not a set of named values to the raw editor", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        release: { ...objectSchema({ tag: { type: "string" } }), default: "v1" },
+      }),
+    );
+
+    expect(plan.shape).toBe("raw");
+    if (plan.shape !== "raw") {
+      return;
+    }
+    expect(plan.fallback.cause).toBe("group-default-undrawable");
+    expect(plan.fallback.memberPath).toEqual(["release"]);
+    expect(plan.fallback.detail).toContain("/release");
+  });
+
+  it("sends a group default whose member is not the kind its control draws to the raw editor", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        release: { ...objectSchema({ tag: { type: "string" } }), default: { tag: 7 } },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "group-default-undrawable", memberPath: ["release"] },
+    });
+  });
+
+  it("sends a group default whose repeated member holds the wrong entries to the raw editor", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        release: {
+          ...objectSchema({ reviewers: { type: "array", items: { type: "string" } } }),
+          default: { reviewers: [7] },
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "group-default-undrawable", memberPath: ["release"] },
+    });
+  });
+
+  it("sends a group default naming a member no control draws to the raw editor", () => {
+    // A value the group declares for a member it does not have reaches the schema's own
+    // reading of the answer and reaches no control at all, which is the divergence the
+    // whole seed exists to close.
+    const plan = planSchemaForm(
+      objectSchema({
+        release: { ...objectSchema({ tag: { type: "string" } }), default: { ghost: "v1" } },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "group-default-undrawable", memberPath: ["release"] },
+    });
+  });
+
+  it("negative control: a group default its controls can show is drawn and carried", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        release: { ...objectSchema({ tag: { type: "string" } }), default: { tag: "v1" } },
+      }),
+    );
+    const [entry] = drawnEntries(plan);
+
+    expect(entry?.form === "group" ? entry.group.defaultValue : undefined).toEqual({ tag: "v1" });
+  });
+
   it("never refuses: a schema it cannot read at all still resolves to the raw arm", () => {
     for (const unreadable of [undefined, null, 42, "a schema", [], { $ref: "#/x" }]) {
       expect(planSchemaForm(unreadable).shape).toBe("raw");
