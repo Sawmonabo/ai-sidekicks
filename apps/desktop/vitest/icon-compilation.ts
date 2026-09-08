@@ -192,6 +192,14 @@ function faceComponentName(collection: string, iconName: string): string {
  *
  * `raw` was rejected outright for a different reason: it hands back a string a
  * caller can only render through `dangerouslySetInnerHTML`.
+ *
+ * THE EMITTER IS ASKED FOR NOTHING IT IS NOT READ FOR. `@svgr`'s `ref` and
+ * `titleProp` options each add machinery to EVERY generated face — a `forwardRef`
+ * wrapper, and a `title` / `titleId` pair with the `aria-labelledby` and conditional
+ * `<title>` that go with them. `Glyph.tsx` forwards no ref and names a glyph through
+ * `aria-label` rather than through a `<title>` element, so both would be paid for
+ * thirty-six times over and read zero times. An option enabled ahead of its reader is
+ * the same defect as an export with no consumer; it is just measured in bytes.
  */
 async function compileFaceToReactComponent(
   svg: string,
@@ -200,7 +208,7 @@ async function compileFaceToReactComponent(
 ): Promise<string> {
   return svgToReactComponent(
     svg,
-    { plugins: [SVGR_JSX_PLUGIN], ref: true, titleProp: true },
+    { plugins: [SVGR_JSX_PLUGIN] },
     { componentName: faceComponentName(collection, iconName) },
   );
 }
