@@ -39,6 +39,20 @@ const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], strin
     "A session may have been created, and this window could not read the reply. Check the sessions list.",
 };
 
+/**
+ * What a completed send says when the composition it closed is not the one on screen.
+ *
+ * NOT A FIFTH OUTCOME. Nothing about the send is different — every call it named landed
+ * — so widening the vocabulary would put a wire settlement's name on a fact about this
+ * window's timing. What differs is which composition the settlement is measured
+ * against, which is this module's question and not the draft's.
+ *
+ * One string, said and rendered: the announcer speaks it and the control draws it, so
+ * somebody who hears it and somebody who reads it are told the same thing.
+ */
+const SESSION_CREATED_WITH_UNSENT_EDITS =
+  "The session was created. What you typed after pressing Send was not sent, and it is still here.";
+
 /** Everything the control renders and every act it offers, in one hook. */
 export interface NewSessionComposition {
   /** `undefined` while no draft is open — the state the "+ New" button is in. */
@@ -66,6 +80,19 @@ export interface NewSessionComposition {
    * how one of them stops agreeing with the other.
    */
   readonly isAmbiguousCreate: boolean;
+  /**
+   * Present once a completed send settled over a composition that had moved on.
+   *
+   * The sentence rather than a flag, for the reason the refusal beside it is one: three
+   * things read this state — the announcer, the line under the field, and Send's own
+   * closed reason — and a boolean would have each of them composing its own words for it.
+   *
+   * Send is closed while it stands, and that is not politeness. Every leg this draft
+   * names has landed, so a second press puts nothing on the wire and answers `sent`
+   * again — this time over a composition that matches, which would close the draft and
+   * discard the very words this state exists to keep.
+   */
+  readonly unsentEditsSentence: string | undefined;
 }
 
 /** What one draft's send is doing, and what it settled on. Held per draft. */
@@ -267,18 +294,42 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
   // object mints at most one session, and every leg it names has landed — so leaving it
   // held would offer Send under a composition that can only re-report a session that
   // already exists, on a holder that outlives the navigation away from here.
+  //
+  // UNLESS THE COMPOSITION MOVED WHILE THE SEND RAN, which is the one case where
+  // dropping it destroys something. `#performSend` captured the first message when it
+  // read the draft, so words typed after the press were never sent — and `undefined`
+  // published over the draft would take the only copy of them with it. The revisions
+  // are compared instead: a settlement closes the composition it CARRIED and no other.
+  //
+  // A stale settlement keeps the draft AND stays here. Settling navigates, and the
+  // sentence below is the whole report of what happened — spoken to a destination
+  // already coming down, and drawn on a screen already leaving, it is a report nobody
+  // receives. This is `Spec-023 §Console Design (Meridian)` rule 9 at the same site the
+  // partial arm already takes it: the act is over, what it did is on screen, and the
+  // person decides what happens to the words in front of them.
+  const hasUnsentLaterEdits =
+    result?.outcome === "sent" &&
+    result.sentRevision !== undefined &&
+    draftState !== undefined &&
+    draftState.revision !== result.sentRevision;
+
   useEffect(() => {
     if (result === undefined) {
       return;
     }
-    announce(SEND_ANNOUNCEMENTS[result.outcome]);
-    if (result.outcome !== "sent" || result.sessionId === undefined) {
+    announce(
+      hasUnsentLaterEdits ? SESSION_CREATED_WITH_UNSENT_EDITS : SEND_ANNOUNCEMENTS[result.outcome],
+    );
+    if (result.outcome !== "sent" || result.sessionId === undefined || hasUnsentLaterEdits) {
       return;
     }
     const createdSessionId = result.sessionId;
     publishDraft(undefined);
     committedSessionCreatedRef.current(createdSessionId);
-  }, [announce, publishDraft, result]);
+    // `hasUnsentLaterEdits` is a correct dependency and not a per-keystroke one: it is
+    // false until a settlement lands and stays true once one has landed over a moved-on
+    // draft, so a further edit re-renders without re-running this.
+  }, [announce, hasUnsentLaterEdits, publishDraft, result]);
 
   return {
     draftState,
@@ -290,5 +341,6 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
     send,
     recheckDirectory,
     isAmbiguousCreate: result?.outcome === "created-unreadable",
+    unsentEditsSentence: hasUnsentLaterEdits ? SESSION_CREATED_WITH_UNSENT_EDITS : undefined,
   };
 }

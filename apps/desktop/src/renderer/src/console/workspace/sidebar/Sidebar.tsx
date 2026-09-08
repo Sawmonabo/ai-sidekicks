@@ -250,7 +250,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
     }
   }, [snapshot.state.isCollapsed, takeFocus]);
 
-  useSettlementAnnouncement(snapshot, announce);
+  useSettlementAnnouncement(model, snapshot, announce);
 
   const pressSection = useCallback(
     (sectionId: SidebarSectionId) => {

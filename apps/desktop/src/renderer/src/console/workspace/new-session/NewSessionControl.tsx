@@ -94,10 +94,33 @@
 // stays for it on purpose: its refusal says which leg could not be made and a second
 // press resumes at exactly that one. Navigating away would take that sentence with it,
 // and would stamp a start the person has not finished making.
+//
+// AND A COMPLETED SEND CLOSES THE COMPOSITION IT CARRIED, NOT WHATEVER IS ON SCREEN.
+// The send captures the first message when it reads the draft, and the draft is
+// editable for as long as the create is in flight — so a settlement that published
+// `undefined` over the field discarded words that were never sent and left no copy of
+// them anywhere. Two guards, and the order is the usual one. The STRUCTURAL half is a
+// revision the draft advances on every edit: the send names the one it carried, and the
+// settlement closes the draft only where the two agree, saying so through the same
+// settlement surface where they do not. The AFFORDANCE half is this field, which is
+// `readOnly` while a send runs — read-only rather than disabled, so focus and a screen
+// reader's position survive the press — and it narrows the window to the frame between
+// the click and the render, which is why the revision is the guard and not the field.
 
 import { InlineRefusal } from "../../primitives/index.js";
 import type { NewSessionControlProps } from "../../seats/index.js";
 import { useNewSessionComposition } from "./new-session-composition.js";
+
+/**
+ * Why the first message cannot be edited right now.
+ *
+ * READ-ONLY AND NOT DISABLED, which is the whole of the choice. A disabled control
+ * leaves the tab order and takes focus with it, so a person typing when the press
+ * landed would find their place gone and a screen reader would lose the field it was
+ * on. Read-only keeps both and refuses the edit.
+ */
+const SENDING_FIRST_TURN_REASON =
+  "This draft is being sent, so its first message cannot be edited until the send settles.";
 
 export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
   const composition = useNewSessionComposition(props);
@@ -120,6 +143,8 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
           className="meridian-new-session__first-turn-input"
           value={composition.draftState.firstTurn}
           rows={3}
+          readOnly={composition.isSending}
+          title={composition.isSending ? SENDING_FIRST_TURN_REASON : undefined}
           onChange={(event) => {
             composition.setFirstTurn(event.target.value);
           }}
@@ -130,6 +155,14 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
           code={composition.sendResult.refusal.code}
           detail={composition.sendResult.refusal.detail}
         />
+      )}
+      {composition.unsentEditsSentence === undefined ? null : (
+        // A PLAIN paragraph, unlike the completed-calls line below it, and the
+        // difference is which of them is already spoken. The composition announces this
+        // exact sentence when the settlement lands, so a status region here would say it
+        // twice to the one person who cannot see it — the same reason `InlineRefusal`
+        // above carries no live region for a refusal the announcer has already read.
+        <p className="meridian-new-session__unsent">{composition.unsentEditsSentence}</p>
       )}
       {completedCalls.length === 0 ? null : (
         // A status region rather than a paragraph: what already exists is the half of
@@ -165,9 +198,10 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
             composition.draftState.isEmpty ||
             composition.isSending ||
             composition.isAmbiguousCreate ||
+            composition.unsentEditsSentence !== undefined ||
             props.blockedAct.sentence !== undefined
           }
-          title={props.blockedAct.sentence}
+          title={props.blockedAct.sentence ?? composition.unsentEditsSentence}
           onClick={composition.send}
         >
           Send

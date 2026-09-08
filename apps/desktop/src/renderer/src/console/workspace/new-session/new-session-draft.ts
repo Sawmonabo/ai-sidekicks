@@ -292,13 +292,19 @@ export class NewSessionDraft {
       // press that arrived anyway — a keyboard path, a later caller, a test — put
       // nothing on the wire. The same settlement is answered again, so the sentence a
       // person is reading does not change under them.
-      return refuseAmbiguousCreate();
+      //
+      // Nothing is read out of the draft on this path, so the settlement names no
+      // revision: it acted on a memory rather than on a composition.
+      return refuseAmbiguousCreate(undefined);
     }
     if (this.#state.isEmpty) {
       return {
         outcome: "refused",
         sessionId: undefined,
         completedCalls: [],
+        // An empty draft reaches no wire, so there is no composition this settlement
+        // carried and none for a caller to measure itself against.
+        sentRevision: undefined,
         // NAMED FOR THE CONTROLS THAT EXIST. The sentence used to offer a sidekick, a
         // repository and a posture as alternatives, and a person reading it could
         // reach none of the three: the shipped control offers the first message and
@@ -318,6 +324,13 @@ export class NewSessionDraft {
       firstTurnAlreadyQueued: this.#landed.hasQueuedFirstTurn,
       firstTurn: this.#state.firstTurn,
       executionPostureMode: this.#state.posture,
+      // CAPTURED IN THE SAME BREATH AS THE WORDS IT DESCRIBES. Every member above is
+      // read out of `#state` in this one expression, so the revision beside them names
+      // exactly the composition this send is about — and a settlement can be measured
+      // against the draft as it stands when the reply arrives instead of being assumed
+      // to describe it. The draft is editable throughout: `send()` returns before the
+      // create does, and nothing here stops a later `setFirstTurn`.
+      draftRevision: this.#state.revision,
     });
 
     // Recorded whatever the outcome was: the legs that landed are landed, and a
