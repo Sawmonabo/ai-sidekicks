@@ -97,17 +97,23 @@ describe("the schema form's state", () => {
     expect(form().report?.status).toBe("valid");
   });
 
-  it("returns an optional collection to absent when its last entry is removed", () => {
-    // The other half of opening absent, and the half a seed cannot give: `[]` left behind
-    // by an add-then-remove is a member the form put there and offered no way to take
-    // away. This schema will not accept an empty `reviewers` and will accept none at all,
-    // so the round trip is readable in the VERDICT and not only in the answer's shape.
+  it("returns an optional collection to absent on the control that answers it, not on an empty one", () => {
+    // The other half of opening absent, and the half a row count cannot give. Read off the
+    // rows, `[]` and absent were one display, so a schema that tells them apart had a state
+    // the form could not compose; read off the LATCH they are two, and the way back out is
+    // the control on the legend. This schema will not accept an empty `reviewers` and will
+    // accept none at all, so both readings are in the VERDICT and not only in the shape.
     const form = mountForm({
       type: "object",
       properties: { reviewers: { type: "array", items: { type: "string" }, minItems: 1 } },
     });
 
     expect(form().report?.status).toBe("valid");
+    expect(form().listIsActive(["reviewers"])).toBe(false);
+
+    act(() => {
+      form().setListActive(["reviewers"], true);
+    });
     act(() => {
       form().appendListEntry(["reviewers"]);
     });
@@ -115,6 +121,15 @@ describe("the schema form's state", () => {
 
     act(() => {
       form().removeListEntry(["reviewers"], 0);
+    });
+
+    // Present and empty: somebody is answering this collection and it holds nothing, which
+    // is the state `minItems: 1` refuses and the state an absent member is not.
+    expect(form().answer).toEqual({ reviewers: [] });
+    expect(form().report?.status).toBe("invalid");
+
+    act(() => {
+      form().setListActive(["reviewers"], false);
     });
 
     expect(form().answer).not.toHaveProperty("reviewers");
@@ -180,7 +195,9 @@ describe("the schema form's state", () => {
 
     const answer = form().answer;
     expect(JSON.parse(JSON.stringify(answer))).toEqual(answer);
-    expect(answer).not.toHaveProperty("scores");
+    // The collection is present — adding a row is answering it — and the row itself is not
+    // in the array, which is the whole claim: no position serializes to `null`.
+    expect(answer).toEqual({ scores: [] });
     expect(form().report?.status).toBe("invalid");
     expect(form().listEntryIssues(["scores"], 0)).toEqual(["Entry 1 has no value yet."]);
     expect(listValuesOf(form(), ["scores"])).toEqual([undefined]);

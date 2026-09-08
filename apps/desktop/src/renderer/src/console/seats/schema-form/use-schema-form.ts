@@ -51,15 +51,15 @@
 
 import { useCallback, useMemo, useState } from "react";
 
+import { leafDrawnAt, seedDraftFromPlan } from "./schema-answer.js";
 import {
-  leafDrawnAt,
-  seedDraftFromPlan,
   withGroupActivation,
   withLeafDrafted,
+  withListActivation,
   withListEntryAppended,
   withListEntryDrafted,
   withListEntryRemoved,
-} from "./schema-answer.js";
+} from "./schema-draft-writes.js";
 import {
   groupDraftAt,
   listDraftAt,
@@ -123,6 +123,10 @@ export interface SchemaFormState {
   readonly removeListEntry: (memberPath: SchemaMemberPath, index: number) => void;
   /** What is wrong with one drawn row: the draft's own finding, or the schema's. */
   readonly listEntryIssues: (memberPath: SchemaMemberPath, index: number) => readonly string[];
+  /** Whether an optional collection has been answered. A required one always is. */
+  readonly listIsActive: (memberPath: SchemaMemberPath) => boolean;
+  /** Answer a collection or leave it unanswered, which is the control its legend offers. */
+  readonly setListActive: (memberPath: SchemaMemberPath, isActive: boolean) => void;
   /** Whether an optional section has been opened. A required one is always open. */
   readonly groupIsActive: (memberPath: SchemaMemberPath) => boolean;
   /** Open a section or leave it unanswered, which is the control its legend offers. */
@@ -239,6 +243,13 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
     [plan],
   );
 
+  const setListActive = useCallback(
+    (memberPath: SchemaMemberPath, isActive: boolean) => {
+      setDraft((current) => withListActivation(plan, current, memberPath, isActive));
+    },
+    [plan],
+  );
+
   const setGroupActive = useCallback(
     (memberPath: SchemaMemberPath, isActive: boolean) => {
       setDraft((current) => withGroupActivation(plan, current, memberPath, isActive));
@@ -287,6 +298,8 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
         ? [unansweredEntryMessage(index)]
         : issuesForListEntry(report, memberPath, position);
     },
+    listIsActive: (memberPath) => listDraftAt(draft, memberPath)?.state === "active",
+    setListActive,
     groupIsActive: (memberPath) => {
       const groupKey = memberKeyOf(memberPath);
       return groupKey !== undefined && groupDraftAt(draft, groupKey)?.state === "active";

@@ -15,9 +15,21 @@
 // disappeared. The position is still what the entry is CALLED, because an array member
 // has no name of its own; it is no longer what React thinks the entry is.
 //
-// AN EMPTY LIST IS AN ANSWER. It renders its heading, its add control, and no entries —
+// AN ANSWERED EMPTY LIST IS AN ANSWER, AND AN UNANSWERED ONE IS NOT THE SAME THING. A
+// collection somebody is answering renders its heading, its add control, and no entries —
 // never a wait and never an absence, because a person who has added nothing yet has an
-// empty list and not an unread one.
+// empty list. An OPTIONAL collection nobody has answered renders neither the entries nor
+// the add control and offers the one control that answers it, exactly as an optional
+// section does: zero rows would otherwise be the display for both states, so `[]` — the
+// only answer a root demanding one member and a `maxItems: 0` array accepts — was a state
+// this form could not reach. A required collection is answered from the mount and is
+// offered no such control, because there is no state for it to reach.
+//
+// AND THE COLLECTION'S DESCRIPTION IS PART OF WHAT THE FIELDSET SAYS. The schema's own
+// instructions were drawn under the legend and named in nothing, so a person moving among
+// the entry, add, and remove controls heard the collection's name and never the sentence
+// explaining what the entries should contain. Both the description and the findings are
+// attached through the one attribute, in that order, as a scalar field's chrome does.
 //
 // THE TWO CONTROLS THAT CHANGE HOW MANY ARE SPOKEN WITH THE COLLECTION AND DRAWN WITHOUT
 // IT. The legend names the collection to a reader moving down the form and is no part of
@@ -35,6 +47,7 @@
 
 import { useId } from "react";
 
+import { SchemaActivationControl } from "./SchemaActivationControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaListEntry } from "./SchemaListEntry.js";
 import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
@@ -61,57 +74,77 @@ export interface SchemaFieldListProps {
    * neighbour, which is worse than the silence this replaces.
    */
   readonly issuesForEntry: (index: number) => readonly string[];
+  /** Whether somebody is answering this collection. A required one always is. */
+  readonly isActive: boolean;
+  /** Answer this collection, or leave it unanswered. */
+  readonly onChangeActive: (isActive: boolean) => void;
 }
 
 /** A repeated control, one per entry, with the two controls that change how many. */
 export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element {
   const { list, entries } = props;
+  const descriptionId = useId();
   const issuesId = useId();
   return (
     <fieldset
       className="meridian-schema-list"
-      aria-describedby={describedByOf([props.issues.length === 0 ? undefined : issuesId])}
+      aria-describedby={describedByOf([
+        list.description === undefined ? undefined : descriptionId,
+        props.issues.length === 0 ? undefined : issuesId,
+      ])}
     >
       <legend className="meridian-schema-list__legend">
         {list.label}
         <SchemaRequiredMark isRequired={list.isRequired} />
+        {list.isRequired ? null : (
+          <SchemaActivationControl
+            isActive={props.isActive}
+            onChangeActive={props.onChangeActive}
+          />
+        )}
       </legend>
       {list.description === undefined ? null : (
-        <p className="meridian-schema-field__description">{list.description}</p>
+        <p className="meridian-schema-field__description" id={descriptionId}>
+          {list.description}
+        </p>
       )}
-      <ol className="meridian-schema-list__items">
-        {entries.map((entry, index) => (
-          <li className="meridian-schema-list__item" key={entry.entryId}>
-            <SchemaListEntry
-              list={list}
-              index={index}
-              view={entry}
-              onChange={(draft) => {
-                props.onChangeEntry(index, draft);
-              }}
-              issues={props.issuesForEntry(index)}
-            />
-            <button
-              type="button"
-              className="meridian-schema-list__action"
-              aria-label={listRemoveLabel(list, index)}
-              onClick={() => {
-                props.onRemove(index);
-              }}
-            >
-              Remove entry {index + 1}
-            </button>
-          </li>
-        ))}
-      </ol>
-      <button
-        type="button"
-        className="meridian-schema-list__action"
-        aria-label={listAppendLabel(list)}
-        onClick={props.onAppend}
-      >
-        Add an entry
-      </button>
+      {!props.isActive ? null : (
+        <>
+          <ol className="meridian-schema-list__items">
+            {entries.map((entry, index) => (
+              <li className="meridian-schema-list__item" key={entry.entryId}>
+                <SchemaListEntry
+                  list={list}
+                  index={index}
+                  view={entry}
+                  onChange={(draft) => {
+                    props.onChangeEntry(index, draft);
+                  }}
+                  issues={props.issuesForEntry(index)}
+                />
+                <button
+                  type="button"
+                  className="meridian-schema-list__action"
+                  aria-label={listRemoveLabel(list, index)}
+                  onClick={() => {
+                    props.onRemove(index);
+                  }}
+                >
+                  Remove entry {index + 1}
+                </button>
+              </li>
+            ))}
+          </ol>
+          <button
+            type="button"
+            className="meridian-schema-list__action"
+            aria-label={listAppendLabel(list)}
+            onClick={props.onAppend}
+          >
+            Add an entry
+          </button>
+        </>
+      )}
       <SchemaFieldIssues issues={props.issues} issuesId={issuesId} />
     </fieldset>
   );

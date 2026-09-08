@@ -142,8 +142,10 @@ export function emptyControlValue(kind: SchemaFieldKind): unknown {
  * has no control of its own at all. For those three the answer follows requiredness — a
  * required box opens at the `false` it is already showing, a required collection at the
  * `[]` its fieldset is already drawing, a required group at the `{}` its legend stands
- * over — and an optional one of each is absent until something is answered into it and
- * absent again when the last answer leaves it.
+ * over. An optional BOX is drawn as a choice instead, which is the paragraph below; an
+ * optional CONTAINER follows `containerOpensAnswered` rather than its own contents —
+ * absent until somebody answers it on its legend, and present from then on whatever it
+ * holds, so a collection emptied to nothing is still `[]`.
  *
  * WHICH IS WHY AN OPTIONAL BOOLEAN IS DRAWN AS A CHOICE. That is the same rule read from
  * the other side: the third state gives the one control that cannot show absence a way to,
@@ -157,7 +159,33 @@ export function unansweredFieldValue(field: SchemaFieldDescriptor): unknown {
   return fieldDrawsAsCheckbox(field) ? emptyControlValue(field.kind) : undefined;
 }
 
-/** What the answer holds at a collection nobody has added an entry to. */
+/**
+ * WHETHER AN OPTIONAL CONTAINER OPENS ANSWERED, WHICH IS THE OTHER HALF OF THE RULE ABOVE.
+ *
+ * A group and a collection are the two members with no control of their own, so neither
+ * has a display a person reads as "not answered": an unopened section and a section
+ * holding nothing look alike, and an empty array and an array somebody emptied look alike.
+ * ACTIVATION IS WHAT MAKES AN OPTIONAL CONTAINER PRESENT — one control on the container's
+ * legend, drawn by `SchemaActivationControl.tsx`, held as a state in `schema-draft.ts` and
+ * read by the projection — rather than a count of what is inside it.
+ *
+ * So every optional member opens UNANSWERED: a scalar, a choice and a boolean through the
+ * empty state their own control displays, and a group and a collection through this. A
+ * REQUIRED container has no such choice to offer — the schema demands the member, so it
+ * opens answered at the `{}` or `[]` its legend already stands over. And a container the
+ * schema declared a VALUE for opens answered too, which is the same rule read from the
+ * other side rather than an exception to it: the schema has stated a value, so something
+ * on the screen has to be displaying it.
+ *
+ * The seed (`schema-answer.ts`), the write path (`schema-draft-writes.ts`), the control,
+ * the projection and, through the projected answer, the compiled validator all read this
+ * one rule; none of them decides presence on its own.
+ */
+export function containerOpensAnswered(isRequired: boolean, hasDeclaredValue: boolean): boolean {
+  return isRequired || hasDeclaredValue;
+}
+
+/** What the answer holds at a collection NOBODY IS ANSWERING, which a required one never is. */
 export function unansweredListValue(list: SchemaListDescriptor): unknown {
   return list.isRequired ? NO_ENTRIES : undefined;
 }

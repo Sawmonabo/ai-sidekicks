@@ -6,8 +6,9 @@
 // real report readable beside the markup. A second copy of that mount would have been two
 // answers to what a form under test IS.
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 
+import { ACTIVATE_LABEL } from "./SchemaActivationControl.js";
 import { SchemaForm } from "./SchemaForm.js";
 import { useSchemaForm } from "./use-schema-form.js";
 
@@ -70,6 +71,43 @@ export function renderedIssueTexts(container: HTMLElement): readonly string[] {
 /** The findings block the form drew about the whole answer, rather than about a member. */
 export function rootIssuesElement(container: HTMLElement): Element | null {
   return container.querySelector(".meridian-schema-form > .meridian-schema-field__issues");
+}
+
+/**
+ * The fieldset one collection drew, which is what a case scopes a query to.
+ *
+ * Scoped rather than global, because the control that answers an optional container reads
+ * the same on a collection's legend as on a group's — one component draws both — so a
+ * form holding either beside the other offers two buttons of that name and a global query
+ * would press whichever came first.
+ */
+export function listFieldset(container: HTMLElement): HTMLElement {
+  const fieldset = container.querySelector(".meridian-schema-list");
+  if (!(fieldset instanceof HTMLElement)) {
+    throw new Error("this form drew no collection");
+  }
+  return fieldset;
+}
+
+/**
+ * Answer every optional collection this form drew.
+ *
+ * What a case ABOUT ENTRIES needs before there are any: an optional collection opens
+ * unanswered and draws no entry controls at all, so a case about how a row is named or
+ * where its finding lands has to say it is answering the collection first. Pressed through
+ * the real control under its real label rather than by reaching into the draft, because
+ * the control is the only way a person reaches that state.
+ */
+export function answerEveryCollection(container: HTMLElement): void {
+  for (const fieldset of container.querySelectorAll(".meridian-schema-list")) {
+    if (!(fieldset instanceof HTMLElement)) {
+      continue;
+    }
+    const control = within(fieldset).queryByRole("button", { name: ACTIVATE_LABEL });
+    if (control !== null) {
+      fireEvent.click(control);
+    }
+  }
 }
 
 /**

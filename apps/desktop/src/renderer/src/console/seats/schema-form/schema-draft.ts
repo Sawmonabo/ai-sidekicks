@@ -8,8 +8,15 @@
 //     value and nothing else;
 //   - a GROUP node is `inactive` — optional, and nobody has said they are answering it —
 //     or `active`, holding one leaf node per member;
-//   - a LIST node holds entries, each carrying its own scalar node and a STABLE ENTRY ID
-//     minted when the entry was added, never its position.
+//   - a LIST node is `inactive` — optional, and nobody has said they are answering it —
+//     or `active`, holding entries, each carrying its own scalar node and a STABLE ENTRY
+//     ID minted when the entry was added, never its position.
+//
+// A CONTAINER'S PRESENCE IS A STATE AND NEVER A COUNT. Zero rows is what a collection
+// nobody has answered looks like and what one somebody emptied looks like, so a projection
+// reading the count alone could compose `absent` or `[one row]` and never `[]`. The two
+// containers therefore carry the same two states, and `schema-fields.ts` states the one
+// rule both are read by.
 //
 // `unanswered` AND `inactive` ARE NODES, NEVER `undefined` AND NEVER A SENTINEL INSIDE A
 // JSON VALUE. An added list entry nobody had answered used to sit in the answer's array as
@@ -45,13 +52,26 @@ export interface SchemaListEntryDraft {
   readonly entry: SchemaScalarDraft;
 }
 
-/** A collection's draft: its entries in order, and the counter its ids are minted from. */
-export interface SchemaListDraft {
-  readonly form: "list";
-  readonly entries: readonly SchemaListEntryDraft[];
-  /** The ordinal the next added entry takes. Never reused and never wound back. */
-  readonly nextEntryOrdinal: number;
-}
+/**
+ * A collection's draft: unanswered as a whole, or answered holding its entries in order.
+ *
+ * THE SAME TWO STATES A GROUP HAS, AND FOR THE SAME REASON. An optional collection has no
+ * state its rows can show: zero rows is what a collection nobody has answered looks like
+ * AND what one somebody emptied looks like, so an answer projected from the rows alone
+ * could reach `absent` or `[one row]` and never `[]`. A schema that tells those apart — an
+ * optional array under `maxItems: 0` at a root demanding one member — then had exactly one
+ * valid answer and no way to compose it. The presence is held HERE, beside the group's,
+ * rather than inferred from a count.
+ */
+export type SchemaListDraft =
+  | { readonly form: "list"; readonly state: "inactive" }
+  | {
+      readonly form: "list";
+      readonly state: "active";
+      readonly entries: readonly SchemaListEntryDraft[];
+      /** The ordinal the next added entry takes. Never reused and never wound back. */
+      readonly nextEntryOrdinal: number;
+    };
 
 /** What a group may hold, which is what its descriptor holds: a control or a list of one. */
 export type SchemaLeafDraft = SchemaScalarDraft | SchemaListDraft;
@@ -116,24 +136,47 @@ function entryIdOf(ordinal: number): string {
   return `entry-${String(ordinal)}`;
 }
 
-/** A collection holding these entries, with an id minted for each in the order given. */
+/** A collection nobody has said they are answering. Held for the reason the scalar one is. */
+export const INACTIVE_LIST: SchemaListDraft = { form: "list", state: "inactive" };
+
+/** A collection somebody is answering, holding these entries under ids minted in order. */
 export function listDraftOf(entries: readonly SchemaScalarDraft[]): SchemaListDraft {
   return {
     form: "list",
+    state: "active",
     entries: entries.map((entry, ordinal) => ({ entryId: entryIdOf(ordinal), entry })),
     nextEntryOrdinal: entries.length,
   };
 }
 
-/** One entry added at the end, under an id no entry of this collection has ever carried. */
+/**
+ * Every row one collection is drawing, which is none at all while nobody is answering it.
+ *
+ * The one reader of the inactive arm, so no surface asks a collection for entries it
+ * cannot have: a row under a collection nobody is answering would be a row whose value
+ * reaches nothing, exactly as a control under an inactive group would.
+ */
+export function listEntriesOf(list: SchemaListDraft | undefined): readonly SchemaListEntryDraft[] {
+  return list?.state === "active" ? list.entries : [];
+}
+
+/**
+ * One entry added at the end, under an id no entry of this collection has ever carried.
+ *
+ * ADDING A ROW IS ANSWERING THE COLLECTION, which is the same rule the write path keeps
+ * one level up when a value lands inside a section nobody had opened: the act that puts
+ * something in a container is what makes the container present.
+ */
 export function withEntryAppended(
   list: SchemaListDraft,
   entry: SchemaScalarDraft,
 ): SchemaListDraft {
+  const nextEntryOrdinal = list.state === "active" ? list.nextEntryOrdinal : 0;
   return {
     form: "list",
-    entries: [...list.entries, { entryId: entryIdOf(list.nextEntryOrdinal), entry }],
-    nextEntryOrdinal: list.nextEntryOrdinal + 1,
+    state: "active",
+    entries: [...listEntriesOf(list), { entryId: entryIdOf(nextEntryOrdinal), entry }],
+    nextEntryOrdinal: nextEntryOrdinal + 1,
   };
 }
 
@@ -143,6 +186,9 @@ export function withEntryDrafted(
   index: number,
   entry: SchemaScalarDraft,
 ): SchemaListDraft {
+  if (list.state !== "active") {
+    return list;
+  }
   return {
     ...list,
     entries: list.entries.map((held, at) =>
@@ -157,8 +203,15 @@ export function withEntryDrafted(
  * The ordinal is not wound back: a later add takes the next unused id rather than the one
  * the departed entry had, so no React subtree is ever handed a key a different entry used
  * to answer to.
+ *
+ * AND THE LAST ONE LEAVING DOES NOT CLOSE THE COLLECTION. A collection somebody answered
+ * and then emptied is an empty array, not a member they never answered — only the control
+ * on its legend moves it back out of the answer.
  */
 export function withEntryRemoved(list: SchemaListDraft, index: number): SchemaListDraft {
+  if (list.state !== "active") {
+    return list;
+  }
   return { ...list, entries: list.entries.filter((_held, at) => at !== index) };
 }
 

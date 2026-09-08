@@ -11,9 +11,14 @@
 // what it holds, and an unanswered one contributes `unansweredFieldValue` — which is a
 // value for the one control that cannot show absence and nothing at all for the other five.
 //
-// AN INACTIVE GROUP IS OMITTED WHOLE. Nobody has said they are answering that section, so
-// there is no object for the answer to carry — which is the state a presence-sensitive
+// AN INACTIVE CONTAINER IS OMITTED WHOLE, AND AN ACTIVE ONE IS PRESENT WHATEVER IT HOLDS.
+// Nobody has said they are answering that section or that collection, so there is no
+// object and no array for the answer to carry — which is the state a presence-sensitive
 // schema needs and the one a seeded `{ settings: { enabled: false } }` could never reach.
+// Answered, a collection with no rows contributes `[]` rather than falling back through
+// `unansweredListValue`: an optional array under `maxItems: 0` at a root demanding one
+// member has exactly one valid answer, and reading presence off the row count could never
+// compose it.
 //
 // AN UNANSWERED LIST ENTRY IS OMITTED FROM THE PROJECTED ARRAY AND REPORTED AS AN ISSUE.
 // Omitted alone, a press would send fewer entries than the person can see; carried, the
@@ -42,9 +47,10 @@ import type {
   SchemaFormDraft,
   SchemaLeafDraft,
   SchemaListDraft,
+  SchemaListEntryDraft,
   SchemaScalarDraft,
 } from "./schema-draft.js";
-import { leafDraftAt, unreadableTextOf } from "./schema-draft.js";
+import { leafDraftAt, listEntriesOf, unreadableTextOf } from "./schema-draft.js";
 import { NOTHING_ANSWERED, type SchemaFormAnswer } from "./schema-answer-paths.js";
 import type { SchemaValidationIssue, SchemaValidationReport } from "../../bridge/index.js";
 
@@ -78,19 +84,25 @@ function projectedScalar(field: SchemaFieldDescriptor, node: SchemaLeafDraft | u
 }
 
 /** Every answered entry of one collection, in the order the rows are drawn. */
-function answeredEntryValues(list: SchemaListDraft): readonly unknown[] {
-  return list.entries.flatMap((held) =>
-    held.entry.state === "answered" ? [held.entry.value] : [],
-  );
+function answeredEntryValues(entries: readonly SchemaListEntryDraft[]): readonly unknown[] {
+  return entries.flatMap((held) => (held.entry.state === "answered" ? [held.entry.value] : []));
 }
 
-/** What one collection contributes: its answered entries, or what an empty one is worth. */
+/**
+ * What one collection contributes: its answered entries, or what an unanswered one is worth.
+ *
+ * The LATCH decides, never the row count. An answered collection contributes an array
+ * however few rows survive the projection — `[]` included — and one nobody is answering
+ * contributes `unansweredListValue`, which for the required case that can never be
+ * unanswered is still the `[]` its fieldset stands over.
+ */
 function projectedList(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined): unknown {
   if (leaf.form !== "list") {
     return undefined;
   }
-  const projected = node?.form === "list" ? answeredEntryValues(node) : [];
-  return projected.length === 0 ? unansweredListValue(leaf.list) : projected;
+  return node?.form === "list" && node.state === "active"
+    ? answeredEntryValues(node.entries)
+    : unansweredListValue(leaf.list);
 }
 
 /** What one leaf contributes to the answer, or `undefined` where it contributes nothing. */
@@ -157,7 +169,7 @@ export function listEntryViewsOf(
   item: SchemaFieldDescriptor,
   list: SchemaListDraft | undefined,
 ): readonly SchemaListEntryView[] {
-  return (list?.entries ?? []).map((held) => ({
+  return listEntriesOf(list).map((held) => ({
     entryId: held.entryId,
     isAnswered: held.entry.state === "answered",
     ...controlViewOf(item, held.entry),
@@ -174,11 +186,12 @@ export function projectedEntryPosition(
   list: SchemaListDraft | undefined,
   index: number,
 ): number | undefined {
-  const held = list?.entries[index];
+  const entries = listEntriesOf(list);
+  const held = entries[index];
   if (held === undefined || held.entry.state !== "answered") {
     return undefined;
   }
-  return list?.entries.slice(0, index).filter((before) => before.entry.state === "answered").length;
+  return entries.slice(0, index).filter((before) => before.entry.state === "answered").length;
 }
 
 /** One issue per row the projection dropped, addressed at the row a person is looking at. */
@@ -186,7 +199,7 @@ function listDraftIssues(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefine
   if (leaf.form !== "list" || node?.form !== "list") {
     return [];
   }
-  return node.entries.flatMap((held, index) =>
+  return listEntriesOf(node).flatMap((held, index) =>
     held.entry.state === "answered"
       ? []
       : [{ memberPath: [...leaf.list.memberPath, index], message: unansweredEntryMessage(index) }],

@@ -21,8 +21,16 @@
 // exactly as the list fieldset draws the collection's. Left to the leaves, a required
 // group whose children are all optional read clean while the report said otherwise.
 //
+// AND ITS DESCRIPTION IS PART OF WHAT THE FIELDSET SAYS. The schema's own instructions
+// were drawn under the legend and named in nothing, so a reader moving among this
+// section's controls heard its name and never the sentence explaining what belongs in it.
+// Both the description and the findings are attached through the one attribute, in that
+// order, exactly as a scalar field's chrome attaches them.
+//
 // AN OPTIONAL SECTION IS ANSWERED OR LEFT UNANSWERED, AND THAT IS ONE CONTROL ON THE
-// LEGEND. A group the answer may leave out has no state a set of child controls can show:
+// LEGEND — `SchemaActivationControl`, the same component a collection's legend draws,
+// because it is the same question about the same kind of member. A group the answer may
+// leave out has no state a set of child controls can show:
 // seeded through its children, an optional section holding a required member opened
 // already answered and could never be taken back out, so a schema that accepts or
 // requires its ABSENCE was unsatisfiable through this form. The legend is where the
@@ -39,6 +47,7 @@
 
 import { useId } from "react";
 
+import { SchemaActivationControl } from "./SchemaActivationControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
 import { describedByOf } from "./schema-field-control.js";
@@ -57,38 +66,33 @@ export interface SchemaFieldGroupProps {
   readonly onChangeActive: (isActive: boolean) => void;
 }
 
-/** What the control on an unanswered section's legend reads. */
-const ACTIVATE_LABEL = "Answer this section";
-
-/** What it reads once the section is being answered. */
-const DEACTIVATE_LABEL = "Leave unanswered";
-
 /** A named set of controls, one level deep, under whatever the schema said about it. */
 export function SchemaFieldGroup(props: SchemaFieldGroupProps): React.JSX.Element {
   const { group, issues } = props;
+  const descriptionId = useId();
   const issuesId = useId();
   return (
     <fieldset
       className="meridian-schema-group"
-      aria-describedby={describedByOf([issues.length === 0 ? undefined : issuesId])}
+      aria-describedby={describedByOf([
+        group.description === undefined ? undefined : descriptionId,
+        issues.length === 0 ? undefined : issuesId,
+      ])}
     >
       <legend className="meridian-schema-group__legend">
         {group.label}
         <SchemaRequiredMark isRequired={group.isRequired} />
         {group.isRequired ? null : (
-          <button
-            type="button"
-            className="meridian-schema-group__action"
-            onClick={() => {
-              props.onChangeActive(!props.isActive);
-            }}
-          >
-            {props.isActive ? DEACTIVATE_LABEL : ACTIVATE_LABEL}
-          </button>
+          <SchemaActivationControl
+            isActive={props.isActive}
+            onChangeActive={props.onChangeActive}
+          />
         )}
       </legend>
       {group.description === undefined ? null : (
-        <p className="meridian-schema-field__description">{group.description}</p>
+        <p className="meridian-schema-field__description" id={descriptionId}>
+          {group.description}
+        </p>
       )}
       {!props.isActive
         ? null
