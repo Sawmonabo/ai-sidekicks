@@ -153,7 +153,9 @@ export interface LedgerWindowModel {
    * feed's row renderer consults before it delegates to the timeline row seat.
    *
    * Anchored: a child re-summarized as it progresses has ONE entry, at the row that
-   * first named it, so its card stays where a reader left it.
+   * first named it, so its card stays where a reader left it — and that entry carries
+   * the LATEST summary, so the card reports where the child has got to rather than
+   * where it started.
    */
   readonly childRunEntryByRowId: ReadonlyMap<string, ChildRunEntry>;
   /** The handoff behind each row that is one, on the same dispatch. */

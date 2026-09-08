@@ -48,6 +48,15 @@ export const HANDOFF_WIRE_TYPES: readonly string[] = RAIL_TICK_BINDINGS.handoff.
 /** One row that carries a summarized child run. */
 export interface ChildRunEntry {
   readonly rowId: string;
+  /**
+   * The LATEST summary this window carries for the child, whichever row carried it.
+   *
+   * The anchor above and this are different questions: where the card is drawn, and
+   * what it says. A child summarized again after progress or termination is the same
+   * child observed later, so the figures a reader sees — its state, how much it holds,
+   * whether the reading is complete, and which node produced it — are the newest ones,
+   * while the card itself stays where it was.
+   */
   readonly summary: ChildRunSummary;
   /** The row's own actor, or `undefined` where the row named none. */
   readonly actorId: string | undefined;
@@ -55,9 +64,10 @@ export interface ChildRunEntry {
   /**
    * The later rows that re-summarized this same child run, in log order.
    *
-   * Carried rather than drawn: the summary is anchored at the row that first named
-   * the child, so a child re-summarized twenty times is one card that updates rather
-   * than twenty cards down the log. The list is what makes that claim checkable.
+   * Carried rather than drawn: the card is anchored at the row that first named the
+   * child, so a child re-summarized twenty times is one card that updates rather than
+   * twenty cards down the log. The list is what makes that claim checkable, and the
+   * last entry in it is the row {@link summary} came from.
    */
   readonly resummarizedRowIds: readonly string[];
 }
@@ -143,11 +153,8 @@ export class ChildRunIndex {
  * background work — which `Spec-013` forbids in terms.
  */
 export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly ChildRunEntry[] {
-  const entriesByChildRunId = new Map<
-    string,
-    { readonly entry: ChildRunEntry; readonly resummarizedRowIds: string[] }
-  >();
-  const entries: ChildRunEntry[] = [];
+  const entriesByChildRunId = new Map<string, ChildRunEntryUnderConstruction>();
+  const entries: ChildRunEntryUnderConstruction[] = [];
   for (const row of rows) {
     if (row.childRunSummary === undefined) {
       continue;
@@ -155,20 +162,43 @@ export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly Ch
     const held = entriesByChildRunId.get(row.childRunSummary.runId);
     if (held !== undefined) {
       held.resummarizedRowIds.push(row.id);
+      // THE LATEST OBSERVATION IS WHAT THE CARD SHOWS, and the FIRST row is where it
+      // shows it. The two are different questions and the fold used to answer both
+      // with the first row: a child that progressed, terminated, gained a producing
+      // node or lost transcript entries kept rendering the state, count, completeness
+      // and provenance of the moment it was first named, with every later reading in
+      // the window discarded. Only the summary moves; the anchor, its actor and its
+      // timestamp stay the row's, so the card does not travel down the log.
+      held.summary = row.childRunSummary;
       continue;
     }
-    const resummarizedRowIds: string[] = [];
-    const entry: ChildRunEntry = {
+    const entry: ChildRunEntryUnderConstruction = {
       rowId: row.id,
       summary: row.childRunSummary,
       actorId: row.actor,
       timestamp: row.timestamp,
-      resummarizedRowIds,
+      resummarizedRowIds: [],
     };
-    entriesByChildRunId.set(row.childRunSummary.runId, { entry, resummarizedRowIds });
+    entriesByChildRunId.set(row.childRunSummary.runId, entry);
     entries.push(entry);
   }
   return entries;
+}
+
+/**
+ * One entry while the fold is still running.
+ *
+ * The two members a later row may still move are writable HERE and readonly on
+ * {@link ChildRunEntry}, so the fold can advance them and a consumer cannot: the
+ * published type is what every reader holds, and the pass that builds it is the only
+ * thing that ever writes one.
+ */
+interface ChildRunEntryUnderConstruction {
+  readonly rowId: string;
+  summary: ChildRunSummary;
+  readonly actorId: string | undefined;
+  readonly timestamp: string;
+  readonly resummarizedRowIds: string[];
 }
 
 /**
