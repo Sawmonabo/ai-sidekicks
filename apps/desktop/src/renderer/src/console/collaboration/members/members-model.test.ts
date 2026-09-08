@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsoleEntity } from "../../store/index.js";
 import { membershipRow } from "./members-model.test-support.js";
+import type { MembershipRow } from "./members-model.js";
 import {
   MEMBERSHIP_ACTION_NOTES,
   MEMBERSHIP_ROLES,
