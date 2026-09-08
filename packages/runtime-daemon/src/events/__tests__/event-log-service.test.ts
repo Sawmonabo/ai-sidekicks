@@ -1238,6 +1238,16 @@ describe("EventLogService — ingest-halt gate (I-006-4-03)", () => {
     await expect(haltRegistry.halt(DAEMON_SCOPE_SENTINEL_SESSION_ID)).rejects.toThrow(/sentinel/i);
     await expect(haltRegistry.clear(DAEMON_SCOPE_SENTINEL_SESSION_ID)).rejects.toThrow(/sentinel/i);
     expect(haltRegistry.isHalted(DAEMON_SCOPE_SENTINEL_SESSION_ID)).toBe(false);
+
+    // The branded schema admits the Max UUID in any case (RFC 9562 §4), and the
+    // guard compares the canonical form — so an uppercase spelling is refused
+    // exactly as the lowercase literal is, rather than slipping into the set.
+    const sentinelUppercase: SessionId = SessionIdSchema.parse(
+      DAEMON_SCOPE_SENTINEL_SESSION_ID.toUpperCase(),
+    );
+    await expect(haltRegistry.halt(sentinelUppercase)).rejects.toThrow(/sentinel/i);
+    await expect(haltRegistry.clear(sentinelUppercase)).rejects.toThrow(/sentinel/i);
+    expect(haltRegistry.isHalted(sentinelUppercase)).toBe(false);
   });
 
   it("admits every session under the vacuous default, wired or omitted", async () => {

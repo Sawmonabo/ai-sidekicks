@@ -34,13 +34,19 @@
 // passes against a registry with no generation counter at all.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
-import { SessionIdSchema } from "@ai-sidekicks/contracts";
+import { DAEMON_SCOPE_SENTINEL_SESSION_ID, SessionIdSchema } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { IngestHaltRegistry } from "../ingest-halt-source.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00");
+/** The SAME logical session as `SESSION`, spelled in uppercase hex — RFC 9562 §4
+ * makes the two denote one UUID, and the branded schema admits both unchanged. */
+const SESSION_UPPERCASE: SessionId = SessionIdSchema.parse(SESSION.toUpperCase());
+const SENTINEL_UPPERCASE: SessionId = SessionIdSchema.parse(
+  DAEMON_SCOPE_SENTINEL_SESSION_ID.toUpperCase(),
+);
 
 let registry: IngestHaltRegistry;
 
@@ -252,5 +258,42 @@ describe("IngestHaltRegistry — F-006-HALT-07 (a repeat halt never queues behin
     // it — the repeat halt took the FAST path, which never reaches the bump — so
     // the clear's delete stands.
     expect(registry.isHalted(SESSION)).toBe(false);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// One logical session under two spellings — the registry and the lock are both
+// Map-key boundaries in `uuid-canonical.ts`'s sense, so a halt issued under one
+// spelling must be observed under the other, and the sentinel guard must refuse
+// every spelling of the sentinel, not only the canonical literal.
+// ----------------------------------------------------------------------------
+
+describe("IngestHaltRegistry — one logical session under two spellings", () => {
+  it("halts, reads, and clears one partition whichever case the id arrives in", async () => {
+    await registry.halt(SESSION_UPPERCASE);
+    expect(registry.isHalted(SESSION)).toBe(true);
+    expect(registry.isHalted(SESSION_UPPERCASE)).toBe(true);
+
+    await registry.clear(SESSION);
+    expect(registry.isHalted(SESSION)).toBe(false);
+    expect(registry.isHalted(SESSION_UPPERCASE)).toBe(false);
+  });
+
+  it("refuses the daemon-scope sentinel under an uppercase spelling too", async () => {
+    await expect(registry.halt(SENTINEL_UPPERCASE)).rejects.toThrow(/sentinel/i);
+    await expect(registry.clear(SENTINEL_UPPERCASE)).rejects.toThrow(/sentinel/i);
+    expect(registry.isHalted(SENTINEL_UPPERCASE)).toBe(false);
+    expect(registry.isHalted(DAEMON_SCOPE_SENTINEL_SESSION_ID)).toBe(false);
+  });
+
+  it("serializes both spellings on ONE append lock", async () => {
+    const parked: ParkedHold = await parkSessionLock(SESSION);
+    // From OUTSIDE the parked hold's async context, the uppercase spelling must
+    // queue behind it — a separate lock would let it run immediately.
+    const contender: Promise<void> = withSessionAppendLock(SESSION_UPPERCASE, async () => {});
+    expect(await settlesWithoutAcquiring(contender)).toBe("blocked");
+    parked.release();
+    await parked.settled;
+    await contender;
   });
 });
