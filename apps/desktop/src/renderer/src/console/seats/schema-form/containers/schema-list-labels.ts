@@ -12,7 +12,7 @@
 // entry is called and the two cannot drift; and a reading of either name — a test, a
 // second surface — asks this module rather than re-spelling the template.
 
-import type { SchemaListDescriptor } from "./schema-fields.js";
+import type { SchemaListDescriptor } from "../plan/schema-fields.js";
 
 /**
  * What one entry of a list is called: the collection's name and where the entry sits.

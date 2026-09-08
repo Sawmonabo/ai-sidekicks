@@ -80,9 +80,9 @@ import {
   type SchemaGroupDescriptor,
   type SchemaLeafEntry,
   type SchemaListDescriptor,
-} from "./schema-fields.js";
+} from "../plan/schema-fields.js";
 import { asAnswerRecord, type SchemaFormAnswer } from "./schema-answer-paths.js";
-import { isSameMemberPath, type SchemaMemberPath } from "../../bridge/index.js";
+import { isSameMemberPath, type SchemaMemberPath } from "../../../bridge/index.js";
 
 /**
  * Every control the plan drew, in the order it drew them, with groups walked through.

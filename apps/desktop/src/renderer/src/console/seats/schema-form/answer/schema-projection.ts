@@ -42,7 +42,7 @@ import {
   leafKeyOf,
   leafPathOf,
   memberKeyOf,
-} from "./schema-fields.js";
+} from "../plan/schema-fields.js";
 import type {
   SchemaFormDraft,
   SchemaLeafDraft,
@@ -52,7 +52,7 @@ import type {
 } from "./schema-draft.js";
 import { leafDraftAt, listEntriesOf, unreadableTextOf } from "./schema-draft.js";
 import { NOTHING_ANSWERED, type SchemaFormAnswer } from "./schema-answer-paths.js";
-import type { SchemaValidationIssue, SchemaValidationReport } from "../../bridge/index.js";
+import type { SchemaValidationIssue, SchemaValidationReport } from "../../../bridge/index.js";
 
 /** What one control is handed to display: its value, and any text it could not read. */
 export interface SchemaControlView {

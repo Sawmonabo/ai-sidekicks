@@ -11,9 +11,9 @@ import { describe, expect, it } from "vitest";
 
 import { newListEntryDraft, seedDraftFromPlan } from "./schema-answer.js";
 import { answeredScalar, UNANSWERED_SCALAR } from "./schema-draft.js";
-import { planSchemaForm } from "./schema-form-plan.js";
+import { planSchemaForm } from "../plan/schema-form-plan.js";
 import { projectAnswer } from "./schema-projection.js";
-import type { SchemaFormPlan } from "./schema-fields.js";
+import type { SchemaFormPlan } from "../plan/schema-fields.js";
 
 /**
  * The answer a form opens holding: the seeded draft, through the one projection.

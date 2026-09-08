@@ -17,10 +17,10 @@ import { useId } from "react";
 import { SchemaFieldControl } from "./SchemaFieldControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
-import type { SchemaScalarDraft } from "./schema-draft.js";
+import type { SchemaScalarDraft } from "../answer/schema-draft.js";
 import { describedByOf } from "./schema-field-control.js";
-import type { SchemaFieldDescriptor } from "./schema-fields.js";
-import type { SchemaControlView } from "./schema-projection.js";
+import type { SchemaFieldDescriptor } from "../plan/schema-fields.js";
+import type { SchemaControlView } from "../answer/schema-projection.js";
 
 export interface SchemaFormFieldProps {
   readonly field: SchemaFieldDescriptor;

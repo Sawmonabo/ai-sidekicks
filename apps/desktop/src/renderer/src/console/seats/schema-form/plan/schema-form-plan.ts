@@ -27,7 +27,7 @@
 // untyped record — the wire declares no shape for it — so every read here is a probe
 // and a member that is not what it claims lands in the fallback like any other.
 
-import { encodeMemberPointer, type SchemaMemberPath } from "../../bridge/index.js";
+import { encodeMemberPointer, type SchemaMemberPath } from "../../../bridge/index.js";
 import {
   asRecord,
   declaredType,

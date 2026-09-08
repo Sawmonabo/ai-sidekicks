@@ -47,8 +47,8 @@ import { SchemaFieldList } from "./SchemaFieldList.js";
 import { SchemaFormField } from "./SchemaFormField.js";
 import { SchemaJsonEditor } from "./SchemaJsonEditor.js";
 import { describedByOf, issuesForMember, ROOT_MEMBER_PATH } from "./schema-field-control.js";
-import { leafPathOf, type SchemaFormEntry, type SchemaLeafEntry } from "./schema-fields.js";
-import { encodeMemberPointer } from "../../bridge/index.js";
+import { leafPathOf, type SchemaFormEntry, type SchemaLeafEntry } from "../plan/schema-fields.js";
+import { encodeMemberPointer } from "../../../bridge/index.js";
 import type { SchemaFormState } from "./use-schema-form.js";
 
 export interface SchemaFormProps {

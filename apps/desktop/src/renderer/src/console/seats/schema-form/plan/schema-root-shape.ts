@@ -45,7 +45,7 @@
 // schema earns can never disagree.
 
 import { asRecord, declaredType } from "./schema-declarations.js";
-import { refuse, type NarrowedRefusal } from "../../core/index.js";
+import { refuse, type NarrowedRefusal } from "../../../core/index.js";
 
 /** The code a phase whose root admits no object answer refuses under. */
 export const SCHEMA_ROOT_NOT_NAMED_VALUES = "schema-root-not-named-values";

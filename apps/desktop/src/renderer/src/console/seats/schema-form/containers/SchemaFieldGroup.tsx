@@ -51,8 +51,8 @@ import { SchemaActivationControl } from "./SchemaActivationControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
 import { describedByOf } from "./schema-field-control.js";
-import type { SchemaGroupDescriptor, SchemaLeafEntry } from "./schema-fields.js";
-import { encodeMemberPointer } from "../../bridge/index.js";
+import type { SchemaGroupDescriptor, SchemaLeafEntry } from "../plan/schema-fields.js";
+import { encodeMemberPointer } from "../../../bridge/index.js";
 
 export interface SchemaFieldGroupProps {
   readonly group: SchemaGroupDescriptor;

@@ -10,8 +10,8 @@
 // and the hint beside it says where a reference comes from rather than paraphrasing what
 // it means.
 
-import { textValueOf, type SchemaFieldControlProps } from "../schema-field-control.js";
-import { answeredScalar, UNANSWERED_SCALAR } from "../schema-draft.js";
+import { textValueOf, type SchemaFieldControlProps } from "../containers/schema-field-control.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 
 /** An identifier naming an artifact the session already holds. */
 export function SchemaArtifactField(props: SchemaFieldControlProps): React.JSX.Element {

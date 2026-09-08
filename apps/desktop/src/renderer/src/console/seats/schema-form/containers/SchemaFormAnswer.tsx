@@ -48,9 +48,9 @@
 // whether there is an act at all.
 
 import { SchemaForm } from "./SchemaForm.js";
-import { schemaRootRefusal } from "./schema-root-shape.js";
+import { schemaRootRefusal } from "../plan/schema-root-shape.js";
 import { useSchemaForm } from "./use-schema-form.js";
-import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { InlineRefusal, Nothing } from "../../../primitives/index.js";
 
 export interface SchemaFormAnswerProps {
   /** What the phase asks, as its author wrote it. Absent where the wire carried none. */

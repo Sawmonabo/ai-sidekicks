@@ -17,7 +17,7 @@
 // schema reader that produces one, so a descriptor and a finding are addressed in one
 // representation and the lookup between them is a comparison rather than a translation.
 
-import type { SchemaMemberPath } from "../../bridge/index.js";
+import type { SchemaMemberPath } from "../../../bridge/index.js";
 
 /** The six controls a human phase's form may ask through. */
 export const SCHEMA_FIELD_KINDS = [

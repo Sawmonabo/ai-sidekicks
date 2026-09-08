@@ -9,9 +9,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { SchemaFormAnswer } from "./SchemaFormAnswer.js";
-import { SchemaFormPreview } from "./SchemaFormPreview.js";
-import { attachmentArtifactIdsIn } from "./schema-artifact-members.js";
+import { SchemaFormAnswer } from "./containers/SchemaFormAnswer.js";
+import { SchemaFormPreview } from "./containers/SchemaFormPreview.js";
+import { attachmentArtifactIdsIn } from "./answer/schema-artifact-members.js";
 import {
   SchemaFormChunk,
   schemaFormAnswerMount,

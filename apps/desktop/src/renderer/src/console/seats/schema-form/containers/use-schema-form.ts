@@ -51,7 +51,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { leafDrawnAt, seedDraftFromPlan } from "./schema-answer.js";
+import { leafDrawnAt, seedDraftFromPlan } from "../answer/schema-answer.js";
 import {
   withGroupActivation,
   withLeafDrafted,
@@ -59,17 +59,17 @@ import {
   withListEntryAppended,
   withListEntryDrafted,
   withListEntryRemoved,
-} from "./schema-draft-writes.js";
+} from "../answer/schema-draft-writes.js";
 import {
   groupDraftAt,
   listDraftAt,
   scalarDraftAt,
   type SchemaFormDraft,
   type SchemaScalarDraft,
-} from "./schema-draft.js";
+} from "../answer/schema-draft.js";
 import { issuesForListEntry } from "./schema-field-control.js";
-import { memberKeyOf, type SchemaFallback, type SchemaFormPlan } from "./schema-fields.js";
-import { planSchemaForm } from "./schema-form-plan.js";
+import { memberKeyOf, type SchemaFallback, type SchemaFormPlan } from "../plan/schema-fields.js";
+import { planSchemaForm } from "../plan/schema-form-plan.js";
 import {
   controlViewOf,
   draftIssuesIn,
@@ -80,13 +80,13 @@ import {
   unansweredEntryMessage,
   type SchemaControlView,
   type SchemaListEntryView,
-} from "./schema-projection.js";
+} from "../answer/schema-projection.js";
 import {
   compileSchemaValidator,
   type SchemaMemberPath,
   type SchemaValidationReport,
   type SchemaValidator,
-} from "../../bridge/index.js";
+} from "../../../bridge/index.js";
 
 /** What the raw editor's text currently is, as a value rather than a parse. */
 export type RawAnswerReading =

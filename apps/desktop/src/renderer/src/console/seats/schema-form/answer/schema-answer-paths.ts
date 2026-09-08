@@ -10,7 +10,7 @@
 // is a rule about this module and not about any of its callers, and is why it is stated
 // once here rather than in each of them.
 
-import type { SchemaMemberPath } from "../../bridge/index.js";
+import type { SchemaMemberPath } from "../../../bridge/index.js";
 
 /** The answer being composed: the object a submission would carry. */
 export type SchemaFormAnswer = Readonly<Record<string, unknown>>;

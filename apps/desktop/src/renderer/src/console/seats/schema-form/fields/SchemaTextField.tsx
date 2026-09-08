@@ -11,8 +11,8 @@
 // `minLength` the empty string fails — then had a state the form could reach on the way in
 // and never on the way out, with the control looking exactly as it had at the mount.
 
-import { textValueOf, type SchemaFieldControlProps } from "../schema-field-control.js";
-import { answeredScalar, UNANSWERED_SCALAR } from "../schema-draft.js";
+import { textValueOf, type SchemaFieldControlProps } from "../containers/schema-field-control.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 
 /** One line of text. */
 export function SchemaTextField(props: SchemaFieldControlProps): React.JSX.Element {

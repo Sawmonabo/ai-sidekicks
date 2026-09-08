@@ -9,7 +9,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SchemaFormPreview } from "./SchemaFormPreview.js";
-import type { WorkflowPhaseDefinition } from "../../bridge/index.js";
+import type { WorkflowPhaseDefinition } from "../../../bridge/index.js";
 
 afterEach(cleanup);
 

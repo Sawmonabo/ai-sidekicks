@@ -26,7 +26,7 @@ import {
   mountForm,
   NESTED_SCHEMA,
 } from "./use-schema-form.test-support.js";
-import { isSameMemberPath } from "../../bridge/index.js";
+import { isSameMemberPath } from "../../../bridge/index.js";
 
 afterEach(cleanup);
 

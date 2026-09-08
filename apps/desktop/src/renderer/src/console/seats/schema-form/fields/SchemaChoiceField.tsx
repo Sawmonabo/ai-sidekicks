@@ -35,8 +35,8 @@ import {
   choiceOptionsFor,
   type SchemaChoiceOption,
   type SchemaFieldControlProps,
-} from "../schema-field-control.js";
-import { answeredScalar, UNANSWERED_SCALAR } from "../schema-draft.js";
+} from "../containers/schema-field-control.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 
 /**
  * What the unanswered option is worth.

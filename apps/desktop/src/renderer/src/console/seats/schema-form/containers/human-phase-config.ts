@@ -14,7 +14,7 @@
 // this module answers what a record holds and takes no view on whether the phase should
 // have held it.
 
-import type { WorkflowPhaseDefinition } from "../../bridge/index.js";
+import type { WorkflowPhaseDefinition } from "../../../bridge/index.js";
 
 /** What a human phase asks, as its definition declares it. */
 export interface HumanPhaseFormConfig {

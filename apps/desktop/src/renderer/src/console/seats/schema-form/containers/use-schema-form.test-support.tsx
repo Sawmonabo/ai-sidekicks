@@ -13,9 +13,9 @@
 
 import { render } from "@testing-library/react";
 
-import { answeredScalar, UNANSWERED_SCALAR } from "./schema-draft.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 import { useSchemaForm, type SchemaFormState } from "./use-schema-form.js";
-import type { SchemaMemberPath } from "../../bridge/index.js";
+import type { SchemaMemberPath } from "../../../bridge/index.js";
 
 /** Mount the hook and hand back a live handle on its latest state. */
 export function mountForm(inputSchema: unknown): () => SchemaFormState {

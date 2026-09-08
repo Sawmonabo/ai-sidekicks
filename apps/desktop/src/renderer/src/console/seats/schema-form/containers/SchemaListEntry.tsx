@@ -23,11 +23,11 @@ import { useId } from "react";
 
 import { SchemaFieldControl } from "./SchemaFieldControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
-import type { SchemaScalarDraft } from "./schema-draft.js";
+import type { SchemaScalarDraft } from "../answer/schema-draft.js";
 import { describedByOf } from "./schema-field-control.js";
 import { listEntryLabel } from "./schema-list-labels.js";
-import type { SchemaListDescriptor } from "./schema-fields.js";
-import type { SchemaControlView } from "./schema-projection.js";
+import type { SchemaListDescriptor } from "../plan/schema-fields.js";
+import type { SchemaControlView } from "../answer/schema-projection.js";
 
 export interface SchemaListEntryProps {
   /** The collection this entry belongs to, which is what names it and types it. */
