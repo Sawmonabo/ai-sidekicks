@@ -8,8 +8,8 @@
 // the wider implemented set. The menu-bar path is the one that ships first
 // because it needs no new bridge namespace: opening an auxiliary window is a
 // main-process act, so nothing here crosses the preload boundary. A
-// renderer-initiated detach rides the window-control namespace on
-// `Plan-023 §Console growth slate`.
+// renderer-initiated detach rides the `window` bridge namespace, whose handlers
+// `./auxiliary-window-ipc.ts` registers.
 //
 // Copy follows `Spec-023 §Console Design (Meridian)` §Copy: sentence case, no
 // exclamation marks, no capability claimed that the code does not implement.

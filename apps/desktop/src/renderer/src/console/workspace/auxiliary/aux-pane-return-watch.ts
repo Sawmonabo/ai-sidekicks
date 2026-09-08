@@ -18,15 +18,17 @@
 // a placeholder, and a focus control, for a window that no longer exists, until the
 // person reloads.
 
-import { settledGrowthCall } from "../../bridge/index.js";
-import { AuxiliaryWindowSignalWatch, type ConsoleGrowthPort } from "./aux-window-signal-watch.js";
+import {
+  AuxiliaryWindowSignalWatch,
+  type ConsoleAuxiliaryWindowPort,
+} from "./aux-window-signal-watch.js";
 
 /**
  * The served value of the pane-return subscription, taken off the port rather than
  * imported — `aux-pane-error-watch.ts` states the reason, and it is the same one.
  */
 type PaneReturnSignal = Extract<
-  Awaited<ReturnType<ConsoleGrowthPort["windowSubscribePaneReturns"]>>,
+  Awaited<ReturnType<ConsoleAuxiliaryWindowPort["subscribePaneReturns"]>>,
   { readonly status: "served" }
 >["value"];
 
@@ -41,7 +43,7 @@ export type PaneReturnWatch = AuxiliaryWindowSignalWatch<PaneReturnReport>;
 const PANE_RETURN_WATCH_KEY = "pane-return-watch";
 
 export interface PaneReturnWatchOptions {
-  readonly growth: ConsoleGrowthPort;
+  readonly auxiliaryWindows: ConsoleAuxiliaryWindowPort;
   /**
    * A window gave its pane back, named by the window as well as the pane.
    *
@@ -54,14 +56,11 @@ export interface PaneReturnWatchOptions {
   readonly onChanged: () => void;
 }
 
-/** Watch the orderly-return signal. Settled at the seam, per the sibling's note. */
+/** Watch the orderly-return signal. Settled by the plane, per the sibling's note. */
 export function paneReturnWatch(options: PaneReturnWatchOptions): PaneReturnWatch {
   return new AuxiliaryWindowSignalWatch({
     watchKey: PANE_RETURN_WATCH_KEY,
-    open: async () =>
-      await settledGrowthCall("windowSubscribePaneReturns", () =>
-        options.growth.windowSubscribePaneReturns({}),
-      ),
+    open: async () => await options.auxiliaryWindows.subscribePaneReturns(),
     onEvent: (paneReturn) => {
       options.onWindowReturned(paneReturn.paneId, paneReturn.windowId);
     },

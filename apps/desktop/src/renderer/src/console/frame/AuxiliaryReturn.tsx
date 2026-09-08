@@ -21,7 +21,7 @@ import { useAuxiliaryReturn } from "./auxiliary-return.js";
  */
 export function AuxiliaryReturn(props: {
   readonly route: ConsoleRoute;
-  readonly growth: ConsoleBridge["growth"];
+  readonly auxiliaryWindows: ConsoleBridge["auxiliaryWindows"];
   readonly onRefused: (refusal: ConsoleRefusal) => void;
 }): React.JSX.Element | null {
   const { isReturning, returnToDeck, windowId } = useAuxiliaryReturn(props);

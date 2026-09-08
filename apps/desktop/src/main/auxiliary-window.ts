@@ -162,8 +162,8 @@ const WindowHandleShapeSchema = z
  * caller's word, because the fragment is the one part of the loaded URL a
  * caller controls. The route is re-checked at runtime for the same reason: the
  * compile-time union binds this package's own call sites, and the renderer-side
- * detach on `Plan-023 §Console growth slate` will arrive over IPC, where a type
- * is a claim and not a guarantee.
+ * detach arrives over IPC through `./auxiliary-window-ipc.ts`, where a type is a
+ * claim and not a guarantee.
  */
 function resolveAuxiliaryLaunch(launch: AuxiliaryWindowLaunch): ResolvedAuxiliaryLaunch {
   // Two conditions, one refusal, because from a window's point of view they are
@@ -262,10 +262,13 @@ export function createAuxiliaryWindow(
   // empty frame. Deliberately NOT registered on the main window: closing that
   // one on a renderer crash would fire `window-all-closed` and quit the
   // application out from under the user, and main-window crash handling belongs
-  // to the Tier-8 crash reporter. The main window is told nothing about this
-  // crash — the pane-error slot `Spec-023 §Console Design (Meridian)` names is
-  // fed by the window-control bridge namespace on `Plan-023 §Console growth
-  // slate`, not by an ad-hoc channel minted here.
+  // to the Tier-8 crash reporter. This listener tells no deck anything — the
+  // pane-error slot `Spec-023 §Console Design (Meridian)` names is fed by
+  // `./auxiliary-window-ipc.ts`, which registers its own listener on the same
+  // event and knows which renderer asked for this window. Two listeners and not
+  // one shared arm, because the two acts have different owners: disposing a dead
+  // window belongs to whoever built it, and reporting the loss belongs to
+  // whoever holds the deck slot it came from.
   browserWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error(
       `[ai-sidekicks/desktop] auxiliary window renderer gone ` +

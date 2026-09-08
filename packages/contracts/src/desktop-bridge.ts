@@ -41,6 +41,7 @@
 //   • raw file paths as strings — paths returned to the renderer are opaque
 //     `FilePathRef` tokens; dereferencing is a second main-process round trip
 
+import type { AuxiliaryWindowControls } from "./desktop/auxiliary-window.js";
 import type { SessionId } from "./session.js";
 
 // ---------------------------------------------------------------------------
@@ -256,11 +257,12 @@ export class NotImplementedAtTier1Error extends Error {
  * The single typed object exposed on `window.sidekicks` via
  * `contextBridge.exposeInMainWorld('sidekicks', bridge)`.
  *
- * Six capability surfaces:
+ * Seven capability surfaces:
  *   • `daemon` — JSON-RPC over IPC to the local Plan-007 daemon
  *   • `controlPlane` — tRPC + relay WebSocket to the Plan-002/003/008 control plane
  *   • `native` — main-process-mediated OS dialogs and OS surfaces
  *   • `webAuthn` — main-process-orchestrated WebAuthn ceremony (ADR-010)
+ *   • `window` — the shell's auxiliary-window controls (Plan-023 Phase 1C)
  *   • `update` — renderer observes the auto-updater state machine
  *   • `app` — read-only build/runtime meta
  *
@@ -319,6 +321,10 @@ export interface SidekicksBridge {
     getAssertion(options: PublicKeyCredentialRequestOptions): Promise<PublicKeyCredential>;
     deriveKeyMaterial(input: PrfInput): Promise<ArrayBuffer>;
   };
+
+  // auxiliary windows — renderer asks the shell to move a pane into a window of
+  // its own, addresses that window, and hears about the two ways it can end
+  readonly window: AuxiliaryWindowControls;
 
   // auto-update — renderer observes state; main process drives
   readonly update: {
@@ -390,6 +396,21 @@ export function createTier1Bridge(): SidekicksBridge {
       createCredential: () => tier1Throw("webAuthn.createCredential"),
       getAssertion: () => tier1Throw("webAuthn.getAssertion"),
       deriveKeyMaterial: () => tier1Throw("webAuthn.deriveKeyMaterial"),
+    },
+    // The one namespace the PRELOAD replaces rather than takes from here. Its
+    // main-process handlers ship at Tier 1 (Plan-023 Phase 1C), so
+    // `apps/desktop/src/preload/index.ts` spreads a real `ipcRenderer`
+    // implementation over this block. The throwing stub stays because the
+    // factory's contract is a TOTAL `SidekicksBridge` — every reader that builds
+    // one from here (the shape probe, the live-bridge suites) needs the member
+    // present, and a member present-and-throwing is what a window whose preload
+    // did not finish installing actually has.
+    window: {
+      detachPane: () => tier1Throw("window.detachPane"),
+      focusAuxiliary: () => tier1Throw("window.focusAuxiliary"),
+      closeAuxiliary: () => tier1Throw("window.closeAuxiliary"),
+      subscribePaneErrors: () => tier1Throw("window.subscribePaneErrors"),
+      subscribePaneReturns: () => tier1Throw("window.subscribePaneReturns"),
     },
     update: {
       getState: () => tier1Throw("update.getState"),

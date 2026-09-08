@@ -12,8 +12,10 @@
 // gates 2 and 4 are facts about the build and about the wire, which this file has no
 // way to know.
 
+import type { AuxiliaryWindowDetachRequest } from "@ai-sidekicks/contracts";
+
 import { normalizeWireRejection, refuse, type NarrowedRefusal } from "../../core/index.js";
-import type { GrowthUnavailable } from "../../bridge/index.js";
+import type { AuxiliaryWindowOutcome, AuxiliaryWindowRefusal } from "../../bridge/index.js";
 import {
   InvalidAuxiliaryRouteTargetError,
   formatAuxiliaryFragment,
@@ -22,7 +24,14 @@ import {
 import { type PaneKind } from "../../seats/index.js";
 
 /**
- * Why a hand-off was refused, or how one ended badly. Closed; an eighth is a decision.
+ * Why a hand-off was refused, or how one ended badly. Closed; a ninth is a decision.
+ *
+ * `shell-absent` is the eighth and is a fact about the BUILD rather than about the
+ * act: a renderer with no Electron main process underneath — browser-mode vitest, a
+ * window whose preload never ran — has nothing that can open a window, and no retry
+ * changes that. It is deliberately not folded into `wire-unregistered`, which now
+ * says something false: `SidekicksBridge.window` IS registered and the shell serves
+ * it, so a person told the wire is missing would go looking for a wire that is there.
  *
  * Two members are not an act being refused: nothing was asked for and nothing was
  * denied. `window-lost` is a window that was open and stopped being open, and
@@ -37,6 +46,7 @@ import { type PaneKind } from "../../seats/index.js";
 export const AUXILIARY_HANDOFF_REFUSAL_CODES = [
   "kind-not-detachable",
   "route-not-implemented",
+  "shell-absent",
   "signal-ended",
   "target-context-invalid",
   "wire-rejected",
@@ -61,19 +71,19 @@ export function refuseHandoff(
 }
 
 /**
- * A growth answer that could not be served, in this subsystem's vocabulary.
+ * A plane answer that could not be served, in this subsystem's vocabulary.
  *
  * TWO CODES AND NOT ONE, because the port already knows which happened and throwing
- * that away would put "this build never registered the wire" and "the wire answered
- * with a fault" behind one word. The first is a fact about the build a person can do
- * nothing about; the second is a failure that may not happen again on the next press.
- * The sentence is the port's own either way — it names the wire and what went wrong
- * with it, which is more than this subsystem knows.
+ * that away would put "this build has no shell at all" and "the shell answered with a
+ * fault" behind one word. The first is a fact about the build a person can do nothing
+ * about; the second is a failure that may not happen again on the next press. The
+ * sentence is the port's own either way — it names what went wrong, which is more
+ * than this subsystem knows.
  */
-export function refuseHandoffFromGrowth(answer: GrowthUnavailable): AuxiliaryHandoffRefusal {
+export function refuseHandoffFromShell(refusal: AuxiliaryWindowRefusal): AuxiliaryHandoffRefusal {
   return refuseHandoff(
-    answer.code === "wire-unregistered" ? "wire-unregistered" : "wire-rejected",
-    answer.detail,
+    refusal.code === "shell-absent" ? "shell-absent" : "wire-rejected",
+    refusal.detail,
   );
 }
 
@@ -194,4 +204,59 @@ export function auxiliaryTarget(
       return unhandled;
     }
   }
+}
+
+/**
+ * One plane call, in this subsystem's own two arms — and never a rejection.
+ *
+ * THE PLANE IS ALREADY TOTAL, so reaching the catch is a defect rather than a wire
+ * fault. It is still here because the three acts that call it are dispatched from event
+ * handlers, where a rejection reaches nobody: the press changes nothing, says nothing,
+ * and the fault surfaces only as an unhandled rejection a shipped window does not
+ * report. A defect a person sees stated is strictly better than one recorded nowhere.
+ *
+ * The refusal is built here rather than returned raw, so both callers read one arm:
+ * a shell answer and a shell defect land in the same shape and neither caller has to
+ * know which happened.
+ */
+export async function settledPlaneCall<TValue>(
+  call: () => Promise<AuxiliaryWindowOutcome<TValue>>,
+): Promise<
+  | { readonly status: "served"; readonly value: TValue }
+  | { readonly status: "unavailable"; readonly refusal: AuxiliaryHandoffRefusal }
+> {
+  try {
+    const answer = await call();
+    return answer.status === "served"
+      ? { status: "served", value: answer.value }
+      : { status: "unavailable", refusal: refuseHandoffFromShell(answer) };
+  } catch (rejection: unknown) {
+    return { status: "unavailable", refusal: refuseHandoffFromRejection(rejection) };
+  }
+}
+
+/**
+ * One detach request, as the shell takes it.
+ *
+ * The optional context members are set conditionally rather than passed as
+ * `undefined`, because `exactOptionalPropertyTypes` distinguishes an absent member
+ * from a present one holding `undefined`, and the shell's own launch grammar reads
+ * absence as "this route was asked for bare". Passing the member explicitly undefined
+ * would make a bare timeline unrepresentable on the wire.
+ *
+ * Here rather than on the class for this file's own reason: it reads nothing a
+ * hand-off holds, so it can be checked without constructing one — and a method
+ * would invite a later edit to reach for the detached set while composing a
+ * request that has not been admitted yet.
+ */
+export function detachRequestFor(
+  request: AuxiliaryHandoffRequest,
+  route: AuxiliaryRouteName,
+): AuxiliaryWindowDetachRequest {
+  return {
+    paneId: request.paneId,
+    route,
+    ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
+    ...(request.agentId === undefined ? {} : { agentId: request.agentId }),
+  };
 }

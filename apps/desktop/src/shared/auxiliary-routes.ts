@@ -133,9 +133,8 @@ export const BARE_LAUNCHABLE_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = [
  * Whether `value` names a route in the closed set.
  *
  * Takes `unknown`, deliberately: the compile-time union binds this package's own
- * call sites, and the renderer-initiated detach on
- * `Plan-023 §Console growth slate` will arrive over IPC, where a type is a claim
- * and not a guarantee.
+ * call sites, and the renderer-initiated detach arrives over IPC, where a type is
+ * a claim and not a guarantee.
  */
 export function isAuxiliaryRouteName(value: unknown): value is AuxiliaryRouteName {
   return typeof value === "string" && (AUXILIARY_ROUTE_NAMES as readonly string[]).includes(value);

@@ -42,6 +42,19 @@
 
 import { vi } from "vitest";
 
+import {
+  MockBrowserWindowImpl,
+  type MockBrowserWindow,
+  type MockBrowserWindowOptions,
+} from "./electron-mock-window.js";
+
+// Republished, because a suite that reads a constructed window needs its type and
+// should not have to know this module is two files. Only the window itself: the
+// options, the `webContents` surface, and one sent message are reached THROUGH it
+// (`MockBrowserWindow["webContents"]`), so a re-export of each would be a door line
+// with no reader — which is what the dead-code gate reports.
+export type { MockBrowserWindow } from "./electron-mock-window.js";
+
 /**
  * One entry of a `Menu.buildFromTemplate` template, as a test reads it.
  *
@@ -55,50 +68,6 @@ export interface MenuTemplateItem {
   readonly accelerator?: string;
   readonly click?: () => void;
   readonly submenu?: MenuTemplateItem[];
-}
-
-/** The `BrowserWindow` constructor options the window factory supplies. */
-export interface MockBrowserWindowOptions {
-  readonly width: number;
-  readonly height: number;
-  readonly show: boolean;
-  readonly webPreferences: Record<string, unknown>;
-}
-
-/** The `webContents` surface the main process actually touches. */
-export interface MockWebContents {
-  readonly id: number;
-  /**
-   * Every listener registered through `on` / `once`, by event name.
-   *
-   * Exposed so a test can INVOKE the listener the production code registered —
-   * `render-process-gone`, `will-navigate` — rather than re-deriving what it
-   * would have done.
-   */
-  readonly handlers: Map<string, (...args: never[]) => unknown>;
-  readonly on: ReturnType<typeof vi.fn>;
-  readonly once: ReturnType<typeof vi.fn>;
-  readonly setWindowOpenHandler: ReturnType<typeof vi.fn>;
-  readonly executeJavaScript: ReturnType<typeof vi.fn>;
-  /** The handler passed to `setWindowOpenHandler`, or `undefined` if none was. */
-  windowOpenHandler: ((details: { url: string }) => unknown) | undefined;
-}
-
-/** One constructed window. */
-export interface MockBrowserWindow {
-  readonly id: number;
-  readonly options: MockBrowserWindowOptions;
-  readonly webContents: MockWebContents;
-  /** Every URL `loadURL` was called with, in order. */
-  readonly loadedUrls: readonly string[];
-  /** Listeners registered on the window itself (`ready-to-show`). */
-  readonly onceHandlers: Map<string, () => void>;
-  isDestroyed(): boolean;
-  destroy(): void;
-  show(): void;
-  once(eventName: string, handler: () => void): MockBrowserWindow;
-  on(eventName: string, handler: () => void): MockBrowserWindow;
-  loadURL(url: string): Promise<void>;
 }
 
 /** How to parameterise the mock. */
@@ -128,6 +97,17 @@ export interface ElectronMock {
   readonly externalOpens: readonly string[];
   /** Every template handed to `Menu.setApplicationMenu`, in order. */
   readonly installedMenuTemplates: readonly MenuTemplateItem[][];
+  /**
+   * Every `ipcMain.handle` registration, by channel.
+   *
+   * The handlers themselves rather than a count, because a suite over an IPC module
+   * drives the REGISTERED function: calling the exported installer and then reaching
+   * for what production would have called is what makes the registration itself part
+   * of what is asserted. A second registration for one channel throws, as Electron's
+   * does — that collision is a startup defect a mock which silently replaced would
+   * hide.
+   */
+  readonly ipcHandlers: ReadonlyMap<string, (event: unknown, ...args: never[]) => unknown>;
 
   /** Clears every recording and restores the initial `packaged` value. */
   reset(): void;
@@ -155,81 +135,6 @@ export interface ElectronMock {
   releaseReady(): void;
 }
 
-/**
- * One mocked window.
- *
- * A class rather than an object literal because it owns state (its destroyed
- * flag, its load log, its listener maps) and because the `electron` mock hands
- * it to production code as a constructor.
- */
-class MockBrowserWindowImpl implements MockBrowserWindow {
-  public readonly id: number;
-  public readonly webContents: MockWebContents;
-  public readonly loadedUrls: string[] = [];
-  public readonly onceHandlers = new Map<string, () => void>();
-  #destroyed = false;
-  readonly #mock: ElectronMockImpl;
-
-  public constructor(
-    mock: ElectronMockImpl,
-    public readonly options: MockBrowserWindowOptions,
-  ) {
-    this.#mock = mock;
-    this.id = mock.mintWindowId();
-    const handlers = new Map<string, (...args: never[]) => unknown>();
-    const webContents: MockWebContents = {
-      id: this.id * 1000,
-      handlers,
-      on: vi.fn((eventName: string, handler: (...args: never[]) => unknown) => {
-        handlers.set(eventName, handler);
-        mock.record(`webContents.on:${eventName}`);
-      }),
-      once: vi.fn((eventName: string, handler: (...args: never[]) => unknown) => {
-        handlers.set(eventName, handler);
-        mock.record(`webContents.once:${eventName}`);
-      }),
-      setWindowOpenHandler: vi.fn((handler: (details: { url: string }) => unknown) => {
-        webContents.windowOpenHandler = handler;
-        mock.record("webContents.setWindowOpenHandler");
-      }),
-      executeJavaScript: vi.fn(() => Promise.resolve(undefined)),
-      windowOpenHandler: undefined,
-    };
-    this.webContents = webContents;
-    mock.recordConstruction(this);
-  }
-
-  public once(eventName: string, handler: () => void): MockBrowserWindow {
-    this.onceHandlers.set(eventName, handler);
-    return this;
-  }
-
-  public on(eventName: string, handler: () => void): MockBrowserWindow {
-    this.onceHandlers.set(eventName, handler);
-    return this;
-  }
-
-  public show(): void {
-    // A real window paints here; nothing to record.
-  }
-
-  public isDestroyed(): boolean {
-    return this.#destroyed;
-  }
-
-  public destroy(): void {
-    this.#destroyed = true;
-    this.#mock.record("destroy");
-  }
-
-  public loadURL(url: string): Promise<void> {
-    this.loadedUrls.push(url);
-    this.#mock.record(`loadURL:${url}`);
-    const failure = this.#mock.loadFailureFor(url);
-    return failure === undefined ? Promise.resolve() : Promise.reject(failure);
-  }
-}
-
 /** The mock's own state and the `electron` surface built over it. */
 class ElectronMockImpl implements ElectronMock {
   public readonly moduleExports: Record<string, unknown>;
@@ -238,6 +143,7 @@ class ElectronMockImpl implements ElectronMock {
   public readonly exitCodes: number[] = [];
   public readonly externalOpens: string[] = [];
   public readonly installedMenuTemplates: MenuTemplateItem[][] = [];
+  public readonly ipcHandlers = new Map<string, (event: unknown, ...args: never[]) => unknown>();
 
   readonly #recordOrder: boolean;
   readonly #initialPackaged: boolean;
@@ -283,6 +189,7 @@ class ElectronMockImpl implements ElectronMock {
     this.exitCodes.length = 0;
     this.externalOpens.length = 0;
     this.installedMenuTemplates.length = 0;
+    this.ipcHandlers.clear();
     this.#loadFailures.length = 0;
     this.#nextWindowId = 1;
     this.#packaged = this.#initialPackaged;
@@ -356,6 +263,18 @@ class ElectronMockImpl implements ElectronMock {
         }),
         handle: vi.fn(() => {
           this.record("protocol.handle");
+        }),
+      },
+      ipcMain: {
+        handle: vi.fn((channel: string, handler: (event: unknown, ...args: never[]) => unknown) => {
+          if (this.ipcHandlers.has(channel)) {
+            // Electron's own behaviour, kept: a second registration for one channel
+            // is a startup defect, and a mock that replaced silently would let one
+            // land unnoticed.
+            throw new Error(`Attempted to register a second handler for '${channel}'`);
+          }
+          this.ipcHandlers.set(channel, handler);
+          this.record(`ipcMain.handle:${channel}`);
         }),
       },
       net: { fetch: vi.fn() },

@@ -1,10 +1,17 @@
-// The shell's window signals, as streams a fixture can drive.
+// The shell's window signals, as streams the console drains.
 //
-// SPLIT FROM `fixture-auxiliary-windows.ts`, WHICH OWNS THE WINDOWS. That module
-// holds which windows are open and what each operation answers; this one holds the
-// DELIVERY — an open stream, a queue, and the wake that hands a report to whoever is
-// draining. The cut is along that seam rather than at a line count: the window set
-// changes when an operation is added, and the delivery does not change at all.
+// SPLIT FROM WHOEVER PRODUCES THE REPORTS. `auxiliary-window-port.ts` holds which
+// windows are open and what each operation answers, and `fixture/fixture-auxiliary-windows.ts`
+// holds the same for a build with no shell behind it; this module holds the DELIVERY —
+// an open stream, a queue, and the wake that hands a report to whoever is draining.
+// The cut is along that seam rather than at a line count: the window set changes when
+// an operation is added, and the delivery does not change at all.
+//
+// HOISTED OUT OF `fixture/` WHEN IT GAINED ITS SECOND READER. The live port adapts the
+// preload bridge's callback subscription into the same drainable shape the watch above
+// it already reads, so both producers push into this one implementation rather than
+// each minting a queue — and a live module reaching into `fixture/` would drag the
+// fixture subtree into a release bundle that must not carry it.
 //
 // AND IT IS ONE IMPLEMENTATION BECAUSE THERE ARE TWO SIGNALS. The shell reports a
 // window's pane coming back in two ways — the crash nobody asked for and the return
@@ -13,7 +20,18 @@
 // second copy of it would be two places for the queue-before-close ordering below to
 // be right, and the copy that went stale would be the one nothing tested.
 
-import type { GrowthStream } from "../growth-port/growth-outcome.js";
+/**
+ * A subscription's served form: an async iterable the caller drains and closes.
+ *
+ * Declared here rather than taken from the growth port, because the auxiliary-window
+ * plane is no longer a growth wire: its bridge namespace is registered and the port
+ * beside this module answers it. The shape is the same two members a watch reads, and
+ * this is the module that produces one.
+ */
+export interface WindowSignalStream<TEvent> {
+  readonly events: AsyncIterable<TEvent>;
+  close(): void;
+}
 
 /**
  * One window signal, as an open stream that reports what the plane tells it.
@@ -28,14 +46,14 @@ import type { GrowthStream } from "../growth-port/growth-outcome.js";
  * `events` in a single `for await`, and handing a second reader its own generator
  * over one queue would let two drains split a report between them.
  */
-export class FixtureWindowSignalStream<TEvent> implements GrowthStream<TEvent> {
+export class QueuedWindowSignalStream<TEvent> implements WindowSignalStream<TEvent> {
   readonly #pending: TEvent[] = [];
-  readonly #onClosed: (stream: FixtureWindowSignalStream<TEvent>) => void;
+  readonly #onClosed: (stream: QueuedWindowSignalStream<TEvent>) => void;
   #events: AsyncGenerator<TEvent> | undefined;
   #wake: (() => void) | undefined;
   #isClosed = false;
 
-  public constructor(onClosed: (stream: FixtureWindowSignalStream<TEvent>) => void) {
+  public constructor(onClosed: (stream: QueuedWindowSignalStream<TEvent>) => void) {
     this.#onClosed = onClosed;
   }
 
@@ -116,12 +134,12 @@ export class FixtureWindowSignalStream<TEvent> implements GrowthStream<TEvent> {
  * `Set` beside the plane, the two signals would each restate the same three lines,
  * and the plane would own a lifetime it has nothing to say about.
  */
-export class FixtureWindowSignalStreams<TEvent> {
-  readonly #open = new Set<FixtureWindowSignalStream<TEvent>>();
+export class WindowSignalStreams<TEvent> {
+  readonly #open = new Set<QueuedWindowSignalStream<TEvent>>();
 
   /** Open one stream. It leaves the set by closing itself, never by being removed. */
-  public subscribe(): FixtureWindowSignalStream<TEvent> {
-    const stream = new FixtureWindowSignalStream<TEvent>((closed) => {
+  public subscribe(): QueuedWindowSignalStream<TEvent> {
+    const stream = new QueuedWindowSignalStream<TEvent>((closed) => {
       this.#open.delete(closed);
     });
     this.#open.add(stream);

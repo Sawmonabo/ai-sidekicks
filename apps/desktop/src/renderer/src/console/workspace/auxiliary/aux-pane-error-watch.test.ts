@@ -11,11 +11,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { lostWindowNotice, type LostAuxiliaryWindow } from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
-import { servingPort } from "./aux-handoff.test-support.js";
+import { refusingPlane, servingPort } from "./aux-handoff.test-support.js";
+import { type ConsoleAuxiliaryWindowPort } from "./aux-window-signal-watch.js";
 
 describe("AuxiliaryHandoff — the crashed-window signal", () => {
   /**
@@ -31,10 +31,10 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
   function streamingPort(
     paneErrors: readonly { paneId: string; reason: string }[],
     options: { readonly endsAfterDelivering: boolean } = { endsAfterDelivering: false },
-  ): GrowthPort {
+  ): ConsoleAuxiliaryWindowPort {
     return {
       ...servingPort(),
-      windowSubscribePaneErrors: async () => ({
+      subscribePaneErrors: async () => ({
         status: "served",
         value: {
           events: (async function* deliver() {
@@ -57,7 +57,9 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // window dying left the pane in a window nobody could focus — and without the
     // record below, it came back with nothing to say about why.
     const handoff = new AuxiliaryHandoff({
-      growth: streamingPort([{ paneId: "pane-1", reason: "the window closed unexpectedly" }]),
+      auxiliaryWindows: streamingPort([
+        { paneId: "pane-1", reason: "the window closed unexpectedly" },
+      ]),
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     expect(handoff.detached()).toHaveLength(1);
@@ -79,7 +81,9 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // Without this, the case above would pass over a watcher that returned every
     // detached pane the moment any error arrived.
     const handoff = new AuxiliaryHandoff({
-      growth: streamingPort([{ paneId: "pane-other", reason: "the window closed unexpectedly" }]),
+      auxiliaryWindows: streamingPort([
+        { paneId: "pane-other", reason: "the window closed unexpectedly" },
+      ]),
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
@@ -95,7 +99,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // in windows left a placeholder reporting that nothing was wrong. The next window
     // to crash returned no pane and said nothing about why.
     const handoff = new AuxiliaryHandoff({
-      growth: streamingPort([], { endsAfterDelivering: true }),
+      auxiliaryWindows: streamingPort([], { endsAfterDelivering: true }),
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
@@ -111,7 +115,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // Without this, the case above would pass over a watch that refused the moment it
     // opened, which is a permanent notice on a window whose signal is healthy — the
     // shape this module's header rules out.
-    const handoff = new AuxiliaryHandoff({ growth: streamingPort([]) });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: streamingPort([]) });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchWindowSignals();
@@ -124,7 +128,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // Which is what makes the notice above one about panes that are still in windows,
     // rather than one that outlives the hand-off it describes.
     const handoff = new AuxiliaryHandoff({
-      growth: streamingPort([], { endsAfterDelivering: true }),
+      auxiliaryWindows: streamingPort([], { endsAfterDelivering: true }),
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     await handoff.watchWindowSignals();
@@ -137,16 +141,16 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
 
   it("keeps the refusal where the signal is not served, rather than reading it as calm", async () => {
     const handoff = new AuxiliaryHandoff({
-      growth: {
-        ...createRefusingGrowthPort(),
-        windowDetachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
+      auxiliaryWindows: {
+        ...refusingPlane(),
+        detachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
       },
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     await handoff.watchWindowSignals();
 
-    expect(handoff.paneErrorRefusal?.code).toBe("wire-unregistered");
+    expect(handoff.paneErrorRefusal?.code).toBe("shell-absent");
     expect(handoff.detached()).toHaveLength(1);
   });
 
@@ -160,7 +164,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
    * publish afterwards.
    */
   function heldSubscriptionPort(): {
-    readonly port: GrowthPort;
+    readonly port: ConsoleAuxiliaryWindowPort;
     /** Settle the oldest unsettled request. */
     readonly settleNext: () => void;
     readonly streams: { closed: boolean; drained: boolean }[];
@@ -174,7 +178,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
       },
       port: {
         ...servingPort(),
-        windowSubscribePaneErrors: async () => {
+        subscribePaneErrors: async () => {
           await new Promise<void>((resolve) => {
             settlers.push(resolve);
           });
@@ -204,7 +208,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // invalidate the request — and the response then installed a stream and drained
     // it for a window with nothing detached.
     const held = heldSubscriptionPort();
-    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchWindowSignals();
@@ -223,7 +227,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // while the first request was in flight started a second subscription and one of
     // the two was left open with nobody holding it.
     const held = heldSubscriptionPort();
-    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchWindowSignals();
@@ -246,7 +250,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // Without this, the case above would pass over a guard that started a fresh
     // subscription on every call and merely closed the extras afterwards.
     const held = heldSubscriptionPort();
-    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchWindowSignals();
@@ -264,7 +268,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // Without this, every case above would pass over a watch that closed whatever it
     // opened and never received a crash at all.
     const held = heldSubscriptionPort();
-    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchWindowSignals();
@@ -279,9 +283,9 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
 
   it("says so when the signal itself ends in a failure", async () => {
     const handoff = new AuxiliaryHandoff({
-      growth: {
+      auxiliaryWindows: {
         ...servingPort(),
-        windowSubscribePaneErrors: async () => ({
+        subscribePaneErrors: async () => ({
           status: "served",
           value: {
             // An iterable that throws on its first pull, which is what a channel
@@ -312,7 +316,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
    * behind that stop.
    */
   function abortableSignalPort(): {
-    readonly port: GrowthPort;
+    readonly port: ConsoleAuxiliaryWindowPort;
     /** Fail delivery on the stream opened at `position`, without closing the watch. */
     readonly failDeliveryOn: (position: number) => void;
     readonly openedCount: () => number;
@@ -325,7 +329,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
       openedCount: () => failures.length,
       port: {
         ...servingPort(),
-        windowSubscribePaneErrors: async () => {
+        subscribePaneErrors: async () => {
           let failDelivery: (reason: unknown) => void = () => undefined;
           // Never resolves: a signal delivers or it fails, and a watch is closed
           // rather than waited out.
@@ -354,7 +358,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // stop has already installed a healthy signal by the time the throw is caught. The
     // placeholder then said the crash signal had stopped while it was delivering.
     const held = abortableSignalPort();
-    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchWindowSignals();
@@ -376,7 +380,7 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     // Without this, the case above would pass over a drain whose catch wrote nothing
     // at all, and a signal that really dropped would end in silence.
     const held = abortableSignalPort();
-    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: held.port });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     void handoff.watchWindowSignals();

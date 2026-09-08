@@ -29,7 +29,7 @@ export type SidekicksBridgeNamespace = keyof SidekicksBridge;
  * until it is listed, and a name that is not on the contract is an excess-property
  * error. The array this replaced was a plain `readonly (keyof SidekicksBridge)[]`,
  * which type-checks each entry and counts none — so it would have gone on probing
- * six namespaces however many the contract grew, and the probe would have kept
+ * the namespaces it was written against however many the contract grew, and the probe would have kept
  * answering yes to a bridge missing the seventh.
  */
 const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<SidekicksBridgeNamespace, true>> = {
@@ -37,6 +37,7 @@ const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<SidekicksBridgeNamespace, true>
   controlPlane: true,
   native: true,
   webAuthn: true,
+  window: true,
   update: true,
   app: true,
 };
@@ -46,7 +47,7 @@ const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<SidekicksBridgeNamespace, true>
  *
  * `Object.keys` of a fresh object literal returns exactly that literal's own
  * enumerable keys, which is why the narrowing is sound — the alternative is
- * spelling the six names a second time, and a second spelling is the thing the
+ * spelling the namespace names a second time, and a second spelling is the thing the
  * presence table above exists to prevent.
  */
 export const SIDEKICKS_BRIDGE_NAMESPACES: readonly SidekicksBridgeNamespace[] = Object.keys(

@@ -102,14 +102,14 @@ export function useAuxiliaryPanes(options: {
 }): AuxiliaryPaneWiring {
   const { bridge, onRefused, sessionId } = options;
   // THE BRIDGE IS THE SUBJECT, not a value a mount-lifetime cell captured once. A
-  // hand-off holds a subscription opened over one bridge's growth port, so a
-  // scenario switch that replaces the bridge has to retire it: a cell seeded on the
+  // hand-off holds a subscription opened over one bridge's auxiliary-window plane, so
+  // a scenario switch that replaces the bridge has to retire it: a cell seeded on the
   // first render would keep plumbing the retired resolution, and the watch it holds
   // would go on draining a signal nothing reads.
   const { value: handoff } = useSubjectScopedResource(
     bridge,
     undefined,
-    () => new AuxiliaryHandoff({ growth: bridge.growth }),
+    () => new AuxiliaryHandoff({ auxiliaryWindows: bridge.auxiliaryWindows }),
     HANDOFF_DISPOSAL,
   );
   const projection = useDetachedPanes(handoff);
