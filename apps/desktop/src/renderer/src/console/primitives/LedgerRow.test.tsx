@@ -13,16 +13,26 @@
 //   • The gutter timestamp is a FORMATTED reading whose exact wire value rides the
 //     element's `title` — the one shipped call site of the eight rules' "no
 //     formatted figure hides the number the daemon sent".
+//
+// And one cost claim, checked the only way a cost claim can be: by counting calls.
+// `formatClockTime` builds a fresh `Intl.DateTimeFormat` per call, and this row is
+// what every ledger surface in the console is made of, so the gutter reading is
+// memoized on the instant. The suite spies the real formatter rather than a stand-in
+// — `{ spy: true }` keeps the implementation, so every other case here still reads
+// the true string.
 
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { PARTICIPANT_HUE_STEPS, participantHueTokenName } from "../tokens/index.js";
 import { RING_TREATMENTS } from "../tokens/participant-hue.js";
 import { LedgerRow } from "./LedgerRow.js";
 import { formatClockTime } from "./wire-figures.js";
 
+vi.mock(import("./wire-figures.js"), { spy: true });
+
 const OCCURRED_AT = "2026-09-01T13:04:05.123Z";
+const LATER_INSTANT = "2026-09-01T13:04:09.456Z";
 
 function renderRow(element: React.JSX.Element): HTMLElement {
   const { container } = render(element);
@@ -123,6 +133,53 @@ describe("LedgerRow — no formatted figure hides the value the daemon sent", ()
     // The control: the visible text is a READING, so it must not be the wire value
     // — if it were, the `title` would be decoration rather than the exact figure.
     expect(gutterFigure?.textContent).not.toBe(OCCURRED_AT);
+  });
+
+  it("formats one instant once, however many times the row repaints", () => {
+    const formatter = vi.mocked(formatClockTime);
+    formatter.mockClear();
+
+    const { rerender, container } = render(
+      <LedgerRow
+        participantHueStep={0}
+        occurredAtIso={OCCURRED_AT}
+        actorLabel="Ada"
+        kindLabel="assistant.message"
+      />,
+    );
+    expect(formatter).toHaveBeenCalledTimes(1);
+
+    // Two more paints of the SAME row, each moving something a streaming window
+    // moves — a kind label here stands for a lease write, a hover, a reveal tick —
+    // and none of them moving the instant the row is stamped with.
+    for (const kindLabel of ["tool.invoked", "tool.result"]) {
+      rerender(
+        <LedgerRow
+          participantHueStep={0}
+          occurredAtIso={OCCURRED_AT}
+          actorLabel="Ada"
+          kindLabel={kindLabel}
+        />,
+      );
+    }
+    // The control that the re-renders were real: the row's own text moved.
+    expect(container.querySelector(".meridian-ledger-row__kind")?.textContent).toBe("tool.result");
+    expect(formatter).toHaveBeenCalledTimes(1);
+
+    // ...and the memo is keyed on the instant rather than frozen at mount, so a row
+    // whose instant moves is re-read rather than showing the moment before it.
+    rerender(
+      <LedgerRow
+        participantHueStep={0}
+        occurredAtIso={LATER_INSTANT}
+        actorLabel="Ada"
+        kindLabel="tool.result"
+      />,
+    );
+    expect(formatter).toHaveBeenCalledTimes(2);
+    expect(
+      container.querySelector(".meridian-ledger-row__gutter .meridian-figure")?.textContent,
+    ).toBe(formatter.mock.results[1]?.value);
   });
 
   it("renders the event kind mono and verbatim", () => {

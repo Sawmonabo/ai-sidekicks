@@ -70,18 +70,22 @@ import "./frame.css";
 export { LedgerRowGroup } from "./LedgerRowGroup.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
 export { LedgerRowRevealProvider, useLedgerRowReveal } from "./reveal/RowRevealProvider.js";
-export { useLedgerReveal } from "./reveal/reveal-binding.js";
+// The binding TYPES leave beside their hooks because `ledger-feed-windows.ts`
+// publishes the values: a chain that derives the reveal engine, the viewport and the
+// backward walk and hands all three to the arrangement has to name what it returns,
+// which the feed itself never had to while it held them as locals.
+export { useLedgerReveal, type LedgerRevealBinding } from "./reveal/reveal-binding.js";
 export { LedgerViewport } from "./viewport/LedgerViewport.js";
 // From the module that DECLARES it rather than through the component that renders
 // it: the scope is what an empty window's sentence turns on, and the rule that
 // picks the sentence is the lowest consumer of the union.
 export { type LedgerScope } from "./viewport/empty-window-words.js";
 export { type LedgerRowRenderer } from "./LedgerRowMount.js";
-export { useLedgerViewport } from "./viewport/viewport-binding.js";
+export { useLedgerViewport, type LedgerViewportBinding } from "./viewport/viewport-binding.js";
 // The walk back into the rows before this window's head. Published because the FEED
 // mints it — it is the mount that holds the session store — and hands the value to
 // the viewport, which is where the head control is placed.
-export { useLedgerEarlierPaging } from "./paging/paging-binding.js";
+export { useLedgerEarlierPaging, type LedgerEarlierPaging } from "./paging/paging-binding.js";
 export { type LedgerViewportRow } from "./viewport/viewport-snapshot.js";
 export { type LedgerRowLease } from "./row-lease-table.js";
 
