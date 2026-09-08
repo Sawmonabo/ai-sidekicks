@@ -249,7 +249,6 @@
 // (the append path this service's events ride).
 
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -277,6 +276,7 @@ import {
   WorktreeReuseConflictError,
 } from "./worktree-errors.js";
 import type { WorktreeEventEmitter } from "./worktree-event-emitter.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Injected seams
@@ -378,7 +378,7 @@ export interface WorktreeServiceDeps {
   readonly gitCommandTimeoutMs?: number;
   /** Wall clock for `created_at` / `updated_at` / `cleaned_at`. Injectable for tests. */
   readonly now?: () => string;
-  /** `worktrees.id` source. Injectable for deterministic tests; defaults to `randomUUID`. */
+  /** `worktrees.id` source. Injectable for deterministic tests; defaults to `mintUuidV7`. */
   readonly newWorktreeId?: () => string;
 }
 
@@ -971,7 +971,7 @@ export class WorktreeService {
     this.#filesystem = deps.filesystem ?? DEFAULT_WORKTREE_FILESYSTEM;
     this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_WORKTREE_GIT_TIMEOUT_MS;
     this.#now = deps.now ?? ((): string => new Date().toISOString());
-    this.#newWorktreeId = deps.newWorktreeId ?? ((): string => randomUUID());
+    this.#newWorktreeId = deps.newWorktreeId ?? mintUuidV7;
 
     const database = deps.database;
 
@@ -1382,7 +1382,7 @@ export class WorktreeService {
 
     // Parses the ROW's id, not the argument, and deliberately AFTER the
     // not-found refusal. The brand is an outbound claim about the value this
-    // service stored (always a `randomUUID()`), not an inbound validation of
+    // service stored (always a `mintUuidV7()`), not an inbound validation of
     // the caller's string — so a malformed id gets `WorktreeNotFoundError`,
     // the honest answer, instead of a ZodError that names no domain fault.
     const parsedWorktreeId = WorktreeIdSchema.parse(row.id);

@@ -177,7 +177,6 @@
 //   an extra round trip, never answer quality. Nothing short of a row lock closes
 //   it, and Plan-010 ratifies none.
 
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import type { Database, Statement } from "better-sqlite3";
@@ -214,6 +213,7 @@ import {
   WorkspaceNotFoundError,
   WorkspaceStaleError,
 } from "./workspace-service.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Constants
@@ -681,7 +681,7 @@ export class ExecutionRootService {
     );
     this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_EXECUTION_ROOT_GIT_TIMEOUT_MS;
     this.#now = deps.now ?? ((): string => new Date().toISOString());
-    this.#newBranchContextId = deps.newBranchContextId ?? ((): string => randomUUID());
+    this.#newBranchContextId = deps.newBranchContextId ?? mintUuidV7;
 
     const database = deps.database;
 

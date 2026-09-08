@@ -98,7 +98,7 @@ import {
   type SubagentDefinition,
   type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { PendingCompactionRegistry, type CompactionWaitScheduler } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
@@ -162,6 +162,7 @@ import {
   normalizeClaudeSubagentLifecycle,
   type ClaudeSubagentLifecycleSignal,
 } from "./event-normalizer.js";
+import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Canonical driver id + fixed message text
@@ -2552,8 +2553,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#onSubagentLifecycle = dependencies.onSubagentLifecycle;
     this.#transcriptReplaySurfaceReader = dependencies.transcriptReplaySurfaceReader;
     this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
-    this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? randomUUID;
-    this.#mintBindingId = dependencies.mintBindingId ?? randomUUID;
+    this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? mintUuidV7;
+    this.#mintBindingId = dependencies.mintBindingId ?? mintUuidV7;
     this.#readBoundProviderAccountId = dependencies.readBoundProviderAccountId;
     this.#pendingCompactions = new PendingCompactionRegistry(
       dependencies.compactionWaitScheduler ??
