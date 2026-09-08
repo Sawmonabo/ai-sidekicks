@@ -70,9 +70,6 @@ export type {
 
 // The two durable run records the corpus registers as columns and no read returns.
 export type {
-  GrowthInterventionDirective,
-  GrowthInterventionKind,
-  GrowthInterventionOrigin,
   GrowthInterventionRecord,
   GrowthQueueItemRunBinding,
 } from "./run-record-projections.js";

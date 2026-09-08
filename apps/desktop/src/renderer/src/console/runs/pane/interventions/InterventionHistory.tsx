@@ -40,19 +40,12 @@
 // that owes a person the two path lists — and every path in them is a control,
 // because a path a person can see and cannot take is a path they retype.
 
-import { Nothing, RefusalCard } from "../../../primitives/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import {
-  useEnumeratedPathAction,
-  type EnumeratedPathAction,
-} from "../controls/enumerated-path-action.js";
+import { useEnumeratedPathAction } from "../controls/enumerated-path-action.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
-import { DurableInterventionRow } from "./DurableInterventionRow.js";
-import { InterventionRow } from "./InterventionRow.js";
-import {
-  useDurableInterventionHistory,
-  type DurableInterventionHistoryReading,
-} from "./durable-intervention-history.js";
+import { DispatchedInterventions } from "./DispatchedInterventions.js";
+import { DurableInterventions } from "./DurableInterventions.js";
+import { useDurableInterventionHistory } from "./durable-intervention-history.js";
 
 export interface InterventionHistoryProps {
   /** Newest last, matching the ledger's reading direction. */
@@ -81,75 +74,5 @@ export function InterventionHistory(props: InterventionHistoryProps): React.JSX.
       <DurableInterventions reading={durableHistory} />
       <DispatchedInterventions rows={dispatchedRows} pathAction={pathAction} />
     </div>
-  );
-}
-
-/**
- * The daemon's own rows for this run: every intervention, whoever raised it.
- *
- * Three absences and never one. Nobody has answered yet, the read was put and the port
- * refused it, and the daemon answered naming none are three different facts, and this
- * surface renders each in its own words rather than letting a skeleton stand in for a
- * refusal.
- */
-function DurableInterventions(props: {
-  readonly reading: DurableInterventionHistoryReading;
-}): React.JSX.Element {
-  const { reading } = props;
-  if (reading === undefined) {
-    return (
-      <Nothing
-        kind="not-loaded"
-        placement="inline"
-        title="Reading the run's intervention record."
-      />
-    );
-  }
-  if (reading.kind === "unreadable") {
-    return <RefusalCard code={reading.refusal.code} detail={reading.refusal.detail} />;
-  }
-  const { outcome } = reading;
-  if (outcome.status !== "served") {
-    return <RefusalCard code={outcome.code} detail={outcome.detail} />;
-  }
-  if (outcome.value.records.length === 0) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="inline"
-        title="No intervention has been raised against this run."
-        detail="The daemon's durable record answered and named none. Every intervention is recorded, including the attempts that fail, so an empty record means none was ever raised."
-      />
-    );
-  }
-  return (
-    <ol className="meridian-interventions__rows" aria-label="The run's intervention record">
-      {outcome.value.records.map((record) => (
-        <DurableInterventionRow key={record.interventionId} record={record} />
-      ))}
-    </ol>
-  );
-}
-
-/**
- * What THIS window dispatched, and how each call settled.
- *
- * Kept beside the durable rows rather than folded into them: this half carries the
- * settlement the durable read does not — the rollback result union and, on the three
- * dispositions that carry them, both never-silent file enumerations.
- */
-function DispatchedInterventions(props: {
-  readonly rows: readonly RunControlRecord[];
-  readonly pathAction: EnumeratedPathAction;
-}): React.JSX.Element | null {
-  if (props.rows.length === 0) {
-    return null;
-  }
-  return (
-    <ol className="meridian-interventions__rows" aria-label="Interventions this window dispatched">
-      {props.rows.map((record) => (
-        <InterventionRow key={record.recordId} record={record} pathAction={props.pathAction} />
-      ))}
-    </ol>
   );
 }

@@ -326,17 +326,13 @@ export {
   type AttentionSeverity,
   type AttentionTrigger,
 } from "./wire-shapes/attention-projection.js";
-// The two durable run records the corpus registers as columns and no read returns —
-// the intervention row's origin and admitting principal, and the queue row's binding
-// to a run. Published from the module that declares them, never through the
-// sub-module door.
-export type {
-  GrowthInterventionDirective,
-  GrowthInterventionKind,
-  GrowthInterventionOrigin,
-  GrowthInterventionRecord,
-  GrowthQueueItemRunBinding,
-} from "./wire-shapes/run-record-projections.js";
+// The durable intervention row the corpus registers as columns and no read returns —
+// its origin, the admitting principal on the participant arm, the queue item it
+// admitted, and the directive where the key still opens it. Published from the module
+// that declares it, never through the sub-module door. The queue's run binding stays
+// off this door: it is folded onto the queue feed inside this family, so no surface
+// outside it names the shape.
+export type { GrowthInterventionRecord } from "./wire-shapes/run-record-projections.js";
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";

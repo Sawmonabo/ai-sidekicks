@@ -1,10 +1,12 @@
-// The history keeps the attempts that failed, and says what it cannot see.
+// The history keeps the attempts that failed, and never presents an unread record as
+// an empty one.
 //
 // Two claims, and the second is the one that keeps this surface honest: a refused
 // control is a ROW rather than an omission, because interventions require durable
-// audit records even when they fail; and the surface states plainly that the
-// durable record — with the `origin` discriminator and the admitting principal —
-// is not something it can read, rather than inferring either.
+// audit records even when they fail; and where the durable record — with the `origin`
+// discriminator and the admitting principal — could not be read, the surface renders
+// that refusal rather than an empty history. The durable rows themselves, and every
+// member they carry, are `InterventionHistory.durable.test.tsx`'s.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -99,18 +101,27 @@ describe("failed attempts are part of the record", () => {
 });
 
 describe("what the surface cannot read, it says", () => {
-  it("names the durable record rather than presenting an empty list as complete", () => {
+  it("renders the refused durable read rather than an empty record", async () => {
+    // The default scenario declares no durable record for this run, so the read
+    // refuses — and a refusal is not "no intervention was ever raised".
     const container = renderHistory([]);
-    expect(container.textContent).toContain("durable record");
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
+    expect(container.querySelector(".meridian-refusal")).not.toBeNull();
+    expect(container.textContent).not.toContain("No intervention has been raised");
   });
 
-  it("never renders an origin or an admitting principal, which no wire supplies", () => {
-    // The discriminator is resolved and never inferred, per this component's own
-    // header. The honest form of that here is that neither word appears at all.
+  it("never infers an origin the read did not carry", async () => {
+    // The discriminator is resolved by the daemon and never inferred. Under a refused
+    // read there is no arm to render, so neither word appears at all — which is the
+    // negative control for the durable suite, where both do.
     const container = renderHistory([refusedRecord("three", RUN_ID)]);
-    expect(container.textContent).not.toContain("participant arm");
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
     expect(container.textContent).not.toContain("admitting principal");
+    expect(container.querySelector(".meridian-interventions__directive")).toBeNull();
   });
 });
 
