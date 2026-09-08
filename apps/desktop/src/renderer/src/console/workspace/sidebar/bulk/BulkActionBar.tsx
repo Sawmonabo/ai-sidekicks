@@ -14,12 +14,20 @@
 // THE RUN IS ALWAYS PREVIEWED. Pressing an act button opens the confirm; nothing here
 // calls the runner directly. All three acts are destructive, so there is no second
 // path, which is what keeps the preview from being something a fourth act could forget.
-
-import { useState } from "react";
+//
+// AND THE PREVIEW BELONGS TO THE SELECTION IT WAS OPENED OVER. The model handed down is
+// re-minted with the session and this bar is not remounted around it, so a pending act
+// held for the life of the MOUNT outlived the rows it was staged for: the preview
+// re-read `selectedFor` against the arriving model and drew the NEW session's rows
+// under a confirm nobody had opened for them, one press from running over them. It goes
+// through `store/subject-scoped-state.ts` on the model, which is the subject the whole
+// question is about — the pass that first sees a new one already reads no pending act,
+// so no frame ever carries the stale confirm.
 
 import { type ConsoleBridge } from "../../../bridge/index.js";
 import { DerivedFigure } from "../../../primitives/index.js";
 import { type SidebarBulkAct } from "../../../seats/index.js";
+import { useSubjectScopedState } from "../../../store/index.js";
 import { type AirspaceRegistry } from "../../deck/rect-discipline.js";
 import { SIDEBAR_BULK_ACT_DESCRIPTORS } from "./bulk-acts.js";
 import { runBulkAct } from "./bulk-runner.js";
@@ -37,7 +45,9 @@ export interface BulkActionBarProps {
 
 export function BulkActionBar(props: BulkActionBarProps): React.JSX.Element | null {
   const snapshot = useBulkSelectionSnapshot(props.model);
-  const [confirmingAct, setConfirmingAct] = useState<SidebarBulkAct | undefined>(undefined);
+  const { value: confirmingAct, publish: publishConfirmingAct } = useSubjectScopedState<
+    SidebarBulkAct | undefined
+  >(props.model, undefined, () => undefined);
 
   const outcomeRows: readonly BulkOutcomeRow[] = [...snapshot.outcomeByItemKey].flatMap(
     ([itemKey, outcome]) => {
@@ -62,7 +72,7 @@ export function BulkActionBar(props: BulkActionBarProps): React.JSX.Element | nu
               type="button"
               className="meridian-sidebar-bulk__act"
               onClick={() => {
-                setConfirmingAct(act);
+                publishConfirmingAct(act);
               }}
             >
               {SIDEBAR_BULK_ACT_DESCRIPTORS[act].label} (
@@ -85,10 +95,10 @@ export function BulkActionBar(props: BulkActionBarProps): React.JSX.Element | nu
           items={confirmingItems}
           {...(props.airspace === undefined ? {} : { airspace: props.airspace })}
           onCancel={() => {
-            setConfirmingAct(undefined);
+            publishConfirmingAct(undefined);
           }}
           onConfirm={() => {
-            setConfirmingAct(undefined);
+            publishConfirmingAct(undefined);
             // Not awaited: every row files its own outcome as it lands, and a bar that
             // waited for the whole fan-out would be a bar showing nothing until the
             // slowest reply — which is the sequential-and-silent shape the design track

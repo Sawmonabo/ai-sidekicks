@@ -30,6 +30,15 @@ export interface WorkspaceBanner {
 }
 
 /**
+ * A column with nothing on it, as one value.
+ *
+ * One frozen array rather than a fresh one per reading, so a holder seeded with it and
+ * a dismissal that emptied the column answer the same identity — a subscriber comparing
+ * by reference is told nothing changed when nothing did.
+ */
+export const NO_WORKSPACE_BANNERS: readonly WorkspaceBanner[] = Object.freeze([]);
+
+/**
  * The identity of a refusal as this stack counts it.
  *
  * Joined on a NUL rather than on a separator a code or a sentence could contain:

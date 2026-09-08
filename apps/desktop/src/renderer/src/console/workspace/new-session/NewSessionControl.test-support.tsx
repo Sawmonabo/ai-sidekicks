@@ -181,18 +181,26 @@ export interface HeldCreate {
  * Only the TIMING is the test's: what settles is `CREATE_REPLY`, the same whole
  * registered response every other case here reads.
  *
+ * `scriptsFirstTurn` rides through to {@link bridgeFor} rather than being a second
+ * suspended bridge, because a case about what a COMPLETED send closes needs both of
+ * this draft's calls scripted and the create still held — with only the create
+ * scripted every send here settles partial, which is the arm that never closes a
+ * draft in the first place.
+ *
  * Through `withDaemonCall` rather than a spread written here, because a test reaches
  * `daemon.call` on the same terms production does — `daemon-reply-chokepoint` scans
  * source text and does not care which tier wrote it — and one shared arm is what
  * keeps every suite driving the same door.
  */
-export function bridgeHoldingCreate(): HeldCreate {
+export function bridgeHoldingCreate(
+  options: { readonly scriptsFirstTurn?: boolean } = {},
+): HeldCreate {
   let answer = (): void => {};
   const held = new Promise<void>((resolve) => {
     answer = resolve;
   });
   const { bridge } = withDaemonCall(
-    bridgeFor({ scriptsCreate: true }),
+    bridgeFor({ scriptsCreate: true, ...options }),
     async (call, passThrough) => {
       if (call.method !== SESSION_CREATE_CALL) {
         return await passThrough();

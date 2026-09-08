@@ -112,6 +112,20 @@ export interface NewSessionSendResult {
   readonly sessionId: string | undefined;
   readonly completedCalls: readonly string[];
   readonly refusal: NewSessionDraftRefusal | undefined;
+  /**
+   * The draft revision this send read its composition from.
+   *
+   * WHAT A SETTLEMENT IS MEASURED AGAINST, and the reason it travels on the result
+   * rather than being asked of the draft when the settlement lands. A send captures the
+   * first message when it reads the draft, and the draft stays editable for as long as
+   * the create is in flight — so a composition that has moved on since is one whose
+   * newest words this send did not carry, and closing the draft over it would discard
+   * the only copy of them.
+   *
+   * `undefined` where the send read no draft at all: a fault inside the send, or a
+   * press answered from what a previous one already landed.
+   */
+  readonly sentRevision: number | undefined;
 }
 
 /**
@@ -127,6 +141,9 @@ export function refuseSendThatRejected(): NewSessionSendResult {
     outcome: "refused",
     sessionId: undefined,
     completedCalls: [],
+    // A fault INSIDE the send, so no composition can be named as the one it carried —
+    // and none needs to be, because a refusal closes no draft.
+    sentRevision: undefined,
     refusal: refuseDraft(
       "send-failed",
       "The draft could not be sent, and nothing was created. It is still here, and Send can be pressed again.",
@@ -145,11 +162,17 @@ export function refuseSendThatRejected(): NewSessionSendResult {
  * The sentence names the ambiguity rather than resolving it, and offers the one act
  * that is safe: the sessions list re-reads the node's directory, so a session that WAS
  * created appears there under its own name.
+ *
+ * `sentRevision` is the caller's because the two callers differ in exactly that: the
+ * send read a draft and the draft's memory read nothing. Nothing is closed on this arm
+ * either way — it is terminal for the draft that reached it — so the member travels for
+ * the same reason every other one does, which is that a settlement says what it acted on.
  */
-export function refuseAmbiguousCreate(): NewSessionSendResult {
+export function refuseAmbiguousCreate(sentRevision: number | undefined): NewSessionSendResult {
   return {
     outcome: "created-unreadable",
     sessionId: undefined,
+    sentRevision,
     // Nothing is CLAIMED as landed: the call may have made a session and may not, and
     // a line reading "Already sent: session.create" would be an assertion this module
     // has no evidence for. The sentence carries the ambiguity instead.

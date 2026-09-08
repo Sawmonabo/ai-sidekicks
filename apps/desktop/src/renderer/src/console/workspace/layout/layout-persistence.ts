@@ -12,6 +12,13 @@
 // as the window undoing their work; `RestoreProgress` below is addressed so that
 // neither can happen.
 //
+// AND EVERYTHING THE RESTORE PRODUCES IS ADDRESSED BY THE SESSION IT IS ABOUT. The
+// workspace stays mounted across a route between two open sessions, so a value held for
+// the life of the MOUNT describes whichever session happened to produce it first: the
+// restore refusals were exactly that, and a session whose saved layout could not be read
+// left its errors standing over the next session's deck. Both the gate and the refusals
+// go through `store/subject-scoped-state.ts` on the same `(arrangement, session)` pair.
+//
 // AND A READ THAT FAILED IS NOT A FIRST RUN. The store's `readOutcome` answers
 // `present`, `absent`, or `failed` for exactly this: the fallback ledger pane is
 // opened on both kinds of nothing — a window with no panes is not a state this surface
@@ -19,7 +26,7 @@
 // destroyed by a read the adapter could not perform and then a write the adapter
 // happily accepted, with nothing on screen to say so.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { refuse, type ConsoleRefusal, type NarrowedRefusal } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
@@ -34,6 +41,14 @@ import {
 } from "./layout-writer.js";
 /** The durable record the deck's arrangement is saved under, per session. */
 export const DECK_LAYOUT_RECORD_KEY = "deck-layout";
+
+/**
+ * What a session with nothing to report shows, as one value.
+ *
+ * One frozen array rather than a fresh one per seed and per settled restore, so a
+ * subscriber comparing by identity is told nothing changed when nothing did.
+ */
+const NO_RESTORE_REFUSALS: readonly ConsoleRefusal[] = Object.freeze([]);
 
 /** Why the workspace itself refused. Closed, so a second cause is a decision. */
 export const WORKSPACE_REFUSAL_CODES = ["layout-save-failed"] as const;
@@ -131,7 +146,19 @@ export interface DeckPersistenceOptions {
  */
 export function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRefusal[] {
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
-  const [restoreRefusals, setRestoreRefusals] = useState<readonly ConsoleRefusal[]>([]);
+  // WHAT A RESTORE REFUSED, ADDRESSED BY THE RESTORE THAT REFUSED IT. Held on the same
+  // `(arrangement, session)` pair as the gate below, through the same holder, because
+  // the workspace stays mounted across a route between two open sessions: mount state
+  // here went on showing one session's restore errors over the next session's deck, with
+  // nothing on screen tying them to the session they belong to. The seed is what a
+  // session whose restore has not landed shows, which is nothing — an unsettled restore
+  // makes no claim, and the previous session's is not a stand-in for one.
+  const restoreRefusals = useSubjectScopedState<readonly ConsoleRefusal[]>(
+    layout,
+    sessionId,
+    () => NO_RESTORE_REFUSALS,
+  );
+  const publishRestoreRefusals = restoreRefusals.publish;
 
   // The partition rides the REQUEST rather than being read here. A writer coalesces,
   // so a queued arrangement settles after the act that queued it — and the workspace
@@ -248,9 +275,13 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
         report =
           record === undefined ? undefined : layout.adoptBeneath(record.value, closedDuringRead);
       }
-      if (report !== undefined && report.refusals.length > 0) {
-        setRestoreRefusals(report.refusals);
-      }
+      // REPLACED ON EVERY SETTLED RESTORE, an empty report and an absent record
+      // included. The alternative shipped: a publish guarded on "there is something to
+      // say" leaves the last session that had something to say saying it forever, which
+      // is exactly the state a route between two open sessions produces. The publisher
+      // is bound to the session this pass addressed, so a slow read that lands after the
+      // route installs nothing rather than reporting into the session it arrived in.
+      publishRestoreRefusals(report?.refusals ?? NO_RESTORE_REFUSALS);
       if (layout.snapshot().panes.length === 0) {
         // This surface's own empty state: the workspace shows the ledger alone, full
         // width.
@@ -282,7 +313,7 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
       // never restored.
       restore.abandon();
     };
-  }, [layout, restore, sessionId, uiStateStore, writer]);
+  }, [layout, publishRestoreRefusals, restore, sessionId, uiStateStore, writer]);
 
   useEffect(() => {
     if (sessionId === undefined) {
@@ -300,5 +331,5 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
     });
   }, [layout, restore, writer, sessionId]);
 
-  return restoreRefusals;
+  return restoreRefusals.value;
 }

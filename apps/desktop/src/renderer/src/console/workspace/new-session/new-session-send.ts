@@ -72,6 +72,14 @@ export interface NewSessionSendRequest {
   readonly firstTurnAlreadyQueued: boolean;
   readonly firstTurn: string;
   readonly executionPostureMode: string | undefined;
+  /**
+   * Which revision of the draft the caller read this request out of.
+   *
+   * Carried through onto every settlement rather than asked of the draft afterwards:
+   * the draft is editable for as long as the send is running, so the answer at the
+   * moment a result lands is not the answer this send acted on.
+   */
+  readonly draftRevision: number;
 }
 
 /** What the send landed, so the draft can remember it and resume from it. */
@@ -109,7 +117,7 @@ export async function sendNewSessionDraft(
     // answered unreadably is a create that must never be issued again from this
     // draft, and the memory is what makes the next press dispatch nothing.
     return {
-      result: refuseAmbiguousCreate(),
+      result: refuseAmbiguousCreate(request.draftRevision),
       sessionId: undefined,
       createAnsweredUnreadably: true,
       attachedDefinitionIds: [],
@@ -123,6 +131,7 @@ export async function sendNewSessionDraft(
         sessionId: undefined,
         completedCalls,
         refusal: created.refusal,
+        sentRevision: request.draftRevision,
       },
       sessionId: undefined,
       createAnsweredUnreadably: false,
@@ -169,6 +178,7 @@ export async function sendNewSessionDraft(
             "agent-attach-failed",
             `The session was created, but a sidekick could not be attached, so no first turn was queued either. ${answer.detail}`,
           ),
+          sentRevision: request.draftRevision,
         },
         sessionId,
         createAnsweredUnreadably: false,
@@ -187,6 +197,7 @@ export async function sendNewSessionDraft(
       sessionId,
       completedCalls,
       refusal: turn.refusal,
+      sentRevision: request.draftRevision,
     },
     sessionId,
     createAnsweredUnreadably: false,

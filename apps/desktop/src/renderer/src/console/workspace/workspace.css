@@ -124,6 +124,14 @@
   color: var(--meridian-text-muted);
 }
 
+/* The words a completed send did not carry, because they were typed after the press.
+   The same muted treatment for the same reason: the session was made and nothing
+   failed, so a warning hue would report a fault where there is only a fact. */
+.meridian-new-session__unsent {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
 .meridian-new-session__actions {
   display: flex;
   gap: var(--meridian-space-2);
