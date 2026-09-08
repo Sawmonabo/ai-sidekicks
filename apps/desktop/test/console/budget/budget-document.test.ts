@@ -17,10 +17,14 @@
 // §Pre-PR self-audit closes with. `loadFixture` therefore plants the directory it
 // writes into, which is what makes emptying the trail between cases safe: no case
 // writes into a directory another case created.
+//
+// AND THE CLEANUP CONTROLS BELOW ARE SELF-CONTAINED, each planting, removing, and
+// observing inside one case, so `-t` on either of them and a shuffled order both run
+// the claim rather than failing on a variable a sibling case never assigned.
 
 import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 
 import {
   ConsoleBudgetRegistry,
@@ -187,27 +191,42 @@ describe("registry validation (negative controls)", () => {
 });
 
 describe("registry fixture cleanup", () => {
-  // The floor under the `afterEach` above, and the only place a removal is observable:
-  // AFTER the hook has run. The first case plants a tree and records where, the second
-  // reads that path once the hook has had its turn — and under the `afterAll` this suite
-  // used to carry it is still there, which is the finding: every case in this file ran
-  // against the documents every earlier case had written.
-  let plantedForTheControl = "";
+  // The floor under the `afterEach` above: the removal that hook performs is
+  // `TemporaryDirectoryTrail.removeAll()`, so the control drives THAT — writing a
+  // document on the very trail the validation cases write on, draining it, and reading
+  // the disk afterwards, all inside one case. It used to be two cases sharing a `let`,
+  // which made the observing one unrunnable on its own and unrunnable in a shuffled
+  // order: it read an empty path and failed on its own scaffolding.
 
-  it("plants a fixture tree of its own", () => {
-    plantedForTheControl = fixturePathFor("cleanup-control");
-    writeFileSync(plantedForTheControl, "{}", "utf8");
-    expect(existsSync(plantedForTheControl)).toBe(true);
-    expect(plantedFixtures.plantedDirectories).toStrictEqual([path.dirname(plantedForTheControl)]);
-  });
+  it("removes every tree this file's own trail is holding", () => {
+    const planted = fixturePathFor("cleanup-control");
+    writeFileSync(planted, "{}", "utf8");
+    expect(existsSync(planted)).toBe(true);
+    expect(plantedFixtures.plantedDirectories).toStrictEqual([path.dirname(planted)]);
 
-  it("negative control: the tree the case before it planted is gone", () => {
-    expect(plantedForTheControl, "the case above did not run").not.toBe("");
+    plantedFixtures.removeAll();
+
     expect(
-      existsSync(path.dirname(plantedForTheControl)),
-      "a registry fixture outlived the case that planted it, so every later case in " +
-        "this file runs against documents it did not write",
+      existsSync(path.dirname(planted)),
+      "a registry fixture outlived the removal that was asked to take it, so every " +
+        "later case in this file runs against documents it did not write",
     ).toBe(false);
     expect(plantedFixtures.plantedDirectories).toStrictEqual([]);
+  });
+
+  it("negative control: a trail nobody drains leaves its tree on disk", () => {
+    // What makes the case above a check rather than a tautology. A removal that never
+    // ran and a removal that ran and did nothing leave the same disk, so this plants on
+    // a trail the suite's hook does not hold, does NOT drain it, and shows the tree is
+    // still there — the state the assertion above would report.
+    const undrained = new TemporaryDirectoryTrail();
+    onTestFinished(() => {
+      undrained.removeAll();
+    });
+
+    const planted = undrained.create("console-budget-registry-undrained-");
+
+    expect(existsSync(planted)).toBe(true);
+    expect(undrained.plantedDirectories).toStrictEqual([planted]);
   });
 });

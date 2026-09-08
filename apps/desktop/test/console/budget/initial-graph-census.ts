@@ -37,7 +37,7 @@ import {
   RendererBundleOutputMissingError,
   type RendererBundleMeasurement,
 } from "../../../scripts/budget/measure-bundle.mjs";
-import { initialGraphOwnerOf } from "./initial-graph-owners.js";
+import { initialGraphAttributionOf } from "./initial-graph-owners.js";
 
 /** Vite's default `[name]-[hash]` suffix, so a chunk can be named without its hash. */
 const CHUNK_CONTENT_HASH = /-[A-Za-z0-9_-]{8}(\.[A-Za-z0-9]+)$/u;
@@ -48,7 +48,13 @@ export interface InitialGraphCensus {
   readonly measurement: RendererBundleMeasurement;
   /** Every initial asset, named without its content hash, sorted. */
   readonly chunkNames: readonly string[];
-  /** Owner → the modules it put on the initial graph, sorted, keyed in sorted order. */
+  /**
+   * Owner → the modules it put on the initial graph, sorted, keyed in sorted order.
+   *
+   * A module is named by its path BELOW its owner, which is what makes this map
+   * pinnable: `initial-graph-owners.ts`'s header says why the path the bundler wrote is
+   * not. The owner and the name reconstruct the module, so nothing is lost.
+   */
   readonly modulesByOwner: ReadonlyMap<string, readonly string[]>;
 }
 
@@ -140,13 +146,13 @@ export function readInitialGraphCensus(
       continue;
     }
     for (const source of chunkSources(rendererOutputDirectory, asset.relativePath)) {
-      const owner = initialGraphOwnerOf(source);
+      const { owner, moduleId } = initialGraphAttributionOf(source);
       const held = modulesByOwner.get(owner);
       if (held === undefined) {
-        modulesByOwner.set(owner, [source]);
+        modulesByOwner.set(owner, [moduleId]);
         continue;
       }
-      held.push(source);
+      held.push(moduleId);
     }
   }
   return {
