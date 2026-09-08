@@ -26,6 +26,21 @@
 // `vitest run` in a clean checkout fails here with the command that produces one,
 // exactly as the budget gate beside it does.
 //
+// WHAT THIS LIST CANNOT BE MADE SHORTER BY, MEASURED RATHER THAN ASSUMED. The obvious
+// lever on a graph this size is chunking — split the shared chunk so the entry carries
+// only what the entry reaches. It buys nothing here, and the reason is measurable: a
+// build with the module structure preserved, walked as the entry's own static closure,
+// reaches every module the shared chunk holds bar none. There is no module riding a
+// static chunk that only a lazy body reaches, so there is nothing for a grouping to
+// move. Tree-shaking is not the lever either — the component library declares itself
+// free of side effects and every import in this renderer names a per-component subpath
+// rather than the package root, so nothing is being retained that could be dropped.
+// What is left on the graph is there because eager code reaches it: the flagship
+// surface's own row menus, the palette that is armed before anything is opened, the two
+// overlays the root composes unconditionally, and the invite surface a deep link can
+// arrive at. Shrinking this list further means making eager code reach less, which is a
+// source change and never a bundler setting.
+//
 // IT READS TWO MODULES BECAUSE ITS SUBJECT IS TWO THINGS. `initial-graph-census.ts`
 // reads the build; `initial-graph-owners.ts` says which directory owns a module. The
 // split is `built-renderer-tree.ts`'s, one tier-mate along: a module that reads files of
@@ -55,18 +70,21 @@ const rendererOutputDirectory: string =
 /**
  * The assets a launch fetches before it can paint, named without their content hashes.
  *
- * Five, and each one is a decision rather than an accident: the entry chunk and its
- * stylesheet, the shared `primitives` chunk every lazy body also imports (hoisted there
- * BECAUSE it is shared, so it is initial by construction) and its own sheet, and
- * `routing`, which the entry and every body that reads an address both reach.
+ * Four: the entry chunk and its stylesheet, `routing`, which the entry and every body
+ * that reads an address both reach, and `core`, hoisted out BECAUSE it is shared with
+ * lazy bodies and therefore initial by construction.
+ *
+ * WHAT MOVES THIS LIST, AND WHAT MUST NOT. A chunk appearing here that names a view
+ * family is the eager import this census exists to catch, and the check names the
+ * module. The bundler's own split is the other way it moves: which shared modules get
+ * hoisted into a chunk of their own is a function of what is shared, so a change that
+ * takes a module off the graph can also collapse a split — this list lost a separate
+ * `primitives` chunk and its sheet, and gained `core`, when the workflow definition
+ * file codec moved its form module behind `import()`. That is a re-derivation and not
+ * a regression, and it is why the total gzip figure the budget gate reads is the
+ * measurement of record; this list is the membership.
  */
-const INITIAL_GRAPH_CHUNKS: readonly string[] = [
-  "index.css",
-  "index.js",
-  "primitives.css",
-  "primitives.js",
-  "routing.js",
-];
+const INITIAL_GRAPH_CHUNKS: readonly string[] = ["core.js", "index.css", "index.js", "routing.js"];
 
 /**
  * Every directory with a module on the initial graph.
