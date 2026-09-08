@@ -258,3 +258,51 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
     expect(result.current.isProviderDefaultAccount).toBe(false);
   });
 });
+
+// A surface composing a form over this binding — the target chip's axis popover — needs
+// the row itself and not the three facts the chip renders. The claim worth a case is
+// the one a projection could not make: what arrives is what the daemon sent, and it
+// arrives on exactly the arm where the daemon named it.
+describe("useAgentBindingReading — the roster row travels whole", () => {
+  it("carries the served row verbatim rather than a projection of it", async () => {
+    const bridge = bridgeServingRoster({
+      status: "served",
+      value: [rosterRow({ driverName: "claude", modelId: "claude-sonnet", state: "ready" })],
+    });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.agent?.agentId).toBe(AGENT_ID);
+    // Axes no member of this reading projects, which is the point: a consumer composing
+    // a switch over the binding reads them here rather than taking a second roster read.
+    expect(result.current.agent?.driverName).toBe("claude");
+    expect(result.current.agent?.modelId).toBe("claude-sonnet");
+    expect(result.current.agent?.state).toBe("ready");
+  });
+
+  it("names no row where the roster served and holds no such agent", async () => {
+    // The served-but-absent arm is a READ, so the phase alone cannot tell a consumer
+    // whether there is a row — which is why the member is what it branches on.
+    const bridge = bridgeServingRoster({
+      status: "served",
+      value: [rosterRow({ agentId: "agent-reviewer" })],
+    });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("read");
+    expect(result.current.agent).toBeUndefined();
+  });
+
+  it("negative control: names no row where the read was refused", async () => {
+    // Without this the cases above would pass over a reading that carried a row from
+    // some earlier state through a refusal, which is a form composed over a binding
+    // nothing currently vouches for.
+    const bridge = bridgeServingRoster(growthUnavailable("agentList"));
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("refused");
+    expect(result.current.agent).toBeUndefined();
+  });
+});

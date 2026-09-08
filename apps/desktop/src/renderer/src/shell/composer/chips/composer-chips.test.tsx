@@ -19,6 +19,7 @@ const NOTHING_ASKED: AgentBindingReading = {
   payingAccountLabel: undefined,
   isProviderDefaultAccount: false,
   pendingSwitch: undefined,
+  agent: undefined,
   refusal: undefined,
 };
 

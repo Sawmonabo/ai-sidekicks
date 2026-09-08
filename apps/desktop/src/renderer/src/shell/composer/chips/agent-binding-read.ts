@@ -55,6 +55,7 @@ import {
   readRefusalOf,
   useProviderQuotas,
   type AgentPendingSwitch,
+  type AgentRosterEntry,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
@@ -103,6 +104,20 @@ export interface AgentBindingReading {
   readonly isProviderDefaultAccount: boolean;
   /** The switch accepted and not yet applied, wire-verbatim. */
   readonly pendingSwitch: AgentPendingSwitch | undefined;
+  /**
+   * The roster row itself, wire-verbatim, present exactly when the roster served and
+   * named this agent.
+   *
+   * A SURFACE COMPOSING A FORM OVER THIS BINDING NEEDS THE WHOLE ROW, and taking a
+   * second `agent.list` to get it would be two reads of one roster with nothing able to
+   * say which arrival order is right — the same reason the account label is joined off
+   * the window's one account-plane reading rather than off a registry read of this
+   * module's own. So the row rides the reading that already asked for it.
+   *
+   * `undefined` is three states and the reading says which through {@link phase}: not
+   * asked, in flight, refused, or served-and-this-session-holds-no-such-agent.
+   */
+  readonly agent: AgentRosterEntry | undefined;
   /** Why the binding could not be read. Carried, never swallowed. */
   readonly refusal: ConsoleRefusal | undefined;
 }
@@ -197,6 +212,9 @@ function joinAccountLabel(
     payingAccountLabel,
     isProviderDefaultAccount: roster.isProviderDefaultAccount,
     pendingSwitch: roster.pendingSwitch,
+    // Carried across untouched: the account plane's word joins onto the LABEL, and a
+    // row narrowed here would be a second projection of what the roster answered.
+    agent: roster.agent,
     refusal:
       roster.refusal ??
       (roster.payingAccountId !== undefined && payingAccountLabel === undefined

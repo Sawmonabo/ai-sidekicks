@@ -44,7 +44,8 @@ import {
   type SessionSubject,
 } from "../../seats/index.js";
 import type { SessionStore } from "../../store/index.js";
-import { type ProviderAxis } from "../agent-wire.js";
+import { requestAgentConfigUpdate } from "../provider-switch/provider-switch-host.js";
+import type { AxisDraft } from "../provider-switch/provider-switch-draft.js";
 import {
   createAgentRoster,
   createChildRunLinkage,
@@ -147,15 +148,21 @@ export class AgentConsoleModels {
     return servedGrowthValueOrRaise(await this.subject.bridge.growth.agentAttach(request));
   }
 
-  /** Move provider axes on a running agent. Never a second run control. */
+  /**
+   * Move provider axes on a running agent. Never a second run control.
+   *
+   * DELEGATED RATHER THAN COMPOSED HERE. The composer's target chip issues the same
+   * mutation and holds no models, so the call itself lives in
+   * `provider-switch/provider-switch-host.ts` where both families reach it — one home
+   * for which operation is asked, how the axes ride it, and how a refusal is raised.
+   * What stays here is the LIFETIME claim: this set's own bridge answers it.
+   */
   public async updateConfig(
     agentId: string,
-    axes: Partial<Record<ProviderAxis, string>>,
+    axes: AxisDraft,
     interruptAndSwitch: boolean,
   ): Promise<AgentConfigUpdateReading> {
-    return servedGrowthValueOrRaise(
-      await this.subject.bridge.growth.agentConfigUpdate({ agentId, interruptAndSwitch, ...axes }),
-    );
+    return await requestAgentConfigUpdate(this.subject.bridge, agentId, axes, interruptAndSwitch);
   }
 
   /** Move an agent to `disabled`. Reversible by re-attaching. */
