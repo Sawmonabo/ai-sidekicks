@@ -14,12 +14,13 @@
 // surface; and what the body draws once it is here, read off a registry whose loader has
 // been awaited.
 //
-// THE BODY IS AWAITED THROUGH THE REGISTRY'S OWN LOADER, never by settling generously.
-// `preload` is the registration's memoised loader, so awaiting it is exact:
-// `sidekicks-settings-page.test.tsx` beside this one takes the same wait for the same
-// reason, and `test/console/surfaces/pane-body-resolution.ts` states the rule for the two
-// boards in `seats/` — a dynamic import needs more than the one macrotask a render settle
-// crosses, so a case that settled twice and passed would be a case that raced.
+// THE BODY IS RESOLVED THROUGH THE FAMILY'S OWN MOUNT SCAFFOLDING, never by a sequence
+// written here. `settings/settings-page-mount.test-support.tsx` owns both halves — the
+// awaited mount, which preloads the registration's memoised loader and then moves the
+// bridge's frozen clock, and the reserved mount, which renders the same registration
+// before its chunk lands. Awaiting `preload` in a spec instead is what made three suites
+// wait for a body and a fourth race it, and `test/console/surfaces/pane-body-resolution.ts`
+// states the same rule for the two boards in `seats/`.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,15 +30,16 @@ import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
 } from "./bridge/fixture/fixture-bridge.test-support.js";
-import { settleScheduledRead } from "./bridge/readings/scheduled-read.test-support.js";
 import { LiveAnnouncerProvider } from "./primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "./store/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 import { registerBrowserSettingsPage } from "./browser-settings-page.js";
 import {
-  SettingsPageRegistry,
-  type SettingsPageContext,
-} from "./settings/settings-page-registry.js";
+  mountRegisteredSettingsPage,
+  mountReservedSettingsPage,
+  settingsPageContextWith,
+} from "./settings/settings-page-mount.test-support.js";
+import { SettingsPageRegistry } from "./settings/settings-page-registry.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./seats/index.js";
 // The pending marker's reader by its own leaf specifier, on `sidekicks-settings-page`'s
 // reason: the seats door publishes the ATTRIBUTE, which a producer needs, and not this
@@ -93,37 +95,14 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
 }
 
 /**
- * The page itself, rendered off a registry whose loader has been awaited.
+ * The context this page is handed, built by the family's own builder.
  *
- * A scoped registry per case rather than one shared instance, for the registrar's own
- * reason: the table is owner-scoped state, so two cases sharing one would make the second
- * depend on whether the first had run.
- *
- * THE FROZEN CLOCK IS MOVED, not just the microtask queue. The section's two reads go
- * through `store/scheduling.ts`'s one `RefreshScheduler`, armed on the fixture's frozen
- * clock — so a helper that only drained promises would assert against a page that had
- * never been given the chance to ask, and read its "still reading" arm as the answer.
- * `settleScheduledRead` is the console's one home for that wait.
+ * The page reads its bridge and nothing else, but the context is built whole rather than
+ * cast: a cast placeholder compiles past exactly the wiring mistake a widened context
+ * would otherwise catch here, which is what `settingsPageContextWith` exists to end.
  */
-async function renderBrowserPageBody(): Promise<HTMLElement> {
-  const registry = new SettingsPageRegistry();
-  registerBrowserSettingsPage(registry);
-  await registry.preload("browser");
-  const descriptor = registry.descriptorFor("browser");
-  if (descriptor === undefined) {
-    throw new Error("the browser registrar claimed no settings section");
-  }
-  const bridge = unansweredBridge();
-  const { container } = render(
-    <LiveAnnouncerProvider>
-      {descriptor.render({ bridge } as unknown as SettingsPageContext)}
-    </LiveAnnouncerProvider>,
-  );
-  await act(async () => {
-    await settle();
-  });
-  await settleScheduledRead(bridge);
-  return container;
+function browserPageContext(): ReturnType<typeof settingsPageContextWith> {
+  return settingsPageContextWith(unansweredBridge(), undefined);
 }
 
 describe("the browser settings section", () => {
@@ -137,7 +116,11 @@ describe("the browser settings section", () => {
   });
 
   it("draws both policy rows and the site-data table, with nothing answered", async () => {
-    const container = await renderBrowserPageBody();
+    const container = await mountRegisteredSettingsPage(
+      "browser",
+      registerBrowserSettingsPage,
+      browserPageContext(),
+    );
     expect(container.textContent ?? "").toContain("Two switches this node");
     // Fail-closed AND said so: the rows render the enforced position and carry the
     // port's own refusal beside it, rather than drawing a permissive off nobody set.
@@ -155,19 +138,14 @@ describe("the browser settings section", () => {
     // to photograph a tree holding one, and a settings page mid-load is exactly what
     // that refusal exists for.
     //
-    // SYNCHRONOUS, AND THAT IS THE CASE ITSELF. The reservation is the render that
-    // happens before the import resolves, so a case that settled first would be asking
-    // about a body that had already landed — under vitest the module graph is already
-    // transformed and one settle is enough for it to. `sidekicks-settings-page.test.tsx`
-    // makes the same claim the same way for the same reason.
-    const registry = new SettingsPageRegistry();
-    registerBrowserSettingsPage(registry);
-    const descriptor = registry.descriptorFor("browser");
-    const bridge = unansweredBridge();
-    const { container } = render(
-      <LiveAnnouncerProvider>
-        {descriptor?.render({ bridge } as unknown as SettingsPageContext)}
-      </LiveAnnouncerProvider>,
+    // SYNCHRONOUS, AND THAT IS THE CASE ITSELF — the reservation is the render that
+    // happens before the import resolves, which is why the shared mount has a second,
+    // un-awaited half rather than an option on its first. `sidekicks-settings-page.test.tsx`
+    // makes the same claim through the same door for the same reason.
+    const container = mountReservedSettingsPage(
+      "browser",
+      registerBrowserSettingsPage,
+      browserPageContext(),
     );
     expect(container.textContent ?? "").not.toContain("Two switches this node");
     expect(pendingPaneBodiesIn(container).length).toBe(1);

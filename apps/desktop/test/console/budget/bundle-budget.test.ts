@@ -29,7 +29,7 @@ import {
   formatRendererBundleReport,
   type RendererBundleMeasurement,
 } from "../../../scripts/budget/measure-bundle.mjs";
-import { TemporaryDirectoryTrail } from "./temporary-directory.js";
+import { TemporaryDirectoryTrail } from "../temporary-directory.js";
 
 const registry = ConsoleBudgetRegistry.load();
 const budget = registry.requireBudget(RENDERER_BUNDLE_BUDGET_ID);

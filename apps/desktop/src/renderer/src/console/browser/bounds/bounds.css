@@ -8,11 +8,15 @@
  * red where something failed). Grep any of these files for `amber` and `red` and
  * every hit is one of those.
  *
- * This sheet enters at `console/browser/pane/browser-pane-body.ts`, the family's
- * one chunk root, because nothing on the initial import graph can render the
- * surface it dresses. The split between the five sheets there and the two at the
- * family door is read off the module graph rather than off the directory, and both
- * halves of it are stated at the two modules that carry the edges.
+ * This sheet enters at `console/browser/pane/browser-pane-body.ts`, the pane's chunk
+ * root and one of the family's TWO. NOTHING enters at the family door: `browser/index.ts`
+ * is reached eagerly from `console/panes/index.ts`, so a sheet named there would land on
+ * every launch, and none of these seven dresses a surface the initial graph can render.
+ * Six sheets enter at this root and two at `settings/browser-settings-page-body.ts`, which
+ * is seven distinct files because `../controls.css` is named at both. The split is read off
+ * the module graph rather than off the directory, and
+ * `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` is what enforces it
+ * in both directions.
  *
  * It sits FLAT BESIDE THE MODULES IT DRESSES rather than in a `styles/` directory
  * of its own: one sheet per sub-module directory, named for that directory, so the

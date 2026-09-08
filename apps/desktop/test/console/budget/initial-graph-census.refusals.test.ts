@@ -28,7 +28,7 @@ import {
   RendererBundleOutputMissingError,
 } from "../../../scripts/budget/measure-bundle.mjs";
 import { readInitialGraphCensus } from "./initial-graph-census.js";
-import { TemporaryDirectoryTrail } from "./temporary-directory.js";
+import { TemporaryDirectoryTrail } from "../temporary-directory.js";
 
 /** Every fixture tree the refusal cases plant, removed after each of them. */
 const plantedFixtures = new TemporaryDirectoryTrail();
