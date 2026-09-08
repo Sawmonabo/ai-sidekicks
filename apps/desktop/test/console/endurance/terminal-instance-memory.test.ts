@@ -105,7 +105,7 @@ import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scen
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
-} from "../../../src/renderer/src/console/core/constants.js";
+} from "../../../src/renderer/src/console/core/constants/terminal-caps.js";
 import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/emulator/renderer-pool.js";
 import {
   ConsoleBudgetRegistry,

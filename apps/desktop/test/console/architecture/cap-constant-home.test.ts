@@ -2,12 +2,12 @@
 //
 // `apps/desktop/AGENTS.md` §Config single-sourcing states it as "one value, one
 // home: budgets and their unit factors in `budgets.json`, caps in
-// `console/core/constants.ts` with a rationale each", and its pre-PR self-audit
+// `console/core/constants/` with a rationale each", and its pre-PR self-audit
 // repeats it. Until this file nothing checked it, and two view families had already
 // grown their own: `terminal/constants.ts` held the scrollback, WebGL, and ledger
 // caps, and `browser/bounds/BudgetMeter.tsx` embedded twenty runtime ceilings in the
 // component that displays them. Both were written against a sentence in
-// `core/constants.ts` that licensed exactly that — which is the shape a rule takes
+// the cap home that licensed exactly that — which is the shape a rule takes
 // when nothing enforces it, and the reason this tripwire sits beside the byte-scaling
 // one rather than being another paragraph.
 //
@@ -40,7 +40,7 @@
 // prose, and the pattern was reading the prose. A declaration is a declaration
 // boundary, which `apps/desktop/AGENTS.md` says to answer with the compiler.
 //
-// WHY THE SCOPE IS THE VIEW FAMILIES. `console/core/constants.ts` is the home, and
+// WHY THE SCOPE IS THE VIEW FAMILIES. `console/core/constants/` is the home, and
 // the layer families between it and the views — `primitives/`, `persistence/`,
 // `palette/`, `tokens/` — carry bounds of their own whose disposition is a separate
 // question from this one. The view families are where a feature module invents a
@@ -81,12 +81,26 @@ const CONSOLE_ROOT = "src/renderer/src/console";
 const VIEW_FAMILY_RULE = "console-view-family-isolation";
 
 /**
- * The one module a cap may be declared in.
+ * The one directory a cap may be declared in.
  *
  * A path rather than a naming convention, so moving the home is an edit a reviewer
- * sees.
+ * sees — and a DIRECTORY rather than a module, which is the stronger claim and the one
+ * this rule was always making: what it asserts is that a ceiling is declared in the
+ * home rather than in the family that spends it, and a home is where a bound lives,
+ * not how many files it takes. The home is one module per concern under
+ * `core/constants/`.
+ *
+ * THE TRAILING SEPARATOR IS LOAD-BEARING. Without it `core/constants.ts` — the single
+ * 1 051-line file this directory was split out of — reads as part of the home again,
+ * and so does any `core/constants-extra.ts` a later hand writes beside it. A prefix
+ * that admits a sibling is a home with a back door.
  */
-const CAP_HOME_MODULE = "core/constants.ts";
+const CAP_HOME_DIRECTORY = "core/constants/";
+
+/** Whether one console-relative module sits inside that home. */
+function isCapHomeModule(module: string): boolean {
+  return module.startsWith(CAP_HOME_DIRECTORY);
+}
 
 /**
  * The name segments that make an identifier a bound rather than a measurement.
@@ -129,7 +143,7 @@ function isCapName(identifier: string): boolean {
  * `BROWSER_BOUNDS` is keyed by the same twenty, so a checker that read either shape
  * reported a family's own bound TABLE as twenty invented ceilings — and the only
  * placement it would accept was `core/`, two layers below every reader, which the
- * layering rule and `core/constants.ts`'s own header both argue against. Reading the
+ * layering rule and the cap home's own charter both argue against. Reading the
  * declaration lets the table sit with its readers and still catches what the gate was
  * built for: `terminal/constants.ts`'s pool cap and the settings page's fold threshold
  * were both module-scope declarations.
@@ -185,14 +199,14 @@ function capNamesIn(module: string): readonly string[] {
   return capNamesDeclaredIn(module, readModuleNamed(CONSOLE_MODULES, `console/${module}`));
 }
 
-describe("cap-constant-home — a bound is declared in one module", () => {
+describe("cap-constant-home — a bound is declared in one home", () => {
   const modules = consoleRelativePaths(CONSOLE_MODULES);
 
   it("finds a console tree to scan, and the home inside it", () => {
     // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
-    expect(modules).toContain(CAP_HOME_MODULE);
+    expect(modules.filter(isCapHomeModule).length).toBeGreaterThan(1);
   });
 
   it("reads the view-family set out of the layering config", async () => {
@@ -204,7 +218,7 @@ describe("cap-constant-home — a bound is declared in one module", () => {
     const viewFamilyModules = await viewFamilyModulesAmong(modules);
     expect(viewFamilyModules.some((module) => module.startsWith("terminal/"))).toBe(true);
     expect(viewFamilyModules.some((module) => module.startsWith("browser/"))).toBe(true);
-    expect(viewFamilyModules).not.toContain(CAP_HOME_MODULE);
+    expect(viewFamilyModules.filter(isCapHomeModule)).toStrictEqual([]);
   });
 
   it("no view family declares one of its own", async () => {
@@ -298,11 +312,24 @@ describe("cap-constant-home — a bound is declared in one module", () => {
   });
 
   it("negative control: the home itself is full of them", async () => {
-    // The scope is what excuses `core/constants.ts`, not the predicate — so the home
+    // The scope is what excuses the cap home, not the predicate — so the home
     // must trip the checker, or the clean result above would be a checker that
     // recognises nothing.
-    expect(capNamesIn(CAP_HOME_MODULE).length).toBeGreaterThan(10);
-    expect(await viewFamilyModulesAmong([CAP_HOME_MODULE])).toStrictEqual([]);
+    const home = modules.filter(isCapHomeModule);
+    expect(home.flatMap((module) => capNamesIn(module)).length).toBeGreaterThan(10);
+    expect(await viewFamilyModulesAmong(home)).toStrictEqual([]);
+  });
+
+  it("negative control: the home is the directory, and a near miss is outside it", () => {
+    // What the pin claims now that the home is a directory, and the two shapes that
+    // would quietly undo it. A second cap module written BESIDE the home rather than
+    // inside it is the first — `core/constants.ts` is that shape exactly, being the
+    // file this home replaced — and a view family that named its own directory
+    // `constants/` is the second.
+    expect(isCapHomeModule("core/constants/terminal-caps.ts")).toBe(true);
+    expect(isCapHomeModule("core/constants.ts")).toBe(false);
+    expect(isCapHomeModule("core/constants-extra.ts")).toBe(false);
+    expect(isCapHomeModule("terminal/constants/terminal-caps.ts")).toBe(false);
   });
 });
 

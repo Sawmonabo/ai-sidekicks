@@ -26,7 +26,7 @@ import {
 // The visible-row cap is spent inside `core/constants.ts` by the window height derived
 // from it, so no production module imports it and it carries no door line. This suite
 // reads the module that declares it, which is what the barrel census asks of the case.
-import { RESTORE_PATH_VISIBLE_ROW_CAP } from "../../core/constants.js";
+import { RESTORE_PATH_VISIBLE_ROW_CAP } from "../../core/constants/restore-caps.js";
 import { RestorePathList } from "./RestorePathList.js";
 
 /** The height the shim reports for the windowed enumeration's scroll container. */

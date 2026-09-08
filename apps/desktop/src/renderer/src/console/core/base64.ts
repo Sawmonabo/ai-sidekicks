@@ -20,7 +20,7 @@
 // call stack. Everything else here would be a re-implementation of a primitive
 // the runtime already has, which `apps/desktop/AGENTS.md` rejects by name.
 
-import { BASE64_ENCODE_STRIDE_BYTES } from "./constants.js";
+import { BASE64_ENCODE_STRIDE_BYTES } from "./constants/attachment-caps.js";
 
 /**
  * Encode bytes as RFC 4648 §4 base64, the form the local wire carries payloads in.

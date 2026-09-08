@@ -10,48 +10,62 @@
 // recents cap above the result cap promises rows the list will never render.
 //
 // So this file states each relation once, next to the reason it holds.
+//
+// AND IT SITS BESIDE THE HOME RATHER THAN INSIDE ONE OF ITS MODULES, because a
+// relation is the one thing about a bound that no single module can hold: the
+// announcer's hold window is checked against the store's coalescing frame, and the
+// fixture tick against the same frame again. A copy of either case inside each
+// module it names would be the second home for a claim that this directory exists
+// to keep singular, so the cases live here and reach each declaring module by name.
 
 import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-caps.js";
 import {
-  APPLY_COALESCE_MS,
-  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
+  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   BASE64_ENCODE_STRIDE_BYTES,
-  CAST_BAR_CHIP_CAP,
+  INGEST_STALL_DISCLOSURE_MS,
+  INGEST_STREAM_LIFETIME_CEILING_MS,
+} from "./attachment-caps.js";
+import {
   DIFF_FILE_LIST_SCROLL_THRESHOLD,
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
   DIFF_INTRALINE_LINE_CHARACTER_CAP,
   DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP,
-  INGEST_STALL_DISCLOSURE_MS,
-  INGEST_STREAM_LIFETIME_CEILING_MS,
   INLINE_DIFF_CARD_HEIGHT_CAP_PX,
+} from "./diff-caps.js";
+import { SCENARIO_PENDING_REPLY_CAP, SCENARIO_TICK_MS } from "./fixture-caps.js";
+import {
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
-  MAX_REPAIRABLE_SEQUENCE_GAP,
-  PALETTE_RECENTS_CAP,
-  PALETTE_RESULT_CAP,
+} from "./live-announcement-caps.js";
+import { PALETTE_RECENTS_CAP, PALETTE_RESULT_CAP, WHEN_CLAUSE_MAX_DEPTH } from "./palette-caps.js";
+import {
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
-  PHASE_GRAPH_MAX_ZOOM,
-  PHASE_GRAPH_MIN_ZOOM,
-  PRE_INITIALISATION_BUFFER_CAP,
-  REFRESH_DEBOUNCE_MS,
-  REFRESH_MAX_WAIT_MS,
+} from "./persistence-caps.js";
+import { APPLY_COALESCE_MS, REFRESH_DEBOUNCE_MS, REFRESH_MAX_WAIT_MS } from "./refresh-caps.js";
+import {
   RESTORE_PATH_ROW_HEIGHT_PX,
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
   RESTORE_PATH_VISIBLE_ROW_CAP,
   RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX,
-  SCENARIO_PENDING_REPLY_CAP,
-  SCENARIO_TICK_MS,
-  TRIPWIRE_REPORT_CAP,
-  WHEN_CLAUSE_MAX_DEPTH,
+} from "./restore-caps.js";
+import {
+  MAX_REPAIRABLE_SEQUENCE_GAP,
+  PRE_INITIALISATION_BUFFER_CAP,
+} from "./session-store-caps.js";
+import { TRIPWIRE_REPORT_CAP } from "./tripwire-caps.js";
+import {
+  PHASE_GRAPH_MAX_ZOOM,
+  PHASE_GRAPH_MIN_ZOOM,
   WORKFLOW_CANCEL_REASON_BYTE_CAP,
-} from "./constants.js";
+} from "./workflows-caps.js";
+import { CAST_BAR_CHIP_CAP } from "./workspace-caps.js";
 
 /** Every bound that counts whole things. A fractional or zero cap counts nothing. */
 const COUNTING_BOUNDS: readonly (readonly [string, number])[] = [
