@@ -44,3 +44,14 @@ declare module "~icons/*" {
   const IconFace: import("react").ComponentType<import("react").SVGProps<SVGSVGElement>>;
   export default IconFace;
 }
+
+// Vite's `?url` asset imports, declared for the same reason the two build-time
+// signals above are: `types: []` keeps `vite/client` out of a browser-context
+// program, and the console reads exactly one member of it. The suffix asks the
+// bundler to emit the file and hand back its URL rather than inlining its bytes,
+// which is what an `@font-face` `src` needs — the face is fetched by the style
+// engine, not embedded in the module graph.
+declare module "*.woff2?url" {
+  const assetUrl: string;
+  export default assetUrl;
+}

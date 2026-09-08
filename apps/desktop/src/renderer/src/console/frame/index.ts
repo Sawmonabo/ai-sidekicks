@@ -14,12 +14,11 @@
 // rules cascade after the primitives' (whose barrel imports theirs first, being an
 // upstream import of these components).
 //
-// `typeface.css` sits beside it and holds only `@font-face` declarations, which
-// participate in no cascade — a face is matched, not overridden — so its position
-// relative to `frame.css` decides nothing. It is a separate sheet rather than a
-// block inside that one because it is the only file in the tree whose `url()`
-// specifiers name a dependency: a font pin moves in exactly one place, and a
-// reviewer reading a `frame.css` diff is never reading an asset change.
+// The self-hosted faces do NOT enter here. `@font-face` needs the bundler's
+// emitted asset URL, and a bare package specifier inside a stylesheet's `url()`
+// is a bundler convention no other tool resolves — so the faces are declared in
+// `bindings/typeface.ts` and installed beside the token sheet, where the specifier is a
+// real import the compiler and the dead-code gate both see. See that module.
 //
 // A barrel re-exports only its own family. The route vocabulary used to be
 // re-exported from here because it used to LIVE here; it now lives in
@@ -28,7 +27,6 @@
 // the DAG without ever naming the family it was reaching into.
 
 import "./frame.css";
-import "./typeface.css";
 
 export { ConsoleRoot } from "./composition/ConsoleRoot.js";
 
