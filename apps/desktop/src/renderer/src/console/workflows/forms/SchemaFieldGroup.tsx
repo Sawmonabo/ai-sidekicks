@@ -10,6 +10,11 @@
 // A heading and a div would look the same and would leave a person navigating by control
 // unable to hear which group the control they landed on belongs to.
 //
+// AND THE LEGEND SAYS WHETHER THE GROUP IS REQUIRED, through the one mark a field's label
+// and a collection's legend also render. A group is a member of the level above it like
+// any other, so a form where the scalars said "required" and the fieldset holding three
+// more of them said nothing was reporting the schema unevenly.
+//
 // AND A FINDING CAN BE ABOUT THE GROUP RATHER THAN ABOUT ANYTHING IN IT. A schema that
 // requires this object reports the absence at the group's own path — a member that is
 // missing has no child to hang the sentence on — so the fieldset draws its own findings
@@ -19,6 +24,7 @@
 import { useId } from "react";
 
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
+import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
 import { describedByOf } from "./schema-field-control.js";
 import type { SchemaGroupDescriptor, SchemaLeafEntry } from "./schema-fields.js";
 import { encodeMemberPointer } from "../../bridge/index.js";
@@ -40,7 +46,10 @@ export function SchemaFieldGroup(props: SchemaFieldGroupProps): React.JSX.Elemen
       className="meridian-schema-group"
       aria-describedby={describedByOf([issues.length === 0 ? undefined : issuesId])}
     >
-      <legend className="meridian-schema-group__legend">{group.label}</legend>
+      <legend className="meridian-schema-group__legend">
+        {group.label}
+        <SchemaRequiredMark isRequired={group.isRequired} />
+      </legend>
       {group.description === undefined ? null : (
         <p className="meridian-schema-field__description">{group.description}</p>
       )}

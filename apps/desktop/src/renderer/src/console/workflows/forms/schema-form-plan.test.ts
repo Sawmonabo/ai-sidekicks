@@ -135,4 +135,24 @@ describe("the schema field mapper", () => {
         : undefined,
     ).toBe(true);
   });
+
+  it("carries a group's own requiredness from the level that declared it", () => {
+    // The same read the scalar and list branches make of the enclosing `required` set.
+    // Dropped, a group the schema demands had no requiredness for its legend to render.
+    const entries = drawnEntries(
+      planSchemaForm(
+        objectSchema(
+          {
+            release: objectSchema({ tag: { type: "string" } }),
+            draft: objectSchema({ note: { type: "string" } }),
+          },
+          ["release"],
+        ),
+      ),
+    );
+
+    expect(
+      entries.map((entry) => (entry.form === "group" ? entry.group.isRequired : "not a group")),
+    ).toEqual([true, false]);
+  });
 });

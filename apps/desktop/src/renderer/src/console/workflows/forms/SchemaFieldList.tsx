@@ -34,6 +34,7 @@ import { useId } from "react";
 
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaListEntry } from "./SchemaListEntry.js";
+import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
 import { describedByOf } from "./schema-field-control.js";
 import { listAppendLabel, listRemoveLabel, type SchemaListDescriptor } from "./schema-fields.js";
 
@@ -66,9 +67,7 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
     >
       <legend className="meridian-schema-list__legend">
         {list.label}
-        {list.isRequired ? (
-          <span className="meridian-schema-field__required"> required</span>
-        ) : null}
+        <SchemaRequiredMark isRequired={list.isRequired} />
       </legend>
       {list.description === undefined ? null : (
         <p className="meridian-schema-field__description">{list.description}</p>

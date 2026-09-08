@@ -254,6 +254,87 @@ describe("the schema field mapper's raw arm", () => {
     });
   });
 
+  it("sends an enumerated default the choice control could not offer to the raw editor", () => {
+    // A string is not enough: the control offers this enumeration's members and one
+    // unanswered option, so a declared value outside the set selects "Not answered" while
+    // the seed carries the author's string — the verdict reads invalid and a press sends a
+    // value nobody on the screen ever saw.
+    const plan = planSchemaForm(
+      objectSchema({ severity: { type: "string", enum: ["low", "high"], default: "retired" } }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "default-undrawable", memberPath: ["severity"] },
+    });
+  });
+
+  it("sends a collection default holding one entry outside the enumeration to the raw editor", () => {
+    // One bad entry in an otherwise drawable list is the same divergence at one position:
+    // the repeated control shows its unanswered option there and the answer carries the
+    // author's string.
+    const plan = planSchemaForm(
+      objectSchema({
+        severities: {
+          type: "array",
+          items: { type: "string", enum: ["low", "high"] },
+          default: ["low", "retired"],
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "default-undrawable", memberPath: ["severities"] },
+    });
+  });
+
+  it("sends a repeated choice's own default outside its enumeration to the raw editor", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        severities: { type: "array", items: { type: "string", enum: ["low"], default: "retired" } },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "default-undrawable", memberPath: ["severities"] },
+    });
+  });
+
+  it("sends a group default whose enumerated member is outside its enumeration to the raw editor", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        release: {
+          ...objectSchema({ severity: { type: "string", enum: ["low"] } }),
+          default: { severity: "retired" },
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      shape: "raw",
+      fallback: { cause: "default-undrawable", memberPath: ["release"] },
+    });
+  });
+
+  it("negative control: enumerated defaults their own control can offer are drawn and carried", () => {
+    const plan = planSchemaForm(
+      objectSchema({
+        severity: { type: "string", enum: ["low", "high"], default: "high" },
+        severities: {
+          type: "array",
+          items: { type: "string", enum: ["low"], default: "low" },
+          default: ["low"],
+        },
+      }),
+    );
+    const [severity, severities] = drawnEntries(plan);
+
+    expect(severity?.form === "field" ? severity.field.defaultValue : undefined).toBe("high");
+    expect(severities?.form === "list" ? severities.list.defaultValue : undefined).toEqual(["low"]);
+  });
+
   it("negative control: declared values their own controls can show are drawn and carried", () => {
     const plan = planSchemaForm(
       objectSchema({

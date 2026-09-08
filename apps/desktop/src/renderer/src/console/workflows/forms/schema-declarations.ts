@@ -115,7 +115,13 @@ function multipleOfOf(schema: Readonly<Record<string, unknown>>): number | undef
     : undefined;
 }
 
-/** One control, composed from the member schema and where it sits. */
+/**
+ * One STANDALONE control, composed from the member schema and where it sits.
+ *
+ * A member the enclosing level does not require may be left out of the answer, which is
+ * what its control's unanswered state means — so requiredness and the ability to be
+ * unanswered are one reading here, and the entry constructor below is where they part.
+ */
 export function fieldDescriptor(
   schema: Readonly<Record<string, unknown>>,
   kind: SchemaFieldKind,
@@ -129,9 +135,29 @@ export function fieldDescriptor(
     description: descriptionOf(schema),
     kind,
     isRequired,
+    canBeUnanswered: !isRequired,
     choices: kind === "choice" ? stringEnumOf(schema) : undefined,
     isInteger: declaredType(schema) === "integer",
     multipleOf: multipleOfOf(schema),
     defaultValue: schema["default"],
   };
+}
+
+/**
+ * One REPEATED control: the same reading, at a position that always holds a value.
+ *
+ * A list entry exists the moment somebody presses the add control, so it can never be
+ * absent however the collection itself was declared — which is why this is a named variant
+ * rather than the same call with a different argument. The collection's own requiredness
+ * still travels on `isRequired`, because that is what the entry belongs to and it is the
+ * only requiredness the schema declared anywhere near it.
+ */
+export function listItemDescriptor(
+  schema: Readonly<Record<string, unknown>>,
+  kind: SchemaFieldKind,
+  memberPath: readonly string[],
+  key: string,
+  isRequired: boolean,
+): SchemaFieldDescriptor {
+  return { ...fieldDescriptor(schema, kind, memberPath, key, isRequired), canBeUnanswered: false };
 }

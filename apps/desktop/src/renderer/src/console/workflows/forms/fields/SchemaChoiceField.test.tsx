@@ -32,15 +32,34 @@ function choiceFieldOver(choices: readonly string[]): SchemaFieldDescriptor {
   return entry.field;
 }
 
-/** Mount the control over one enumeration, reporting what it writes back. */
-function renderChoice(
-  choices: readonly string[],
+/**
+ * The descriptor the mapper draws for an OPTIONAL yes-or-no, which this control also draws.
+ *
+ * A boolean the answer may leave out has three states and a box has two, so the mapper
+ * hands that member to this control rather than to the checkbox. Read from the mapper for
+ * the reason the enumeration is: half the claim is that the mapper routes it here.
+ */
+function optionalBooleanField(): SchemaFieldDescriptor {
+  const plan = planSchemaForm({
+    type: "object",
+    properties: { notify: { type: "boolean", title: "Notify" } },
+  });
+  const entry = plan.shape === "fields" ? plan.entries[0] : undefined;
+  if (entry?.form !== "field" || entry.field.kind !== "checkbox") {
+    throw new Error("the mapper did not draw this boolean as a field");
+  }
+  return entry.field;
+}
+
+/** Mount the control over one field, reporting what it writes back. */
+function renderControl(
+  field: SchemaFieldDescriptor,
   value: unknown,
 ): { readonly select: HTMLSelectElement; readonly onChange: ReturnType<typeof vi.fn> } {
   const onChange = vi.fn();
   const { container } = render(
     <SchemaChoiceField
-      field={choiceFieldOver(choices)}
+      field={field}
       value={value}
       onChange={onChange}
       controlId="severity-control"
@@ -52,6 +71,14 @@ function renderChoice(
     throw new Error("the choice control drew no select");
   }
   return { select, onChange };
+}
+
+/** Mount the control over one enumeration, reporting what it writes back. */
+function renderChoice(
+  choices: readonly string[],
+  value: unknown,
+): { readonly select: HTMLSelectElement; readonly onChange: ReturnType<typeof vi.fn> } {
+  return renderControl(choiceFieldOver(choices), value);
 }
 
 /** The option offering one member, found by the text it shows rather than by its value. */
@@ -82,6 +109,31 @@ describe("the enumerated choice control", () => {
 
   it("writes no answer at all when the unanswered option is chosen back to", () => {
     const { select, onChange } = renderChoice(["low", "high"], "high");
+
+    fireEvent.change(select, { target: { value: optionShowing(select, "Not answered").value } });
+
+    expect(onChange).toHaveBeenCalledWith(undefined);
+  });
+
+  it("reports a boolean rather than the word its option showed", () => {
+    // The option text is what a person reads and the member value is what the answer
+    // carries; a control writing "Yes" would put a string at a member the schema declared
+    // a boolean, which every reading below it would then have to undo.
+    const { select, onChange } = renderControl(optionalBooleanField(), undefined);
+
+    fireEvent.change(select, { target: { value: optionShowing(select, "Yes").value } });
+
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("shows a held no as the answer it is rather than as no answer", () => {
+    const { select } = renderControl(optionalBooleanField(), false);
+
+    expect(select.selectedIndex).toBe([...select.options].indexOf(optionShowing(select, "No")));
+  });
+
+  it("leaves an optional yes-or-no unanswered when it is chosen back to", () => {
+    const { select, onChange } = renderControl(optionalBooleanField(), true);
 
     fireEvent.change(select, { target: { value: optionShowing(select, "Not answered").value } });
 

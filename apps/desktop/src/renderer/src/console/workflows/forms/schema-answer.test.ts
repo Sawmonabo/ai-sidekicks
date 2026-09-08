@@ -55,6 +55,40 @@ describe("what a drawn form opens holding", () => {
     expect(seedAnswerFromPlan(plan)).toEqual({});
   });
 
+  it("seeds nothing for an enumerated default the choice control could not offer", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: { severity: { type: "string", enum: ["low", "high"], default: "retired" } },
+    });
+
+    // Seeded, "retired" reached the submission while the select showed "Not answered":
+    // the answer carrying a member the control on the screen was not displaying.
+    expect(seedAnswerFromPlan(plan)).toEqual({});
+  });
+
+  it("opens an optional yes-or-no unanswered rather than at the no a box would show", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: { notify: { type: "boolean" } },
+    });
+
+    // A member the schema does not demand can be left out, and a two-state box has no
+    // state that says so — which is why an optional boolean is drawn as a three-state
+    // choice. Seeded `false`, a schema requiring this member's ABSENCE had no answer the
+    // drawn form could reach.
+    expect(seedAnswerFromPlan(plan)).toEqual({});
+  });
+
+  it("negative control: a required yes-or-no still opens at the false its box shows", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: { notify: { type: "boolean" } },
+      required: ["notify"],
+    });
+
+    expect(seedAnswerFromPlan(plan)).toEqual({ notify: false });
+  });
+
   it("negative control: a collection default that IS a list of entries is seeded", () => {
     const plan = planSchemaForm({
       type: "object",
@@ -123,6 +157,10 @@ describe("a value declared on the group rather than on the control that shows it
           type: "object",
           default: {},
           properties: { tag: { type: "string" }, signed: { type: "boolean" } },
+          // Required, so the box is the control this member draws through and `false` is
+          // the state it is already showing. Optional, the same member is a three-state
+          // choice that opens absent, which is a different case and is pinned above.
+          required: ["signed"],
         },
       },
     });

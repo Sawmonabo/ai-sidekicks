@@ -31,6 +31,30 @@ describe("the collection a schema-derived form draws", () => {
     expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(0);
   });
 
+  it("draws a yes-or-no entry as the box a position always holds a value for", () => {
+    // WHERE REQUIREDNESS AND "MAY BE LEFT OUT" PART COMPANY, which is the one thing the
+    // entry descriptor exists to say. This collection is OPTIONAL, so the answer may leave
+    // `flags` out entirely — but a POSITION inside it cannot be left out: the entry is on
+    // the screen from the moment somebody presses add. Read off the collection's own
+    // requiredness, the entry would have drawn the three-state choice a standalone
+    // optional boolean draws, and offered an unanswered option that writes nothing into a
+    // slot that has to hold something.
+    renderForm({
+      type: "object",
+      properties: {
+        flags: { type: "array", title: "Flags", items: { type: "boolean" } },
+        notify: { type: "boolean", title: "Notify" },
+      },
+    });
+    addListEntry("Flags");
+
+    expect(screen.getByLabelText("Flags, entry 1")).toHaveProperty("type", "checkbox");
+    // The control: the same kind, equally optional, standing on its own — where absence IS
+    // available and the third state is therefore the honest one. Without this, an entry
+    // drawn as a box would look like the rule rather than the exception to it.
+    expect(screen.getByLabelText("Notify").tagName).toBe("SELECT");
+  });
+
   it("names each collection's add control after the collection it adds to", () => {
     // A fieldset legend is not part of a button's accessible name, so two lists drawn with
     // the same visible text are two controls a person navigating between buttons cannot

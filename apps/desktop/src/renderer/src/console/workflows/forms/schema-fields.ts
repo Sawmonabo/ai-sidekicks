@@ -33,30 +33,66 @@ export const SCHEMA_FIELD_KINDS = [
 export type SchemaFieldKind = (typeof SCHEMA_FIELD_KINDS)[number];
 
 /**
- * Whether a JSON value is one a control of this kind could show.
+ * Whether a JSON value is one THIS control could show.
  *
- * KIND AND NOT CONSTRAINT. A number that a range refuses, or a string outside an
- * enumeration, is a value this control DRAWS and the compiled validator complains about —
+ * DISPLAYABLE AND NOT VALID. A number a range refuses, or a string shorter than a
+ * `minLength`, is a value the control DRAWS and the compiled validator complains about —
  * a reading a person can see and act on. A string at a number control is the other thing:
  * nothing renders it, so a form holding one displays an empty box while the answer carries
- * text. This predicate separates exactly those two, which is why it reads the kind alone.
+ * text. This predicate separates exactly those two.
+ *
+ * WHICH IS WHY IT TAKES THE DESCRIPTOR AND NOT THE KIND. Read from the kind alone, a
+ * choice was "any string" — and a choice control offers this enumeration's members and one
+ * unanswered option, so a declared value outside the set shows "Not answered" while the
+ * seed carries it. The set is part of what that control can display, and it lives on the
+ * descriptor. Every other kind is decided by its kind, and says so by not reading anything
+ * else.
  *
  * Declared beside the vocabulary rather than at its one caller, because it IS the
  * vocabulary — the six kinds and the values they stand for are one fact.
  */
-export function valueSuitsFieldKind(kind: SchemaFieldKind, value: unknown): boolean {
-  switch (kind) {
+export function valueSuitsField(field: SchemaFieldDescriptor, value: unknown): boolean {
+  switch (field.kind) {
     case "number":
       // A non-finite number is not JSON and no numeric control renders one.
       return typeof value === "number" && Number.isFinite(value);
     case "checkbox":
       return typeof value === "boolean";
+    case "choice":
+      // `choices` is the enumeration the mapper read, non-empty wherever this kind was
+      // resolved; an absent one offers nothing, so nothing is displayable.
+      return typeof value === "string" && (field.choices ?? []).includes(value);
     case "text":
     case "long-text":
-    case "choice":
     case "artifact-reference":
       return typeof value === "string";
   }
+}
+
+/**
+ * Whether this member is drawn as a two-state box rather than as a three-state choice.
+ *
+ * THE ONE RULE ABOUT BOOLEANS, STATED ONCE. Five of the six controls have an empty state a
+ * person reads as "not answered": a blank text box, a number box with nothing in it, a
+ * select showing its unanswered option. A checkbox has none — unchecked is NO, and it says
+ * so before anybody touches it. So the box is right exactly where the answer must hold a
+ * value for this member and wrong everywhere else: an optional boolean drawn as a box has
+ * no state that leaves the member out, so it reports NO where the person said nothing —
+ * and a schema that tells those two apart (an optional member under `const: true`, which
+ * accepts an absent one and refuses a false one) then had no answer the drawn form could
+ * compose. An optional one is therefore drawn through the choice control — unanswered,
+ * yes, no — which is a third state and not a seventh kind.
+ *
+ * `canBeUnanswered` and not `isRequired`, because a list ENTRY is neither: the position
+ * exists the moment somebody adds it, so absence is not available to it whatever the
+ * collection's own requiredness says.
+ *
+ * The three readers are the seed (`schema-answer.ts`), the control dispatch
+ * (`SchemaFieldControl.tsx`), and the option table the choice control is handed
+ * (`schema-field-control.ts`) — one fact, read where each of them needs it.
+ */
+export function fieldDrawsAsCheckbox(field: SchemaFieldDescriptor): boolean {
+  return field.kind === "checkbox" && !field.canBeUnanswered;
 }
 
 /**
@@ -82,6 +118,15 @@ export interface SchemaFieldDescriptor {
   readonly description: string | undefined;
   readonly kind: SchemaFieldKind;
   readonly isRequired: boolean;
+  /**
+   * Whether the answer may leave this member out, which is what a control's unanswered
+   * state means and what decides which control a boolean draws through.
+   *
+   * NOT THE NEGATION OF `isRequired`, and that is the whole reason it is carried rather
+   * than derived: a list ENTRY has no requiredness of its own and can never be absent,
+   * because the position exists from the moment somebody adds it.
+   */
+  readonly canBeUnanswered: boolean;
   /** The enum's members, present on `choice` alone and never empty there. */
   readonly choices: readonly string[] | undefined;
   /** True where the schema said `integer`, so the control steps by one. */
@@ -193,6 +238,17 @@ export interface SchemaGroupDescriptor {
   readonly memberPath: SchemaMemberPath;
   readonly label: string;
   readonly description: string | undefined;
+  /**
+   * Whether the enclosing level declares this whole group required.
+   *
+   * A GROUP IS A MEMBER LIKE ANY OTHER, and its legend says so the way a field's label and
+   * a collection's legend do — through the one marker all three render. Read and then
+   * dropped, a required group appeared optional beside controls that appeared required,
+   * and where the group's own defaults seeded it there was not even a finding to notice
+   * the omission by. Spelled `isRequired` for the reason it is on the other two
+   * descriptors: one reading of the schema, one name for it.
+   */
+  readonly isRequired: boolean;
   readonly entries: readonly SchemaLeafEntry[];
   /**
    * The schema's own `default` for the object itself, read through the controls below it.

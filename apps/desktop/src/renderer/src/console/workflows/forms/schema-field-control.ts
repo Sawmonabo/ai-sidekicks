@@ -40,6 +40,48 @@ export function textValueOf(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/** One thing the choice control offers: what a person reads, and what it is worth. */
+export interface SchemaChoiceOption {
+  /** The text on the option. */
+  readonly optionLabel: string;
+  /** What the answer holds when it is picked. */
+  readonly memberValue: unknown;
+}
+
+/**
+ * The two options a boolean member is answered through, beside its unanswered one.
+ *
+ * NAMED RATHER THAN SPELLED AS THE WIRE DOES. Every other option this control offers IS
+ * its member — an enumeration's members are the strings the engine stores, which is why
+ * they are set in the wire signature — and a boolean has no string spelling a person
+ * answers a question with. So these two name the answer while carrying the value, which is
+ * exactly the split the type above exists for.
+ */
+const BOOLEAN_CHOICE_OPTIONS: readonly SchemaChoiceOption[] = [
+  { optionLabel: "Yes", memberValue: true },
+  { optionLabel: "No", memberValue: false },
+];
+
+/**
+ * What the choice control offers for one field, whichever of the two it is drawing.
+ *
+ * TWO KINDS REACH THIS CONTROL. An enumerated string is the obvious one; the other is a
+ * boolean the answer may leave out, which a two-state box cannot represent —
+ * `fieldDrawsAsCheckbox` is where that rule is stated and this is the table it decides
+ * between. Composed here beside `SchemaFieldControlProps` rather than inside the control,
+ * because it is what the control is HANDED and both halves of the lookup — which options
+ * exist, and what a picked one is worth — have to be one reading.
+ *
+ * A field of any other kind never mounts this control; asked anyway, it offers whatever
+ * enumeration it declared, which for a member that declared none is nothing at all.
+ */
+export function choiceOptionsFor(field: SchemaFieldDescriptor): readonly SchemaChoiceOption[] {
+  if (field.kind === "checkbox") {
+    return BOOLEAN_CHOICE_OPTIONS;
+  }
+  return (field.choices ?? []).map((member) => ({ optionLabel: member, memberValue: member }));
+}
+
 /**
  * The whole answer, as the path that addresses it.
  *

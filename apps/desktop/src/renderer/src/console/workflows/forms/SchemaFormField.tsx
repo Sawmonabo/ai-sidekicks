@@ -16,6 +16,7 @@ import { useId } from "react";
 
 import { SchemaFieldControl } from "./SchemaFieldControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
+import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
 import { describedByOf } from "./schema-field-control.js";
 import type { SchemaFieldDescriptor } from "./schema-fields.js";
 
@@ -44,9 +45,7 @@ export function SchemaFormField(props: SchemaFormFieldProps): React.JSX.Element 
     <div className="meridian-schema-field">
       <label className="meridian-schema-field__label" htmlFor={controlId}>
         {field.label}
-        {field.isRequired ? (
-          <span className="meridian-schema-field__required"> required</span>
-        ) : null}
+        <SchemaRequiredMark isRequired={field.isRequired} />
       </label>
       <SchemaFieldControl
         field={field}

@@ -35,6 +35,7 @@ import {
   fieldDescriptor,
   fieldKindOf,
   labelOf,
+  listItemDescriptor,
   requiredKeysOf,
 } from "./schema-declarations.js";
 import { membersConstraintsCanRequire } from "./schema-constraints.js";
@@ -45,7 +46,7 @@ import {
   type SchemaFormEntry,
   type SchemaFormPlan,
   type SchemaLeafEntry,
-  valueSuitsFieldKind,
+  valueSuitsField,
 } from "./schema-fields.js";
 import { schemaRootAsksOutsideNamedValues } from "./schema-root-shape.js";
 
@@ -76,17 +77,20 @@ function undrawableConstraint(memberPath: SchemaMemberPath): SchemaFallback {
   };
 }
 
-/** Whether one declared value is one this leaf's control would display. */
+/**
+ * Whether one declared value is one this leaf's control would display.
+ *
+ * ONE PREDICATE AT BOTH LEVELS. A collection shows entries, so a declared value for one is
+ * a list of what its repeated control draws — and an entry of another shape, or one outside
+ * the enumeration that entry's control offers, is the same divergence one level in. Asked
+ * of the ITEM's own descriptor rather than of its kind, so the members a repeated choice
+ * offers are read exactly where a standalone one's are.
+ */
 function valueSuitsLeaf(leaf: SchemaLeafEntry, value: unknown): boolean {
   if (leaf.form === "field") {
-    return valueSuitsFieldKind(leaf.field.kind, value);
+    return valueSuitsField(leaf.field, value);
   }
-  // A collection shows entries, so a declared value for one is a list of what its
-  // repeated control draws — and an entry of another shape is the same divergence one
-  // level in.
-  return (
-    Array.isArray(value) && value.every((entry) => valueSuitsFieldKind(leaf.list.item.kind, entry))
-  );
+  return Array.isArray(value) && value.every((entry) => valueSuitsField(leaf.list.item, entry));
 }
 
 /**
@@ -165,10 +169,12 @@ function planLeafShape(
     return outOfSet(memberPath);
   }
   // The ITEM's own declared value, which is what every added entry opens holding. Its
-  // control is the repeated one, so the same reading applies one level in — and the
-  // member named is the collection's, because that is the control a person can see.
+  // control is the repeated one, so the same reading applies one level in — asked of the
+  // entry's own descriptor, and the member named is the collection's, because that is the
+  // control a person can see.
+  const item = listItemDescriptor(items, itemKind, memberPath, key, isRequired);
   const declaredEntryValue = items["default"];
-  if (declaredEntryValue !== undefined && !valueSuitsFieldKind(itemKind, declaredEntryValue)) {
+  if (declaredEntryValue !== undefined && !valueSuitsField(item, declaredEntryValue)) {
     return undrawableDefault(memberPath);
   }
   return {
@@ -179,7 +185,7 @@ function planLeafShape(
       description: descriptionOf(schema),
       isRequired,
       defaultValue: schema["default"],
-      item: fieldDescriptor(items, itemKind, memberPath, key, isRequired),
+      item,
     },
   };
 }
@@ -195,11 +201,17 @@ function isFallback(value: SchemaFormEntry | SchemaFallback): value is SchemaFal
   return "cause" in value;
 }
 
-/** One level down: a group's own leaves, or the first fallback one of them forces. */
+/**
+ * One level down: a group's own leaves, or the first fallback one of them forces.
+ *
+ * `isRequired` is the ENCLOSING level's reading of this group, taken the same way the leaf
+ * planner takes it: a group is a member of the level above and its legend says so.
+ */
 function planGroup(
   schema: Readonly<Record<string, unknown>>,
   memberPath: readonly string[],
   key: string,
+  isRequired: boolean,
 ): SchemaFormEntry | SchemaFallback {
   const properties = asRecord(schema["properties"]);
   if (properties === undefined || Object.keys(properties).length === 0) {
@@ -235,6 +247,7 @@ function planGroup(
       memberPath,
       label: labelOf(schema, key),
       description: descriptionOf(schema),
+      isRequired,
       entries,
       defaultValue: declaredDefault,
     },
@@ -316,10 +329,14 @@ export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
   const entries: SchemaFormEntry[] = [];
   for (const [key, memberSchema] of Object.entries(properties)) {
     const child = asRecord(memberSchema);
+    // One read of this level's `required` set, whichever shape the member turned out to
+    // be: a group carries it onto its legend exactly as a scalar and a list carry it onto
+    // their own.
+    const isRequired = required.has(key);
     const planned =
       child !== undefined && declaredType(child) === "object"
-        ? planGroup(child, [key], key)
-        : planLeaf(memberSchema, [key], key, required.has(key));
+        ? planGroup(child, [key], key, isRequired)
+        : planLeaf(memberSchema, [key], key, isRequired);
     if (isFallback(planned)) {
       return { shape: "raw", fallback: planned };
     }

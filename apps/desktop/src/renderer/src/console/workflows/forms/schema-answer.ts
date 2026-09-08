@@ -15,15 +15,17 @@
 // the schema thinks of the answer as a whole, and what a person is looking at is what a
 // press would send.
 //
-// A CONTROL WITH NO DECLARED VALUE OPENS EMPTY — EXCEPT THE ONE THAT CANNOT. Five of the
-// six controls have an empty state a person can read as "not answered yet": a blank text
-// box, a number box with nothing in it, a select showing its unanswered option. A checkbox
-// has no such state. An unchecked box says NO, and it says it before anybody touches it,
-// so a form that left the member out of the answer displayed one thing and submitted
-// another — and the only way to send `false` was to check the box and uncheck it again.
-// So a boolean control opens `false` in the answer, required or not, and the render set
-// `Spec-017 §Default Behavior` fixes is what makes that the only honest reading: a
-// tri-state box would be a seventh kind of control, and there are six.
+// A CONTROL WITH NO DECLARED VALUE OPENS EMPTY — EXCEPT THE ONE THAT CANNOT. Most of the
+// controls have an empty state a person can read as "not answered yet": a blank text box,
+// a number box with nothing in it, a select showing its unanswered option. A checkbox has
+// no such state. An unchecked box says NO, and it says it before anybody touches it, so a
+// form that left the member out of the answer displayed one thing and submitted another —
+// and the only way to send `false` was to check the box and uncheck it again. So a member
+// DRAWN AS A BOX opens `false` in the answer, and `schema-fields.ts` owns which members
+// those are: the ones the answer must hold a value for. A boolean it may leave out is
+// drawn through the choice control instead, so its absence is a state on the screen rather
+// than a state the form cannot reach — which is not a seventh kind, the render set
+// `Spec-017 §Default Behavior` fixes being about what a schema may ASK for.
 //
 // A GROUP'S OWN `default` IS SEEDED THROUGH ITS CHILDREN AND NEVER AS AN OBJECT. A group
 // is a container: no control displays its object, so writing that object whole would put
@@ -42,6 +44,7 @@
 // added an entry and removed it again.
 
 import {
+  fieldDrawsAsCheckbox,
   leafKeyOf,
   type SchemaFieldDescriptor,
   type SchemaFieldKind,
@@ -163,17 +166,19 @@ function drawnLeaves(plan: SchemaFormPlan): readonly SchemaLeafEntry[] {
  * cannot declare one and a caller cannot mistake a declared value for an absent one.
  *
  * A member nobody has answered is ABSENT wherever the control can display that, which is
- * why this asks the table above about one kind alone. Five controls have an empty state a
- * person reads as unanswered, and absence is how this answer spells it — so a schema
- * saying "at least three characters" about an optional text member reports nothing until
- * somebody types, rather than opening with a complaint about a control they never touched.
- * A box has no such state, so it alone opens at the value its own display already asserts.
+ * why this asks the one rule about which control a member draws through. Every control
+ * with an empty state a person reads as unanswered opens absent, and absence is how this
+ * answer spells it — so a schema saying "at least three characters" about an optional text
+ * member reports nothing until somebody types, rather than opening with a complaint about
+ * a control they never touched. A BOX has no such state, so a member drawn as one opens at
+ * the value its own display already asserts; a boolean the answer may leave out is not
+ * drawn as one, and opens absent like everything else that can be.
  */
 function openingMemberValue(field: SchemaFieldDescriptor, declaredValue: unknown): unknown {
   if (declaredValue !== undefined) {
     return declaredValue;
   }
-  return field.kind === "checkbox" ? untouchedControlValue(field.kind) : undefined;
+  return fieldDrawsAsCheckbox(field) ? untouchedControlValue(field.kind) : undefined;
 }
 
 /**

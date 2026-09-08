@@ -96,11 +96,11 @@ export const WORKFLOWS_PARKED_RUN: WorkflowRunSnapshot = {
       // the build phase above is parked on a provider account and asks nobody
       // anything, and the two settled phases have nothing left to ask.
       prompt: "Sign off on this release, or send it back. The publish phase runs on your answer.",
-      // Drawn rather than raw, and drawn across three of the six controls: an
-      // enumerated string is the choice control, `long_text` is the multi-line one,
-      // and a bare boolean is the checkbox. A schema the mapper answers with the JSON
-      // editor is what a suite composes for itself — the fixture's own phase is the
-      // case a person meets, and that case is a form.
+      // Drawn rather than raw, and drawn across three of the six kinds: an enumerated
+      // string is the choice control, `long_text` is the multi-line one, and an OPTIONAL
+      // boolean is the three-state yes-or-no — the checkbox is the REQUIRED boolean, which
+      // this phase does not ask. A schema the mapper answers with the JSON editor is what
+      // a suite composes for itself — the fixture's own phase is the case a person meets.
       inputSchema: {
         type: "object",
         title: "Release sign-off",

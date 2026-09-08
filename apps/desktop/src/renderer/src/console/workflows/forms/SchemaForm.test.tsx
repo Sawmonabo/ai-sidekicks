@@ -31,12 +31,18 @@ describe("the schema-derived form", () => {
         severity: { type: "string", enum: ["low", "high"], title: "Severity" },
         evidence: { type: "string", format: "artifact", title: "Evidence" },
       },
+      // The box is the control a boolean draws through where the answer must hold a value
+      // for it. An OPTIONAL one is drawn as a three-state choice instead, which is the
+      // case below rather than a seventh kind.
+      required: ["approved"],
     });
 
     expect(screen.getByLabelText("Title").tagName).toBe("INPUT");
     expect(screen.getByLabelText("Notes").tagName).toBe("TEXTAREA");
     expect(screen.getByLabelText("Count")).toHaveProperty("type", "number");
-    expect(screen.getByLabelText("Approved")).toHaveProperty("type", "checkbox");
+    // Matched loosely because this one is required, and a required member's label carries
+    // the mark beside its name.
+    expect(screen.getByLabelText(/Approved/u)).toHaveProperty("type", "checkbox");
     expect(screen.getByLabelText("Severity").tagName).toBe("SELECT");
     expect(screen.getByLabelText("Evidence")).toHaveProperty("type", "text");
   });
@@ -68,6 +74,39 @@ describe("the schema-derived form", () => {
     fireEvent.change(severity, { target: { value: emptyMemberOption?.value } });
 
     expect(composedAnswer(container)).toEqual({ severity: "" });
+  });
+
+  it("draws an optional yes-or-no as a three-state choice, so it can be left unanswered", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { notify: { type: "boolean", title: "Notify" } },
+    });
+    const notify = screen.getByLabelText("Notify");
+
+    expect(notify.tagName).toBe("SELECT");
+    expect([...notify.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
+      "Not answered",
+      "Yes",
+      "No",
+    ]);
+    // Unanswered is ABSENT and never a member worth some other value, which is the whole
+    // reading a box could not offer.
+    expect(composedAnswer(container)).toEqual({});
+  });
+
+  it("writes the boolean a person picked rather than the word the option showed", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { notify: { type: "boolean", title: "Notify" } },
+    });
+    const notify = screen.getByLabelText("Notify");
+    const yes = [...notify.querySelectorAll("option")].find(
+      (option) => option.textContent === "Yes",
+    );
+
+    fireEvent.change(notify, { target: { value: yes?.value } });
+
+    expect(composedAnswer(container)).toEqual({ notify: true });
   });
 
   it("says which members the schema requires without deciding whether they are answered", () => {
@@ -122,6 +161,44 @@ describe("the schema-derived form", () => {
 
     expect(group?.querySelector("legend")?.textContent).toBe("Release");
     expect(group?.contains(screen.getByLabelText("Tag"))).toBe(true);
+  });
+
+  it("says a group is required on its own legend, at the same depths a control says it", () => {
+    // A group is a member like any other, and the requiredness a scalar and a list both
+    // carry visibly was read for it and then dropped: the fieldset read optional beside
+    // controls that read required, over a schema that demands the whole group.
+    const container = renderForm({
+      type: "object",
+      properties: {
+        release: {
+          type: "object",
+          title: "Release",
+          properties: { tag: { type: "string", title: "Tag" } },
+          required: ["tag"],
+        },
+        draft: {
+          type: "object",
+          title: "Draft",
+          properties: { note: { type: "string", title: "Note" } },
+        },
+      },
+      required: ["release"],
+    });
+    const [requiredGroup, optionalGroup] = [
+      ...container.querySelectorAll(".meridian-schema-group"),
+    ];
+
+    expect(requiredGroup?.querySelector("legend")?.textContent).toContain("required");
+    expect(optionalGroup?.querySelector("legend")?.textContent).not.toContain("required");
+    // One level in, through the same primitive: a required member of a group still says
+    // so, and an optional one still does not.
+    expect(
+      requiredGroup?.querySelector(".meridian-schema-field .meridian-schema-field__required")
+        ?.textContent,
+    ).toContain("required");
+    expect(
+      optionalGroup?.querySelector(".meridian-schema-field .meridian-schema-field__required"),
+    ).toBeNull();
   });
 
   it("renders a finding addressed to a group on the group's own fieldset", () => {
