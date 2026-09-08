@@ -23,7 +23,7 @@
 
 import { useCallback, useState } from "react";
 
-import { settledGrowthCall, type ConsoleBridge } from "../bridge/index.js";
+import { type ConsoleBridge } from "../bridge/index.js";
 import { type ConsoleRefusal } from "../core/index.js";
 import { routeAuxiliaryWindowId, type ConsoleRoute } from "../routing/index.js";
 
@@ -64,10 +64,10 @@ export interface AuxiliaryReturnState {
  */
 export function useAuxiliaryReturn(options: {
   readonly route: ConsoleRoute;
-  readonly growth: ConsoleBridge["growth"];
+  readonly auxiliaryWindows: ConsoleBridge["auxiliaryWindows"];
   readonly onRefused: (refusal: ConsoleRefusal) => void;
 }): AuxiliaryReturnState {
-  const { growth, onRefused, route } = options;
+  const { auxiliaryWindows, onRefused, route } = options;
   const windowId = routeAuxiliaryWindowId(route);
   const [isReturning, setIsReturning] = useState(false);
 
@@ -76,20 +76,17 @@ export function useAuxiliaryReturn(options: {
       return;
     }
     setIsReturning(true);
-    // Settled, so a rejecting wire reaches the banner as a refusal rather than as an
-    // unhandled rejection off an event handler — the same rule every growth ACT in
-    // the console follows. A `GrowthUnavailable` IS a `ConsoleRefusal`, carrying the
-    // operation and the row that owes the wire, so nothing here re-mints one and
+    // The plane settles its own failures, so a shell that rejected reaches the banner
+    // as a refusal rather than as an unhandled rejection off an event handler. An
+    // `AuxiliaryWindowRefusal` IS a `ConsoleRefusal`, so nothing here re-mints one and
     // nothing translates it into a second vocabulary.
-    void settledGrowthCall("windowCloseAuxiliary", () =>
-      growth.windowCloseAuxiliary({ windowId }),
-    ).then((answer) => {
+    void auxiliaryWindows.closeAuxiliary({ windowId }).then((answer) => {
       if (answer.status === "unavailable") {
         setIsReturning(false);
         onRefused(answer);
       }
     });
-  }, [growth, onRefused, windowId]);
+  }, [auxiliaryWindows, onRefused, windowId]);
 
   return { windowId, isReturning, returnToDeck };
 }

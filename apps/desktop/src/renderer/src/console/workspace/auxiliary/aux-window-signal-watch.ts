@@ -22,34 +22,34 @@
 
 import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
 import { lossyStringify } from "../../core/index.js";
-import type { ConsoleBridge, GrowthOutcome } from "../../bridge/index.js";
+import type { AuxiliaryWindowOutcome, ConsoleBridge } from "../../bridge/index.js";
 import {
   refuseHandoff,
-  refuseHandoffFromGrowth,
   refuseHandoffFromRejection,
+  refuseHandoffFromShell,
   type AuxiliaryHandoffRefusal,
 } from "./aux-handoff-contract.js";
 
 /**
- * The growth port, reached as the bridge's own member rather than by importing the
- * port type.
+ * The auxiliary-window plane, reached as the bridge's own member.
  *
- * `bridge/index.ts` exports the bridge and not the port, deliberately — the port is
- * reached THROUGH a bridge and never held on its own — so this alias takes the type
- * off the door that is open rather than asking for a second one.
+ * Taken off the bridge rather than imported as `AuxiliaryWindowPort`, so the type
+ * this subsystem is written against is by construction the one a `ConsoleBridge`
+ * actually carries: a plane that moved to a different member would be a compile error
+ * here rather than a second name that still resolves.
  *
  * Declared HERE and imported by `aux-handoff.ts` rather than the other way round:
  * that file already imports this module's descendants for the watches, and a
  * type-only import back would close a cycle the layering gate counts as an edge.
  */
-export type ConsoleGrowthPort = ConsoleBridge["growth"];
+export type ConsoleAuxiliaryWindowPort = ConsoleBridge["auxiliaryWindows"];
 
 /**
- * A stream this watch can drain, in the shape a growth subscription answers with.
+ * A stream this watch can drain, in the shape a plane subscription answers with.
  *
- * Structural rather than the port's own `GrowthStream`, so this module names the two
- * members it actually uses and nothing else. The concrete streams satisfy it because
- * they carry both.
+ * Structural rather than the port's own `WindowSignalStream`, so this module names
+ * the two members it actually uses and nothing else. The concrete streams satisfy it
+ * because they carry both.
  */
 interface DrainableSignal<TEvent> {
   readonly events: AsyncIterable<TEvent>;
@@ -68,12 +68,13 @@ export interface AuxiliaryWindowSignalWatchOptions<TEvent> {
   /**
    * Open the subscription, ALREADY SETTLED.
    *
-   * The caller wraps its own `settledGrowthCall`, which is what keeps this module
-   * free of the operation ledger: a subscription that rejects has to land in the same
-   * arm as one that was never registered, and which operation id that refusal names
-   * is the caller's fact rather than this one's.
+   * The plane is total over failure — it answers `served` or `unavailable` and never
+   * rejects — which is what keeps this module free of any knowledge of the transport
+   * underneath: a shell that faulted and a build with no shell at all arrive here as
+   * the same two-arm answer, and which of them it was is the port's fact rather than
+   * this one's.
    */
-  readonly open: () => Promise<GrowthOutcome<DrainableSignal<TEvent>>>;
+  readonly open: () => Promise<AuxiliaryWindowOutcome<DrainableSignal<TEvent>>>;
   /** What the hand-off does with one report. This module never touches its sets. */
   readonly onEvent: (event: TEvent) => void;
   /** The refusal changed. The hand-off publishes; this module never does. */
@@ -151,12 +152,12 @@ export class AuxiliaryWindowSignalWatch<TEvent> {
     }
 
     try {
-      // Settled by the caller, so a rejecting subscribe leaves a stated refusal in the
+      // Settled by the plane, so a rejecting subscribe leaves a stated refusal in the
       // placeholder rather than a watch that was never installed reporting calm.
       const answer = await this.#options.open();
       const installed = claim.settle(() => {
         if (answer.status === "unavailable") {
-          this.#refusal = refuseHandoffFromGrowth(answer);
+          this.#refusal = refuseHandoffFromShell(answer);
           this.#options.onChanged();
           return;
         }

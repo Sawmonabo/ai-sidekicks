@@ -139,10 +139,10 @@ const CONSUMER_OWED_BY_ANOTHER_LANE: Readonly<Record<string, string>> = {
   // shell lane — the node's own attach declaration, whose console consumer is built
   // and whose CARRIER is not: the declaration is a member on the bridge the attach
   // control already holds rather than a call, so the operation-derived check below
-  // cannot reach it either way. `window-control-namespace` came off this list when the
-  // frame lane landed the controls: the `window*` operations are reached from the
-  // workspace's auxiliary hand-off and the frame's own chrome now, so the derived
-  // check covers that row.
+  // cannot reach it either way. `window-control-namespace` left the SLATE entirely
+  // when the auxiliary-window wire landed: `SidekicksBridge.window` is on the preload
+  // contract and `src/main/auxiliary-window-ipc.ts` serves it, so there is no longer a
+  // row for this list — or for the derived check — to cover.
   "node-self-declaration": "shell lane — the settings runtime-nodes page's attach control",
 };
 

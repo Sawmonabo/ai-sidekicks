@@ -8,10 +8,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { IMPLEMENTED_AUXILIARY_ROUTES } from "../../routing/index.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import {
+  refusingPlane,
   WIRE_REJECTION_MESSAGE,
   detachingThenRejectingPort,
   rejectingPort,
@@ -20,13 +20,13 @@ import {
 
 describe("AuxiliaryHandoff — what can be detached at all", () => {
   it("answers for a route this build implements without attempting anything", () => {
-    const handoff = new AuxiliaryHandoff({ growth: createRefusingGrowthPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: refusingPlane() });
     expect(handoff.canDetach("timeline")).toBe(true);
     expect(handoff.routeLabel("timeline")).toBe("Timeline");
   });
 
   it("says no to a kind that is not an auxiliary route, and offers it no label", () => {
-    const handoff = new AuxiliaryHandoff({ growth: createRefusingGrowthPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: refusingPlane() });
     expect(handoff.canDetach("terminal")).toBe(false);
     expect(handoff.routeLabel("terminal")).toBeUndefined();
   });
@@ -43,7 +43,7 @@ describe("AuxiliaryHandoff — what can be detached at all", () => {
     // owns no copy of the rule.
     expect(IMPLEMENTED_AUXILIARY_ROUTES).toStrictEqual(["timeline", "agent-console"]);
     const handoff = new AuxiliaryHandoff({
-      growth: createRefusingGrowthPort(),
+      auxiliaryWindows: refusingPlane(),
       implementedRoutes: ["timeline"],
     });
     expect(handoff.canDetach("agent-console")).toBe(false);
@@ -55,7 +55,7 @@ describe("AuxiliaryHandoff — what can be detached at all", () => {
 
 describe("AuxiliaryHandoff — the four gates, in order", () => {
   it("refuses a kind that is no route at all", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     const outcome = await handoff.detach({
       paneId: "pane-1",
       kind: "terminal",
@@ -70,7 +70,7 @@ describe("AuxiliaryHandoff — the four gates, in order", () => {
     // as a SERVED outcome rather than as a different refusal — which is the claim
     // the case name makes. The route is unimplemented by the seam, not by the build.
     const handoff = new AuxiliaryHandoff({
-      growth: servingPort(),
+      auxiliaryWindows: servingPort(),
       implementedRoutes: ["timeline"],
     });
     const outcome = await handoff.detach({
@@ -83,7 +83,7 @@ describe("AuxiliaryHandoff — the four gates, in order", () => {
   });
 
   it("refuses a target the route's own grammar rejects, and echoes none of it", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     const outcome = await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "" });
     expect(outcome.outcome === "refused" && outcome.refusal.code).toBe("target-context-invalid");
     // The offending value is untrusted input the grammar refused; a refusal that
@@ -91,21 +91,23 @@ describe("AuxiliaryHandoff — the four gates, in order", () => {
     expect(outcome.outcome === "refused" && outcome.refusal.detail).not.toContain('""');
   });
 
-  it("refuses when the wire is not registered, and says whose it is", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: createRefusingGrowthPort() });
+  it("refuses when no shell can open a window, and says which fact that is", async () => {
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: refusingPlane() });
     const outcome = await handoff.detach({
       paneId: "pane-1",
       kind: "timeline",
       sessionId: "session-1",
     });
-    expect(outcome.outcome === "refused" && outcome.refusal.code).toBe("wire-unregistered");
+    expect(outcome.outcome === "refused" && outcome.refusal.code).toBe("shell-absent");
+    // And the pane stays in the deck. A refusal that suppressed the body anyway would
+    // take the pane away and give nothing back for it.
     expect(handoff.detached()).toHaveLength(0);
   });
 
   it("negative control: all four gates pass and the pane is detached", async () => {
     // Without this, every case above would pass over a hand-off that refused
     // unconditionally, which is the one implementation that could never work.
-    const handoff = new AuxiliaryHandoff({ growth: servingPort("aux-7") });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort("aux-7") });
     const outcome = await handoff.detach({
       paneId: "pane-1",
       kind: "timeline",
@@ -123,14 +125,14 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     // to the deck: leaving the placeholder up strands the pane somewhere nobody can
     // focus, which is strictly worse than one stray window.
     const handoff = new AuxiliaryHandoff({
-      growth: {
-        ...createRefusingGrowthPort(),
-        windowDetachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
+      auxiliaryWindows: {
+        ...refusingPlane(),
+        detachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
       },
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     const refusal = await handoff.returnToDeck("pane-1");
-    expect(refusal?.code).toBe("wire-unregistered");
+    expect(refusal?.code).toBe("shell-absent");
     expect(handoff.detached()).toHaveLength(0);
   });
 
@@ -138,7 +140,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     // The reason is kept ON THE HAND-OFF and not merely handed back. A record returned
     // to the drain loop and held nowhere is gone by the time the deck draws the slot
     // it belongs in, which is exactly how the crash detail used to disappear.
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     const lost = handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
     expect(lost?.lostReason).toBe("the window closed unexpectedly");
@@ -148,7 +150,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   });
 
   it("publishes the loss, so a surface subscribed to it hears about the crash", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     const readsAtPublish: (string | undefined)[] = [];
     const unsubscribe = handoff.subscribe(() => {
@@ -164,7 +166,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   });
 
   it("clears the crash record when the same pane is detached again", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
 
@@ -177,7 +179,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   });
 
   it("clears the crash record when the person dismisses it, and publishes that", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
     let publishCount = 0;
@@ -199,7 +201,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
     // Without this, every case above would pass over a hand-off that recorded a loss
     // for every pane that left a window — and the deck would tell a person their
     // window crashed every time they pressed "Return it to the deck".
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     await handoff.returnToDeck("pane-1");
@@ -208,7 +210,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   });
 
   it("publishes every change to its subscribers", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     const counts: number[] = [];
     const unsubscribe = handoff.subscribe((detached) => {
       counts.push(detached.length);
@@ -220,7 +222,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   });
 
   it("does nothing for a pane it never detached", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     expect(await handoff.focus("pane-unknown")).toBeUndefined();
     expect(await handoff.returnToDeck("pane-unknown")).toBeUndefined();
     expect(handoff.noteWindowLost("pane-unknown", "gone")).toBeUndefined();
@@ -228,7 +230,7 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
 });
 
 describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
-  // A `GrowthPort` method answers `served` or `unavailable`, and every caller above
+  // A `ConsoleAuxiliaryWindowPort` method answers `served` or `unavailable`, and every caller above
   // branches on that pair. A REJECTION is outside it, and is what a live bridge does
   // when its transport is gone. Each case below drove a press that changed nothing
   // and said nothing before the settled call landed: no window, no placeholder, no
@@ -240,7 +242,7 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
   // about ORDER and keeps its ordering cases.
 
   it("refuses the detach, in the same arm an unregistered wire lands in", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: rejectingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: rejectingPort() });
     const outcome = await handoff.detach({
       paneId: "pane-1",
       kind: "timeline",
@@ -257,7 +259,7 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
   });
 
   it("refuses the focus the placeholder offers, rather than reporting it done", async () => {
-    const handoff = new AuxiliaryHandoff({ growth: detachingThenRejectingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: detachingThenRejectingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     const refusal = await handoff.focus("pane-1");
@@ -270,7 +272,7 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
     // Both halves, because they are one rule: a window this process can no longer
     // reach is a window whose pane must come back, and the person is still told the
     // close did not land.
-    const handoff = new AuxiliaryHandoff({ growth: detachingThenRejectingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: detachingThenRejectingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
     const refusal = await handoff.returnToDeck("pane-1");
@@ -283,7 +285,7 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
     // The fourth call, and the one whose silence was worst: the watch installed no
     // stream and wrote no refusal, so the placeholder reported that nothing was wrong
     // over a crash signal that was never opened.
-    const handoff = new AuxiliaryHandoff({ growth: rejectingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: rejectingPort() });
 
     await handoff.watchWindowSignals();
 
@@ -294,7 +296,7 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
   it("negative control: a wire that answers leaves no refusal on any of the four", async () => {
     // Without this, every case above would pass over a hand-off that refused every
     // call it made, which is the one implementation that could never work.
-    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    const handoff = new AuxiliaryHandoff({ auxiliaryWindows: servingPort() });
     const outcome = await handoff.detach({
       paneId: "pane-1",
       kind: "timeline",
@@ -304,9 +306,9 @@ describe("AuxiliaryHandoff — the wire rejects rather than answering", () => {
     expect(outcome.outcome).toBe("detached");
     expect(await handoff.focus("pane-1")).toBeUndefined();
     expect(await handoff.returnToDeck("pane-1")).toBeUndefined();
-    // The watch answers `unavailable` on this port rather than rejecting, so its
-    // refusal is the unregistered one — a different fact, which is the point.
+    // The watch answers `unavailable` on this plane rather than rejecting, so its
+    // refusal is the shell-absent one — a different fact, which is the point.
     await handoff.watchWindowSignals();
-    expect(handoff.paneErrorRefusal?.code).toBe("wire-unregistered");
+    expect(handoff.paneErrorRefusal?.code).toBe("shell-absent");
   });
 });

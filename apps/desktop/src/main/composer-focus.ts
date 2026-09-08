@@ -9,10 +9,11 @@
 //
 // WHY MAIN. An auxiliary window is its own renderer process with its own preload,
 // its own bridge instance, and no store shared with the main window (Plan-023
-// I-023-12). Nothing inside it can reach another window, and no bridge namespace
-// for window control is registered — `Plan-023 §Console growth slate` still carries
-// that row. The main process owns both windows, so it is the only party that can
-// act on the press, and `before-input-event` is how it sees a keystroke: the event
+// I-023-12). Nothing inside it can reach another window: the bridge's `window`
+// namespace addresses auxiliary windows — detach, focus, close — and no namespace
+// reaches into the main window's composer. The main process owns both windows, so
+// it is the only party that can act on the press, and `before-input-event` is how
+// it sees a keystroke: the event
 // is delivered to the main process BEFORE the page sees it, so the chord is
 // answered and consumed without the auxiliary renderer needing a binding for a
 // control it does not have.

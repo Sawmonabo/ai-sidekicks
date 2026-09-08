@@ -4,9 +4,7 @@
 // One plane of `GrowthOperationSignatures`, composed into it by `index.ts`. The
 // rows here are the ones addressed to a PANE rather than to the session behind it:
 // the browser namespace and its tool relay, the terminal namespace and its write
-// lease, the dev-server probe a browser pane makes before it navigates, and the
-// window operations that detach a pane into an auxiliary window, address that
-// window, and report the two ways it can hand the pane back.
+// lease, and the dev-server probe a browser pane makes before it navigates.
 
 import type { GrowthStream } from "../growth-port/growth-outcome.js";
 import type {
@@ -14,8 +12,6 @@ import type {
   GrowthBrowserPage,
   GrowthBrowserPageList,
   GrowthNavigationState,
-  GrowthPaneError,
-  GrowthPaneReturn,
   GrowthTerminalChunk,
   GrowthToolCall,
 } from "../growth-values/index.js";
@@ -226,30 +222,4 @@ export interface PaneGrowthSignatures {
     value: { readonly controlHolder: null };
   };
   devServerProbe: { request: { readonly port: number }; value: { readonly listening: boolean } };
-  windowDetachPane: { request: { readonly paneId: string }; value: { readonly windowId: string } };
-  windowFocusAuxiliary: { request: { readonly windowId: string }; value: void };
-  windowCloseAuxiliary: { request: { readonly windowId: string }; value: void };
-  windowSubscribePaneErrors: {
-    request: Record<string, never>;
-    value: GrowthStream<GrowthPaneError>;
-  };
-  /**
-   * The orderly-return signal: a window that closed put its pane back.
-   *
-   * A SECOND SUBSCRIPTION BESIDE THE CRASH ONE, because the deck has to tell the
-   * two apart and a stream carrying both would make that a member read. The
-   * distinction is what a person sees: a crash leaves a note in the pane's error
-   * slot saying the window died, and a return leaves nothing at all, because the
-   * pane simply came back the way it was asked to.
-   *
-   * The console needs it the moment a window can close ITSELF. A deck that closes
-   * a window already knows it did and restores the slot locally; a window that
-   * returns its own pane is a fact only the shell can report, and without a
-   * channel for it the deck holds a placeholder for a window that no longer
-   * exists until the person reloads.
-   */
-  windowSubscribePaneReturns: {
-    request: Record<string, never>;
-    value: GrowthStream<GrowthPaneReturn>;
-  };
 }

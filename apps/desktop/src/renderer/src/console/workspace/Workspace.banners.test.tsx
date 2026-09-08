@@ -9,7 +9,7 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { UiStateStore } from "../persistence/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import {
@@ -20,6 +20,7 @@ import {
   workspaceFor,
 } from "./Workspace.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
+import { refusingPlane } from "./auxiliary/aux-handoff.test-support.js";
 
 /** A store whose writes fail, which is what raises the workspace's own save refusal. */
 class RejectingWriteAdapter extends MemoryPersistenceAdapter {
@@ -35,18 +36,9 @@ class RejectingWriteAdapter extends MemoryPersistenceAdapter {
  * serve. This file is about the COLUMN — one row per distinct refusal, and a key that
  * survives a dismissal — so the source of the refusal is scaffolding, and scaffolding
  * that changes whenever a wire is served is scaffolding these cases silently lose.
- * `growthUnavailable` builds exactly the value the live bridge returns for a wire the
- * corpus has not registered, so the three fields the column folds on are the real ones.
  */
 function bridgeRefusingDetach(): ConsoleBridge {
-  const base = createFixtureBridge({ scenario: SCENARIO });
-  return {
-    ...base,
-    growth: {
-      ...base.growth,
-      windowDetachPane: async () => growthUnavailable("windowDetachPane"),
-    },
-  };
+  return { ...createFixtureBridge({ scenario: SCENARIO }), auxiliaryWindows: refusingPlane() };
 }
 
 function renderSession(uiStateStore: UiStateStore): HTMLElement {
@@ -107,7 +99,7 @@ describe("Workspace — the banner column", () => {
     await pressDetach(container);
 
     expect(bannerRows(container)).toHaveLength(1);
-    expect(rowCarrying(container, "wire-unregistered").textContent).toContain("×3");
+    expect(rowCarrying(container, "shell-absent").textContent).toContain("×3");
   });
 
   it("negative control: one raise carries no count at all", async () => {
@@ -121,7 +113,7 @@ describe("Workspace — the banner column", () => {
     await pressDetach(container);
 
     expect(bannerRows(container)).toHaveLength(1);
-    expect(rowCarrying(container, "wire-unregistered").textContent).not.toContain("×");
+    expect(rowCarrying(container, "shell-absent").textContent).not.toContain("×");
   });
 
   it("keeps a surviving banner's own node when another is dismissed", async () => {
@@ -142,7 +134,7 @@ describe("Workspace — the banner column", () => {
     // so this column carries more than the two the case strictly needs.
     expect(raisedCount).toBeGreaterThan(1);
 
-    const survivor = rowCarrying(container, "wire-unregistered");
+    const survivor = rowCarrying(container, "shell-absent");
     const dismissed = bannerRows(container).find((row) => row !== survivor);
     expect(dismissed).toBeDefined();
     if (dismissed !== undefined) {
@@ -152,6 +144,6 @@ describe("Workspace — the banner column", () => {
     expect(bannerRows(container)).toHaveLength(raisedCount - 1);
     // The same element, not one carrying the same words: a remount is what the old
     // position key caused, and it is invisible in the markup.
-    expect(rowCarrying(container, "wire-unregistered")).toBe(survivor);
+    expect(rowCarrying(container, "shell-absent")).toBe(survivor);
   });
 });

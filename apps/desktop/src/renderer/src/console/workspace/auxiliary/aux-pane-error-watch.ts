@@ -9,15 +9,17 @@
 //
 // `Spec-023 §The surface set`: "a crashed auxiliary window returns the pane to the
 // deck with the crash noted in the pane's error slot" needs something to notice the
-// crash, and the growth registry carries exactly one: a window pane-error
-// subscription whose value is a pane id and a reason. It is watched only while
+// crash, and the shell reports exactly one: a window pane-error subscription whose
+// value is a pane id and a reason. It is watched only while
 // something is detached, because a subscription held over an empty detached set can
 // report nothing and its refusal would be a permanent notice about a hazard the
 // window does not currently have. A refused subscription is rendered in the
 // placeholder it belongs to: it does not mean "no crashes".
 
-import { settledGrowthCall } from "../../bridge/index.js";
-import { AuxiliaryWindowSignalWatch, type ConsoleGrowthPort } from "./aux-window-signal-watch.js";
+import {
+  AuxiliaryWindowSignalWatch,
+  type ConsoleAuxiliaryWindowPort,
+} from "./aux-window-signal-watch.js";
 
 /**
  * The served value of the pane-error subscription, taken off the port rather than
@@ -29,7 +31,7 @@ import { AuxiliaryWindowSignalWatch, type ConsoleGrowthPort } from "./aux-window
  * half of the signal's shape is written down twice.
  */
 type PaneErrorSignal = Extract<
-  Awaited<ReturnType<ConsoleGrowthPort["windowSubscribePaneErrors"]>>,
+  Awaited<ReturnType<ConsoleAuxiliaryWindowPort["subscribePaneErrors"]>>,
   { readonly status: "served" }
 >["value"];
 
@@ -52,7 +54,7 @@ export type PaneErrorWatch = AuxiliaryWindowSignalWatch<PaneErrorReport>;
 const PANE_ERROR_WATCH_KEY = "pane-error-watch";
 
 export interface PaneErrorWatchOptions {
-  readonly growth: ConsoleGrowthPort;
+  readonly auxiliaryWindows: ConsoleAuxiliaryWindowPort;
   /** A window reported lost, by the pane it held and the reason it gave. */
   readonly onWindowLost: (paneId: string, reason: string) => void;
   /** The refusal changed. The hand-off publishes; this module never does. */
@@ -62,17 +64,14 @@ export interface PaneErrorWatchOptions {
 /**
  * Watch the crashed-window signal.
  *
- * Settled at the seam rather than inside the shared lifecycle: a rejecting subscribe
- * has to land in the same arm as a wire that was never registered, and which
- * operation id that refusal names is this signal's fact rather than the lifecycle's.
+ * The plane settles its own failures, so the subscribe below is handed on unwrapped:
+ * a shell that faulted and a build with no shell arrive as the same two-arm answer,
+ * and the lifecycle underneath narrows on it without knowing which signal it is.
  */
 export function paneErrorWatch(options: PaneErrorWatchOptions): PaneErrorWatch {
   return new AuxiliaryWindowSignalWatch({
     watchKey: PANE_ERROR_WATCH_KEY,
-    open: async () =>
-      await settledGrowthCall("windowSubscribePaneErrors", () =>
-        options.growth.windowSubscribePaneErrors({}),
-      ),
+    open: async () => await options.auxiliaryWindows.subscribePaneErrors(),
     onEvent: (paneError) => {
       options.onWindowLost(paneError.paneId, paneError.reason);
     },

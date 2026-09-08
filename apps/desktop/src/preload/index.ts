@@ -7,11 +7,26 @@
 // `NotImplementedAtTier1Error` until Tier 8 wires the real IPC handlers
 // (Plan-023 §Implementation Steps step 6 against this same surface).
 //
-// THE ONE EXCEPTION IS THE `shell` NAMESPACE, and it is an exception because it
-// is not a round trip: main speaks to this window over a channel that exists
-// today. The factory takes it as a parameter, and the relay that satisfies it
-// lives in `./shell-signals.ts` — so this file is still the expose call and
-// nothing else, which is the rule for everything under `src/preload/`.
+// TWO NAMESPACES ARE ALREADY WIRED, and each is wired the way its direction
+// demands:
+//
+//   • `shell` runs main-to-renderer and is not a round trip: main speaks to this
+//     window over a channel that exists today. The factory takes it as a
+//     parameter, and the relay that satisfies it lives in `./shell-signals.ts`.
+//   • `window`, the shell's auxiliary-window controls, runs renderer-to-main and
+//     is spread over the stub rather than left throwing: its main-process
+//     handlers ship with this same phase (`../main/auxiliary-window-ipc.ts`). A
+//     pane moved into a window of its own is a shell act end to end — no daemon
+//     call, no control-plane procedure — so it needs no wire the corpus has not
+//     registered, and leaving it on the console's growth port would have meant
+//     the deck suppressed a pane and no `BrowserWindow` ever opened.
+//
+// STILL NO LOGIC AND NO BRANCHING. Each `window` line below is one `ipcRenderer`
+// call: three forwarders and two listener registrations. The Electron event
+// object is dropped rather than forwarded — an `IpcRendererEvent` carries
+// `sender` and `ports`, and handing either to the renderer would put the
+// boundary this file exists to hold on the far side of it. Everything else in
+// this file is the expose call, which is the rule for `src/preload/`.
 //
 // Spec-023 §Security Hardening Baseline lock-in:
 //   • `contextBridge.exposeInMainWorld` is the ONLY renderer-visible API —
@@ -36,8 +51,51 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 
-import { createTier1Bridge } from "@ai-sidekicks/contracts";
+import {
+  AUXILIARY_WINDOW_CHANNELS,
+  createTier1Bridge,
+  type AuxiliaryWindowControls,
+  type AuxiliaryWindowDetachRequest,
+  type AuxiliaryWindowHandle,
+  type AuxiliaryWindowPaneError,
+  type AuxiliaryWindowPaneReturn,
+} from "@ai-sidekicks/contracts";
 
 import { createShellSignals } from "./shell-signals.js";
 
-contextBridge.exposeInMainWorld("sidekicks", createTier1Bridge(createShellSignals(ipcRenderer)));
+const auxiliaryWindowControls: AuxiliaryWindowControls = {
+  detachPane: async (request: AuxiliaryWindowDetachRequest): Promise<AuxiliaryWindowHandle> =>
+    (await ipcRenderer.invoke(
+      AUXILIARY_WINDOW_CHANNELS.detachPane,
+      request,
+    )) as AuxiliaryWindowHandle,
+  focusAuxiliary: async (request: AuxiliaryWindowHandle): Promise<void> => {
+    await ipcRenderer.invoke(AUXILIARY_WINDOW_CHANNELS.focusAuxiliary, request);
+  },
+  closeAuxiliary: async (request: AuxiliaryWindowHandle): Promise<void> => {
+    await ipcRenderer.invoke(AUXILIARY_WINDOW_CHANNELS.closeAuxiliary, request);
+  },
+  subscribePaneErrors: (handler: (event: AuxiliaryWindowPaneError) => void) => {
+    const deliver = (_event: unknown, report: AuxiliaryWindowPaneError): void => {
+      handler(report);
+    };
+    ipcRenderer.on(AUXILIARY_WINDOW_CHANNELS.paneError, deliver);
+    return () => {
+      ipcRenderer.removeListener(AUXILIARY_WINDOW_CHANNELS.paneError, deliver);
+    };
+  },
+  subscribePaneReturns: (handler: (event: AuxiliaryWindowPaneReturn) => void) => {
+    const deliver = (_event: unknown, report: AuxiliaryWindowPaneReturn): void => {
+      handler(report);
+    };
+    ipcRenderer.on(AUXILIARY_WINDOW_CHANNELS.paneReturn, deliver);
+    return () => {
+      ipcRenderer.removeListener(AUXILIARY_WINDOW_CHANNELS.paneReturn, deliver);
+    };
+  },
+};
+
+contextBridge.exposeInMainWorld("sidekicks", {
+  ...createTier1Bridge(createShellSignals(ipcRenderer)),
+  window: auxiliaryWindowControls,
+});

@@ -289,7 +289,7 @@ export function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   const windowControls = (
     <AuxiliaryReturn
       route={route}
-      growth={props.bridge.growth}
+      auxiliaryWindows={props.bridge.auxiliaryWindows}
       onRefused={(refusal) => {
         frameStore.raiseRefusalBanner(refusal);
       }}

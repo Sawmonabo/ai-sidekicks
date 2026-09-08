@@ -322,6 +322,13 @@ export {
 // The outcome union itself. A caller outside this family narrows on it; its refusal
 // ARM does not travel, for the reason stated above the growth-port block.
 export type { GrowthOutcome } from "./growth-port/growth-outcome.js";
+// The auxiliary-window plane's two answer shapes. The workspace family's hand-off
+// narrows every answer on the outcome union and translates the refusal into its own
+// vocabulary, so both are reached from outside this family. The PORT type itself is
+// not: the one module that names it takes it off `ConsoleBridge["auxiliaryWindows"]`,
+// which is the member a bridge actually carries — and the shell adapter and the
+// fixture's arm selection stay in here, because a bridge is what builds those.
+export type { AuxiliaryWindowOutcome, AuxiliaryWindowRefusal } from "./auxiliary-window-port.js";
 // The window's one transport-reconnect signal, published as the CLASS rather than as
 // the floor's subscribe-only view: the doors that report into it — this family's own
 // stream door, the seat every view family subscribes through, and the frame's

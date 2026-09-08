@@ -23,6 +23,7 @@
 
 import { ParticipantIdSchema } from "@ai-sidekicks/contracts";
 import type {
+  AuxiliaryWindowControls,
   CpInput,
   CpOutput,
   CpProcedure,
@@ -36,6 +37,7 @@ import type {
   UpdateState,
 } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../console-bridge.js";
+import { createFixtureAuxiliaryWindowPort, readFixtureShell } from "./fixture-auxiliary-windows.js";
 import { resolveScriptedReply, assertScriptedReplyOnContract } from "./fixture-call-door.js";
 import { createFixtureGrowthPort } from "./fixture-growth-port.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
@@ -79,6 +81,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   // declaration for why the count lives here and not on the scenario.
   const ceremonyHost = new ScriptedCeremonyRunner(scenarioEngine);
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
+  // Read ONCE and handed to both the namespace and the port below, so a fixture
+  // window cannot be on the shell arm for one and the no-shell arm for the other.
+  const shell = readFixtureShell();
   const sidekicks: SidekicksBridge = {
     daemon: {
       // `DaemonResult<M>` is a Plan-007 stub that resolves to `unknown`, so the
@@ -172,6 +177,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       requestCheck: () => refuseAbsentCapability("update.requestCheck"),
       requestRestart: () => refuseAbsentCapability("update.requestRestart"),
     },
+    window: shell?.window ?? WINDOWLESS_AUXILIARY_CONTROLS,
     app: FIXTURE_APP_META,
   };
 
@@ -195,6 +201,10 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       readRuntimeNodeRosterFromScenario(scenarioEngine, request),
     runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
       subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
+    // The plane, on whichever arm this build is: the installed shell's own handler
+    // where an Electron main process is underneath, and the typed `shell-absent`
+    // refusal where none is. `fixture-auxiliary-windows.ts` states both.
+    auxiliaryWindows: createFixtureAuxiliaryWindowPort(shell),
     // The attention plane moves with playback, so a delivered beat IS the moment it
     // may have changed. `fixture-attention-derivation.ts` folds the delivered prefix
     // into the projection this bridge serves, and it does that for every session the
@@ -218,6 +228,24 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     scenarioEngine,
   };
 }
+
+/**
+ * The `window` namespace a fixture with no shell underneath carries.
+ *
+ * Present because I-023-13 makes the fixture shape-identical to `SidekicksBridge`
+ * namespace for namespace, and refusing because there is no process here that could
+ * open a window. Nothing in the console calls it — every console reader goes through
+ * `ConsoleBridge.auxiliaryWindows`, which answers the same absence as a typed
+ * refusal rather than as a rejection — so the two subscriptions hand back a disposer
+ * and report nothing, which is what a signal with no producer behind it is.
+ */
+const WINDOWLESS_AUXILIARY_CONTROLS: AuxiliaryWindowControls = {
+  detachPane: () => refuseAbsentCapability("window.detachPane"),
+  focusAuxiliary: () => refuseAbsentCapability("window.focusAuxiliary"),
+  closeAuxiliary: () => refuseAbsentCapability("window.closeAuxiliary"),
+  subscribePaneErrors: () => () => undefined,
+  subscribePaneReturns: () => () => undefined,
+};
 
 /** The two ceremony operations one window can put, answered from one stated host. */
 interface ScriptedCeremonyHost {

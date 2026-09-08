@@ -5,9 +5,11 @@
 // assert the whole path. `Spec-023 §The surface set` gives an auxiliary window its own
 // bridge instance and no shared store, so the window and the deck are two renderers —
 // but they are two renderers of ONE shell, and the shell is what carries the return
-// from the window that closed to the deck that was waiting. The fixture bridge stands
-// in for that shell, so a case that hands one bridge to both halves is modelling what
-// ships rather than shortcutting it.
+// from the window that closed to the deck that was waiting. `ModelledShell` stands in
+// for that shell, so a case that hands one plane to both halves is modelling what
+// ships rather than shortcutting it. It is scaffolding rather than a fixture answer:
+// a browser-mode run has no main process, and the fixture bridge says so now instead
+// of pretending it opened a window.
 //
 // The deck's half is the hand-off, driven directly: what a deck DRAWS for a detached
 // pane is `workspace/`'s to assert, and what the return does to the set behind that
@@ -16,11 +18,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port/growth-port.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { AuxiliaryHandoff } from "../workspace/auxiliary/aux-handoff.js";
+import { ModelledShell, refusingPlane } from "../workspace/auxiliary/aux-handoff.test-support.js";
+import { type ConsoleAuxiliaryWindowPort } from "../workspace/auxiliary/aux-window-signal-watch.js";
 import { type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleRoute } from "../routing/index.js";
 import { AuxiliaryReturn } from "./AuxiliaryReturn.js";
@@ -50,12 +52,12 @@ function detachedRoute(windowId: string): ConsoleRoute {
   };
 }
 
-/** Move the pane into a window over `bridge`, and watch for its return. */
-async function deckHoldingASlot(bridge: ConsoleBridge): Promise<{
+/** Move the pane into a window over `auxiliaryWindows`, and watch for its return. */
+async function deckHoldingASlot(auxiliaryWindows: ConsoleAuxiliaryWindowPort): Promise<{
   readonly handoff: AuxiliaryHandoff;
   readonly windowId: string;
 }> {
-  const handoff = new AuxiliaryHandoff({ growth: bridge.growth });
+  const handoff = new AuxiliaryHandoff({ auxiliaryWindows });
   const outcome = await handoff.detach({
     paneId: PANE_ID,
     kind: "timeline",
@@ -78,12 +80,12 @@ describe("the auxiliary window's return control", () => {
     // placeholder. Before this the window could only close itself, which the deck
     // could not distinguish from a window that died — or, worse, could not hear at
     // all, leaving a placeholder for a window that no longer existed.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-    const { handoff, windowId } = await deckHoldingASlot(bridge);
+    const shell = new ModelledShell();
+    const { handoff, windowId } = await deckHoldingASlot(shell.plane);
     render(
       <AuxiliaryReturn
         route={detachedRoute(windowId)}
-        growth={bridge.growth}
+        auxiliaryWindows={shell.plane}
         onRefused={IGNORE_REFUSAL}
       />,
     );
@@ -102,8 +104,7 @@ describe("the auxiliary window's return control", () => {
     // The pin that keeps the two paths apart. Without it, the case above would pass
     // over a return that had simply replaced the crash path — and a window that died
     // would put its pane back saying nothing about why.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-    const { handoff, windowId } = await deckHoldingASlot(bridge);
+    const { handoff, windowId } = await deckHoldingASlot(new ModelledShell().plane);
 
     // The shell's own act rather than the control's: nothing was pressed.
     expect(
@@ -118,12 +119,10 @@ describe("the auxiliary window's return control", () => {
     // A window opened from the menu bar carries no handle, so there is no window for
     // it to address and no slot for its pane to go back to. A control offered here
     // would be offering a place that does not exist.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-
     const { container } = render(
       <AuxiliaryReturn
         route={{ kind: "auxiliary", route: "timeline" }}
-        growth={bridge.growth}
+        auxiliaryWindows={new ModelledShell().plane}
         onRefused={IGNORE_REFUSAL}
       />,
     );
@@ -135,12 +134,10 @@ describe("the auxiliary window's return control", () => {
   it("draws nothing in the main window either", () => {
     // The same suppression from the other side: the main window is not an auxiliary
     // one at all, and the discriminator is the handle rather than the chrome.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-
     const { container } = render(
       <AuxiliaryReturn
         route={{ kind: "sessions" }}
-        growth={bridge.growth}
+        auxiliaryWindows={new ModelledShell().plane}
         onRefused={IGNORE_REFUSAL}
       />,
     );
@@ -148,16 +145,16 @@ describe("the auxiliary window's return control", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("states the growth refusal and offers the control again", async () => {
+  it("states the plane's refusal and offers the control again", async () => {
     // A close that could not be asked for leaves the window exactly where it was, so
     // the control comes back rather than staying spent. The refusal travels as the
-    // port's own — a `GrowthUnavailable` IS a `ConsoleRefusal` — so nothing here
-    // re-mints one and the sentence names the wire that is missing.
+    // plane's own — an `AuxiliaryWindowRefusal` IS a `ConsoleRefusal` — so nothing
+    // here re-mints one and the sentence names what could not be reached.
     const refusals: ConsoleRefusal[] = [];
     render(
       <AuxiliaryReturn
         route={detachedRoute("aux-window-1")}
-        growth={createRefusingGrowthPort()}
+        auxiliaryWindows={refusingPlane()}
         onRefused={(refusal) => {
           refusals.push(refusal);
         }}
@@ -168,7 +165,7 @@ describe("the auxiliary window's return control", () => {
     await crossMacrotaskBoundary();
 
     expect(refusals).toHaveLength(1);
-    expect(refusals[0]?.code).toBe("wire-unregistered");
+    expect(refusals[0]?.code).toBe("shell-absent");
     expect(returnControl().disabled).toBe(false);
   });
 
@@ -176,12 +173,12 @@ describe("the auxiliary window's return control", () => {
     // Without this, the case above would pass over a control that never disabled at
     // all — and a second press would ask the shell to close a window it is already
     // closing, which the plane answers with a refusal about a window that is gone.
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-    const { windowId } = await deckHoldingASlot(bridge);
+    const shell = new ModelledShell();
+    const { windowId } = await deckHoldingASlot(shell.plane);
     render(
       <AuxiliaryReturn
         route={detachedRoute(windowId)}
-        growth={bridge.growth}
+        auxiliaryWindows={shell.plane}
         onRefused={IGNORE_REFUSAL}
       />,
     );

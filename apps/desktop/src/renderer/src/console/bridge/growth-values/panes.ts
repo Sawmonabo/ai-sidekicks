@@ -92,29 +92,3 @@ export interface GrowthTerminalChunk {
   readonly terminalId: string;
   readonly data: string;
 }
-
-export interface GrowthPaneError {
-  readonly paneId: string;
-  readonly reason: string;
-}
-
-/**
- * A window that gave its pane back in an orderly way, as the shell reports it.
- *
- * A SEPARATE SHAPE FROM {@link GrowthPaneError} AND NOT A WIDENING OF IT, because
- * the two report opposite facts. A pane error is a window that stopped being open
- * without anybody asking; this is a window that was asked to close and did. Folded
- * into one shape with a nullable reason, the deck would have to read a member to
- * tell a crash from a return, and every reader that forgot would report a crash
- * that did not happen.
- *
- * It carries the WINDOW as well as the pane, and the window is the load-bearing
- * half: a pane can be detached again into a second window, so a return naming only
- * the pane cannot say which window it is about, and a late report about the first
- * would put back a pane whose body is currently in the second. The deck matches
- * the handle it recorded and ignores a return about any other.
- */
-export interface GrowthPaneReturn {
-  readonly windowId: string;
-  readonly paneId: string;
-}

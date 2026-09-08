@@ -351,11 +351,6 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   "orchestrationChildRunLinkRead",
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
-  "windowDetachPane",
-  "windowFocusAuxiliary",
-  "windowCloseAuxiliary",
-  "windowSubscribePaneErrors",
-  "windowSubscribePaneReturns",
   "browserProducedArtifacts",
   "terminalAcquireWriteLease",
   "terminalReleaseWriteLease",
@@ -430,13 +425,6 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS: readonly [
   // sidekick — the definition picker's read, from the same script.
   "sidekickDefinitionList",
   "sidekickPeerInvocationSet",
-  // window — the shell's own plane rather than the daemon's, which is why these five
-  // are served without a scenario scripting anything: see the header.
-  "windowDetachPane",
-  "windowFocusAuxiliary",
-  "windowCloseAuxiliary",
-  "windowSubscribePaneErrors",
-  "windowSubscribePaneReturns",
   // browser — the one read in that namespace a scenario can answer, and the shelf's
   // only source of provenance. See the browser section of the header.
   "browserProducedArtifacts",

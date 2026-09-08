@@ -37,7 +37,6 @@ import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
 import type { WireErrorEnvelope } from "../../core/index.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../scenarios/browser.js";
-import { FixtureAuxiliaryWindowPlane } from "./fixture-auxiliary-windows.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { fixtureDiagnosticsReads } from "./fixture-diagnostics-reads.js";
 import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
@@ -85,10 +84,6 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
  * function` in a surface.
  */
 export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
-  // The shell's window plane, one per port and therefore one per bridge. A handle is
-  // meaningful only to the shell that minted it, so a plane shared across bridges
-  // would hand a scenario switch a window the new shell has never heard of.
-  const auxiliaryWindows = new FixtureAuxiliaryWindowPlane();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow, onboarding and shell — spread from the modules that implement them, so
     // the served ids next door and the handlers there are held to each other by the
@@ -395,15 +390,6 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "sidekickPeerInvocationSet",
         request,
       ),
-    // window — the shell's plane rather than the daemon's, so the answers come from
-    // the model beside this file rather than from the scenario. Synchronous inside,
-    // and `async` only because the port's every method is: a window handle is minted
-    // in this process, so there is nothing to await.
-    windowDetachPane: async (request) => auxiliaryWindows.detachPane(request),
-    windowFocusAuxiliary: async (request) => auxiliaryWindows.focusAuxiliary(request),
-    windowCloseAuxiliary: async (request) => auxiliaryWindows.closeAuxiliary(request),
-    windowSubscribePaneErrors: async () => auxiliaryWindows.subscribePaneErrors(),
-    windowSubscribePaneReturns: async () => auxiliaryWindows.subscribePaneReturns(),
     // The provider-session import, both halves from the script. The opening call is a
     // WRITE — there is no "the import that began and produced nothing" — and the
     // subscription is addressed by the import that call minted, so neither has an

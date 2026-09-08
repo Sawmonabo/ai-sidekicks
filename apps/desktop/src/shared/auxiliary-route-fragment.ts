@@ -67,8 +67,8 @@ import { isAuxiliaryRouteName, type AuxiliaryRouteName } from "./auxiliary-route
  * structurally, and structurally `{ route: "timeline", sessionId, agentId }` is
  * assignable to the timeline arm. {@link formatAuxiliaryFragment} therefore
  * re-checks the same grammar at runtime — which is also what makes it safe on
- * the IPC path `Plan-023 §Console growth slate` will bring, where a type is a
- * claim and not a guarantee.
+ * the IPC path the renderer-initiated detach takes, where a type is a claim and
+ * not a guarantee.
  */
 export type AuxiliaryRouteTarget =
   | { readonly route: "timeline" }

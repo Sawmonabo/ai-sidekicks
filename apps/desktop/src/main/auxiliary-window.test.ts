@@ -357,8 +357,8 @@ describe("the auxiliary window factory", () => {
       {
         label: "a route outside the closed set",
         // Cast: the compile-time union already refuses this, and the runtime
-        // check exists for the renderer-initiated detach on the growth slate,
-        // which arrives over IPC where a type is a claim and not a guarantee.
+        // check exists for the renderer-initiated detach, which arrives over IPC
+        // where a type is a claim and not a guarantee.
         launch: { route: "settings" } as unknown as Parameters<
           AuxiliaryWindowModule["createAuxiliaryWindow"]
         >[0],

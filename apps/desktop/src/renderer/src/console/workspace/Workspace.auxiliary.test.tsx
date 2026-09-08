@@ -9,12 +9,9 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  createFixtureBridge,
-  growthUnavailable,
-  type ConsoleBridge,
-  type GrowthPort,
-} from "../bridge/index.js";
+import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import { refusingPlane } from "./auxiliary/aux-handoff.test-support.js";
+import { type ConsoleAuxiliaryWindowPort } from "./auxiliary/aux-window-signal-watch.js";
 import {
   SCENARIO,
   SESSION_ID,
@@ -26,16 +23,24 @@ import {
 } from "./Workspace.test-support.js";
 
 describe("Workspace — a pane moved into a window of its own", () => {
-  /** The fixture bridge, with the window operations this case needs served. */
-  function bridgeServingWindowWire(overrides: Partial<GrowthPort>): ConsoleBridge {
-    const base = createFixtureBridge({ scenario: SCENARIO });
-    return { ...base, growth: { ...base.growth, ...overrides } };
+  /**
+   * The fixture bridge, with an auxiliary-window plane this case states.
+   *
+   * The plane is SUPPLIED rather than taken off the fixture, because the fixture's own
+   * arm depends on whether a shell is installed and a browser-mode run has none — so a
+   * case that leant on it would be asserting against a refusal. What these cases are
+   * about is the deck's slot once a window HAS opened, which is a fact about the deck
+   * rather than about which build it is running in.
+   */
+  function bridgeServingWindowWire(auxiliaryWindows: ConsoleAuxiliaryWindowPort): ConsoleBridge {
+    return { ...createFixtureBridge({ scenario: SCENARIO }), auxiliaryWindows };
   }
 
-  const detachingPort: Partial<GrowthPort> = {
-    windowDetachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
-    windowCloseAuxiliary: async () => ({ status: "served", value: undefined }),
-  };
+  const detachingPort = (): ConsoleAuxiliaryWindowPort => ({
+    ...refusingPlane(),
+    detachPane: async () => ({ status: "served", value: { windowId: "aux-1" } }),
+    closeAuxiliary: async () => ({ status: "served", value: undefined }),
+  });
 
   /** Press the detach control the pane body offers, the way a header does. */
   function pressDetach(container: HTMLElement): void {
@@ -56,7 +61,7 @@ describe("Workspace — a pane moved into a window of its own", () => {
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container } = render(
-      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort())),
     );
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
@@ -76,7 +81,7 @@ describe("Workspace — a pane moved into a window of its own", () => {
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container } = render(
-      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort())),
     );
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
@@ -105,10 +110,8 @@ describe("Workspace — a pane moved into a window of its own", () => {
     // not crashed. The placeholder says which of the two it is.
     //
     // The refusal is STATED here rather than obtained by leaving the operation off the
-    // override: the fixture serves the shell's window plane, so an omission now reaches
-    // a served signal and this case would assert the opposite of its own sentence. What
-    // it is about is the live bridge's answer, which `growthUnavailable` builds — the
-    // same value that port returns for a wire the corpus has not registered.
+    // plane: what this case is about is a build with no shell to open the signal in,
+    // which is exactly what the plane's own `shell-absent` refusal says.
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container } = render(
@@ -117,8 +120,8 @@ describe("Workspace — a pane moved into a window of its own", () => {
         store,
         true,
         bridgeServingWindowWire({
-          ...detachingPort,
-          windowSubscribePaneErrors: async () => growthUnavailable("windowSubscribePaneErrors"),
+          ...detachingPort(),
+          subscribePaneErrors: refusingPlane().subscribePaneErrors,
         }),
       ),
     );
@@ -129,12 +132,12 @@ describe("Workspace — a pane moved into a window of its own", () => {
     pressDetach(container);
 
     await waitFor(() => {
-      expect(placeholderText(container)).toContain("is not registered on this build yet");
+      expect(placeholderText(container)).toContain("no shell in this case");
     });
     // The refusal renders in the slot it is about, carrying its own code.
     expect(
       container.querySelector(".meridian-deck__detached .meridian-refusal")?.textContent,
-    ).toContain("wire-unregistered");
+    ).toContain("shell-absent");
   });
 
   /**
@@ -145,16 +148,16 @@ describe("Workspace — a pane moved into a window of its own", () => {
    * attribute the layout library happens to render. Reported once, so a later detach
    * of the same pane opens a stream that reports nothing.
    */
-  function crashingPort(reason: string): Partial<GrowthPort> {
+  function crashingPort(reason: string): ConsoleAuxiliaryWindowPort {
     let detachedPaneId: string | undefined;
     let hasReported = false;
     return {
-      ...detachingPort,
-      windowDetachPane: async (request: { readonly paneId: string }) => {
+      ...detachingPort(),
+      detachPane: async (request) => {
         detachedPaneId = request.paneId;
         return { status: "served", value: { windowId: "aux-1" } };
       },
-      windowSubscribePaneErrors: async () => ({
+      subscribePaneErrors: async () => ({
         status: "served",
         value: {
           events: (async function* deliver() {
@@ -237,7 +240,7 @@ describe("Workspace — a pane moved into a window of its own", () => {
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container } = render(
-      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort())),
     );
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
@@ -257,7 +260,7 @@ describe("Workspace — a pane moved into a window of its own", () => {
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
     const { container } = render(
-      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort)),
+      workspaceFor(session, store, true, bridgeServingWindowWire(detachingPort())),
     );
     await waitFor(() => {
       expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
@@ -268,7 +271,7 @@ describe("Workspace — a pane moved into a window of its own", () => {
   it("does not carry a detached pane into another session", async () => {
     const store = memoryStore();
     const session: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
-    const bridge = bridgeServingWindowWire(detachingPort);
+    const bridge = bridgeServingWindowWire(detachingPort());
     const { container, rerender } = render(workspaceFor(session, store, true, bridge));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
