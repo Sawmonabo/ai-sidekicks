@@ -116,6 +116,7 @@ import { useWorkflowRunLiveRounds } from "./run-live-rounds.js";
 import { useWorkflowRunSnapshot } from "./run-snapshot.js";
 import { useWorkflowVersionChain } from "./version-chain.js";
 import { useHumanFormSelection } from "./human-form-selection.js";
+import { ServedRunActContext } from "./served-run-act.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 
@@ -297,7 +298,18 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
           // type refuses. The same narrowing the human-form mount below performs.
           {...(snapshot.status === "served" ? { snapshot: snapshot.snapshot } : {})}
         />
-        <HumanFormSlot phase={humanForms.openForm} />
+        {/*
+         * AND THE FORM'S OWN RE-ARM, WHICH REACHES IT THROUGH THE SEAT AND NOT THE
+         * MOUNT. A submission the daemon records moves this run exactly as a served
+         * cancel does, and the body that makes it is mounted with the OWNER's contract
+         * spread over it — so the act is handed down as a context rather than as a
+         * member this console would be adding to a shape it does not own. The value is
+         * the dispatcher's own advance, so both kinds of served act reach ONE round and
+         * the read is put once for each.
+         */}
+        <ServedRunActContext.Provider value={runControls.recordServedAct}>
+          <HumanFormSlot phase={humanForms.openForm} />
+        </ServedRunActContext.Provider>
       </WorkflowStateStrip>
     );
   }
