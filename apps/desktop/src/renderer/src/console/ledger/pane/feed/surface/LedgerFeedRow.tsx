@@ -61,7 +61,7 @@ import {
   HandoffRow,
   type ChildRunDisclosure,
 } from "../../../structure/child-runs/index.js";
-import { type LedgerSupersededBandDisclosure } from "../model/ledger-superseded-fold.js";
+import { densityFor, type LedgerSupersededBandDisclosure } from "../model/index.js";
 import { chapterRunIdInWindow } from "../../find/index.js";
 import { LedgerRowMenu, type LedgerRowOffersBinding } from "../row-offers/index.js";
 import { Nothing } from "../../../../primitives/index.js";
@@ -73,7 +73,6 @@ import {
 } from "../../../../seats/index.js";
 import { TimelineRowFooter } from "./TimelineRowFooter.js";
 import { type ParticipantHueAssignment } from "../../../../tokens/index.js";
-import { densityFor } from "../model/ledger-chapter-fold.js";
 import { type LedgerWindowModel } from "../../window/index.js";
 
 /** Everything the dispatch below reads. Each member is stable except the window. */

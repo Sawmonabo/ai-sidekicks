@@ -19,11 +19,11 @@
 //     display that rounds a written offset and wrong on one that does not, and nothing in
 //     the platform reports which. `scroll-quantization.ts` answers it by writing and
 //     reading back; this controller consults the answer and skips nothing while it is open.
-//   • **Geometry is published, not polled.** A replayable, instance-bound subscription: a
-//     subscriber gets the last sample immediately rather than waiting for the next scroll,
-//     which lets a pane mount mid-stream already knowing whether it is at the tail. Nothing
-//     here arms a timer, and every sample says which number moved, because a box that
-//     changed size is not a reader who moved.
+//   • **Geometry is published, not polled.** Nothing here arms a timer, and every sample
+//     says which number moved, because a box that changed size is not a reader who moved.
+//     WHEN a sample is taken and off which surface is this module's; what one MEANS — the
+//     derivation, the held sample, the replay, and which one is worth waking a subscriber
+//     for — is `scroll-geometry-publisher.ts`', stated once, there.
 //   • **Following costs no hit test.** The sample reads `scrollTop`, `clientHeight`, and
 //     `scrollHeight` and nothing else — no row rect, no `elementFromPoint` — because those
 //     three are the only reads a scroll event handler can afford at 60 Hz with four
@@ -34,12 +34,10 @@
 // coalescing frame may make a row measurement late and may not make the height the window
 // ranges against late. What stays here is which sink is installed, and what a pass reads.
 
-import { Emitter, type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
+import { type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
 import { type LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
-import { LEDGER_GEOMETRY_EPSILON_PX, LEDGER_TAIL_TOLERANCE_PX } from "../frame-bounds.js";
 import {
   OverflowMeasurementBatch,
-  sameSampledGeometry,
   type LedgerGeometry,
   type LedgerGeometryCause,
 } from "../measurement/index.js";
@@ -48,6 +46,7 @@ import {
   LedgerScrollFrameWrites,
   type LedgerScrollTargetComputation,
 } from "./scroll-frame-writes.js";
+import { LedgerGeometryPublisher } from "./scroll-geometry-publisher.js";
 import { WholePixelQuantizationLearner } from "./scroll-quantization.js";
 
 /** What one glide did, including the arm that did nothing. */
@@ -84,9 +83,8 @@ export interface LedgerScrollControllerOptions {
 }
 
 export class LedgerScrollController {
-  readonly #clock: ConsoleClock;
-  readonly #tailTolerancePx: number;
-  readonly #geometryEmitter = new Emitter<LedgerGeometry>("ledger geometry");
+  /** What a sample MEANS, and who is woken by one. One publisher per controller. */
+  readonly #geometryPublisher: LedgerGeometryPublisher;
   readonly #writeCountByCaller = new Map<LedgerScrollCaller, number>();
   readonly #quantization = new WholePixelQuantizationLearner();
   readonly #overflowBatch: OverflowMeasurementBatch;
@@ -95,15 +93,17 @@ export class LedgerScrollController {
 
   #surface: LedgerScrollSurface | undefined;
   #onSurfaceScroll: (() => void) | undefined;
-  #lastGeometry: LedgerGeometry | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
   #disposed = false;
 
   public constructor(options: LedgerScrollControllerOptions) {
-    const controllerGeometry = (): LedgerGeometry | undefined => this.#lastGeometry;
-    this.#clock = options.clock;
-    this.#tailTolerancePx = options.tailTolerancePx ?? LEDGER_TAIL_TOLERANCE_PX;
+    const controllerGeometry = (): LedgerGeometry | undefined =>
+      this.#geometryPublisher.lastGeometry;
+    this.#geometryPublisher = new LedgerGeometryPublisher({
+      clock: options.clock,
+      tailTolerancePx: options.tailTolerancePx,
+    });
     this.#overflowBatch = new OverflowMeasurementBatch({
       clock: options.clock,
       runPass: () => {
@@ -176,28 +176,24 @@ export class LedgerScrollController {
     this.detach();
     this.#frameWrites.release();
     this.#overflowBatch.dispose();
-    this.#geometryEmitter.clear();
+    this.#geometryPublisher.clear();
     this.#disposed = true;
   }
 
   /**
    * Watch the geometry, and receive the last sample immediately.
    *
-   * The replay is the point: a pane mounted mid-stream needs to know whether it is at the
-   * tail before the next scroll event, and polling for that is what the budgets forbid.
+   * The replay is the publisher's, and the reason it exists is this controller's: a pane
+   * mounted mid-stream needs to know whether it is at the tail before the next scroll
+   * event, and polling for that is what the budgets forbid.
    */
   public subscribeToGeometry(sink: (geometry: LedgerGeometry) => void): Unsubscribe {
-    const unsubscribe = this.#geometryEmitter.subscribe(sink);
-    const lastGeometry = this.#lastGeometry;
-    if (lastGeometry !== undefined) {
-      sink(lastGeometry);
-    }
-    return unsubscribe;
+    return this.#geometryPublisher.subscribe(sink);
   }
 
   /** The last published sample, or `undefined` before the first attach. */
   public get geometry(): LedgerGeometry | undefined {
-    return this.#lastGeometry;
+    return this.#geometryPublisher.lastGeometry;
   }
 
   /**
@@ -333,51 +329,28 @@ export class LedgerScrollController {
   }
 
   /**
-   * Read the three numbers, and nothing else.
+   * Read the three numbers, hand them over, and return what was published.
    *
-   * Every derived fact below comes from these three. A row rect read here would be
-   * a hit test on the scroll path, which this module forbids while following.
+   * THE THREE READS ARE THE WHOLE OF THIS METHOD, and that is the claim: every derived
+   * fact comes from them, so a row rect read here would be a hit test on the scroll
+   * path, which this module forbids while following. What the three MEAN — the tail
+   * arithmetic, the held sample, and whether a subscriber is woken — is the publisher's,
+   * and `undefined` is returned for a controller with no surface because there is
+   * nothing to read rather than nothing to say.
    */
-  #sampleGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
+  #publishGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
     const surface = this.#surface;
     if (surface === undefined) {
       return undefined;
     }
-    const scrollTop = surface.scrollTop;
-    const viewportHeight = surface.clientHeight;
-    const contentHeight = surface.scrollHeight;
-    const distanceFromTailPx = Math.max(0, contentHeight - viewportHeight - scrollTop);
-    return {
-      scrollTop,
-      viewportHeight,
-      contentHeight,
-      distanceFromTailPx,
-      isAtTail: distanceFromTailPx <= this.#tailTolerancePx + LEDGER_GEOMETRY_EPSILON_PX,
-      sampledAt: this.#clock.now(),
+    return this.#geometryPublisher.publish(
+      {
+        scrollTop: surface.scrollTop,
+        viewportHeight: surface.clientHeight,
+        contentHeight: surface.scrollHeight,
+      },
       cause,
-    };
-  }
-
-  /**
-   * Take a sample, record it, and emit it if it says anything new.
-   *
-   * The emit feeds the anchor and both of the library's observers, so a sample identical
-   * to the one they already hold must not wake them. The compare is the three sampled
-   * numbers within the epsilon this frame already owns; `sampledAt` and the cause are
-   * provenance and decide nothing. Returns the sample, so a caller does not take a second.
-   */
-  #publishGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
-    const geometry = this.#sampleGeometry(cause);
-    if (geometry === undefined) {
-      return undefined;
-    }
-    const previous = this.#lastGeometry;
-    this.#lastGeometry = geometry;
-    if (previous !== undefined && sameSampledGeometry(previous, geometry)) {
-      return geometry;
-    }
-    this.#geometryEmitter.emit(geometry);
-    return geometry;
+    );
   }
 
   /**

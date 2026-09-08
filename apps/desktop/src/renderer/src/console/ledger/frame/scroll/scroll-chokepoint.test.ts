@@ -8,6 +8,13 @@
 //
 // The stand-in is a real implementation of `LedgerScrollSurface`, not a stub of the
 // controller: the module under test is imported and driven.
+//
+// WHAT A SAMPLE MEANS IS NOT ASKED HERE ANY MORE. The tail arithmetic, the replay and
+// the rule about which sample wakes a subscriber moved to `scroll-geometry-publisher.ts`
+// with the code that decides them, and `scroll-geometry-publisher.test.ts` drives them
+// off three numbers instead of off an attached surface. What this file asks is what
+// this module still owns: which surface is held, when a sample is taken off it, how
+// many properties that costs, and what a write does.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -134,14 +141,6 @@ describe("the scroll chokepoint — geometry", () => {
     surface.readCountByProperty.clear();
     void surface.scrollTop;
     expect(surface.totalReadCount).toBe(1);
-  });
-
-  it("calls the viewport at the tail once it is within the tolerance", () => {
-    const tailSurface = new RecordingScrollSurface(500, 5000);
-    controller.attach(tailSurface);
-    tailSurface.scrollBy(4500);
-    expect(controller.geometry?.isAtTail).toBe(true);
-    expect(controller.geometry?.distanceFromTailPx).toBe(0);
   });
 });
 

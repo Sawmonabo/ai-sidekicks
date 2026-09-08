@@ -23,7 +23,7 @@ import {
 import { PartialRead } from "../../../../primitives/index.js";
 import { LedgerEventIdJump, matchWalkReading } from "../../find/index.js";
 import { LedgerRowsAdmittedDuringReplayNotice } from "./LedgerRowsAdmittedDuringReplayNotice.js";
-import { type LedgerFindAndJump } from "../model/ledger-feed-find-jump.js";
+import { type LedgerFindAndJump } from "../model/index.js";
 
 export interface LedgerFeedHeaderProps {
   /** The field, the classification of an id, and the acts both offer. */
