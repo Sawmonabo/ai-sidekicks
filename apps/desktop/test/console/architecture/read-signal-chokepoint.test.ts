@@ -7,20 +7,21 @@
 // one was the same source text as a mutation that deliberately passes none. Absence
 // was legal, and two reads shipped through the gap before anything looked.
 //
-// THE CLAIM IS PER CALL AND IT RUNS IN BOTH DIRECTIONS. Every call at the door is
-// classified from the source as a read or a record; a read must SHOW the signal that
-// stops it, a record must SHOW it carries none, a call whose method the scan cannot
-// resolve is held to the read rule rather than exempted, and a call whose method union
-// admits both kinds is reported on its own reading — because no signal argument is
-// right for a line that is two kinds at once.
+// THE CLAIM IS PER CALL AND IT RUNS IN FOUR DIRECTIONS, one per verdict. Every call at
+// the door is classified from the source as a read, a record, a union of both, or a
+// method the scan could not reduce to a classified registry row; a read must SHOW the
+// signal that stops it — a member merely NAMED `signal` is not one — and a record must
+// SHOW it carries none, while the mixed and unresolved verdicts are reported whatever
+// their options said, because no signal argument is right for a line that is two kinds
+// at once and none settles a line whose kind is unknown.
 //
 // THE MODEL AND THE NEEDLES LIVE BESIDE THIS FILE, on the `daemon-call-census.ts`
 // pattern: `daemon-call-sites.ts` reads a call off the syntax tree,
-// `daemon-method-bindings.ts` resolves what the name it passes is bound to, and
-// `daemon-read-signal-census.ts` holds the partition and the three offender readings.
-// Each is driven against planted sources in `daemon-read-signal-census.test.ts`, which
-// is where the offending shapes can be written; what stays here is the claim over the
-// real tree.
+// `daemon-method-bindings.ts` resolves what the names it passes are bound to, and
+// `daemon-read-signal-census.ts` holds the partition and the four offender readings.
+// The first two are driven against planted sources in `daemon-call-sites.test.ts` and
+// the last in `daemon-read-signal-census.test.ts`, which is where the offending shapes
+// can be written; what stays here is the claim over the real tree.
 
 import { describe, expect, it } from "vitest";
 
@@ -30,6 +31,7 @@ import {
   mixedMethodOffenders,
   readConsoleDaemonCalls,
   stoppableRecordOffenders,
+  unresolvedMethodOffenders,
   unstoppableReadOffenders,
 } from "./daemon-read-signal-census.js";
 
@@ -47,10 +49,18 @@ describe("read cancellation — every door call declares which kind it is", () =
     expect([...readings.values()].filter((reads) => !reads).length).toBeGreaterThanOrEqual(10);
     expect(verdicts("read").length).toBeGreaterThanOrEqual(15);
     expect(verdicts("record").length).toBeGreaterThanOrEqual(15);
-    expect(verdicts("unresolved")).toStrictEqual([]);
     expect(sites.map((site) => site.displayPath)).toContain(
       "console/browser/pane/file/file-boundary.ts",
     );
+  });
+
+  it("every call names a method the registry classifies", () => {
+    // Reported on its own reading rather than through the read rule, because no
+    // signal argument settles a call whose kind is unknown: a generic binder over the
+    // whole registry that passed one used to satisfy the read rule and be dropped by
+    // all three of the others. The fix is at the call — narrow the method until the
+    // parse can see which kind it is.
+    expect(unresolvedMethodOffenders(sites, readings)).toStrictEqual([]);
   });
 
   it("every read carries the signal that stops it", () => {

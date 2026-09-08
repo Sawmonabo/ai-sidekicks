@@ -1,53 +1,37 @@
-// The read-versus-record needles, driven against sources whose verdict is known.
+// The read-versus-record partition and its four offender readings, driven against
+// sources whose verdict is known.
 //
-// THE GATE IS NEXT DOOR AND THIS IS THE INSTRUMENT'S OWN BENCH, on the
+// THE GATE IS NEXT DOOR AND THIS IS THE CLASSIFIER'S OWN BENCH, on the
 // `barrel-census.test.ts` pattern: `read-signal-chokepoint.test.ts` makes the claim
 // over the real console, and a clean result there is worth nothing until the checker
 // is proved to bite. Every case below writes a source the console does not contain —
 // the offending shapes included, which is why they cannot be written in the gate
 // itself.
 //
-// THE THREE MODULES ARE DRIVEN TOGETHER because the claim is a composition of them:
-// `daemon-method-bindings.ts` says what a name is bound to, `daemon-call-sites.ts`
-// reads the call, and `daemon-read-signal-census.ts` decides what that makes of it.
-// A control that exercised one in isolation would pass over exactly the seams where
-// the four defects this bench now pins actually lived.
+// WHAT A CALL SAYS IS THE NEIGHBOURING BENCH'S SUBJECT. `daemon-call-sites.test.ts`
+// pins the method resolution and the signal-value reading; this file starts from a
+// site and asks what the registry's partition makes of it, and what each of the four
+// readings then owes. The two share one planted corpus so neither drifts from the
+// other, and each site is owned by exactly one reading — which is itself a claim the
+// cases below make rather than assume.
 
 import { describe, expect, it } from "vitest";
 
-import { daemonCallSitesIn } from "./daemon-call-sites.js";
-import { DaemonMethodConstantIndex } from "./daemon-method-bindings.js";
+import {
+  PLANTED_READINGS,
+  PLANTED_REGISTRY,
+  plantedSites,
+  plantedSitesInReadHelper,
+} from "./daemon-call-planting.test-support.js";
 import {
   classifyDaemonCallSite,
   daemonMethodReadings,
   mixedMethodOffenders,
   stoppableRecordOffenders,
+  unresolvedMethodOffenders,
   unstoppableReadOffenders,
 } from "./daemon-read-signal-census.js";
 import { READING_VERBS, answersReadingResponse, namesReadingVerb } from "./daemon-reading-verbs.js";
-
-/** A registry stub carrying one reading row and one recording row. */
-const PLANTED_REGISTRY = [
-  "export const CONSOLE_DAEMON_METHOD_BINDINGS = Object.freeze({",
-  '  "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceListResponseSchema),',
-  '  "session.join": bindDaemonMethod(SessionJoinRequestSchema, SessionJoinResponseSchema),',
-  "});",
-].join("\n");
-
-const PLANTED_READINGS: ReadonlyMap<string, boolean> = daemonMethodReadings(PLANTED_REGISTRY);
-
-/** An index over the two planted methods, with no constants folded in. */
-function emptyIndex(): DaemonMethodConstantIndex {
-  return new DaemonMethodConstantIndex([...PLANTED_READINGS.keys()]);
-}
-
-/** The sites one planted module declares, resolved through `constants`. */
-function plantedSites(
-  lines: readonly string[],
-  constants: DaemonMethodConstantIndex = emptyIndex(),
-): ReturnType<typeof daemonCallSitesIn> {
-  return daemonCallSitesIn("console/planted/surface.ts", lines.join("\n"), constants);
-}
 
 describe("the response-shape partition", () => {
   it("reads the registry's own binding rather than the method name", () => {
@@ -56,6 +40,7 @@ describe("the response-shape partition", () => {
     // string would be a naming convention wearing a classifier's clothes.
     expect(PLANTED_READINGS.get("repo.workspaceList")).toBe(true);
     expect(PLANTED_READINGS.get("session.join")).toBe(false);
+    expect(daemonMethodReadings(PLANTED_REGISTRY).size).toBe(2);
   });
 
   it("takes the reading verb as a word, wherever in the operation it sits", () => {
@@ -108,164 +93,7 @@ describe("the response-shape partition", () => {
   });
 });
 
-describe("the call-site parse", () => {
-  it("reads the method and the signal off a literal call", () => {
-    const [site] = plantedSites([
-      'const reply = await callDaemon(bridge, "repo.workspaceList", request, { signal });',
-    ]);
-    expect(site?.resolvedMethods).toStrictEqual(["repo.workspaceList"]);
-    expect(site?.signalArgument).toBe("present");
-    expect(site?.line).toBe(1);
-  });
-
-  it("takes the signal through an assignment as well as a shorthand", () => {
-    const [site] = plantedSites([
-      'await callDaemon(bridge, "repo.workspaceList", request, { signal: round.signal });',
-    ]);
-    expect(site?.signalArgument).toBe("present");
-  });
-
-  it("negative control: prose naming the door and the member is not a call", () => {
-    // Both needles at once, against the shape every module in this family carries: a
-    // header sentence explaining that reads pass `{ signal }` through `callDaemon`.
-    expect(
-      plantedSites(["// a read reaches `callDaemon(bridge, method, request, { signal })`."]),
-    ).toStrictEqual([]);
-    expect(plantedSites(['const note = "callDaemon(bridge, method, request)";'])).toStrictEqual([]);
-  });
-
-  it("negative control: the door reached under an import alias is still the door", () => {
-    // THE SHAPE THAT DROPPED EVERY CALL IN A MODULE. `daemon-reply-chokepoint` counts
-    // an aliased import as a consumer, so the module stayed in the census while this
-    // scan — matching the exported spelling against the callee — contributed none of
-    // its calls, and the signal check reported a clean result over nothing.
-    const sites = plantedSites([
-      'import { callDaemon as send } from "../../bridge/index.js";',
-      "export async function readAdmittedRoots(bridge, sessionId) {",
-      '  return await send(bridge, "repo.workspaceList", { sessionId });',
-      "}",
-    ]);
-    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
-    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
-    ]);
-  });
-
-  it("reports an options argument it cannot read as its own answer", () => {
-    // A spread and a held variable each hide the member from this parse. Answering
-    // `absent` for them was fail-closed for a read and fail-OPEN for a record, whose
-    // rule is that no signal was passed — so the reading is a third value.
-    const [spread] = plantedSites([
-      'await callDaemon(bridge, "repo.workspaceList", request, { ...options });',
-    ]);
-    expect(spread?.signalArgument).toBe("opaque");
-    const [held] = plantedSites([
-      'await callDaemon(bridge, "repo.workspaceList", request, options);',
-    ]);
-    expect(held?.signalArgument).toBe("opaque");
-    const [read] = plantedSites(['await callDaemon(bridge, "session.join", request, { cause });']);
-    expect(read?.signalArgument).toBe("absent");
-  });
-
-  it("resolves a method constant another module declares, reached by import", () => {
-    // Two of the console's call sites name a constant `agents/agent-wire.ts` declares.
-    // The import is the binding this module has; the index is asked for the name that
-    // import came from, rather than for whatever spelling the call used.
-    const constants = emptyIndex();
-    constants.add('export const LIST_METHOD = "repo.workspaceList";', "console/planted/wire.ts");
-    const [site] = plantedSites(
-      [
-        'import { LIST_METHOD } from "./wire.js";',
-        "await callDaemon(bridge, LIST_METHOD, request);",
-      ],
-      constants,
-    );
-    expect(site?.resolvedMethods).toStrictEqual(["repo.workspaceList"]);
-  });
-
-  it("resolves a constant through the type wrapper its declaration carries", () => {
-    // The provider-readiness probe's constant is `"providerAccount.probe" satisfies
-    // MutatingDaemonMethod`, and a reader stopping at the wrapper manufactured an
-    // offender out of a module doing exactly the right thing.
-    const [site] = plantedSites([
-      'const JOIN_METHOD: "session.join" = "session.join" satisfies MutatingDaemonMethod;',
-      "await callDaemon(bridge, JOIN_METHOD, request);",
-    ]);
-    expect(site?.resolvedMethods).toStrictEqual(["session.join"]);
-  });
-
-  it("refuses a constant two modules bind to two different methods", () => {
-    // Guessing between them would report on whichever module the walk reached last.
-    const constants = emptyIndex();
-    constants.add('const METHOD = "repo.workspaceList";', "console/planted/one.ts");
-    constants.add('const METHOD = "session.join";', "console/planted/two.ts");
-    expect(constants.resolve("METHOD")).toStrictEqual([]);
-  });
-
-  it("negative control: the nearest binding wins over the one further out", () => {
-    // THE SHADOW THE NAME INDEX HID. The old resolver read the enclosing parameters
-    // and then a repository-wide fold keyed by the name alone, so an inner binding was
-    // invisible and this call classified from the OUTER parameter — a record, exempt
-    // from the signal rule, while the line it actually makes is a read.
-    const sites = plantedSites([
-      'export async function dispatch(method: "session.join", bridge, request) {',
-      "  {",
-      '    const method = "repo.workspaceList";',
-      "    return await callDaemon(bridge, method, request);",
-      "  }",
-      "}",
-    ]);
-    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
-    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:4 — method reads (repo.workspaceList) and was handed no signal",
-    ]);
-  });
-
-  it("resolves a parameter declared as a union of literals", () => {
-    const [site] = plantedSites([
-      'async function dispatch(method: "session.join" | "repo.workspaceList") {',
-      "  return await callDaemon(bridge, method, request);",
-      "}",
-    ]);
-    expect(site?.resolvedMethods).toStrictEqual(["session.join", "repo.workspaceList"]);
-  });
-
-  it("resolves a type parameter's constraint from an inner arrow", () => {
-    // The generic binder's shape: the method is the OUTER function's parameter and the
-    // arrow that names it declares none, so a reader stopping at the innermost span
-    // reported the call as naming nothing.
-    const [site] = plantedSites([
-      'export function bind<MethodName extends "session.join">(method: MethodName) {',
-      "  return async (request) => await callDaemon(bridge, method, request);",
-      "}",
-    ]);
-    expect(site?.resolvedMethods).toStrictEqual(["session.join"]);
-  });
-
-  it("resolves the same constraint written as a module-level alias", () => {
-    const [site] = plantedSites([
-      'type RecordingMethod = "session.join" | "repo.attach";',
-      "export function bind<MethodName extends RecordingMethod>(method: MethodName) {",
-      "  return async (request) => await callDaemon(bridge, method, request);",
-      "}",
-    ]);
-    expect(site?.resolvedMethods).toStrictEqual(["session.join", "repo.attach"]);
-  });
-
-  it("negative control: an unconstrained generic resolves to nothing", () => {
-    // The shape the collaboration binder used to carry. Its constraint was the whole
-    // registry, which admits reads, so the call could bind one and hand it no signal.
-    const [site] = plantedSites([
-      "export function bind<MethodName extends ConsoleDaemonMethod>(method: MethodName) {",
-      "  return async (request) => await callDaemon(bridge, method, request);",
-      "}",
-    ]);
-    expect(site?.resolvedMethods).toStrictEqual([]);
-    expect(site !== undefined && classifyDaemonCallSite(site, PLANTED_READINGS)).toBe("unresolved");
-  });
-});
-
-describe("the three offender readings", () => {
+describe("the four offender readings", () => {
   it("reports a read that was handed no signal — with its line and its reason", () => {
     // THE REGRESSION THIS GATE EXISTS TO PREVENT FROM RETURNING, written as the module
     // it was. The browser pane's admitted-root disclosure read the session's
@@ -281,25 +109,28 @@ describe("the three offender readings", () => {
     ]);
   });
 
-  it("reports a call whose method it could not resolve", () => {
-    const sites = plantedSites([
-      "export function bind<MethodName extends ConsoleDaemonMethod>(method: MethodName) {",
-      "  return async (request) => await callDaemon(bridge, method, request);",
-      "}",
+  it("negative control: a read handed a signal that is not its round's is reported", () => {
+    // THE HOLE THE KEY CHECK LEFT, at the reading that has to close it. The call SHOWS
+    // a member named `signal` and shows nothing that could stop this read, so the read
+    // rule is unsatisfied — a controller minted beside the call is aborted by nobody.
+    const sites = plantedSitesInReadHelper([
+      "const controller = new AbortController();",
+      'await callDaemon(bridge, "repo.workspaceList", request, { signal: controller.signal });',
     ]);
+    expect(sites.map((site) => site.signalArgument)).toStrictEqual(["unrecognised"]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:2 — method resolves to no registered method, so this call could name a read and can be stopped by nothing",
+      'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed a signal member this parse cannot tie to a read round',
     ]);
   });
 
   it("reports a record that was handed one", () => {
     // The positive control. A durable act that has reached the daemon has HAPPENED, so
     // a signal on one abandons the console's half of a write mid-flight.
-    const sites = plantedSites([
-      'await callDaemon(bridge, "session.join", request, { signal: round.signal });',
+    const sites = plantedSitesInReadHelper([
+      'await callDaemon(bridge, "session.join", request, { signal });',
     ]);
     expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:1 — records session.join and was handed a signal",
+      "console/planted/surface.ts:2 — records session.join and was handed a signal",
     ]);
   });
 
@@ -317,17 +148,67 @@ describe("the three offender readings", () => {
     ]);
   });
 
+  it("negative control: a method the registry does not bind is unresolved, never a record", () => {
+    // THE ROW A TABLE READER CAN MISS, and what its absence used to buy. `readings`
+    // answered `undefined` for a method it holds no row for, `readMethodsOf` found no
+    // `true` entry, and the site fell through to the RECORD arm — so an unsignalled
+    // read of that method satisfied every one of the readings at once. A computed key
+    // or a namespace-qualified schema in the real registry is exactly how one row goes
+    // missing, and the classification cannot rest on the reader having caught them all.
+    const sites = plantedSitesInReadHelper([
+      'await callDaemon(bridge, "repo.mountRead", request);',
+    ]);
+    expect(sites.map((site) => classifyDaemonCallSite(site, PLANTED_READINGS))).toStrictEqual([
+      "unresolved",
+    ]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
+      'console/planted/surface.ts:2 — "repo.mountRead" names repo.mountRead, which the registry binds no response schema for, so nothing here says whether this call reads',
+    ]);
+    expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
+  it("negative control: an unresolved call is reported whatever it was handed", () => {
+    // THE ARM AN OPTIONS FILTER DROPPED. The unresolved verdict used to be reported
+    // through the READ rule, so it was conditional on the options — and a generic
+    // binder over the whole registry that happened to pass a signal resolved no
+    // method, read `"present"`, and was dropped by all three readings at once. The
+    // defect is the unknown method, and no signal argument settles one.
+    const signalled = plantedSites([
+      "export function bind<MethodName extends ConsoleDaemonMethod>(method: MethodName) {",
+      "  return async (request, signal: AbortSignal) =>",
+      "    await callDaemon(bridge, method, request, { signal });",
+      "}",
+    ]);
+    expect(signalled.map((site) => site.signalArgument)).toStrictEqual(["present"]);
+    expect(unresolvedMethodOffenders(signalled, PLANTED_READINGS)).toStrictEqual([
+      "console/planted/surface.ts:3 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
+    ]);
+    const unsignalled = plantedSites([
+      "export function bind<MethodName extends ConsoleDaemonMethod>(method: MethodName) {",
+      "  return async (request) => await callDaemon(bridge, method, request);",
+      "}",
+    ]);
+    expect(unresolvedMethodOffenders(unsignalled, PLANTED_READINGS)).toStrictEqual([
+      "console/planted/surface.ts:2 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
+    ]);
+    // And the site is owned by that reading alone, so neither rule double-reports it.
+    expect(unstoppableReadOffenders(unsignalled, PLANTED_READINGS)).toStrictEqual([]);
+    expect(stoppableRecordOffenders(unsignalled, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
   it("passes the two compliant shapes", () => {
     // The clean side of both lines, so the readings are proved to admit as well as to
     // refuse — a checker answering the empty array to everything reads like a tree in
     // order.
-    const sites = plantedSites([
+    const sites = plantedSitesInReadHelper([
       'await callDaemon(bridge, "repo.workspaceList", request, { signal });',
       'await callDaemon(bridge, "session.join", request);',
     ]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
     expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
     expect(mixedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
   });
 
   it("negative control: a union naming both kinds is reported whatever it was handed", () => {
@@ -335,7 +216,7 @@ describe("the three offender readings", () => {
     // read rule while the record reading skipped the site — its verdict was not
     // `"record"` — so a signal that abandons a durable mutation went unreported.
     const sites = plantedSites([
-      'async function dispatch(method: "session.join" | "repo.workspaceList", round) {',
+      'async function dispatch(method: "session.join" | "repo.workspaceList", round: ReadRound) {',
       "  return await callDaemon(bridge, method, request, { signal: round.signal });",
       "}",
     ]);

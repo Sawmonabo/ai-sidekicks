@@ -33,6 +33,14 @@
 // and the nearest binding for those is the import specifier — so the index is asked
 // for the EXPORTED name that specifier came from, rather than for whatever local
 // spelling the call happened to use.
+//
+// AND THE DECLARATION TRAVELS WITH THE READING, because the method is not the only
+// question a call site asks of a name. `daemon-call-sites.ts` also asks what the value
+// a call hands the door as its SIGNAL is bound to, and that question is answered from
+// the declaration FORM — a parameter the caller filled in, a local a round was opened
+// into — rather than from a string literal. Interpreting it here would put a second
+// subject in this module; handing the declaration back leaves the scope chain with the
+// one job it has, which is saying which declaration a name at a position means.
 
 import ts from "typescript";
 
@@ -111,11 +119,25 @@ export class DaemonMethodConstantIndex {
   }
 }
 
+/**
+ * What one name is bound to, in both readings a call site takes of a binding.
+ *
+ * One record and not two maps, so a name is bound in exactly one scope for both
+ * questions: a second map would let the two readings disagree about WHICH declaration
+ * a name at a position means, which is the shadow this module exists to refuse.
+ */
+export interface NameBinding {
+  /** What this name means where a call passes it as its METHOD. */
+  readonly method: MethodBinding;
+  /** The declaration itself, for the questions this module does not answer. */
+  readonly declaration: ts.Declaration;
+}
+
 /** One lexical scope of a module, with everything declared directly in it. */
 interface BindingScope {
   readonly start: number;
   readonly end: number;
-  readonly bindingsByName: Map<string, MethodBinding>;
+  readonly bindingsByName: Map<string, NameBinding>;
 }
 
 /**
@@ -142,7 +164,7 @@ export class ModuleBindingScopes {
    * What the nearest binding of `name` at `position` is, or `undefined` where the
    * module declares none — an ambient or a global, which this scan cannot read either.
    */
-  public resolve(name: string, position: number): MethodBinding | undefined {
+  public resolve(name: string, position: number): NameBinding | undefined {
     const containing = this.#scopes
       .filter((scope) => position >= scope.start && position < scope.end)
       .sort((inner, outer) => outer.start - inner.start);
@@ -156,7 +178,7 @@ export class ModuleBindingScopes {
   }
 
   #openScope(start: number, end: number): BindingScope {
-    const scope: BindingScope = { start, end, bindingsByName: new Map<string, MethodBinding>() };
+    const scope: BindingScope = { start, end, bindingsByName: new Map<string, NameBinding>() };
     this.#scopes.push(scope);
     return scope;
   }
@@ -181,8 +203,8 @@ export class ModuleBindingScopes {
   #scopeOpenedBy(node: ts.Node, enclosing: BindingScope): BindingScope {
     if (ts.isFunctionLike(node)) {
       const scope = this.#openScope(node.getStart(this.#parsed), node.end);
-      for (const [name, literals] of parameterLiteralTypes(node, this.#aliasedUnions)) {
-        scope.bindingsByName.set(name, literals);
+      for (const [name, binding] of parameterBindings(node, this.#aliasedUnions)) {
+        scope.bindingsByName.set(name, binding);
       }
       return scope;
     }
@@ -203,25 +225,31 @@ export class ModuleBindingScopes {
   /** Record one declaration form in the scope that contains it. */
   #declare(node: ts.Node, scope: BindingScope): void {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      scope.bindingsByName.set(node.name.text, literalInitializerBinding(node.initializer));
+      scope.bindingsByName.set(node.name.text, {
+        method: literalInitializerBinding(node.initializer),
+        declaration: node,
+      });
       return;
     }
     if (ts.isImportSpecifier(node)) {
       scope.bindingsByName.set(node.name.text, {
-        kind: "imported",
-        exportedName: (node.propertyName ?? node.name).text,
+        method: { kind: "imported", exportedName: (node.propertyName ?? node.name).text },
+        declaration: node,
       });
       return;
     }
     if (ts.isNamespaceImport(node) || ts.isBindingElement(node)) {
       const name = node.name;
       if (ts.isIdentifier(name)) {
-        scope.bindingsByName.set(name.text, { kind: "unreadable" });
+        scope.bindingsByName.set(name.text, { method: { kind: "unreadable" }, declaration: node });
       }
       return;
     }
     if (ts.isImportClause(node) && node.name !== undefined) {
-      scope.bindingsByName.set(node.name.text, { kind: "unreadable" });
+      scope.bindingsByName.set(node.name.text, {
+        method: { kind: "unreadable" },
+        declaration: node,
+      });
     }
   }
 }
@@ -272,17 +300,17 @@ function literalInitializerBinding(initializer: ts.Expression | undefined): Meth
  * recorded as unreadable rather than left unbound — it IS the binding the call names,
  * and looking past it is the shadow this module refuses.
  */
-function parameterLiteralTypes(
+function parameterBindings(
   declaration: ts.SignatureDeclaration,
   aliasedUnions: ReadonlyMap<string, readonly string[]>,
-): ReadonlyMap<string, MethodBinding> {
+): ReadonlyMap<string, NameBinding> {
   const constraints = new Map<string, ts.TypeNode>();
   for (const typeParameter of declaration.typeParameters ?? []) {
     if (typeParameter.constraint !== undefined) {
       constraints.set(typeParameter.name.text, typeParameter.constraint);
     }
   }
-  const bindingsByParameterName = new Map<string, MethodBinding>();
+  const bindingsByParameterName = new Map<string, NameBinding>();
   for (const parameter of declaration.parameters) {
     if (!ts.isIdentifier(parameter.name)) {
       continue;
@@ -291,10 +319,10 @@ function parameterLiteralTypes(
       parameter.type === undefined
         ? []
         : literalTypesIn(parameter.type, constraints, aliasedUnions);
-    bindingsByParameterName.set(
-      parameter.name.text,
-      literals.length > 0 ? { kind: "literals", literals } : { kind: "unreadable" },
-    );
+    bindingsByParameterName.set(parameter.name.text, {
+      method: literals.length > 0 ? { kind: "literals", literals } : { kind: "unreadable" },
+      declaration: parameter,
+    });
   }
   return bindingsByParameterName;
 }

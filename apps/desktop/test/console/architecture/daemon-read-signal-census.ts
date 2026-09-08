@@ -19,20 +19,36 @@
 //
 // FOUR VERDICTS, BECAUSE THREE COLLAPSED TWO FACTS INTO ONE. A call whose method this
 // scan could not resolve is a different fact from one it resolved to a mutation, and
-// collapsing them is how an exemption gets granted to whatever the parse cannot see;
-// the unresolved arm is held to the READ rule for the same reason the parse fails
-// closed. And a method union admitting BOTH kinds is a fourth fact again: reading it
-// as `"read"` satisfied the signal check on the read arm while
-// `stoppableRecordOffenders` skipped the site entirely — its verdict was not
-// `"record"` — so a signal that would abandon a durable mutation passed both readings.
-// That union is `"mixed"`, it fails the gate on its own reading whatever it was
-// handed, and the fix is at the call: split it, or narrow the union until one call is
-// one kind.
+// collapsing them is how an exemption gets granted to whatever the parse cannot see.
+// And a method union admitting BOTH kinds is a fourth fact again: reading it as
+// `"read"` satisfied the signal check on the read arm while `stoppableRecordOffenders`
+// skipped the site entirely — its verdict was not `"record"` — so a signal that would
+// abandon a durable mutation passed both readings. That union is `"mixed"`, it fails
+// the gate on its own reading whatever it was handed, and the fix is at the call: split
+// it, or narrow the union until one call is one kind.
+//
+// UNRESOLVED IS ITS OWN REPORT AND NOT THE READ RULE'S TAIL, which is the second thing
+// three verdicts got wrong. Holding it to the read rule made its report CONDITIONAL on
+// the options — so a generic binder over the whole registry that passed `{ signal }`
+// resolved no method, satisfied `signalArgument === "present"`, and was dropped by
+// every one of the three readings at once. No signal argument settles what a call
+// whose method is unknown is: the defect is the unknown method. So the four verdicts
+// are four readings, each owning its own sites, and `unresolvedMethodOffenders` reports
+// whatever it was handed exactly as the mixed reading does.
+//
+// AND UNRESOLVED MEANS UNREGISTERED TOO. A method the parse DID reduce to a name the
+// registry binds no schema for is not a record — the registry is where reading is
+// decided, and a name absent from it decides nothing. Reading `readings.get(method)`
+// alone answered `undefined`, which fell through to the record arm and exempted an
+// unsignalled read from the rule; a table reader that missed one row (a computed key,
+// a namespace-qualified schema) therefore turned that row's every call site green.
+// Presence in `readings` is now required of every resolved method.
 //
 // AND STOPPABILITY IS ASKED OF BOTH SIDES, in the two directions their rules run. A
 // read must SHOW the signal that stops it; a record must SHOW it carries none. An
-// options argument this parse cannot read satisfies neither, which is why
-// `SignalArgumentReading` has an `"opaque"` arm rather than a boolean's silence.
+// options argument this parse cannot read satisfies neither, and neither does a signal
+// member whose value is not a round's — which is why `SignalArgumentReading` has an
+// `"opaque"` and an `"unrecognised"` arm rather than a boolean's silence.
 
 import ts from "typescript";
 
@@ -123,12 +139,17 @@ export function daemonMethodReadings(
  * site whose record arm the signal would abandon, and reading it as `"record"` would
  * exempt the read arm from carrying one — no single verdict is right for a call that
  * is two kinds, which is why the answer is that the call has to stop being two kinds.
+ *
+ * AND A NAME THE REGISTRY DOES NOT BIND IS UNRESOLVED, not a record. `"record"` is a
+ * positive finding — the registry says this method's answer is not a reading — and it
+ * cannot be read off a method the registry never mentions. Requiring PRESENCE rather
+ * than a `true` reading is what keeps a missed table row from exempting its own calls.
  */
 export function classifyDaemonCallSite(
   site: DaemonCallSite,
   readings: ReadonlyMap<string, boolean>,
 ): DaemonCallSiteVerdict {
-  if (site.resolvedMethods.length === 0) {
+  if (site.resolvedMethods.length === 0 || unregisteredMethodsOf(site, readings).length > 0) {
     return "unresolved";
   }
   const reads = readMethodsOf(site, readings);
@@ -141,17 +162,19 @@ export function classifyDaemonCallSite(
 /**
  * The sites that must show the signal that stops them and do not, each with its reason.
  *
- * THE UNRESOLVED ARM IS HELD TO THIS RULE and not exempted from it — see this
- * module's header. A site reported here is fixed either by handing it the round it
- * belongs to or by narrowing the method it names until the parse can see that it
- * records; both are the call site saying what it is, which is what the gate wants.
+ * A site reported here is fixed by handing it the round it belongs to — the signal its
+ * own read line mints — rather than by any member merely named `signal`, which is what
+ * `SignalArgumentReading`'s `"unrecognised"` arm refuses on this rule's behalf.
  */
 export function unstoppableReadOffenders(
   sites: readonly DaemonCallSite[],
   readings: ReadonlyMap<string, boolean>,
 ): readonly string[] {
   return sites
-    .filter((site) => site.signalArgument !== "present" && isHeldToReadRule(site, readings))
+    .filter(
+      (site) =>
+        site.signalArgument !== "present" && classifyDaemonCallSite(site, readings) === "read",
+    )
     .map((site) => `${describeSite(site)} — ${describeUnstoppableRead(site, readings)}`);
 }
 
@@ -196,10 +219,12 @@ export function mixedMethodOffenders(
     });
 }
 
-/** Whether the read rule governs this site: it reads, or nothing here says it does not. */
-function isHeldToReadRule(site: DaemonCallSite, readings: ReadonlyMap<string, boolean>): boolean {
-  const verdict = classifyDaemonCallSite(site, readings);
-  return verdict === "read" || verdict === "unresolved";
+/** The methods this site can name that the registry binds no response schema for. */
+function unregisteredMethodsOf(
+  site: DaemonCallSite,
+  readings: ReadonlyMap<string, boolean>,
+): readonly string[] {
+  return site.resolvedMethods.filter((method) => !readings.has(method));
 }
 
 /** The methods this site can name whose response says they read. */
@@ -226,21 +251,54 @@ function describeUnstoppableRead(
   readings: ReadonlyMap<string, boolean>,
 ): string {
   const named = namedMethodOf(site);
-  if (classifyDaemonCallSite(site, readings) === "unresolved") {
-    return `${named} resolves to no registered method, so this call could name a read and can be stopped by nothing`;
-  }
   const reads = readMethodsOf(site, readings).join(", ");
-  return site.signalArgument === "opaque"
-    ? `${named} reads (${reads}) and was handed options this parse cannot read, so nothing here shows a signal`
+  if (site.signalArgument === "opaque") {
+    return `${named} reads (${reads}) and was handed options this parse cannot read, so nothing here shows a signal`;
+  }
+  return site.signalArgument === "unrecognised"
+    ? `${named} reads (${reads}) and was handed a signal member this parse cannot tie to a read round`
     : `${named} reads (${reads}) and was handed no signal`;
 }
 
 /** Why this recording site was reported as possibly stoppable. */
 function describeStoppableRecord(site: DaemonCallSite): string {
   const methods = site.resolvedMethods.join(", ");
-  return site.signalArgument === "opaque"
-    ? `records ${methods} and was handed options this parse cannot read, so nothing here shows it carries no signal`
+  if (site.signalArgument === "opaque") {
+    return `records ${methods} and was handed options this parse cannot read, so nothing here shows it carries no signal`;
+  }
+  return site.signalArgument === "unrecognised"
+    ? `records ${methods} and was handed a signal member this parse cannot tie to a read round`
     : `records ${methods} and was handed a signal`;
+}
+
+/** Why this site's method could not be reduced to something the registry classifies. */
+function describeUnresolvedMethod(
+  site: DaemonCallSite,
+  readings: ReadonlyMap<string, boolean>,
+): string {
+  const named = namedMethodOf(site);
+  const unregistered = unregisteredMethodsOf(site, readings);
+  return unregistered.length > 0
+    ? `${named} names ${unregistered.join(", ")}, which the registry binds no response schema for, so nothing here says whether this call reads`
+    : `${named} resolves to no registered method, so this call could name a read and nothing here says what stops it`;
+}
+
+/**
+ * The sites whose method this scan could not reduce to a classified registry row.
+ *
+ * REPORTED WHATEVER THEY WERE HANDED, for the mixed reading's reason rather than the
+ * read rule's: a signal argument answers what stops a call and this reading is about
+ * a call whose KIND is unknown, so no options argument settles it. Holding it to the
+ * read rule instead made the report conditional on the options and dropped every
+ * unresolved site that happened to pass one.
+ */
+export function unresolvedMethodOffenders(
+  sites: readonly DaemonCallSite[],
+  readings: ReadonlyMap<string, boolean>,
+): readonly string[] {
+  return sites
+    .filter((site) => classifyDaemonCallSite(site, readings) === "unresolved")
+    .map((site) => `${describeSite(site)} — ${describeUnresolvedMethod(site, readings)}`);
 }
 
 /** One row of the registry's binding table. */
