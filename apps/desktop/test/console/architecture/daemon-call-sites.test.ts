@@ -7,13 +7,17 @@
 // the offending shapes included, which is why they cannot be written in the gate
 // itself.
 //
-// TWO MODULES ARE DRIVEN TOGETHER because one question is a composition of them:
-// `daemon-method-bindings.ts` says what a name is bound to and `daemon-call-sites.ts`
-// reads the call through it. A control that exercised either in isolation would pass
-// over exactly the seams where the shadow and the wrong-signal defects lived. What
-// the verdicts and the offender readings then MAKE of a site is the neighbouring
-// bench's subject, `daemon-read-signal-census.test.ts`; the two share one planted
-// corpus and neither restates the other's claim.
+// THREE MODULES ARE DRIVEN TOGETHER because one question is a composition of them:
+// `daemon-method-bindings.ts` says what a name is bound to, `daemon-method-constants.ts`
+// says what an imported one names in the module it came from, and
+// `daemon-call-sites.ts` reads the call through both — which door it reached and which
+// method it named. A control that exercised any of them in isolation would pass over
+// exactly the seams where the shadow and the borrowed-constant defects lived.
+//
+// TWO BENCHES SIT BESIDE THIS ONE and neither restates its claim. What the call HANDED
+// the door is `daemon-signal-argument.test.ts`', and what the registry's partition
+// then MAKES of a site is `daemon-read-signal-census.test.ts`'. All three drive one
+// planted corpus, so a fixture that drifts drifts for all of them at once.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,20 +25,16 @@ import {
   emptyIndex,
   PLANTED_READINGS,
   plantedSites,
+  plantedSitesDeclaringImports,
   plantedSitesInReadHelper,
 } from "./daemon-call-planting.test-support.js";
-import { unstoppableReadOffenders } from "./daemon-read-signal-census.js";
+import {
+  stoppableRecordOffenders,
+  unresolvedMethodOffenders,
+  unstoppableReadOffenders,
+} from "./daemon-read-signal-census.js";
 
-describe("the method a call names", () => {
-  it("reads the method and the signal off a literal call", () => {
-    const [site] = plantedSitesInReadHelper([
-      'const reply = await callDaemon(bridge, "repo.workspaceList", request, { signal });',
-    ]);
-    expect(site?.resolvedMethods).toStrictEqual(["repo.workspaceList"]);
-    expect(site?.signalArgument).toBe("present");
-    expect(site?.line).toBe(2);
-  });
-
+describe("the door a call reaches", () => {
   it("negative control: prose naming the door and the member is not a call", () => {
     // Both needles at once, against the shape every module in this family carries: a
     // header sentence explaining that reads pass `{ signal }` through `callDaemon`.
@@ -49,7 +49,7 @@ describe("the method a call names", () => {
     // an aliased import as a consumer, so the module stayed in the census while this
     // scan — matching the exported spelling against the callee — contributed none of
     // its calls, and the signal check reported a clean result over nothing.
-    const sites = plantedSites([
+    const sites = plantedSitesDeclaringImports([
       'import { callDaemon as send } from "../../bridge/index.js";',
       "export async function readAdmittedRoots(bridge, sessionId) {",
       '  return await send(bridge, "repo.workspaceList", { sessionId });',
@@ -61,20 +61,127 @@ describe("the method a call names", () => {
     ]);
   });
 
+  it("negative control: a nearer binding of the door's name is not the door", () => {
+    // THE SHADOW A NAME SET CANNOT SEE. The door is imported under `send`, and the
+    // callback below takes a parameter of that name — so the call it makes is the
+    // parameter's, exactly as the language would run it, and the module's real door
+    // call is the one on the line above. Matching the callee text against the module's
+    // door spellings counted both, so a helper invoking whatever it was handed was
+    // read as a read that carries no signal.
+    const sites = plantedSitesDeclaringImports([
+      'import { callDaemon as send } from "../../bridge/index.js";',
+      "export async function readAdmittedRoots(bridge, request, signal: AbortSignal) {",
+      '  await send(bridge, "repo.workspaceList", request, { signal });',
+      "  return await withRetry(async (send) => await send(request));",
+      "}",
+    ]);
+    expect(sites.map((site) => site.line)).toStrictEqual([3]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
+  it("negative control: the exported spelling in a module that imports no door is not one", () => {
+    // THE UNCONDITIONAL MATCH, IN BOTH DIRECTIONS. A module that never imported the
+    // door was still scanned for the exported spelling, so a local `callDaemon` of its
+    // own would have been read as a door call and reported against the registry — and
+    // the same reading has to keep finding the real call in a module that spells the
+    // word for another reason, which is the half a fail-closed rule could quietly lose.
+    expect(
+      plantedSitesDeclaringImports([
+        "function callDaemon(bridge, method, request) {",
+        "  return bridge.send(method, request);",
+        "}",
+        'export const reply = callDaemon(bridge, "repo.workspaceList", {});',
+      ]),
+    ).toStrictEqual([]);
+    const sites = plantedSitesDeclaringImports([
+      'import { callDaemon as send } from "../../bridge/index.js";',
+      "function callDaemon(bridge, method, request) {",
+      "  return bridge.send(method, request);",
+      "}",
+      "export async function readAdmittedRoots(bridge, request, signal: AbortSignal) {",
+      '  callDaemon(bridge, "repo.workspaceList", request);',
+      '  return await send(bridge, "repo.workspaceList", request, { signal });',
+      "}",
+    ]);
+    expect(sites.map((site) => site.line)).toStrictEqual([7]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+});
+
+describe("the method a call names", () => {
+  it("reads the method and the signal off a literal call", () => {
+    const [site] = plantedSitesInReadHelper([
+      'const reply = await callDaemon(bridge, "repo.workspaceList", request, { signal });',
+    ]);
+    expect(site?.resolvedMethods).toStrictEqual(["repo.workspaceList"]);
+    expect(site?.signalArgument).toBe("present");
+    expect(site?.line).toBe(3);
+  });
+
   it("resolves a method constant another module declares, reached by import", () => {
     // Two of the console's call sites name a constant `agents/agent-wire.ts` declares.
     // The import is the binding this module has; the index is asked for the name that
-    // import came from, rather than for whatever spelling the call used.
+    // import came from and the module that import names.
     const constants = emptyIndex();
     constants.add('export const LIST_METHOD = "repo.workspaceList";', "console/planted/wire.ts");
-    const [site] = plantedSites(
+    const [site] = plantedSitesDeclaringImports(
       [
+        'import { callDaemon } from "../../bridge/index.js";',
         'import { LIST_METHOD } from "./wire.js";',
         "await callDaemon(bridge, LIST_METHOD, request);",
       ],
       constants,
     );
     expect(site?.resolvedMethods).toStrictEqual(["repo.workspaceList"]);
+  });
+
+  it("negative control: two modules binding one spelling resolve to the imported one", () => {
+    // THE COLLISION A BARE-NAME INDEX CANNOT SEE. Keyed by the spelling alone, both
+    // modules' `METHOD` folded into one entry, the fold called the name ambiguous, and
+    // this call — which names exactly one of them — resolved to NOTHING and was
+    // reported as naming no registered method at all. The import says which module,
+    // and (module, exported name) admits one declaration by construction.
+    const constants = emptyIndex();
+    constants.add('export const METHOD = "repo.workspaceList";', "console/planted/reads.ts");
+    constants.add('export const METHOD = "session.join";', "console/planted/records.ts");
+    const sites = plantedSitesDeclaringImports(
+      [
+        'import { callDaemon } from "../../bridge/index.js";',
+        'import { METHOD } from "./reads.js";',
+        "export async function readWorkspaces(bridge, request, signal: AbortSignal) {",
+        "  return await callDaemon(bridge, METHOD, request, { signal });",
+        "}",
+      ],
+      constants,
+    );
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
+  it("negative control: an unexported constant is not reachable by any import", () => {
+    // THE OTHER HALF, AND THE ONE THAT REPORTED A METHOD THE CALL NEVER NAMED. The
+    // module the import names exports a value this parse cannot reduce, so it is
+    // skipped — and an unrelated module's PRIVATE `METHOD` was the one entry the fold
+    // held under that spelling. The call resolved to it, classified as a record, and
+    // was reported for carrying the signal its own read needs.
+    const constants = emptyIndex();
+    constants.add("export const METHOD = composeMethod();", "console/planted/reads.ts");
+    constants.add('const METHOD = "session.join";', "console/planted/records.ts");
+    const sites = plantedSitesDeclaringImports(
+      [
+        'import { callDaemon } from "../../bridge/index.js";',
+        'import { METHOD } from "./reads.js";',
+        "export async function readWorkspaces(bridge, request, signal: AbortSignal) {",
+        "  return await callDaemon(bridge, METHOD, request, { signal });",
+        "}",
+      ],
+      constants,
+    );
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([[]]);
+    expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
+      "console/planted/surface.ts:4 — METHOD resolves to no registered method, so this call could name a read and nothing here says what stops it",
+    ]);
   });
 
   it("resolves a constant through the type wrapper its declaration carries", () => {
@@ -86,14 +193,6 @@ describe("the method a call names", () => {
       "await callDaemon(bridge, JOIN_METHOD, request);",
     ]);
     expect(site?.resolvedMethods).toStrictEqual(["session.join"]);
-  });
-
-  it("refuses a constant two modules bind to two different methods", () => {
-    // Guessing between them would report on whichever module the walk reached last.
-    const constants = emptyIndex();
-    constants.add('const METHOD = "repo.workspaceList";', "console/planted/one.ts");
-    constants.add('const METHOD = "session.join";', "console/planted/two.ts");
-    expect(constants.resolve("METHOD")).toStrictEqual([]);
   });
 
   it("negative control: the nearest binding wins over the one further out", () => {
@@ -111,7 +210,7 @@ describe("the method a call names", () => {
     ]);
     expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:4 — method reads (repo.workspaceList) and was handed no signal",
+      "console/planted/surface.ts:5 — method reads (repo.workspaceList) and was handed no signal",
     ]);
   });
 
@@ -155,123 +254,5 @@ describe("the method a call names", () => {
       "}",
     ]);
     expect(site?.resolvedMethods).toStrictEqual([]);
-  });
-});
-
-describe("the signal a call hands the door", () => {
-  it("reports an options argument it cannot read as its own answer", () => {
-    // A spread and a held variable each hide the member from this parse. Answering
-    // `absent` for them was fail-closed for a read and fail-OPEN for a record, whose
-    // rule is that no signal was passed — so the reading is not a boolean.
-    const [spread] = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "repo.workspaceList", request, { ...options });',
-    ]);
-    expect(spread?.signalArgument).toBe("opaque");
-    const [held] = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "repo.workspaceList", request, options);',
-    ]);
-    expect(held?.signalArgument).toBe("opaque");
-    const [read] = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "session.join", request, { cause });',
-    ]);
-    expect(read?.signalArgument).toBe("absent");
-  });
-
-  it("takes a forwarded parameter, annotated or contextually typed", () => {
-    // The two spellings the console's own reads carry: the `repos` and inventory
-    // helpers annotate `signal: AbortSignal`, and the arrow a push-driven read hands
-    // its round's signal to declares nothing, because the seat's option type declares
-    // it. Both are signals this call was HANDED, which is the property that matters.
-    const [annotated] = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "repo.workspaceList", request, { signal });',
-    ]);
-    expect(annotated?.signalArgument).toBe("present");
-    const [contextual] = plantedSites([
-      "export function createRoster(bridge) {",
-      "  return new PushDrivenRead({",
-      "    read: async (signal) =>",
-      '      await callDaemon(bridge, "repo.workspaceList", {}, { signal }),',
-      "  });",
-      "}",
-    ]);
-    expect(contextual?.signalArgument).toBe("present");
-  });
-
-  it("takes a round's signal, off the parameter and off the local it was opened into", () => {
-    // The other two shapes `store/read-cancellation.ts` produces. A performer is
-    // handed the round; a reader that owns the line opens one on its own scope.
-    const [handed] = plantedSites([
-      "class QuotaReadout {",
-      "  async #read(round: ReadRound) {",
-      '    return await callDaemon(this.#bridge, "repo.workspaceList", {}, { signal: round.signal });',
-      "  }",
-      "}",
-    ]);
-    expect(handed?.signalArgument).toBe("present");
-    const [opened] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
-      "}",
-    ]);
-    expect(opened?.signalArgument).toBe("present");
-  });
-
-  it("negative control: a signal this call minted itself is not the round's", () => {
-    // THE HOLE A KEY CHECK LEAVES, in the four spellings that fit through it. Each
-    // line hands the door a member NAMED `signal` and none of them is a signal the
-    // read line can abort: an already-aborted one stops nothing that ever ran, and a
-    // controller minted beside the call is superseded by nothing and abandoned by
-    // nobody. All four answered `"present"` while the property name was the test.
-    const readings = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "repo.workspaceList", request, { signal: AbortSignal.abort() });',
-      "const controller = new AbortController();",
-      'await callDaemon(bridge, "repo.workspaceList", request, { signal: controller.signal });',
-      'await callDaemon(bridge, "repo.workspaceList", request, {',
-      "  signal: new AbortController().signal,",
-      "});",
-      "const staleSignal = controller.signal;",
-      'await callDaemon(bridge, "repo.workspaceList", request, { signal: staleSignal });',
-    ]).map((site) => site.signalArgument);
-    expect(readings).toStrictEqual([
-      "unrecognised",
-      "unrecognised",
-      "unrecognised",
-      "unrecognised",
-    ]);
-  });
-
-  it("negative control: a member named signal off a name nothing binds is refused", () => {
-    // The other half of the same claim, and the fail-closed direction: an ambient or a
-    // global this scan cannot see is not admitted on the strength of its spelling, and
-    // neither is a `signal` member that carries no value expression at all.
-    const [ambient] = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "repo.workspaceList", request, { signal: ambientRound.signal });',
-    ]);
-    expect(ambient?.signalArgument).toBe("unrecognised");
-    const [accessor] = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "repo.workspaceList", request, {',
-      "  signal() {",
-      "    return undefined;",
-      "  },",
-      "});",
-    ]);
-    expect(accessor?.signalArgument).toBe("unrecognised");
-  });
-
-  it("negative control: a round is not a signal, and a signal is not a round", () => {
-    // The two forms are read at their own positions rather than pooled. A `ReadRound`
-    // handed on bare where a signal goes is not an `AbortSignal`, and a forwarded
-    // signal has no `signal` member to read off it.
-    const [bareRound] = plantedSites([
-      "async function performRead(bridge, request, round: ReadRound) {",
-      '  return await callDaemon(bridge, "repo.workspaceList", request, { signal: round });',
-      "}",
-    ]);
-    expect(bareRound?.signalArgument).toBe("unrecognised");
-    const [nestedSignal] = plantedSitesInReadHelper([
-      'await callDaemon(bridge, "repo.workspaceList", request, { signal: signal.signal });',
-    ]);
-    expect(nestedSignal?.signalArgument).toBe("unrecognised");
   });
 });

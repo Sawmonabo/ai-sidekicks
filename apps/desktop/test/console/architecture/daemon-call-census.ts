@@ -42,9 +42,9 @@ const CALL_MEMBER = "call";
 /**
  * The door's consumer-facing name, as `bridge/index.ts` publishes it.
  *
- * Exported because the call-site scan beside this one needs the same name to find the
- * door's local spellings, and a second declaration of it there would be a closed set
- * written twice.
+ * Exported because the call-site scan beside this one asks the same question of the
+ * same clause — which specifier imported THIS export — and a second declaration of the
+ * name there would be a closed set written twice.
  */
 export const CALL_DOOR_EXPORT = "callDaemon";
 
@@ -143,19 +143,20 @@ export function importsCallDoor(source: string, fileName = "probe.ts"): boolean 
 /**
  * The LOCAL names this module reaches the door under, aliases included.
  *
- * The consumer reading above and the call-site scan next door ask one question of one
- * import clause and used to answer it twice: this one read `propertyName ?? name` and
- * counted an aliased import, while the call-site scan matched the exported spelling
- * against the callee and dropped every call an alias renamed — so a module could be
- * counted a consumer and contribute no calls at all, which is a signal check passing
- * over nothing. One resolution, and the scan takes its door names from here.
+ * `propertyName ?? name` IS THE READING, and it is the one the call-site scan makes
+ * too — through the scope chain rather than through this set, because its subject is a
+ * call and a name at a call position means whatever the nearest binding says it means.
+ * Matching the exported spelling against a callee dropped every call an alias renamed,
+ * so a module could be counted a consumer here and contribute no calls at all, which
+ * is a signal check passing over nothing. Both readings now resolve the same clause
+ * and share the one declaration of the name it is looked for under.
  *
  * A NAMESPACE import is deliberately not counted, on the reasoning the walk chokepoint
  * takes for the same shape: `import * as bridge` names no specifier this scan can
  * enumerate, and reporting it as a consumer would attribute the door to every module
  * that imports the family for anything at all.
  */
-export function callDoorLocalNames(parsed: ts.SourceFile): ReadonlySet<string> {
+function callDoorLocalNames(parsed: ts.SourceFile): ReadonlySet<string> {
   const localNames = new Set<string>();
   for (const statement of parsed.statements) {
     if (!ts.isImportDeclaration(statement)) {

@@ -17,6 +17,29 @@
 // VERBS themselves live in `daemon-reading-verbs.ts`, which both this file and that
 // one derive from, because a closed set spelled in two places moves in one.
 //
+// AND IT IS THE SCHEMA'S EXPORTED NAME, NOT THE REGISTRY'S LOCAL SPELLING. A schema
+// operation is a name the CONTRACTS package chose, and a table row names it through
+// whatever its own import clause bound it to: `WorkspaceListResponseSchema as
+// WorkspaceResponseSchema` leaves `WorkspaceList` — the whole classification — outside
+// the identifier the row carries, and the reading verb goes with it, so a read
+// classifies as a record and is exempted from the signal rule by a rename in a file
+// the rule is not about. So the local name is resolved back through the clause that
+// bound it before any verb is looked for, which is `daemon-method-bindings.ts`'
+// `propertyName ?? name` reading applied to the other end of the same seam.
+//
+// A SEMANTIC SOURCE WOULD BE BETTER AND THE CONTRACTS DO NOT CARRY ONE for this
+// method set, which was checked rather than assumed. `jsonrpc-registry.ts` publishes a
+// `mutating` REGISTRATION flag, but it is supplied per handler at register time and
+// DEFAULTS to `false`, so absence bounds the mutating set from below — the instrument
+// `store/shell-mutation-block.ts` already records as the wrong one for exactly this
+// question. `TIMELINE_METHOD_DESCRIPTORS` does state `mutating` per method, over the
+// four `timeline.*` rows and no others, none of which this registry binds.
+// `METHOD_NAME_FORMAT` is a shape grammar over dotted segments and says nothing about
+// what a call does. And the registry's own `CHANGES_A_RUN` answers a different
+// question in its own words. A partition read off any of those would be read off a
+// source that does not cover the set, which is worse than one read off the shape the
+// wire actually returns.
+//
 // FOUR VERDICTS, BECAUSE THREE COLLAPSED TWO FACTS INTO ONE. A call whose method this
 // scan could not resolve is a different fact from one it resolved to a mutation, and
 // collapsing them is how an exemption gets granted to whatever the parse cannot see.
@@ -59,7 +82,7 @@ import {
 } from "../console-source-modules.js";
 import { parseSourceText } from "../typescript-source.js";
 import { daemonCallSitesIn, type DaemonCallSite } from "./daemon-call-sites.js";
-import { DaemonMethodConstantIndex } from "./daemon-method-bindings.js";
+import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
 import { namesReadingVerb } from "./daemon-reading-verbs.js";
 
 /** Where the method-to-schema table the partition is read off lives. */
@@ -120,16 +143,50 @@ export type DaemonCallSiteVerdict = "read" | "record" | "mixed" | "unresolved";
  * method and its initializer is the factory call whose second argument names the
  * response schema. Read from the parse rather than from a pattern, because the
  * registry's prose names both the factory and a dozen schemas while explaining them.
+ *
+ * The schema identifier is then resolved back to the name the contracts package
+ * EXPORTS it under, because that is the name the operation is spelled in and an alias
+ * can drop the verb out of it entirely.
  */
 export function daemonMethodReadings(
   registrySource: string,
   fileName = "daemon-reply-registry.ts",
 ): ReadonlyMap<string, boolean> {
+  const parsed = parseSourceText(fileName, registrySource);
+  const exportedNames = importedExportedNames(parsed);
   const readings = new Map<string, boolean>();
-  for (const binding of bindingTableEntries(parseSourceText(fileName, registrySource))) {
-    readings.set(binding.method, namesReadingVerb(binding.responseSchema));
+  for (const binding of bindingTableEntries(parsed)) {
+    const operation = exportedNames.get(binding.responseSchema) ?? binding.responseSchema;
+    readings.set(binding.method, namesReadingVerb(operation));
   }
   return readings;
+}
+
+/**
+ * Every imported name of the registry, mapped to the name it was exported under.
+ *
+ * ONE HOP, AND IT IS THE ONLY ONE THIS MODULE'S TEXT CAN REACH. A rename can happen at
+ * an import clause (`X as Y`) or at a re-export, and the schemas arrive through
+ * `@ai-sidekicks/contracts`, whose barrel is `export *` throughout — a form that
+ * cannot rename — so the exported name at that package boundary IS the declaring
+ * module's, and this clause is the whole rename path. A schema the registry declares
+ * itself rather than imports keeps its own name, which is also the name it would be
+ * exported under.
+ */
+function importedExportedNames(parsed: ts.SourceFile): ReadonlyMap<string, string> {
+  const exportedNames = new Map<string, string>();
+  for (const statement of parsed.statements) {
+    const namedBindings = ts.isImportDeclaration(statement)
+      ? statement.importClause?.namedBindings
+      : undefined;
+    if (namedBindings === undefined || !ts.isNamedImports(namedBindings)) {
+      continue;
+    }
+    for (const element of namedBindings.elements) {
+      exportedNames.set(element.name.text, (element.propertyName ?? element.name).text);
+    }
+  }
+  return exportedNames;
 }
 
 /**

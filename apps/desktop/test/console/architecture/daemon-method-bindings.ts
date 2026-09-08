@@ -19,7 +19,11 @@
 // BY RANGE, BECAUSE THE SHARED PARSE LEAVES PARENT POINTERS OFF. The walk carries the
 // scope it is inside rather than asking a node what encloses it, and records each
 // scope's span so a call's position selects the chain. That is the same "decided from
-// the enclosing form downward" discipline `daemon-call-census.ts` states.
+// the enclosing form downward" discipline `daemon-call-census.ts` states. The one
+// binding form that cannot be recorded on the way down is an IMPORT, because a
+// specifier needs the module its own declaration names and a specifier reached by
+// descent cannot be asked what encloses it — so the imports are declared from the
+// statement list first, before the walk, which is the whole set of them.
 //
 // AND AN UNREADABLE BINDING REFUSES RATHER THAN FALLS BACK. A destructured name, a
 // namespace import, a parameter with no declared literal type, a `const` bound to
@@ -28,103 +32,47 @@
 // what produced the shadow bug: the fallback fires exactly when the local answer is
 // unavailable, which is exactly when guessing is least defensible.
 //
-// THE ONE INDEX THAT SURVIVES IS THE CROSS-MODULE ONE, and it is now reached only
-// through an IMPORT. Two call sites name a constant `agents/agent-wire.ts` declares,
-// and the nearest binding for those is the import specifier — so the index is asked
-// for the EXPORTED name that specifier came from, rather than for whatever local
-// spelling the call happened to use.
+// THE ONE INDEX THAT SURVIVES IS THE CROSS-MODULE ONE, and what a binding owes it is
+// the MODULE and not just the name. Two call sites name a constant
+// `agents/agent-wire.ts` declares, and the nearest binding for those is the import
+// specifier — so an imported binding carries both halves of what its declaration
+// says: the name the specifier came from, and the specifier's own module. What
+// `daemon-method-constants.ts` then does with the pair is its subject; that a name
+// alone is not enough to identify an export is this one's.
 //
 // AND THE DECLARATION TRAVELS WITH THE READING, because the method is not the only
-// question a call site asks of a name. `daemon-call-sites.ts` also asks what the value
-// a call hands the door as its SIGNAL is bound to, and that question is answered from
-// the declaration FORM — a parameter the caller filled in, a local a round was opened
-// into — rather than from a string literal. Interpreting it here would put a second
-// subject in this module; handing the declaration back leaves the scope chain with the
-// one job it has, which is saying which declaration a name at a position means.
+// question a call site asks of a name. `daemon-call-sites.ts` asks whether the name a
+// call INVOKES is the door's own import specifier, and `daemon-signal-argument.ts`
+// asks what the value handed as the signal is bound to; both are answered from the
+// declaration FORM — an import specifier, a parameter the caller filled in, a local a
+// round was opened into — rather than from a string literal. Interpreting those here
+// would put three subjects in this module; handing the declaration back leaves the
+// scope chain with the one job it has, which is saying which declaration a name at a
+// position means.
 
 import ts from "typescript";
-
-import { parseSourceText } from "../typescript-source.js";
 
 /** What a name a call passes as its method is bound to, once the nearest binding is found. */
 export type MethodBinding =
   /** A declaration this parse reduced to string literals — a parameter's union, or a `const`. */
   | { readonly kind: "literals"; readonly literals: readonly string[] }
-  /** An import specifier: the index below is asked for the name it was exported under. */
-  | { readonly kind: "imported"; readonly exportedName: string }
+  /** An import specifier: the cross-module index is asked for this export of this module. */
+  | {
+      readonly kind: "imported";
+      /** The name the specifier came from, which is the name the other module EXPORTS. */
+      readonly exportedName: string;
+      /** The specifier's own module, as the import spells it. */
+      readonly moduleSpecifier: string;
+    }
   /** A declaration this parse cannot reduce. Resolving one answers nothing. */
   | { readonly kind: "unreadable" };
 
 /**
- * The method literals a `const` name is bound to, folded across a whole scan.
+ * What one name is bound to, in every reading a call site takes of a binding.
  *
- * A NAME AND NOT AN IMPORT GRAPH. Two of the console's call sites name a constant
- * declared in another module (`agents/agent-wire.ts`' two driver methods), and
- * resolving those through the import graph would mean a module resolver in a source
- * scan that deliberately has none. Folding every module's bindings under their names
- * answers the same question with the tree it already walked: a name bound to exactly
- * one registered method anywhere resolves to it, and a name two modules bind to two
- * different methods resolves to neither, because a scan that guessed between them
- * would be reporting on whichever module it happened to walk last.
- *
- * ONLY REGISTERED METHODS ARE INDEXED, and only what an IMPORT reached is asked of
- * this index at all. A console module binds constants for many things; admitting them
- * all would let an unrelated string shadow a method name, and the ambiguity refusal
- * above is the second half of the same guard.
- */
-export class DaemonMethodConstantIndex {
-  readonly #methodsByName = new Map<string, Set<string>>();
-  readonly #registeredMethods: readonly string[];
-
-  /**
-   * @param registeredMethods Every method the daemon-reply registry binds a schema for.
-   */
-  public constructor(registeredMethods: readonly string[]) {
-    this.#registeredMethods = registeredMethods;
-  }
-
-  /** Fold one module's `const NAME = "<method>"` bindings in. */
-  public add(source: string, fileName: string): void {
-    for (const statement of parseSourceText(fileName, source).statements) {
-      if (!ts.isVariableStatement(statement)) {
-        continue;
-      }
-      for (const declaration of statement.declarationList.declarations) {
-        const bound = this.#registeredMethodIn(declaration.initializer);
-        if (ts.isIdentifier(declaration.name) && bound !== undefined) {
-          const methods = this.#methodsByName.get(declaration.name.text) ?? new Set<string>();
-          methods.add(bound);
-          this.#methodsByName.set(declaration.name.text, methods);
-        }
-      }
-    }
-  }
-
-  /** The methods this name resolves to: one, or none where it is absent or ambiguous. */
-  public resolve(name: string): readonly string[] {
-    const methods = this.#methodsByName.get(name);
-    return methods === undefined || methods.size !== 1 ? [] : [...methods];
-  }
-
-  /** The registered method an initializer is, or `undefined` for everything else. */
-  #registeredMethodIn(initializer: ts.Expression | undefined): string | undefined {
-    if (initializer === undefined) {
-      return undefined;
-    }
-    const literal = withoutTypeWrappers(initializer);
-    if (!ts.isStringLiteralLike(literal)) {
-      return undefined;
-    }
-    return this.#registeredMethods.includes(literal.text) ? literal.text : undefined;
-  }
-}
-
-/**
- * What one name is bound to, in both readings a call site takes of a binding.
- *
- * One record and not two maps, so a name is bound in exactly one scope for both
- * questions: a second map would let the two readings disagree about WHICH declaration
- * a name at a position means, which is the shadow this module exists to refuse.
+ * One record and not two maps, so a name is bound in exactly one scope for every
+ * question: a second map would let two readings disagree about WHICH declaration a
+ * name at a position means, which is the shadow this module exists to refuse.
  */
 export interface NameBinding {
   /** What this name means where a call passes it as its METHOD. */
@@ -157,6 +105,7 @@ export class ModuleBindingScopes {
     this.#parsed = parsed;
     this.#aliasedUnions = moduleLiteralUnionAliases(parsed);
     const moduleScope = this.#openScope(0, parsed.end);
+    declareImports(parsed, moduleScope);
     this.#walk(parsed, moduleScope);
   }
 
@@ -222,7 +171,12 @@ export class ModuleBindingScopes {
     return enclosing;
   }
 
-  /** Record one declaration form in the scope that contains it. */
+  /**
+   * Record one declaration form in the scope that contains it.
+   *
+   * Imports are not among them — they are declared from the statement list before this
+   * walk starts, for the reason this module's header gives.
+   */
   #declare(node: ts.Node, scope: BindingScope): void {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
       scope.bindingsByName.set(node.name.text, {
@@ -231,26 +185,75 @@ export class ModuleBindingScopes {
       });
       return;
     }
-    if (ts.isImportSpecifier(node)) {
-      scope.bindingsByName.set(node.name.text, {
-        method: { kind: "imported", exportedName: (node.propertyName ?? node.name).text },
-        declaration: node,
-      });
-      return;
-    }
-    if (ts.isNamespaceImport(node) || ts.isBindingElement(node)) {
-      const name = node.name;
-      if (ts.isIdentifier(name)) {
-        scope.bindingsByName.set(name.text, { method: { kind: "unreadable" }, declaration: node });
-      }
-      return;
-    }
-    if (ts.isImportClause(node) && node.name !== undefined) {
+    if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {
       scope.bindingsByName.set(node.name.text, {
         method: { kind: "unreadable" },
         declaration: node,
       });
     }
+  }
+}
+
+/**
+ * Every imported name of one module, declared in its module scope.
+ *
+ * FROM THE STATEMENT LIST, because an import specifier's reading needs the module its
+ * own declaration names and the shared parse leaves parent pointers off. An import is
+ * always a top-level statement, so the statements ARE the whole set — a walk would
+ * reach the same specifiers and arrive at each of them holding nothing that says which
+ * declaration it belongs to.
+ *
+ * A specifier whose declaration names its module with anything but a string literal is
+ * recorded unreadable rather than left unbound: it IS the binding the call names, and
+ * looking past it is the shadow this module refuses.
+ */
+function declareImports(parsed: ts.SourceFile, scope: BindingScope): void {
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause === undefined) {
+      continue;
+    }
+    const moduleSpecifier = ts.isStringLiteralLike(statement.moduleSpecifier)
+      ? statement.moduleSpecifier.text
+      : undefined;
+    declareImportClause(statement.importClause, moduleSpecifier, scope);
+  }
+}
+
+/** One clause's three binding forms: a default name, a namespace, and the specifiers. */
+function declareImportClause(
+  clause: ts.ImportClause,
+  moduleSpecifier: string | undefined,
+  scope: BindingScope,
+): void {
+  if (clause.name !== undefined) {
+    scope.bindingsByName.set(clause.name.text, {
+      method: { kind: "unreadable" },
+      declaration: clause,
+    });
+  }
+  const namedBindings = clause.namedBindings;
+  if (namedBindings === undefined) {
+    return;
+  }
+  if (ts.isNamespaceImport(namedBindings)) {
+    scope.bindingsByName.set(namedBindings.name.text, {
+      method: { kind: "unreadable" },
+      declaration: namedBindings,
+    });
+    return;
+  }
+  for (const element of namedBindings.elements) {
+    scope.bindingsByName.set(element.name.text, {
+      method:
+        moduleSpecifier === undefined
+          ? { kind: "unreadable" }
+          : {
+              kind: "imported",
+              exportedName: (element.propertyName ?? element.name).text,
+              moduleSpecifier,
+            },
+      declaration: element,
+    });
   }
 }
 

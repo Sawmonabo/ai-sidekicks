@@ -77,6 +77,33 @@ describe("the response-shape partition", () => {
     expect(answersReadingResponse("EphemeralCloneDisposeResponse", widened)).toBe(false);
   });
 
+  it("negative control: a schema renamed by the import clause is classified as exported", () => {
+    // THE RENAME THAT DELETED THE VERB. The operation a schema names is the contracts
+    // package's, and a row reaches it through whatever the registry's own clause bound
+    // it to — so `WorkspaceListResponseSchema as WorkspaceResponseSchema` leaves the
+    // whole classification outside the identifier the row carries, `List` goes with
+    // it, and a read is exempted from the signal rule by a rename in a file the rule
+    // is not about.
+    const aliased = daemonMethodReadings(
+      [
+        "import {",
+        "  SessionJoinResponseSchema,",
+        "  WorkspaceListResponseSchema as WorkspaceResponseSchema,",
+        '} from "@ai-sidekicks/contracts";',
+        "export const CONSOLE_DAEMON_METHOD_BINDINGS = Object.freeze({",
+        '  "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceResponseSchema),',
+        '  "session.join": bindDaemonMethod(SessionJoinRequestSchema, SessionJoinResponseSchema),',
+        "});",
+      ].join("\n"),
+    );
+    expect(aliased.get("repo.workspaceList")).toBe(true);
+    // And the rename is really a rename rather than a rule that admits everything: an
+    // unaliased record still records, and a local spelling with no clause behind it is
+    // classified as itself.
+    expect(aliased.get("session.join")).toBe(false);
+    expect(daemonMethodReadings(PLANTED_REGISTRY).get("repo.workspaceList")).toBe(true);
+  });
+
   it("negative control: the table reader ignores everything that is not a binding", () => {
     // The registry's prose names the factory and a dozen schemas while explaining
     // them, and its neighbours declare object literals of their own.
@@ -105,7 +132,7 @@ describe("the four offender readings", () => {
       "}",
     ]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      'console/planted/surface.ts:2 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
+      'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed no signal',
     ]);
   });
 
@@ -119,7 +146,7 @@ describe("the four offender readings", () => {
     ]);
     expect(sites.map((site) => site.signalArgument)).toStrictEqual(["unrecognised"]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      'console/planted/surface.ts:3 — "repo.workspaceList" reads (repo.workspaceList) and was handed a signal member this parse cannot tie to a read round',
+      'console/planted/surface.ts:4 — "repo.workspaceList" reads (repo.workspaceList) and was handed a signal member this parse cannot tie to a read round',
     ]);
   });
 
@@ -130,7 +157,7 @@ describe("the four offender readings", () => {
       'await callDaemon(bridge, "session.join", request, { signal });',
     ]);
     expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:2 — records session.join and was handed a signal",
+      "console/planted/surface.ts:3 — records session.join and was handed a signal",
     ]);
   });
 
@@ -143,8 +170,8 @@ describe("the four offender readings", () => {
       'await callDaemon(bridge, "session.join", request, { ...options });',
     ]);
     expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:1 — records session.join and was handed options this parse cannot read, so nothing here shows it carries no signal",
       "console/planted/surface.ts:2 — records session.join and was handed options this parse cannot read, so nothing here shows it carries no signal",
+      "console/planted/surface.ts:3 — records session.join and was handed options this parse cannot read, so nothing here shows it carries no signal",
     ]);
   });
 
@@ -162,7 +189,7 @@ describe("the four offender readings", () => {
       "unresolved",
     ]);
     expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      'console/planted/surface.ts:2 — "repo.mountRead" names repo.mountRead, which the registry binds no response schema for, so nothing here says whether this call reads',
+      'console/planted/surface.ts:3 — "repo.mountRead" names repo.mountRead, which the registry binds no response schema for, so nothing here says whether this call reads',
     ]);
     expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
@@ -182,7 +209,7 @@ describe("the four offender readings", () => {
     ]);
     expect(signalled.map((site) => site.signalArgument)).toStrictEqual(["present"]);
     expect(unresolvedMethodOffenders(signalled, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:3 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
+      "console/planted/surface.ts:4 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
     ]);
     const unsignalled = plantedSites([
       "export function bind<MethodName extends ConsoleDaemonMethod>(method: MethodName) {",
@@ -190,7 +217,7 @@ describe("the four offender readings", () => {
       "}",
     ]);
     expect(unresolvedMethodOffenders(unsignalled, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:2 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
+      "console/planted/surface.ts:3 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
     ]);
     // And the site is owned by that reading alone, so neither rule double-reports it.
     expect(unstoppableReadOffenders(unsignalled, PLANTED_READINGS)).toStrictEqual([]);
@@ -224,7 +251,7 @@ describe("the four offender readings", () => {
       "mixed",
     ]);
     expect(mixedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      "console/planted/surface.ts:2 — method names both a read (repo.workspaceList) and a record (session.join); split the call or narrow the union so one call is one kind",
+      "console/planted/surface.ts:3 — method names both a read (repo.workspaceList) and a record (session.join); split the call or narrow the union so one call is one kind",
     ]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
     expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);

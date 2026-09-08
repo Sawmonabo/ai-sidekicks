@@ -11,10 +11,23 @@
 // EVERY SOURCE HERE IS ONE THE CONSOLE DOES NOT CONTAIN, which is the whole reason
 // these live beside the gate rather than in it — the offending shapes cannot be
 // written into a tree the gate reads.
+//
+// AND A MODULE THAT REACHES THE DOOR IMPORTS THE DOOR, which is scaffolding rather
+// than subject: `daemon-call-sites.ts` resolves a callee to the specifier that bound
+// it, so a planted module with no import clause reaches nothing — correctly, and
+// uninterestingly, for every case whose subject is the call rather than the clause.
+// The import is written once here for the same reason the read helper below is, and
+// the cases whose subject IS the clause take the sibling that plants nothing.
 
 import { daemonCallSitesIn } from "./daemon-call-sites.js";
-import { DaemonMethodConstantIndex } from "./daemon-method-bindings.js";
+import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
 import { daemonMethodReadings } from "./daemon-read-signal-census.js";
+
+/** What the scan names every planted module by. */
+const PLANTED_MODULE = "console/planted/surface.ts";
+
+/** The clause a module reaching the door carries, as the console's own consumers write it. */
+const DOOR_IMPORT = 'import { callDaemon } from "../../bridge/index.js";';
 
 /** A registry stub carrying one reading row and one recording row. */
 export const PLANTED_REGISTRY: string = [
@@ -33,12 +46,31 @@ export function emptyIndex(): DaemonMethodConstantIndex {
   return new DaemonMethodConstantIndex([...PLANTED_READINGS.keys()]);
 }
 
-/** The sites one planted module declares, resolved through `constants`. */
+/**
+ * The sites one planted module declares, with the door imported for it.
+ *
+ * The import occupies line 1, so a case's own first line is line 2 — which is what
+ * every reported location below counts from.
+ */
 export function plantedSites(
   lines: readonly string[],
   constants: DaemonMethodConstantIndex = emptyIndex(),
 ): ReturnType<typeof daemonCallSitesIn> {
-  return daemonCallSitesIn("console/planted/surface.ts", lines.join("\n"), constants);
+  return plantedSitesDeclaringImports([DOOR_IMPORT, ...lines], constants);
+}
+
+/**
+ * The same, for a case whose subject is the module's own import clause.
+ *
+ * Nothing is planted: an aliased door, a module that imports no door at all, and a
+ * constant reached from a named module are each claims ABOUT the clause, and a clause
+ * this helper wrote would be a second one beside the one under test.
+ */
+export function plantedSitesDeclaringImports(
+  lines: readonly string[],
+  constants: DaemonMethodConstantIndex = emptyIndex(),
+): ReturnType<typeof daemonCallSitesIn> {
+  return daemonCallSitesIn(PLANTED_MODULE, lines.join("\n"), constants);
 }
 
 /**
