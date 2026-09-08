@@ -1,5 +1,5 @@
-import { WireFigure, formatCount } from "../primitives/index.js";
-import { TOOL_ALLOWLIST_NAMED_CAP } from "../core/index.js";
+import { WireFigure, formatCount } from "../../primitives/index.js";
+import { TOOL_ALLOWLIST_NAMED_CAP } from "../../core/index.js";
 
 /**
  * The tool allowlist as applied — presence first, emptiness second.

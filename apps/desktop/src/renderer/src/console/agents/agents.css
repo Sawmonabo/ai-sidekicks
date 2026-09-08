@@ -99,7 +99,8 @@
 
 .meridian-agent-card__effective,
 .meridian-agent-card__observed,
-.meridian-agent-card__pending {
+.meridian-agent-card__pending,
+.meridian-agent-card__tool-grant {
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
@@ -174,6 +175,7 @@
 }
 
 .meridian-agent-card__snapshot-note,
+.meridian-agent-card__grant-note,
 .meridian-attach__snapshot,
 .meridian-attach__catalog-note,
 .meridian-switch__cache-note,

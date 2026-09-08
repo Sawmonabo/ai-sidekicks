@@ -1,4 +1,4 @@
-import { RESOLVED_PROSE_INLINE_CAP } from "../core/index.js";
+import { RESOLVED_PROSE_INLINE_CAP } from "../../core/index.js";
 export function ProseRow(props: {
   readonly label: string;
   readonly text: string | undefined;

@@ -40,7 +40,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
-import { AgentCard } from "../AgentCard.js";
+import { AgentCard } from "../agent-card/index.js";
 import { AgentRosterEmpty } from "../AgentRosterEmpty.js";
 import { type ProviderAxis } from "../agent-wire.js";
 import { AttachSidekick } from "../attach/AttachSidekick.js";

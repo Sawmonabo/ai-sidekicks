@@ -11,8 +11,8 @@
 // definition is never attributed to one, because an inline attach resolves a
 // configuration too.
 
-import { WireFigure } from "../primitives/index.js";
-import type { AgentResolvedConfiguration } from "../bridge/index.js";
+import { WireFigure } from "../../primitives/index.js";
+import type { AgentResolvedConfiguration } from "../../bridge/index.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";
 

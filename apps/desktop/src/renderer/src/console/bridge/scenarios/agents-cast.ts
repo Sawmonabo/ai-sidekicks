@@ -13,10 +13,13 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   ParticipantIdSchema,
   SessionIdSchema,
+  type DeclaredLossKind,
   type DriverCapabilityFlag,
   type ParticipantId,
   type SessionId,
 } from "@ai-sidekicks/contracts";
+
+import type { AgentSwitchSettlement } from "../wire-shapes/agent-plane.js";
 
 // Wire identifiers, spelled as the wire spells them — UUID v7 values whose leading
 // bytes are this scenario's own start instant, so a rendered id still tells one
@@ -155,3 +158,31 @@ export const ATTACHED_AGENTS: readonly [AttachedAgent, AttachedAgent] = [
     attachedAtIso: "2026-01-01T11:30:00.140Z",
   },
 ];
+
+/**
+ * The settlement the scripted `agent.configUpdate` reply answers with.
+ *
+ * HERE RATHER THAN INLINE ON THAT REPLY, because it now has two readers: the
+ * scenario answers with it, and the screenshot tier's settlement route renders the
+ * line from it directly rather than driving a submit and a clock. A second literal
+ * would be a second answer to what a settled switch looks like, and the picture
+ * would stop being of the settlement the fixture serves.
+ *
+ * `continuity` is `replayed`, which is what makes a non-empty loss list possible at
+ * all: an `in_place` carry drops nothing and a `memo` settlement drops the
+ * transcript wholesale. The two losses are causally ordered rather than merely both
+ * legal — stripping private reasoning orphans the tool calls that referenced it, and
+ * the pairing repair that follows mints a synthetic result for each — and
+ * `satisfies` holds them to the registered vocabulary, without which the renderer
+ * built for the declared-loss path would be shown a response no daemon may emit.
+ */
+export const APPLIED_SWITCH_SETTLEMENT: AgentSwitchSettlement = {
+  status: "applied",
+  switchId: APPLIED_SWITCH_ID,
+  appliesAt: "turn_boundary",
+  continuity: "replayed",
+  declaredLosses: [
+    "provider_private_reasoning",
+    "tool_call_history_repaired",
+  ] satisfies readonly DeclaredLossKind[],
+};

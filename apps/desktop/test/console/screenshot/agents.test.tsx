@@ -23,6 +23,10 @@
 //     advisories and clear control are four compositions stacked in one field.
 //   • THE SIDEKICKS PAGE with rows served, which is a settings section rather than a
 //     surface of a session — the one place a person meets these records at all.
+//   • THE SWITCH SETTLEMENT on its applied arm with losses declared, which is four
+//     clauses composed into one line — headline, continuity, the loss clause, and the
+//     intent this one displaced. Which of them wraps, and whether the line still reads
+//     as one sentence when they all appear, is a layout claim no DOM assertion makes.
 //
 // TWO SCHEMES FOR THE TWO SURFACES A PERSON LIVES IN, ONE FOR THE TWO THEY VISIT. The
 // pane and the page carry this family's whole palette — cards, chips, refusals, rules,
@@ -54,6 +58,7 @@ import {
   mountAgentConsolePane,
   mountAttachDialogOnDefinitionArm,
   mountProviderSwitchPendingSupersession,
+  mountProviderSwitchSettlement,
   mountSidekickDefinitionsPage,
 } from "../surfaces/agents.js";
 import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
@@ -103,6 +108,11 @@ const PINNED_SURFACES: readonly {
     referenceName: "agents-provider-switch-pending",
     schemes: LIGHT_ONLY,
     mount: mountProviderSwitchPendingSupersession,
+  },
+  {
+    referenceName: "agents-switch-settlement",
+    schemes: LIGHT_ONLY,
+    mount: mountProviderSwitchSettlement,
   },
 ];
 
