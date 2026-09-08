@@ -43,8 +43,11 @@
 // that value as, and hands that reading back. A member declaring a `default` makes `{}`
 // valid, because the reader supplies the member, so a report carrying only `valid` would
 // be a verdict on `{ approver: "ada" }` rendered beside a form about to send `{}`. The
-// accepted value therefore travels ON the clean arm, and the caller submits THAT: one
-// value, described by the sentence a person reads and received by the daemon.
+// accepted value therefore travels ON the clean arm, for the caller that has no other
+// way to show it: the form's raw editor submits THAT, because its display is the person's
+// own document and nothing rewrites it. A caller whose controls can show every member
+// seeds them instead and submits what they hold — same rule, closed at the display rather
+// than at the wire (`workflows/forms/use-schema-form.ts`).
 //
 // AND THE LIBRARY CANNOT BE ASKED FOR LESS. `FromJSONSchemaParams` declares exactly two
 // members, `defaultTarget` and `registry` (`zod/v4/classic/from-json-schema.d.ts` at the

@@ -117,6 +117,7 @@ function fieldDescriptor(
     choices: kind === "choice" ? stringEnumOf(schema) : undefined,
     isInteger: declaredType(schema) === "integer",
     multipleOf: multipleOfOf(schema),
+    defaultValue: schema["default"],
   };
 }
 
@@ -175,6 +176,7 @@ function planLeaf(
       label: labelOf(schema, key),
       description: descriptionOf(schema),
       isRequired,
+      defaultValue: schema["default"],
       item: fieldDescriptor(items, itemKind, memberPath, key, isRequired),
     },
   };

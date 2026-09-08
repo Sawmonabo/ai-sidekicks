@@ -95,7 +95,9 @@ describe("the press composes the registered submit", () => {
       {
         workflowRunId: mount.workflowRunId,
         phaseId: mount.phaseId,
-        fields: {},
+        // The wait's schema carries one optional yes-or-no, and an unchecked box is
+        // `false` rather than unanswered — so the seeded answer is what a press sends.
+        fields: { notifyChannel: false },
         // The fixture's fresh attempt reads `0`, which is the value a falsy
         // discriminator would drop and the one the daemon adjudicates against.
         expectedRevision: 0,

@@ -65,6 +65,8 @@ export interface SchemaFieldDescriptor {
    * compiled validator refuses a moment later. Absent, the control steps by the type.
    */
   readonly multipleOf: number | undefined;
+  /** The schema's own `default`, which is what this member's control opens holding. */
+  readonly defaultValue: unknown;
 }
 
 /** An array of one repeated control. The item's descriptor carries the array's path. */
@@ -75,6 +77,8 @@ export interface SchemaListDescriptor {
   readonly isRequired: boolean;
   /** What one entry is. Its own `memberPath` is the list's; the index is the render's. */
   readonly item: SchemaFieldDescriptor;
+  /** The schema's own `default`, read as this collection's opening entries where it is one. */
+  readonly defaultValue: unknown;
 }
 
 /**
