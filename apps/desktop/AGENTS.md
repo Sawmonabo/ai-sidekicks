@@ -64,7 +64,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 - **Figures:** `console/primitives/wire-figures.ts` is the only module that formats a wire value — strings verbatim in mono, quantities through `Intl`, bytes scaled by 1024 there and nowhere else. Which `Intl` instances are HELD, keyed on what, and under which cap is the sibling question, and `console/primitives/intl-formatter-cache.ts` owns it.
 - **Persistence:** every durable write goes through `console/persistence/` and its closed value-class enumeration; one byte-measurement function serves every cap. Drafts never reach it.
 - **Cost:** every cost figure comes from the committed-spend read; the renderer sums nothing.
-- **Refresh:** every refresh goes through `console/store/scheduling.ts`. No `setInterval`.
+- **Refresh:** every refresh goes through `console/store/read/refresh-scheduler.ts`, and the apply side of the same rule through `console/store/read/apply-queue.ts`. No `setInterval`.
 
 ## Module shape
 

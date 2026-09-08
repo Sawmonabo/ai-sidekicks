@@ -48,13 +48,14 @@ const IDENTITY_OPERATION_NAME = "callerParticipantRead";
  * composition.
  *
  * Three and not one, because two of them are the seam being published rather than a
- * second answer to it: `store/hooks.ts` DECLARES the type and states that a composition
- * root must supply one, and `store/index.ts` is the family door that lets a family above
- * it read the declaration. A fourth name here is a surface composing its own adapter.
+ * second answer to it: `store/session/caller-membership-role.ts` DECLARES the type and
+ * states that a composition root must supply one, and `store/index.ts` is the family
+ * door that lets a family above it read the declaration. A fourth name here is a surface
+ * composing its own adapter.
  */
 const READER_TYPE_MODULES: readonly string[] = [
   "seats/identity/caller-participant.ts",
-  "store/hooks.ts",
+  "store/session/caller-membership-role.ts",
   "store/index.ts",
 ];
 

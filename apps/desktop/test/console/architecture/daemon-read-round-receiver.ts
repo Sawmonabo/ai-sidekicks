@@ -124,7 +124,7 @@ const READ_SCOPE_DOOR = "useReadScope";
  * barrel is spelled, so moving the seam is an edit a reviewer sees here.
  */
 const READ_SCOPE_MODULES: readonly string[] = [
-  "console/store/read-cancellation.ts",
+  "console/store/read/read-cancellation.ts",
   "console/store/index.ts",
 ];
 

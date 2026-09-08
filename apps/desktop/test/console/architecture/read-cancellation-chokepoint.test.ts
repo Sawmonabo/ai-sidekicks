@@ -67,10 +67,10 @@ import {
 } from "../console-source-modules.js";
 
 /** The one module allowed to construct an abort controller. */
-const READ_CANCELLATION_SEAM = "console/store/read-cancellation.ts";
+const READ_CANCELLATION_SEAM = "console/store/read/read-cancellation.ts";
 
 /** The module whose pairing claim the second group is about. */
-const REFRESH_SCHEDULER_MODULE = "console/store/scheduling.ts";
+const REFRESH_SCHEDULER_MODULE = "console/store/read/refresh-scheduler.ts";
 
 /** The one door a daemon call leaves the console through. */
 const DAEMON_CALL_FORM = "callDaemon(";

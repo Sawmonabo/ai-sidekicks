@@ -19,7 +19,7 @@ import {
   type SessionDegradedCause,
 } from "./degradation.js";
 import { eventOfKind } from "./session-event.test-support.js";
-import { SessionStore } from "./session-store.js";
+import { SessionStore } from "./session/session-store.js";
 
 /** An initialised store with nothing wrong with it. */
 function healthyStore(): SessionStore {

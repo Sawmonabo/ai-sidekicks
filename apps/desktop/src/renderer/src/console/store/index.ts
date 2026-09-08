@@ -28,7 +28,7 @@
 // `ConsoleEntity` joins its ref on the door with `useSessionPartition` below: a
 // partition is a map OF entities, so a consumer that can subscribe to one and
 // cannot name what it holds would have to restate the shape to read it.
-export { CONSOLE_ENTITY_KINDS } from "./entities.js";
+export { CONSOLE_ENTITY_KINDS } from "./entities/entities.js";
 // `ConsoleEntity` leaves the family because the two validating body reads live in
 // `bridge/daemon/entity-body-reads.ts`: a read that narrows a wire member has to sit where
 // the registered shapes may be imported, and it still takes and returns this
@@ -42,12 +42,16 @@ export type {
   ConsoleEntityKind,
   ConsoleEntityRef,
   ConsoleSessionEvent,
-} from "./entities.js";
+} from "./entities/entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
 // and this family deliberately knows none, so the type travels out and the
 // implementation stays where the wire is already understood.
-export type { EntityMutation, EntityProjector, EntityProjectorRegistry } from "./entities.js";
+export type {
+  EntityMutation,
+  EntityProjector,
+  EntityProjectorRegistry,
+} from "./entities/entities.js";
 // The registry that decides WHICH projector claims a kind, beside the table type it
 // hands out. It ships through this door because the composition root registers into
 // it and the session-store plumbing reads a snapshot out of it, and both of those
@@ -56,16 +60,16 @@ export type { EntityMutation, EntityProjector, EntityProjectorRegistry } from ".
 export {
   ConsoleEntityProjectorRegistry,
   consoleEntityProjectorRegistry,
-} from "./entity-projector-registry.js";
+} from "./entities/entity-projector-registry.js";
 
-export { SessionStore, type SessionStoreState } from "./session-store.js";
+export { SessionStore, type SessionStoreState } from "./session/session-store.js";
 // The base state a read establishes. Exported because the composition root now
 // builds one — the adapter over the growth port's session read lives there, which
 // is where a family that may reach the bridge is allowed to be.
-export type { SessionSnapshot } from "./session-store.js";
+export type { SessionSnapshot } from "./session/session-store.js";
 
-export type { FrameBanner } from "./frame-store.js";
-export { FrameStore } from "./frame-store.js";
+export type { FrameBanner } from "./shell/frame-store.js";
+export { FrameStore } from "./shell/frame-store.js";
 // The handover a pane performs when its refusal stops being its own business: a
 // whole-workspace code reaches the frame's banner rather than a line inside one pane.
 // The two selectors beside it are for the surfaces whose refusals arrive as a
@@ -77,7 +81,7 @@ export {
   newestBannerClassRefusalAmong,
   preferredBannerClassRefusalAmong,
   useRefusalBannerEscalation,
-} from "./refusal-escalation.js";
+} from "./shell/refusal-escalation.js";
 
 // The window-scoped modal's half of the shell's `inert` guard. Through this door
 // rather than either overlay's, because its callers are sibling VIEW families —
@@ -95,7 +99,7 @@ export {
   useModalSurfaceClaim,
   useModalSurfaceLifetime,
   type ModalSurfaceClaimAct,
-} from "./modal-surface-lifetime.js";
+} from "./shell/modal-surface-lifetime.js";
 
 // The shell's own condition, and the two derivations every reader of it shares.
 //
@@ -110,7 +114,7 @@ export {
   UNREPORTED_SHELL_STATE,
   describeShellConnection,
   shellReportsAreEqual,
-} from "./shell-state.js";
+} from "./shell/shell-state.js";
 export type {
   ShellConnection,
   ShellKeystoreState,
@@ -118,7 +122,7 @@ export type {
   ShellReport,
   ShellState,
   ShellTransport,
-} from "./shell-state.js";
+} from "./shell/shell-state.js";
 // What that condition COSTS, from the module that derives it. Beside the vocabulary
 // rather than inside it: a block is derived from a state and a method name, and the
 // two halves have different readers — see `shell-mutation-block.ts`'s own header.
@@ -138,18 +142,21 @@ export {
   shellBlockForMethod,
   shellBlocksAreEqual,
   shellMutationBlock,
-} from "./shell-mutation-block.js";
-export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell-mutation-block.js";
-export { useRailAttentionCount, useShellState } from "./hooks.js";
+} from "./shell/shell-mutation-block.js";
+export type { MutatingDaemonMethod, ShellMutationBlock } from "./shell/shell-mutation-block.js";
+export { useRailAttentionCount, useShellState } from "./shell/frame-hooks.js";
 // Every open session's projection as one signal, and the one fold the frame takes
 // over it. Published because the two callers sit on opposite sides of the console
 // DAG — a view family and `frame/` — so the mechanism can only be shared from here.
-export { subscribeToOpenSessions, useWorstOpenSessionRecovery } from "./open-session-signal.js";
+export {
+  subscribeToOpenSessions,
+  useWorstOpenSessionRecovery,
+} from "./session/open-session-signal.js";
 
 // `SessionSnapshotRead` now leaves the family, because the producer it was held
 // back for exists: the composition root builds a reader over the growth port's
 // session read, and says so at the call site with a type rather than by convention.
-export { SessionStoreRegistry } from "./session-store-registry.js";
+export { SessionStoreRegistry } from "./session/session-store-registry.js";
 // Straight from the module that DECLARES it rather than through the registry that
 // consumes it: a barrel re-exporting a re-export is the chain this family's one
 // door exists to avoid.
@@ -157,11 +164,12 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // `SessionSnapshotReader` stays inside the family: what a caller above needs to
 // SAY is what the registry takes, and the reader is one arm of that union rather
 // than a type anything outside names.
-export type { SessionSnapshotRead } from "./open-session-entry.js";
+export type { SessionSnapshotRead } from "./session/open-session-entry.js";
 
 // The refresh chokepoint, through the same door as the stores it feeds. A view
 // family that refreshes a wire read reaches this scheduler and no other timer:
-// `apps/desktop/AGENTS.md` puts every refresh through `store/scheduling.ts`, and a
+// `apps/desktop/AGENTS.md` puts every refresh through `store/read/refresh-scheduler.ts`,
+// and a
 // chokepoint reachable only by deep-importing past this barrel is one a family
 // would route around rather than through. `ApplyQueue` stays off the door: its only
 // caller is `SessionStoreRegistry`, and a second one would be a second writer into
@@ -173,7 +181,7 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // section's `repo.mountRead`, for one — still owes rule "no interval polling", and
 // this is the only implementation of it, so it is reachable through the door rather
 // than deep-imported around.
-export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+export { RefreshScheduler, type RefreshReason } from "./read/refresh-scheduler.js";
 
 // The COMPOSED shape of that scheduler, beside the primitive it composes. A scheduled
 // read published to subscribers was written out sixteen times across eight view
@@ -187,7 +195,7 @@ export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 // and never names the shape, so a door line for it would publish a name nothing
 // outside this family types — which the barrel census fails, and which is the rule
 // that a door is never widened for symmetry.
-export { ScheduledReading } from "./scheduled-reading.js";
+export { ScheduledReading } from "./read/scheduled-reading.js";
 
 // The read line every scheduled read is on, and the four names a caller outside this
 // family needs from it: the hook that binds one to a `(subject, key)` pairing, the
@@ -207,14 +215,14 @@ export {
   ReadScope,
   settleUnlessAbandoned,
   useReadScope,
-} from "./read-cancellation.js";
-export type { ReadRound } from "./read-cancellation.js";
+} from "./read/read-cancellation.js";
+export type { ReadRound } from "./read/read-cancellation.js";
 
 // The signal half of a push-driven read, beside the scheduler that coalesces it.
 // It leaves the family because its callers are view families, which are siblings
 // and cannot reach each other — so the second caller's only alternative to this
 // door was the second copy of the filter that this export replaces.
-export { subscribeToSessionEventKinds } from "./session-event-signal.js";
+export { subscribeToSessionEventKinds } from "./session/session-event-signal.js";
 
 // The wiring that feeds that chokepoint, on the door for the same reason: the four
 // moments a reading goes stale are one rule, and a family that could not reach this
@@ -227,7 +235,7 @@ export {
   useSessionReadTriggers,
   useWindowReadTriggers,
   type ReadTriggerTarget,
-} from "./read-triggers.js";
+} from "./read/read-triggers.js";
 
 // The three reasons a self-reading surface re-reads, wired imperatively over the
 // `ReadTriggerTarget` above. Here rather than in a view family because the
@@ -236,7 +244,7 @@ export {
 // those. It ships beside the hook wiring and not instead of it: a reading minted per
 // subject inside a resource seam cannot call a hook, so the two wirings differ and the
 // two members they read do not.
-export { SessionRefreshTriggers } from "./refresh-triggers.js";
+export { SessionRefreshTriggers } from "./read/refresh-triggers.js";
 
 // `useSessionPartition` joins the door with its cross-family consumers: the
 // composer reads the `agent`, `run`, and `channel` partitions to resolve what a
@@ -262,10 +270,10 @@ export { SessionRefreshTriggers } from "./refresh-triggers.js";
 // `useOpenSessionIds` ships with them because the sessions surface and the
 // context picker each have to name which sessions are open before either can
 // read one, and the registry is the only thing that knows.
+export { useCallerMembershipRole } from "./session/caller-membership-role.js";
+export { useFrameStore } from "./shell/frame-hooks.js";
+export { useLocationHash } from "./shell/location-hash.js";
 export {
-  useCallerMembershipRole,
-  useFrameStore,
-  useLocationHash,
   useOpenSessionIds,
   useOpenSessionStore,
   useSessionDegraded,
@@ -273,14 +281,15 @@ export {
   useSessionInitialised,
   useSessionPartition,
   useSessionStore,
-} from "./hooks.js";
+} from "./session/session-hooks.js";
 
 // The wall-clock wake-up. In this family rather than in `primitives/` because it is
-// a scheduling decision — the console's other one, `scheduling.ts`, is its neighbour
-// — and because what it publishes is state a surface renders against rather than
+// a scheduling decision — the console's other two, `read/refresh-scheduler.ts` and
+// `read/apply-queue.ts`, are its neighbours one directory over — and because what it
+// publishes is state a surface renders against rather than
 // anything it draws. It arms the only timer in the console outside those two
 // schedulers and the live announcer's hold.
-export { earliestFutureDeadline, useDeadlineWake } from "./deadline-wake.js";
+export { earliestFutureDeadline, useDeadlineWake } from "./subject-scoped/deadline-wake.js";
 
 // THE TWO SUBJECT PRIMITIVES, and why they ship through this door rather than being
 // re-implemented per family. State that outlives its subject was the recurring defect
@@ -303,26 +312,26 @@ export { earliestFutureDeadline, useDeadlineWake } from "./deadline-wake.js";
 export {
   /** @consumedBy T-023p-1C-8 */
   SubjectScopedHolder,
-} from "./subject-scoped-holder.js";
-export { useSubjectScopedState } from "./subject-scoped-state.js";
+} from "./subject-scoped/subject-scoped-holder.js";
+export { useSubjectScopedState } from "./subject-scoped/subject-scoped-state.js";
 // The seed rule the two families above pass as the holder's `initial`. It ships from
 // this door rather than from either of them because both read it: the `workflows/`
 // view family for the definitions and runs directories, and the run pane for one run's
 // snapshot. What a read STARTS as is one rule, and three surfaces disagreed about it in
 // three different ways before it was written down once.
-export { subjectReadStart } from "./subject-read-start.js";
-export type { SubjectRead } from "./subject-read-start.js";
+export { subjectReadStart } from "./read/subject-read-start.js";
+export type { SubjectRead } from "./read/subject-read-start.js";
 // The disposal half, from the module that DECLARES it. A value a drop releases takes
 // the holder above; a value that owns a subscription or a connection takes this,
 // because the render that seeded it may be one React throws away.
-export { useSubjectScopedResource } from "./subject-scoped-resource.js";
+export { useSubjectScopedResource } from "./subject-scoped/subject-scoped-resource.js";
 // The disposal SHAPE travels with the hook, because it is how a caller says which
 // kind of ending its resource has and the hook refuses to guess.
 // The union alone — the two arms are reached by writing one of them, never by naming
 // it, so a door line for each would be a name nothing outside this family ever types.
-export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
-export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped-holder.js";
-export type { SubjectScopedState } from "./subject-scoped-state.js";
+export type { SubjectScopedDisposal } from "./subject-scoped/subject-scoped-resource.js";
+export type { SubjectKey, SubjectScopedPublish } from "./subject-scoped/subject-scoped-holder.js";
+export type { SubjectScopedState } from "./subject-scoped/subject-scoped-state.js";
 // THE ACT PRIMITIVE, beside the two subject primitives and the latch it composes.
 // An act with a prerequisite read behind it — a roster before a node is named, the
 // modes a mount admits, whether a branch already has a checkout — was written three
@@ -338,7 +347,7 @@ export type { SubjectScopedState } from "./subject-scoped-state.js";
 // outside this family, and a door line for it would be a name nothing outside
 // `store/` ever types — which the barrel census fails. It rejoins this door the day a
 // surface holds one directly.
-export { ActSurfaceController } from "./act-controller-base.js";
+export { ActSurfaceController } from "./act/act-controller-base.js";
 // The three reading shapes travel with it because a controller composing one has to
 // NAME what it publishes: its own settled arm is its own, and the three arms around
 // that arm are this module's.
@@ -347,25 +356,25 @@ export type {
   ActPrerequisiteReading,
   ActReading,
   ActSettlementReading,
-} from "./act-reading.js";
+} from "./act/act-reading.js";
 // The React half, from the module that declares it. It binds any controller offering
 // the four lifecycle members, which is why the repos family's three — each extending
 // the base rather than being an `ActController` — bind through it unchanged.
-export { useActController } from "./use-act-controller.js";
+export { useActController } from "./act/use-act-controller.js";
 // The disposal beside the hook, because it is not the hook's alone: a controller that
 // publishes into a host rather than off a snapshot binds through
 // `useSubjectScopedResource` directly and ends exactly the same way.
-export { CONTROLLER_DISPOSAL } from "./use-act-controller.js";
+export { CONTROLLER_DISPOSAL } from "./act/use-act-controller.js";
 // The store axis, for the same reason the disposal leaves: a reading that binds
 // through `useSubjectScopedResource` directly rather than through the hook above still
 // arms its triggers on a session store, and the rebind rule is the same one. The type
 // travels with it so such a reading can DECLARE the member rather than growing it by
 // coincidence.
-export { useSessionStoreRebind } from "./session-store-rebind.js";
-export type { SessionStoreScoped } from "./session-store-rebind.js";
+export { useSessionStoreRebind } from "./session/session-store-rebind.js";
+export type { SessionStoreScoped } from "./session/session-store-rebind.js";
 
-export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
-export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch.js";
+export { GenerationLatch, useGenerationLatch } from "./read/generation-latch.js";
+export type { CurrentGenerationClaim, GenerationClaim } from "./read/generation-latch.js";
 // The caller's own membership role, forwarded with the two types a caller has to name
 // to use it. Two surfaces gate a control on it: the approvals pane's goal editor, and
 // the terminal lease line, where taking the shell is owner/collaborator-only so a
@@ -375,13 +384,16 @@ export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch
 // one in — which is also why the two types travel: a caller adapting that outcome has
 // to be able to NAME the shape, and one mapping three arms onto what a control may
 // offer writes that mapping over the union rather than over a boolean it inferred.
-export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
+export type {
+  CallerMembershipRoleResult,
+  CallerParticipantReader,
+} from "./session/caller-membership-role.js";
 // The degradation cause itself, beside the hook that answers it. Without this line
 // a consumer could reach the closed set only by reflecting on the hook's return
 // type — which derives the set from a CONSUMER of it, so widening the hook's
 // annotation widens the consumer's exhaustiveness silently and narrowing it to a
 // wrapper collapses that exhaustiveness outright.
-export type { SessionDegradedCause } from "./session-store.js";
+export type { SessionDegradedCause } from "./session/session-store.js";
 // The ladder itself, through the module that owns it. Published because the fold is
 // now performed over a SET of stores rather than inside one: the all-sessions
 // destination reports one degradation for the whole window, and picking the worst

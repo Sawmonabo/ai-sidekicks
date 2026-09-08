@@ -63,9 +63,9 @@ const BRIDGE_MODULES: ReadonlySet<string> = new Set([
 
 const SCHEDULER_MODULES: ReadonlySet<string> = new Set([
   "console/store/index",
-  "console/store/scheduling",
-  "console/store/act-controller",
-  "console/store/act-controller-base",
+  "console/store/read/refresh-scheduler",
+  "console/store/act/act-controller",
+  "console/store/act/act-controller-base",
 ]);
 
 /** How far the `extends` walk and the door hop will chase one name before giving up. */

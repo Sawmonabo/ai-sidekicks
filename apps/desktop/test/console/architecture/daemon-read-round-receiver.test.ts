@@ -82,7 +82,7 @@ describe("what a round was opened off", () => {
     // through the door. A reading that admitted only the barrel would report the
     // scheduler's own read line as a round nothing aborts.
     const [offDeclaringModule] = plantedSites([
-      'import { ReadScope } from "../store/read-cancellation.js";',
+      'import { ReadScope } from "../store/read/read-cancellation.js";',
       "class RefreshScheduler {",
       "  readonly #readLine = new ReadScope();",
       "  async seed(bridge) {",

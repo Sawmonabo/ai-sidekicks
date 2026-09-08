@@ -1,5 +1,11 @@
 // One admitted session event, built once for every suite that needs one.
 //
+// AT THE FAMILY ROOT AND NOT IN `entities/`, because it is not one sub-module's
+// scaffolding: suites in twelve families beside this one build their events through it,
+// and a role that many readers share belongs where every one of them already reaches —
+// the family's own directory — rather than one level further in, where its path would
+// name a sub-module none of those callers is inside.
+//
 // Seven copies of this four-line literal were in the tree at once — four spelling it
 // inline in a `store/` suite, two more inside sibling `.test-support` modules, and,
 // on the branches, three under the name `eventOfKind` in three different families.
@@ -20,7 +26,7 @@
 // two are different events to a projector that reads `event.payload?.[member]` and
 // this helper must not decide for its callers which one they meant.
 
-import type { ConsoleSessionEvent } from "./entities.js";
+import type { ConsoleSessionEvent } from "./entities/entities.js";
 
 /**
  * The instant an event at `sequence` occurred, one second apart and clamped to the day.
