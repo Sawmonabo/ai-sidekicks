@@ -419,13 +419,19 @@ describe("InterventionRequestPayload", () => {
     });
 
     it("REFUSES a string that is not an artifact id", () => {
-      // `ArtifactId` is UUID-shaped for the reason `RunId` is: a caller-supplied
-      // id reaching a manifest lookup must not be a path or a store-key
-      // fragment. A bare `z.string()` element would admit both.
+      // `ArtifactId` is UUID-shaped because `Spec-014 §Required Behavior` ratifies
+      // it as an RFC 9562 UUID the daemon mints at manifest creation, not because
+      // this seam chose a shape: a caller-supplied id reaching a manifest lookup
+      // must not be a path or a store-key fragment, and a bare `z.string()`
+      // element would admit both.
       expect(() =>
         InterventionRequestPayloadSchema.parse(steerCarrying(["../../etc/passwd"])),
       ).toThrow();
-      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(["artifact-1"]))).toThrow();
+      // A plausible-looking opaque handle is still refused, and the reason is the
+      // encoding rather than the characters: `artifact-1` is not an RFC 9562 UUID.
+      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(["artifact-1"]))).toThrow(
+        /uuid/i,
+      );
     });
 
     it("accepts the empty carrier and preserves declared order", () => {

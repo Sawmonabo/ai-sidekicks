@@ -58,7 +58,7 @@ type RunId = string & { readonly __brand: "RunId" };
 type ChannelId = string & { readonly __brand: "ChannelId" };
 type QueueItemId = string & { readonly __brand: "QueueItemId" };
 type InterventionId = string & { readonly __brand: "InterventionId" };
-type ArtifactId = string & { readonly __brand: "ArtifactId" };
+type ArtifactId = string & { readonly __brand: "ArtifactId" }; // encoding: an RFC 9562 UUID the daemon mints at manifest creation, distinct from the payload's SHA-256 digest — Spec-014 §Required Behavior (ratified 2026-09-08); this block registers brands, never encodings
 type WorkspaceId = string & { readonly __brand: "WorkspaceId" };
 type WorktreeId = string & { readonly __brand: "WorktreeId" }; // EphemeralCloneId + BranchContextId: §Plan-010 (Tier 6)
 type RepoMountId = string & { readonly __brand: "RepoMountId" };
@@ -1245,7 +1245,10 @@ type ApplyInterventionParams =
 // `steer` arm in §Plan-004 (2026-09-08 CP-014-7 discharge; the arm was `unknown[]` from campaign B3
 // until this date). The element type is ArtifactId — an id into Spec-014's manifest space, never an
 // untyped element and never an inline byte payload; caller bytes enter through the
-// boundary-validated ingest paths instead. Caller-declared ORDER is preserved end to end, and an
+// boundary-validated ingest paths instead. `Spec-014 §Required Behavior` ratifies that encoding
+// (2026-09-08): an RFC 9562 UUID the daemon mints at manifest creation, carried distinctly from the
+// payload's SHA-256 digest — which is what makes an element REFUSABLE at this parse boundary rather
+// than only at resolution time. Caller-declared ORDER is preserved end to end, and an
 // element the turn cannot resolve or deliver surfaces as an explicit cause-bearing unresolved marker
 // IN ITS DECLARED POSITION — silently dropping it is prohibited (Plan-014 I-014-13, Spec-014
 // §Fallback Behavior). Neither property is a parse concern; what the untyped arm could not do at all

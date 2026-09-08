@@ -182,11 +182,19 @@ export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("
 // spelling or its accept set is an amendment there, exactly as `NodeId`'s
 // relocation into `node-id.ts` left that shape Plan-003's.
 //
-// `brandedUuidIdSchema` for the reason `RunIdSchema` gives: an artifact id
-// reaching this seam is a caller-supplied string, and shape-rejection is what
-// stops a path fragment or a store-lookup key from arriving as one. The
-// double-`T` `ZodType<ArtifactId, ArtifactId>` composes into the request objects
-// under `exactOptionalPropertyTypes`.
+// `brandedUuidIdSchema` because that is the encoding `Spec-014 §Required
+// Behavior` ratifies (2026-09-08): an `ArtifactId` is an RFC 9562 UUID minted by
+// the daemon at manifest creation — the registered daemon-assigned id encoding
+// `SessionId` and `RunId` already carry, accepting any RFC 9562 form so a
+// control-plane `gen_random_uuid()` v4 parses — and it identifies the MANIFEST
+// and never its content, which that envelope carries separately as a SHA-256
+// `digest`. This schema therefore does not assert an encoding of its own; it
+// enforces the one that spec states, and widening or narrowing the accept set is
+// an amendment there rather than an edit here. The practical effect is the one
+// `RunIdSchema` gives: an artifact id reaching this seam is a caller-supplied
+// string, and shape-rejection is what stops a path fragment or a store-lookup
+// key from arriving as one. The double-`T` `ZodType<ArtifactId, ArtifactId>`
+// composes into the request objects under `exactOptionalPropertyTypes`.
 export type ArtifactId = string & { readonly __brand: "ArtifactId" };
 export const ArtifactIdSchema: z.ZodType<ArtifactId, ArtifactId> =
   brandedUuidIdSchema<ArtifactId>("ArtifactId");
