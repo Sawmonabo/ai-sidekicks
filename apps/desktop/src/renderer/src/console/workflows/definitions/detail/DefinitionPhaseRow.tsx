@@ -32,7 +32,7 @@
 
 import { Chip, WireFigure } from "../../../primitives/index.js";
 import type { McpServerBindingRef, WorkflowPhaseDefinition } from "../../../bridge/index.js";
-import { SchemaFormPreview } from "../../../seats/index.js";
+import { schemaFormPreviewMount } from "../../../seats/index.js";
 
 export interface DefinitionPhaseRowProps {
   readonly phase: WorkflowPhaseDefinition;
@@ -103,8 +103,12 @@ export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.El
        * Last in the row, because it is the phase's own detail rather than one of its
        * closed vocabulary values, and it renders nothing at all for the four phase types
        * that ask no question — which is what keeps the row a row for every other phase.
+       *
+       * Mounted through the seat's loader rather than as an element, because the schema
+       * form kit is its own chunk: the seat holds the single in-flight load and the
+       * reserved region the preview leaves while its module is arriving.
        */}
-      <SchemaFormPreview phase={phase} />
+      {schemaFormPreviewMount.render({ phase })}
     </li>
   );
 }

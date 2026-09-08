@@ -29,9 +29,24 @@ import {
 import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
+import { schemaFormAnswerMount } from "../../../../seats/index.js";
 import { humanFormPhaseFor } from "../human-form-selection.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
 import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
+
+/**
+ * Resolve the schema form's chunk before a case renders a wait.
+ *
+ * The form arrives as its own chunk, so a mount that begins cold suspends for the turn
+ * its module lands in and every synchronous query against the controls runs against the
+ * reserved region instead. Awaited once per suite rather than settled per case: the
+ * seat's loader memoises the load, so this is the same promise every mount in the file
+ * would have joined — and a suite that waits here reads exactly what a person who has
+ * already opened one form sees.
+ */
+export async function loadSchemaFormBody(): Promise<void> {
+  await schemaFormAnswerMount.load();
+}
 
 /** The refusal a daemon raises on a submission composed against a stale revision. */
 export const STALE_REVISION_REFUSAL: WireErrorEnvelope = {
@@ -106,10 +121,10 @@ export const SUBMIT_DISPATCH_FAILURE = "the bridge was torn down before the subm
  *
  * `async` is deliberately absent, and that absence is the whole fixture: an `async` port
  * that throws hands back the rejected promise the settlement seam already reads, which is
- * the case the refusal suite above covers. A port that throws before it returns fails
- * while the ARGUMENT to that seam is still being evaluated — a precondition that raises,
- * a bridge already torn down — so the failure reaches the dispatch by a route that has
- * nothing downstream of it yet to catch it.
+ * the case the refusal suite above covers. A port that throws before it returns fails on
+ * the turn the dispatch CALLS it — a precondition that raises, a bridge already torn down
+ * — so the failure reaches the settlement by a route that has nothing of its own to catch
+ * it, and the claim is that the seam settles it anyway.
  */
 export function bridgeThrowingSubmits(): SubmitProbe {
   const fixture = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });

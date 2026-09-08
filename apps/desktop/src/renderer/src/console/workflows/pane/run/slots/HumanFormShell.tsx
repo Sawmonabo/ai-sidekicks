@@ -26,7 +26,7 @@
 // mounted, so it holds for the owner's body as well as for this one — see the channel's
 // header for why `phaseRunId` and not the phase or the revision.
 
-import { SchemaFormAnswer } from "../../../../seats/index.js";
+import { schemaFormAnswerMount } from "../../../../seats/index.js";
 import type { HumanFormMount } from "./human-form-mount.js";
 
 /**
@@ -34,15 +34,18 @@ import type { HumanFormMount } from "./human-form-mount.js";
  *
  * Props are the mount itself, because that is what a slot body IS — the seat renders it
  * with the mount spread over it, so a body that took a wrapper object would not be one.
+ *
+ * MOUNTED THROUGH THE SEAT'S LOADER AND NOT AS AN ELEMENT, because the schema form kit
+ * is its own chunk: the seat holds the single in-flight load and the reserved region a
+ * form leaves while its module is arriving, so this composition gains no loading state
+ * of its own and the chunk is fetched once however many forms ask.
  */
-export function HumanFormShell(mount: HumanFormMount): React.JSX.Element {
-  return (
-    <SchemaFormAnswer
-      prompt={mount.prompt}
-      inputSchema={mount.inputSchema}
-      // Straight through: the answer this form composed is the whole of what a body
-      // knows, and the run, the phase and the revision it travels with are the seat's.
-      onSubmit={mount.submit}
-    />
-  );
+export function HumanFormShell(mount: HumanFormMount): React.ReactNode {
+  return schemaFormAnswerMount.render({
+    prompt: mount.prompt,
+    inputSchema: mount.inputSchema,
+    // Straight through: the answer this form composed is the whole of what a body
+    // knows, and the run, the phase and the revision it travels with are the seat's.
+    onSubmit: mount.submit,
+  });
 }

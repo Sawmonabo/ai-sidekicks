@@ -16,11 +16,12 @@
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { act } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
   bridgeWatchingSubmits,
   fixtureWaitPhase,
+  loadSchemaFormBody,
   pressSubmit,
   renderSlot,
 } from "./slots/HumanFormShell.test-support.js";
@@ -66,6 +67,11 @@ async function submitAnswered(
   await settle();
   return probe;
 }
+
+// The schema form arrives as its own chunk. Resolved once here so every case below
+// renders the loaded form rather than the reserved region its mount would otherwise
+// suspend on — the loader memoises the load, so this is the state a second form opens in.
+beforeAll(loadSchemaFormBody);
 
 describe("the submitted request carries artifact answers through the attachment carrier", () => {
   it("lists the answered artifact and keeps its keyed value in the fields", async () => {

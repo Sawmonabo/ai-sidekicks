@@ -70,7 +70,7 @@ import {
 } from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
-import { attachmentArtifactIdsIn } from "../../../seats/index.js";
+import { schemaFormChunk } from "../../../seats/index.js";
 import { useRecordServedRunAct } from "./served-run-act.js";
 import type { HumanFormPhase } from "./slots/human-form-mount.js";
 
@@ -259,17 +259,29 @@ export function useHumanFormSubmit(
         return;
       }
       publishOutcome({ kind: "submitting" });
-      // Read off the phase's own schema rather than off the answer, so the carrier lists
-      // what was answered in the order the schema declared it — which is the position an
-      // unresolved attachment is reported back in.
-      const attachmentArtifactIds = attachmentArtifactIdsIn(phase.inputSchema, fields);
-      // Through the CALL seam and not the read one. A port that throws before it returns
-      // would otherwise throw out of this argument expression, past the settlement and
-      // past the `.finally` below — neither of which exists yet — leaving the key claimed
-      // and this attempt at `submitting` with no answer coming and every later press
-      // refused as a duplicate of a call that never left the window.
-      void settleGrowthCall(() =>
-        growth.workflowHumanFormSubmit({
+      // Through the CALL seam and not the read one, and EVERYTHING the request is
+      // composed from is inside that seam's callback. A port that throws before it
+      // returns would otherwise throw past the settlement and past the `.finally` below
+      // — neither of which exists yet — leaving the key claimed and this attempt at
+      // `submitting` with no answer coming and every later press refused as a duplicate
+      // of a call that never left the window.
+      //
+      // WHICH IS ALSO WHAT MAKES THE KIT'S CHUNK SAFE TO AWAIT HERE. The schema form is
+      // its own chunk, so the reading that walks the phase's schema for its artifact
+      // members arrives with it; by the time anything can be submitted the form that
+      // composed the answer has already resolved that chunk, so the `await` settles in a
+      // microtask. A damaged install is the case that matters, and it is already
+      // answered: a rejected load rejects this callback, and the seam turns a rejection
+      // into the same refusal a thrown call earns — so the attempt settles, the key goes
+      // back, and no arm of this file invents a second sentence for a chunk that did not
+      // arrive.
+      void settleGrowthCall(async () => {
+        const { attachmentArtifactIdsIn } = await schemaFormChunk.load();
+        // Read off the phase's own schema rather than off the answer, so the carrier
+        // lists what was answered in the order the schema declared it — which is the
+        // position an unresolved attachment is reported back in.
+        const attachmentArtifactIds = attachmentArtifactIdsIn(phase.inputSchema, fields);
+        return growth.workflowHumanFormSubmit({
           workflowRunId: phase.workflowRunId,
           phaseId: phase.phaseId,
           fields,
@@ -281,8 +293,8 @@ export function useHumanFormSubmit(
           // it, and a form composed against a revision the run has left behind is
           // supposed to be refused rather than quietly re-stamped as current.
           expectedRevision: attempt.composedAgainstRevision,
-        }),
-      )
+        });
+      })
         .then((settlement) => {
           // Published through the holder's own handle, which carries the addressing it
           // was captured under: an answer arriving after the pane moved to another

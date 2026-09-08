@@ -24,13 +24,17 @@
 
 import { waitFor } from "@testing-library/react";
 import { act } from "react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import type { ConsoleBridge, GrowthPort } from "../../../bridge/index.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../core/index.js";
 import { settle } from "../../workflows-probe.test-support.js";
-import { STALE_REVISION_REFUSAL, pressSubmit } from "./slots/HumanFormShell.test-support.js";
+import {
+  STALE_REVISION_REFUSAL,
+  loadSchemaFormBody,
+  pressSubmit,
+} from "./slots/HumanFormShell.test-support.js";
 import {
   PARKED,
   RUN_WITH_HUMAN_PARK_ANSWERED,
@@ -104,6 +108,11 @@ async function paneShowingTheParkedRun(bridge: ConsoleBridge): Promise<HTMLEleme
   });
   return section;
 }
+
+// The schema form arrives as its own chunk. Resolved once here so every case below
+// renders the loaded form rather than the reserved region its mount would otherwise
+// suspend on — the loader memoises the load, so this is the state a second form opens in.
+beforeAll(loadSchemaFormBody);
 
 describe("workflow run pane — the run moves because a parked phase was answered", () => {
   it("re-reads the run once when the daemon records the form's answer", async () => {
