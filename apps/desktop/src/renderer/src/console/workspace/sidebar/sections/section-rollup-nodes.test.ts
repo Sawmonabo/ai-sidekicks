@@ -19,7 +19,7 @@ import {
   type SidebarRowDragTarget,
   type SidebarSectionContext,
 } from "../../../seats/index.js";
-import { SessionStore, type ConsoleEntity } from "../../../store/index.js";
+import { FrameStore, SessionStore, type ConsoleEntity } from "../../../store/index.js";
 import { readSectionRollup, sectionRowDragBinding } from "./section-rollup-nodes.js";
 
 const SESSION_ID = "session-rollup-nodes";
@@ -43,7 +43,7 @@ function contextOver(options: {
     sessionStore.markDegraded("read-failed");
   }
   const bridge: ConsoleBridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
-  return { sessionStore, bridge, filterQuery: "" };
+  return { sessionStore, bridge, frameStore: new FrameStore(), filterQuery: "" };
 }
 
 /** The reading a section supplies, with `failed` the one state that is calling. */

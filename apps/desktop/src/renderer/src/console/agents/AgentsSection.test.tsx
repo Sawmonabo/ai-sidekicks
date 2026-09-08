@@ -19,7 +19,7 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { SessionStore } from "../store/index.js";
+import { FrameStore, SessionStore } from "../store/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import {
   fixtureBridgeWithGrowth,
@@ -72,6 +72,7 @@ async function renderSection(options: {
   const context: SidebarSectionContext = {
     sessionStore: store,
     bridge,
+    frameStore: new FrameStore(),
     openPane: (address) => openedPanes.push(address),
     isOpen: true,
     filterQuery: options.filterQuery ?? "",
