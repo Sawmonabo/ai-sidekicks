@@ -30,6 +30,24 @@
 // the same dotted member path the mapper composes, so the join happens once, here, and
 // no surface re-derives it.
 //
+// THE VERDICT DESCRIBES THE BYTES SENT, WHICH IS WHY IT CARRIES THEM. `safeParse` does
+// not answer about the value it was handed — it answers about the value the schema READS
+// that value as, and hands that reading back. A member declaring a `default` makes `{}`
+// valid, because the reader supplies the member, so a report carrying only `valid` would
+// be a verdict on `{ approver: "ada" }` rendered beside a form about to send `{}`. The
+// accepted value therefore travels ON the clean arm, and the caller submits THAT: one
+// value, described by the sentence a person reads and received by the daemon.
+//
+// AND THE LIBRARY CANNOT BE ASKED FOR LESS. `FromJSONSchemaParams` declares exactly two
+// members, `defaultTarget` and `registry` (`zod/v4/classic/from-json-schema.d.ts` at the
+// 4.3.6 pin), so there is no switch that compiles a schema without its defaults — the
+// choice is between carrying the accepted value and describing a value nobody sends.
+// Measured at that same pin, default application is also the only difference the reader
+// introduces: an unknown member passes through rather than being stripped,
+// `additionalProperties: false` refuses rather than trims, and a `format` annotation
+// transforms nothing. So an accepted value is the composed answer plus the members the
+// schema itself declares a value for, and never less than what somebody typed.
+//
 // NO SCHEMA COMPILATION IS CACHED. A validator is minted per schema per mount and lives
 // as long as the form does — the console keeps no unbounded cache keyed on values it
 // does not own, and a phase definition's schema is read once per open.
@@ -44,19 +62,36 @@ export interface SchemaValidationIssue {
   readonly message: string;
 }
 
-/** What checking one answer against one schema came back with. */
-export interface SchemaValidationReport {
-  readonly status: "valid" | "invalid";
-  readonly issues: readonly SchemaValidationIssue[];
-}
+/**
+ * What checking one answer against one schema came back with.
+ *
+ * Two arms rather than one shape with an optional member, because the accepted value
+ * exists on exactly one of them: a refused answer has no reading for the schema to hand
+ * back, and a member that is sometimes there is a member every caller has to re-decide
+ * whether to trust.
+ */
+export type SchemaValidationReport =
+  | {
+      readonly status: "valid";
+      readonly issues: readonly SchemaValidationIssue[];
+      /**
+       * The value the schema accepted — what a submission composed from this answer
+       * must carry.
+       *
+       * `unknown` for the reason the answer is: what a schema accepts is whatever that
+       * schema describes, and this module proves nothing about the shape of it.
+       */
+      readonly acceptedValue: unknown;
+    }
+  | { readonly status: "invalid"; readonly issues: readonly SchemaValidationIssue[] };
 
 /** A schema that can be checked against, or the honest statement that it cannot be. */
 export type SchemaValidator =
   | { readonly status: "compiled"; readonly check: (answer: unknown) => SchemaValidationReport }
   | { readonly status: "uncompilable"; readonly detail: string };
 
-/** The verdict every caller wants when there is nothing to check. */
-const NOTHING_WRONG: SchemaValidationReport = { status: "valid", issues: [] };
+/** The finding list a clean verdict carries. Held once; nothing ever writes to it. */
+const NOTHING_WRONG: readonly SchemaValidationIssue[] = [];
 
 /** A library issue path, in the console's own dotted spelling. */
 function memberPathOf(path: readonly PropertyKey[]): string {
@@ -97,7 +132,9 @@ export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
     check: (answer) => {
       const parsed = compiled.safeParse(answer);
       if (parsed.success) {
-        return NOTHING_WRONG;
+        // `parsed.data` and never the answer that went in: the header's rule, and the
+        // one line that makes the verdict and the submission be about one value.
+        return { status: "valid", issues: NOTHING_WRONG, acceptedValue: parsed.data };
       }
       return {
         status: "invalid",

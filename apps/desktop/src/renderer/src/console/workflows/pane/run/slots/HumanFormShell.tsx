@@ -27,6 +27,25 @@
 // this surface as a typed refusal beside the control. A stale-revision refusal renders
 // the daemon's own sentence as its primary text, because that sentence is the one thing
 // that says what happened to the answer somebody had already typed.
+//
+// THE FORM IS KEYED BY THE ATTEMPT, AND IT HAS TO BE. A run that branches parks several
+// phases on a person at once and the pane mounts ONE form; pressing another park card
+// hands this same component a different mount rather than unmounting it, so React
+// reconciles the form in place and every state cell inside `useSchemaForm` survives the
+// switch. The plan and the validator follow the new schema — they are memoised on it —
+// but the drawn answer and the raw JSON do not, so two waits that share a member name
+// would show one branch's typed answer under the other's question, and a press would
+// record it against the phase now on screen. A key on `phaseRunId` makes the two
+// different elements, which is React's own way of saying they are different forms.
+//
+// `phaseRunId` AND NOT THE PHASE, AND NOT THE REVISION EITHER. The attempt is what the
+// answer is composed against and submitted for — a retry mints a new one — so it is the
+// finest identity that is still stable while somebody types. `formRevision` moves
+// underneath a live form whenever the run read refreshes, and keying on it would throw
+// away typing in response to a poll; `phaseId` is the definition's and is reused by
+// every attempt at that phase. The submit's own settlement is already held at exactly
+// this identity by `useSubjectScopedState`, so both halves of the form's state are
+// scoped to one attempt by two mechanisms that agree rather than by one that covers half.
 
 import { useConsoleBridge } from "../../../../bridge/index.js";
 import { InlineRefusal, Nothing, WireFigure } from "../../../../primitives/index.js";
@@ -44,7 +63,14 @@ export function HumanFormShell(mount: HumanFormMount): React.JSX.Element {
   const bridge = useConsoleBridge();
   const { outcome, submit } = useHumanFormSubmit(bridge.growth, mount);
   return (
-    <HumanPhaseFormAnswer prompt={mount.prompt} inputSchema={mount.inputSchema} onSubmit={submit}>
+    <HumanPhaseFormAnswer
+      // The header's reason: a switch between two waits reaches this component as a
+      // prop change, and only a changed key discards what the previous wait's form held.
+      key={mount.phaseRunId}
+      prompt={mount.prompt}
+      inputSchema={mount.inputSchema}
+      onSubmit={submit}
+    >
       {renderOutcome(outcome)}
     </HumanPhaseFormAnswer>
   );

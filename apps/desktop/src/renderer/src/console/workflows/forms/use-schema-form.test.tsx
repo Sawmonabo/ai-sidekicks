@@ -6,6 +6,11 @@
 // a hole left at index one would leave the third entry called "3" while the answer carried
 // it second, and the schema would then report a finding against a control nobody is
 // looking at.
+//
+// AND THE DEFAULTED SCHEMA IS THE OTHER ONE. A member the schema fills in for itself is
+// where the composed answer and the checked answer come apart: the three cases over it
+// pin that the value sent is the one the schema accepted, that the control shows it, and
+// that answering the member replaces it rather than the other way round.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,6 +34,13 @@ function mountForm(inputSchema: unknown): () => SchemaFormState {
     return latest;
   };
 }
+
+/** A schema that fills one member in for itself, and leaves the other to a person. */
+const DEFAULTED_SCHEMA = {
+  type: "object",
+  properties: { approver: { type: "string", default: "ada" }, note: { type: "string" } },
+  required: ["approver"],
+} as const;
 
 /** A schema whose members exercise a nested write and a list. */
 const NESTED_SCHEMA = {
@@ -98,6 +110,38 @@ describe("the schema form's state", () => {
     });
 
     expect(form().report?.status).toBe("valid");
+  });
+
+  it("submits the value the schema accepted, and opens its controls holding it", () => {
+    // The divergence this closes: the reader supplies a member declaring a default, so
+    // `{}` is valid — and a form that sent `{}` while showing a blank control would put
+    // a clean verdict beside bytes nobody could see and nobody chose.
+    const form = mountForm(DEFAULTED_SCHEMA);
+
+    expect(form().report?.status).toBe("valid");
+    expect(form().answer).toEqual({ approver: "ada" });
+    // And on the control, not only on the wire: the seed is what a person reads.
+    expect(form().memberValue(["approver"])).toBe("ada");
+  });
+
+  it("negative control: a member the schema declares no value for opens empty", () => {
+    // Without this, the case above would hold over a form that pre-filled every control
+    // with something — the seed has to be the schema's own reading and nothing else.
+    const form = mountForm(DEFAULTED_SCHEMA);
+
+    expect(form().memberValue(["note"])).toBeUndefined();
+  });
+
+  it("carries a typed answer over the schema's own value for that member", () => {
+    // The other half of the seed: it is a starting value and never an override, so
+    // answering the member replaces it rather than being replaced by it.
+    const form = mountForm(DEFAULTED_SCHEMA);
+
+    act(() => {
+      form().setMemberValue(["approver"], "bela");
+    });
+
+    expect(form().answer).toEqual({ approver: "bela" });
   });
 
   it("reads the answer off the raw text when the schema drew no controls", () => {
