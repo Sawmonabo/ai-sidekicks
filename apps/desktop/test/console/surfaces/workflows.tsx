@@ -64,6 +64,7 @@ import { renderSettled } from "../console-harness.js";
 
 import {
   createFixtureBridge,
+  SidekicksBridgeProvider,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/workflows.js";
@@ -244,6 +245,13 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
 }
 
 /**
+ * Every workflows mount renders under the bridge provider, as the shell mounts every
+ * body: a pane body reads its bridge off its context, but a slot body standing in a
+ * seat is handed only the owner's mount and reaches the bridge through the provider
+ * (`pane/run/slots/HumanFormShell.tsx`), so a capture mounted bare would throw where
+ * the running console does not.
+ */
+/**
  * The workflows destination, mounted and waited on until its rows have landed.
  *
  * Through the rail's own surface seat, with a session in scope — which is how a
@@ -269,9 +277,11 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
-    <LiveAnnouncerProvider>
-      <WorkflowsDestinationBody context={surfaceContext(bridge)} />
-    </LiveAnnouncerProvider>,
+    <SidekicksBridgeProvider bridge={bridge}>
+      <LiveAnnouncerProvider>
+        <WorkflowsDestinationBody context={surfaceContext(bridge)} />
+      </LiveAnnouncerProvider>
+    </SidekicksBridgeProvider>,
   );
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
@@ -304,16 +314,18 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
-    <WorkflowRunPaneBody
-      context={paneContext(
-        {
-          kind: "workflow-run",
-          paneId: "pane-workflow-run-surface",
-          entity: { kind: "workflow-run", id: WORKFLOWS_PARKED_RUN.workflowRunId },
-        },
-        bridge,
-      )}
-    />,
+    <SidekicksBridgeProvider bridge={bridge}>
+      <WorkflowRunPaneBody
+        context={paneContext(
+          {
+            kind: "workflow-run",
+            paneId: "pane-workflow-run-surface",
+            entity: { kind: "workflow-run", id: WORKFLOWS_PARKED_RUN.workflowRunId },
+          },
+          bridge,
+        )}
+      />
+    </SidekicksBridgeProvider>,
   );
   const region = requirePaneNamed(container, "Workflow run");
   await waitFor(() => {
@@ -361,16 +373,18 @@ export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> 
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
-    <WorkflowBuilderPaneBody
-      context={paneContext(
-        {
-          kind: "workflow-builder",
-          paneId: "pane-workflow-builder-surface",
-          entity: { kind: "workflow-definition", id: scenarioDefinitionId() },
-        },
-        bridge,
-      )}
-    />,
+    <SidekicksBridgeProvider bridge={bridge}>
+      <WorkflowBuilderPaneBody
+        context={paneContext(
+          {
+            kind: "workflow-builder",
+            paneId: "pane-workflow-builder-surface",
+            entity: { kind: "workflow-definition", id: scenarioDefinitionId() },
+          },
+          bridge,
+        )}
+      />
+    </SidekicksBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow builder"), bridge };
 }
