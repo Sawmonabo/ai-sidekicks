@@ -51,6 +51,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import {
+  ArtifactIdSchema,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
@@ -59,6 +60,7 @@ import {
   RecoveryConditionSchema,
   RecoverySpanClassificationSchema,
   RunIdSchema,
+  type ArtifactId,
   type ExecutionPosture,
   type RecoveryCondition,
   type RecoverySpanClassification,
@@ -344,7 +346,16 @@ export type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       content: string;
-      attachments?: unknown[] | undefined;
+      // TYPED `ArtifactId[]` (2026-09-08, CP-014-7 discharge) — the SAME element
+      // type and the SAME order-preserving, never-silently-dropped delivery rule
+      // the driver-boundary `SteerPayload.attachments` carries, imported from
+      // its CP-005-6 home in `./provider-driver.js` rather than restated here,
+      // because this arm and that payload are two ends of one carrier and a
+      // second declaration would let them drift. The rule and both bounds — this
+      // seam's coarse `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` count ceiling and the
+      // operator-tunable `max_attachments_per_carrier` the daemon enforces at
+      // carrier acceptance — are stated once, on that declaration.
+      attachments?: ArtifactId[] | undefined;
       expectedTurnId?: string | undefined;
     }
   | {
@@ -384,9 +395,11 @@ export const InterventionRequestPayloadSchema: z.ZodType<
         DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
         "InterventionRequestPayload.content",
       ),
-      // `unknown` elements by contract, so the bound is on COUNT alone; the
-      // framework layer's body-size limit is what bounds the bytes.
-      attachments: z.array(z.unknown()).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
+      // `ArtifactId` elements (CP-014-7): a non-id element is refused at this
+      // seam, and the `.max()` beside it is the coarse frame-abuse count
+      // ceiling. The operator-tunable `max_attachments_per_carrier` is the
+      // daemon's admission check, not this parse's — see `SteerPayload`.
+      attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
       expectedTurnId: wireFreeFormString(
         DRIVER_WIRE_HANDLE_MAX_LEN,
         "InterventionRequestPayload.expectedTurnId",

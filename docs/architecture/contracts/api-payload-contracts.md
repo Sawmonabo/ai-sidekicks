@@ -1241,9 +1241,31 @@ type ApplyInterventionParams =
       payload: CancelPayload;
     };
 
+// The ATTACHMENT-CARRIER contract, stated once here and cited from the InterventionRequestPayload
+// `steer` arm in §Plan-004 (2026-09-08 CP-014-7 discharge; the arm was `unknown[]` from campaign B3
+// until this date). The element type is ArtifactId — an id into Spec-014's manifest space, never an
+// untyped element and never an inline byte payload; caller bytes enter through the
+// boundary-validated ingest paths instead. Caller-declared ORDER is preserved end to end, and an
+// element the turn cannot resolve or deliver surfaces as an explicit cause-bearing unresolved marker
+// IN ITS DECLARED POSITION — silently dropping it is prohibited (Plan-014 I-014-13, Spec-014
+// §Fallback Behavior). Neither property is a parse concern; what the untyped arm could not do at all
+// was carry an id a resolver could look up, so the rule had nothing to attach to and CP-014-7 made
+// the retyping a PREREQUISITE of the first change that wires delivery through this carrier.
+// TWO BOUNDS, DELIBERATELY DISTINCT: `DRIVER_WIRE_STEER_ATTACHMENTS_MAX`
+// (`packages/contracts/src/provider-driver.ts#DRIVER_WIRE_STEER_ATTACHMENTS_MAX`) is the wire seam's
+// coarse frame-abuse COUNT ceiling, sized above the policy range; the policy bound is Spec-014's
+// operator-tunable `max_attachments_per_carrier` (default 10, range 1-50), enforced by the daemon at
+// CARRIER ACCEPTANCE, which refuses the WHOLE carrier `artifact.too_many_attachments` (413,
+// [error-contracts.md §Artifact](./error-contracts.md#artifact)) before any element is bound or
+// delivered rather than truncating it to fit — a truncating carrier is the silent drop this typing
+// exists to prevent, wearing a success status code. A schema constant cannot read operator
+// configuration, which is why the tunable bound is the daemon's and not this shape's. The brand is
+// homed with its lowest-tier consumer per Plan-005 CP-005-6 — this payload — and every higher-tier
+// consumer imports it (`packages/contracts/src/provider-driver.ts#ArtifactIdSchema`); Plan-014 Task 1
+// imports rather than restates, so no second definition of an artifact id exists.
 interface SteerPayload {
   content: string;
-  attachments?: unknown[];
+  attachments?: ArtifactId[];
   expectedTurnId?: string;
 }
 
@@ -2284,7 +2306,12 @@ type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       content: string;
-      attachments?: unknown[];
+      // Same element type and same carrier contract as the driver-boundary `SteerPayload.attachments`
+      // in §Plan-005 above, where the ordering rule, the unresolved-marker rule, and both count bounds
+      // are stated once (2026-09-08 CP-014-7 discharge). This arm and that payload are the two ends of
+      // one carrier: the daemon maps this list onto that one, so a second statement of the rule here
+      // would be a second source of truth for one delivery contract.
+      attachments?: ArtifactId[];
       expectedTurnId?: string;
     }
   | {
@@ -3937,10 +3964,15 @@ interface ArtifactDeleteResponse {
 //     is prohibited (Spec-014 §Fallback Behavior). The count bound is
 //     max_attachments_per_carrier, enforced here rather than on AttachmentIngest, whose Init/Chunk/Complete
 //     stream carries exactly one payload and has no count to cap.
-//     HumanPhaseFormSubmitRequest.attachmentArtifactIds already has this shape. The driver-boundary steer
-//     and intervention arms are still typed `unknown[]` and are DELIBERATELY NOT edited from the Plan-014
-//     side: those wire arms belong to the plans that own the driver boundary, and retyping them is
-//     registered as a Plan-014 cross-plan follow-up obligation so the change lands under its owners. ---
+//     HumanPhaseFormSubmitRequest.attachmentArtifactIds already had this shape. The driver-boundary
+//     steer and intervention arms were typed `unknown[]` and DELIBERATELY NOT edited from the Plan-014
+//     side, because those wire arms belong to the plans that own the driver boundary and retyping them
+//     was registered as the Plan-014 cross-plan follow-up obligation CP-014-7 so the change would land
+//     under its owners. IT HAS: both arms are `ArtifactId[]` as of 2026-09-08, retyped by Plan-005
+//     (SteerPayload, §Plan-005 above — where the carrier contract is stated once) and Plan-004 (the
+//     InterventionRequestPayload `steer` arm, §Plan-004), so every V1 attachment carrier registered
+//     here is now typed and CP-014-7's prerequisite — no V1 carrier may be wired to deliver an
+//     attachment over an untyped arm — is discharged rather than outstanding. ---
 
 // --- ArtifactKeyAttestationPayload — the `artifact_key_attestation` envelope-interior arm (typed
 //     2026-08-12, Codex PR #326 round 2: the §Envelope-Interior Application-Payload Kind Registry

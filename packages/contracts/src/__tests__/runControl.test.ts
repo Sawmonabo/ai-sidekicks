@@ -51,7 +51,11 @@ import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";
 import type { InterventionType } from "../provider-driver.js";
-import { RECOVERY_CONDITIONS, RECOVERY_SPAN_CLASSIFICATIONS } from "../provider-driver.js";
+import {
+  DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
+  RECOVERY_CONDITIONS,
+  RECOVERY_SPAN_CLASSIFICATIONS,
+} from "../provider-driver.js";
 import {
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
@@ -93,6 +97,10 @@ const RUN_ID = "0f2b4d5e-6666-4666-8666-666666666666";
 const PARENT_RUN_ID = "0f2b4d5e-7777-4777-8777-777777777777";
 const NODE_ID = "0f2b4d5e-8888-4888-8888-888888888888";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
+// Two DISTINCT artifact ids, so an order assertion over the steer carrier can
+// tell the elements apart (CP-014-7).
+const FIRST_ARTIFACT_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SECOND_ARTIFACT_ID = "0f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TIMESTAMP = "2026-08-31T12:00:00.000Z";
 
 // --------------------------------------------------------------------------
@@ -381,10 +389,79 @@ describe("InterventionRequestPayload", () => {
       ...guards,
       type: "steer",
       content: "see the attached trace",
-      attachments: [{ kind: "blob" }],
+      attachments: [FIRST_ARTIFACT_ID, SECOND_ARTIFACT_ID],
       expectedTurnId: "turn-19",
     };
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);
+  });
+
+  describe("the steer attachments element type (CP-014-7)", () => {
+    // The arm was `unknown[]` until the 2026-09-08 CP-014-7 discharge, and an
+    // `unknown[]` arm can enforce neither the carrier count cap, nor order
+    // preservation, nor the unresolved-marker contract — it cannot even carry
+    // an id a resolver could look up. These are the negative controls that make
+    // the element type load-bearing rather than decorative: each one PASSED
+    // before the discharge and refuses after it.
+    const steerCarrying = (attachments: readonly unknown[]): Record<string, unknown> => ({
+      ...guards,
+      type: "steer",
+      content: "see the attached trace",
+      attachments,
+    });
+
+    it("REFUSES a non-id element", () => {
+      // The exact shape the pre-discharge suite admitted.
+      expect(() =>
+        InterventionRequestPayloadSchema.parse(steerCarrying([{ kind: "blob" }])),
+      ).toThrow();
+      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying([{}]))).toThrow();
+      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying([17]))).toThrow();
+    });
+
+    it("REFUSES a string that is not an artifact id", () => {
+      // `ArtifactId` is UUID-shaped for the reason `RunId` is: a caller-supplied
+      // id reaching a manifest lookup must not be a path or a store-key
+      // fragment. A bare `z.string()` element would admit both.
+      expect(() =>
+        InterventionRequestPayloadSchema.parse(steerCarrying(["../../etc/passwd"])),
+      ).toThrow();
+      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(["artifact-1"]))).toThrow();
+    });
+
+    it("accepts the empty carrier and preserves declared order", () => {
+      // Order preservation is the daemon's delivery obligation (I-014-13) and
+      // not something a schema can assert; what the parse must not do is
+      // REORDER or DROP, so the round-trip pins the sequence it was handed.
+      expect(InterventionRequestPayloadSchema.parse(steerCarrying([]))).toEqual(steerCarrying([]));
+      const ordered = [SECOND_ARTIFACT_ID, FIRST_ARTIFACT_ID];
+      expect(
+        (
+          InterventionRequestPayloadSchema.parse(steerCarrying(ordered)) as {
+            attachments: string[];
+          }
+        ).attachments,
+      ).toEqual(ordered);
+    });
+
+    it("REFUSES a carrier past the seam's coarse count ceiling", () => {
+      // Elements are all VALID ids, so the count bound is the only constraint
+      // that can fail here — without that the assertion would pass on the
+      // element type and prove nothing about the cap. The POLICY bound
+      // (`max_attachments_per_carrier`, operator-tunable) is the daemon's at
+      // carrier acceptance and is deliberately not this parse's.
+      const overCount = Array.from(
+        { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX + 1 },
+        () => FIRST_ARTIFACT_ID,
+      );
+      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(overCount))).toThrow();
+      const atCeiling = Array.from(
+        { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX },
+        () => FIRST_ARTIFACT_ID,
+      );
+      expect(InterventionRequestPayloadSchema.parse(steerCarrying(atCeiling))).toEqual(
+        steerCarrying(atCeiling),
+      );
+    });
   });
 
   describe("the rollback arm", () => {

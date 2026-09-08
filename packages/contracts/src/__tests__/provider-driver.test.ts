@@ -100,6 +100,7 @@ import {
   RECOVERY_CONDITIONS,
   RECOVERY_SPAN_CLASSIFICATIONS,
   ApplyInterventionParamsSchema,
+  ArtifactIdSchema,
   CallbackToolInvocationSchema,
   DriverAckResultSchema,
   DriverCapabilitiesSchema,
@@ -3091,6 +3092,8 @@ describe("ProviderCommandBindingGroup — provenance that is stated, never synth
 // missing answer) are refusals rather than conventions.
 
 const A_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+/** An id into `Spec-014`'s manifest space — the steer carrier's element (CP-014-7). */
+const AN_ARTIFACT_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
 const ANOTHER_UUID = "0b1c2d3e-4f50-4162-8374-859607a8b9c0";
 
 /** Every declared flag answered `false` — the totality `DriverCapabilities` requires. */
@@ -3110,6 +3113,29 @@ describe("RunIdSchema — the brand's validator, co-located with the brand (CP-0
     expect(RunIdSchema.safeParse("../../etc/passwd").success).toBe(false);
     expect(RunIdSchema.safeParse("run-1").success).toBe(false);
     expect(RunIdSchema.safeParse("").success).toBe(false);
+  });
+});
+
+describe("ArtifactIdSchema — the attachment element brand, homed by the same CP-005-6 rule", () => {
+  it("accepts a UUID and brands it", () => {
+    expect(ArtifactIdSchema.parse(AN_ARTIFACT_ID)).toBe(AN_ARTIFACT_ID);
+  });
+
+  it("REFUSES a non-UUID artifact id", () => {
+    // Same reason as `RunIdSchema` above: the value reaches a manifest lookup in
+    // `Spec-014`'s artifact space, so a path or store-key fragment must not
+    // arrive as one.
+    expect(ArtifactIdSchema.safeParse("../../etc/passwd").success).toBe(false);
+    expect(ArtifactIdSchema.safeParse("artifact-1").success).toBe(false);
+    expect(ArtifactIdSchema.safeParse("").success).toBe(false);
+  });
+
+  it("is re-exported from the package barrel under its own name", () => {
+    // The one home rule this brand has to keep: every consumer — Plan-004's
+    // `runControl.ts` today, Plan-014's `artifacts/` at Tier 7 — imports THIS
+    // symbol rather than declaring a sibling, so a second source of truth for
+    // what an artifact id is cannot appear.
+    expect(contracts.ArtifactIdSchema).toBe(ArtifactIdSchema);
   });
 });
 
@@ -3437,8 +3463,46 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
         type: "steer",
         payload: {
           content: "ok",
-          attachments: Array.from({ length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX + 1 }, () => ({})),
+          // VALID `ArtifactId` elements, so the count ceiling is the only
+          // constraint that can fail (CP-014-7). Before the 2026-09-08 element
+          // typing this fixture carried `{}` elements, which under the typed arm
+          // would refuse on the ELEMENT and leave the cap unproven.
+          attachments: Array.from(
+            { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX + 1 },
+            () => AN_ARTIFACT_ID,
+          ),
         },
+      }).success,
+    ).toBe(false);
+    // Positive control for the same bound: the ceiling itself is admissible, so
+    // the refusal above is the `+ 1` and not the array's presence.
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: {
+          content: "ok",
+          attachments: Array.from(
+            { length: DRIVER_WIRE_STEER_ATTACHMENTS_MAX },
+            () => AN_ARTIFACT_ID,
+          ),
+        },
+      }).success,
+    ).toBe(true);
+    // The element type itself: a non-id element is refused outright, which is
+    // what the pre-CP-014-7 `unknown[]` arm admitted.
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: { content: "ok", attachments: [{ kind: "blob" }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      ApplyInterventionParamsSchema.safeParse({
+        ...base,
+        type: "steer",
+        payload: { content: "ok", attachments: ["../../etc/passwd"] },
       }).success,
     ).toBe(false);
     expect(

@@ -166,6 +166,31 @@ export type RunId = string & { readonly __brand: "RunId" };
 // under `exactOptionalPropertyTypes` (see the `IdempotencyClassSchema` note).
 export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("RunId");
 
+// `ArtifactId` is the identifier of a manifest in `Spec-014`'s artifact space,
+// and it is the ELEMENT TYPE of every turn-scoped attachment carrier
+// (`Spec-014 §Required Behavior`; `Plan-014` I-014-13). It is homed HERE by the
+// same CP-005-6 rule that homes `RunId` above — a cross-cutting symbol is
+// declared in the contract file of its LOWEST-TIER consumer and imported upward,
+// never re-invented — and this file is that consumer: `SteerPayload.attachments`
+// below is the earliest-shipping (Tier 4) member typed `ArtifactId[]`.
+// `runControl.ts` (Plan-004, Tier 5) imports it for the `steer` arm of
+// `InterventionRequestPayload`, and `artifacts/` (Plan-014, Tier 7) imports it at
+// Task 1 rather than restating it — a second `z.string().uuid().brand(...)`
+// anywhere would be a second source of truth for what an artifact id is, and the
+// two would drift the first time either grew a constraint. OWNERSHIP OF THE
+// SHAPE IS UNCHANGED and is Spec-014's / Plan-014's: a change to the brand's
+// spelling or its accept set is an amendment there, exactly as `NodeId`'s
+// relocation into `node-id.ts` left that shape Plan-003's.
+//
+// `brandedUuidIdSchema` for the reason `RunIdSchema` gives: an artifact id
+// reaching this seam is a caller-supplied string, and shape-rejection is what
+// stops a path fragment or a store-lookup key from arriving as one. The
+// double-`T` `ZodType<ArtifactId, ArtifactId>` composes into the request objects
+// under `exactOptionalPropertyTypes`.
+export type ArtifactId = string & { readonly __brand: "ArtifactId" };
+export const ArtifactIdSchema: z.ZodType<ArtifactId, ArtifactId> =
+  brandedUuidIdSchema<ArtifactId>("ArtifactId");
+
 // --------------------------------------------------------------------------
 // ProviderDriver — the 18-operation normalized contract (`Spec-005 §Interfaces And Contracts`)
 // --------------------------------------------------------------------------
@@ -964,7 +989,31 @@ export type ApplyInterventionParams =
 
 export interface SteerPayload {
   content: string;
-  attachments?: unknown[] | undefined;
+  // TYPED `ArtifactId[]`, never `unknown[]` (2026-09-08, CP-014-7 discharge). The
+  // element is an id into `Spec-014`'s manifest space and the list is
+  // ORDER-PRESERVING: the position an attachment occupies on the way in is the
+  // position it occupies on the way out, and an element the turn cannot resolve
+  // at delivery time surfaces as an explicit cause-bearing unresolved marker IN
+  // ITS OWN POSITION rather than being dropped — a silently shortened list makes
+  // the recipient reason about a message that was never sent (`Plan-014`
+  // I-014-13, `Spec-014 §Fallback Behavior`). Neither property is expressible in
+  // a schema, which is why the type carries the ids and the daemon carries the
+  // rule; what the untyped arm could not do at all was carry ids a resolver
+  // could look up, so the rule had nothing to attach to.
+  //
+  // TWO BOUNDS, DELIBERATELY DISTINCT. `DRIVER_WIRE_STEER_ATTACHMENTS_MAX` below
+  // is this SEAM's coarse count ceiling — a frame-abuse guard, sized above any
+  // admissible carrier. The POLICY bound is `Spec-014`'s
+  // `max_attachments_per_carrier` (default 10, operator-tunable within 1-50),
+  // enforced by the daemon at CARRIER ACCEPTANCE, which refuses the whole
+  // carrier as `artifact.too_many_attachments` (413,
+  // `docs/architecture/contracts/error-contracts.md §Artifact`) before any
+  // element is bound or delivered, rather than truncating it to fit — a
+  // truncating carrier is the silent drop this typing exists to prevent, wearing
+  // a success status code. The tunable bound is not a parse concern: a schema
+  // constant cannot read operator configuration, and a wire cap pinned to the
+  // default would refuse carriers a raised setting admits.
+  attachments?: ArtifactId[] | undefined;
   expectedTurnId?: string | undefined;
 }
 
@@ -2537,10 +2586,16 @@ export type DriverTransportConfig =
 //     so tripping it means a daemon-side composition bug rather than an honest
 //     catalog.
 //   • DRIVER_WIRE_STEER_ATTACHMENTS_MAX (64) — count cap on
-//     `SteerPayload.attachments`. The element type is `unknown` by contract, so
-//     this bound is on COUNT alone and the framework layer's body-size limit is
-//     what bounds the bytes; without it a single steer could carry an unbounded
-//     array of arbitrary JSON through the daemon and into a driver dispatch.
+//     `SteerPayload.attachments`. The element type is `ArtifactId` since the
+//     2026-09-08 CP-014-7 discharge, so each element is already bounded by the
+//     brand's UUID shape and this cap is the coarse frame-abuse ceiling on the
+//     COUNT; without it a single steer could carry an unbounded id array through
+//     the daemon and into a driver dispatch. It is deliberately NOT the policy
+//     bound: `Spec-014`'s operator-tunable `max_attachments_per_carrier`
+//     (default 10, range 1-50) is enforced at carrier acceptance by the daemon,
+//     which refuses the whole carrier `artifact.too_many_attachments` (413), so
+//     this constant is sized ABOVE that range's ceiling and a parse never
+//     pre-empts a refusal the operator's setting owns.
 //   • DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN (64) — `DriverCapabilities.contract\
 //     Version` on the capability reply. This is the ONE cap on this seam that
 //     duplicates a value rather than choosing one: it deliberately matches
@@ -2806,9 +2861,12 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       payload: z
         .object({
           content: wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, "SteerPayload.content"),
-          // `unknown` elements by contract, so the bound is on COUNT alone; the
-          // framework layer's body-size limit is what bounds the bytes.
-          attachments: z.array(z.unknown()).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
+          // `ArtifactId` elements (CP-014-7), so this seam refuses a non-id
+          // element outright and the `.max()` is the coarse frame-abuse count
+          // ceiling beside it. The POLICY count — `max_attachments_per_carrier`
+          // — is the daemon's at carrier acceptance, not this parse's; see the
+          // `SteerPayload` declaration.
+          attachments: z.array(ArtifactIdSchema).max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX).optional(),
           expectedTurnId: wireFreeFormString(
             DRIVER_WIRE_HANDLE_MAX_LEN,
             "SteerPayload.expectedTurnId",
