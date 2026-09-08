@@ -37,18 +37,20 @@ import { formatOklch } from "./color.js";
 import { CHROME_SETTLE_SPRING, sampleSpringEasing } from "./motion.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
-  BODY_LINE_HEIGHT,
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  FONT_STACKS,
   MOTION_DURATIONS_MS,
   MOTION_EASE_SETTLE,
   RADIUS_SCALE_REM,
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
+} from "./palette.js";
+import {
+  BODY_LINE_HEIGHT,
+  FONT_STACKS,
   TYPEFACE_FEATURE_SETTINGS,
   TYPE_SCALE_REM,
-} from "./palette.js";
+} from "./typography.js";
 import type { ConsoleScheme } from "./tokens.js";
 import {
   PARTICIPANT_HUES,
