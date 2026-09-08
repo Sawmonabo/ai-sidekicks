@@ -13,16 +13,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CreateChannelDraft } from "./create-channel-draft.js";
+import type { CreateChannelDraft } from "./create-channel-draft.js";
 import { CHANNEL_MODERATION_FIELDS, draftSnapshotsMatch } from "./create-channel-fields.js";
 import { PARTICIPANT_OTHER } from "./channels.test-support.js";
-
-/** A named general draft, which is the shortest thing that composes a request. */
-function namedDraft(name = "review"): CreateChannelDraft {
-  const draft = new CreateChannelDraft();
-  draft.setName(name);
-  return draft;
-}
+import { namedDraft } from "./create-channel-draft.test-support.js";
 
 describe("create channel draft — what a settled create is allowed to clear", () => {
   /**

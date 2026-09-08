@@ -355,9 +355,21 @@ export class CreateChannelDraft {
    * readiness check above rather than a rule restated: a draft holding that policy
    * with an empty order composes no request at all, so there is no arm on which this
    * could send the policy without it.
+   *
+   * AND THE ORDER LEAVES UNDER NO OTHER POLICY, which is the same rule read the other
+   * way. `Spec-016 §Turn Policies` makes the order the fixed sequence a round-robin
+   * channel takes its turns in, so it says nothing under `free-form`, under
+   * `request-based`, or under the session's own policy — and every `GrowthChannelConfig`
+   * member is fixed at creation, so a channel created carrying one would hold an agent
+   * order forever that its policy never reads and no mutation can remove. The typed
+   * text is kept rather than cleared: switching the policy back restores it without
+   * re-entry, the same standing the `direct` arm gives the policy fields it does not
+   * send. `turnsPerAgent` deliberately takes no such rule — it overrides the session's
+   * per-agent consecutive-turn limit under every policy rather than under one.
    */
   #config(): GrowthChannelConfig | undefined {
-    const roundRobinOrder = readIdentifierList(this.#roundRobinOrder);
+    const roundRobinOrder =
+      this.#turnPolicy === "round-robin" ? readIdentifierList(this.#roundRobinOrder) : undefined;
     const turnsPerAgent = readTurnCap(this.#turnsPerAgent);
     const moderation = this.#moderationConfig();
     const config: GrowthChannelConfig = {

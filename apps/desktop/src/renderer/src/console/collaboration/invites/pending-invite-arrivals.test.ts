@@ -9,7 +9,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { GrowthPendingInviteState } from "../../bridge/index.js";
-import { PENDING_INVITE_QUEUE_MAX, PENDING_INVITE_RETAINED_REFUSAL_MAX } from "../../core/index.js";
+import {
+  PENDING_INVITE_DEFERRED_PLACE_MAX,
+  PENDING_INVITE_QUEUE_MAX,
+  PENDING_INVITE_RETAINED_REFUSAL_MAX,
+} from "../../core/index.js";
 import { PendingInviteArrivals } from "./pending-invite-arrivals.js";
 import { readyPreview, refusedPreview, unavailablePreview } from "./pending-invite.test-support.js";
 
@@ -261,6 +265,105 @@ describe("the pending arrival queue — a refusal that arrives past the bound", 
     expect(arrivals.admit(unavailablePreview())).toBe(false);
     expect(arrivals.hasDeferredArrivals).toBe(true);
     expect(arrivals.waitingBehind).toBe(PENDING_INVITE_QUEUE_MAX - 1);
+  });
+});
+
+describe("the pending arrival queue — the place every deferred arrival keeps", () => {
+  /** Two invitations past the bound, then a refusal behind both of them. */
+  function twoDeferredThenARefusal(): {
+    readonly arrivals: PendingInviteArrivals;
+    readonly deferred: readonly ReturnType<typeof readyPreview>[];
+  } {
+    const arrivals = arrivalsAtTheBound();
+    const deferred = [
+      readyPreview({ reference: "deferred-first" }),
+      readyPreview({ reference: "deferred-second" }),
+    ];
+    for (const arrival of deferred) {
+      arrivals.admit(arrival);
+    }
+    arrivals.admit(refusedPreview({ detail: "refusal behind both" }));
+    return { arrivals, deferred };
+  }
+
+  it("promotes the refusal only after both invitations that arrived before it", () => {
+    // THE DEFECT. One deferred sequence was remembered for the whole debt, so the
+    // replay that recovered the FIRST invitation left the second to be stamped afresh
+    // — after the refusal — and the next release handed the slot to a refusal younger
+    // than the invitation it jumped. The starvation the ordering rule exists to stop,
+    // one arrival further in than the rule reached.
+    const { arrivals, deferred } = twoDeferredThenARefusal();
+
+    const met = drainWithReplay(arrivals, deferred);
+
+    expect(met.slice(PENDING_INVITE_QUEUE_MAX)).toEqual([
+      "deferred-first",
+      "deferred-second",
+      "refusal behind both",
+    ]);
+  });
+
+  it("keeps both places whichever order the replay hands them back in", () => {
+    // Which frame a re-opened feed delivers first is main's business, and the
+    // refusal's place does not depend on it: it arrived after both, so it waits for
+    // both either way.
+    const { arrivals, deferred } = twoDeferredThenARefusal();
+
+    const met = drainWithReplay(arrivals, [...deferred].reverse());
+
+    expect(met.slice(PENDING_INVITE_QUEUE_MAX)).toEqual([
+      "deferred-second",
+      "deferred-first",
+      "refusal behind both",
+    ]);
+  });
+
+  it("keeps no place past its own bound, and still owes the replay that recovers it", () => {
+    // The register is memory a quiet feed never drains, so it is bounded — and the
+    // half a bound must not take is the recovery. The over-bound arrival is still
+    // deferred and still comes back; what it gives up is only its PRIORITY, so it
+    // re-enters after the refusal it actually preceded rather than before it. Keeping
+    // its place and dropping an older one instead would surrender exactly the claim
+    // the order exists to protect.
+    const arrivals = arrivalsAtTheBound();
+    const placed = Array.from({ length: PENDING_INVITE_DEFERRED_PLACE_MAX }, (_unused, index) =>
+      readyPreview({ reference: `placed-${String(index)}` }),
+    );
+    for (const arrival of placed) {
+      arrivals.admit(arrival);
+    }
+    const overflow = readyPreview({ reference: "kept-no-place" });
+    arrivals.admit(overflow);
+    arrivals.admit(refusedPreview({ detail: "refusal after the register filled" }));
+    expect(arrivals.hasDeferredArrivals).toBe(true);
+
+    const met = drainWithReplay(arrivals, [...placed, overflow]);
+
+    expect(met.slice(PENDING_INVITE_QUEUE_MAX + PENDING_INVITE_DEFERRED_PLACE_MAX)).toEqual([
+      "refusal after the register filled",
+      "kept-no-place",
+    ]);
+  });
+
+  it("negative control: a place is spent once its arrival is back in the queue", () => {
+    // Without it the cases above would pass over a register that kept a place after
+    // the replay had used it — which would go on holding freed slots open against a
+    // refusal that is now the oldest thing waiting, for an invitation a person is
+    // already looking at.
+    const arrivals = arrivalsAtTheBound();
+    const deferred = readyPreview({ reference: "deferred-once" });
+    arrivals.admit(deferred);
+    arrivals.admit(refusedPreview({ detail: "refusal behind it" }));
+    const later = readyPreview({ reference: "later arrival" });
+    arrivals.admit(later);
+
+    const met = drainWithReplay(arrivals, [deferred, later]);
+
+    expect(met.slice(PENDING_INVITE_QUEUE_MAX)).toEqual([
+      "deferred-once",
+      "refusal behind it",
+      "later arrival",
+    ]);
   });
 });
 

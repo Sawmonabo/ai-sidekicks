@@ -902,6 +902,32 @@ export const PENDING_INVITE_QUEUE_MAX = 8;
  */
 export const PENDING_INVITE_RETAINED_REFUSAL_MAX = 8;
 
+/**
+ * How many turned-away arrivals keep their place in the order both registers share.
+ *
+ * THE PLACE AND NOT THE ARRIVAL. Nothing is queued here: main holds the arrival and
+ * re-delivers it, and what this bounds is the handle-and-number pair the window
+ * remembers so a replayed frame re-enters where it ARRIVED rather than behind
+ * everything that arrived while it waited. A bound for the same reason the queue has
+ * one — the producer is the operating system — and for one of its own: a place is
+ * cleared only when the replay brings its arrival back, which for a reference main has
+ * since let go never happens, so nothing here drains on a quiet feed.
+ *
+ * SIXTEEN, TWICE THE QUEUE, because this register's subject is precisely what did NOT
+ * fit in it. One the same width could remember places for no more arrivals than are
+ * already on screen, which is the wrong scale for a bound whose whole job is the
+ * overflow; twice covers a burst two queues deep, at a handle and a number each.
+ *
+ * PAST IT THE NEWEST DEFERRAL KEEPS NO PLACE — the opposite disposition from the
+ * register above, for the opposite reason. The arrival is still deferred and still
+ * replayed, because the debt is recorded either way, so nothing is lost; what it gives
+ * up is only its priority against the refusals retained beside it, re-entering as
+ * though it had just arrived if the replay finds the queue still at its bound.
+ * Dropping the OLDEST place instead would surrender exactly the claim the order exists
+ * to protect.
+ */
+export const PENDING_INVITE_DEFERRED_PLACE_MAX = 16;
+
 // ── The shell's own shutdown budget ──────────────────────────────────────────
 //
 // It is not here. `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS` is declared in

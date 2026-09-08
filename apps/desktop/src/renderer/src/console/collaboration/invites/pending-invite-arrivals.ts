@@ -46,16 +46,43 @@
 // them. So both registers stamp one monotonic arrival sequence, and a slot goes to
 // whichever is older: the refusal where it is, and otherwise nobody, leaving the room
 // for the replay that is owed the arrival before it.
+//
+// THE ORDERING RULE, STATED ONCE. Each arrival takes one number off a single monotonic
+// counter the first time it is offered, and it keeps that number for as long as it is
+// waiting — a retained refusal carries it beside its frame, and a turned-away arrival
+// keeps it in a register keyed by the handle it will come back under. A REPLAYED FRAME
+// IS NEVER RESTAMPED: the replay is that same arrival delivered again, so it re-enters
+// the order at its own place, and only a frame no register recognises is a new arrival
+// taking a new number.
+//
+// ONE NUMBER PER TURNED-AWAY ARRIVAL AND NOT ONE FOR THE WHOLE DEBT, which is the half
+// that was missing. Remembering only the oldest was right about the first deferral and
+// silent about every one after it: defer two invitations, retain a refusal behind
+// them, open one slot, and the replay that recovered the first left the SECOND to be
+// stamped afresh — after the refusal that had arrived before it — so the next release
+// promoted that refusal ahead of an invitation older than it, which is the reversal
+// this whole rule exists to stop, one arrival further in.
+//
+// A PLACE CAN OUTLIVE THE ARRIVAL IT NAMES, AND THE DEBT IS WHAT KEEPS THAT HARMLESS.
+// A reference main has let go is never re-delivered, so its place is never claimed and
+// nothing here can learn that it never will be. What the promotion gates on is
+// therefore the DEBT — set by a fresh deferral, cleared by the replay request — and a
+// place whose replay has already been asked for decides nothing. `core/constants.ts`
+// bounds the register for the other half of the same fact.
 
 import type { GrowthPendingInviteRefused, GrowthPendingInviteState } from "../../bridge/index.js";
-import { PENDING_INVITE_QUEUE_MAX, PENDING_INVITE_RETAINED_REFUSAL_MAX } from "../../core/index.js";
+import {
+  PENDING_INVITE_DEFERRED_PLACE_MAX,
+  PENDING_INVITE_QUEUE_MAX,
+  PENDING_INVITE_RETAINED_REFUSAL_MAX,
+} from "../../core/index.js";
 
 /**
  * The pending feed's arrivals, in the order they came.
  *
- * A class with private fields: it owns a bounded list and a deferral flag whose only
- * correct transitions are the ones below, and every reader above it wants a question
- * answered rather than the list handed over.
+ * A class with private fields: it owns three bounded registers and one debt flag whose
+ * only correct transitions are the ones below, and every reader above it wants a
+ * question answered rather than a list handed over.
  */
 export class PendingInviteArrivals {
   readonly #held: GrowthPendingInviteState[] = [];
@@ -71,19 +98,31 @@ export class PendingInviteArrivals {
    *
    * Stamped at arrival and never reissued, so a refusal held here and an arrival the
    * bound turned away can be compared at all — which is what a slot is handed out on.
-   * A frame already held takes no number: it is not an arrival, it is the replay
-   * re-delivering one.
+   * A frame this window already knows takes no number, whether it is held or waiting
+   * on a replay: it is not an arrival, it is the replay re-delivering one.
    */
   #arrivalsSeen = 0;
   /**
-   * Where the OLDEST arrival a replay still owes this window sits in that order.
+   * Where each turned-away arrival sits in that order, keyed by the handle it holds.
    *
-   * `undefined` where nothing is owed. The oldest rather than the newest, because the
-   * question it answers is which of the two registers has waited longer — and a debt
-   * re-stamped by each later arrival would lose to every refusal that followed the
-   * first one.
+   * ONE ENTRY PER DEFERRED ARRIVAL, because the replay brings them back one slot at a
+   * time and each has to re-enter where it arrived. Keyed on {@link arrivalIdentity},
+   * which is what the replay re-delivers a frame under, so the lookup that keeps a
+   * place is the same match that recognises a duplicate. Bounded, and past the bound
+   * a deferral keeps no place — `core/constants.ts` states what that costs.
    */
-  #deferredSequence: number | undefined;
+  readonly #deferredPlaces = new Map<string, number>();
+  /**
+   * Whether an arrival the bound turned away is waiting on a replay nobody has asked
+   * for yet.
+   *
+   * ONE FACT FOR THE WHOLE REGISTER, because one replay brings back everything main
+   * still holds. It is also what the promotion gates on rather than the places above:
+   * a place is cleared by the arrival coming back, and an arrival main has let go
+   * never does, so a register read without this would hold a slot open forever for a
+   * frame nobody is going to send.
+   */
+  #replayOwed = false;
 
   /** The prompt on screen, in whichever state it arrived. */
   public get head(): GrowthPendingInviteState | undefined {
@@ -103,7 +142,7 @@ export class PendingInviteArrivals {
 
   /** Whether the bound turned an arrival away that a replay has not brought back. */
   public get hasDeferredArrivals(): boolean {
-    return this.#deferredSequence !== undefined;
+    return this.#replayOwed;
   }
 
   /**
@@ -118,11 +157,17 @@ export class PendingInviteArrivals {
     if (identity !== undefined && this.#held.some((held) => arrivalIdentity(held) === identity)) {
       return false;
     }
-    const sequence = (this.#arrivalsSeen += 1);
+    const sequence = this.#sequenceFor(identity);
     if (this.#held.length >= PENDING_INVITE_QUEUE_MAX) {
       return arrival.status === "refused"
         ? this.#retain(arrival, sequence)
-        : this.#recordDeferredArrival(sequence);
+        : this.#recordDeferredArrival(identity, sequence);
+    }
+    if (identity !== undefined) {
+      // It is in the queue now, so nothing is waiting on a replay for it and the place
+      // it was holding is spent — kept any longer it would go on claiming freed slots
+      // against the refusals retained beside it.
+      this.#deferredPlaces.delete(identity);
     }
     this.#held.push(arrival);
     return true;
@@ -159,10 +204,10 @@ export class PendingInviteArrivals {
    * brought everything back.
    */
   public takeDeferredReplay(): boolean {
-    if (this.#deferredSequence === undefined || this.#held.length >= PENDING_INVITE_QUEUE_MAX) {
+    if (!this.#replayOwed || this.#held.length >= PENDING_INVITE_QUEUE_MAX) {
       return false;
     }
-    this.#deferredSequence = undefined;
+    this.#replayOwed = false;
     return true;
   }
 
@@ -175,7 +220,8 @@ export class PendingInviteArrivals {
   public clear(): void {
     this.#held.length = 0;
     this.#retainedRefusals.length = 0;
-    this.#deferredSequence = undefined;
+    this.#deferredPlaces.clear();
+    this.#replayOwed = false;
   }
 
   /**
@@ -190,11 +236,47 @@ export class PendingInviteArrivals {
     if (next === undefined) {
       return undefined;
     }
-    if (this.#deferredSequence !== undefined && this.#deferredSequence < next.sequence) {
+    const oldestDeferred = this.#replayOwed ? this.#oldestDeferredPlace() : undefined;
+    if (oldestDeferred !== undefined && oldestDeferred < next.sequence) {
       return undefined;
     }
     this.#retainedRefusals.shift();
     return next.arrival;
+  }
+
+  /**
+   * Where the oldest arrival still waiting on a replay stands, if one holds a place.
+   *
+   * A minimum over the register rather than its first entry: what decides a slot is
+   * the ORDER, and reading it off insertion would be resting a correctness rule on a
+   * map's iteration. The register is bounded, so the walk is over at most
+   * `PENDING_INVITE_DEFERRED_PLACE_MAX` numbers.
+   *
+   * `undefined` where the bound has turned an arrival away and kept no place for it —
+   * the over-bound case, in which the arrival is still replayed and simply holds no
+   * claim on this slot.
+   */
+  #oldestDeferredPlace(): number | undefined {
+    let oldest: number | undefined;
+    for (const place of this.#deferredPlaces.values()) {
+      if (oldest === undefined || place < oldest) {
+        oldest = place;
+      }
+    }
+    return oldest;
+  }
+
+  /**
+   * The place this arrival already holds, or the next one in the order.
+   *
+   * A REPLAYED FRAME IS NEVER RESTAMPED. A handle the register remembers is the same
+   * arrival delivered again, so it re-enters where it was; only a handle nothing here
+   * recognises — and every refusal, which carries none — is an arrival taking a number
+   * off the counter.
+   */
+  #sequenceFor(identity: string | undefined): number {
+    const held = identity === undefined ? undefined : this.#deferredPlaces.get(identity);
+    return held ?? (this.#arrivalsSeen += 1);
   }
 
   /**
@@ -218,16 +300,27 @@ export class PendingInviteArrivals {
   /**
    * Record that the bound turned away an arrival a replay can bring back.
    *
-   * The FIRST one keeps its place in the order and every later one joins it silently:
-   * one replay brings back everything main still holds, so the debt is one fact, and
-   * the position that matters is the oldest turned-away arrival's.
+   * TWO RECORDS, ONE ACT. The arrival keeps its own place in the order, so the replay
+   * that recovers it puts it back where it was rather than behind whatever arrived
+   * while it waited; the DEBT is one fact for all of them, because one replay brings
+   * back everything main still holds. So the reading moves for the first deferral
+   * since the last replay was asked for and for none of the ones behind it — a burst
+   * past the bound redraws once.
+   *
+   * PAST THE REGISTER'S BOUND THE PLACE IS DECLINED AND THE DEBT IS NOT. The arrival
+   * is still recovered; what it loses is only its priority over the refusals retained
+   * beside it, and `core/constants.ts` states why that is the half worth giving up.
    */
-  #recordDeferredArrival(sequence: number): boolean {
-    if (this.#deferredSequence !== undefined) {
-      return false;
+  #recordDeferredArrival(identity: string | undefined, sequence: number): boolean {
+    if (identity !== undefined && this.#deferredPlaces.size < PENDING_INVITE_DEFERRED_PLACE_MAX) {
+      // Recorded here and DECIDED in `#sequenceFor`, which is the one place the
+      // never-restamp rule lives: a handle already registered is written back at the
+      // number it already holds, so this line cannot become a second answer to it.
+      this.#deferredPlaces.set(identity, sequence);
     }
-    this.#deferredSequence = sequence;
-    return true;
+    const wasOwed = this.#replayOwed;
+    this.#replayOwed = true;
+    return !wasOwed;
   }
 }
 
