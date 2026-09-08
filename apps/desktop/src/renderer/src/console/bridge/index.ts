@@ -588,6 +588,19 @@ export {
   serializeWorkflowDefinitionFile,
 } from "./wire-shapes/workflow-definition-file-form.js";
 
+// The other validator this family holds, and the reason it is here rather than beside
+// the form it serves: a schema the wire delivered, compiled once into something a
+// locally composed draft can be checked against. Every family above this one is barred
+// from importing a schema library at all, which is a claim about the LAYER — a validator
+// sits below every surface, so no surface can hold a second reading of one.
+//
+// `SchemaValidationIssue` is deliberately not published. A caller reads a report's
+// `issues` and maps them where it stands, so the name has no production importer and a
+// door line for it would be a name published for symmetry, which the barrel census
+// fails.
+export { compileSchemaValidator } from "./wire-shapes/json-schema-check.js";
+export type { SchemaValidationReport, SchemaValidator } from "./wire-shapes/json-schema-check.js";
+
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
 // document URL rather than through the bridge, and the root is above every

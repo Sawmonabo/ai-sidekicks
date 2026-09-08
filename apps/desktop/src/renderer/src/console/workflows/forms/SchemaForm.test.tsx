@@ -1,0 +1,153 @@
+// The form as a person meets it: six controls from six member shapes, a group, a list,
+// and — the bullet this whole subtree exists for — an out-of-set schema opening the raw
+// editor instead of refusing.
+//
+// Driven through the real hook rather than a hand-built state, because the two are one
+// surface: a test that fed the component a fabricated plan would pass with the mapper
+// deleted.
+
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { SchemaForm } from "./SchemaForm.js";
+import { useSchemaForm } from "./use-schema-form.js";
+
+afterEach(cleanup);
+
+/** The form, mounted over one schema through its own hook. */
+function FormHost(props: { readonly inputSchema: unknown }): React.JSX.Element {
+  return <SchemaForm form={useSchemaForm(props.inputSchema)} />;
+}
+
+/** Render one schema's form and hand back the container it drew into. */
+function renderForm(inputSchema: unknown): HTMLElement {
+  const { container } = render(<FormHost inputSchema={inputSchema} />);
+  return container;
+}
+
+describe("the schema-derived form", () => {
+  it("draws one labelled control for each of the six kinds", () => {
+    renderForm({
+      type: "object",
+      properties: {
+        title: { type: "string", title: "Title" },
+        notes: { type: "string", format: "long_text", title: "Notes" },
+        count: { type: "integer", title: "Count" },
+        approved: { type: "boolean", title: "Approved" },
+        severity: { type: "string", enum: ["low", "high"], title: "Severity" },
+        evidence: { type: "string", format: "artifact", title: "Evidence" },
+      },
+    });
+
+    expect(screen.getByLabelText("Title").tagName).toBe("INPUT");
+    expect(screen.getByLabelText("Notes").tagName).toBe("TEXTAREA");
+    expect(screen.getByLabelText("Count")).toHaveProperty("type", "number");
+    expect(screen.getByLabelText("Approved")).toHaveProperty("type", "checkbox");
+    expect(screen.getByLabelText("Severity").tagName).toBe("SELECT");
+    expect(screen.getByLabelText("Evidence")).toHaveProperty("type", "text");
+  });
+
+  it("offers the enumeration's members and one unanswered option that is not one of them", () => {
+    renderForm({
+      type: "object",
+      properties: { severity: { type: "string", enum: ["low", "high"], title: "Severity" } },
+    });
+
+    const options = [...screen.getByLabelText("Severity").querySelectorAll("option")].map(
+      (option) => option.value,
+    );
+
+    expect(options).toEqual(["", "low", "high"]);
+  });
+
+  it("says which members the schema requires without deciding whether they are answered", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { title: { type: "string", title: "Title" } },
+      required: ["title"],
+    });
+
+    expect(container.querySelector(".meridian-schema-field__required")?.textContent).toContain(
+      "required",
+    );
+  });
+
+  it("renders the schema's own findings against the control they are about", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { count: { type: "number", title: "Count" } },
+      required: ["count"],
+    });
+
+    const issues = container.querySelector(".meridian-schema-field__issues");
+
+    expect(issues?.textContent ?? "").not.toBe("");
+  });
+
+  it("attaches a member's description to its control rather than leaving it beside one", () => {
+    renderForm({
+      type: "object",
+      properties: { title: { type: "string", title: "Title", description: "One line." } },
+    });
+
+    const describedBy = screen.getByLabelText("Title").getAttribute("aria-describedby") ?? "";
+
+    expect(describedBy).not.toBe("");
+    expect(document.getElementById(describedBy.split(" ")[0] ?? "")?.textContent).toBe("One line.");
+  });
+
+  it("draws a group as a named fieldset holding its own members", () => {
+    const container = renderForm({
+      type: "object",
+      properties: {
+        release: {
+          type: "object",
+          title: "Release",
+          properties: { tag: { type: "string", title: "Tag" } },
+        },
+      },
+    });
+
+    const group = container.querySelector(".meridian-schema-group");
+
+    expect(group?.querySelector("legend")?.textContent).toBe("Release");
+    expect(group?.contains(screen.getByLabelText("Tag"))).toBe(true);
+  });
+
+  it("draws a list with the control that adds an entry and none that removes one yet", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
+    });
+
+    expect(container.querySelector(".meridian-schema-list__legend")?.textContent).toContain(
+      "Reviewers",
+    );
+    expect(screen.getByRole("button", { name: "Add an entry" })).toBeDefined();
+    expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(0);
+  });
+
+  it("opens the raw editor for a schema outside the drawn set, and never a refusal", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
+    });
+
+    expect(container.querySelector(".meridian-schema-raw__editor")?.tagName).toBe("TEXTAREA");
+    expect(container.querySelector(".meridian-schema-raw__reason")?.textContent).toContain("rows");
+    // Nothing on this surface reports a refusal: the console's refusal shapes all carry
+    // this class, and the whole point of the fallback is that none of them is reached.
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+  });
+
+  it("says the schema itself could not be checked rather than showing a clean verdict", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { linked: { $ref: "#/definitions/missing" } },
+    });
+
+    expect(container.querySelector(".meridian-schema-raw__uncheckable")?.textContent).toContain(
+      "only the JSON itself is checked",
+    );
+  });
+});

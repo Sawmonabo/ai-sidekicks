@@ -10,6 +10,13 @@
 // a phase with no `goBackTo` has no target, and an empty label saying so would be the
 // renderer inventing a fact about the definition.
 //
+// A `human` PHASE CARRIES A FORM AND THE ROW DRAWS IT. `config` is an open record on the
+// wire, and for this one phase type it holds the question and the schema the answer is
+// shaped by — so an author reading a definition can see the form the phase will ask
+// instead of reading a JSON schema and imagining it. It is a reading of bytes this pane
+// already has: no read is put, no run is reached, and no answer is sent, which is why the
+// preview carries no submit control at all rather than a greyed one.
+//
 // A BINDING IS ITS SCOPE **AND** WHAT THAT SCOPE REFERS TO. `McpServerBindingRef` is a
 // three-arm union rather than one shape because the reference is part of the binding's
 // identity: two `project` bindings under different repository roots are two different
@@ -25,6 +32,7 @@
 
 import { Chip, WireFigure } from "../../../primitives/index.js";
 import type { McpServerBindingRef, WorkflowPhaseDefinition } from "../../../bridge/index.js";
+import { HumanPhaseFormPreview } from "../../forms/index.js";
 
 export interface DefinitionPhaseRowProps {
   readonly phase: WorkflowPhaseDefinition;
@@ -91,6 +99,12 @@ export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.El
           ))}
         </ul>
       )}
+      {/*
+       * Last in the row, because it is the phase's own detail rather than one of its
+       * closed vocabulary values, and it renders nothing at all for the four phase types
+       * that ask no question — which is what keeps the row a row for every other phase.
+       */}
+      <HumanPhaseFormPreview phase={phase} />
     </li>
   );
 }

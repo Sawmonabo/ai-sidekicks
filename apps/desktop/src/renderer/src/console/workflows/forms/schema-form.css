@@ -1,0 +1,208 @@
+/*
+ * The schema-derived form: its fields, its groups, its lists, and the raw editor a
+ * schema outside the drawn set opens as.
+ *
+ * Owned by this directory and reached only from it. Every surface that mounts a form
+ * sits behind an `import()` — the definition detail rides the builder pane's chunk —
+ * so these rules travel with the chunk that draws them rather than with the console's
+ * first paint. Meridian tokens only.
+ */
+
+.meridian-schema-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+}
+
+.meridian-schema-form__entry {
+  display: block;
+}
+
+/* ------------------------------------------------------------------- one field */
+
+.meridian-schema-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-schema-field__label {
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+/*
+ * The required mark is a reading of the schema and not a warning, so it is set as quiet
+ * prose beside the name rather than in the refusal hue: nothing is wrong with a field
+ * that has not been answered yet.
+ */
+.meridian-schema-field__required {
+  font-weight: 400;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-field__input,
+.meridian-schema-field__textarea,
+.meridian-schema-field__select {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+/*
+ * A figure the wire carries — a number, an artifact id — wears the provenance signature
+ * that every other wire value on a console surface wears.
+ */
+.meridian-schema-field__input--figure {
+  font-family: var(--meridian-font-mono);
+}
+
+/*
+ * An enum member is the string the engine stores, so the options are mono for the same
+ * reason. The `select` itself carries it, because a browser draws its own option list.
+ */
+.meridian-schema-field__select {
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-schema-field__textarea {
+  resize: vertical;
+}
+
+.meridian-schema-field__checkbox {
+  align-self: flex-start;
+}
+
+.meridian-schema-field__description {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The schema's own findings. Red because something IS wrong with the answer, unlike the
+ * required mark above, and set as a list because a schema that said two things said both.
+ */
+.meridian-schema-field__issues {
+  margin: 0;
+  padding-inline-start: var(--meridian-space-4);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/* --------------------------------------------------------- groups and lists */
+
+.meridian-schema-group,
+.meridian-schema-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-schema-group__legend,
+.meridian-schema-list__legend {
+  padding: 0 var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-group__entry {
+  display: block;
+}
+
+.meridian-schema-list__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-schema-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* ------------------------------------------------------------- the raw editor */
+
+.meridian-schema-raw {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * Why this schema is answered as text. It is a statement about the schema and not a
+ * failure of the form, so it reads as prose on the surface's own ground.
+ */
+.meridian-schema-raw__reason {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/* The submitted value itself, so it wears the wire's own face. */
+.meridian-schema-raw__editor {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  padding: var(--meridian-space-2);
+  resize: vertical;
+  white-space: pre;
+}
+
+.meridian-schema-raw__syntax {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/*
+ * The schema could not be checked against. Amber and not red: the answer is not wrong,
+ * the check is missing, and saying so in the refusal hue would read as a rejection.
+ */
+.meridian-schema-raw__uncheckable {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-amber-text);
+}
+
+/* ---------------------------------------------------------------- the preview */
+
+.meridian-schema-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+.meridian-schema-preview__caption {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-schema-preview__prompt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
