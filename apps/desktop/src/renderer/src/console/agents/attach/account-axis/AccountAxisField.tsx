@@ -25,12 +25,19 @@
 // offers the way back to the first and says what the second costs — and it does
 // neither by removing the caller's own value, which is theirs and not this form's.
 //
+// BUT "CLEARED" IS THE WIRE'S WORD AND NOT THIS FORM'S. Dropping the caller's own
+// entry does not always reach the provider default: the registered request has no
+// null arm for this member, so an absent member means "take the definition's value"
+// rather than "take no value". The four states that follow from that are what
+// {@link AccountAxisProvenance} names, and the reset control below is rendered — and
+// labelled — from them rather than from whether the field happens to hold a string.
+//
 // NOTHING HERE GATES AND NOTHING HERE IS A COMMAND. Readiness is advisory against the
 // unchanged spawn probe, and the remedy is named as an ACT — never as the provider's
 // own sign-in invocation or the credential home it writes into, which reach the
 // operator surface that owns them and no form.
 
-import { useCallback } from "react";
+import { useCallback, useId } from "react";
 
 import {
   useProviderAccountRefresh,
@@ -53,12 +60,54 @@ export interface AccountAxisFieldProps {
   readonly driverName: string | undefined;
   /** The account the form currently carries, entered or inherited. */
   readonly value: string | undefined;
-  /** `undefined` clears the pin, which is what asks for the provider's default. */
+  /** `undefined` drops the caller's own entry; what that RESOLVES to is the form's. */
   readonly onValueChange: (accountId: string | undefined) => void;
+  /**
+   * What this axis falls back to once the caller's entry is dropped.
+   *
+   * The chosen definition's pinned account, or `undefined` where dropping the entry
+   * leaves the axis unset and the daemon resolves the provider's registered default.
+   * Supplied by the form rather than derived here, because it is the same per-field
+   * resolution the displayed {@link value} came through.
+   */
+  readonly inheritedValue: string | undefined;
   /** Marks the field as carrying a caller edit over a definition's value. */
   readonly isOverridden: boolean;
   /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly overlayContainer?: HTMLElement | null | undefined;
+}
+
+/**
+ * Where the account this field is showing came from — the closed set of four.
+ *
+ * Declared once and read by both the reset control and the sentence beside it, so
+ * the control's label and the field's explanation of itself can never disagree.
+ */
+type AccountAxisProvenance =
+  /** Nothing pinned. The daemon resolves the provider's registered default. */
+  | "unpinned"
+  /** The caller's entry, standing over nothing. Dropping it reaches that default. */
+  | "entered-over-nothing"
+  /** The caller's entry over a definition's. Dropping it returns the definition's. */
+  | "entered-over-definition"
+  /** The definition's own, which no member of this request can unset. */
+  | "inherited";
+
+/**
+ * Which of the four this field is in.
+ *
+ * `isOverridden` is PRESENCE of an entry rather than value inequality, which is what
+ * separates the two entered arms from `inherited`: a caller who retyped the
+ * definition's own account has still explicitly said it, and the form sends it.
+ */
+function accountAxisProvenanceOf(props: AccountAxisFieldProps): AccountAxisProvenance {
+  if (props.value === undefined || props.value === "") {
+    return "unpinned";
+  }
+  if (!props.isOverridden && props.inheritedValue !== undefined) {
+    return "inherited";
+  }
+  return props.inheritedValue === undefined ? "entered-over-nothing" : "entered-over-definition";
 }
 
 export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Element {
@@ -67,7 +116,8 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
   const refreshRegistry = useProviderAccountRefresh(bridge);
   const reading = attachAccountAxisReadingFor(registry, props.driverName);
   const chosen = chosenAccountIn(reading, value);
-  const isPinned = value !== undefined && value !== "";
+  const provenance = accountAxisProvenanceOf(props);
+  const isPinned = provenance !== "unpinned";
   // The REASON is this call site's and never inferred downstream: a person pressing
   // "Try again" is a participant request, and stamping it as anything else would
   // report an act somebody performed as a window event nobody did.
@@ -75,9 +125,19 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
     refreshRegistry("participant-request");
   }, [refreshRegistry]);
 
+  // THE FIELD NAMES ITS OWN CONTROL, EXPLICITLY. This field's root is a `div` rather
+  // than the `<label>` its sibling axes use — it has to hold a reset control, a retry
+  // control, and four absence states, none of which belongs inside a label element —
+  // so nothing about the markup would have associated the visible word with the
+  // combobox, and `role="combobox"` forbids a name taken from the trigger's own
+  // content. In the state a person meets first, no account pinned, the trigger's
+  // content is empty besides, so the control had no name at all. Minted rather than
+  // written out because two of these fields can share one window.
+  const labelId = useId();
+
   return (
     <div className="meridian-axis-field">
-      <span className="meridian-axis-field__label">
+      <span className="meridian-axis-field__label" id={labelId}>
         Provider account
         {props.isOverridden ? (
           <span className="meridian-axis-field__overridden"> overridden</span>
@@ -89,6 +149,7 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
           reading={reading}
           value={value}
           onValueChange={props.onValueChange}
+          labelId={labelId}
           overlayContainer={props.overlayContainer}
         />
       ) : (
@@ -128,7 +189,19 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
         starts.
       </span>
 
-      {isPinned ? (
+      {/* WHY THE LABEL IS WHAT IT IS, AND WHY THERE IS SOMETIMES NO CONTROL AT ALL.
+          The label names the value this press RESOLVES TO, which the registered
+          request decides rather than this field: an explicitly-present member
+          overrides that axis alone, an absent one means "take the definition's
+          value", and the attach request carries no null arm for the account the way
+          `agent.configUpdate` carries one for the default node. So dropping an entry
+          made over a definition that pins an account returns THAT account, and only
+          an entry standing over nothing reaches the provider's registered default.
+          On a definition's own inherited account there is no entry to drop and the
+          control is ABSENT rather than disabled — a press could not have reached the
+          provider default, and a control saying so was promising an act no member of
+          this request can carry. */}
+      {provenance === "unpinned" || provenance === "inherited" ? null : (
         <button
           type="button"
           className="meridian-axis-field__clear"
@@ -136,8 +209,18 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
             props.onValueChange(undefined);
           }}
         >
-          Use the provider&rsquo;s default account
+          {provenance === "entered-over-definition"
+            ? "Use the definition’s account"
+            : "Use the provider’s default account"}
         </button>
+      )}
+
+      {provenance === "inherited" ? (
+        <span className="meridian-axis-field__advisory">
+          This account is the definition&rsquo;s. Choosing another overrides it for this agent —
+          including whichever the registry marks default — but an attach from a definition cannot
+          ask for no account at all.
+        </span>
       ) : null}
     </div>
   );

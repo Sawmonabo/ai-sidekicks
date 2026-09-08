@@ -11,6 +11,11 @@
 // would become indistinguishable to it. The label is what a person reads, filters on,
 // and sees in the trigger, and it is resolved through the library's own label seam
 // rather than by a second list beside the items.
+//
+// AND THE FIELD'S OWN NAME COMES IN, because it is not this module's to invent. The
+// trigger renders as `role="combobox"`, which takes no name from its own content, and
+// the visible "Provider account" word belongs to the field that composes this picker
+// beside four other absences. So the caller mints the id and this points at it.
 
 import { Combobox } from "@base-ui/react/combobox";
 
@@ -21,6 +26,8 @@ export interface AccountChoiceListProps {
   readonly reading: Extract<AttachAccountAxisReading, { kind: "served" }>;
   readonly value: string | undefined;
   readonly onValueChange: (accountId: string | undefined) => void;
+  /** The id of the field's visible label, which is what names the trigger. */
+  readonly labelId: string;
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
 
@@ -42,7 +49,7 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
         props.onValueChange(next ?? undefined);
       }}
     >
-      <Combobox.Trigger className="meridian-axis-field__trigger">
+      <Combobox.Trigger className="meridian-axis-field__trigger" aria-labelledby={props.labelId}>
         <Combobox.Value />
       </Combobox.Trigger>
       {/* The anchored part of the tree is the primitive's, which is what puts this
