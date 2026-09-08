@@ -29,6 +29,21 @@
 // another, so a ledger read cannot reach a coordinator that lives in `collaboration/`,
 // and the refusals that coordinator raises name that family as their origin.
 //
+// AND A PAGE CAN OUTLIVE THE WINDOW IT WAS ADDRESSED FROM. A refresh re-establishes
+// the store's base state while a backward read is in flight, and the page that then
+// arrives names rows before a head the store has already left. Merging it is not
+// merely stale, it is UNRECOVERABLE: those rows land in front of the new window's
+// oldest row, the log's head sequence moves down to them, and every later page — the
+// ones that would have filled the interval between the two heads — is then refused by
+// the store's own strictly-earlier guard as not earlier than a row that should never
+// have been there. Nothing this object does afterwards can take them out again, since
+// the log grows at its head and shrinks at neither end. So the page is DISCARDED,
+// which costs one round trip and leaves the walk free to re-ask from the head the
+// store now has. What it is measured against is the STORE's window generation rather
+// than a cursor compared here: a read that re-established the SAME position still
+// threw the old log away, and a page admitted across that boundary opens exactly the
+// same hole.
+//
 // AND THE READ IS SESSION-SCOPED EVEN IN A CHANNEL PANE. `TimelineReadRequest` carries
 // a `channelId` filter and this deliberately never sends one: the store's log is the
 // SESSION's, and the channel narrowing is applied above it by the pane's own
@@ -41,7 +56,7 @@ import { type EventCursor, type SessionId } from "@ai-sidekicks/contracts";
 
 import { LEDGER_EARLIER_PAGE_ROWS, type ConsoleRefusal } from "../../../core/index.js";
 import { callDaemon, readEarlierTimelinePage, type ConsoleBridge } from "../../../bridge/index.js";
-import { type SessionStore } from "../../../store/index.js";
+import { type CurrentGenerationClaim, type SessionStore } from "../../../store/index.js";
 
 /** What a surface renders about the rows before this window. */
 export interface LedgerEarlierWindowState {
@@ -71,9 +86,14 @@ export interface LedgerEarlierWindowState {
  * remembering the single-flight rule.
  */
 export class LedgerEarlierWindowReader {
-  /** The window head this walk is based on, once one has been observed. */
-  #windowHeadCursor: string | undefined;
-  #hasBase = false;
+  /**
+   * The store window this walk is based on, once one has been observed.
+   *
+   * The store's own claim rather than a copy of its head cursor, because the claim is
+   * re-taken by the one act that moves a window — a completed read re-establishing the
+   * base state — whichever position that read was performed from.
+   */
+  #baseWindowGeneration: CurrentGenerationClaim | undefined;
   /** Where the next page starts. `undefined` means there is nowhere to ask from. */
   #nextBeforeCursor: string | undefined;
   #exhausted = true;
@@ -107,7 +127,7 @@ export class LedgerEarlierWindowReader {
    * exception and no `catch` holding a code nothing can render.
    */
   public async loadEarlier(bridge: ConsoleBridge, sessionStore: SessionStore): Promise<void> {
-    this.#rebaseIfWindowMoved(sessionStore);
+    const baseWindowGeneration = this.#rebaseIfWindowMoved(sessionStore);
     const beforeCursor = this.#nextBeforeCursor;
     if (this.#isReading || this.#exhausted || beforeCursor === undefined) {
       return;
@@ -127,41 +147,55 @@ export class LedgerEarlierWindowReader {
         limit: LEDGER_EARLIER_PAGE_ROWS,
       });
       if (reply.status === "refused") {
-        this.#refusal = reply.refusal;
+        // Through the round as well, and for the same reason the page is: a refusal
+        // installed after the window moved is a failure reported against a read the
+        // surface is no longer offering, on a control the rebase has already re-armed.
+        baseWindowGeneration.settle(() => {
+          this.#refusal = reply.refusal;
+        });
         return;
       }
       const page = readEarlierTimelinePage(reply.value);
       // THE ROWS GO TO THE STORE AND THE POSITION STAYS HERE. The merge answers how
       // many it admitted, which is what makes a page the log already held visible as
       // a page that added nothing rather than as a press that did nothing.
-      this.#admittedRowCount += sessionStore.prependEarlierEvents(page.events).admitted;
-      this.#nextBeforeCursor = page.nextBeforeCursor;
-      this.#exhausted = !page.hasEarlierRows || page.nextBeforeCursor === undefined;
+      //
+      // AND BOTH INSTALL ONLY WHILE THIS PAGE'S WINDOW IS STILL THE STORE'S. Settling
+      // through the round covers the position as well as the rows on purpose — a walk
+      // carried into a window it was not measured in would go on asking from a cursor
+      // that names the old head, which is the same hole reached one press later.
+      baseWindowGeneration.settle(() => {
+        this.#admittedRowCount += sessionStore.prependEarlierEvents(page.events).admitted;
+        this.#nextBeforeCursor = page.nextBeforeCursor;
+        this.#exhausted = !page.hasEarlierRows || page.nextBeforeCursor === undefined;
+      });
     } finally {
       this.#isReading = false;
     }
   }
 
   /**
-   * Start the walk over when the store's window is no longer the one it was based on.
+   * Start the walk over when the store's window is no longer the one it was based on,
+   * and answer the window generation it is based on now.
    *
-   * TWO SIGNALS, because a window moves in two ways and only one of them changes the
-   * cursor. A read that acknowledged a different position gives a different head, and
-   * the comparison catches it. A read that acknowledged the SAME position still threw
-   * the old log away — `initialise` re-establishes the base state and drops whatever a
-   * backward walk had put in front of it — and the store's own admitted count going
-   * BELOW what this walk delivered is what reports that. Without the second, a walk
-   * three pages deep would keep asking from page four's cursor over a log that starts
-   * at the head again, and the gap between them would be invisible.
+   * ONE SIGNAL, AND IT IS THE ACT ITSELF. A window moves in two ways that look
+   * different from outside: a completed read that acknowledged a different position
+   * gives a different head, and one that acknowledged the SAME position still threw
+   * the old log away and dropped whatever a backward walk had put in front of it.
+   * Both are the store re-establishing its base state, which is exactly what re-takes
+   * its window generation — so one comparison covers both, and covers them at the
+   * moment the window moved rather than after a page has already landed in the wrong
+   * one. It is answered rather than only stored, because the caller that issues a read
+   * has to hold the generation it was issued under until the reply lands.
    */
-  #rebaseIfWindowMoved(sessionStore: SessionStore): void {
-    const windowHeadCursor = sessionStore.snapshot().windowHeadCursor;
-    const rowsDropped = this.#admittedRowCount > sessionStore.earlierEventCount;
-    if (this.#hasBase && this.#windowHeadCursor === windowHeadCursor && !rowsDropped) {
-      return;
+  #rebaseIfWindowMoved(sessionStore: SessionStore): CurrentGenerationClaim {
+    const baseWindowGeneration = this.#baseWindowGeneration;
+    if (baseWindowGeneration?.isCurrent === true) {
+      return baseWindowGeneration;
     }
-    this.#hasBase = true;
-    this.#windowHeadCursor = windowHeadCursor;
+    const windowGeneration = sessionStore.windowGeneration;
+    const windowHeadCursor = sessionStore.snapshot().windowHeadCursor;
+    this.#baseWindowGeneration = windowGeneration;
     this.#nextBeforeCursor = windowHeadCursor;
     // A window that opens at the beginning of the log has nothing before it, which is
     // exhausted in the only sense the control cares about: there is nothing to press
@@ -169,5 +203,6 @@ export class LedgerEarlierWindowReader {
     this.#exhausted = windowHeadCursor === undefined;
     this.#refusal = undefined;
     this.#admittedRowCount = 0;
+    return windowGeneration;
   }
 }

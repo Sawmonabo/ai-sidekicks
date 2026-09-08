@@ -44,7 +44,10 @@
 //     `prependEarlierEvents` is where a read of them lands, and it is not a second
 //     apply chokepoint: it admits no row at or above the log's head, moves no cursor,
 //     runs no projector, and clears no degraded flag. `earlier-window.ts` owns the
-//     fold and says why each of those is a property rather than an omission.
+//     fold and says why each of those is a property rather than an omission. A read
+//     of those rows is addressed from a head this store can move underneath it, so
+//     `windowGeneration` publishes which window a page was asked under and the merge
+//     is settled through it.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -55,6 +58,7 @@ import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js"
 import { mergeEarlierWindow, type EarlierWindowMerge } from "./earlier-window.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
 import { EntityProjectionRunner } from "./entity-projection.js";
+import { GenerationLatch, type CurrentGenerationClaim } from "./generation-latch.js";
 import { PreInitialisationBuffer } from "./pre-initialisation-buffer.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
 import {
@@ -93,6 +97,9 @@ export interface SessionStoreOptions {
 
 const SITE = "console/store/session-store.ts";
 
+/** The one key the window generation is claimed under. A store has one window. */
+const WINDOW_GENERATION_KEY = "window";
+
 export class SessionStore {
   readonly #sessionId: string;
   readonly #timelineCap: number | undefined;
@@ -112,6 +119,19 @@ export class SessionStore {
    * re-establishes where the window starts.
    */
   #earlierEventCount = 0;
+  readonly #windowGenerations = new GenerationLatch();
+  /**
+   * Which window this store's log is currently a view of.
+   *
+   * Re-taken by `initialise` and by nothing else, so it goes stale on exactly the act
+   * that re-establishes where the window starts — including the read that answered at
+   * the SAME position and still threw the old log away, which no comparison of head
+   * cursors can see.
+   */
+  #windowGeneration: CurrentGenerationClaim = this.#windowGenerations.supersedeAndClaim(
+    this,
+    WINDOW_GENERATION_KEY,
+  );
 
   public constructor(options: SessionStoreOptions) {
     this.#sessionId = options.sessionId;
@@ -163,6 +183,24 @@ export class SessionStore {
   }
 
   /**
+   * A handle on the window this log is a view of, for a caller settling against it.
+   *
+   * FOR THE READER THAT ASKS FOR ROWS THIS WINDOW DOES NOT HOLD. Such a read is
+   * addressed FROM a window head, and it can answer after a completed read has moved
+   * that head — at which point its page names rows before a window this store has
+   * left. Taking this claim at issue and settling through it is what lets that page be
+   * discarded, and it is a handle rather than a number so the caller cannot re-derive
+   * the comparison and get it wrong.
+   *
+   * The NARROW half of a claim: a reader may ask whether its round is still live and
+   * may settle against it, and may not give the key back — the window is the store's
+   * and ends when the next read re-establishes it.
+   */
+  public get windowGeneration(): CurrentGenerationClaim {
+    return this.#windowGeneration;
+  }
+
+  /**
    * Which end of an over-cap log survives, right now.
    *
    * A backward page moves it, and that is the whole of the rule: a reader who asked
@@ -196,6 +234,11 @@ export class SessionStore {
     // window: the rows are re-delivered by the read itself or they are once again
     // outside it, and either way the count that decides the retained end is stale.
     this.#earlierEventCount = 0;
+    // And the window itself is a NEW one, which is the same fact stated where a caller
+    // can act on it: a backward read still in flight was addressed from the head this
+    // act just replaced, so the claim it took at issue stops being current here and
+    // its page settles nowhere.
+    this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
     const timeline = orderBatchBySequence(snapshot.timeline ?? []);
     this.#reconciler.rebaseTo(
       snapshot.cursor,
