@@ -801,6 +801,7 @@ Two of the eleven PR #340 round-3/4 findings carried on Plan-009's Phase 2B carr
 - [ ] Tests added or updated
 - [ ] Verification completed
 - [ ] Related docs updated
+- 2026-09-08 — Short-id entropy correction (PR #463, the daemon v7 id generator, Codex round 6; Spec-010 flipped `review` and restored `approved` in the same swap): `<session-short-id>` / `<run-short-id>` become the **last** 8 hex characters of their UUIDs, since under RFC 9562 v7 the first 8 are timestamp bits shared across a 65,536 ms window. **Targeted readiness-audit delta:** one clause of `Spec-010 §Resolved Questions and V1 Scope Decisions` and the shipped `deriveWorktreeBranchName` move together; D-010-19 cites the rule by section and is unchanged; no task, invariant, obligation, interface, table, or column moves, and the plan's Preconditions boxes stay checked — Plan-010 records a no-flip.
 
 ## References
 

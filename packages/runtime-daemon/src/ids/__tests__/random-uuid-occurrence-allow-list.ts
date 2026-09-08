@@ -7,7 +7,7 @@
 // or event id, which mints through `../uuid-v7.ts`.
 
 /** One exempt mention: the exact trimmed source line, and why it may stand. */
-interface ExemptOccurrence {
+export interface ExemptOccurrence {
   readonly lineText: string;
   readonly reason: string;
 }

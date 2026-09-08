@@ -519,7 +519,7 @@ export interface WorktreeCleanupPassResult {
 
 /** Inputs for {@link deriveWorktreeBranchName}. */
 export interface WorktreeBranchNameInput {
-  /** The session whose first 8 hex digits form the `<session-short-id>` segment. */
+  /** The session whose last 8 hex digits form the `<session-short-id>` segment. */
   readonly sessionId: string;
   /** The run behind the `run-<run-short-id>` fallback; `null` when there is none. */
   readonly runId: string | null;
@@ -770,7 +770,16 @@ export function deriveWorktreeBranchName(input: WorktreeBranchNameInput): string
 }
 
 /**
- * First {@link SHORT_ID_LENGTH} hex digits of an identifier.
+ * LAST {@link SHORT_ID_LENGTH} hex digits of an identifier.
+ *
+ * The tail and not the head, because the daemon mints RFC 9562 v7 ids: the
+ * first 8 hex digits are the high 32 bits of the millisecond timestamp and are
+ * identical for every id minted within one 65,536 ms window, so a head-derived
+ * short id collided across sessions created within a minute of each other —
+ * and the branch-name arbitration below is scoped per repo mount, so the
+ * second session reached `git worktree add` on an existing branch. The last 8
+ * digits are the low 32 of the id's 62 random bits (random under v4 too), so
+ * the handle keeps the entropy Spec-010's rule always assumed.
  *
  * Hyphens are stripped before slicing so the canonical UUID form and its
  * unhyphenated spelling yield the same short id, and the result is lowercased
@@ -780,7 +789,7 @@ export function deriveWorktreeBranchName(input: WorktreeBranchNameInput): string
  * anything durable joins on.
  */
 function shortId(identifier: string): string {
-  return identifier.replace(/-/g, "").slice(0, SHORT_ID_LENGTH).toLowerCase();
+  return identifier.replace(/-/g, "").slice(-SHORT_ID_LENGTH).toLowerCase();
 }
 
 /**
