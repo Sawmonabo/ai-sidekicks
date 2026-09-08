@@ -6,72 +6,29 @@
 // person types an account under the wrong driver and the form composes a request the
 // daemon can only refuse after the attach has been submitted.
 //
+// AND WHICH ACCOUNT A SENTENCE IS ABOUT IS ASKED HERE TOO, because it is a selection
+// over the same reading rather than a wording question. What those sentences SAY is
+// `account-advisories.test.ts`'s, beside the module that composes them.
+//
 // The model is a pure function over a reading, which is why every case here builds an
 // object rather than standing up a bridge: a state a live reading reaches only through
 // a particular sequence of pushes is one literal here.
 
-import {
-  PROVIDER_ACCOUNT_HEALTH_STATES,
-  type ProviderAccount,
-  type ProviderAccountId,
-  type ProviderReadiness,
-} from "@ai-sidekicks/contracts";
+import type { ProviderReadiness } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../../core/index.js";
-import { formatDateTime } from "../../../primitives/index.js";
 
 import {
-  accountAdvisoriesFor,
+  advisoryChoiceIn,
   attachAccountAxisReadingFor,
   chosenAccountIn,
   registryCarriesAccount,
-  type AttachAccountRegistryReading,
 } from "./account-axis.js";
-
-const OBSERVED_AT = "2026-09-01T10:00:00.000Z";
-
-/**
- * One registry account id, branded the way the contract brands one.
- *
- * The cast is this tree's established shape for a branded wire id in a fixture
- * (`settings/pages/provider-accounts/shell/quota-rows.test.ts`): the brand exists to
- * stop a caller passing any string on the wire, and a test that parsed one through
- * the schema would be asserting the schema rather than the model under test.
- */
-function registryAccountId(value: string): ProviderAccountId {
-  return value as ProviderAccountId;
-}
+import { account, registryAccountId, resolvedTo, served } from "./account-reading.test-support.js";
 
 /** The origin every refusal in this suite is attributed to. */
 const ACCOUNT_PLANE = "account-plane";
-
-/** One registry row, in the registered shape and nothing narrower. */
-function account(overrides: Partial<ProviderAccount> = {}): ProviderAccount {
-  return {
-    accountId: registryAccountId("acct-team"),
-    provider: "claude",
-    displayLabel: "Team",
-    credentialGeneration: 1,
-    billingMode: "subscription",
-    isDefault: true,
-    healthState: "authenticated",
-    healthObservedAt: OBSERVED_AT,
-    observedAuthMode: "oauth_subscription",
-    loggedInAt: null,
-    expectedReloginAtEstimate: null,
-    probeEnabled: true,
-    ...overrides,
-  };
-}
-
-/** A served registry reading over the accounts a case cares about. */
-function served(
-  accounts: readonly ProviderAccount[],
-  readiness: readonly ProviderReadiness[] = [],
-): AttachAccountRegistryReading {
-  return { phase: "read", readRefusal: undefined, accounts, readiness };
-}
 
 describe("the attach form's account axis — which accounts it may offer", () => {
   it("offers only the accounts belonging to the chosen driver's provider", () => {
@@ -174,19 +131,9 @@ describe("the attach form's account axis — which accounts it may offer", () =>
   });
 });
 
-describe("the attach form's account axis — what it says about one account", () => {
+describe("the attach form's account axis — which account a readiness entry is about", () => {
   it("attributes a readiness entry only to the account it resolved to", () => {
-    const resolved: ProviderReadiness = {
-      provider: "claude",
-      state: "reauth_required",
-      resolvedAccountId: registryAccountId("acct-team"),
-      remedy: {
-        kind: "sign_in",
-        accountId: registryAccountId("acct-team"),
-        signInInvocation: "claude login",
-        credentialHomePath: "/homes/team",
-      },
-    };
+    const resolved = resolvedTo("acct-team");
     const reading = attachAccountAxisReadingFor(
       served(
         [
@@ -202,135 +149,144 @@ describe("the attach form's account axis — what it says about one account", ()
     expect(chosenAccountIn(reading, "acct-other")?.readiness).toBeUndefined();
   });
 
-  it("names the act a remedy calls for and never the provider's own sign-in command", () => {
+  it("carries the entry belonging to this provider and no other provider's", () => {
+    // The projection is per provider, so a row is only ever spoken for by ITS
+    // provider's entry. An entry read off the array by resolved id alone would let
+    // another provider's verdict land on this row — a state nobody computed for it.
+    const crossProvider: ProviderReadiness = {
+      provider: "codex",
+      state: "reauth_required",
+      resolvedAccountId: registryAccountId("acct-team"),
+      remedy: {
+        kind: "sign_in",
+        accountId: registryAccountId("acct-team"),
+        signInInvocation: "codex login",
+        credentialHomePath: "/homes/team",
+      },
+    };
+    const reading = attachAccountAxisReadingFor(
+      served([account({ accountId: registryAccountId("acct-team") })], [crossProvider]),
+      "claude",
+    );
+
+    expect(reading.kind === "served" ? reading.providerReadiness : "unexpected").toBeUndefined();
+    expect(chosenAccountIn(reading, "acct-team")?.readiness).toBeUndefined();
+  });
+
+  it("derives the provider's entry once, on the reading itself", () => {
+    // Named on the served arm so no component re-finds it: two readers matching the
+    // projection by hand are two answers to which entry this axis is about.
+    const resolved = resolvedTo("acct-team");
+    const reading = attachAccountAxisReadingFor(served([account()], [resolved]), "claude");
+
+    expect(reading.kind === "served" ? reading.providerReadiness : undefined).toEqual(resolved);
+  });
+});
+
+describe("the attach form's account axis — the account an unpinned attach resolves to", () => {
+  it("speaks for the entry's resolved account where the form pins nothing", () => {
+    // The defect this exists for: pinning nothing is the state a person meets the
+    // field in and it is a REQUEST for the provider's default, so an axis that
+    // answered `undefined` here left a known-unhealthy default unmentioned until the
+    // daemon refused the attach.
     const reading = attachAccountAxisReadingFor(
       served(
-        [account({ healthState: "reauth_required" })],
+        [
+          account({ accountId: registryAccountId("acct-team") }),
+          account({
+            accountId: registryAccountId("acct-personal"),
+            isDefault: false,
+            displayLabel: "Personal",
+            healthState: "reauth_required",
+          }),
+        ],
+        [resolvedTo("acct-personal")],
+      ),
+      "claude",
+    );
+
+    expect(advisoryChoiceIn(reading, undefined)?.accountId).toBe("acct-personal");
+  });
+
+  it("takes the entry's account and never the row the registry marks default", () => {
+    // The flag is what the registry MARKS default; the entry is what resolution
+    // REACHED, computed by the same resolution the spawn path performs. Where they
+    // disagree the entry is the spawn path's answer, so a field keyed on the flag
+    // would report the health of an account this attach is not going to use.
+    const reading = attachAccountAxisReadingFor(
+      served(
+        [
+          account({ accountId: registryAccountId("acct-team"), isDefault: true }),
+          account({
+            accountId: registryAccountId("acct-personal"),
+            isDefault: false,
+            healthState: "reauth_required",
+          }),
+        ],
+        [resolvedTo("acct-personal")],
+      ),
+      "claude",
+    );
+
+    expect(advisoryChoiceIn(reading, undefined)?.accountId).toBe("acct-personal");
+    expect(advisoryChoiceIn(reading, undefined)?.isProviderDefault).toBe(false);
+  });
+
+  it("keeps the pinned account where the form pins one", () => {
+    const reading = attachAccountAxisReadingFor(
+      served(
+        [
+          account({ accountId: registryAccountId("acct-team") }),
+          account({ accountId: registryAccountId("acct-personal"), isDefault: false }),
+        ],
+        [resolvedTo("acct-personal")],
+      ),
+      "claude",
+    );
+
+    expect(advisoryChoiceIn(reading, "acct-team")?.accountId).toBe("acct-team");
+  });
+
+  it("negative control: a pinned value the registry lacks never falls through to the default", () => {
+    // Without this the pinned arm could answer the default, and the field would show
+    // one account's readings under a value naming another.
+    const reading = attachAccountAxisReadingFor(
+      served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
+      "claude",
+    );
+
+    expect(advisoryChoiceIn(reading, "acct-gone")).toBeUndefined();
+  });
+
+  it("answers nothing where the entry resolved no account at all", () => {
+    const reading = attachAccountAxisReadingFor(
+      served(
+        [account({ isDefault: false })],
         [
           {
             provider: "claude",
-            state: "reauth_required",
-            resolvedAccountId: registryAccountId("acct-team"),
+            state: "no_default",
             remedy: {
-              kind: "sign_in",
-              accountId: registryAccountId("acct-team"),
-              signInInvocation: "claude setup-token",
-              credentialHomePath: "/homes/team",
+              kind: "choose_default",
+              candidateAccountIds: [registryAccountId("acct-team")],
             },
           },
         ],
       ),
       "claude",
     );
-    const chosen = chosenAccountIn(reading, "acct-team");
-    const advisories = chosen === undefined ? [] : accountAdvisoriesFor(chosen);
 
-    expect(advisories).toHaveLength(3);
-    expect(advisories.join(" ")).not.toContain("claude setup-token");
-    expect(advisories.join(" ")).not.toContain("/homes/team");
+    expect(advisoryChoiceIn(reading, undefined)).toBeUndefined();
   });
 
-  it("says what was stored even where no readiness entry resolved to the account", () => {
-    const reading = attachAccountAxisReadingFor(
-      served([account({ healthState: "indeterminate", healthObservedAt: null })]),
+  it("negative control: an unserved reading resolves nothing to speak for", () => {
+    const unread = attachAccountAxisReadingFor(
+      { phase: "reading", readRefusal: undefined, accounts: [], readiness: [] },
       "claude",
     );
-    const chosen = chosenAccountIn(reading, "acct-team");
 
-    expect(chosen === undefined ? [] : accountAdvisoriesFor(chosen)).toEqual([
-      "This account has never been observed.",
-    ]);
-  });
-});
-
-describe("the attach form's account axis — what the stored reading is allowed to claim", () => {
-  /** The stored-health sentence for one account, which is always the first line. */
-  function storedReadingFor(
-    overrides: Partial<ProviderAccount> = {},
-    locale?: string,
-  ): string | undefined {
-    const reading = attachAccountAxisReadingFor(served([account(overrides)]), "claude");
-    const chosen = chosenAccountIn(reading, "acct-team");
-    return chosen === undefined ? undefined : accountAdvisoriesFor(chosen, locale)[0];
-  }
-
-  it("claims credential presence and local health, never that the provider is accepting it", () => {
-    // The defect this case exists for: four things write this state and the weakest of
-    // them — the background observer — reads LOCAL credential state and never asks the
-    // provider anything, so a server-revoked credential sits in this arm untouched. A
-    // sentence saying the account was "found signed in" reports that observer's reading
-    // as a confirmation nobody obtained.
-    const stored = storedReadingFor({ healthState: "authenticated" }) ?? "";
-
-    expect(stored).toContain("found a credential in this account's home");
-    expect(stored).toContain("nothing local reporting it dead");
-    expect(stored).toContain("decided when a run starts");
-    expect(stored).not.toContain("signed in.");
-  });
-
-  it("names what a reauth-required account needs rather than who asked for it", () => {
-    // A terminal authentication refusal on a token-mode account lands in this arm and
-    // the provider asked for nothing there — the remedy is a token minted at the
-    // provider and re-supplied, so wording it as a request the provider made would be
-    // false of one of its producers.
-    const stored = storedReadingFor({ healthState: "reauth_required" }) ?? "";
-
-    expect(stored).toContain("needing a fresh sign-in");
-    expect(stored).not.toContain("The provider asked");
-  });
-
-  it("says when the observation was taken, in every arm that has one", () => {
-    const instant = formatDateTime(OBSERVED_AT);
-
-    for (const healthState of PROVIDER_ACCOUNT_HEALTH_STATES) {
-      expect(storedReadingFor({ healthState, healthObservedAt: OBSERVED_AT }) ?? "").toContain(
-        instant,
-      );
-    }
-  });
-
-  it("tells a never-observed account apart from one an observation could not decide", () => {
-    // The two facts the timestamp exists to separate: both project `indeterminate`, so
-    // a sentence keyed on the state alone reports "we looked and could not tell" over
-    // an account nothing has ever looked at.
-    const neverObserved = storedReadingFor({
-      healthState: "indeterminate",
-      healthObservedAt: null,
-    });
-    const undecided = storedReadingFor({
-      healthState: "indeterminate",
-      healthObservedAt: OBSERVED_AT,
-    });
-
-    expect(neverObserved).toBe("This account has never been observed.");
-    expect(undecided).toContain("did not decide about this account");
-    expect(undecided).not.toBe(neverObserved);
-  });
-
-  it("renders the instant through the console's one date formatter and no second one", () => {
-    // Asserted against the chokepoint's own output rather than against a spelling this
-    // file writes out: a second `Intl.DateTimeFormat` here would agree with the field
-    // today and drift from it the moment the chokepoint's field list moves.
-    const britishInstant = formatDateTime(OBSERVED_AT, "en-GB");
-    const germanInstant = formatDateTime(OBSERVED_AT, "de-DE");
-
-    // The two readings differ, so a `locale` this model accepted and then dropped could
-    // not pass both of the assertions below.
-    expect(germanInstant).not.toBe(britishInstant);
-    expect(storedReadingFor({}, "en-GB") ?? "").toContain(britishInstant);
-    expect(storedReadingFor({}, "de-DE") ?? "").toContain(germanInstant);
-  });
-
-  it("costs the sentence its reading and never the field when the stamp is unreadable", () => {
-    // `healthObservedAt` is parsed at the bridge door, so this is the belt: the
-    // formatter answers an em dash for a stamp it cannot read, and the advisory still
-    // says which state was stored.
-    const readAdvisory = (): string | undefined =>
-      storedReadingFor({ healthObservedAt: "the day before yesterday" });
-
-    expect(readAdvisory).not.toThrow();
-    expect(readAdvisory() ?? "").toContain("\u2014");
-    expect(readAdvisory() ?? "").toContain("found a credential in this account's home");
+    expect(advisoryChoiceIn(unread, undefined)).toBeUndefined();
+    expect(advisoryChoiceIn(unread, "acct-team")).toBeUndefined();
   });
 });
 
