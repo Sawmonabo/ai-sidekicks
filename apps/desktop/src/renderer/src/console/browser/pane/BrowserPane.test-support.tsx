@@ -20,7 +20,7 @@ import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-suppo
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/fixture/pane-view-host-script.js";
 import { createLiveBridge } from "../../bridge/live-bridge.js";
 import type { PaneContextOf } from "../../seats/index.js";
-import { paneContext } from "../../seats/pane-context.test-support.js";
+import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 import { BrowserPane } from "./BrowserPane.js";
 
 /**

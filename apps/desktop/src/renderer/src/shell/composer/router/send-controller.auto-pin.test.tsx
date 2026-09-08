@@ -26,7 +26,7 @@ import type { SessionOriginEvidence } from "../../../console/seats/index.js";
 import {
   firstSendAutoPinSettlement,
   type AutoPinSettlement,
-} from "../../../console/seats/session-auto-pin.js";
+} from "../../../console/seats/pinning/session-auto-pin.js";
 import type { SendController } from "./send-controller-contract.js";
 import { useSendController } from "./send-controller.js";
 import {

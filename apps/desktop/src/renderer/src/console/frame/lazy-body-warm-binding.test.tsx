@@ -18,7 +18,7 @@ import {
 } from "../seats/index.js";
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the family's production door.
-import { ManualIdleWarmScheduler } from "../seats/idle-warm.test-support.js";
+import { ManualIdleWarmScheduler } from "../seats/lazy-body/idle-warm.test-support.js";
 import { useLazyBodyIdleWarm } from "./lazy-body-warm-binding.js";
 
 /** A window's two boards, each holding one loader-backed body that records its load. */

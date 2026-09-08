@@ -29,7 +29,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ConsolePaneRegistry, consolePaneRegistry } from "../seats/index.js";
-import { registerFreePaneKindProbe } from "../seats/pane-probe.test-support.js";
+import { registerFreePaneKindProbe } from "../seats/pane/pane-probe.test-support.js";
 import { registerConsolePanes } from "./index.js";
 import {
   filledSeatLine,

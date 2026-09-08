@@ -13,7 +13,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import { sectionContext } from "../../seats/section-context.test-support.js";
+import { sectionContext } from "../../seats/slots/section-context.test-support.js";
 import { deriveMembershipRows } from "./members-model.js";
 import { Memberships as MembershipsSurface } from "./Memberships.js";
 

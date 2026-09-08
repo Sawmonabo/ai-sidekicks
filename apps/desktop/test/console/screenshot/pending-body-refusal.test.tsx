@@ -31,7 +31,7 @@ import type { ConsolePaneContext } from "../../../src/renderer/src/console/seats
 // The LEAF: `LazyBodyModule` is the loader's own return type and has no production
 // reader through the seats door, which is the shape that door's header refuses a line
 // for. `seats/lazy-body.test.tsx` reaches it the same way.
-import type { LazyBodyModule } from "../../../src/renderer/src/console/seats/lazy-body.js";
+import type { LazyBodyModule } from "../../../src/renderer/src/console/seats/lazy-body/lazy-body.js";
 
 /** The kind the planted registration claims. Any real kind; the body is synthetic. */
 const PLANTED_KIND = "browser";

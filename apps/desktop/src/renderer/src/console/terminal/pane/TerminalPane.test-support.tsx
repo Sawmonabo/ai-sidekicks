@@ -16,7 +16,7 @@ import { growthUnavailable } from "../../bridge/growth-port/growth-refusals.js";
 import { TERMINAL_SCENARIO } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
 import type { PaneContextOf } from "../../seats/index.js";
-import { paneContext } from "../../seats/pane-context.test-support.js";
+import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 

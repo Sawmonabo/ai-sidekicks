@@ -1503,23 +1503,23 @@ shipped:
       - apps/desktop/src/renderer/src/console/primitives/wire-figures.test.ts
       - apps/desktop/src/renderer/src/console/primitives/wire-figures.time.test.ts
       - apps/desktop/src/renderer/src/console/primitives/wire-figures.units.test.ts
-      - apps/desktop/src/renderer/src/console/seats/composer-seat.test.ts
-      - apps/desktop/src/renderer/src/console/seats/composer-seat.ts
+      - apps/desktop/src/renderer/src/console/seats/composer/composer-seat.test.ts
+      - apps/desktop/src/renderer/src/console/seats/composer/composer-seat.ts
       - apps/desktop/src/renderer/src/console/seats/index.ts
-      - apps/desktop/src/renderer/src/console/seats/inline-card-seats.test.ts
-      - apps/desktop/src/renderer/src/console/seats/inline-card-seats.ts
-      - apps/desktop/src/renderer/src/console/seats/owner-slot.ts
-      - apps/desktop/src/renderer/src/console/seats/pane-address.test.ts
-      - apps/desktop/src/renderer/src/console/seats/pane-address.ts
-      - apps/desktop/src/renderer/src/console/seats/pane-kinds.test.ts
-      - apps/desktop/src/renderer/src/console/seats/pane-kinds.ts
-      - apps/desktop/src/renderer/src/console/seats/pane-registry.test.ts
-      - apps/desktop/src/renderer/src/console/seats/pane-registry.ts
-      - apps/desktop/src/renderer/src/console/seats/sidebar-sections.test.ts
-      - apps/desktop/src/renderer/src/console/seats/sidebar-sections.ts
-      - apps/desktop/src/renderer/src/console/seats/single-slot-seat.ts
-      - apps/desktop/src/renderer/src/console/seats/timeline-row-slot.test.ts
-      - apps/desktop/src/renderer/src/console/seats/timeline-row-slot.ts
+      - apps/desktop/src/renderer/src/console/seats/pane/pane-address.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane/pane-address.ts
+      - apps/desktop/src/renderer/src/console/seats/pane/pane-kinds.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane/pane-kinds.ts
+      - apps/desktop/src/renderer/src/console/seats/pane/pane-registry.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane/pane-registry.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/inline-card-seats.test.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/inline-card-seats.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/owner-slot.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/sidebar-sections.test.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/sidebar-sections.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/single-slot-seat.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/timeline-row-slot.test.ts
+      - apps/desktop/src/renderer/src/console/seats/slots/timeline-row-slot.ts
       - apps/desktop/src/renderer/src/console/store/degradation.test.ts
       - apps/desktop/src/renderer/src/console/store/entities.ts
       - apps/desktop/src/renderer/src/console/store/entity-partitions.ts

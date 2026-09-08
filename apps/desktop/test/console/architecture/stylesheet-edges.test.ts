@@ -178,7 +178,7 @@ const CONSOLE_CHUNK_ROOTS: ReadonlySet<string> = new Set(lazyChunkRoots(CONSOLE_
  * AND A LAZILY IMPORTED CHUNK ROOT IS A DOOR, on the reason the barrel is one: what the
  * rule wants is the module that is the single way into the code the sheet paints, and a
  * chunk root is exactly that — the loader's `import()` is the only static reference to
- * it. `seats/lazy-body.ts` made that the registration form for a body off the flagship
+ * it. `seats/lazy-body/lazy-body.ts` made that the registration form for a body off the flagship
  * first paint, and the sheets those bodies paint with belong on their chunk rather than
  * on the document the launch is measured by. The set is derived from the graph and never
  * from a name: a module nothing lazily imports is not admitted by being called one.

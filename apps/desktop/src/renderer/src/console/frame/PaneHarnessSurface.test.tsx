@@ -36,7 +36,7 @@ import { RouteSurface } from "./RouteSurface.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
 // publish it, no production module calling it having landed yet.
-import { registerConsoleSurface } from "../seats/surface-registry.js";
+import { registerConsoleSurface } from "../seats/surface/surface-registry.js";
 
 afterEach(cleanup);
 

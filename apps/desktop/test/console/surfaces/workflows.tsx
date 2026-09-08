@@ -72,7 +72,7 @@ import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/s
 import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
-import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface-context.js";
+import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface/surface-context.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
