@@ -20,30 +20,28 @@
 // `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
 // outside itself. The family door imports this module by name instead.
 
-// FIVE OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the place those five surfaces
-// enter the graph at all. The door registers exactly one kind and registers it as a
-// loader, so nothing on the initial graph can render the pane, its chrome, its file
-// control, its cards, or its bounds table — which makes this module the way in to the
-// code those rules dress, and the placement rule then puts the rules on the same edge.
-// Imported one by one rather than through an `@import` chain, so every edge into this
-// family's CSS is visible at one site and "imported here and nowhere else" stays
-// checkable.
+// SIX OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the place those surfaces enter
+// the graph at all. The door registers exactly one kind and registers it as a loader, so
+// nothing on the initial graph can render the pane, its chrome, its file control, its
+// cards, or its bounds table — which makes this module the way in to the code those
+// rules dress, and the placement rule then puts the rules on the same edge. Imported one
+// by one rather than through an `@import` chain, so every edge into this family's CSS is
+// visible at one site and "imported here and nowhere else" stays checkable.
 //
-// THE OTHER TWO ARE AT THE FAMILY DOOR, and the split is read off the graph rather than
-// off the directory. `settings/settings.css` and `controls.css` dress
-// `BrowserSettingsSection`, which the settings route reaches STATICALLY through
-// `browser/index.ts` — so deferring them behind this loader left Settings → Browser
-// painting its rows, its partition table and its buttons with no rules at all until
-// somebody opened a browser pane, after which it silently started working. That failure
-// is what `undressedEagerReaderOffences` reports, and
-// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` now fails on it in
-// both directions: a sheet deferred past a reader the initial graph carries, and a sheet
+// AND `controls.css` IS THE SIXTH BECAUSE IT IS NAMED AT BOTH OF THIS FAMILY'S CHUNK
+// ROOTS. It dresses the button and the disclosure three surfaces share — this pane's two
+// and the settings page — and the settings page is now loader-backed as well, at
+// `settings/browser-settings-page-body.ts`. A sheet two chunks render against is named
+// at each of them and lands once, whichever chunk arrives first; naming it at only one
+// would leave the other painting undressed until the first happened to arrive, which is
+// the failure `undressedEagerReaderOffences` reports and
+// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails in both
+// directions — a sheet deferred past a reader the initial graph carries, and a sheet
 // held at a door no static reader can use.
 //
-// `pane.css` STAYS, and its `.meridian-browser-chrome .meridian-browser-action` rule is
-// why the reading is a subtraction rather than a per-sheet question: that restatement
-// names a class the settings page also names, and it is not the sheet that owed those
-// rules — `controls.css` was, and it has moved.
+// `settings/settings.css` IS THE ONE SHEET NOT HERE, because it dresses that page alone:
+// its rows, its partition table and its switches have no reader in this chunk, so it
+// enters at the page's own root and nowhere else.
 //
 // AND TWO OF THE FIVE ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN.
 // `pane.css` had grown to 458 lines over three directories, so it is split by WHICH
@@ -62,6 +60,7 @@ import "./pane.css";
 import "./chrome/chrome.css";
 import "./file/file.css";
 import "../bounds/bounds.css";
+import "../controls.css";
 
 import { paneBodyForKind, type ConsolePaneContext } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";

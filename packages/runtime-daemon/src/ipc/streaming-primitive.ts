@@ -308,9 +308,12 @@ export class StreamingPrimitive {
     valueSchema: ZodType<T>,
   ): LocalSubscriptionProducer<T> {
     // Branding cast: `crypto.randomUUID()` returns `string`. The runtime
-    // shape matches `SubscriptionIdSchema` (UUID); the cast asserts the
-    // brand. Mirrors the assertion-cast pattern used at session-id
-    // generation sites in `runtime-daemon/src/sessions/projector.ts`.
+    // shape matches `SubscriptionIdSchema` (UUID); the cast asserts the brand.
+    //
+    // Deliberately NOT the daemon's `mintUuidV7` (`ids/uuid-v7.ts`): a
+    // subscription id lives in this process's in-memory registry for the life
+    // of one transport. No row and no event stores it, and nothing sorts a set
+    // of them — so uniqueness is the whole requirement and v4 supplies it.
     const subscriptionId = crypto.randomUUID() as SubscriptionId;
 
     const entry: SubscriptionEntry = {

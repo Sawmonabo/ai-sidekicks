@@ -174,8 +174,6 @@
  * hazard the seam exists to prevent.
  */
 
-import { randomUUID } from "node:crypto";
-
 import type { Database, Statement } from "better-sqlite3";
 
 import {
@@ -207,6 +205,7 @@ import {
 import type { WorkspaceEventEmitter } from "./workspace-event-emitter.js";
 import { computeRepoMountHealth, type FilesystemPathProbe } from "./workspace-projector.js";
 import type { FilesystemPathProbeFn, WorkspaceService } from "./workspace-service.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Error carriers
@@ -412,9 +411,10 @@ export interface RepoMountServiceDeps {
   /** ISO-8601 wall clock for `attached_at` / `updated_at`. Defaults to `new Date().toISOString()`. */
   readonly now?: () => string;
   /**
-   * Mount-id source. Defaults to `crypto.randomUUID()`. Injected ids still pass
-   * through `RepoMountIdSchema` on the attach response, so a test source must
-   * mint real UUIDs rather than counters.
+   * Mount-id source. Defaults to the daemon-wide `mintUuidV7`
+   * (`ids/uuid-v7.ts`). Injected ids still pass through `RepoMountIdSchema` on
+   * the attach response, so a test source must mint real UUIDs rather than
+   * counters.
    */
   readonly newRepoMountId?: () => string;
 }
@@ -543,7 +543,7 @@ export class RepoMountService {
       );
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
     this.#now = deps.now ?? ((): string => new Date().toISOString());
-    this.#newRepoMountId = deps.newRepoMountId ?? ((): string => randomUUID());
+    this.#newRepoMountId = deps.newRepoMountId ?? mintUuidV7;
 
     const database = deps.database;
 

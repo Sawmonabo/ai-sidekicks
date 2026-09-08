@@ -9,22 +9,43 @@
 // over a temporary fixture, and the first case is the positive control the rest
 // are measured against — without it a loader that refused every document would
 // pass this whole file.
+//
+// ONE TREE PER CASE, REMOVED IN `afterEach`. The suite used to plant a single
+// directory before its cases and remove it in `afterAll`, so a document written by
+// one case was still on disk while every later case ran — suite-wide filesystem
+// state, and outside the per-test cleanup discipline `apps/desktop/AGENTS.md`
+// §Pre-PR self-audit closes with. `loadFixture` therefore plants the directory it
+// writes into, which is what makes emptying the trail between cases safe: no case
+// writes into a directory another case created.
+//
+// AND THE CLEANUP CONTROLS BELOW ARE SELF-CONTAINED, each planting, removing, and
+// observing inside one case, so `-t` on either of them and a shuffled order both run
+// the claim rather than failing on a variable a sibling case never assigned.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 
 import {
   ConsoleBudgetRegistry,
   ConsoleBudgetRegistryError,
 } from "../../../scripts/budget/budget-registry.mjs";
+import { TemporaryDirectoryTrail } from "../temporary-directory.js";
+
+const plantedFixtures = new TemporaryDirectoryTrail();
+
+afterEach(() => {
+  plantedFixtures.removeAll();
+});
+
+/** A path inside a tree planted for this case alone — written to, or deliberately not. */
+function fixturePathFor(name: string): string {
+  return path.join(plantedFixtures.create("console-budget-registry-"), `${name}.json`);
+}
 
 describe("registry validation (negative controls)", () => {
-  const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "console-budget-registry-"));
-
   const loadFixture = (name: string, document: unknown): (() => ConsoleBudgetRegistry) => {
-    const fixturePath = path.join(temporaryDirectory, `${name}.json`);
+    const fixturePath = fixturePathFor(name);
     writeFileSync(fixturePath, JSON.stringify(document), "utf8");
     return () => ConsoleBudgetRegistry.load(fixturePath);
   };
@@ -49,7 +70,10 @@ describe("registry validation (negative controls)", () => {
   });
 
   it("rejects a missing file", () => {
-    expect(() => ConsoleBudgetRegistry.load(path.join(temporaryDirectory, "absent.json"))).toThrow(
+    // The one case whose fixture is the ABSENCE of a file, so it plants the tree and
+    // writes nothing into it — a path under the system temporary directory that has
+    // never held a document, rather than one a sibling case happened to leave empty.
+    expect(() => ConsoleBudgetRegistry.load(fixturePathFor("absent"))).toThrow(
       ConsoleBudgetRegistryError,
     );
   });
@@ -163,5 +187,46 @@ describe("registry validation (negative controls)", () => {
   it("rejects a row with no scope at all", () => {
     const { scope: _omitted, ...withoutScope } = validEntry;
     expect(loadFixture("no-scope", { ...validDocument, budgets: [withoutScope] })).toThrow(/scope/);
+  });
+});
+
+describe("registry fixture cleanup", () => {
+  // The floor under the `afterEach` above: the removal that hook performs is
+  // `TemporaryDirectoryTrail.removeAll()`, so the control drives THAT — writing a
+  // document on the very trail the validation cases write on, draining it, and reading
+  // the disk afterwards, all inside one case. It used to be two cases sharing a `let`,
+  // which made the observing one unrunnable on its own and unrunnable in a shuffled
+  // order: it read an empty path and failed on its own scaffolding.
+
+  it("removes every tree this file's own trail is holding", () => {
+    const planted = fixturePathFor("cleanup-control");
+    writeFileSync(planted, "{}", "utf8");
+    expect(existsSync(planted)).toBe(true);
+    expect(plantedFixtures.plantedDirectories).toStrictEqual([path.dirname(planted)]);
+
+    plantedFixtures.removeAll();
+
+    expect(
+      existsSync(path.dirname(planted)),
+      "a registry fixture outlived the removal that was asked to take it, so every " +
+        "later case in this file runs against documents it did not write",
+    ).toBe(false);
+    expect(plantedFixtures.plantedDirectories).toStrictEqual([]);
+  });
+
+  it("negative control: a trail nobody drains leaves its tree on disk", () => {
+    // What makes the case above a check rather than a tautology. A removal that never
+    // ran and a removal that ran and did nothing leave the same disk, so this plants on
+    // a trail the suite's hook does not hold, does NOT drain it, and shows the tree is
+    // still there — the state the assertion above would report.
+    const undrained = new TemporaryDirectoryTrail();
+    onTestFinished(() => {
+      undrained.removeAll();
+    });
+
+    const planted = undrained.create("console-budget-registry-undrained-");
+
+    expect(existsSync(planted)).toBe(true);
+    expect(undrained.plantedDirectories).toStrictEqual([planted]);
   });
 });

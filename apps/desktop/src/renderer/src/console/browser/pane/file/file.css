@@ -14,8 +14,8 @@
  * `FileControl.tsx` and `AdmittedRoots.tsx`, both in this directory and nowhere else,
  * so the whole namespace moves as one and no selector text is shared with the two
  * sheets it left. This directory carries no `index.ts`, so the door above it owns
- * it — `../browser-pane-body.ts`, this family's one chunk root — and this sheet
- * enters there.
+ * it — `../browser-pane-body.ts`, the pane's chunk root and one of this family's two —
+ * and this sheet enters there.
  *
  * ORDER: imported after `../pane.css` and `chrome/chrome.css`, which is the order
  * these rules were already in. Nothing here is overridden by, or overrides, a rule in

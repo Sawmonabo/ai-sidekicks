@@ -118,7 +118,7 @@ import {
 // ----------------------------------------------------------------------------
 
 // Real UUIDs throughout: session ids travel branded schemas at the emission
-// boundary, and `deriveWorktreeBranchName` slices the first eight hex digits of
+// boundary, and `deriveWorktreeBranchName` slices the LAST eight hex digits of
 // the session and run ids — so the derived-name assertion below is only exact
 // because these are real ones.
 const SESSION_ID: string = "0190fb10-1c2d-7e3f-8a4b-5c6d7e8f9a01";
@@ -143,9 +143,9 @@ const MAIN_BRANCH: string = "main";
 const FEATURE_BRANCH: string = "sidekicks/0190fb10/fix-login";
 const SEEDED_BASE_BRANCH: string = "develop";
 // `sidekicks/<session-short-8>/run-<run-short-8>` — `deriveWorktreeBranchName`
-// strips hyphens before slicing, so these are the first eight hex digits of the
+// strips hyphens before slicing, so these are the last eight hex digits of the
 // UUIDs above and nothing else.
-const DERIVED_RUN_BRANCH: string = "sidekicks/0190fb10/run-0190fb14";
+const DERIVED_RUN_BRANCH: string = "sidekicks/7e8f9a01/run-1c2d3e45";
 
 const EPOCH: string = "2026-08-07T00:00:00.000Z";
 // Deliberately EARLIER than the clock: a seeded row's `created_at` surviving a
@@ -181,8 +181,9 @@ let mintedIdCount = 0;
  *
  * Counters would be simpler, but `branch_contexts.id` values are compared for
  * IDENTITY across a refresh below ("the row kept its id"), and an id that could
- * not have come from `randomUUID` would make that comparison a claim about the
- * fixture rather than about the upsert.
+ * not have come from `mintUuidV7` would make that comparison a claim about the
+ * fixture rather than about the upsert. The version nibble below is `7` for
+ * that reason.
  */
 function mintUuid(): string {
   mintedIdCount += 1;

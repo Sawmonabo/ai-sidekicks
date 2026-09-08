@@ -12,7 +12,10 @@
 
 import type { PlaywrightProviderOptions } from "@vitest/browser-playwright";
 
-import { CAPTURE_WINDOW_HEIGHT_CEILING } from "../test/console/screenshot/capture-viewport.js";
+import {
+  CAPTURE_WINDOW_HEIGHT_CEILING,
+  stabilityWaitMsFor,
+} from "../test/console/screenshot/capture-viewport.js";
 import { BROWSER_MODE_VIEWPORT } from "./browser-mode.js";
 
 /**
@@ -121,8 +124,73 @@ export const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
  * while a 20% one registers 257 070. This tier sees geometry and text far more
  * sharply than it sees a small colour delta, and lowering `threshold` to change
  * that would have to be paid for in residue.
+ *
+ * THE ONE MATCHER OPTION THAT IS DELIBERATELY NOT HERE is `timeout`, the wait the
+ * stability check is raced against. It is not a condition of the tier — it is a
+ * budget for the work ONE capture does, and how much work that is depends on how
+ * many windows `settled-capture.ts` had to open to hold the surface. So it is
+ * passed per call from there, sized by `capture-viewport.ts`'s
+ * `STABILITY_WAIT_PER_VIEWPORT_MS` and `stabilityWaitMsFor`. Restating the
+ * per-window figure in this object would give the value a second home that nothing
+ * reads: the matcher merges the project's options UNDER the call's, so a
+ * project-level `timeout` beneath a call that always supplies one is inert.
  */
 export const SCREENSHOT_TIER_MATCH_OPTIONS = {
   comparatorName: "pixelmatch",
   comparatorOptions: { allowedMismatchedPixels: 0 },
 } as const;
+
+/**
+ * Everything one capture spends that is not the stability wait, in milliseconds.
+ *
+ * The mount, the sizing passes and their settles, the two pending-marker reads, the
+ * comparison of the settled capture against the committed reference, and the restore.
+ * MEASURED RATHER THAN CHOSEN, and by the tier's own history: Vitest resolves
+ * `testTimeout` to 15 000 ms under browser mode rather than to the 5 000 ms it uses
+ * elsewhere (`@vitest/browser`'s peer `vitest@4.1.5`, `dist/chunks/coverage.*.js` —
+ * `resolved.testTimeout ??= resolved.browser.enabled ? 15e3 : 5e3`), and every capture
+ * this tier takes has always done all of that work plus a wait of up to 5 000 ms inside
+ * it. So this is the figure the tier has been demonstrating is enough for the work,
+ * separated out from the wait it was fused with.
+ */
+const CAPTURE_WORK_RESIDUAL_MS = 10_000;
+
+/**
+ * The longest stability wait this tier can hand one capture, in milliseconds.
+ *
+ * Derived through the shipped function rather than restated, and derived HERE rather
+ * than in each reader: the tallest window a capture may open is
+ * `CAPTURE_WINDOW_HEIGHT_CEILING`, a capture never widens its window, so the area
+ * ratio is the height ratio and the wait is whatever `stabilityWaitMsFor` returns for
+ * it. The tier's own patience below is the first reader; the architecture case that
+ * holds the two against each other is the second, and a second derivation there would
+ * be a test reimplementing the rule it checks.
+ */
+export const LONGEST_CAPTURE_STABILITY_WAIT_MS: number = stabilityWaitMsFor(
+  CAPTURE_WINDOW_HEIGHT_CEILING / BROWSER_MODE_VIEWPORT.height,
+);
+
+/**
+ * The patience the screenshot tier carries, derived from the longest wait it can hand out.
+ *
+ * WHY THE TIER CANNOT INHERIT ITS TIMEOUT ANY MORE. `settled-capture.ts` sizes each
+ * capture's stability wait to the window it had to open, and the tallest window this
+ * tier will open is `CAPTURE_WINDOW_HEIGHT_CEILING` — four of the window the console is
+ * measured in, so four times the per-window wait. Left at the inherited 15 000 ms, a
+ * capture handed a 20 000 ms wait could never spend it: Vitest's own timeout would fire
+ * first and report "Test timed out", which names neither the wait nor the surface. That
+ * is the inversion `test/console/launch-deadline.ts` describes for the Electron tiers,
+ * reaching this one by a different route — a bound that outlives the budget enclosing it
+ * is a bound nothing can reach.
+ *
+ * So it is DERIVED here rather than written down: the wait a capture at the ceiling is
+ * given, plus what a capture spends on everything that is not waiting. A capture that
+ * genuinely never settles therefore fails with the matcher's own sentence and the number
+ * it raced against, which is the whole point of sizing the wait in the first place.
+ *
+ * `hookTimeout` takes the same figure, on `launch-deadline.test.ts`'s reasoning: a
+ * guarantee that holds in a test body and not in the hook beside it is not a guarantee,
+ * and this tier's suites mount their surfaces in hooks.
+ */
+export const SCREENSHOT_TIER_TIMEOUT_MS: number =
+  LONGEST_CAPTURE_STABILITY_WAIT_MS + CAPTURE_WORK_RESIDUAL_MS;

@@ -29,11 +29,12 @@
  * by `PaneOverflow.tsx` and by `pane/handback/HandbackReading.tsx`, so on this sheet's
  * own rule it belongs to neither directory and stays with the shell.
  *
- * ORDER: this sheet is imported after `../controls.css` and after `../pane.css`, which
- * is the order these rules were already in, and the one override above wins on
- * specificity rather than on that order. This directory carries no `index.ts`, so the
- * door above it owns it — `../browser-pane-body.ts`, this family's one chunk root —
- * and this sheet enters there beside the one it left.
+ * ORDER: this sheet is imported after `../pane.css` and BEFORE `../../controls.css`, and
+ * the one override above wins on specificity (0,2,0 over 0,1,0) rather than on that
+ * order, which is what let the shared sheet move onto the chunk root at all. This
+ * directory carries no `index.ts`, so the door above it owns it —
+ * `../browser-pane-body.ts`, the pane's chunk root and one of this family's two — and
+ * this sheet enters there beside the one it left.
  */
 
 /* ------------------------------------------------------------ chrome bar */

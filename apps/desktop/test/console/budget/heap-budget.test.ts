@@ -21,14 +21,13 @@
 // the limit, so the one behaviour worth pinning here is that naming the CLI as
 // the measurer fails loudly instead of restoring the green.
 
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   ConsoleBudgetRegistry,
@@ -41,6 +40,7 @@ import {
   runHeapBudgetCommand,
   type HeapAtRestDelegationRecord,
 } from "../../../scripts/budget/measure-heap.mjs";
+import { TemporaryDirectoryTrail } from "../temporary-directory.js";
 
 const registry = ConsoleBudgetRegistry.load();
 const budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
@@ -58,6 +58,13 @@ const NODE_CLI_HARNESS_PATH = "apps/desktop/scripts/budget/measure-heap.mts";
 /** The harness the row does name — the tier that holds a renderer. */
 const ENDURANCE_HARNESS_PATH = "apps/desktop/test/console/endurance/heap-at-rest.test.ts";
 
+/** The fixture tree the misattribution case plants, removed after it. */
+const plantedFixtures = new TemporaryDirectoryTrail();
+
+afterEach(() => {
+  plantedFixtures.removeAll();
+});
+
 /**
  * The registry as it would read if someone re-pointed this budget at the CLI.
  *
@@ -74,7 +81,7 @@ function registryClaimingTheNodeCliMeasuresTheHeap(): ConsoleBudgetRegistry {
       ? { ...entry, status: "enforced", measuredBy: NODE_CLI_HARNESS_PATH }
       : entry,
   );
-  const directory = mkdtempSync(path.join(tmpdir(), "console-heap-budget-"));
+  const directory = plantedFixtures.create("console-heap-budget-");
   const fixturePath = path.join(directory, "budgets.json");
   writeFileSync(fixturePath, JSON.stringify({ ...document, budgets }), "utf8");
   return ConsoleBudgetRegistry.load(fixturePath);

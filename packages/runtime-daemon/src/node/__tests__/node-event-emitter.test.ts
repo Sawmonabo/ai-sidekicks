@@ -1005,7 +1005,7 @@ describe("RuntimeNodeEventEmitter — determinism (injected monotonicNow/now/new
   });
 
   it("defaults newEventId to a unique-per-emit source so successive emits do not collide on the PRIMARY KEY", async () => {
-    // No `newEventId` override → the production `crypto.randomUUID()` default.
+    // No `newEventId` override → the production `mintUuidV7` default.
     // Two emits must produce two DISTINCT ids (a constant default would throw
     // on the second INSERT against the TEXT PRIMARY KEY).
     const emitter: RuntimeNodeEventEmitter = new RuntimeNodeEventEmitter({
