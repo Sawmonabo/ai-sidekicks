@@ -26,14 +26,18 @@ const JUMP_ABSENCE_WORDS = {
     detail: "is in this window, but the current narrowing does not admit it.",
   },
   "folded-into-chapter": {
-    // TRUE OF BOTH WAYS A CHAPTER WITHHOLDS A ROW, which is what the previous
-    // wording was not: it said the run's rows were "folded away behind their
-    // chapter", and this arm also fires for a chapter that is OPEN — the arm with
-    // no act — where the row sits past the ceiling the chapter draws at once.
-    // Naming only the fold told somebody to open a chapter that was already open.
-    title: "That entry is inside a chapter that is not showing it.",
+    // TRUE OF EVERY WAY THIS LEDGER FOLDS A ROW AWAY, which is what each earlier
+    // wording was not. It first said the run's rows were "folded away behind their
+    // chapter", and this arm also fires for a chapter that is OPEN, where the row
+    // sits past the ceiling the chapter draws at once — so naming only the fold told
+    // somebody to open a chapter that was already open. It then named the CHAPTER,
+    // and a row a folded rewind band is holding reaches this same arm carrying no
+    // shut chapter at all — so a person was told to look inside a chapter for a row
+    // whose band was the thing hiding it. Three states, one sentence, and the act
+    // beside it names which of them this row is in.
+    title: "That entry is folded away in this window.",
     detail:
-      "belongs to a run whose chapter is folded shut, or is open and holds more entries than it draws at once.",
+      "belongs to a run whose chapter is folded shut, sits past what an open chapter draws at once, or is inside a rewound band that has been folded.",
   },
   "withheld-by-replay": {
     title: "That entry is behind the replay position.",

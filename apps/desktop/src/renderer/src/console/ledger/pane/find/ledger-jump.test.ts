@@ -56,17 +56,26 @@ function recordingActs(): {
   };
 }
 
-/** The reach for one outcome over a window whose chapters are shut unless named. */
+/**
+ * The reach for one outcome over a window whose chapters are shut unless named, and
+ * whose band fold took nothing unless a case says it did.
+ *
+ * The two narrowings are separate parameters because the arm under test reads them
+ * separately: a shut chapter and a folded band are two folds, and a case that could only
+ * move both at once could not tell which of them an act was answering.
+ */
 function reachFor(
   outcome: LedgerJumpOutcome | undefined,
   acts: ReturnType<typeof recordingActs>,
   openedTerminalRunIds: ReadonlySet<string> = new Set<string>(),
+  bandFoldedRowIds: ReadonlySet<string> = new Set<string>(),
 ): ReturnType<typeof useLedgerJumpReach> {
   const { result } = renderHook(() =>
     useLedgerJumpReach({
       outcome,
       foldedWindow: foldChapterHeaders(LOADED_WINDOW, openedTerminalRunIds).window,
       openedTerminalRunIds,
+      bandFoldedRowIds,
       clearFilter: acts.clearFilter,
       openFoldsHoldingRow: acts.openFoldsHoldingRow,
       endReplay: acts.endReplay,
@@ -119,7 +128,8 @@ describe("the act an absence offers", () => {
 
   it("withholds the chapter act while that chapter is already open", () => {
     // Toggling an OPEN chapter closes it, taking the rest of the run off screen —
-    // so the row past the chapter's own cap is reached by nothing this build has.
+    // so a row past the chapter's own cap is reached by nothing this build has. The
+    // band fold took nothing here, which is what leaves this arm actless.
     const acts = recordingActs();
 
     expect(
@@ -129,6 +139,39 @@ describe("the act an absence offers", () => {
         new Set([TERMINAL_RUN_ID]),
       ),
     ).toBeUndefined();
+  });
+
+  it("shows the rewound band and holds the jump for a row its fold took", () => {
+    // THE DEFECT. A folded band's rows leave the window this classification reads, so
+    // entering one of their ids lands on the fold arm — and that arm asked about the
+    // CHAPTER only, answered "no shut chapter is holding it", and offered nothing. The
+    // act that shows a band had been wired the whole time.
+    const acts = recordingActs();
+    const reach = reachFor(
+      { status: "folded-into-chapter", row: FOLDED_ROW },
+      acts,
+      new Set([TERMINAL_RUN_ID]),
+      new Set([FOLDED_ROW.id]),
+    );
+
+    expect(reach?.label).toBe("Show that rewound band and go to it");
+    reach?.perform();
+    expect(acts.performed).toStrictEqual(["open-folds", `request-jump:${FOLDED_ROW.id}`]);
+  });
+
+  it("prefers the shut chapter over the band when both are holding the row", () => {
+    // The chapter is the outer fold, so its words are the ones that describe what a
+    // person is about to open — and the act opens whichever folds are holding the row
+    // either way, so naming the band there would report the smaller of two moves.
+    const acts = recordingActs();
+    const reach = reachFor(
+      { status: "folded-into-chapter", row: FOLDED_ROW },
+      acts,
+      new Set<string>(),
+      new Set([FOLDED_ROW.id]),
+    );
+
+    expect(reach?.label).toBe("Open that chapter and go to it");
   });
 
   it("offers nothing for a row the cap took", () => {

@@ -311,6 +311,19 @@
   min-height: 1lh;
 }
 
+/*
+ * A body its producer declared plain text. `pre-wrap` is the whole reason this rule
+ * exists: the arm renders the bytes verbatim, so the line breaks and the runs of spaces
+ * a producer wrote are content rather than whitespace to collapse. `anywhere` is the
+ * ledger's own treatment for a run with no break opportunity in it — a path, a token, a
+ * hash — which would otherwise widen the row past the column.
+ */
+.meridian-machine-body__plain {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- Cards: the reasoning surface ---------------------------------------- */
 
 .meridian-reasoning-surface {

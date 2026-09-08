@@ -116,6 +116,14 @@ export function useLedgerFindAndJump(inputs: {
       bandFoldedAwayRows.length === 0 ? foldedAwayRows : [...foldedAwayRows, ...bandFoldedAwayRows],
     [foldedAwayRows, bandFoldedAwayRows],
   );
+  // The band fold's removals as a lookup, because the ACT the classification deserves has
+  // to tell the two folds apart even though the count above deliberately does not. A row
+  // the band fold took is reached by showing its band; a row an open chapter's own cap
+  // dropped is reached by nothing, and both arrive at the same absence.
+  const bandFoldedRowIds = useMemo(
+    () => new Set(bandFoldedAwayRows.map((row) => row.id)),
+    [bandFoldedAwayRows],
+  );
   const find = useLedgerFind({ visible, filteredAwayRows, foldedAwayRows: allFoldedAwayRows });
   // Classified against every stage between the log and the screen rather than
   // against the rows on it, so an id the fold, the replay or the cap took is not
@@ -146,9 +154,9 @@ export function useLedgerFindAndJump(inputs: {
   // WHICHEVER FOLD IS HOLDING THE ROW, which is why this does two things rather than
   // one: a row can be inside a shut chapter, inside a folded rewind band, or inside
   // both, and an act that opened only the chapter would leave the ledger scrolled to
-  // a row still folded away. Both acts are idempotent in the opening direction — the
-  // chapter arm is offered only while the chapter is shut, and the band arm opens
-  // rather than toggles — so performing both is never a fold.
+  // a row still folded away. Both halves are idempotent in the OPENING direction, and
+  // each earns that separately: the band control opens rather than toggles, and the
+  // chapter half is guarded here by the chapter's own disclosure state.
   const openFoldsHoldingRow = useCallback(
     (row: TimelineRow) => {
       const bandKey = foldedWindow.supersededBandKeyByRowId.get(row.id);
@@ -156,21 +164,25 @@ export function useLedgerFindAndJump(inputs: {
         openSupersededBandOfRow(bandKey);
       }
       const chapterRunId = chapterRunIdInWindow(row, foldedWindow);
+      // THE GUARD IS HERE AND NOT AT THE OFFER, which it used to rest on. The chapter
+      // control is a TOGGLE, so calling it for an already-open chapter closes one — and
+      // once a folded band offers this same act, the act runs for rows whose chapter is
+      // open, which is precisely the case the caller's own arm can no longer exclude.
       const chapter =
-        chapterRunId === undefined ? undefined : foldedWindow.chapterByHeaderKey.get(chapterRunId);
+        chapterRunId === undefined || openedTerminalRunIds.has(chapterRunId)
+          ? undefined
+          : foldedWindow.chapterByHeaderKey.get(chapterRunId);
       if (chapter !== undefined) {
-        // A toggle, and the arm that offers this act is only reachable while the
-        // chapter is shut — `useLedgerJumpReach` withholds the offer otherwise, so
-        // this never closes one.
         toggleChapter(chapter);
       }
     },
-    [foldedWindow, toggleChapter, openSupersededBandOfRow],
+    [foldedWindow, openedTerminalRunIds, toggleChapter, openSupersededBandOfRow],
   );
   const reach = useLedgerJumpReach({
     outcome,
     foldedWindow,
     openedTerminalRunIds,
+    bandFoldedRowIds,
     clearFilter,
     openFoldsHoldingRow,
     endReplay,
