@@ -67,11 +67,20 @@ export const WORKFLOW_RUN_DETAIL_SLOT: OwnerSlotContract = {
     "the run pane supplies the run snapshot and the scroll chokepoint, and keeps the header and the park banner above it",
 };
 
-/** The human phase's form, opened from a parked phase and from the inspector. */
+/**
+ * The human phase's form, opened from a parked phase and from the inspector.
+ *
+ * The submit clause is what keeps the body a body. A form that dispatched for itself
+ * would be re-implementing the registered submission, the single-flight guard, the
+ * revision the attempt was composed against, the run read's re-arm and the settlement
+ * rendering — all of which the mounting seat already holds, and the second of which is
+ * the reason the refusal clause above it is satisfiable at all: a surface that renders
+ * the daemon's refusal is a surface that receives it.
+ */
 export const WORKFLOW_HUMAN_FORM_SLOT: OwnerSlotContract = {
   ...WORKFLOW_ENGINE_BODY,
   mountObligation:
-    "both panes supply the phase reference and render the daemon's typed refusal; neither derives whether the form may be submitted",
+    "both panes supply the phase reference and render the daemon's typed refusal; neither derives whether the form may be submitted; the seat supplies the bound submit and renders its outcome, so the body composes no request and settles none",
 };
 
 /** The human phase's in-progress draft, which is renderer-local and never durable. */

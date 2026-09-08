@@ -32,14 +32,14 @@
 
 import type { GrowthPort, WorkflowPhaseState, WorkflowRunSnapshot } from "../../../bridge/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
-import type { HumanFormMount } from "./slots/human-form-mount.js";
+import type { HumanFormPhase } from "./slots/human-form-mount.js";
 
 /**
  * Why a phase parked on a person cannot be answered from here.
  *
  * `phaseRunId` and `formRevision` are additive-optional on an already-published shape,
  * so their absence means an older daemon rather than a phase without a form — and a
- * mount composed with either one guessed would be answerable in appearance and
+ * resolution composed with either one guessed would be answerable in appearance and
  * unsubmittable in fact. The card says that rather than offering a control that cannot
  * work or, worse, saying nothing and leaving the operator hunting for the form.
  */
@@ -47,17 +47,17 @@ export const UNADDRESSABLE_HUMAN_WAIT_DETAIL =
   "This run did not report the handle this phase's form is answered through, so the form cannot be opened here.";
 
 /**
- * The mount for one phase parked on a person, where the wire carried both members.
+ * One phase parked on a person, resolved where the wire carried both members.
  *
  * `undefined` covers two different phases on purpose — one that is not parked on a
  * person at all, and one that is but arrived without its handle — because the caller
  * separates them by the park it already read, and a second discriminator here would be
  * the same question asked twice.
  */
-export function humanFormMountFor(
+export function humanFormPhaseFor(
   workflowRunId: string,
   phase: WorkflowPhaseState,
-): HumanFormMount | undefined {
+): HumanFormPhase | undefined {
   if (phase.parkReason !== "waiting-human") {
     return undefined;
   }
@@ -87,25 +87,25 @@ export function humanFormMountFor(
 /**
  * Every phase this snapshot parks on a person and carries the handle for, in order.
  *
- * Takes the whole snapshot rather than its phases, because a mount carries the run as
- * well as the phase and the two must come from ONE answer: handed the run separately,
+ * Takes the whole snapshot rather than its phases, because a resolution carries the run
+ * as well as the phase and the two must come from ONE answer: handed the run separately,
  * a caller could pair a retargeted pane's new run with the phases still on screen from
- * the old one, and every mount in the list would name a phase that run never had.
+ * the old one, and every entry in the list would name a phase that run never had.
  *
  * Not exported: the ordering IS the default, so a caller that resolved this list for
  * itself would be a second answer to "which wait is open" beside the hook below.
  */
-function humanFormMountsOf(run: WorkflowRunSnapshot): readonly HumanFormMount[] {
+function humanFormPhasesOf(run: WorkflowRunSnapshot): readonly HumanFormPhase[] {
   return run.phaseStates.flatMap((phase) => {
-    const mount = humanFormMountFor(run.workflowRunId, phase);
-    return mount === undefined ? [] : [mount];
+    const wait = humanFormPhaseFor(run.workflowRunId, phase);
+    return wait === undefined ? [] : [wait];
   });
 }
 
 /** The form the pane has open, and how a card asks for its own. */
 export interface HumanFormSelection {
   /** The phase whose form is mounted, or nothing where no wait is addressable. */
-  readonly openForm: HumanFormMount | undefined;
+  readonly openForm: HumanFormPhase | undefined;
   /** Whether this phase's form is the open one. */
   readonly isOpen: (phaseId: string) => boolean;
   /** Open this phase's form. A phase that is not an addressable wait resolves away. */
@@ -152,8 +152,8 @@ export function useHumanFormSelection(
   const { value: requestedPhaseId, publish: requestPhaseId } = useSubjectScopedState<
     string | undefined
   >(growth, workflowRunId, () => addressedPhaseId);
-  const mounts = run === undefined ? [] : humanFormMountsOf(run);
-  const openForm = mounts.find((mount) => mount.phaseId === requestedPhaseId) ?? mounts[0];
+  const waits = run === undefined ? [] : humanFormPhasesOf(run);
+  const openForm = waits.find((wait) => wait.phaseId === requestedPhaseId) ?? waits[0];
   return {
     openForm,
     isOpen: (phaseId) => openForm?.phaseId === phaseId,

@@ -23,7 +23,7 @@ import { projectParkedPhases } from "../../runs/run-list-projection.js";
 import type { WorkflowParkedPhase } from "../../runs/run-list-rows.js";
 import {
   UNADDRESSABLE_HUMAN_WAIT_DETAIL,
-  humanFormMountFor,
+  humanFormPhaseFor,
   type HumanFormSelection,
 } from "./human-form-selection.js";
 
@@ -47,7 +47,7 @@ function formRoutePropsFor(
   if (phase.parkReason !== "waiting-human") {
     return {};
   }
-  if (humanFormMountFor(workflowRunId, phase) === undefined) {
+  if (humanFormPhaseFor(workflowRunId, phase) === undefined) {
     return { formRoute: { kind: "unaddressable", detail: UNADDRESSABLE_HUMAN_WAIT_DETAIL } };
   }
   const { phaseId } = phase;

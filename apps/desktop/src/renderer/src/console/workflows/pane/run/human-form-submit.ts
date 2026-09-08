@@ -1,13 +1,22 @@
 // Answering a phase parked on a person: what a press puts on the growth port, and
 // what the answer settles to.
 //
-// THE REVISION IS CARRIED, NEVER RE-READ. The mount hands over the `formRevision` the
-// form was composed against and this hook sends exactly that number. Re-reading it at
-// press time is the whole failure the optimistic-concurrency token exists to catch: a
+// THE REVISION IS CAPTURED WHEN THE ATTEMPT OPENS, AND NEVER RE-READ AT PRESS TIME.
+// Re-reading it is the whole failure the optimistic-concurrency token exists to catch: a
 // submission the daemon has already accepted advances the attempt's revision, and a
 // second press that fetched the new one would overwrite somebody's accepted answer
-// while reporting success. So the value travels with the form and the daemon decides
-// whether it is still current.
+// while reporting success.
+//
+// AND THE RESOLVED PHASE'S OWN MEMBER IS NOT ENOUGH TO GET THAT RIGHT, which is why it is
+// held rather than read. The pane re-reads the run whenever anything moves it, and a
+// refresh that finds the SAME waiting attempt at a newer revision hands this hook a new
+// `formRevision` under a form somebody is still typing into — the attempt is keyed on
+// `phaseRunId`, so the draft survives that refresh exactly as it should. Reading the
+// member at the press would then send the answer composed against revision 0 stamped
+// with revision 1, and the daemon's comparison — the one thing that can tell it the
+// answer is stale — would find it current and accept it over whatever moved the run.
+// So the value the form was COMPOSED against is captured beside the outcome, in the same
+// subject-scoped holder and under the same key, and a new `phaseRunId` captures afresh.
 //
 // NOTHING HERE ADJUDICATES. Whether this participant may answer, whether the phase is
 // still waiting, whether the revision is stale — every one of those is the daemon's,
@@ -63,7 +72,7 @@ import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
 import { attachmentArtifactIdsIn } from "../../../seats/index.js";
 import { useRecordServedRunAct } from "./served-run-act.js";
-import type { HumanFormMount } from "./slots/human-form-mount.js";
+import type { HumanFormPhase } from "./slots/human-form-mount.js";
 
 /** The subsystem name every refusal raised in this file carries. */
 export const WORKFLOW_HUMAN_FORM_ORIGIN = "workflow-human-form";
@@ -108,6 +117,23 @@ export interface WorkflowHumanFormDispatch {
   readonly outcome: WorkflowHumanFormOutcome;
   /** Send this answer, whatever input mode composed it. */
   readonly submit: (answer: unknown) => void;
+}
+
+/**
+ * One attempt at one phase's form: what it was composed against, and where it got to.
+ *
+ * ONE HELD VALUE AND NOT TWO, because both facts are scoped to the same attempt and a
+ * second holder keyed the same way would be a second answer to when an attempt begins.
+ * The revision is seeded once, when the holder is addressed at a `phaseRunId` it was not
+ * addressed at before, and every later write carries it through untouched — which is what
+ * makes "the revision this form was composed against" a fact about the ATTEMPT rather
+ * than about whichever run read landed most recently.
+ */
+interface WorkflowHumanFormAttempt {
+  /** The `formRevision` the run read carried when this attempt's form opened. */
+  readonly composedAgainstRevision: number;
+  /** Where the last press got to, or `idle` while there has been none. */
+  readonly outcome: WorkflowHumanFormOutcome;
 }
 
 /** Nobody has answered this phase yet, which is where every form opens. */
@@ -184,54 +210,72 @@ function submitAlreadyInFlightRefusal(): ConsoleRefusal {
 /**
  * Offer one waiting phase's submit, dispatching it through the growth port.
  *
- * The mount is taken whole rather than as four parameters, because every member of the
- * request is read off it and the four have to be ONE answer: composed from separately
- * passed values, a pane retargeted mid-read could pair a new run's id with the phase
- * and the revision still on screen from the run before it.
+ * The resolved phase is taken whole rather than as four parameters, because every member
+ * of the request is read off it and the four have to be ONE answer: composed from
+ * separately passed values, a pane retargeted mid-read could pair a new run's id with the
+ * phase and the revision still on screen from the run before it.
+ *
+ * It takes the PANE's resolution and not the body's mount, which is the direction the
+ * dependency has to run: the mount is this hook's own `submit` spread over that phase,
+ * so a signature naming the mount would be a hook asking for the value it produces.
  */
 export function useHumanFormSubmit(
   growth: GrowthPort,
-  mount: HumanFormMount,
+  phase: HumanFormPhase,
 ): WorkflowHumanFormDispatch {
   const latch = useGenerationLatch();
-  const { value: outcome, publish } = useSubjectScopedState<WorkflowHumanFormOutcome>(
+  // Seeded on the render that first addresses this attempt, which is where the revision
+  // it is composed against is still the one on screen. A refresh that moves
+  // `phase.formRevision` under a live attempt re-addresses nothing, so this seed does
+  // not run again and the captured number stands until the attempt itself changes.
+  const { value: attempt, publish } = useSubjectScopedState<WorkflowHumanFormAttempt>(
     growth,
-    mount.phaseRunId,
-    () => IDLE,
+    phase.phaseRunId,
+    () => ({ composedAgainstRevision: phase.formRevision, outcome: IDLE }),
   );
   // The run pane's own re-arm, reached through the seat rather than through the mount:
   // `undefined` where this form is rendered with no run pane above it, which is a form
   // with no run read behind it to put again.
   const recordServedRunAct = useRecordServedRunAct();
+  // Written as a function over the held value rather than as one, so the captured
+  // revision travels through every settlement without this caller restating it — and so
+  // a write from a closure that was composed several renders ago cannot carry a stale
+  // copy of it back into the holder.
+  const publishOutcome = (outcome: WorkflowHumanFormOutcome): void => {
+    publish((held) => ({ ...held, outcome }));
+  };
 
   return {
-    outcome,
+    outcome: attempt.outcome,
     submit: (answer) => {
       const fields = submittableFields(answer);
       if (fields === undefined) {
-        publish({ kind: "refused", refusal: answerNotComposedRefusal() });
+        publishOutcome({ kind: "refused", refusal: answerNotComposedRefusal() });
         return;
       }
-      const claim = latch.claim(growth, mount.phaseRunId);
+      const claim = latch.claim(growth, phase.phaseRunId);
       if (claim === undefined) {
-        publish({ kind: "refused", refusal: submitAlreadyInFlightRefusal() });
+        publishOutcome({ kind: "refused", refusal: submitAlreadyInFlightRefusal() });
         return;
       }
-      publish({ kind: "submitting" });
+      publishOutcome({ kind: "submitting" });
       // Read off the phase's own schema rather than off the answer, so the carrier lists
       // what was answered in the order the schema declared it — which is the position an
       // unresolved attachment is reported back in.
-      const attachmentArtifactIds = attachmentArtifactIdsIn(mount.inputSchema, fields);
+      const attachmentArtifactIds = attachmentArtifactIdsIn(phase.inputSchema, fields);
       void settleGrowthRead(
         growth.workflowHumanFormSubmit({
-          workflowRunId: mount.workflowRunId,
-          phaseId: mount.phaseId,
+          workflowRunId: phase.workflowRunId,
+          phaseId: phase.phaseId,
           fields,
           // Absent, not empty, where the phase asks for no artifact. The header's reason.
           ...(attachmentArtifactIds.length === 0 ? {} : { attachmentArtifactIds }),
-          // Verbatim, including the `0` a fresh attempt reads. The daemon decides
-          // whether it is still current; this surface never compares it.
-          expectedRevision: mount.formRevision,
+          // The CAPTURED revision, including the `0` a fresh attempt reads, and never
+          // `phase.formRevision` — which a run read may have moved under the form since.
+          // The daemon decides whether it is still current; this surface never compares
+          // it, and a form composed against a revision the run has left behind is
+          // supposed to be refused rather than quietly re-stamped as current.
+          expectedRevision: attempt.composedAgainstRevision,
         }),
       )
         .then((settlement) => {
@@ -242,7 +286,7 @@ export function useHumanFormSubmit(
           // whether this round is still the live one, which the unmount path retires.
           claim.settle(() => {
             const settled = settledOutcome(settlement);
-            publish(settled);
+            publishOutcome(settled);
             // INSIDE THE SAME GUARD, and after the outcome rather than beside it. A
             // settlement whose round has been retired settles nothing and must re-arm
             // nothing either — a read put behind an unmounted pane is a call nobody is

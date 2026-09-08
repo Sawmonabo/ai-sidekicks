@@ -4,11 +4,10 @@
 // OWNED BY PLAN-017, AND FILLED BY THIS CONSOLE UNTIL THAT BODY ARRIVES. The workflow
 // plan authors the body that finally stands here. What stands here today is the
 // console's own fixture shell (`HumanFormShell.tsx`): a real form over the schema the
-// run read carried, sending the registered `workflowHumanFormSubmit`, refusing through
-// whatever the port or the daemon actually said. THE SHELL DIES IN THE PLAN-017 TASK
-// THAT MOUNTS THE BODY, in the same PR as the mount — which is the same obligation the
-// reserved absence it replaced carried, because a shell is a shell whether it says the
-// feature is unbuilt or answers the question.
+// run read carried. THE SHELL DIES IN THE PLAN-017 TASK THAT MOUNTS THE BODY, in the
+// same PR as the mount — which is the same obligation the reserved absence it replaced
+// carried, because a shell is a shell whether it says the feature is unbuilt or answers
+// the question.
 //
 // WHY A SHELL RATHER THAN THE ABSENCE. The absence was true of a build whose run read
 // carried no prompt and no schema: a form composed out of nothing would have been
@@ -17,10 +16,19 @@
 // the form, and leaving the notice up would have been this console reporting a gap it
 // had closed.
 //
-// THE MOUNT CONTRACT IS `human-form-mount.ts`'S. It states what this pane owes a body
-// and why each member is on it; the type lives beside this file rather than in it
-// because the shell below is handed one and would otherwise import the wrapper that
-// renders it.
+// THE BODY IS MOUNTED INSIDE THE SUBMIT CHANNEL AND NOT DIRECTLY IN THE SEAT. The mount
+// this slot hands over is therefore the channel's pair — the resolved phase and whichever
+// body is to stand in it — and the channel composes the owner's mount from the phase plus
+// the `submit` it holds. That indirection is the whole of the seat's promise: the
+// registered submit, the single-flight guard, the captured revision, the re-armed run
+// read and the settlement rendering stay with the pane, and a body arrives with one act
+// already bound. `HumanFormSubmitChannel` is a MODULE-LEVEL reference for the reason
+// `owner-slots.ts` gives — a component composed on each render is a new type each time,
+// and React remounts it.
+//
+// THE MOUNT CONTRACT IS `human-form-mount.ts`'S. It states what this pane owes a body and
+// why each member is on it; the types live beside this file rather than in it because the
+// shell below is handed one and would otherwise import the wrapper that renders it.
 //
 // AND THIS FILE STILL DECIDES NO ELIGIBILITY. Whether the form may be submitted is the
 // daemon's adjudication, arriving as a typed refusal wherever the press was made. A
@@ -33,8 +41,8 @@
 // which is legitimately `0`) is the one that reads as falsy. One member, present or
 // absent, and the question is asked once here.
 
-import { HumanFormShell } from "./HumanFormShell.js";
-import type { HumanFormBody, HumanFormMount } from "./human-form-mount.js";
+import { HumanFormSubmitChannel } from "./HumanFormSubmitChannel.js";
+import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 import { WorkflowSlotMount } from "../../../WorkflowSlotMount.js";
 import { WORKFLOW_HUMAN_FORM_SLOT } from "../../../owner-slots.js";
 
@@ -46,7 +54,7 @@ export interface HumanFormSlotProps {
    * phase has to say so, and an absent key would read identically to one that simply
    * forgot to look.
    */
-  readonly phase: HumanFormMount | undefined;
+  readonly phase: HumanFormPhase | undefined;
   /**
    * The owner's body, once there is one.
    *
@@ -63,12 +71,12 @@ export function HumanFormSlot(props: HumanFormSlotProps): React.JSX.Element {
   return (
     <WorkflowSlotMount
       contract={WORKFLOW_HUMAN_FORM_SLOT}
-      body={body ?? HumanFormShell}
-      // No phase means no body, and never a body rendered against a placeholder: a form
-      // composed against a phase nobody resolved would be answerable in appearance and
-      // unsubmittable in fact. The mount reads the absence and renders the reserved
-      // shell, so this slot states its rule and composes nothing.
-      mount={phase}
+      body={HumanFormSubmitChannel}
+      // No phase means no channel and no body, and never a body rendered against a
+      // placeholder: a form composed against a phase nobody resolved would be answerable
+      // in appearance and unsubmittable in fact. The mount reads the absence and renders
+      // the reserved shell, so this slot states its rule and composes nothing.
+      mount={phase === undefined ? undefined : { phase, body }}
       // The absence this arm renders is the RUN's state and not the console's: with a
       // form standing for every wait the run reports, the only way to reach it is a run
       // that parks nothing on anybody — or one whose park arrived without the handle
