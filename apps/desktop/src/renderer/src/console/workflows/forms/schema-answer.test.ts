@@ -19,17 +19,56 @@ describe("what a drawn form opens holding", () => {
     expect(seedAnswerFromPlan(planSchemaForm({ type: "string" }))).toEqual({});
   });
 
-  it("opens a drawn collection at the empty list its control already renders", () => {
+  it("opens a REQUIRED collection at the empty list its control already renders", () => {
     const plan = planSchemaForm({
       type: "object",
       properties: { reviewers: { type: "array", items: { type: "string" } } },
+      required: ["reviewers"],
     });
 
-    // The list is DRAWN — an empty collection with its add control — so the answer says
-    // the same thing the surface does. Omitting the member left a required array that
-    // legally accepts zero entries unsubmittable until somebody added an entry and
-    // removed it again.
+    // The collection must exist, and an empty list is what its fieldset is already
+    // drawing. Omitted, a required array that legally accepts zero entries opened invalid
+    // and could not be submitted until somebody added an entry and removed it again.
     expect(seedAnswerFromPlan(plan)).toEqual({ reviewers: [] });
+  });
+
+  it("opens an OPTIONAL collection absent, so a presence-sensitive schema is answerable", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: { reviewers: { type: "array", items: { type: "string" }, minItems: 1 } },
+    });
+
+    // A collection the answer may leave out, which this schema then refuses to accept
+    // EMPTY. Seeded `[]`, the form opened invalid on a collection nobody had added to, and
+    // the only state that cleared it was answering a question the schema had not asked.
+    expect(seedAnswerFromPlan(plan)).toEqual({});
+  });
+
+  it("opens a REQUIRED group at the empty object its legend stands over", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: {
+        release: { type: "object", properties: { tag: { type: "string" } } },
+      },
+      required: ["release"],
+    });
+
+    // Every member of the group is optional, so no leaf contributes a value — and the
+    // group is still required. Left to its leaves, the answer held no `release` at all,
+    // the form offered no way to create the empty object the schema accepts, and typing
+    // and clearing `tag` produced `{ release: { tag: "" } }` instead.
+    expect(seedAnswerFromPlan(plan)).toEqual({ release: {} });
+  });
+
+  it("negative control: an OPTIONAL group with nothing answered into it stays absent", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: {
+        release: { type: "object", properties: { tag: { type: "string" } } },
+      },
+    });
+
+    expect(seedAnswerFromPlan(plan)).toEqual({});
   });
 
   it("seeds nothing for a collection whose declared default is not a list of entries", () => {

@@ -143,6 +143,35 @@ describe("accessibility — the workflows surfaces", () => {
     expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
+  it("has no axe violation on the raw editor while the schema refuses the document", async () => {
+    // THE OTHER ARM, AND THE ONE WHERE EVERYTHING IS IN ONE CONTROL. A schema outside the
+    // drawn set is answered as JSON, so the verdict on the whole answer has a single
+    // textarea to attach to — and until this landed it attached to nothing, leaving a
+    // reader who never moves focus out of the editor with no indication of the invalid
+    // state and no route to the sentences. The mount is a component's for the reason the
+    // list-entry case above is: no registered surface opens this arm.
+    const { container } = await renderSettled(
+      <HumanPhaseFormAnswer
+        prompt="Describe the rows this phase should publish."
+        inputSchema={{
+          type: "object",
+          // An array of objects is outside the drawn render set, so the mapper answers
+          // with the editor — and the schema still compiles, so there is a verdict.
+          properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
+          required: ["rows"],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+    const editor = container.querySelector(".meridian-schema-raw__editor");
+
+    // Stated before it is measured: an audit of a valid document is an audit of a surface
+    // carrying neither the invalid state nor the findings this case exists for.
+    expect(editor?.getAttribute("aria-invalid")).toBe("true");
+
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
+  });
+
   it("finds a planted violation, so a clean result means something", async () => {
     // Negative control for this file's own runs: the six cases above expect an
     // empty list, and a misconfigured run returns exactly the same empty list.

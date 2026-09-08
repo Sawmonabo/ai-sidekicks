@@ -36,6 +36,7 @@ import {
   type SchemaChoiceOption,
   type SchemaFieldControlProps,
 } from "../schema-field-control.js";
+import { unansweredFieldValue } from "../schema-fields.js";
 
 /**
  * What the unanswered option is worth.
@@ -68,7 +69,7 @@ export function SchemaChoiceField(props: SchemaFieldControlProps): React.JSX.Ele
         const chosenPosition = event.currentTarget.value;
         props.onChange(
           chosenPosition === UNANSWERED_OPTION_VALUE
-            ? undefined
+            ? unansweredFieldValue(props.field)
             : options[Number(chosenPosition)]?.memberValue,
         );
       }}

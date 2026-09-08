@@ -21,7 +21,7 @@
 // a button's accessible name, so a form with two lists offered two controls called "Add
 // an entry" and two called "Remove entry 1" — identical to anybody moving between
 // buttons, and each of them changing a collection that person had not chosen. Both names
-// are composed in `schema-fields.ts` beside the entry label they are built from, and the
+// are composed in `schema-list-labels.ts` beside the entry label they are built from, and the
 // visible text is unchanged: inside the fieldset the short one is already unambiguous.
 //
 // TWO KINDS OF FINDING AND TWO PLACES FOR THEM. What the schema says about the COLLECTION
@@ -36,7 +36,8 @@ import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaListEntry } from "./SchemaListEntry.js";
 import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
 import { describedByOf } from "./schema-field-control.js";
-import { listAppendLabel, listRemoveLabel, type SchemaListDescriptor } from "./schema-fields.js";
+import { listAppendLabel, listRemoveLabel } from "./schema-list-labels.js";
+import type { SchemaListDescriptor } from "./schema-fields.js";
 
 export interface SchemaFieldListProps {
   readonly list: SchemaListDescriptor;

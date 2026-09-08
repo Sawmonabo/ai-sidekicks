@@ -1,10 +1,12 @@
-// The form as a person meets it: six controls from six member shapes, a group, and — the
-// bullet this whole subtree exists for — an out-of-set schema opening the raw editor
-// instead of refusing. The collection surface is `SchemaFieldList.test.tsx`.
+// The DRAWN form as a person meets it: six controls from six member shapes, a group, and
+// where each of the schema's findings lands. The collection surface is
+// `SchemaFieldList.test.tsx`; the arm that draws no controls at all is
+// `SchemaJsonEditor.test.tsx`.
 //
 // Driven through the real hook rather than a hand-built state, because the two are one
 // surface: a test that fed the component a fabricated plan would pass with the mapper
-// deleted.
+// deleted. Which is also why the presence cases below read the COMPOSED ANSWER: whether a
+// member is in it is the half a rendered control cannot show.
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -202,6 +204,12 @@ describe("the schema-derived form", () => {
   });
 
   it("renders a finding addressed to a group on the group's own fieldset", () => {
+    // A CONSTRAINT ON THE OBJECT ITSELF, which is what a group-addressed finding now is.
+    // "This required group is missing" used to be the case here, and it is not reachable
+    // any more: a required group opens at the `{}` its legend stands over, which is the
+    // seed's whole point — that finding named a member the form offered no control to
+    // create. What the schema says about the OBJECT still arrives at the group's own path
+    // and has no child to be drawn against, so the fieldset is where it goes.
     const container = renderForm({
       type: "object",
       properties: {
@@ -209,6 +217,7 @@ describe("the schema-derived form", () => {
           type: "object",
           title: "Release",
           properties: { tag: { type: "string", title: "Tag" } },
+          const: { tag: "v1" },
         },
       },
       required: ["release"],
@@ -218,13 +227,83 @@ describe("the schema-derived form", () => {
       ".meridian-schema-group > .meridian-schema-field__issues",
     );
 
-    // Every child of this group is optional, so the ONLY thing wrong with the answer is
-    // addressed to the group itself: a form asking only for its leaves' paths reads clean
-    // while the report it was drawn from is invalid.
     expect(groupIssues?.textContent ?? "").not.toBe("");
     expect(
       container.querySelector(".meridian-schema-group")?.getAttribute("aria-describedby"),
     ).toBe(groupIssues?.id);
+  });
+
+  it("opens a required group whose members are all optional at the empty object it accepts", () => {
+    // The finding the case above used to be written over. `{ release: {} }` is what this
+    // schema accepts, and the form now opens holding it: before, the answer held `{}`, the
+    // fieldset carried "must have required property", and the only way to reach the valid
+    // state was to type into `tag` and clear it again — which wrote `{ tag: "" }` and left
+    // the form invalid for a different reason.
+    const container = renderForm({
+      type: "object",
+      properties: {
+        release: {
+          type: "object",
+          title: "Release",
+          properties: { tag: { type: "string", title: "Tag", minLength: 1 } },
+        },
+      },
+      required: ["release"],
+    });
+
+    expect(composedAnswer(container)).toEqual({ release: {} });
+    expect(reportedIssueTexts(container)).toEqual([]);
+  });
+
+  it("takes an optional text member back out of the answer when its box is cleared", () => {
+    // The untouched box and the cleared one look identical, so the answer has to say the
+    // same thing about both. Writing `""` for the cleared one made the form reachable into
+    // a state it could not reach back out of, with no UI action that restores the absence
+    // it opened with.
+    const container = renderForm({
+      type: "object",
+      properties: { note: { type: "string", title: "Note" } },
+    });
+    const note = screen.getByLabelText("Note");
+
+    fireEvent.change(note, { target: { value: "looks good" } });
+    expect(composedAnswer(container)).toEqual({ note: "looks good" });
+
+    fireEvent.change(note, { target: { value: "" } });
+
+    expect(composedAnswer(container)).toEqual({});
+  });
+
+  it("keeps a figure the numeric control cannot carry out of the answer altogether", () => {
+    // End to end, because the divergence was between two layers: the control turned
+    // `1e309` into `Infinity`, the box went blank because it cannot render one, and the
+    // composed answer serialized it to `null` — three different readings of one keystroke.
+    const container = renderForm({
+      type: "object",
+      properties: { ratio: { type: "number", title: "Ratio" } },
+    });
+
+    fireEvent.change(screen.getByLabelText("Ratio"), { target: { value: "1e309" } });
+
+    expect(composedAnswer(container)).toEqual({});
+    expect(screen.getByLabelText("Ratio")).toHaveProperty("value", "1e309");
+  });
+
+  it("negative control: an unchecked box is still the answer `false` and never an absence", () => {
+    // The one control with no unanswered state, and the reason the rule is about what a
+    // control can DISPLAY: unchecked says no, so the member stays in the answer where a
+    // cleared text box leaves it.
+    const container = renderForm({
+      type: "object",
+      properties: { approved: { type: "boolean", title: "Approved" } },
+      required: ["approved"],
+    });
+    const approved = screen.getByLabelText(/Approved/u);
+
+    fireEvent.click(approved);
+    fireEvent.click(approved);
+
+    expect(composedAnswer(container)).toEqual({ approved: false });
   });
 
   it("renders a finding addressed to the whole answer, which no control could be about", () => {
@@ -281,47 +360,5 @@ describe("the schema-derived form", () => {
     // above while telling a person nothing about where to go.
     expect(container.querySelectorAll(".meridian-schema-field__issues")).toHaveLength(3);
     expect(rootIssuesElement(container)?.textContent ?? "").not.toBe("");
-  });
-
-  it("opens the raw editor for a schema outside the drawn set, and never a refusal", () => {
-    const container = renderForm({
-      type: "object",
-      properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
-    });
-
-    expect(container.querySelector(".meridian-schema-raw__editor")?.tagName).toBe("TEXTAREA");
-    expect(container.querySelector(".meridian-schema-raw__reason")?.textContent).toContain("rows");
-    // Nothing on this surface reports a refusal: the console's refusal shapes all carry
-    // this class, and the whole point of the fallback is that none of them is reached.
-    expect(container.querySelector(".meridian-refusal")).toBeNull();
-  });
-
-  it("says the schema itself could not be checked rather than showing a clean verdict", () => {
-    const container = renderForm({
-      type: "object",
-      properties: { linked: { $ref: "#/definitions/missing" } },
-    });
-
-    expect(container.querySelector(".meridian-schema-raw__uncheckable")?.textContent).toContain(
-      "only the JSON itself is checked",
-    );
-  });
-
-  it("answers a schema that compiled nowhere as JSON rather than in controls it cannot check", () => {
-    const container = renderForm({
-      type: "object",
-      properties: { title: { type: "string", title: "Title" } },
-      // Drawable members and an unreadable ROOT construct: the mapper is happy, the
-      // schema reader is not, and the arm that used to be chosen from the mapper alone
-      // drew a control whose answer nothing could refuse.
-      if: { properties: { title: { const: "urgent" } } },
-      then: { required: ["title"] },
-    });
-
-    expect(container.querySelector(".meridian-schema-raw__editor")?.tagName).toBe("TEXTAREA");
-    expect(container.querySelector(".meridian-schema-raw__uncheckable")?.textContent).toContain(
-      "only the JSON itself is checked",
-    );
-    expect(screen.queryByLabelText("Title")).toBeNull();
   });
 });

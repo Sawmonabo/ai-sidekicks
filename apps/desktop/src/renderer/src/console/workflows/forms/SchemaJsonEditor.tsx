@@ -17,9 +17,20 @@
 // NO EDITOR LIBRARY. `Spec-023 §Console Libraries` disqualifies every runtime-compiling
 // schema editor before size is weighed, because this renderer's content policy carries no
 // `unsafe-eval`. A textarea and one `JSON.parse` are the whole mechanism.
+//
+// AND THE EDITOR CARRIES ITS VERDICT THE WAY A DRAWN CONTROL CARRIES ITS OWN. Every drawn
+// field attaches its findings through `aria-describedby` and renders them through
+// `SchemaFieldIssues`; this surface listed them in markup of its own that nothing pointed
+// at. Focus does not leave the textarea while somebody edits, so a reader whose document
+// had just become invalid was told neither that it was invalid nor what the schema said —
+// on the one arm of this form where the whole answer is typed into a single control. Same
+// primitive, same attribute, and `aria-invalid` while either reading refuses: no second
+// mechanism, and no `role` this list does not have where the drawn fields draw it.
 
 import { useId } from "react";
 
+import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
+import { describedByOf } from "./schema-field-control.js";
 import type { SchemaFallback } from "./schema-fields.js";
 import {
   encodeMemberPointer,
@@ -43,10 +54,33 @@ export interface SchemaJsonEditorProps {
   readonly report: SchemaValidationReport | undefined;
 }
 
+/**
+ * What the schema said about the typed document, each sentence carrying the member it is
+ * about.
+ *
+ * The pointer rather than a join, for the reason the paths are segments at all: two
+ * different members must not read as one line here either. Composed into text because
+ * this arm draws no control per member — there is one control, and every finding on the
+ * form is about what is in it.
+ */
+function rawIssueTexts(report: SchemaValidationReport | undefined): readonly string[] {
+  if (report === undefined || report.status === "valid") {
+    return [];
+  }
+  return report.issues.map((issue) => {
+    const pointer = encodeMemberPointer(issue.memberPath);
+    return pointer === "" ? issue.message : `${pointer}: ${issue.message}`;
+  });
+}
+
 /** The raw answer, its syntax, and — where the schema compiled — its validity. */
 export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Element {
   const editorId = useId();
+  const syntaxId = useId();
+  const issuesId = useId();
   const { rawReading, report, validator } = props;
+  const issues = rawIssueTexts(report);
+  const isUnparsable = rawReading.status === "unparsable";
   return (
     <div className="meridian-schema-raw">
       <p className="meridian-schema-raw__reason">{props.fallback.detail}</p>
@@ -59,32 +93,27 @@ export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Elemen
         rows={RAW_EDITOR_ROWS}
         spellCheck={false}
         value={props.rawText}
+        // Both readings describe this one control, composed through the leaf the drawn
+        // fields compose theirs through: unparsable text and a schema refusal are two
+        // different complaints about the same document.
+        aria-describedby={describedByOf([
+          isUnparsable ? syntaxId : undefined,
+          issues.length === 0 ? undefined : issuesId,
+        ])}
+        aria-invalid={isUnparsable || issues.length > 0 ? true : undefined}
         onChange={(event) => {
           props.onChangeRawText(event.currentTarget.value);
         }}
       />
-      {rawReading.status === "unparsable" ? (
-        <p className="meridian-schema-raw__syntax" role="status">
+      {isUnparsable ? (
+        <p className="meridian-schema-raw__syntax" id={syntaxId} role="status">
           {rawReading.detail}
         </p>
       ) : null}
       {validator.status === "uncompilable" ? (
         <p className="meridian-schema-raw__uncheckable">{validator.detail}</p>
       ) : null}
-      {report === undefined || report.status === "valid" ? null : (
-        <ul className="meridian-schema-field__issues">
-          {report.issues.map((issue) => {
-            // The pointer rather than a join, for the reason the paths are segments at
-            // all: two different members must not read as one line here either.
-            const pointer = encodeMemberPointer(issue.memberPath);
-            return (
-              <li key={`${pointer}:${issue.message}`}>
-                {pointer === "" ? issue.message : `${pointer}: ${issue.message}`}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <SchemaFieldIssues issues={issues} issuesId={issuesId} />
     </div>
   );
 }

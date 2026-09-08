@@ -45,13 +45,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 
+import { listAt, memberAt, withMemberAt, type SchemaFormAnswer } from "./schema-answer-paths.js";
 import {
-  listAt,
-  memberAt,
   newListEntryFor,
   seedAnswerFromPlan,
-  withMemberAt,
-  type SchemaFormAnswer,
+  withListEntryRemoved,
+  withMemberAnswered,
 } from "./schema-answer.js";
 import { type SchemaFallback, type SchemaFormPlan } from "./schema-fields.js";
 import { planSchemaForm } from "./schema-form-plan.js";
@@ -171,9 +170,15 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
       : undefined
     : drawnAnswer;
 
-  const setMemberValue = useCallback((memberPath: SchemaMemberPath, value: unknown) => {
-    setDrawnAnswer((current) => withMemberAt(current, memberPath, value));
-  }, []);
+  // Through the answer's own write path rather than a bare write, because a control
+  // reporting ABSENCE is reporting the shape of the object and not a value in it: the
+  // member leaves, and an optional group the removal emptied leaves with it.
+  const setMemberValue = useCallback(
+    (memberPath: SchemaMemberPath, value: unknown) => {
+      setDrawnAnswer((current) => withMemberAnswered(plan, current, memberPath, value));
+    },
+    [plan],
+  );
 
   const setListItem = useCallback((memberPath: SchemaMemberPath, index: number, value: unknown) => {
     setDrawnAnswer((current) => {
@@ -195,15 +200,12 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
     [plan],
   );
 
-  const removeListItem = useCallback((memberPath: SchemaMemberPath, index: number) => {
-    setDrawnAnswer((current) =>
-      withMemberAt(
-        current,
-        memberPath,
-        listAt(current, memberPath).filter((_item, at) => at !== index),
-      ),
-    );
-  }, []);
+  const removeListItem = useCallback(
+    (memberPath: SchemaMemberPath, index: number) => {
+      setDrawnAnswer((current) => withListEntryRemoved(plan, current, memberPath, index));
+    },
+    [plan],
+  );
 
   // Derived on render rather than held, because it is a pure function of two values the
   // hook already has: a stored report is a second copy of the answer's verdict that goes

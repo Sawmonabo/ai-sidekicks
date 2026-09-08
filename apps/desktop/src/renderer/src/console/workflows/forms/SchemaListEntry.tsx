@@ -22,7 +22,8 @@ import { useId } from "react";
 import { SchemaFieldControl } from "./SchemaFieldControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { describedByOf } from "./schema-field-control.js";
-import { listEntryLabel, type SchemaListDescriptor } from "./schema-fields.js";
+import { listEntryLabel } from "./schema-list-labels.js";
+import type { SchemaListDescriptor } from "./schema-fields.js";
 
 export interface SchemaListEntryProps {
   /** The collection this entry belongs to, which is what names it and types it. */

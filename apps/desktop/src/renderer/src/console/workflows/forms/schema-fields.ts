@@ -87,12 +87,84 @@ export function valueSuitsField(field: SchemaFieldDescriptor, value: unknown): b
  * exists the moment somebody adds it, so absence is not available to it whatever the
  * collection's own requiredness says.
  *
- * The three readers are the seed (`schema-answer.ts`), the control dispatch
- * (`SchemaFieldControl.tsx`), and the option table the choice control is handed
- * (`schema-field-control.ts`) — one fact, read where each of them needs it.
+ * The three readers are the presence rule below (which is what the seed and every change
+ * handler ask), the control dispatch (`SchemaFieldControl.tsx`), and the option table the
+ * choice control is handed (`schema-field-control.ts`) — one fact, read where each needs it.
  */
 export function fieldDrawsAsCheckbox(field: SchemaFieldDescriptor): boolean {
   return field.kind === "checkbox" && !field.canBeUnanswered;
+}
+
+/** The empty answer the two text controls display and write when a person clears one. */
+const EMPTY_TEXT = "";
+
+/** What a collection nobody has added to holds. Never written to; only ever replaced. */
+const NO_ENTRIES: readonly unknown[] = [];
+
+/** What a group nobody has answered into holds. Never written to; only ever rebuilt. */
+const NO_MEMBERS: Readonly<Record<string, unknown>> = {};
+
+/**
+ * What one control of a kind DISPLAYS while nobody has answered it, as a value.
+ *
+ * ONE TABLE, AND EVERY PLACE AN OPENING VALUE IS DECIDED READS IT. It is the value that
+ * control's own `onChange` writes for its empty display — `""` from the two text boxes,
+ * `false` from a box that cannot be blank, and NOTHING at all from the three whose empty
+ * state is the member being absent: a number box shows nothing for a string, and a
+ * select's unanswered option is deliberately worth no member value, so `""` at either is
+ * a payload holding what no control on the screen is displaying.
+ */
+export function emptyControlValue(kind: SchemaFieldKind): unknown {
+  switch (kind) {
+    case "text":
+    case "long-text":
+      return EMPTY_TEXT;
+    case "checkbox":
+      return false;
+    case "number":
+    case "choice":
+    case "artifact-reference":
+      return undefined;
+  }
+}
+
+/**
+ * What the answer holds at a MEMBER NOBODY HAS ANSWERED. The one rule, stated once.
+ *
+ * A MEMBER IS PRESENT IN THE ANSWER EXACTLY WHILE SOMETHING ON THE SCREEN IS DISPLAYING A
+ * VALUE FOR IT, AND WHERE THE SURFACE HAS NO WAY TO DISPLAY ABSENCE, REQUIREDNESS DECIDES.
+ * Five of the six controls have an empty state a person reads as "not answered" — a blank
+ * text box, a number box with nothing in it, a select on its unanswered option — so a
+ * member drawn through one of them is absent until somebody answers it and RETURNS to
+ * absent when they clear it, whatever the enclosing level requires of it. A box, a
+ * collection and a group have no such state: an unchecked box says NO before anybody
+ * touches it, an empty list is indistinguishable from a list somebody emptied, and a group
+ * has no control of its own at all. For those three the answer follows requiredness — a
+ * required box opens at the `false` it is already showing, a required collection at the
+ * `[]` its fieldset is already drawing, a required group at the `{}` its legend stands
+ * over — and an optional one of each is absent until something is answered into it and
+ * absent again when the last answer leaves it.
+ *
+ * WHICH IS WHY AN OPTIONAL BOOLEAN IS DRAWN AS A CHOICE. That is the same rule read from
+ * the other side: the third state gives the one control that cannot show absence a way to,
+ * so the member follows its control rather than its requiredness like every other scalar.
+ *
+ * EVERY SITE READS THESE THREE AND NONE OF THEM DECIDES PRESENCE ON ITS OWN — the seed
+ * (`schema-answer.ts`), each control's own change handler, the collection's remove
+ * control, and the write path that prunes a group those two emptied.
+ */
+export function unansweredFieldValue(field: SchemaFieldDescriptor): unknown {
+  return fieldDrawsAsCheckbox(field) ? emptyControlValue(field.kind) : undefined;
+}
+
+/** What the answer holds at a collection nobody has added an entry to. */
+export function unansweredListValue(list: SchemaListDescriptor): unknown {
+  return list.isRequired ? NO_ENTRIES : undefined;
+}
+
+/** What the answer holds at a group none of whose members is answered. */
+export function unansweredGroupValue(group: SchemaGroupDescriptor): unknown {
+  return group.isRequired ? NO_MEMBERS : undefined;
 }
 
 /**
@@ -125,6 +197,9 @@ export interface SchemaFieldDescriptor {
    * NOT THE NEGATION OF `isRequired`, and that is the whole reason it is carried rather
    * than derived: a list ENTRY has no requiredness of its own and can never be absent,
    * because the position exists from the moment somebody adds it.
+   *
+   * What this member is WORTH while nobody has answered it is `unansweredFieldValue`
+   * above, which is the one rule the seed and every control's change handler read.
    */
   readonly canBeUnanswered: boolean;
   /** The enum's members, present on `choice` alone and never empty there. */
@@ -151,47 +226,6 @@ export interface SchemaListDescriptor {
   readonly item: SchemaFieldDescriptor;
   /** The schema's own `default`, read as this collection's opening entries where it is one. */
   readonly defaultValue: unknown;
-}
-
-/**
- * What one entry of a list is called: the collection's name and where the entry sits.
- *
- * A NAME AND NOT A NUMBER. An array member has no key of its own, so the only thing that
- * distinguishes one repeated control from the next is its position — and a position on
- * its own ("entry 2") tells a person navigating by control nothing about which collection
- * they are in, which is exactly the reading a form with two lists would give them.
- *
- * Composed here beside the labels it is built from rather than at the surface that speaks
- * it, so the rendered name and any reading of it are one rule.
- */
-export function listEntryLabel(list: SchemaListDescriptor, index: number): string {
-  return `${list.label}, entry ${String(index + 1)}`;
-}
-
-/**
- * What the control that adds one entry is CALLED, which is not what it reads.
- *
- * A FIELDSET LEGEND IS NOT PART OF A BUTTON'S ACCESSIBLE NAME. The legend names the
- * collection to somebody reading the form top to bottom, and says nothing at all to
- * somebody moving between buttons — so a form with two lists offered two controls called
- * "Add an entry", and pressing either of them added an entry to a collection the person
- * had not chosen. The visible text stays the short one, because the surrounding fieldset
- * IS the answer for a reader who can see it; the spoken name carries the collection.
- */
-export function listAppendLabel(list: SchemaListDescriptor): string {
-  return `Add an entry to ${list.label}`;
-}
-
-/**
- * What the control that drops one entry is called, composed from the entry's own name.
- *
- * The same defect one control over: "Remove entry 1" is the same sentence in every
- * collection on the form. It reuses `listEntryLabel` rather than composing a second
- * phrasing, so the control that removes an entry names exactly what the entry itself is
- * called and the two cannot drift.
- */
-export function listRemoveLabel(list: SchemaListDescriptor, index: number): string {
-  return `Remove ${listEntryLabel(list, index)}`;
 }
 
 /** What a group may hold: a control, or a list of one. Never another group. */

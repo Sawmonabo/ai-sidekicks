@@ -29,9 +29,10 @@ describe("the schema form's state", () => {
     });
 
     expect(form().memberValue(["title"])).toBe("Ship it");
-    // The drawn collection is in the answer from the mount, because it is on the screen
-    // from the mount: an empty list is what its control is already showing.
-    expect(form().answer).toEqual({ title: "Ship it", reviewers: [] });
+    // `reviewers` is OPTIONAL here, so it is absent until somebody adds an entry: an empty
+    // collection and one nobody has added to look identical on the screen, and the rule
+    // that tells them apart in the answer is the schema's own requiredness.
+    expect(form().answer).toEqual({ title: "Ship it" });
   });
 
   it("writes a member one level down without disturbing its siblings", () => {
@@ -44,7 +45,7 @@ describe("the schema form's state", () => {
       form().setMemberValue(["release", "tag"], "v2");
     });
 
-    expect(form().answer).toEqual({ title: "Ship it", release: { tag: "v2" }, reviewers: [] });
+    expect(form().answer).toEqual({ title: "Ship it", release: { tag: "v2" } });
   });
 
   it("keeps a list in order when an entry leaves the middle of it", () => {
@@ -81,6 +82,82 @@ describe("the schema form's state", () => {
     });
 
     expect(form().report?.status).toBe("valid");
+  });
+
+  it("returns an optional collection to absent when its last entry is removed", () => {
+    // The other half of opening absent, and the half a seed cannot give: `[]` left behind
+    // by an add-then-remove is a member the form put there and offered no way to take
+    // away. This schema will not accept an empty `reviewers` and will accept none at all,
+    // so the round trip is readable in the VERDICT and not only in the answer's shape.
+    const form = mountForm({
+      type: "object",
+      properties: { reviewers: { type: "array", items: { type: "string" }, minItems: 1 } },
+    });
+
+    expect(form().report?.status).toBe("valid");
+    act(() => {
+      form().appendListItem(["reviewers"]);
+    });
+    expect(form().answer).toHaveProperty("reviewers");
+
+    act(() => {
+      form().removeListItem(["reviewers"], 0);
+    });
+
+    expect(form().answer).not.toHaveProperty("reviewers");
+    expect(form().report?.status).toBe("valid");
+  });
+
+  it("negative control: a REQUIRED collection stays at the empty list it is drawing", () => {
+    const form = mountForm({
+      type: "object",
+      properties: { reviewers: { type: "array", items: { type: "string" } } },
+      required: ["reviewers"],
+    });
+
+    act(() => {
+      form().appendListItem(["reviewers"]);
+    });
+    act(() => {
+      form().removeListItem(["reviewers"], 0);
+    });
+
+    expect(form().answer).toEqual({ reviewers: [] });
+  });
+
+  it("takes an optional group out of the answer when its last answered member clears", () => {
+    // A group is a member like any other: `release` is optional here, so an answer holding
+    // `{ release: {} }` after somebody withdrew the only thing they had typed into it is a
+    // member nothing on the screen accounts for.
+    const form = mountForm(NESTED_SCHEMA);
+
+    act(() => {
+      form().setMemberValue(["release", "tag"], "v2");
+    });
+    expect(form().answer).toHaveProperty("release");
+
+    act(() => {
+      form().setMemberValue(["release", "tag"], undefined);
+    });
+
+    expect(form().answer).not.toHaveProperty("release");
+  });
+
+  it("negative control: a REQUIRED group stays at the empty object it is standing over", () => {
+    const form = mountForm({
+      type: "object",
+      properties: { release: { type: "object", properties: { tag: { type: "string" } } } },
+      required: ["release"],
+    });
+
+    act(() => {
+      form().setMemberValue(["release", "tag"], "v2");
+    });
+    act(() => {
+      form().setMemberValue(["release", "tag"], undefined);
+    });
+
+    expect(form().answer).toEqual({ release: {} });
   });
 
   it("reads the answer off the raw text when the schema drew no controls", () => {

@@ -2,10 +2,11 @@
 //
 // AN UNTOUCHED BOX IS `false`, AND THE ANSWER SAYS SO BEFORE ANYBODY TOUCHES IT. A
 // checkbox has no third state to render: unchecked is not "unanswered", it is NO. So the
-// member is `false` in the composed answer from the mount, seeded there by
-// `schema-answer.ts` — the one place a control's opening value is decided. Leaving it out
-// until the first toggle displayed one thing and submitted another, and made `false` the
-// one value a person could not send without checking the box and unchecking it again.
+// member is `false` in the composed answer from the mount, and stays there whatever a
+// person does to the box — `schema-fields.ts` owns that rule, which is why this control
+// alone writes no absence. Leaving it out until the first toggle displayed one thing and
+// submitted another, and made `false` the one value a person could not send without
+// checking the box and unchecking it again.
 //
 // WHICH IS STILL NOT THIS CONTROL DECIDING REQUIREDNESS. The compiled validator reads the
 // answer; a member the schema demands and nobody set is its finding to report. What
