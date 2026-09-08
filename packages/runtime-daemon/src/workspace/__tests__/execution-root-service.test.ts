@@ -181,8 +181,9 @@ let mintedIdCount = 0;
  *
  * Counters would be simpler, but `branch_contexts.id` values are compared for
  * IDENTITY across a refresh below ("the row kept its id"), and an id that could
- * not have come from `randomUUID` would make that comparison a claim about the
- * fixture rather than about the upsert.
+ * not have come from `mintUuidV7` would make that comparison a claim about the
+ * fixture rather than about the upsert. The version nibble below is `7` for
+ * that reason.
  */
 function mintUuid(): string {
   mintedIdCount += 1;

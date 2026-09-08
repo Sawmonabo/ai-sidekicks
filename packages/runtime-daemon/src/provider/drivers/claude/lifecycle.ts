@@ -2336,8 +2336,11 @@ export interface ClaudeSessionLifecycleDependencies {
       ) => void)
     | undefined;
   // The provider-side session id pinned at spawn (`--session-id`). Injected so
-  // tests and a future deterministic id source can drive it; defaults to a v4
-  // UUID, the shape the CLI flag requires.
+  // tests and a future deterministic id source can drive it; defaults to
+  // `mintUuidV7`. The flag is version-agnostic — the pinned CLI documents it as
+  // `--session-id <uuid>`, "Use a specific session ID for the conversation
+  // (must be a valid UUID)" — so nothing here may be read as a v4 guarantee,
+  // and an injected source is free to supply any valid UUID.
   readonly mintProviderSessionId?: (() => string) | undefined;
   // The opaque session-binding handle the `resumed` arm carries. The daemon's
   // `runtime_bindings` store mints it in production; the default keeps this band
