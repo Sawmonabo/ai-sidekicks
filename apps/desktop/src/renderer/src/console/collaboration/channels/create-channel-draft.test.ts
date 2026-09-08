@@ -8,54 +8,15 @@
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { ChannelCreateRequest } from "./channel-writes.js";
-import { CreateChannelDraft, type CreateChannelContext } from "./create-channel-draft.js";
+import { CreateChannelDraft } from "./create-channel-draft.js";
 import { canonicalMemberPair } from "./create-channel-pair.js";
-import { PARTICIPANT_OTHER, PARTICIPANT_YOU, SESSION_ID } from "./channels.test-support.js";
-
-/** Everybody this session holds, unless a case says otherwise. */
-const BOTH_PARTICIPANTS: readonly string[] = [PARTICIPANT_YOU, PARTICIPANT_OTHER];
-
-/**
- * The three reads a readiness answer depends on, named rather than positional.
- *
- * The live set defaults to the whole session because most cases are about a general
- * channel, where it decides nothing — and the cases it DOES decide say so by passing
- * their own, which is what makes the departure visible in the case rather than in a
- * helper.
- */
-function contextWith(
-  viewerParticipantId: string | undefined,
-  liveParticipantIds: readonly string[] = BOTH_PARTICIPANTS,
-): CreateChannelContext {
-  return { sessionId: SESSION_ID, viewerParticipantId, liveParticipantIds };
-}
-
-/** The request this draft composes, or a failure naming what it is still missing. */
-function requestOf(draft: CreateChannelDraft, viewerParticipantId?: string): ChannelCreateRequest {
-  const readiness = draft.readiness(contextWith(viewerParticipantId ?? PARTICIPANT_YOU));
-  if (readiness.status !== "ready") {
-    throw new Error(`the draft is still missing: ${readiness.missing.join(", ")}`);
-  }
-  return readiness.request;
-}
-
-/** What the draft says it is still waiting on. */
-function missingFrom(
-  draft: CreateChannelDraft,
-  viewerParticipantId?: string,
-  liveParticipantIds?: readonly string[],
-): readonly string[] {
-  const readiness = draft.readiness(contextWith(viewerParticipantId, liveParticipantIds));
-  return readiness.status === "incomplete" ? readiness.missing : [];
-}
-
-/** A named general draft, which is the shortest thing that composes a request. */
-function namedDraft(name = "review"): CreateChannelDraft {
-  const draft = new CreateChannelDraft();
-  draft.setName(name);
-  return draft;
-}
+import { PARTICIPANT_OTHER, PARTICIPANT_YOU } from "./channels.test-support.js";
+import {
+  contextWith,
+  missingFrom,
+  namedDraft,
+  requestOf,
+} from "./create-channel-draft.test-support.js";
 
 describe("create channel draft — where the form opens", () => {
   it("opens on a general channel whose audience is participants", () => {
@@ -124,13 +85,6 @@ describe("create channel draft — what a general channel sends", () => {
 
   it("sends no moderation at all where neither box was touched", () => {
     expect(requestOf(namedDraft()).config?.moderation).toBeUndefined();
-  });
-
-  it("sends the round-robin order as a list, dropping what a person typed around it", () => {
-    const draft = namedDraft();
-    draft.setTurnPolicy("round-robin");
-    draft.setRoundRobinOrder(" reviewer , , builder ");
-    expect(requestOf(draft).config?.roundRobinOrder).toStrictEqual(["reviewer", "builder"]);
   });
 
   it("sends no per-agent cap where the field is empty", () => {
@@ -290,100 +244,6 @@ describe("create channel draft — what a direct channel sends", () => {
       PARTICIPANT_OTHER,
       PARTICIPANT_YOU,
     ]);
-  });
-});
-
-describe("create channel draft — the order a round-robin channel must carry", () => {
-  it("composes nothing while the order is empty", () => {
-    // `Spec-016 §Turn Policies` requires a non-empty agent order for every
-    // round-robin channel and refuses a create without one, so a form declaring
-    // itself ready here would be promising a request the daemon must refuse.
-    const draft = namedDraft();
-    draft.setTurnPolicy("round-robin");
-    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("round-robin order");
-  });
-
-  it("counts a field of separators as empty, exactly as the request does", () => {
-    const draft = namedDraft();
-    draft.setTurnPolicy("round-robin");
-    draft.setRoundRobinOrder(" , , ");
-    expect(missingFrom(draft, PARTICIPANT_YOU).join(" ")).toContain("round-robin order");
-  });
-
-  it("negative control: the same draft composes once an order is typed", () => {
-    // Without this the two cases above would pass over a draft that refused every
-    // round-robin channel whatever its order said.
-    const draft = namedDraft();
-    draft.setTurnPolicy("round-robin");
-    draft.setRoundRobinOrder("reviewer, builder");
-    expect(requestOf(draft).config?.roundRobinOrder).toStrictEqual(["reviewer", "builder"]);
-  });
-
-  it("asks for no order under any other policy the form can choose", () => {
-    const draft = namedDraft();
-    draft.setTurnPolicy("free-form");
-    expect(missingFrom(draft, PARTICIPANT_YOU)).toStrictEqual([]);
-    expect(requestOf(draft).config?.roundRobinOrder).toBeUndefined();
-  });
-
-  it("asks for no order under the session's own policy, which this form cannot read", () => {
-    // An unset policy MEANS the session's default, and the console does not know
-    // which one that is — demanding an order there would be a rule invented against
-    // a policy nobody on this surface can see.
-    expect(missingFrom(namedDraft(), PARTICIPANT_YOU)).toStrictEqual([]);
-  });
-
-  it("sends no order once the policy moves off round-robin, and keeps the text typed", () => {
-    // THE DEFECT. The text is deliberately kept when the policy changes — a person
-    // who tries `free-form` and comes back should not have to type the order again —
-    // and the request went on composing it from that text. `Spec-016 §Turn Policies`
-    // makes the order the sequence a ROUND-ROBIN channel takes its turns in, and every
-    // config member is fixed at creation, so the channel would have carried an agent
-    // order forever that its own policy never reads and no mutation can remove.
-    const draft = namedDraft();
-    draft.setTurnPolicy("round-robin");
-    draft.setRoundRobinOrder("reviewer, builder");
-    draft.setTurnPolicy("free-form");
-
-    expect(requestOf(draft).config?.roundRobinOrder).toBeUndefined();
-    expect(draft.roundRobinOrder).toBe("reviewer, builder");
-  });
-
-  it("sends no order back under the session's own policy either", () => {
-    // The same rule at the third setting, which is the one the form opens on: an
-    // unset policy is the session's, and an order composed against a policy this
-    // console cannot read is a value nobody chose for it.
-    const draft = namedDraft();
-    draft.setTurnPolicy("round-robin");
-    draft.setRoundRobinOrder("reviewer, builder");
-    draft.setTurnPolicy(undefined);
-
-    expect(requestOf(draft).config).toStrictEqual({ audience: "participants" });
-  });
-
-  it("negative control: switching back sends the same order, with nothing re-typed", () => {
-    // Without it the two cases above would pass over a draft that CLEARED the text
-    // when the policy moved. That is the other way to stop sending it, and it takes a
-    // person's work away for a select they may be passing through.
-    const draft = namedDraft();
-    draft.setTurnPolicy("round-robin");
-    draft.setRoundRobinOrder("reviewer, builder");
-    draft.setTurnPolicy("free-form");
-    draft.setTurnPolicy("round-robin");
-
-    expect(requestOf(draft).config?.roundRobinOrder).toStrictEqual(["reviewer", "builder"]);
-  });
-
-  it("negative control: the per-agent cap is scoped to no policy and still travels", () => {
-    // Without it the rule above would read as one about policy fields in general.
-    // `turnsPerAgent` overrides the session's per-agent consecutive-turn limit under
-    // EVERY policy — the contract scopes it to none — so a form that narrowed it the
-    // same way would drop a cap a person set for a free-form channel.
-    const draft = namedDraft();
-    draft.setTurnsPerAgent("3");
-    draft.setTurnPolicy("free-form");
-
-    expect(requestOf(draft).config?.turnsPerAgent).toBe(3);
   });
 });
 
