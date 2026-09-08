@@ -13,8 +13,8 @@
 import { describe, expect, it } from "vitest";
 
 import { type GrowthPendingInviteState } from "../../bridge/index.js";
-import { FixtureGrowthStream } from "../../bridge/fixture/fixture-growth-stream.js";
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { FixtureGrowthStream } from "../../bridge/fixture/growth/growth-stream.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { PendingInviteAdapter } from "./pending-invite.js";
 import { isInviteOutcomeInProgress } from "./pending-invite-reading.js";
 import {

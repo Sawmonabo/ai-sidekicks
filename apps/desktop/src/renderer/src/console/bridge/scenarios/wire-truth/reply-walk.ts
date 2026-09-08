@@ -25,7 +25,7 @@
 // served set is imported rather than restated, so the two cannot disagree.
 
 import { CONSOLE_DAEMON_METHODS } from "../../daemon/index.js";
-import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/fixture-served-operations.js";
+import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "../../fixture/call-plane/served-operations.js";
 import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
 import type { GrowthOperationId } from "../../growth-port/growth-entry.js";
 import type { ScenarioWireTruthDefect } from "./defect.js";
@@ -252,7 +252,7 @@ function describeGrowthKeyDefect(operationId: string): string | undefined {
  * for — and worse than dead weight, because the surface reading that operation
  * renders its refusal while the repo carries a reply that looks like coverage.
  *
- * A call the console BINDS is exempt: `fixture-bridge.ts` answers `daemon.call` from
+ * A call the console BINDS is exempt: `fixture/call-plane/bridge.ts` answers `daemon.call` from
  * the same script, so a method a surface reaches through `callDaemon` is reachable
  * whatever the port does with an operation of the same name.
  */
@@ -271,7 +271,7 @@ function describeUnservedGrowthDefect(call: string): string | undefined {
     `it answers the growth operation "${operationId}", which the fixture port does not ` +
     "serve — it refuses that operation without consulting the script, so this reply is " +
     "reachable from nothing and the surface reading it renders a refusal. Serve the " +
-    "operation from `fixture-growth-port.ts`, or drop the reply."
+    "operation from `fixture/growth/growth-port.ts`, or drop the reply."
   );
 }
 

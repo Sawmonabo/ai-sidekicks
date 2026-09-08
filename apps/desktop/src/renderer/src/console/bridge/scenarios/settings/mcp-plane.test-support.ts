@@ -1,7 +1,7 @@
 // The settings deck's governance answers, read the way the fixture reads them.
 //
 // One home for a reader two suites take. `mcp-plane.test.ts` asserts WHICH
-// binding each press answers for, and `fixture/fixture-mcp-inventory.test.ts` needs one
+// binding each press answers for, and `fixture/settings/mcp-inventory.test.ts` needs one
 // of those answers to drive the inventory ledger with — and a second copy would drift on
 // exactly the half that matters, whether the reply is read through its computed arm or
 // its constant one: a suite still reading `result` would go green against a plane that

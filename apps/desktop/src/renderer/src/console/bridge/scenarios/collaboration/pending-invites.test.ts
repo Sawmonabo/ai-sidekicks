@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../../fixture/call-plane/bridge.js";
 import type { ConsoleBridge } from "../../console-bridge.js";
 import type { GrowthOutcome, GrowthStream } from "../../growth-port/growth-outcome.js";
 import type {

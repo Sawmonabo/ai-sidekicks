@@ -21,7 +21,7 @@ import {
   unscriptedScenario,
   withCapturedStream,
   type StreamUnderTest,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { PRESENCE_EVENT_STREAM, type ConsoleBridge } from "../../bridge/index.js";
 import type { GrowthPresenceDetail } from "../../bridge/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS, settle } from "../../core/settle.test-support.js";

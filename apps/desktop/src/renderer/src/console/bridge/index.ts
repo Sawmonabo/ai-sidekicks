@@ -223,7 +223,7 @@ export {
   useConsoleClock,
 } from "./BridgeProvider.js";
 
-export { createFixtureBridge } from "./fixture/fixture-bridge.js";
+export { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 
 // The one door a daemon reply enters the console through. Exported as the CALL
 // plus the answer it gives and the method set it admits — and deliberately not the

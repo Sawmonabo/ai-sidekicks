@@ -1,6 +1,6 @@
 // The identity the bridge's two scripted-reply probes run under.
 //
-// `read-settlement.test.ts` and `fixture-scripted-answer.test.ts` each stand a
+// `read-settlement.test.ts` and `fixture/growth/scripted-answer.test.ts` each stand a
 // scenario up that scripts replies and plays no beats, and each was declaring the
 // same session and participant pair to do it. Two literals of the same value is how
 // one suite's scenario ends up addressed at a session the other's is not, with

@@ -12,7 +12,7 @@ import {
   growthRefusing,
   growthServing,
   unscriptedScenario,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 import { ShellPreferenceStore } from "./shell-preferences-store.js";
 import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preference-snapshot.js";

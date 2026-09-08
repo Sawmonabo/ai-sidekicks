@@ -45,7 +45,7 @@ import { growthUnavailable } from "../../bridge/index.js";
 // mount module carried a second, so the type had three import homes and a suite could
 // name whichever one it happened to be importing something else from.
 export type { GrowthPortAnswer };
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";

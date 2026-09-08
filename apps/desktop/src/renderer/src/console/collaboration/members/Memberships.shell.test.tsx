@@ -19,7 +19,7 @@ import {
   unscriptedScenario,
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import type { FrameStore } from "../../store/index.js";

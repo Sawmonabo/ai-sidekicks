@@ -34,7 +34,7 @@ const ROSTER_FRAME_KIND = "runtime_node.offline";
 /**
  * A bridge whose roster this suite decides, and can decide again.
  *
- * A spread over the REAL fixture bridge, which is `fixture-bridge.test-support.ts`'s
+ * A spread over the REAL fixture bridge, which is `fixture/call-plane/bridge.test-support.ts`'s
  * shape for driving one namespace: everything the dialog reaches other than this one
  * read — the clock the scheduler runs on, the daemon door the attach itself would take
  * — stays the fixture's, so a case here really does drive a bridge.

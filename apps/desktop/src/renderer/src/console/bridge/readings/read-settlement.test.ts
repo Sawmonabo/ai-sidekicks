@@ -14,8 +14,8 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse, type WireErrorEnvelope } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { createFixture } from "../fixture/fixture-bridge.test-support.js";
-import { answerFromScriptedReply } from "../fixture/fixture-scripted-answer.js";
+import { createFixture } from "../fixture/call-plane/bridge.test-support.js";
+import { answerFromScriptedReply } from "../fixture/growth/scripted-answer.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import { growthUnavailable, growthUnscriptedReply } from "../growth-port/index.js";
 import type { GrowthOperationSignatures } from "../growth-signatures/index.js";

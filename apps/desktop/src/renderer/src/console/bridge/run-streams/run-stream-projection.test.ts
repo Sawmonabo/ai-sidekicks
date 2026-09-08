@@ -1,6 +1,6 @@
 // The projector's own behaviour, apart from the bridge that calls it.
 //
-// `fixture-bridge.run-streams.test.ts` drives this module through a real bridge and
+// `fixture/call-plane/bridge.run-streams.test.ts` drives this module through a real bridge and
 // a real engine, which is the right way to prove that a subscriber receives the
 // registered payload. It cannot prove two things, though, and they are the two a
 // wrong projector fails at silently:
@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../../store/index.js";
-import { PROBE_RUN_ID, runTransitionBeat } from "../fixture/fixture-bridge.test-support.js";
+import { PROBE_RUN_ID, runTransitionBeat } from "../fixture/call-plane/bridge.test-support.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import {

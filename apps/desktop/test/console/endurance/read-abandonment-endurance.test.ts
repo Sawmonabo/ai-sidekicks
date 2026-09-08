@@ -47,7 +47,7 @@ import { describe, expect, it } from "vitest";
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { callDaemon } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply.js";
-import { bridgeAnswering } from "../../../src/renderer/src/console/bridge/fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { SESSION_ID } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../src/renderer/src/console/core/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";

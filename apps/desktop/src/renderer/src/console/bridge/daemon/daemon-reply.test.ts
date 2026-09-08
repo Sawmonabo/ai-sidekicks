@@ -18,7 +18,7 @@ import type { ParticipantId } from "@ai-sidekicks/contracts";
 import { isConsoleRefusal } from "../../core/index.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN, describeFailingPaths } from "./daemon-reply.js";
 import { refusalOf, SESSION_ID } from "./daemon-reply.test-support.js";
-import { bridgeAnswering } from "../fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../fixture/call-plane/bridge.test-support.js";
 
 /** A participant id the branded schema accepts. Same seam, same run-time check. */
 const PARTICIPANT_ID = "019b79ee-0280-7f00-8110-a11ce0000001" as ParticipantId;

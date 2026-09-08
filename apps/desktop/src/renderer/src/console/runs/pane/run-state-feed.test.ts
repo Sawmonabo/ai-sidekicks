@@ -9,7 +9,7 @@ import { createElement } from "react";
 import {
   createFixture,
   withCapturedStream,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon/daemon-streams.js";
 import {

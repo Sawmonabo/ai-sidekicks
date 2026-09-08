@@ -33,7 +33,7 @@ import { settle } from "../../../core/settle.test-support.js";
 import {
   createFixture,
   withDaemonCall,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../../bridge/readings/scheduled-read.test-support.js";
 import {
   SidekicksBridgeProvider,

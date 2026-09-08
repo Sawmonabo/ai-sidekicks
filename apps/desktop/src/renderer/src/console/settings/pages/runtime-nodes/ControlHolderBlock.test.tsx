@@ -22,7 +22,7 @@ import type { NodeRosterReads } from "../../../../runtime-node-attach/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { SETTINGS_SCENARIO } from "../../../bridge/scenarios/settings.js";
 import { PARTICIPANT_YOU } from "../../../bridge/scenarios/settings/runtime-nodes.js";
-import { unscriptedScenario } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ConsoleRefusalError } from "../../../core/index.js";
 import { renderAbsorbedNodeRoster } from "../../../seats/index.js";
 import { SessionStore } from "../../../store/index.js";

@@ -99,7 +99,7 @@ const CHOKEPOINT_MODULE = "console/bridge/daemon/daemon-reply.ts";
  *
  * Scoped to `bridge/` rather than to test files generally. A bridge test exercises
  * the door itself — `scripted-reply.test.ts` asserts what the fixture answers a raw
- * call with, and `fixture-bridge.test-support.ts` exists to make that raw call — so
+ * call with, and `fixture/call-plane/bridge.test-support.ts` exists to make that raw call — so
  * routing them through `callDaemon` would mean testing the chokepoint through the
  * chokepoint. A test in any OTHER family has no such excuse: it is standing in for
  * a surface, and a surface goes through the door.

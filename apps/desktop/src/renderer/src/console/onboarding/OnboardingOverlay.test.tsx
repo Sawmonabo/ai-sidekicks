@@ -18,7 +18,7 @@ import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { bridgeAnswering } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";
 import { consoleCommands } from "../palette/index.js";

@@ -5,7 +5,7 @@
 // `due | abandoned | backlog-full` and says that "naming the refusal belongs to the
 // bridge". That left the parking-and-classifying half — look up the canned reply,
 // park it on the frozen clock when it scripts a latency, and decide which of the four
-// things happened — living privately inside `fixture-bridge.ts`, where the growth port
+// things happened — living privately inside `fixture/call-plane/bridge.ts`, where the growth port
 // could not reach it. The port needs the same seam for every operation a scenario
 // answers through a scripted reply, and the two implementations that would have
 // resulted are exactly the drift `apps/desktop/AGENTS.md` forbids: two sides of one
@@ -13,7 +13,7 @@
 //
 // So the classification lives here once and the two consumers name the refusal in
 // their own vocabulary. What each does with a settlement is genuinely different —
-// `fixture-bridge.ts` rejects from a method whose signature the preload contract
+// `fixture/call-plane/bridge.ts` rejects from a method whose signature the preload contract
 // fixes, while the growth port returns a `GrowthOutcome` a caller narrows on — and
 // that difference is the reason this module reports rather than throws.
 //
@@ -52,7 +52,7 @@ export const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-f
  * The code a call the scenario in play scripts nothing for refuses with.
  *
  * ONE SPELLING, TWO VOCABULARIES, AND THEY MEAN DIFFERENT THINGS ON PURPOSE. On the
- * `daemon.call` arm `fixture-bridge.ts` raises it as an AUTHORING error: every method
+ * `daemon.call` arm `fixture/call-plane/bridge.ts` raises it as an AUTHORING error: every method
  * a surface reaches through the call door is one the corpus registers, so a scenario
  * that scripts none has a gap in it. On the growth port it is a reading about the
  * SCENARIO: an operation the fixture serves, driven from a scenario that models

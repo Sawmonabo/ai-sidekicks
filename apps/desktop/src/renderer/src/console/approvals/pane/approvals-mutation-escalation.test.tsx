@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
-import { createFixture } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { FrameStore, type SessionStore } from "../../store/index.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";

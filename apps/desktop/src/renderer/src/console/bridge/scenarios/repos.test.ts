@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DaemonMethod, RepoMountHealth } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge } from "../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../fixture/call-plane/bridge.js";
 import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SCENARIO,

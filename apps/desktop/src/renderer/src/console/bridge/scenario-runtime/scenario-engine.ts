@@ -367,7 +367,7 @@ export class ScenarioEngine {
    * Never rejects. The outcome carries the refusal, because the vocabulary a
    * surface renders belongs to the bridge and not to the engine — and that holds
    * for a scripted REFUSAL too: the release says only that the reply came due,
-   * and `fixture-bridge.ts` is what turns a due `ScenarioRejectingReply` into a
+   * and `fixture/call-plane/bridge.ts` is what turns a due `ScenarioRejectingReply` into a
    * rejection. An engine that rejected here would have to know the wire's error
    * shape, which is the bridge boundary's vocabulary and not the playback
    * engine's.

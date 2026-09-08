@@ -34,7 +34,7 @@ import {
   fixtureBridgeWithGrowth,
   growthAnswering,
   growthServing,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import { settle } from "../../core/settle.test-support.js";
 import type { ConsoleBridge, GrowthImportProgress } from "../../bridge/index.js";
