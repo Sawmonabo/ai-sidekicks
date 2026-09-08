@@ -22,19 +22,14 @@
 // reference on a send today, so the strip says so beside the artifacts themselves
 // rather than letting a person press Send and discover it afterwards.
 
-import {
-  Chip,
-  DerivedFigure,
-  WireFigure,
-  formatByteQuantity,
-  formatCount,
-} from "../../../../console/primitives/index.js";
+import { DerivedFigure, formatCount } from "../../../../console/primitives/index.js";
 import {
   attachmentCarrierFill,
   type AttachmentCarrierBinding,
 } from "../../../../console/repos/index.js";
 import type { ComposerArtifactAttachment } from "../../../../console/seats/index.js";
 import { AttachmentChip } from "./AttachmentChip.js";
+import { FamilyAttachmentChip } from "./FamilyAttachmentChip.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import {
   ATTACHMENT_DELIVERY_HELD_COPY,
@@ -106,42 +101,5 @@ export function ComposerAttachmentBar(props: ComposerAttachmentBarProps): React.
         </p>
       )}
     </div>
-  );
-}
-
-/**
- * One artifact a view family put on this message.
- *
- * A DIFFERENT ROW FROM AN UPLOAD, deliberately: it has no ingest to watch, no retry to
- * offer, and no cancel to explain — it is already an artifact. What it shows is the
- * three things the family handed over, verbatim, and the one act still available: take
- * it back off this message, which leaves the artifact where it is.
- */
-function FamilyAttachmentChip(props: {
-  readonly attachment: ComposerArtifactAttachment;
-  readonly onForget: (artifactId: string) => void;
-}): React.JSX.Element {
-  const { attachment } = props;
-  // The pipeline's own figure, through the console's one byte formatter, with the
-  // exact stored count on the title — the treatment an upload's size already gets.
-  const sizeFigure = formatByteQuantity(attachment.byteLength);
-  return (
-    <li className="meridian-composer-attachment" aria-label={`Attachment ${attachment.artifactId}`}>
-      <span className="meridian-composer-attachment__line">
-        <WireFigure value={attachment.artifactId} />
-        <Chip label={attachment.mediaType} mono glyph="artifact" />
-        <WireFigure value={sizeFigure.text} title={String(attachment.byteLength)} />
-        <button
-          type="button"
-          className="meridian-composer-attachment__act"
-          title="Take this off the message. The artifact stays in the session."
-          onClick={() => {
-            props.onForget(attachment.artifactId);
-          }}
-        >
-          Remove
-        </button>
-      </span>
-    </li>
   );
 }

@@ -23,7 +23,7 @@
 import { useCallback } from "react";
 
 import type { ConsoleBridge } from "../../../../console/bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../../../../console/core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../../../../console/core/index.js";
 import { Glyph, InlineRefusal } from "../../../../console/primitives/index.js";
 import {
   composerAttachMenuEntries,
@@ -81,16 +81,22 @@ export function FamilyAttachMenu(props: FamilyAttachMenuProps): React.JSX.Elemen
         })
         .catch((failure: unknown) => {
           // Unreachable through the seat's own contract — an entry answers with an
-          // outcome — so this arm exists for an entry that throws rather than refuses,
-          // and it says exactly that rather than attributing the fault to the wire.
+          // outcome — so this arm exists for an entry that throws rather than refuses.
+          //
+          // READ THROUGH THE CONSOLE'S ONE REJECTION READER, never stringified here. A
+          // thrown value is a value nothing has been established about, and asking it
+          // for a spelling is a second throw raised from inside the report path; the
+          // reader is also the half that keeps a DAEMON code the entry's own call
+          // carried, which names a better next move than this menu's fallback can. The
+          // fallback is what an uncoded throw settles as, and it says what happened
+          // rather than attributing the fault to the wire.
           publishState({
             phase: "refused",
             entryId: entry.id,
-            refusal: refuse(
-              entry.owner,
-              "attach-entry-threw",
-              `The ${entry.owner} attach entry ended without answering: ${String(failure)}`,
-            ),
+            refusal: normalizeWireRejection(entry.owner, failure, {
+              code: "attach-entry-threw",
+              detail: `The ${entry.owner} attach entry ended without answering.`,
+            }),
           });
         });
     },
