@@ -23,6 +23,7 @@ import { createFixtureBridge } from "./fixture-bridge.js";
 import {
   callOperation,
   findScenariosNaming,
+  findScenariosStatingCallbackTool,
   fixturePort,
 } from "./fixture-growth-port.test-support.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
@@ -51,9 +52,6 @@ const VIEWER_NAMING_MEMBERS = [
   "callerParticipantId",
   "selfParticipantId",
 ] as const;
-
-/** Members a scenario would have to carry to state a registered callback tool. */
-const CALLBACK_TOOL_NAMING_MEMBERS = ["callbackTools", "inputSchema"] as const;
 
 describe("the fixture's identity read — answered from the field, refused without it", () => {
   it("answers which participant this window is, from the scenario's own statement", async () => {
@@ -132,7 +130,28 @@ describe("the fixture's identity read — answered from the field, refused witho
 
 describe("the fixture's registry reads — refusing on a stated premise", () => {
   it("plays no scenario that states a registered callback tool", () => {
-    expect(findScenariosNaming(CONSOLE_SCENARIOS, CALLBACK_TOOL_NAMING_MEMBERS)).toStrictEqual([]);
+    expect(findScenariosStatingCallbackTool(CONSOLE_SCENARIOS)).toStrictEqual([]);
+  });
+
+  it("reads a phase's own form schema as what it is, which is not a tool", () => {
+    // The narrowing this finder exists for, asserted rather than assumed. A phase
+    // parked on a person carries the schema its form is drawn from, and a census that
+    // banned the member name alone reported the workflows scenario for it — a refusal
+    // premise broken by a scenario that states no tool anywhere.
+    const withAPhaseSchema: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "states-a-phase-form",
+      replies: [
+        {
+          call: "workflow.runRead",
+          result: {
+            phaseStates: [{ parkReason: "waiting-human", inputSchema: { type: "object" } }],
+          },
+        },
+      ],
+    };
+
+    expect(findScenariosStatingCallbackTool([withAPhaseSchema])).toStrictEqual([]);
   });
 
   it("negative control: reports a scenario that DOES state one", () => {
@@ -147,8 +166,25 @@ describe("the fixture's registry reads — refusing on a stated premise", () => 
       ],
     };
 
-    expect(findScenariosNaming([withCallbackTools], CALLBACK_TOOL_NAMING_MEMBERS)).toStrictEqual([
+    expect(findScenariosStatingCallbackTool([withCallbackTools])).toStrictEqual([
       "states-a-callback-tool",
+    ]);
+  });
+
+  it("negative control: reports one stated under a member the reply never carries", () => {
+    // The near-miss the retired name census caught and this one must keep catching: a
+    // tool written into a scenario under some other member is still a stated tool, and
+    // the refusal it would make dishonest is the same one.
+    const withMisnamedTools: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "states-a-misnamed-callback-tool",
+      replies: [
+        { call: "session.read", result: { tools: [{ name: "workflow_start", inputSchema: {} }] } },
+      ],
+    };
+
+    expect(findScenariosStatingCallbackTool([withMisnamedTools])).toStrictEqual([
+      "states-a-misnamed-callback-tool",
     ]);
   });
 

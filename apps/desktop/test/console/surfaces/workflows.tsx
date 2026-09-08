@@ -64,6 +64,7 @@ import { renderSettled } from "../console-harness.js";
 
 import {
   createFixtureBridge,
+  SidekicksBridgeProvider,
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/workflows.js";
@@ -76,6 +77,9 @@ import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/se
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
+// The leaf and not the seats door, on `settled-capture.ts`'s reasoning: the reader has no
+// production caller, so the door does not publish it.
+import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pending-pane-body.js";
 import {
   FrameStore,
   SessionStore,
@@ -246,6 +250,12 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
 /**
  * The workflows destination, mounted and waited on until its rows have landed.
  *
+ * Every workflows mount here renders under the bridge provider, as the shell mounts
+ * every body: a pane body reads its bridge off its context, but a slot body standing
+ * in a seat is handed only the owner's mount and reaches the bridge through the
+ * provider (`pane/run/slots/HumanFormSubmitChannel.tsx`), so a capture mounted bare would
+ * throw where the running console does not.
+ *
  * Through the rail's own surface seat, with a session in scope — which is how a
  * person reaches it, and what the definition enumeration's request requires. The
  * announcer is mounted around it because the surface announces the scope it settled
@@ -269,9 +279,11 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowsDestinationBody = await surfaceBodyComponent();
   const { container } = await renderSettled(
-    <LiveAnnouncerProvider>
-      <WorkflowsDestinationBody context={surfaceContext(bridge)} />
-    </LiveAnnouncerProvider>,
+    <SidekicksBridgeProvider bridge={bridge}>
+      <LiveAnnouncerProvider>
+        <WorkflowsDestinationBody context={surfaceContext(bridge)} />
+      </LiveAnnouncerProvider>
+    </SidekicksBridgeProvider>,
   );
   const element = container.querySelector<HTMLElement>(".meridian-workflows-destination");
   if (element === null) {
@@ -299,26 +311,39 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  * header gives: a run with nothing parked would pin the emptiest frame the surface
  * has instead of its busiest, and the park banner is the thing an operator opens
  * this pane for.
+ *
+ * WAITED ON TWICE, because the pane arrives in two steps. The run read landing puts the
+ * park banners on the page; the waiting-human park then mounts the schema form, whose
+ * kit is its own chunk and rides the pending-body marker until it lands. A mount that
+ * returned on the first step handed the screenshot tier a tree still carrying that
+ * marker, and the tier refused the capture — correctly, and non-deterministically,
+ * since the chunk sometimes beat the capture and sometimes did not.
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
-    <WorkflowRunPaneBody
-      context={paneContext(
-        {
-          kind: "workflow-run",
-          paneId: "pane-workflow-run-surface",
-          entity: { kind: "workflow-run", id: WORKFLOWS_PARKED_RUN.workflowRunId },
-        },
-        bridge,
-      )}
-    />,
+    <SidekicksBridgeProvider bridge={bridge}>
+      <WorkflowRunPaneBody
+        context={paneContext(
+          {
+            kind: "workflow-run",
+            paneId: "pane-workflow-run-surface",
+            entity: { kind: "workflow-run", id: WORKFLOWS_PARKED_RUN.workflowRunId },
+          },
+          bridge,
+        )}
+      />
+    </SidekicksBridgeProvider>,
   );
   const region = requirePaneNamed(container, "Workflow run");
   await waitFor(() => {
     if (region.querySelector(".meridian-park") === null) {
       throw new Error("the run read has not landed yet");
+    }
+    const pendingKinds = pendingPaneKindsIn(region);
+    if (pendingKinds.length > 0) {
+      throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
     }
   });
   return { element: region, bridge };
@@ -361,16 +386,18 @@ export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> 
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowBuilderPaneBody = await paneBodyComponent("workflow-builder");
   const { container } = await renderSettled(
-    <WorkflowBuilderPaneBody
-      context={paneContext(
-        {
-          kind: "workflow-builder",
-          paneId: "pane-workflow-builder-surface",
-          entity: { kind: "workflow-definition", id: scenarioDefinitionId() },
-        },
-        bridge,
-      )}
-    />,
+    <SidekicksBridgeProvider bridge={bridge}>
+      <WorkflowBuilderPaneBody
+        context={paneContext(
+          {
+            kind: "workflow-builder",
+            paneId: "pane-workflow-builder-surface",
+            entity: { kind: "workflow-definition", id: scenarioDefinitionId() },
+          },
+          bridge,
+        )}
+      />
+    </SidekicksBridgeProvider>,
   );
   return { element: requirePaneNamed(container, "Workflow builder"), bridge };
 }

@@ -21,8 +21,7 @@ import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture
 import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";
-import { WorkflowRunPane } from "./WorkflowRunPane.js";
-import { paneContext } from "./WorkflowRunPane.test-support.js";
+import { paneContext, paneInWindow } from "./WorkflowRunPane.test-support.js";
 
 vi.mock(import("./slots/HumanFormSlot.js"), { spy: true });
 
@@ -111,9 +110,7 @@ describe("a run pane retargeted at another run", () => {
    */
   async function openSecondWaitThenRetarget(): Promise<void> {
     const bridge = createFixtureBridge({ scenario: TWO_RUN_SCENARIO });
-    const { container, rerender } = render(
-      <WorkflowRunPane context={paneContext(addressOf(RUN_A), bridge)} />,
-    );
+    const { container, rerender } = render(paneInWindow(paneContext(addressOf(RUN_A), bridge)));
 
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-park__form-action")).toHaveLength(1);
@@ -125,7 +122,7 @@ describe("a run pane retargeted at another run", () => {
     fireEvent.click(openTheSecond);
     expect(mountedForm()?.phaseId).toBe(humanWaitPhaseIds(RUN_A)[1]);
 
-    rerender(<WorkflowRunPane context={paneContext(addressOf(RUN_B), bridge)} />);
+    rerender(paneInWindow(paneContext(addressOf(RUN_B), bridge)));
     await waitFor(() => {
       expect(mountedForm()?.workflowRunId).toBe(RUN_B_ID);
     });
@@ -154,9 +151,7 @@ describe("a run pane retargeted at another run", () => {
     // selection on every render, which would make the second card's route unusable —
     // the operator would click it and watch the first form open again.
     const bridge = createFixtureBridge({ scenario: TWO_RUN_SCENARIO });
-    const { container, rerender } = render(
-      <WorkflowRunPane context={paneContext(addressOf(RUN_A), bridge)} />,
-    );
+    const { container, rerender } = render(paneInWindow(paneContext(addressOf(RUN_A), bridge)));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-park__form-action")).toHaveLength(1);
     });
@@ -166,7 +161,7 @@ describe("a run pane retargeted at another run", () => {
     }
     fireEvent.click(openTheSecond);
 
-    rerender(<WorkflowRunPane context={paneContext(addressOf(RUN_A), bridge)} />);
+    rerender(paneInWindow(paneContext(addressOf(RUN_A), bridge)));
     expect(mountedForm()?.phaseId).toBe(humanWaitPhaseIds(RUN_A)[1]);
   });
 });

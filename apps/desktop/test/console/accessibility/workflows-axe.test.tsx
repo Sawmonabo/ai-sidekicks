@@ -22,6 +22,14 @@
 // beside the instant the wire sent — a pair whose accessible reading is the thing
 // this tier is the instrument for.
 //
+// AND ONE COMPOSITION NO REGISTERED SURFACE CAN REACH. A human phase's form draws a
+// repeated control per list entry, and an entry exists only after a person adds one — so
+// the three mounts above audit a form that has never had one, and the control they never
+// see is the one drawn straight through the field dispatch with none of the chrome that
+// names a scalar field. It is audited as a component, on `collaboration-axe.test.tsx`'s
+// reasoning: one scheme, because it carries no surface of its own and inherits the tokens
+// the three surfaces above are already measured under.
+//
 // AND IT IS THE CASE THAT HAS TO BE WAITED FOR. Its phase graph is a lazily-loaded
 // chunk, and the mount helper returns on the run READ — the park banner — which lands
 // before the chunk does. `phase-graph-settled.test.ts` proves exactly that: at the
@@ -32,9 +40,10 @@
 // a graph, because the helper answers "no graph here" and "the graph has not arrived"
 // differently and a per-surface exception would be a second rule to keep true.
 
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../console-harness.js";
+import { emulateSystemScheme, renderSettled } from "../console-harness.js";
 import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
@@ -50,6 +59,13 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
+// The seats door, for the schema form chunk's loader. The kit is not on the initial graph —
+// its two composed surfaces and its own sheet arrive together when a form first mounts —
+// so the cases below resolve that chunk and audit the component it publishes, which is
+// what puts the sheet on the page. The family sheet the entry's controls also draw
+// against is already there: `../surfaces/workflows.js` above imports the family door for
+// its registrars.
+import { schemaFormChunk } from "../../../src/renderer/src/console/seats/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
@@ -97,6 +113,69 @@ describe("accessibility — the workflows surfaces", () => {
       });
     }
   }
+
+  it("has no axe violation on a human phase's form once list entries are added", async () => {
+    const { SchemaFormAnswer } = await schemaFormChunk.load();
+    const { container } = await renderSettled(
+      <SchemaFormAnswer
+        prompt="Who signs this release off?"
+        inputSchema={{
+          type: "object",
+          properties: {
+            reviewers: {
+              type: "array",
+              title: "Reviewers",
+              // A constraint on the ENTRY rather than on the collection, so the added
+              // entries carry findings of their own: the composition audited here is a
+              // repeated control with a name, a verdict, and the relationship between
+              // them, and a form with nothing wrong with it would audit none of that.
+              items: { type: "string", minLength: 3 },
+            },
+          },
+          required: ["reviewers"],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+    const addEntry = screen.getByRole("button", { name: "Add an entry to Reviewers" });
+    fireEvent.click(addEntry);
+    fireEvent.click(addEntry);
+    // Stated before it is measured: an audit of a list with no entries is an audit of
+    // the surface the three mounts above already cover.
+    expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(2);
+
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
+  });
+
+  it("has no axe violation on the raw editor while the schema refuses the document", async () => {
+    // THE OTHER ARM, AND THE ONE WHERE EVERYTHING IS IN ONE CONTROL. A schema outside the
+    // drawn set is answered as JSON, so the verdict on the whole answer has a single
+    // textarea to attach to — and until this landed it attached to nothing, leaving a
+    // reader who never moves focus out of the editor with no indication of the invalid
+    // state and no route to the sentences. The mount is a component's for the reason the
+    // list-entry case above is: no registered surface opens this arm.
+    const { SchemaFormAnswer } = await schemaFormChunk.load();
+    const { container } = await renderSettled(
+      <SchemaFormAnswer
+        prompt="Describe the rows this phase should publish."
+        inputSchema={{
+          type: "object",
+          // An array of objects is outside the drawn render set, so the mapper answers
+          // with the editor — and the schema still compiles, so there is a verdict.
+          properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
+          required: ["rows"],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+    const editor = container.querySelector(".meridian-schema-raw__editor");
+
+    // Stated before it is measured: an audit of a valid document is an audit of a surface
+    // carrying neither the invalid state nor the findings this case exists for.
+    expect(editor?.getAttribute("aria-invalid")).toBe("true");
+
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
+  });
 
   it("finds a planted violation, so a clean result means something", async () => {
     // Negative control for this file's own runs: the six cases above expect an

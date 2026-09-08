@@ -23,17 +23,13 @@
 //
 // NOBODY PRESSES ANYTHING, and that is checked rather than said. The other half of the
 // pane's round is an operator's own act coming back served, so both mutating operations
-// are wrapped and counted, and both cases assert zero.
+// are wrapped and counted, and both cases assert zero. That other half has a suite of
+// its own in `WorkflowRunPane.form-rearm.test.tsx`, which drives the same moving-run
+// bridge from the shared harness and moves the run by answering the park instead.
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  createFixtureBridge,
-  type ConsoleBridge,
-  type GrowthPort,
-  type WorkflowPhaseState,
-  type WorkflowRunSnapshot,
-} from "../../../bridge/index.js";
+import { type ConsoleBridge } from "../../../bridge/index.js";
 import {
   advanceScenarioOneInterval,
   advanceScenarioUntil,
@@ -45,8 +41,11 @@ import type { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import {
   PARKED,
+  RUN_WITH_HUMAN_PARK_ANSWERED,
+  bridgeWhoseRunMoves,
   initialisedSessionStore,
   paneContext,
+  parkedPhaseCountOf,
   renderPane,
 } from "./WorkflowRunPane.test-support.js";
 
@@ -56,24 +55,7 @@ const PARK_SELECTOR = ".meridian-park";
 /** How many of the fixture run's phases are parked when the pane first reads it. */
 const PARKED_PHASE_COUNT = parkedPhaseCountOf(WORKFLOWS_PARKED_RUN);
 
-/**
- * The same run once the sign-off phase's human park has been answered.
- *
- * DERIVED FROM THE FIXTURE RATHER THAN WRITTEN OUT, so a scenario that re-keys its
- * phases moves this with it and the two cannot describe different runs. The park
- * members are live-scoped — a daemon emits them for exactly the phases parked when the
- * response was built — so a phase that has completed carries none of them and carries
- * no open form revision either, which is what makes one fewer card the honest reading
- * of this answer rather than a card being hidden.
- */
-const RUN_WITH_HUMAN_PARK_ANSWERED: WorkflowRunSnapshot = {
-  ...WORKFLOWS_PARKED_RUN,
-  phaseStates: WORKFLOWS_PARKED_RUN.phaseStates.map((phase) =>
-    phase.parkReason === "waiting-human" ? completedPhase(phase) : phase,
-  ),
-};
-
-/** And how many stand once it has. One fewer, off the same derivation. */
+/** How many stand once the human park has been answered. One fewer, same derivation. */
 const ANSWERED_PARK_COUNT = parkedPhaseCountOf(RUN_WITH_HUMAN_PARK_ANSWERED);
 
 /**
@@ -95,88 +77,6 @@ afterEach(() => {
     detach();
   }
 });
-
-/** How many phases of one run carry the park discriminator. */
-function parkedPhaseCountOf(run: WorkflowRunSnapshot): number {
-  return run.phaseStates.filter((phase) => phase.parkReason !== undefined).length;
-}
-
-/**
- * One phase, completed and therefore carrying no park and no open form.
- *
- * The identity members are carried through where the fixture states them and omitted
- * where it does not, rather than passed as an explicit `undefined`: the wire's own rule
- * is that their PRESENCE is the claim, and a completed phase is still the same
- * execution instance it was while it ran.
- */
-function completedPhase(phase: WorkflowPhaseState): WorkflowPhaseState {
-  return {
-    phaseId: phase.phaseId,
-    ...(phase.phaseRunId === undefined ? {} : { phaseRunId: phase.phaseRunId }),
-    ...(phase.attemptNumber === undefined ? {} : { attemptNumber: phase.attemptNumber }),
-    state: "completed",
-    gateState: "open",
-  };
-}
-
-/** A fixture bridge whose run read can move, with both instruments on it. */
-interface MovingRunBridge {
-  readonly bridge: ConsoleBridge;
-  /** How many times the daemon was asked for this run. The re-read instrument. */
-  readonly runReadCount: () => number;
-  /** How many times an operator control reached the wire. Zero in every case here. */
-  readonly controlCallCount: () => number;
-  /** The engine moved the run, so the next answer carries one park fewer. */
-  readonly reportRunAdvanced: () => void;
-}
-
-/**
- * The workflows fixture, with the run read answering a run that can move.
- *
- * THE FIXTURE'S OWN PORT UNDERNEATH, with three operations wrapped and the rest passed
- * through: the version chain the pane resolves from the served snapshot, the phase
- * outputs, and every refusal the mutating wires give are the fixture's answers still, so
- * this bridge differs from the one every other run-pane suite mounts in exactly the axis
- * these cases vary.
- *
- * WHY THE READ IS SCRIPTED AT ALL. The fixture answers `workflow.runRead` from a fixed
- * table, so a re-read of it returns the same bytes and a pane that re-read would look
- * identical to one that did not. A daemon whose run has moved answers differently, and
- * that is the whole subject here — so the moved answer is armed by the case at the same
- * moment the case says the run moved.
- */
-function bridgeWhoseRunMoves(): MovingRunBridge {
-  const fixture = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  let runReads = 0;
-  let controlCalls = 0;
-  let hasAdvanced = false;
-  const growth: GrowthPort = {
-    ...fixture.growth,
-    workflowRunRead: async () => {
-      runReads += 1;
-      return {
-        status: "served",
-        value: hasAdvanced ? RUN_WITH_HUMAN_PARK_ANSWERED : WORKFLOWS_PARKED_RUN,
-      };
-    },
-    workflowRunCancel: async (request) => {
-      controlCalls += 1;
-      return fixture.growth.workflowRunCancel(request);
-    },
-    workflowRunResume: async (request) => {
-      controlCalls += 1;
-      return fixture.growth.workflowRunResume(request);
-    },
-  };
-  return {
-    bridge: { ...fixture, growth },
-    runReadCount: () => runReads,
-    controlCallCount: () => controlCalls,
-    reportRunAdvanced: () => {
-      hasAdvanced = true;
-    },
-  };
-}
 
 /**
  * The pane's session, fed the running scenario's own beats as the clock delivers them.
