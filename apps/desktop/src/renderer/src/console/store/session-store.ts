@@ -113,10 +113,11 @@ export class SessionStore {
   /**
    * Rows this store holds that arrived from behind its window's head.
    *
-   * Held as a count rather than as a flag because it is the reading a surface wants —
-   * how much history has been re-admitted — and because zero is the same fact as "no
-   * backward page has landed". It resets on `initialise`, which is the one act that
-   * re-establishes where the window starts.
+   * Private, and read by exactly one thing: `#retainedEnd`, which is the whole of what
+   * the count is for — a log that has grown at its head is capped from the other end.
+   * A count rather than a flag because zero is the same fact as "no backward page has
+   * landed", and it resets on `initialise`, which is the one act that re-establishes
+   * where the window starts.
    */
   #earlierEventCount = 0;
   readonly #windowGenerations = new GenerationLatch();
@@ -175,11 +176,6 @@ export class SessionStore {
   /** Sequences still retained for duplicate detection. Bounded by construction. */
   public get retainedDedupeSequenceCount(): number {
     return this.#reconciler.retainedSequenceCount;
-  }
-
-  /** Rows admitted from behind this window's head since the last read established it. */
-  public get earlierEventCount(): number {
-    return this.#earlierEventCount;
   }
 
   /**
