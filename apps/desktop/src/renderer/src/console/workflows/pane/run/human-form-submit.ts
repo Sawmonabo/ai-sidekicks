@@ -63,7 +63,7 @@
 // answer had been recorded.
 
 import {
-  settleGrowthRead,
+  settleGrowthCall,
   type GrowthPort,
   type GrowthUnavailable,
   type SettledReadRefusal,
@@ -263,7 +263,12 @@ export function useHumanFormSubmit(
       // what was answered in the order the schema declared it — which is the position an
       // unresolved attachment is reported back in.
       const attachmentArtifactIds = attachmentArtifactIdsIn(phase.inputSchema, fields);
-      void settleGrowthRead(
+      // Through the CALL seam and not the read one. A port that throws before it returns
+      // would otherwise throw out of this argument expression, past the settlement and
+      // past the `.finally` below — neither of which exists yet — leaving the key claimed
+      // and this attempt at `submitting` with no answer coming and every later press
+      // refused as a duplicate of a call that never left the window.
+      void settleGrowthCall(() =>
         growth.workflowHumanFormSubmit({
           workflowRunId: phase.workflowRunId,
           phaseId: phase.phaseId,

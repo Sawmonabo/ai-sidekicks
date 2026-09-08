@@ -15,11 +15,15 @@
 // opening the menu twice in one session asks nothing the second time, and a composer
 // re-addressed to another session reads that session's list from the first frame.
 //
-// EVERY STATE IS DRAWN AND NONE IS GUESSED. A read in flight, a refused read, an
+// EVERY STATE IS DRAWN AND NONE IS GUESSED. A read in flight, a refused read, a page
+// that held nothing while the enumeration goes on — being read, or waiting to be — an
 // enumeration that is genuinely empty, a start in flight, a start that landed, and a
-// start the daemon denied are six different things a person can meet here, and each says
-// which it is. In particular an empty enumeration is not a dead control: it says where
-// definitions come from rather than offering a button that would refuse.
+// start the daemon denied are seven different things a person can meet here, and each
+// says which it is. In particular an empty enumeration is not a dead control: it says
+// where definitions come from rather than offering a button that would refuse. And the
+// third of those is not the fourth — the daemon reporting an unread page is the one
+// thing that separates "there are none" from "none have been read", which is a claim
+// this menu may not make on its behalf.
 //
 // NO ELIGIBILITY IS DERIVED HERE. Whether this participant may start a run is the
 // daemon's adjudication; the control is offered and its refusal is rendered. A menu that
@@ -104,13 +108,9 @@ export function WorkflowStartMenu(props: WorkflowStartMenuProps): React.JSX.Elem
       {state.status === "unavailable" ? (
         <InlineRefusal code={state.refusal.code} detail={state.refusal.detail} />
       ) : null}
-      {state.status === "served" && state.definitions.length === 0 ? (
-        <Nothing
-          kind="empty"
-          title="This session resolves no workflow definitions."
-          detail="Definitions are authored in the workflows destination; one saved there becomes startable here."
-        />
-      ) : null}
+      {state.status === "served" && state.definitions.length === 0
+        ? renderNoDefinitions(state.continuation)
+        : null}
       {state.status === "served" && state.definitions.length > 0 ? (
         <ul className="meridian-workflow-start-menu__list" aria-label="Workflow definitions">
           {state.definitions.map((definition) => (
@@ -145,6 +145,57 @@ export function WorkflowStartMenu(props: WorkflowStartMenuProps): React.JSX.Elem
         : null}
       {renderAct(dispatch.act)}
     </div>
+  );
+}
+
+/**
+ * What an enumeration holding no rows may claim about itself, which depends on whether
+ * it is finished.
+ *
+ * THREE ABSENCES BECAUSE THREE THINGS ARE TRUE AT DIFFERENT MOMENTS, and the browser's
+ * own scope groups already draw exactly this split. `not-loaded` while a page that could
+ * hold definitions is arriving — wait. `not-checked` once it has, while a cursor remains,
+ * because a cursor API may legitimately serve an empty intermediate page and the daemon
+ * has explicitly said the enumeration is not finished. `empty` only when it is — the read
+ * succeeded, found none, and the next move is to author one.
+ *
+ * The middle arm is the one this menu used to skip. The definitive claim stood over a
+ * page the daemon had told it was not the last, and stood directly above the control
+ * offering to read the pages it had just said were not worth reaching — the console
+ * asserting a result nobody gave it, which is the conflation the five kinds exist to
+ * prevent. A refused continuation lands on the same arm as an unfollowed cursor, and the
+ * daemon's own sentence is rendered once, beside the control that retries it.
+ *
+ * On a SURFACE rather than at `not-checked`'s ordinary inline mount: this stands in for
+ * the list, and the badge form carries its second line only as a tooltip — which is where
+ * the whole of the reason lives.
+ */
+function renderNoDefinitions(continuation: WorkflowDefinitionContinuation): React.ReactNode {
+  if (continuation.status === "reading") {
+    return (
+      <Nothing
+        kind="not-loaded"
+        placement="surface"
+        title="Reading the next page of workflow definitions."
+      />
+    );
+  }
+  if (continuation.status !== "exhausted") {
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="surface"
+        title="No workflow definitions in the pages read so far."
+        detail="The enumeration has more pages and the console has not read them. Reading on may reach definitions this session can start."
+      />
+    );
+  }
+  return (
+    <Nothing
+      kind="empty"
+      title="This session resolves no workflow definitions."
+      detail="Definitions are authored in the workflows destination; one saved there becomes startable here."
+    />
   );
 }
 

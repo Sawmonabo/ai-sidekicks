@@ -109,6 +109,43 @@ export async function settleGrowthRead<TOutcome>(
   }
 }
 
+/**
+ * Settle a growth CALL, so a port that throws before it returns settles like one that
+ * rejects.
+ *
+ * THE THUNK IS THE WHOLE OF IT, AND IT IS LOAD-BEARING. `settleGrowthRead` above takes a
+ * promise, so the call producing it is evaluated in the CALLER's own argument expression
+ * — and a port implementation that fails on the calling turn throws there, outside this
+ * seam entirely. Nothing normalizes it and nothing publishes, so the surface holds
+ * whatever it published on the way in for as long as it lives. Measured three times in
+ * this console: the picker's start stayed at `starting` with its rows closed and no
+ * answer coming; the run controls stayed at `dispatching` with the rejection nobody
+ * held; and the human form's submit did both and kept its generation key as well —
+ * because there the release rides a `.finally` that is one of the handlers still being
+ * built when the throw happens, so every later press was refused as a duplicate of a
+ * call that never left. Taking the call rather than its promise moves that throw inside
+ * the async boundary below, where it settles as a rejection, which is the one shape
+ * `settleGrowthRead` reads.
+ *
+ * THE CALL IS STILL MADE ON THE CALLER'S OWN TURN. An async body runs to its first
+ * suspension before it yields, so the request leaves in the same tick the caller asked in
+ * — which is what lets a dispatch claim its key and put its call with no turn in between
+ * for a second press to arrive on.
+ *
+ * A `try`/`catch` here instead would be a second reading of a rejection this console
+ * keeps in one place, which is the whole reason that place exists.
+ */
+export function settleGrowthCall<TOutcome>(
+  call: () => Promise<TOutcome>,
+): Promise<TOutcome | SettledReadRefusal> {
+  return settleGrowthRead(putGrowthCall(call));
+}
+
+/** The call, made where a synchronous throw is already a rejected promise. */
+async function putGrowthCall<TOutcome>(call: () => Promise<TOutcome>): Promise<TOutcome> {
+  return call();
+}
+
 /** A settled read's current value, and the publisher its own answers arrive through. */
 export interface SettledGrowthRead<TState> {
   readonly value: TState;

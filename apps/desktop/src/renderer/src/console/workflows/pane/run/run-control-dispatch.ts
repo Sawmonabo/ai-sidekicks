@@ -49,7 +49,7 @@
 // would have to sum.
 
 import {
-  settleGrowthRead,
+  settleGrowthCall,
   type GrowthPort,
   type GrowthUnavailable,
   type SettledReadRefusal,
@@ -258,11 +258,16 @@ function advanceServedActRound(runtime: RunControlRuntime): void {
 /**
  * Claim this act's key, put the call, and settle whatever comes back.
  *
- * `settleGrowthRead` and not a bare `await`, because a growth call can also REJECT: a
+ * `settleGrowthCall` and not a bare `await`, because a growth call can also REJECT: a
  * scenario that scripts a daemon refusal throws it verbatim and the live seam will
  * throw the same shape once the wire lands. A fulfilment handler alone would leave
  * the control reading `dispatching` for the life of the pane over an answer that had
  * already arrived — the one shape a dispatched act must never take.
+ *
+ * And the CALL rather than its promise, which covers the other way a port can fail: one
+ * that throws before it returns throws out of the argument expression, so the `finally`
+ * below still gives the key back but nothing publishes and the control reads
+ * `dispatching` for exactly as long. The seam takes both endings to one refusal.
  */
 async function dispatchAct<TValue>(
   runtime: RunControlRuntime,
@@ -280,7 +285,7 @@ async function dispatchAct<TValue>(
   }
   publishOutcome(runtime, action, { kind: "dispatching" });
   try {
-    const outcome = outcomeOf(await settleGrowthRead(call()), describe);
+    const outcome = outcomeOf(await settleGrowthCall(call), describe);
     claim.settle(() => {
       publishOutcome(runtime, action, outcome);
     });

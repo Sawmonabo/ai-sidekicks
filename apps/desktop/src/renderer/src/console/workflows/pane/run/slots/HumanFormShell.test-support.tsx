@@ -98,6 +98,32 @@ export function bridgeWatchingSubmits(refusal?: WireErrorEnvelope): SubmitProbe 
   return { bridge: { ...fixture, growth }, requests };
 }
 
+/** What a port raises when it fails before it has a promise to reject with. */
+export const SUBMIT_DISPATCH_FAILURE = "the bridge was torn down before the submit was put";
+
+/**
+ * A bridge whose submit throws on the CALLING turn rather than rejecting.
+ *
+ * `async` is deliberately absent, and that absence is the whole fixture: an `async` port
+ * that throws hands back the rejected promise the settlement seam already reads, which is
+ * the case the refusal suite above covers. A port that throws before it returns fails
+ * while the ARGUMENT to that seam is still being evaluated — a precondition that raises,
+ * a bridge already torn down — so the failure reaches the dispatch by a route that has
+ * nothing downstream of it yet to catch it.
+ */
+export function bridgeThrowingSubmits(): SubmitProbe {
+  const fixture = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+  const requests: Parameters<GrowthPort["workflowHumanFormSubmit"]>[0][] = [];
+  const growth: GrowthPort = {
+    ...fixture.growth,
+    workflowHumanFormSubmit: (request) => {
+      requests.push(request);
+      throw new Error(SUBMIT_DISPATCH_FAILURE);
+    },
+  };
+  return { bridge: { ...fixture, growth }, requests };
+}
+
 /** One submit the case settles by hand, and what it was asked. */
 export interface HeldSubmit extends SubmitProbe {
   readonly serve: () => void;
