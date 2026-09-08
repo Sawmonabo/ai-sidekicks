@@ -90,9 +90,12 @@ const rendererOutputDirectory: string =
 /**
  * The assets a launch fetches before it can paint, named without their content hashes.
  *
- * Four: the entry chunk and its stylesheet, `routing`, which the entry and every body
- * that reads an address both reach, and `core`, hoisted out BECAUSE it is shared with
- * lazy bodies and therefore initial by construction.
+ * Five: the entry chunk and its stylesheet, `routing`, which the entry and every body
+ * that reads an address both reach, `core`, hoisted out BECAUSE it is shared with lazy
+ * bodies and therefore initial by construction, and `chunk` — rolldown's shared
+ * CommonJS-interop runtime (`__commonJS` / `__toESM`), hoisted into a chunk of its own
+ * once the lazy bodies shared it, imported by the entry, and holding no module at all
+ * (the bundler's own table says so, and `MODULE_FREE_CHUNKS` below pins that reading).
  *
  * WHAT MOVES THIS LIST, AND WHAT MUST NOT. A chunk appearing here that names a view
  * family is the eager import this census exists to catch, and the check names the
@@ -104,7 +107,22 @@ const rendererOutputDirectory: string =
  * a regression, and it is why the total gzip figure the budget gate reads is the
  * measurement of record; this list is the membership.
  */
-const INITIAL_GRAPH_CHUNKS: readonly string[] = ["core.js", "index.css", "index.js", "routing.js"];
+const INITIAL_GRAPH_CHUNKS: readonly string[] = [
+  "chunk.js",
+  "core.js",
+  "index.css",
+  "index.js",
+  "routing.js",
+];
+
+/**
+ * The initial chunks the bundler compiled out of no file — exactly one today.
+ *
+ * Pinned so a second one is a red check: a module-free chunk moves no module and no
+ * byte worth a budget row, so it is invisible to every other reading here, and a change
+ * in how the bundler splits its runtime is still a change somebody should look at.
+ */
+const MODULE_FREE_CHUNKS: readonly string[] = ["chunk.js"];
 
 /**
  * A module in a directory the initial graph must not hold, for the negative controls.
@@ -137,6 +155,10 @@ describe("renderer initial-graph census", () => {
 
   it("fetches exactly the chunks a launch is known to need", () => {
     expect(census.chunkNames).toStrictEqual(INITIAL_GRAPH_CHUNKS);
+  });
+
+  it("carries exactly the module-free chunks the build is known to emit", () => {
+    expect(census.moduleFreeChunks).toStrictEqual(MODULE_FREE_CHUNKS);
   });
 
   it("holds exactly the modules this repository pinned, under exactly those owners", () => {
