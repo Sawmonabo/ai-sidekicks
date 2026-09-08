@@ -1,12 +1,14 @@
-// The form stack's door: two components out, and the sheet that dresses them.
+// The form stack's door: two components out, one reading beside them, and the sheet that
+// dresses them.
 //
 // A SUB-MODULE DOOR, PUBLISHING TO THIS FAMILY ONLY. The whole stack — the mapper, the
-// hook, the six controls, the two containers, the raw editor — is reached through these
-// two names, because a human phase's input schema reaches this console at exactly two
-// surfaces: the definition detail, which reads a version body, and the run pane, whose
-// run read now carries the waiting phase's own prompt and schema. A door publishing the
-// pieces would be an invitation to compose a third form somewhere else out of parts that
-// only agree when they are composed in this directory.
+// hook, the six controls, the two containers, the raw editor — is reached through the
+// three names below, because a human phase's input schema reaches this console at exactly
+// two surfaces: the definition detail, which reads a version body, and the run pane,
+// whose run read now carries the waiting phase's own prompt and schema, and at one seam
+// beside them, where that pane's submit is composed. A door publishing the pieces would
+// be an invitation to compose a third form somewhere else out of parts that only agree
+// when they are composed in this directory.
 //
 // WHICH IS WHY THE SECOND COMPOSER IS HERE RATHER THAN AT ITS MOUNT. The run pane's
 // human form is composed in `HumanPhaseFormAnswer.tsx` beside the preview, not in the
@@ -18,13 +20,21 @@
 // whichever chunk reaches this door — today the builder pane's, where a definition is
 // read, and the run pane's, where one is answered.
 //
-// WHAT LEAVES AND WHAT DOES NOT. The two composed surfaces leave. `useSchemaForm`,
-// `planSchemaForm` and `compileSchemaValidator` do not, and their absence is the
-// boundary rather than an omission: a caller assembling those three itself would be a
-// second answer to what a schema draws, and the one place a form is drawn is
-// `SchemaForm.tsx`.
+// WHAT LEAVES AND WHAT DOES NOT. The two composed surfaces leave, and one composed
+// READING beside them. `useSchemaForm`, `planSchemaForm` and `compileSchemaValidator` do
+// not, and their absence is the boundary rather than an omission: a caller assembling
+// those three itself would be a second answer to what a schema draws, and the one place a
+// form is drawn is `SchemaForm.tsx`.
+//
+// THE READING IS THE ATTACHMENT CARRIER'S. The submit a run pane dispatches has to say
+// which of an answer's values are artifacts, and that is the mapper's knowledge — which
+// members the schema declared as artifact fields, and in what order. It leaves as one
+// answer for the same reason the composers do: a caller walking the schema itself would
+// be a second reading of what an artifact member is, and it would drift the first time
+// the mapper's own reading moved.
 
 import "./schema-form.css";
 
 export { HumanPhaseFormAnswer } from "./HumanPhaseFormAnswer.js";
 export { HumanPhaseFormPreview } from "./HumanPhaseFormPreview.js";
+export { attachmentArtifactIdsIn } from "./schema-artifact-members.js";

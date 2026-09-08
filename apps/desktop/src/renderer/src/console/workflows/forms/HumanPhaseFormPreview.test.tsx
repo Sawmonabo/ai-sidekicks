@@ -78,10 +78,30 @@ describe("the human phase form preview", () => {
   it("opens the raw editor rather than refusing when the schema is outside the drawn set", () => {
     const { container } = render(
       <HumanPhaseFormPreview
-        phase={phase("human", { prompt: "Anything?", inputSchema: { type: "string" } })}
+        phase={phase("human", {
+          prompt: "Anything?",
+          // Object-rooted with one member the mapper cannot draw: the raw arm an author
+          // is previewing is the one a participant can actually answer from.
+          inputSchema: { type: "object", properties: { when: { type: ["string", "null"] } } },
+        })}
       />,
     );
 
     expect(container.querySelector(".meridian-schema-raw__editor")).not.toBeNull();
+  });
+
+  it("refuses a root asking for a single value, which no participant could answer", () => {
+    // The author is the one person who can repair it, so the preview says what the run's
+    // form will say rather than drawing an editor the participant is never offered.
+    const { container } = render(
+      <HumanPhaseFormPreview
+        phase={phase("human", { prompt: "Anything?", inputSchema: { type: "string" } })}
+      />,
+    );
+
+    expect(container.querySelector(".meridian-schema-raw__editor")).toBeNull();
+    expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
+      "schema-root-not-named-values",
+    );
   });
 });

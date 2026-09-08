@@ -25,6 +25,7 @@ import {
   type SchemaLeafEntry,
   valueSuitsFieldKind,
 } from "./schema-fields.js";
+import { schemaRootAsksOutsideNamedValues } from "./schema-root-shape.js";
 
 /** A JSON value read as a record, or nothing where it is not one. */
 function asRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -292,10 +293,10 @@ function planGroup(
  */
 export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
   const schema = asRecord(inputSchema);
-  if (
-    schema === undefined ||
-    (declaredType(schema) !== undefined && declaredType(schema) !== "object")
-  ) {
+  // The root's own shape is `schema-root-shape.ts`'s reading and not a second one here:
+  // that module decides which roots this console can answer at all, and a schema it
+  // refuses must not also reach the raw editor.
+  if (schema === undefined || schemaRootAsksOutsideNamedValues(inputSchema)) {
     return {
       shape: "raw",
       fallback: {

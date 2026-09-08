@@ -16,14 +16,23 @@
 // which is what a schema outside the drawn set actually opens as. A picture of a form
 // would answer the same question worse and would go stale against the mapper.
 //
+// WHICH IS WHY IT REFUSES WHERE THE RUN'S FORM REFUSES. A root asking for a single value
+// rather than named fields is a schema no submission can carry (`schema-root-shape.ts`),
+// so the run's form offers no act for it — and a preview that drew an editor there would
+// tell the author their phase is answerable when the participant will be told it is not.
+// The author is the one person who can repair it, so this is where the sentence is worth
+// the most.
+//
 // ONE READ, ONE HOOK, NO EFFECT. The schema comes off the phase the caller already holds
 // and the hook memoises the plan and the compiled validator on it, so a keystroke re-walks
 // nothing.
 
 import { SchemaForm } from "./SchemaForm.js";
 import { humanPhaseFormConfigOf } from "./human-phase-config.js";
+import { schemaRootRefusal } from "./schema-root-shape.js";
 import { useSchemaForm } from "./use-schema-form.js";
 import type { WorkflowPhaseDefinition } from "../../bridge/index.js";
+import { InlineRefusal } from "../../primitives/index.js";
 
 export interface HumanPhaseFormPreviewProps {
   readonly phase: WorkflowPhaseDefinition;
@@ -40,6 +49,9 @@ export function HumanPhaseFormPreview(props: HumanPhaseFormPreviewProps): React.
   if (config === undefined) {
     return null;
   }
+  // Below the early return rather than beside the hook: this is an ordinary read and not
+  // a hook, so it is asked only where there is a form to preview.
+  const rootRefusal = schemaRootRefusal(config.inputSchema);
   return (
     <div className="meridian-schema-preview">
       <p className="meridian-schema-preview__caption">
@@ -49,7 +61,11 @@ export function HumanPhaseFormPreview(props: HumanPhaseFormPreviewProps): React.
       {config.prompt === undefined ? null : (
         <p className="meridian-schema-preview__prompt">{config.prompt}</p>
       )}
-      <SchemaForm form={form} />
+      {rootRefusal === undefined ? (
+        <SchemaForm form={form} />
+      ) : (
+        <InlineRefusal code={rootRefusal.code} detail={rootRefusal.detail} />
+      )}
     </div>
   );
 }
