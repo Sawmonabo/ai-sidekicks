@@ -86,6 +86,45 @@ function bridgeWatchingSubmits(refusal?: WireErrorEnvelope): SubmitProbe {
   return { bridge: { ...fixture, growth }, requests };
 }
 
+/** One submit the case settles by hand, and what it was asked. */
+interface HeldSubmit extends SubmitProbe {
+  readonly serve: () => void;
+}
+
+/**
+ * A bridge whose submit stays in flight until the case settles it.
+ *
+ * The window between the press and the answer is where the waiting state and the
+ * single-flight refusal both live, and a port that answered on the calling turn would
+ * close it before either could be observed — `run-control-dispatch.test-support.tsx`'s
+ * reading, at this family's other dispatch.
+ */
+function bridgeHoldingSubmits(): HeldSubmit {
+  const fixture = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+  const requests: Parameters<GrowthPort["workflowHumanFormSubmit"]>[0][] = [];
+  let serveHeld: (() => void) | undefined;
+  const growth: GrowthPort = {
+    ...fixture.growth,
+    workflowHumanFormSubmit: async (request) => {
+      requests.push(request);
+      return new Promise((resolve) => {
+        serveHeld = () => {
+          resolve({
+            status: "served",
+            value: {
+              phaseId: request.phaseId,
+              phaseRunId: "019b7a10-0280-7aa1-8100-701a11150005",
+              outputCount: 2,
+              submittedAt: "2026-01-01T10:03:00.000Z",
+            },
+          });
+        };
+      });
+    },
+  };
+  return { bridge: { ...fixture, growth }, requests, serve: () => serveHeld?.() };
+}
+
 /** The fixture's own waiting phase, resolved the way the run pane resolves it. */
 function fixtureWaitMount(): HumanFormMount {
   const wait = WORKFLOWS_PARKED_RUN.phaseStates
@@ -276,6 +315,55 @@ describe("every refusal renders as the refusal it is", () => {
     await settle();
 
     expect(probe.requests.at(0)?.fields).toStrictEqual({ decision: "approve" });
+  });
+});
+
+describe("an answer that is still with the daemon", () => {
+  it("says so beside the control, and settles on the reply when it comes", async () => {
+    const held = bridgeHoldingSubmits();
+    const container = renderSlot(fixtureWaitMount(), held.bridge);
+    await act(async () => {
+      pressSubmit();
+    });
+
+    // Waiting on a round trip rather than working something out: the not-loaded shape
+    // and not the computing one.
+    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+
+    await act(async () => {
+      held.serve();
+    });
+    await settle();
+
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+    expect(screen.getByText(/2 outputs came of it/u)).not.toBeNull();
+  });
+
+  it("refuses a second press out loud rather than sending the answer twice", async () => {
+    // The revision token refuses a duplicate at the far end, and a form that let one
+    // through would report a stale-revision failure for an answer given once.
+    const held = bridgeHoldingSubmits();
+    const container = renderSlot(fixtureWaitMount(), held.bridge);
+    await act(async () => {
+      pressSubmit();
+    });
+    await act(async () => {
+      pressSubmit();
+    });
+
+    expect(held.requests).toHaveLength(1);
+    expect(container.querySelector(".meridian-refusal")).not.toBeNull();
+
+    // And the key goes back, so the next press after the answer lands is not refused.
+    await act(async () => {
+      held.serve();
+    });
+    await settle();
+    await act(async () => {
+      pressSubmit();
+    });
+
+    expect(held.requests).toHaveLength(2);
   });
 });
 
