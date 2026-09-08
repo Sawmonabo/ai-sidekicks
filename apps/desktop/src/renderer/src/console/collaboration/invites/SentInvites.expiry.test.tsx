@@ -8,8 +8,8 @@
 //
 // DRIVEN OVER THE SCENARIO'S OWN FROZEN CLOCK, which is the only way to reach the
 // defect at all: the expiry is forty seconds past tick zero, the surface resolves its
-// clock from the bridge, and the collaboration room's reply table ages a pending row
-// against the instant a call settles at. Advancing that clock is therefore the whole
+// clock from the bridge, and the fixture's invite ledger ages a pending row against
+// the instant a call settles at. Advancing that clock is therefore the whole
 // mechanism under test — the timer arming, the wake-up publishing, the effect asking
 // again, and the reply answering differently — rather than a stub of any part of it.
 //
