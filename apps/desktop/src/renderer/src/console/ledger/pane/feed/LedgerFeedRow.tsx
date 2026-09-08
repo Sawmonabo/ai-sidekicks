@@ -184,6 +184,12 @@ export function useLedgerRowRenderer(options: LedgerRowRendererOptions): LedgerR
             isSuperseded={isSuperseded}
             expansion={childRunDisclosure.expansionFor(childRunEntry.summary.runId)}
             onToggleExpansion={childRunDisclosure.toggle}
+            // THE SAME SEAT AND THE SAME ALLOCATOR THE LIST'S OWN ROWS TAKE, handed
+            // down rather than looked up again inside the row: an expansion draws the
+            // child run's entries, and a child's row and its parent's are the same
+            // kind of thing. Two lookups would be two chances for them to differ.
+            renderTimelineRow={renderTimelineRow}
+            hueForActor={hueForActor}
           />
         );
       }

@@ -152,6 +152,44 @@ describe("the expand control", () => {
     });
     expect(container.querySelector(".meridian-reasoning-surface__expand")).toBeNull();
   });
+
+  it("is absent while a read is in flight", () => {
+    const container = renderSurface({ reading: { status: "reading" } });
+    expect(container.querySelector(".meridian-reasoning-surface__expand")).toBeNull();
+  });
+
+  it("survives a refusal and says which press it is", () => {
+    // THE DEFECT, EXERCISED. The control was drawn on `not-asked` alone, so a read
+    // refused by a transport that was down for a moment left the refusal on screen
+    // with no way to ask again — which rule 9 forbids in terms ("a refusal never hides
+    // the control that produced it").
+    const onExpand = vi.fn();
+    const container = renderSurface({
+      onExpand,
+      reading: {
+        status: "refused",
+        refusal: { code: "timeline.run_not_found", detail: "No such run.", origin: "daemon" },
+      },
+    });
+    const control = container.querySelector<HTMLButtonElement>(
+      ".meridian-reasoning-surface__expand",
+    );
+    expect(control?.textContent).toBe("Try the read again");
+    control?.click();
+    expect(onExpand).toHaveBeenCalledTimes(1);
+  });
+
+  it("negative control: the refusal is still drawn beside the control that survived it", () => {
+    // Without this, offering the retry by REPLACING the refusal would pass the case
+    // above while hiding why the first press failed.
+    const container = renderSurface({
+      reading: {
+        status: "refused",
+        refusal: { code: "timeline.run_not_found", detail: "No such run.", origin: "daemon" },
+      },
+    });
+    expect(container.textContent).toContain("timeline.run_not_found");
+  });
 });
 
 describe("the states around the read", () => {

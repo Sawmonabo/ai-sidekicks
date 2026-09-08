@@ -103,7 +103,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
   const attributedRunId = reasoningRunIdOf(props.row);
   const reasoningRead = useReasoningSurfaceRead(attributedRunId);
   const ask = readDriverAsk(props.row);
-  const answerAsk = useDriverAskAnswer(attributedRunId, ask?.askId ?? "");
+  const askAnswer = useDriverAskAnswer(attributedRunId, ask?.askId ?? "");
   // THE COUNTDOWN WAKES ONCE, AT ITS DEADLINE, AND NEVER POLLS. The console's one
   // deadline wake arms a single timeout for the soonest instant still ahead; a row
   // with no ask — which is nearly every row — hands it an empty list and it arms
@@ -128,7 +128,8 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
         slot={{ contract: INPUT_ASK_SLOT, body: undefined }}
         ask={ask}
         nowEpochMilliseconds={nowEpochMilliseconds}
-        onAnswer={answerAsk}
+        delivery={askAnswer.delivery}
+        onAnswer={askAnswer.answer}
       />
     );
   }

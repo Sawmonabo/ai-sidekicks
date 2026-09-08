@@ -431,6 +431,17 @@
   text-align: start;
 }
 
+/*
+ * Every answer control dims together while one answer is on the wire or has already
+ * reached the driver. The refusal arm is deliberately NOT one of those states — rule
+ * 9 keeps the control that produced a refusal on screen and pressable.
+ */
+
+.meridian-input-ask__option:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .meridian-input-ask__free-text {
   display: flex;
   flex-direction: column;
@@ -447,6 +458,11 @@
   font: inherit;
   padding: var(--meridian-space-1) var(--meridian-space-2);
   resize: vertical;
+}
+
+.meridian-input-ask__field:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .meridian-input-ask__send {
