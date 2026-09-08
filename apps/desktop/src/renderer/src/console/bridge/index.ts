@@ -523,14 +523,19 @@ export { WIRE_UNREGISTERED_REFUSAL_CODE } from "./growth-port/growth-outcome.js"
 // surface, and in `readings/` because what it is about is the READING rather than any
 // one wire. It leaves through this door and through no inner one, and the rule for
 // that is stated once — in `readings/read-settlement.ts`'s own header, where a reader
-// meets the module: no `bridge/` sibling reads this pair, so an inner barrel would
+// meets the module: no `bridge/` sibling reads these, so an inner barrel would
 // publish a name nothing inside the family takes, which is the dead export
-// `structure:dead-code` reports.
+// `structure:dead-code` reports. `settleGrowthCall` is that same seam entered through
+// a THUNK, for the dispatches that must give a key back whichever way a port fails.
 // `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door for the same
 // rule from the other side: its only readers are the suites that assert who a
 // synthesized refusal names, and a door line no production reader uses is a dead
 // export rather than a convenience.
-export { settleGrowthRead, useSettledGrowthRead } from "./readings/read-settlement.js";
+export {
+  settleGrowthCall,
+  settleGrowthRead,
+  useSettledGrowthRead,
+} from "./readings/read-settlement.js";
 export type { SettledReadRefusal } from "./readings/read-settlement.js";
 
 // The workflow plane's read shapes, for the family that renders them. Declared on

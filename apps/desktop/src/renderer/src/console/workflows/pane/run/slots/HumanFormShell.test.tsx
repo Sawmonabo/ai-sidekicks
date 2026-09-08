@@ -42,7 +42,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { settle } from "../../../workflows-probe.test-support.js";
 import {
   STALE_REVISION_REFUSAL,
+  SUBMIT_DISPATCH_FAILURE,
   bridgeHoldingSubmits,
+  bridgeThrowingSubmits,
   bridgeWatchingSubmits,
   fixtureWaitPhase,
   pressSubmit,
@@ -316,6 +318,46 @@ describe("an answer that is still with the daemon", () => {
     });
 
     expect(held.requests).toHaveLength(2);
+  });
+});
+
+describe("a port that throws before it returns settles like one that rejects", () => {
+  it("renders the normalized refusal rather than leaving the answer in flight", async () => {
+    const probe = bridgeThrowingSubmits();
+    const container = renderSlot(fixtureWaitPhase(), probe.bridge);
+    await act(async () => {
+      pressSubmit();
+    });
+    await settle();
+
+    // The thrown text is the only account of what happened, so it reaches the screen
+    // rather than going down with the exception that carried it.
+    expect(container.querySelector(".meridian-refusal")?.textContent ?? "").toContain(
+      SUBMIT_DISPATCH_FAILURE,
+    );
+    // And nothing is left saying the answer is still with the daemon: no reply is
+    // coming, so a pending notice here would be a wait with no end.
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+  });
+
+  it("gives the key back, so the next press is admitted rather than refused as a duplicate", async () => {
+    // The half the settlement rendering cannot show. A throw that escapes before the
+    // promise chain exists never reaches the `finally` that returns the key, so the
+    // attempt is stuck in flight for the life of the form and every later press is
+    // refused as a duplicate of a call that never left this window.
+    const probe = bridgeThrowingSubmits();
+    const container = renderSlot(fixtureWaitPhase(), probe.bridge);
+    await act(async () => {
+      pressSubmit();
+    });
+    await settle();
+    await act(async () => {
+      pressSubmit();
+    });
+    await settle();
+
+    expect(probe.requests).toHaveLength(2);
+    expect(container.textContent ?? "").not.toContain("This answer is already with the daemon.");
   });
 });
 

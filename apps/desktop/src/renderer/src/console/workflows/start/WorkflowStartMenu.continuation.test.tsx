@@ -50,6 +50,60 @@ function refusedSecondPage(): { readonly growth: GrowthPort; readonly cursors: u
   return { growth, cursors };
 }
 
+/**
+ * A first page holding no definitions and carrying a cursor, and a second that ends the
+ * enumeration holding none either.
+ *
+ * A cursor API may legitimately serve an empty intermediate page, so this is the shape
+ * that separates "nothing was found" from "nothing has been read yet" — and both pages
+ * come back served, so neither absence on screen can be a refusal in disguise.
+ */
+function emptyFirstPageWithMore(): { readonly growth: GrowthPort; readonly cursors: unknown[] } {
+  const cursors: unknown[] = [];
+  const growth = pagedGrowthPort((cursor) => {
+    cursors.push(cursor);
+    return cursor === undefined
+      ? { status: "served", value: { definitions: [], nextCursor: SECOND_PAGE_CURSOR } }
+      : { status: "served", value: { definitions: [] } };
+  });
+  return { growth, cursors };
+}
+
+describe("an empty page is not an empty enumeration until the cursor runs out", () => {
+  it("withholds the definitive claim while the directory reports unread pages", async () => {
+    // The negative control on the case below, and the defect these two were written
+    // against: the menu said this session resolves no workflow definitions over a page
+    // the daemon had explicitly told it was not the last, with the control that reaches
+    // the rest rendered directly beneath the claim that there was nothing to reach.
+    const container = await mountMenu(emptyFirstPageWithMore().growth);
+
+    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: MORE_CONTROL }).disabled).toBe(
+      false,
+    );
+  });
+
+  it("makes the claim once the enumeration is exhausted and still holds none", async () => {
+    const container = await mountMenu(emptyFirstPageWithMore().growth);
+
+    fireEvent.click(screen.getByRole("button", { name: MORE_CONTROL }));
+
+    // While the page it asked for is arriving, the absence is a wait rather than a
+    // result: the enumeration is no longer merely unread, it is being read.
+    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
+
+    await settle();
+
+    // Nothing left to ask for and nothing found: this is the one state in which the
+    // console may say so, and the way on is absent rather than offered against nothing.
+    expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
+    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: MORE_CONTROL })).toBeNull();
+  });
+});
+
 describe("a continuation the daemon refused stays askable", () => {
   it("renders the refusal and asks the same page again when the retry is pressed", async () => {
     const paged = refusedSecondPage();
