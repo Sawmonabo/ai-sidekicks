@@ -32,8 +32,24 @@ import {
 
 /** One row: the entity it addresses, the state it is in, and how it opens. */
 export interface SectionListRow {
-  /** React's key and the mono identifier on screen — the row's wire-verbatim id. */
+  /**
+   * React's key and the row's IDENTITY — the wire-verbatim id of the entity it opens.
+   *
+   * Identity and display are two questions, and a row that answers both with one
+   * member answers neither: a section keying on a display name gives two same-named
+   * entities in one group the same React key, and moves a stable entity's key the
+   * moment somebody renames it. So the id stays the entity's own, and a name that is
+   * worth showing rides {@link label} beside it.
+   */
   readonly id: string;
+  /**
+   * The name the wire gave this entity, drawn in place of the id where there is one.
+   *
+   * Absent means the entity has no name to show and the id is what a reader gets,
+   * which is what the console knows — a label invented from an id would be worse than
+   * the id, because a reader could not tell the invention from a reading.
+   */
+  readonly label?: string;
   /** The row's wire-verbatim state, drawn as a mono chip beside the identifier. */
   readonly stateLabel: string;
   /** What a screen reader hears for the row's button, composed by the section. */
@@ -101,7 +117,10 @@ export function SidebarSectionList(props: SidebarSectionListProps): React.JSX.El
                   onClick={row.open}
                 >
                   <span className="meridian-section-list__id">
-                    <WireFigure value={row.id} />
+                    {/* The name where the wire gave one, the id where it did not —
+                        both wire values, so both go through the one figure that
+                        renders a wire string verbatim. */}
+                    <WireFigure value={row.label ?? row.id} />
                   </span>
                   <Chip mono label={row.stateLabel} tone={group.tone} />
                 </button>

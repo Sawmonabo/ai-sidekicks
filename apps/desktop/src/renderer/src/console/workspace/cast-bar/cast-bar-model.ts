@@ -162,6 +162,12 @@ export interface CastBarModel {
    * The degraded conjunct is the honest half: a store with a sequence gap cannot
    * know whether something needs a person, and "Nothing needs you." over an
    * incomplete projection is a claim the console has no standing to make.
+   *
+   * The node-health conjunct is the same rule reaching past the event log. The bar
+   * draws one amber mark this model does not derive — the health chip — and a line
+   * saying nothing is amber, printed beside an amber mark, is the surface
+   * contradicting itself. So the verdict is an INPUT here rather than a second
+   * derivation in the component: one decision, and the bar's two halves read it.
    */
   readonly isAllClear: boolean;
 }
@@ -173,6 +179,14 @@ export interface CastBarInput {
   readonly timeline: readonly ConsoleSessionEvent[];
   /** True while the store is degraded; freezes every verb with a stale mark. */
   readonly isDegraded: boolean;
+  /**
+   * True while the bar's health verdict counts a component that is not healthy.
+   *
+   * Passed in rather than read here, because health is a node measurement served over
+   * the wire and this module folds the session's own event log — but the all-clear
+   * line speaks for the whole strip, including the mark that measurement draws.
+   */
+  readonly isNodeUnwell: boolean;
   /** Chips shown before folding to "+N". */
   readonly chipCap: number;
 }
@@ -224,8 +238,10 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
     foldedMemberCount: allMembers.length - shown.length,
     // Read off the outstanding COUNT and not off the members, which is stronger than
     // "every member, shown or folded": an ask the wire attributed to nobody puts no
-    // chip in amber and still means something in the session needs a person.
-    isAllClear: !input.isDegraded && outstanding.count === 0,
+    // chip in amber and still means something in the session needs a person. And the
+    // node's health joins it for the same reason from outside the log: the strip's
+    // other amber mark is one this fold cannot see.
+    isAllClear: !input.isDegraded && !input.isNodeUnwell && outstanding.count === 0,
   };
 }
 
