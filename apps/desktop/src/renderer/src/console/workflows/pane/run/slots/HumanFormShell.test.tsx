@@ -7,6 +7,13 @@
 // composed against, and every refusal — the daemon's, the port's, and this surface's
 // own — renders as itself.
 //
+// AND THE ONE SCHEMA THAT IS ANSWERABLE FROM NOWHERE. A root asking for a single value
+// rather than named fields describes an answer the submit request has no member to carry,
+// so the editor is not offered for it at all and the refusal stands where the act would
+// have. The raw-arm cases below therefore reach the editor through an OBJECT-rooted
+// schema carrying a member outside the drawn set, which is the raw arm a person can
+// actually answer from.
+//
 // THE MOUNT IS DERIVED FROM THE FIXTURE, never written out, and the negative control at
 // the end asserts the fixture really does carry a prompt and a schema, so the first case
 // cannot be vacuous. The scaffolding that resolves it — and the ports, the render
@@ -37,6 +44,21 @@ afterEach(() => {
   cleanup();
 });
 
+/**
+ * An object-rooted schema the mapper cannot draw, so the editor opens and can be answered.
+ *
+ * A union-typed member rather than a `$ref`: both send the member out of the drawn set,
+ * and only this one still COMPILES, so these cases exercise the raw arm rather than the
+ * separate uncheckable-schema arm above it.
+ */
+const RAW_ARM_SCHEMA = {
+  type: "object",
+  properties: { when: { type: ["string", "null"] } },
+} as const;
+
+/** A root asking for a single value, which no submission can carry. */
+const UNANSWERABLE_ROOT_SCHEMA = { type: "string" } as const;
+
 describe("a waiting phase is answerable where the pane shows it", () => {
   it("renders the prompt the run read carried and the controls its schema draws", () => {
     const container = renderSlot(fixtureWaitMount());
@@ -57,10 +79,26 @@ describe("a waiting phase is answerable where the pane shows it", () => {
   it("opens the JSON editor for a schema outside the drawn set, and never a refusal", () => {
     // A.4's rule, at the surface a person actually meets: anything the mapper cannot
     // draw is answered as JSON with the mapper's own reason above it.
-    const container = renderSlot({ ...fixtureWaitMount(), inputSchema: { type: "string" } });
+    const container = renderSlot({ ...fixtureWaitMount(), inputSchema: RAW_ARM_SCHEMA });
     expect(container.querySelector(".meridian-schema-raw")).not.toBeNull();
     expect(container.querySelector(".meridian-refusal")).toBeNull();
     expect(screen.getByRole("button", { name: "Submit answer" })).not.toBeNull();
+  });
+
+  it("refuses a root that asks for a single value, and offers no act to answer it with", () => {
+    // The editor is offered where a submission is possible and nowhere else: every value
+    // this schema accepts is one the request cannot carry, so an editor here would invite
+    // an answer whose only settlement is this surface's own refusal.
+    const container = renderSlot({
+      ...fixtureWaitMount(),
+      inputSchema: UNANSWERABLE_ROOT_SCHEMA,
+    });
+
+    expect(container.querySelector(".meridian-schema-raw")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Submit answer" })).toBeNull();
+    expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
+      "schema-root-not-named-values",
+    );
   });
 
   it("says so where the run reported the park and not the question", () => {
@@ -163,7 +201,7 @@ describe("every refusal renders as the refusal it is", () => {
   it("refuses an answer that is not a set of named values without spending a call", async () => {
     const probe = bridgeWatchingSubmits();
     const container = renderSlot(
-      { ...fixtureWaitMount(), inputSchema: { type: "string" } },
+      { ...fixtureWaitMount(), inputSchema: RAW_ARM_SCHEMA },
       probe.bridge,
     );
     const editor = container.querySelector("textarea");
@@ -187,7 +225,7 @@ describe("every refusal renders as the refusal it is", () => {
     // all — including one whose submit control did nothing.
     const probe = bridgeWatchingSubmits();
     const container = renderSlot(
-      { ...fixtureWaitMount(), inputSchema: { type: "string" } },
+      { ...fixtureWaitMount(), inputSchema: RAW_ARM_SCHEMA },
       probe.bridge,
     );
     const editor = container.querySelector("textarea");

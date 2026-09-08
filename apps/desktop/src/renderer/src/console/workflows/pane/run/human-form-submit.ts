@@ -31,6 +31,17 @@
 // bridge and keeps every id, and a call made through the previous bridge is retired by
 // that replacement.
 //
+// AN ARTIFACT ANSWER TRAVELS TWICE, AND HAS TO. The request carries the answer as
+// `fields` and its attachments as `attachmentArtifactIds` beside it, and only the second
+// reaches the attachment rules — the daemon resolves those ids, persists each as an
+// artifact reference among the phase's outputs, and reports an unresolved one in the
+// position it was declared in. An id sent only as a keyed value is a string in a record
+// and reaches none of that, so the carrier is composed from the phase's own schema
+// (`schema-artifact-members.ts`) and the keyed value stays exactly where the schema asked
+// for it. The member is OMITTED rather than sent empty where the phase asks for no
+// artifact: the wire declares it optional for that case, and an empty list would be this
+// surface saying "no attachments" about a question nobody put.
+//
 // AND A SERVED SUBMISSION RE-ARMS THE RUN READ, which this outcome cannot do for itself.
 // The outcome above is one attempt's settlement; the pane's snapshot is the run, and a
 // daemon that recorded the answer has moved the phase this form is composed against. So
@@ -50,6 +61,7 @@ import {
 } from "../../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../store/index.js";
+import { attachmentArtifactIdsIn } from "../../forms/index.js";
 import { useRecordServedRunAct } from "./served-run-act.js";
 import type { HumanFormMount } from "./slots/human-form-mount.js";
 
@@ -206,11 +218,17 @@ export function useHumanFormSubmit(
         return;
       }
       publish({ kind: "submitting" });
+      // Read off the phase's own schema rather than off the answer, so the carrier lists
+      // what was answered in the order the schema declared it — which is the position an
+      // unresolved attachment is reported back in.
+      const attachmentArtifactIds = attachmentArtifactIdsIn(mount.inputSchema, fields);
       void settleGrowthRead(
         growth.workflowHumanFormSubmit({
           workflowRunId: mount.workflowRunId,
           phaseId: mount.phaseId,
           fields,
+          // Absent, not empty, where the phase asks for no artifact. The header's reason.
+          ...(attachmentArtifactIds.length === 0 ? {} : { attachmentArtifactIds }),
           // Verbatim, including the `0` a fresh attempt reads. The daemon decides
           // whether it is still current; this surface never compares it.
           expectedRevision: mount.formRevision,

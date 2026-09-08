@@ -30,10 +30,22 @@
 // guess the shape, and the fallback sentence would explain a schema nobody sent. So
 // that arm says what happened and offers no control, which is this console's
 // "absent, not disabled" rule at the one point where the absence is the wire's.
+//
+// AND A THIRD ARM, WHERE THE SCHEMA ARRIVED AND ASKS FOR SOMETHING NO SUBMISSION CAN
+// CARRY. `schema-root-shape.ts` states the rule: an answer travels as a set of named
+// values, so a root declaring a single string or number describes an answer the request
+// has no member for. The mapper is right to hand that schema to the raw editor — it
+// cannot DRAW it — but this surface is the one that offers the act, and an editor whose
+// every schema-valid answer settles as `answer-not-composed` is a control that cannot
+// work. So the refusal is rendered here, at the moment the form is composed, and no
+// submit control is offered beside it. The plan itself is unchanged and still never
+// carries a refusal; what the plan describes is the input mode, and what this decides is
+// whether there is an act at all.
 
 import { SchemaForm } from "./SchemaForm.js";
+import { schemaRootRefusal } from "./schema-root-shape.js";
 import { useSchemaForm } from "./use-schema-form.js";
-import { Nothing } from "../../primitives/index.js";
+import { InlineRefusal, Nothing } from "../../primitives/index.js";
 
 export interface HumanPhaseFormAnswerProps {
   /** What the phase asks, as its author wrote it. Absent where the wire carried none. */
@@ -65,8 +77,13 @@ const SUBMIT_LABEL = "Submit answer";
 /** One waiting phase's form, or the honest statement that its shape never arrived. */
 export function HumanPhaseFormAnswer(props: HumanPhaseFormAnswerProps): React.JSX.Element {
   // Called unconditionally with whatever the wire carried, because a hook may not sit
-  // behind a branch. The absent arm below never renders what this composed.
+  // behind a branch. Neither of the two arms below that offer no act renders what this
+  // composed.
   const form = useSchemaForm(props.inputSchema);
+  // Read on every render rather than memoised: it is three property reads over a value
+  // the caller already holds, and a cache would be a second thing to keep in step with
+  // the schema.
+  const rootRefusal = schemaRootRefusal(props.inputSchema);
   return (
     <form
       className="meridian-schema-answer"
@@ -88,6 +105,12 @@ export function HumanPhaseFormAnswer(props: HumanPhaseFormAnswerProps): React.JS
           title="This run did not report what this phase asks for."
           detail="The phase is waiting on a person and its question has not reached this window, so there is nothing to answer here yet."
         />
+      ) : rootRefusal !== undefined ? (
+        // Inline, on the refusal grammar's own reading of blast radius: nothing changed,
+        // the phase is still parked exactly as it was, and the next move is in the
+        // definition rather than anywhere on this screen. It stands where the form and
+        // its act would have, because there is no control here for it to sit beside.
+        <InlineRefusal code={rootRefusal.code} detail={rootRefusal.detail} />
       ) : (
         <>
           <SchemaForm form={form} />
