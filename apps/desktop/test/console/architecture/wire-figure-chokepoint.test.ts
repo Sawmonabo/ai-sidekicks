@@ -54,7 +54,7 @@ import {
  * An allow-list of exactly one, written as a path rather than inferred from a
  * naming convention, so moving the chokepoint is an edit a reviewer sees.
  */
-const CHOKEPOINT_MODULE = "console/primitives/wire-figures.ts";
+const CHOKEPOINT_MODULE = "console/primitives/figures/wire-figures.ts";
 
 /**
  * The binary unit labels. Naming one of these in a source module is the

@@ -101,7 +101,7 @@ const TABLER_VIEWBOX_SIZE = 24;
 
 /** The directory holding one `.svg` per signature face. */
 const SIGNATURE_FACE_DIRECTORY = fileURLToPath(
-  new URL("../src/renderer/src/console/primitives/glyph-faces/signature", import.meta.url),
+  new URL("../src/renderer/src/console/primitives/figures/glyph-faces/signature", import.meta.url),
 );
 
 /** The box each collection draws in, which is what the stroke scale divides by. */

@@ -54,7 +54,7 @@ export const GLYPH_VIEWBOX_SIZE = 16;
  * A RATIO rather than a per-collection number: a borrowed face drawn in a larger
  * box carries this same share of that box, so the family reads as one weight at
  * 16 px whichever collection a face came from. `vitest/icon-compilation.ts` does
- * the arithmetic once, and `primitives/glyph-faces.test.ts` reads the ratio back
+ * the arithmetic once, and `primitives/figures/glyph-faces.test.ts` reads the ratio back
  * off every compiled face.
  */
 export const GLYPH_STROKE_WIDTH = 1.5;
@@ -105,7 +105,7 @@ export const GLYPH_SIZE_CHROME = 14;
  * without a second list being edited — and a name added anywhere but its own
  * group reads as a stranger in the gallery.
  *
- * WHAT EACH NAME IS DRAWN BY IS NOT WRITTEN HERE. `primitives/glyph-faces.ts`
+ * WHAT EACH NAME IS DRAWN BY IS NOT WRITTEN HERE. `primitives/figures/glyph-faces.ts`
  * holds that, one line per name with its reason, because this family sits below
  * `primitives/` and cannot see a component. What this array declares is that the
  * set is CLOSED; the face map's totality over it is what the compiler checks.

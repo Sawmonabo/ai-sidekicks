@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { DerivedFigure } from "../DerivedFigure.js";
-import { Nothing } from "../Nothing.js";
-import { formatCount } from "../wire-figures.js";
+import { Nothing } from "../absence/index.js";
+import { DerivedFigure, formatCount } from "../figures/index.js";
 import { RestorePathList } from "./RestorePathList.js";
 
 /**

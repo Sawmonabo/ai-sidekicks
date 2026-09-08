@@ -19,7 +19,7 @@ import {
 import { ManualClock } from "../../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";
-import { politeText } from "../../../primitives/live-region.test-support.js";
+import { politeText } from "../../../primitives/announce/live-region.test-support.js";
 import type { SessionStore } from "../../../store/index.js";
 import { frozenClockOf } from "../../../bridge/readings/scheduled-read.test-support.js";
 import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";

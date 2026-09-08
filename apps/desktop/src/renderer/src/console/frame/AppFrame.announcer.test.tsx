@@ -22,7 +22,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "../core/index.js";
 import type { FrameBanner } from "../store/index.js";
-import { liveRegionOf, liveRegionText } from "../primitives/live-region.test-support.js";
+import { liveRegionOf, liveRegionText } from "../primitives/announce/live-region.test-support.js";
 import { AppFrame } from "./AppFrame.js";
 import {
   CalmSurface,

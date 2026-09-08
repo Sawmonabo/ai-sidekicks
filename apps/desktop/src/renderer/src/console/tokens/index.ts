@@ -62,7 +62,7 @@ export type { GlyphName } from "./glyphs.js";
 //
 // WHAT NO LONGER LEAVES, AND WHY THE DOOR GOT SHORTER RATHER THAN WIDER. The paths
 // are gone — a face is compiled from an icon set or from an SVG file now, and
-// `primitives/glyph-faces.ts` holds the map — and with them went `GLYPH_STROKE_WIDTH`
+// `primitives/figures/glyph-faces.ts` holds the map — and with them went `GLYPH_STROKE_WIDTH`
 // and `GLYPH_VIEWBOX_SIZE`, which are the family's GEOMETRY. Nothing above this family
 // renders with either: the build spends them (`vitest/icon-compilation.ts`, which is
 // not a console family and reaches the declaring module directly) and two suites read
