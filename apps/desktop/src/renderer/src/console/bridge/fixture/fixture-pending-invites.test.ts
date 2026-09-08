@@ -28,8 +28,12 @@ import {
   drainFrames,
   drainOutcomes,
   pendingFrame,
+  refusedFrame,
   scenarioWithAttempts,
   scenarioWithFrames,
+  scenarioWithRefusals,
+  REFUSED_CODE,
+  REFUSED_DETAIL,
 } from "./fixture-pending-invites.test-support.js";
 import type { GrowthInviteAttempt } from "../growth-values/index.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
@@ -198,6 +202,102 @@ describe("fixture pending invites — a deep link whose preview could not be put
     );
     expect(pendingInvites.retry(UNREACHED_ATTEMPT).status).toBe("served");
     expect(pendingInvites.retry(UNREACHED_ATTEMPT).status).toBe("unavailable");
+  });
+});
+
+describe("fixture pending invites — a deep link the control plane refused", () => {
+  it("delivers it on the pending feed, carrying the code and the sentence verbatim", async () => {
+    // The gap this table closes: the pending feed's terminal arm was reachable from no
+    // scenario in the deck. Both tables beside it build a delivery out of a handle —
+    // the reference a preview minted, or the attempt an unreachable one carries — and a
+    // refusal has neither, so every surface rendering an expired or revoked link was
+    // built against a state the fixture could not produce. Asserted with `toStrictEqual`
+    // rather than a match, because what the arm carries is the whole claim: the wire's
+    // own two facts and nothing the fixture composed around them.
+    const engine = new ScenarioEngine({ scenario: scenarioWithRefusals([refusedFrame(0)]) });
+    const pendingInvites = new FixturePendingInvites(engine);
+
+    const feed = pendingInvites.openPendingFeed();
+
+    await expect(drainFrames(feed)).resolves.toStrictEqual([
+      { status: "refused", code: REFUSED_CODE, detail: REFUSED_DETAIL },
+    ]);
+  });
+
+  it("reaches an open feed on the advance its tick falls in", async () => {
+    // The refusals walk the same due rule as the two tables beside them, so the arm a
+    // person navigates to AFTER the console has settled — the ordinary case for a deep
+    // link — arrives rather than being filtered out at subscription.
+    const engine = new ScenarioEngine({
+      scenario: scenarioWithRefusals([refusedFrame(LATE_FRAME_TICK_MS)]),
+    });
+    const pendingInvites = new FixturePendingInvites(engine);
+    const feed = pendingInvites.openPendingFeed();
+    expect(feed.queuedCount).toBe(0);
+
+    engine.advance(LATE_FRAME_TICK_MS);
+
+    expect(feed.queuedCount).toBe(1);
+  });
+
+  it("mints no reference, so no act this namespace admits reaches it", async () => {
+    // The half the arm exists for. A refused preview mints neither a reference nor an
+    // attempt handle, so the fixture writes into no table when it delivers one — and
+    // the check is put on the two strings a caller could plausibly have to hand, the
+    // code and the sentence, because a fixture that keyed the row by anything it
+    // carries would answer an act on exactly those.
+    const engine = new ScenarioEngine({ scenario: scenarioWithRefusals([refusedFrame(0)]) });
+    const pendingInvites = new FixturePendingInvites(engine);
+
+    await expect(drainFrames(pendingInvites.openPendingFeed())).resolves.toHaveLength(1);
+
+    expect(pendingInvites.confirm(REFUSED_CODE).status).toBe("unavailable");
+    expect(pendingInvites.confirm(REFUSED_DETAIL).status).toBe("unavailable");
+    expect(pendingInvites.dismiss(REFUSED_CODE).status).toBe("unavailable");
+    expect(pendingInvites.retry(REFUSED_CODE as GrowthInviteAttempt).status).toBe("unavailable");
+  });
+
+  it("delivers it once: a feed opened afterwards is not served it again", async () => {
+    // A refusal is spent by its own DELIVERY rather than by an act, which is where it
+    // parts from the two tables beside it: main holds no handle for one, so a re-opened
+    // feed brings nothing back, and the queue receiving it has no key to recognise a
+    // duplicate by — a second copy of one terminal explanation would simply stack.
+    const engine = new ScenarioEngine({ scenario: scenarioWithRefusals([refusedFrame(0)]) });
+    const pendingInvites = new FixturePendingInvites(engine);
+    const first = pendingInvites.openPendingFeed();
+
+    const second = pendingInvites.openPendingFeed();
+
+    expect(first.queuedCount).toBe(1);
+    expect(second.queuedCount).toBe(0);
+  });
+
+  it("serves every feed open on the advance that made it due, and no later one", async () => {
+    // The other half of that spend: it is recorded once EVERY open feed has been handed
+    // the row, so two windows watching across one advance each get it. Spending it on
+    // the first feed would starve the second one the same advance is serving.
+    const engine = new ScenarioEngine({
+      scenario: scenarioWithRefusals([refusedFrame(LATE_FRAME_TICK_MS)]),
+    });
+    const pendingInvites = new FixturePendingInvites(engine);
+    const first = pendingInvites.openPendingFeed();
+    const second = pendingInvites.openPendingFeed();
+
+    engine.advance(LATE_FRAME_TICK_MS);
+    const openedAfterwards = pendingInvites.openPendingFeed();
+
+    expect(first.queuedCount).toBe(1);
+    expect(second.queuedCount).toBe(1);
+    expect(openedAfterwards.queuedCount).toBe(0);
+  });
+
+  it("negative control: a scenario scripting no refusal produces none", () => {
+    // Without it, a fixture that synthesised a refused frame out of nothing would pass
+    // every case above — which is the one answer a fixture must never invent.
+    const engine = new ScenarioEngine({ scenario: scenarioWithRefusals([]) });
+    const pendingInvites = new FixturePendingInvites(engine);
+
+    expect(pendingInvites.openPendingFeed().queuedCount).toBe(0);
   });
 });
 

@@ -81,6 +81,7 @@ import {
 import {
   COLLABORATION_PENDING_INVITES,
   COLLABORATION_PENDING_INVITE_ATTEMPTS,
+  COLLABORATION_PENDING_INVITE_REFUSALS,
 } from "./collaboration/pending-invites.js";
 import { COLLABORATION_REPLIES } from "./collaboration/replies.js";
 import { collaborationRuntimeNodeRoster } from "./collaboration/runtime-nodes.js";
@@ -121,6 +122,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
   replies: COLLABORATION_REPLIES,
   pendingInvites: COLLABORATION_PENDING_INVITES,
   pendingInviteAttempts: COLLABORATION_PENDING_INVITE_ATTEMPTS,
+  pendingInviteRefusals: COLLABORATION_PENDING_INVITE_REFUSALS,
   // The node this scenario stands for answers its control plane here, so a minted
   // invitation reveals the link a person would actually send rather than an
   // identifier that opens nothing. A bare host: the link's own form is

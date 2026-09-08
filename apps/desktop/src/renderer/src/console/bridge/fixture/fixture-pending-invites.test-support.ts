@@ -20,6 +20,7 @@ import type {
   ConsoleScenario,
   ScenarioPendingInviteAttemptFrame,
   ScenarioPendingInviteFrame,
+  ScenarioPendingInviteRefusedFrame,
 } from "../scenario-runtime/index.js";
 
 /** The reference the frames below are keyed by. Opaque, as `I-023-5` requires. */
@@ -100,18 +101,46 @@ export function scenarioWithAttempts(
 }
 
 /**
- * A scenario carrying both tables, so one advance can make an entry in each due.
+ * The registered refusal code and the wire's own sentence the refused cases script.
  *
- * The shape the ordering rule is about: two tables, one feed, and a tick apiece.
+ * A code the invite plane actually registers rather than an invented string, because
+ * the refused arm carries the wire's vocabulary verbatim and a case scripting a code
+ * no plane mints would be testing the fixture against nothing the wire can send.
  */
-export function scenarioWithBothTables(
-  invitations: readonly ScenarioPendingInviteFrame[],
-  attempts: readonly ScenarioPendingInviteAttemptFrame[],
+export const REFUSED_CODE = "invite.expired";
+export const REFUSED_DETAIL = "This invitation expired on 8 January.";
+
+/** One deep link the control plane refused, arriving at the tick the case names. */
+export function refusedFrame(atMs: number): ScenarioPendingInviteRefusedFrame {
+  return { atMs, refusal: { code: REFUSED_CODE, detail: REFUSED_DETAIL } };
+}
+
+/** A scenario carrying exactly the refusals a case is about. */
+export function scenarioWithRefusals(
+  frames: readonly ScenarioPendingInviteRefusedFrame[],
 ): ConsoleScenario {
+  return { ...unscriptedScenario("pending-invite-refusal"), pendingInviteRefusals: frames };
+}
+
+/**
+ * A scenario carrying more than one table, so one advance makes an entry in each due.
+ *
+ * The shape every ordering rule is about, and ONE composer for it rather than one per
+ * combination: which tables a case names is the case's own business, and a helper per
+ * pairing would be three more the moment a fourth table lands. The single-table
+ * shorthands above stay because they are the common reading, not because a second
+ * composer is wanted.
+ */
+export function scenarioWithTables(tables: {
+  readonly invitations?: readonly ScenarioPendingInviteFrame[];
+  readonly attempts?: readonly ScenarioPendingInviteAttemptFrame[];
+  readonly refusals?: readonly ScenarioPendingInviteRefusedFrame[];
+}): ConsoleScenario {
   return {
     ...unscriptedScenario("pending-invite-ordering"),
-    pendingInvites: invitations,
-    pendingInviteAttempts: attempts,
+    pendingInvites: tables.invitations ?? [],
+    pendingInviteAttempts: tables.attempts ?? [],
+    pendingInviteRefusals: tables.refusals ?? [],
   };
 }
 

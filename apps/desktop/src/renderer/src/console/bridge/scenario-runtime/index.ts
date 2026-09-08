@@ -21,17 +21,24 @@
 // four cycles `no-circular` fails. Both are reached by their own deep specifier, the
 // same remedy `fixture-refusal.ts` records for the same shape.
 
+export type { ConsoleScenario, ScenarioBeat, ScenarioReply } from "./scenario.js";
+
+// The tick-scheduled reading families, from the modules that DECLARE them rather than
+// through `scenario.ts`, which imports them to compose the shape and re-exports none:
+// a door names the declaring module, which is what keeps one symbol reachable by one
+// path rather than by a chain a rename can silently reroute.
 export type {
-  ConsoleScenario,
   ScenarioActivityFrame,
-  ScenarioBeat,
-  ScenarioPendingInviteAttemptFrame,
-  ScenarioPendingInviteFrame,
-  ScenarioReply,
   ScenarioRuntimeNodeRosterFrame,
   ScenarioShellStatusFrame,
   ScenarioTransportOutage,
-} from "./scenario.js";
+} from "./scenario-frames.js";
+
+export type {
+  ScenarioPendingInviteAttemptFrame,
+  ScenarioPendingInviteFrame,
+  ScenarioPendingInviteRefusedFrame,
+} from "./scenario-pending-invites.js";
 
 export { ScenarioEngine } from "./scenario-engine.js";
 

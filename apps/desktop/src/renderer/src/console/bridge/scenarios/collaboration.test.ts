@@ -17,7 +17,7 @@ import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/members/presenc
 import { createFixtureBridge } from "../fixture/fixture-bridge.js";
 import { readConsoleSessionEvent } from "../daemon/session-event-payload.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
-import { collaborationSentInvitesAt } from "./collaboration/replies.js";
+import { COLLABORATION_SENT_INVITES } from "./collaboration/replies.js";
 import { COLLABORATION_SCENARIO } from "./collaboration.js";
 import { CHANNEL_HANDOFF, PARTICIPANT_YOU } from "./collaboration/identifiers.js";
 import type { ConsoleBridge } from "../console-bridge.js";
@@ -144,14 +144,11 @@ describe("the collaboration scenario", () => {
   });
 
   it("serves one pending invitation with an expiry", () => {
-    // Through the ledger's own ageing function at the scenario's start instant,
-    // because the reply is COMPUTED: it answers what the ledger holds at the moment
-    // it settles, and tick zero is the moment this design claim is about. The
-    // ageing itself is `collaboration/replies.test.ts`.
-    const startMilliseconds = parseInstant(COLLABORATION_SCENARIO.startedAtIso).epochMilliseconds;
-    expect(startMilliseconds).toBeDefined();
-    const invites = collaborationSentInvitesAt(startMilliseconds ?? 0);
-    const pending = invites.filter((invite) => invite.state === "pending");
+    // On the OPENING table, which is what this room states about its own ledger: the
+    // rows are data and the lifecycle rule that moves them is the fixture ledger's, so
+    // this case is about what the room declares and `collaboration/replies.test.ts`,
+    // which drives the real seam, is about what a read answers with.
+    const pending = COLLABORATION_SENT_INVITES.filter((invite) => invite.state === "pending");
     expect(pending).toHaveLength(1);
     const [onlyPendingInvite] = pending;
     expect(onlyPendingInvite).toBeDefined();

@@ -36,6 +36,7 @@ import {
 import { readActivityFromScenario } from "./fixture-activity.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../scenarios/browser.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
+import type { FixtureInviteLedger } from "./fixture-invite-ledger.js";
 import { FixturePendingInvites } from "./fixture-pending-invites.js";
 import { fixtureDiagnosticsReads } from "./fixture-diagnostics-reads.js";
 import { paceGrowthStreamOnScenarioClock } from "./fixture-due-frames.js";
@@ -88,6 +89,7 @@ import type { ScenarioEngine } from "../scenario-runtime/index.js";
 export function createFixtureGrowthPort(
   engine: ScenarioEngine,
   channelLifecycle: FixtureChannelLifecycle,
+  inviteLedger: FixtureInviteLedger,
 ): GrowthPort {
   // The deep link's whole lifecycle, held for this engine's life. An instance rather
   // than five helpers, because the five operations share one table of references and
@@ -250,10 +252,18 @@ export function createFixtureGrowthPort(
       // callback-tool registry next door: an invite ledger with no rows is an ordinary
       // session, whereas a withheld tool registry and an empty one are different
       // answers to different questions.
-      answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => ({
-        status: "served",
-        value: [],
-      })),
+      //
+      // AND THE ANSWER FOLDS THROUGH THE LEDGER, which is what makes a mint reach the
+      // read that shows it: the two invite mutations settle on the OTHER door, and
+      // `fixture-invite-ledger.ts` is the holder both share. Through `mapGrowthServed`
+      // so a refusal travels back exactly as it arrived.
+      mapGrowthServed(
+        await answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => ({
+          status: "served",
+          value: [],
+        })),
+        (rows) => inviteLedger.foldOverScripted(rows),
+      ),
     // agent plane
     //
     // Each unscripted arm answers the EMPTY state of its own read rather than a

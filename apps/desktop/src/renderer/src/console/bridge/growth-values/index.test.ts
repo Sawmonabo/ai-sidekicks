@@ -210,7 +210,10 @@ const RETIRED_SINCE_SPLIT: readonly string[] = [
  * keystroke a page host claimed and handed back. The two diff-artifact shapes are the
  * mint's own request union and what it answers with: the diff pane composes the first
  * from the subject its address resolved to, and reads the manifest id off the second to
- * fetch the patch through the artifact plane.
+ * fetch the patch through the artifact plane. The refused pending-invite arm joins its
+ * own union on the door because two siblings WRITE it rather than only reading it:
+ * `scenario-runtime/` derives what a scenario states about a refused deep link from it,
+ * and `fixture/` stamps the discriminant back on when one falls due.
  */
 const ADDED_SINCE_SPLIT: readonly string[] = [
   "GrowthAcceleratorChord",
@@ -218,6 +221,7 @@ const ADDED_SINCE_SPLIT: readonly string[] = [
   "GrowthBrowserPageList",
   "GrowthDiffArtifactCreated",
   "GrowthDiffArtifactCreateRequest",
+  "GrowthPendingInviteRefused",
 ];
 
 /** What the barrel is expected to publish today: the split's surface, less the retired, plus the added. */

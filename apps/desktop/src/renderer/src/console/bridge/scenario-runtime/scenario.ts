@@ -17,178 +17,43 @@
 // board, the scenario manifest, and the architecture tier that holds every scenario
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here
 // and never reach the engine's teardown rules or its held-reply queue.
+//
+// AND THE FRAME FAMILIES ARE NOT HERE EITHER, for the same rule one level down. What
+// a reader opens this file for is the scenario's SHAPE — who is in it, what it
+// answers, what it plays — and each family of tick-scheduled readings carries a page
+// of its own reasoning in front of that. `scenario-frames.ts` holds the roster, the
+// activity, the shell condition and the transport outage; `scenario-pending-invites.ts`
+// holds the three deep-link tables, which are the one family that is not about the
+// session on screen at all. Both are read by the fixture namespace that resolves them
+// and re-exported from this directory's door beside the shape below.
 
-import type {
-  MembershipRole,
-  ParticipantId,
-  RuntimeNodeRosterEntry,
-  UpdateState,
-} from "@ai-sidekicks/contracts";
+import type { MembershipRole, UpdateState } from "@ai-sidekicks/contracts";
 
-import type {
-  GrowthActivitySnapshot,
-  GrowthInviteAttempt,
-  GrowthInviteOutcome,
-  GrowthPendingInvite,
-} from "../growth-values/index.js";
 // Type-only, and into a subtree the console ABSORBS rather than one that mounts into
 // it — `.dependency-cruiser.mjs`'s `console-not-plan-subtree` names the three absorbed
 // families as the deliberate exception. The alias is `RuntimeNodeAttachRequest` minus
 // its session id, derived from the shipped contract by construction, so restating its
 // shape here would be a second spelling of one wire fact.
 import type { RuntimeNodeAttachDraft } from "../../../runtime-node-attach/index.js";
-import type { ConsoleSessionEvent, ShellReport } from "../../store/index.js";
+import type { ConsoleSessionEvent } from "../../store/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
+import type {
+  ScenarioActivityFrame,
+  ScenarioRuntimeNodeRosterFrame,
+  ScenarioShellStatusFrame,
+  ScenarioTransportOutage,
+} from "./scenario-frames.js";
+import type {
+  ScenarioPendingInviteAttemptFrame,
+  ScenarioPendingInviteFrame,
+  ScenarioPendingInviteRefusedFrame,
+} from "./scenario-pending-invites.js";
 import type { ScriptedSignInCeremony } from "../web-authn/ceremony-outcome.js";
 
 /** One scripted event and the tick it is due at, measured from scenario start. */
 export interface ScenarioBeat {
   readonly atMs: number;
   readonly event: ConsoleSessionEvent;
-}
-
-/**
- * One reading of a session's runtime-node roster, and the tick it becomes current.
- *
- * A frame rather than a single roster, and rather than a scripted reply, because a
- * roster CHANGES: the registered `runtimenode.roster` read is the source of truth
- * for the rendered set and a `runtime_node.*` beat only says WHEN to re-read, so a
- * fixture whose roster could not move would answer every re-read with the same rows
- * and make the whole snapshot-plus-signal discipline untestable. Mirrors
- * {@link ScenarioBeat} deliberately — same `atMs` measured from scenario start,
- * same "data, never code" posture — so a reader who has understood one has
- * understood the other.
- *
- * `nodes` is the registered `RuntimeNodeRosterEntry` set verbatim, so a scenario
- * carries BOTH health axes the wire carries — the slot axis `state` and the
- * sweep-owned `healthState` / `lastHeartbeatAt` pair — and no collapsed scalar,
- * which the wire does not have either. Reconciling them is the client's render-time
- * concern and a fixture that pre-reconciled them would answer a question the
- * surface exists to ask.
- */
-export interface ScenarioRuntimeNodeRosterFrame {
-  readonly atMs: number;
-  readonly nodes: readonly RuntimeNodeRosterEntry[];
-  /**
-   * Who holds the session's shared-terminal write lease at this tick.
-   *
-   * REQUIRED, and required for the same reason `nodes` is: a frame is a whole
-   * registered response, and the registered response carries this member on
-   * every reply. Optional here, an unstated holder would read as a free lease —
-   * a reading the scenario never made — and the deck would grow frames whose
-   * holder nobody decided.
-   *
-   * `null` is a reading rather than a gap, and it deliberately carries two of
-   * them at once: the lease is free, or a held lease is read-suppressed because
-   * its producing node is server-classified offline. A client cannot tell those
-   * apart and neither can a scenario, which is the fail-closed shape the wire
-   * has.
-   */
-  readonly controlHolder: ParticipantId | null;
-}
-
-/**
- * One reading of the session's live activity, and the tick it becomes current.
- *
- * A frame rather than a scripted reply, for {@link ScenarioRuntimeNodeRosterFrame}'s
- * reason applied to a faster-moving fact: composing STARTS and STOPS inside one
- * scenario, and a reply table keyed by call name answers every read with one fixed
- * value. A frame table is what lets a scenario show a person begin to type, a second
- * person join them, and the first one stop — which is the only way the indicator's
- * folding rule and its empty state are both reachable from one script.
- *
- * The two Awareness fields are carried TOGETHER because one read answers both, and
- * because a scenario that could move them independently would invite an author to
- * script an agent indicator that outlives the run it belongs to.
- */
-export interface ScenarioActivityFrame {
-  readonly atMs: number;
-  readonly activity: GrowthActivitySnapshot;
-}
-
-/**
- * One invitation arriving on this window's deep link, and what confirming it does.
- *
- * THE OUTCOME IS SCRIPTED BESIDE THE INVITATION rather than in the reply table,
- * because it is the answer to an ACT and not to a read: nothing produces an outcome
- * until a person presses the one control that accepts, so a scenario states what
- * would happen if they did and the fixture holds it until they do.
- *
- * `onReconfirm` is separate and optional for the same reason its arm exists on the
- * wire: an acceptance that could not be PUT settles `unavailable`, which the wire
- * itself marks retryable, and the act that answers it is a second confirmation on
- * the same reference. A scenario that could state only one outcome per reference
- * could never show that recovery reach an end — and absent it, a second confirmation
- * finds nothing, which is the single-use posture and the ordinary case.
- *
- * IT IS NOT THE RETRY. A retry re-drives a PREVIEW on an attempt handle and is
- * scripted by {@link ScenarioPendingInviteAttemptFrame}, which mints invitations
- * rather than settling them.
- *
- * The invitation carries an opaque reference and no token, which is
- * `Plan-023 §Invariants` I-023-5 made unrepresentable: a fixture cannot script a raw
- * token onto this surface because the shape has nowhere to put one.
- */
-export interface ScenarioPendingInviteFrame {
-  readonly atMs: number;
-  readonly invite: GrowthPendingInvite;
-  readonly onConfirm: GrowthInviteOutcome;
-  readonly onReconfirm?: GrowthInviteOutcome;
-}
-
-/**
- * The invitation a retry's preview produces, and how confirming that one settles.
- *
- * THE INVITATION FRAME WITHOUT ITS TICK, derived rather than restated, because the
- * tick is the retry itself: this arrives when a person presses, not when the clock
- * reaches a number, and a second `atMs` here would be a delivery moment nothing
- * consults. Everything else an invitation can script it scripts, `onReconfirm`
- * included — which is what lets one chain reach both handle-side outcome arms.
- */
-export type ScenarioPendingInviteRetryResult = Omit<ScenarioPendingInviteFrame, "atMs">;
-
-/**
- * One deep link whose preview could not be put at all, and what re-driving it yields.
- *
- * ITS OWN TABLE BECAUSE IT IS KEYED ON A DIFFERENT HANDLE. A pending invitation is
- * addressed by the reference its preview minted; a preview that never reached the
- * control plane minted none, and what names it is the opaque attempt handle the
- * `unavailable` arm carries. `Plan-023 §Phase 2 — IPC Bridge Registry And Per-Surface
- * Handlers` task T-023r-2-5 makes that a distinct brand accepted by no other
- * operation, so a fixture that indexed both in one table by one string would serve a
- * retry from whichever entry happened to collide — which is the defect this split
- * closes.
- */
-export interface ScenarioPendingInviteAttemptFrame {
-  readonly atMs: number;
-  readonly attempt: GrowthInviteAttempt;
-  /**
-   * The preview state the retry publishes on the pending feed.
-   *
-   * The scripted answer to the one act this arm admits. A retry that produced
-   * nothing observable would leave the surface holding a prompt it had already
-   * released, so the fixture always publishes this and never an empty success.
-   */
-  readonly onRetry: ScenarioPendingInviteRetryResult;
-}
-
-/**
- * One reading of the shell's own condition, and the tick it becomes current.
- *
- * {@link ScenarioRuntimeNodeRosterFrame}'s shape applied to the other thing a
- * scenario has to be able to MOVE: the supervisor's step, its attempt count, the
- * handshake ack, and the two honesty notices all change over a session's life, and a
- * fixture whose shell condition could not move would let the console ship a
- * reconnect banner nobody had ever seen render.
- *
- * `report` is `ShellReport` verbatim — the console's own vocabulary, declared once in
- * `store/shell-state.ts` and narrowed by nobody twice. A scenario that names no
- * frames has not been asked, and the growth port refuses rather than serving a
- * synthesised "connected", which is the one answer a fixture must never invent.
- */
-export interface ScenarioShellStatusFrame {
-  readonly atMs: number;
-  readonly report: ShellReport;
 }
 
 /** What every canned reply carries, whichever way it settles. */
@@ -455,6 +320,15 @@ export interface ConsoleScenario {
    */
   readonly pendingInviteAttempts?: readonly ScenarioPendingInviteAttemptFrame[];
   /**
+   * Deep links the control plane REFUSED, each with the code and sentence it sent.
+   *
+   * A THIRD TABLE, and the one with no handle at all: a refused preview mints neither
+   * a reference nor an attempt, so it belongs in neither table beside it and a fixture
+   * building deliveries out of those two could reach the feed's terminal arm from no
+   * scenario at all. Optional on the same rule as its two neighbours.
+   */
+  readonly pendingInviteRefusals?: readonly ScenarioPendingInviteRefusedFrame[];
+  /**
    * The host this scenario's node answers its control plane on.
    *
    * OPTIONAL on the roster member's rule, and the two states are different facts a
@@ -505,17 +379,4 @@ export interface ConsoleScenario {
   readonly signInCeremony?: ScriptedSignInCeremony;
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
-}
-
-/**
- * One scripted transport outage: when the wire went away, and when it returned.
- *
- * Both instants are measured from scenario start, as a beat's `atMs` is. They are
- * required together because an outage with no end is not a reconnect and would be
- * scripted by simply never restoring — a member carrying one without the other is
- * the shape that reads as an outage and produces no edge.
- */
-export interface ScenarioTransportOutage {
-  readonly lostAtMs: number;
-  readonly restoredAtMs: number;
 }

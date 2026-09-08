@@ -1,29 +1,82 @@
-// The one reply in this room that answers differently depending on when it is asked.
+// What this room's ledger read answers, and the two things that move it.
 //
-// The room's stated purpose includes "one invitation about to expire", and until the
-// ledger read was computed nothing in the fixture could reach the second half of that
-// sentence: `invites.list` answered a fixed `pending` row forever, so a console driven
-// past the declared expiry — by remounting the section, by minting a second
-// invitation, by opening the room an hour in — kept showing an invitation on the brink
-// and kept offering Revoke on it.
+// THE CLOCK. The room's stated purpose includes "one invitation about to expire", and
+// until the ledger read folded through the lifecycle rule nothing in the fixture could
+// reach the second half of that sentence: `invites.list` answered a fixed `pending` row
+// forever, so a console driven past the declared expiry — by remounting the section, by
+// minting a second invitation, by opening the room an hour in — kept showing an
+// invitation on the brink and kept offering Revoke on it.
 //
-// DRIVEN THROUGH THE REAL SEAM, not through the ageing function alone. What broke was
-// the path from a call to an answer: the engine's frozen clock, the scripted-reply
-// settlement, and the growth port that serves this operation. A case that only called
-// the exported function would have passed against a reply table still holding a
-// constant.
+// AND THE ACTS. The other half, and it was missing outright: `invite.create` answered
+// with a mint receipt and `invite.revoke` with a state, and the read a moment later
+// still returned the two rows the room opens with. So the fixture reported a success
+// and then showed a ledger the invitation was not in, and the create-to-ledger
+// transition the sent-invite surface exists for could be exercised by nothing at all.
+//
+// DRIVEN THROUGH THE REAL SEAM, never through a fold function alone. What broke in both
+// halves was the path from a call to an answer: the engine's frozen clock, the
+// scripted-reply settlement, the call door that settles a mutation, and the growth port
+// that serves the read. A case that called the fold directly would pass against a
+// bridge that wired it to nothing.
 
 import { describe, expect, it } from "vitest";
+
+import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge } from "../../fixture/fixture-bridge.js";
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { COLLABORATION_SCENARIO } from "../collaboration.js";
-import { INVITE_ACCEPTED, INVITE_EXPIRING } from "./identifiers.js";
+import { INVITE_ACCEPTED, INVITE_EXPIRING, INVITE_MINTED, PARTICIPANT_YOU } from "./identifiers.js";
 
 /** How far past tick zero the pending invitation's declared expiry sits. */
 const INVITE_EXPIRY_MS = 40_000;
 
+/** The latency this room scripts on the mint, spent on the frozen clock. */
+const INVITE_CREATE_LATENCY_MS = 250;
+
+/** The expiry the create form asks for in these cases. Well past every tick driven. */
+const ASKED_EXPIRY = "2026-02-01T10:05:00.000Z";
+
 const SESSION = { sessionId: COLLABORATION_SCENARIO.sessionId };
+
+/** The whole ledger this read answers with, in the order it answers it. */
+async function ledgerRowsFrom(bridge: ConsoleBridge): Promise<readonly unknown[]> {
+  const outcome = await bridge.growth.invitesList(SESSION);
+  expect(outcome.status).toBe("served");
+  return outcome.status === "served" ? outcome.value : [];
+}
+
+/**
+ * Mint one invitation through the real call door, spending its scripted latency.
+ *
+ * The call is ISSUED before the clock moves and awaited after, which is what a scripted
+ * latency means: the reply is parked on the engine, and a case that advanced first
+ * would be driving a seam with nothing waiting on it.
+ */
+async function mintThrough(bridge: ConsoleBridge, joinMode: string): Promise<unknown> {
+  const minted = bridge.sidekicks.daemon.call(
+    "invite.create" as DaemonMethod,
+    {
+      sessionId: COLLABORATION_SCENARIO.sessionId,
+      inviter: PARTICIPANT_YOU,
+      joinMode,
+      expiresAt: ASKED_EXPIRY,
+    } as never,
+  );
+  bridge.scenarioEngine?.advance(INVITE_CREATE_LATENCY_MS);
+  return await minted;
+}
+
+/** Revoke one invitation through the real call door. No scripted latency on this one. */
+async function revokeThrough(bridge: ConsoleBridge, inviteId: string): Promise<unknown> {
+  return await bridge.sidekicks.daemon.call(
+    "invite.revoke" as DaemonMethod,
+    {
+      sessionId: COLLABORATION_SCENARIO.sessionId,
+      inviteId,
+    } as never,
+  );
+}
 
 /** The state each invite id reads as, right now, over the fixture's own growth port. */
 async function ledgerStatesFrom(bridge: ConsoleBridge): Promise<Record<string, string>> {
@@ -73,5 +126,71 @@ describe("the collaboration room's sent-invite ledger", () => {
 
     expect(first[INVITE_EXPIRING]).toBe("expired");
     expect(second[INVITE_EXPIRING]).toBe("expired");
+  });
+});
+
+describe("the collaboration room's ledger and the acts performed on it", () => {
+  it("shows a minted invitation on the next read, carrying what the mint served", async () => {
+    // The finding: the mint answered `INVITE_MINTED` and the read that follows it —
+    // which is the read the sent-invite surface performs after every mint — returned
+    // the two opening rows and nothing else. The row is asserted WHOLE, because the
+    // interesting part is which half of the act each field came from: the id and the
+    // expiry are the receipt's, and `joinMode` is the request's, since the registered
+    // `InviteCreateResponse` carries none and a ledger row requires one.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    await mintThrough(bridge, "viewer");
+
+    await expect(ledgerRowsFrom(bridge)).resolves.toStrictEqual([
+      {
+        inviteId: INVITE_EXPIRING,
+        state: "pending",
+        expiresAt: expect.any(String),
+        joinMode: "collaborator",
+      },
+      {
+        inviteId: INVITE_ACCEPTED,
+        state: "accepted",
+        expiresAt: expect.any(String),
+        joinMode: "viewer",
+      },
+      { inviteId: INVITE_MINTED, state: "pending", expiresAt: ASKED_EXPIRY, joinMode: "viewer" },
+    ]);
+  });
+
+  it("moves the row a served revoke names, and leaves every other row alone", async () => {
+    // The revoke half. Put on the row the room OPENS with rather than on the minted one,
+    // because that is the harder case and the one a person actually reaches: the ledger
+    // holds no copy of a scripted row, so a fixture that recorded the state onto its own
+    // minted list could not have moved this one at all.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    await revokeThrough(bridge, INVITE_EXPIRING);
+
+    const states = await ledgerStatesFrom(bridge);
+    expect(states[INVITE_EXPIRING]).toBe("revoked");
+    expect(states[INVITE_ACCEPTED]).toBe("accepted");
+  });
+
+  it("keeps a revoked row revoked past the expiry that would have aged it", async () => {
+    // The two movers meet here, and the order between them is the claim: an act decided
+    // this row's state and the clock did not, so ageing it to `expired` afterwards would
+    // report a transition the daemon never makes off a terminal state.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    await revokeThrough(bridge, INVITE_EXPIRING);
+    bridge.scenarioEngine?.advance(INVITE_EXPIRY_MS * 4);
+
+    await expect(ledgerStatesFrom(bridge)).resolves.toMatchObject({
+      [INVITE_EXPIRING]: "revoked",
+    });
+  });
+
+  it("negative control: a read taken before any act shows only the opening rows", async () => {
+    // Without it every case above would pass over a fixture that appended a minted row
+    // to every ledger read it ever answered.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    await expect(ledgerRowsFrom(bridge)).resolves.toHaveLength(2);
   });
 });
