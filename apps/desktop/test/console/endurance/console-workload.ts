@@ -49,6 +49,7 @@ import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   type ConsoleSessionDiagnostics,
+  type LedgerWindowReading,
   type ScenarioFixtureHandle,
 } from "../fixture-handles.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
@@ -213,6 +214,46 @@ export async function readAppliedEventCount(
         globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
       )[globalName];
       return sessions === undefined ? null : sessions.appliedEventCountFor(targetSessionId);
+    },
+    [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
+  );
+}
+
+/**
+ * Wait for the ledger to have reconciled a row, then report its window.
+ *
+ * THE WAIT IS WHY THE READING MEANS ANYTHING: a route change is observed on the ledger's
+ * BODY, which the workspace mounts whether or not the session has rows, so a reading taken
+ * straight after one describes whatever had reconciled when the driver asked.
+ *
+ * AN EXPIRED WAIT IS NOT THE FAILURE, though: no row on screen is the state this reading
+ * exists to describe, so the expiry is recorded and the window read anyway rather than
+ * discarded — the figures say WHICH no-row state it is (mounted, nothing to mount, a box
+ * measured at no height) and `null` a fourth, no viewport registered at all. Only a
+ * timeout is absorbed; anything else is a harness fault and is rethrown.
+ */
+export async function readLedgerWindow(
+  consoleApplication: ConsoleApplication,
+  sessionId: string,
+): Promise<LedgerWindowReading | null> {
+  const firstLedgerRow = consoleApplication.window.locator(LEDGER_ROW_SELECTOR).first();
+  const attachTimeoutMs = consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS);
+  try {
+    await firstLedgerRow.waitFor({ state: "attached", timeout: attachTimeoutMs });
+  } catch (waitFailure: unknown) {
+    // `name` is playwright-core's own discriminator: at the pinned 1.62.1 its
+    // `TimeoutError extends PlaywrightError extends Error` sets exactly this string.
+    if (!(waitFailure instanceof Error) || waitFailure.name !== "TimeoutError") {
+      throw waitFailure;
+    }
+    process.stdout.write("[console-endurance] no ledger row attached within the allowance\n");
+  }
+  return consoleApplication.window.evaluate(
+    ([globalName, targetSessionId]: [string, string]) => {
+      const sessions = (
+        globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
+      )[globalName];
+      return sessions === undefined ? null : sessions.ledgerWindowFor(targetSessionId);
     },
     [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
   );

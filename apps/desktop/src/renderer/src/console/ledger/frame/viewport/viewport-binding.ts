@@ -19,7 +19,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { type ConsoleClock } from "../../../core/index.js";
+import { type ConsoleClock, type LedgerWindowReading } from "../../../core/index.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "../../../primitives/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "../frame-bounds.js";
 import { LedgerViewportController } from "./viewport-controller.js";
@@ -102,6 +102,18 @@ export interface LedgerViewportBinding {
   readonly rowLease: (rowKey: string) => LedgerRowLease | undefined;
   /** Park one row body's state on the window. */
   readonly setRowLease: (rowKey: string, lease: LedgerRowLease) => void;
+  /**
+   * What this window is showing, read at the instant it is asked.
+   *
+   * A FUNCTION and not a snapshot member, because four of its five figures are scroll
+   * geometry or a computation over it, and this binding deliberately keeps those off
+   * the React snapshot — publishing them there would notify the tree on every
+   * scrolled pixel. Nothing in the console renders from it: the endurance tier reads
+   * it through the fixture handle, where "the ledger mounted nothing" and "the ledger
+   * has nothing to mount" are two different findings and a row count cannot tell them
+   * apart. Stable across renders, so a registration keyed on it registers once.
+   */
+  readonly readWindowDiagnostics: () => LedgerWindowReading;
 }
 
 export interface UseLedgerViewportOptions extends LedgerViewportConditions {
@@ -310,6 +322,25 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
       },
       [controller],
     ),
+    readWindowDiagnostics: useCallback((): LedgerWindowReading => {
+      // `getVirtualItems()` FIRST, because it is the call that recomputes the range:
+      // reading `virtualizer.range` before it would report the window as it was at
+      // the last render rather than as it is now, and the two disagree exactly when
+      // this reading is worth taking.
+      const mountedItems = virtualizer.getVirtualItems();
+      const range = virtualizer.range;
+      // The chokepoint's last sample rather than a fresh element read: it is the same
+      // number the library's own rect holds, so a reading that disagreed with the
+      // window would be reporting a box the window never saw.
+      const geometry = controller.scroll.geometry;
+      return {
+        mountedRowCount: mountedItems.length,
+        totalRowCount: virtualizer.options.count,
+        visibleRowCount: range === null ? 0 : range.endIndex - range.startIndex + 1,
+        viewportClientHeightPx: geometry?.viewportHeight ?? 0,
+        viewportScrollHeightPx: geometry?.contentHeight ?? 0,
+      };
+    }, [controller, virtualizer]),
     jumpToRow: useCallback(
       (rowKey: string) => {
         const index = snapshot.rows.findIndex((candidate) => candidate.key === rowKey);

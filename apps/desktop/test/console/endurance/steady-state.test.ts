@@ -83,17 +83,20 @@ import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
   FLAGSHIP_SESSION_ID,
-  LEDGER_ROW_SELECTOR,
   openFlagshipSessionRoute,
   openSettingsRoute,
   readAppliedEventCount,
   readBoundSessionIds,
+  readLedgerWindow,
   readPlayingScenarioId,
   SETTINGS_SURFACE_SELECTOR,
   WORKSPACE_SURFACE_SELECTOR,
 } from "./console-workload.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
+// The real overscan the viewport is constructed with, so the bound below is the
+// window's own declaration and not a figure this file keeps in step by hand.
+import { LEDGER_OVERSCAN_ROWS } from "../../../src/renderer/src/console/ledger/frame/frame-bounds.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
@@ -293,21 +296,56 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // It is asserted HERE rather than in a tier of its own because the height
         // chain that bounds the surface is only observable once something overflows
         // it, and this is the case that has already driven the script to its end.
-        // Measured against the events the store admitted rather than a row count of
-        // its own: the two are different quantities and the claim only needs the
-        // ORDER between them, so a fixture that grows keeps the assertion honest
-        // without a figure to maintain.
-        const mountedRowCount = await consoleApplication.window
-          .locator(LEDGER_ROW_SELECTOR)
-          .count();
+        //
+        // EVERY QUANTITY BELOW IS THE VIEWPORT'S OWN, and that is the correction the
+        // shape needed twice over. The claim used to be read off the document and
+        // compared against the events the store admitted — which is a viewport
+        // quantity against a LOG quantity, false for any log shorter than twice the
+        // screen however well the window is working, and taken at whatever instant
+        // the driver happened to ask rather than after the surface had reconciled.
+        // `readLedgerWindow` waits for the ledger to have mounted a row and then
+        // reads the window from the renderer either way, so a working ledger is
+        // measured against itself and a stalled one arrives here with the figures
+        // that say WHY rather than with a bare zero.
+        const ledgerWindow = await readLedgerWindow(consoleApplication, FLAGSHIP_SESSION_ID);
         expect(
-          mountedRowCount,
+          ledgerWindow,
+          `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} reports no ledger viewport for this session, so nothing here says anything about windowing`,
+        ).not.toBeNull();
+        if (ledgerWindow === null) {
+          throw new Error("unreachable: the assertion above fails first");
+        }
+        process.stdout.write(
+          `[console-endurance] ledger window ${String(ledgerWindow.mountedRowCount)} mounted / ` +
+            `${String(ledgerWindow.visibleRowCount)} visible of ` +
+            `${String(ledgerWindow.totalRowCount)} rows, viewport ` +
+            `${String(ledgerWindow.viewportClientHeightPx)} px of ` +
+            `${String(ledgerWindow.viewportScrollHeightPx)} px of content\n`,
+        );
+
+        expect(
+          ledgerWindow.mountedRowCount,
           "the ledger mounted no rows at all, so nothing here says anything about windowing",
         ).toBeGreaterThan(0);
+        // THE SUBJECT EXISTS AT ALL: a log that fits its box is windowed vacuously,
+        // and every claim below would hold over one. Named as the WORKLOAD's failure
+        // rather than the window's, because that is whose it is — the fixture script
+        // is what has to be grown until the ledger overflows.
         expect(
-          mountedRowCount * 2,
-          "the ledger mounted a row for most of what the store admitted, so its surface is not bounded by the viewport and the whole log is being laid out",
-        ).toBeLessThan(Number(appliedEventCount));
+          ledgerWindow.viewportScrollHeightPx,
+          "the flagship script does not overflow the ledger's viewport, so this window is bounded by having nothing to hold — grow the scenario in bridge/scenarios/flagship.ts until it does",
+        ).toBeGreaterThan(ledgerWindow.viewportClientHeightPx);
+        expect(
+          ledgerWindow.mountedRowCount,
+          "the ledger mounted every row it holds, so its surface is not bounded by the viewport and the whole log is being laid out",
+        ).toBeLessThan(ledgerWindow.totalRowCount);
+        // AND BOUNDED BY THE BOX PLUS ITS DECLARED OVERSCAN, which is the whole of
+        // what the mounted range is allowed to be: the rows the box intersects, and
+        // `LEDGER_OVERSCAN_ROWS` either side of them.
+        expect(
+          ledgerWindow.mountedRowCount - ledgerWindow.visibleRowCount,
+          "the ledger mounted more than its overscan beyond the rows the box intersects",
+        ).toBeLessThanOrEqual(2 * LEDGER_OVERSCAN_ROWS);
       } finally {
         // Detached before the wrapper closes the window: detaching a DevTools
         // session from a closed application raises, and the raise would replace

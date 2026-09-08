@@ -17,7 +17,7 @@
 // there would invert that edge for the whole family. `frame/` is the composition
 // root; joining two families it already imports is what a composition root is for.
 //
-// THREE PROPERTIES, EACH A FAILURE THIS CLASS EXISTS TO MAKE UNREPRESENTABLE
+// SIX PROPERTIES, EACH A FAILURE THIS CLASS EXISTS TO MAKE UNREPRESENTABLE
 //
 //   • **One apply path.** Every delivered event reaches the store through
 //     `registry.enqueue`, which is the queue in front of `SessionStore.applyBatch`.
@@ -80,16 +80,14 @@
 // `session.subscribe` will need: when the wire grows a request shape, this call
 // gains an argument and nothing else about the lifecycle moves.
 //
-// Reading a delivered payload is a different job, in `bridge/daemon/session-event-payload.ts`:
-// this module owns WHICH sessions are bound and for how long, that one owns WHAT a delivered
-// payload has to look like. The fixture handle is a third, in `session-diagnostics-handle.ts`:
-// this class composes what the endurance tier may read — the three reads below, closed over
-// this binder's own state — and that module owns the page property, the define that gates it,
-// and the identity check that keeps a replaced binder's teardown from deleting the live one's
-// handle. Splitting them is what stops a lifecycle file from being three files' worth of job.
+// Reading a delivered payload is a different job (`bridge/daemon/session-event-payload.ts`): this
+// module owns WHICH sessions are bound, that one owns WHAT a payload looks like. A third, the
+// fixture handle (`session-diagnostics-handle.ts`), owns the page property, the define gating it,
+// and the identity check keeping a replaced binder's teardown from deleting the live one's handle.
+// This class composes the four reads — three off its own state, one from the floor's registry.
 
-import type { Unsubscribe } from "../core/index.js";
-import { lossyStringify, reportTripwire } from "../core/index.js";
+import type { LedgerWindowReading, Unsubscribe } from "../core/index.js";
+import { consoleLedgerWindows, lossyStringify, reportTripwire } from "../core/index.js";
 import {
   SESSION_EVENT_STREAM,
   openObservedSubscription,
@@ -395,6 +393,8 @@ export class SessionEventBinder {
       openSessionIds: (): readonly string[] => this.#registry.openSessionIds,
       appliedEventCountFor: (sessionId: string): number => this.appliedEventCountFor(sessionId),
       boundSessionIds: (): readonly string[] => this.boundSessionIds,
+      ledgerWindowFor: (sessionId: string): LedgerWindowReading | null =>
+        consoleLedgerWindows.readingFor(sessionId),
     });
   }
 }
