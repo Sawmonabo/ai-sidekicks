@@ -52,17 +52,18 @@ function refusals(container: HTMLElement): readonly string[] {
 }
 
 describe("sent invites — a supervisor that is not serving", () => {
-  it("closes the revoke control and names the cause beside it", async () => {
+  it("closes the revoke control and carries the cause on it", async () => {
     const container = await renderUnder(stoppedShell());
 
     const revoke = revokeControl(container);
     expect(revoke?.disabled).toBe(true);
-    // The cause reaches the control as its own disabled reason AND the ledger as one
-    // sentence above the rows — the two halves of "disabled with its cause beside
-    // it", which is the rule a disabled control with its reason off screen breaks.
+    // The cause reaches the control as its own disabled reason — half of "disabled
+    // with its cause beside it". The other half, the one SENTENCE naming the cause, is
+    // the hosting members section's, said once above its rows for every control under
+    // its heading; this surface prints no second copy, which is what the count below
+    // holds. `Memberships.shell.test.tsx` holds the sentence itself.
     expect(revoke?.getAttribute("title") ?? "").toContain("The local runtime has been stopped");
-    expect(refusals(container)).toHaveLength(1);
-    expect(refusals(container)[0] ?? "").toContain("shell-stopped");
+    expect(refusals(container).filter((line) => line.includes("shell-"))).toStrictEqual([]);
   });
 
   it("leaves the ledger it already read on screen", async () => {

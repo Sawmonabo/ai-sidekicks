@@ -83,7 +83,6 @@
 import { useEffect, useMemo } from "react";
 
 import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
-import { InlineRefusal } from "../../primitives/index.js";
 import { shellBlockForMethod, useShellState, type FrameStore } from "../../store/index.js";
 import {
   WireMutationCoordinator,
@@ -172,15 +171,13 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         </p>
       </header>
 
-      {/* DISABLED WITH THE CAUSE BESIDE IT, never hidden, and said ONCE for the section:
-          the block is the window's, and the send control below and every revoke control
-          in the ledger are closed by the same condition. Through the console's one
-          row-scoped refusal shape, because the block's two members ARE a code and a
-          sentence. */}
-      {revokeBlock === undefined ? null : (
-        <InlineRefusal code={revokeBlock.code} detail={revokeBlock.detail} />
-      )}
-
+      {/* DISABLED WITH THE CAUSE BESIDE IT, never hidden, and the SENTENCE said once for
+          the section: the block is the window's, and the send control below, every revoke
+          control in the ledger, and the membership controls above are all closed by the
+          same condition. The one line naming it is the hosting section's — the members
+          ledger prints it above its rows — so this surface hands the block to its
+          controls as their disabled reason and prints no second copy of the same words
+          under the same heading. */}
       <CreateInvite
         bridge={bridge}
         sessionId={sessionId}

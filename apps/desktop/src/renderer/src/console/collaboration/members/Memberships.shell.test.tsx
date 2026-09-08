@@ -52,11 +52,18 @@ function rowControls(container: HTMLElement): readonly HTMLButtonElement[] {
   ];
 }
 
-/** Every refusal line on screen, as the code and sentence a person actually reads. */
-function refusals(container: HTMLElement): readonly string[] {
-  return [...container.querySelectorAll(".meridian-refusal--inline")].map(
-    (refusal) => refusal.textContent ?? "",
-  );
+/**
+ * Every refusal line naming the SHELL, as the code and sentence a person actually reads.
+ *
+ * Filtered to the shell's own codes because the section hosts the invitation mint,
+ * which says its own, different refusal when the caller's identity read is not
+ * registered on the build — a line with another owner and another cause, and the
+ * claim here is about how many times THIS cause is said.
+ */
+function shellRefusals(container: HTMLElement): readonly string[] {
+  return [...container.querySelectorAll(".meridian-refusal--inline")]
+    .map((refusal) => refusal.textContent ?? "")
+    .filter((line) => line.includes("shell-"));
 }
 
 describe("memberships — a supervisor that is not serving", () => {
@@ -66,11 +73,12 @@ describe("memberships — a supervisor that is not serving", () => {
     const controls = rowControls(container);
     expect(controls).toHaveLength(4);
     expect(controls.every((control) => control.disabled)).toBe(true);
-    // Once for the ledger, not once per row: the cause is the window's, and two rows
-    // would print the same words twice under a heading that already said them.
-    expect(refusals(container)).toHaveLength(1);
-    expect(refusals(container)[0] ?? "").toContain("shell-stopped");
-    expect(refusals(container)[0] ?? "").toContain("The local runtime has been stopped");
+    // Once for the SECTION, not once per row and not once per ledger: the cause is the
+    // window's, and the sent-invite ledger this section hosts below would otherwise
+    // print the same words a second time under a heading that already said them.
+    expect(shellRefusals(container)).toHaveLength(1);
+    expect(shellRefusals(container)[0] ?? "").toContain("shell-stopped");
+    expect(shellRefusals(container)[0] ?? "").toContain("The local runtime has been stopped");
   });
 
   it("carries the cause on the manage trigger as its own disabled reason", async () => {
@@ -97,6 +105,6 @@ describe("memberships — a supervisor that is not serving", () => {
 
     expect(rowControls(container).every((control) => !control.disabled)).toBe(true);
     expect(container.querySelector(".meridian-members__manage")?.getAttribute("title")).toBeNull();
-    expect(refusals(container)).toStrictEqual([]);
+    expect(shellRefusals(container)).toStrictEqual([]);
   });
 });

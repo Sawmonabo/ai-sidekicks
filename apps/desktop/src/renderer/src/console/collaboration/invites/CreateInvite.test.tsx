@@ -248,7 +248,12 @@ describe("creating an invitation — the one-time reveal", () => {
       controlPlaneHostRead: growthRefusing("controlPlaneHostRead"),
     });
     const { container } = render(
-      <CreateInvite bridge={bridge} sessionId={SESSION_ID} onMinted={onMinted} />,
+      <CreateInvite
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        frameStore={quietShell()}
+        onMinted={onMinted}
+      />,
     );
     await settle();
     await pressSend(container);

@@ -76,10 +76,11 @@ export function SentInvitesLedger(props: {
       {/* DISABLED WITH ITS CAUSE BESIDE IT, never hidden, on the provider-readiness
           row's precedent: a control that disappears while the runtime is away reads as
           a control this build does not have, and a disabled one with its sentence off
-          screen reads as one that quietly stopped working. Through the console's one
-          row-scoped refusal shape, because the block's two members ARE a code and a
-          sentence. Said once above the rows rather than on each of them — the cause is
-          the window's, and the rows below it are a read the outage does not touch. */}
+          screen reads as one that quietly stopped working. Every pending row's revoke
+          carries the block as its disabled reason; the sentence itself is the hosting
+          members section's, said once above its rows for every control under its
+          heading — the cause is the window's, and the rows below are a read the outage
+          does not touch. */}
       {ledger.pending.length === 0 ? (
         <Nothing
           kind="empty"

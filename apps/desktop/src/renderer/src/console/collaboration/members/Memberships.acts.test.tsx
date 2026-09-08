@@ -38,7 +38,10 @@ import {
 const SCENARIO_WITH_INVITATION = { ...scenarioWithArrivals(), sessionId: SESSION_ID };
 
 describe("memberships — a shell that cannot send", () => {
-  it("keeps every row and offers no control, naming the shell's own refusal", () => {
+  it("keeps every row and closes every control, naming the shell's own refusal", () => {
+    // Closed and never hidden: a control that vanished would leave a person unable
+    // to find what they came for, while a disabled one with the cause as its own
+    // reason says what is wrong and that it will come back.
     const { container } = render(
       <Memberships
         context={contextFor(storeHolding(OWNER_AND_COLLABORATOR), undefined, offlineFrameStore())}
@@ -46,8 +49,12 @@ describe("memberships — a shell that cannot send", () => {
     );
     expect(container.querySelectorAll(".meridian-members__row")).toHaveLength(2);
     expect(container.textContent ?? "").toContain("shell-offline");
-    expect(container.querySelector(".meridian-members__manage")).toBeNull();
-    expect(container.querySelector(".meridian-members__revoke")).toBeNull();
+    const manage = container.querySelector<HTMLButtonElement>(".meridian-members__manage");
+    expect(manage?.disabled).toBe(true);
+    expect(manage?.getAttribute("title") ?? "").toContain("did not come back");
+    expect(container.querySelector<HTMLButtonElement>(".meridian-members__revoke")?.disabled).toBe(
+      true,
+    );
   });
 
   it("negative control: with nothing reported the controls are offered", () => {
@@ -87,7 +94,9 @@ describe("memberships — a projection that is behind", () => {
     );
     expect(container.querySelectorAll(".meridian-members__read-only")).toHaveLength(1);
     expect(container.textContent ?? "").toContain("shell-offline");
-    expect(container.querySelector(".meridian-members__manage")).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>(".meridian-members__manage")?.disabled).toBe(
+      true,
+    );
   });
 });
 
