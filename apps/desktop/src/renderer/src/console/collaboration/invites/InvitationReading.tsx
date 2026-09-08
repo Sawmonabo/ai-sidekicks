@@ -17,6 +17,7 @@
 import { Dialog } from "@base-ui/react/dialog";
 
 import { Chip, Nothing, WireFigure, formatDateTime } from "../../primitives/index.js";
+import { invitationFootnote } from "./invite-footnote-copy.js";
 import { InviteOutcomeReport } from "./InviteOutcomeReport.js";
 import type { PendingInviteSnapshot } from "./pending-invite.js";
 import { isInviteAnswerOutstanding } from "./pending-invite-reading.js";
@@ -153,13 +154,16 @@ export function InvitationReading(props: InvitationReadingProps): React.JSX.Elem
         </div>
       ) : null}
 
-      <p className="meridian-invite-confirmation__footnote">
-        {snapshot.waitingBehind > 0
-          ? `Not now puts this away and tells nobody. ${String(snapshot.waitingBehind)} more ${
-              snapshot.waitingBehind === 1 ? "invitation is" : "invitations are"
-            } behind it.`
-          : "Not now puts this away and tells nobody, because there is no decline to send. The link still works if you change your mind."}
-      </p>
+      {/* THE FOOTNOTE FOLLOWS THE ANSWER, and until this it did not. One line about
+          **Not now** was printed under every state — including the four terminal ones,
+          where that control is not drawn at all and the report's **Done** is, and where
+          "the link still works if you change your mind" is false of a link an
+          acceptance has already consumed. So the card said one thing in its result and
+          the opposite underneath it. The words are `invite-footnote-copy.ts`, exhaustive
+          over the outcome union and reading the same `isInviteAnswerOutstanding` this
+          body draws its act row on, which is what keeps the sentence and the control it
+          names from being two answers to one question. */}
+      <p className="meridian-invite-confirmation__footnote">{invitationFootnote(snapshot)}</p>
     </>
   );
 }

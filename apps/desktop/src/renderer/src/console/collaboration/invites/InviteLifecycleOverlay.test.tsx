@@ -26,6 +26,7 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { PENDING_INVITE_QUEUE_MAX } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import {
   closeThroughBackdrop,
@@ -252,6 +253,42 @@ describe("the invite lifecycle — a deep link that produced no invitation", () 
     await press(body, "meridian-invite-notice__open");
     await press(body, "meridian-invite-outcome__acknowledge");
     expect(body.querySelector(".meridian-invite-notice")).toBeNull();
+  });
+});
+
+describe("the invite lifecycle — the notice counts what this window cannot show", () => {
+  // The defect this block exists for: the notice printed an exact figure off
+  // `waitingBehind`, which counts the BOUNDED queue and deliberately leaves out the
+  // arrivals that bound turned away — so a window holding more invitations than it can
+  // queue announced its own capacity as though that were all of them, while main went
+  // on holding the rest for the replay.
+
+  /** One burst larger than the queue holds, each arrival its own invitation. */
+  function moreArrivalsThanTheQueueHolds(): readonly GrowthPendingInviteState[] {
+    return Array.from({ length: PENDING_INVITE_QUEUE_MAX + 2 }, (_, index) =>
+      readyPreview({ reference: `pending-ref-burst-${String(index)}` }),
+    );
+  }
+
+  it("says the count is a floor while the bound is holding arrivals back", async () => {
+    const { body } = await mountOverPendingFeed(moreArrivalsThanTheQueueHolds());
+    expect(body.textContent ?? "").toContain(
+      `You have at least ${String(PENDING_INVITE_QUEUE_MAX)} invitations waiting.`,
+    );
+  });
+
+  it("negative control: a burst that FITS is reported exactly", async () => {
+    // Without this the case above would pass over a notice that had stopped counting
+    // and hedged every arrival, which tells a person with three invitations no more
+    // than a person with thirty.
+    const { body } = await mountOverPendingFeed([
+      readyPreview({ reference: "pending-ref-fits-1" }),
+      readyPreview({ reference: "pending-ref-fits-2" }),
+      readyPreview({ reference: "pending-ref-fits-3" }),
+    ]);
+    const text = body.textContent ?? "";
+    expect(text).toContain("You have 3 invitations waiting.");
+    expect(text).not.toContain("at least");
   });
 });
 
