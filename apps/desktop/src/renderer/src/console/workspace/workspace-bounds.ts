@@ -19,7 +19,7 @@
 // convenience. The width table is a total `Record` keyed by the preset union, so the
 // union is part of the bound: a module holding the widths and importing the union
 // from the module that imports the widths is a cycle, which `structure:layering`
-// fails. What stays in `deck/density.ts` is what READS these — the predicate, the
+// fails. What stays in `deck/model/density.ts` is what READS these — the predicate, the
 // lookup, and the how-many-fit arithmetic.
 
 import { SIDEBAR_MAXIMUM_WIDTH_PERCENT } from "../core/index.js";
@@ -78,7 +78,7 @@ export const DECK_MINIMUM_PANE_WIDTH_PX: Readonly<Record<DeckDensity, number>> =
 /**
  * The smallest visible extent a native view is drawn at, in CSS pixels.
  *
- * The hide threshold `deck/rect-discipline.ts` states: a native view hides when either
+ * The hide threshold `deck/rect/rect-discipline.ts` states: a native view hides when either
  * dimension of the visible clip is below one pixel. One pixel rather than zero because
  * a sub-pixel clip is a view the compositor still composites and nobody can see — the
  * cost with none of the benefit.

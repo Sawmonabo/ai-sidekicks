@@ -44,7 +44,7 @@ import {
 } from "./aux-handoff-contract.js";
 import { type AuxiliaryHandoff } from "./aux-handoff.js";
 import { useAuxiliaryHandoffRegistry } from "./DetachedPaneBinding.js";
-import type { DeckPane } from "../deck/deck-model.js";
+import type { DeckPane } from "../deck/model/deck-model.js";
 
 /**
  * No pane is carrying a crash note, once.

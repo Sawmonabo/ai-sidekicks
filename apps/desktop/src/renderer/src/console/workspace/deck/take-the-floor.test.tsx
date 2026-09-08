@@ -19,7 +19,7 @@ import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js"
 import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
 import { takeTheFloor, unregisterTakeTheFloorHandler } from "../../seats/index.js";
 import { SessionStore } from "../../store/index.js";
-import { DeckLayout } from "./deck-layout.js";
+import { DeckLayout } from "./model/deck-layout.js";
 import { resolveRunWorktreeId, useTakeTheFloorSeat } from "./take-the-floor.js";
 
 /** A real UUID, because the registered session identifier is a branded UUID. */

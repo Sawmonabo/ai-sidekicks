@@ -3,7 +3,7 @@
 // Deciding whether an ancestor clips is four lines — a computed-style read, a membership
 // test, and the two axis names — so a second one is never introduced deliberately. It
 // arrives inside a family that needed to know what was hiding its own element. The
-// console had exactly that: `workspace/deck/rect-geometry.ts` intersected the boxes and
+// console had exactly that: `workspace/deck/rect/rect-geometry.ts` intersected the boxes and
 // `browser/geometry/geometry-publisher.ts` collected them, and by the time both were read
 // side by side they disagreed about the data structure, about whether the `overflow`
 // shorthand counts, and about whether the answer was tested at all. Both are

@@ -17,7 +17,7 @@
 //     pane order would be a second source of truth for it, and the restore path
 //     would then have two places to write. This component subscribes and dispatches.
 //   • **Every programmatic scroll and every rect read goes through a chokepoint.**
-//     Rects are `rect-discipline.ts`'s; nothing here calls `scrollIntoView`.
+//     Rects are `rect/rect-discipline.ts`'s; nothing here calls `scrollIntoView`.
 //   • **Rows are memoised.** A four-pane deck under a streaming session re-renders
 //     the pane whose store changed and not its neighbours, which is what the
 //     partitioned store buys and what an unmemoised map would give straight back.
@@ -55,21 +55,21 @@ import { type ConsoleRefusal } from "../../core/index.js";
 import { useConsoleClock } from "../../bridge/index.js";
 import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../primitives/index.js";
 import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
-import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
+import { useDeckLayoutState, type DeckLayout } from "./model/deck-layout.js";
 import { deckActsOn, paneDetachmentReadingFor } from "./commands/deck-acts.js";
 import { useMountedDeck } from "./commands/deck-command-seat.js";
-import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./deck-model.js";
+import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./model/deck-model.js";
 import { type DeckDensity } from "../workspace-bounds.js";
-import { minimumPaneWidthPx } from "./density.js";
+import { minimumPaneWidthPx } from "./model/density.js";
 import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
 // Deep and intra-family, which is what this family's imports are: the sidebar declares
 // both halves of the row-drop seam beside each other, and the deck supplies the element
 // that makes its half real. A copy of the target here would be the second spelling of
 // one key, and the two would drift the first time either was renamed.
 import { useSidebarRowDeckDropTarget } from "../sidebar/drag/row-drag.js";
-import { DeckPaneSlot } from "./DeckPaneSlot.js";
-import { type TrackedRect } from "./rect-geometry.js";
-import { usePaneRectSources, usePaneRectTracker } from "./rect-discipline.js";
+import { DeckPaneSlot } from "./pane-slot/DeckPaneSlot.js";
+import { type TrackedRect } from "./rect/rect-geometry.js";
+import { usePaneRectSources, usePaneRectTracker } from "./rect/rect-discipline.js";
 import { useSeparatorValueBoundsCorrection } from "./separator-aria.js";
 
 export interface DeckProps {
@@ -106,7 +106,7 @@ export interface DeckProps {
   readonly lostWindowNoticesByPaneId?: ReadonlyMap<string, ConsoleRefusal>;
   readonly onDismissLostWindow?: (paneId: string) => void;
   /** Where measured pane rects go, for a body that hosts a native view.
-   * `deck/rect-discipline.ts` holds the rules. */
+   * `deck/rect/rect/rect-discipline.ts` holds the rules. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
 }
 
@@ -280,7 +280,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
    * second through the persistence writer. `onLayoutChange` fires on every frame of
    * the drag and does exactly one thing: invalidates the pane rects, so a native
    * view hosted in a pane tracks its bounds THROUGH the resize rather than jumping
-   * to them at the end of it (`deck/rect-discipline.ts`). It is a read, queued to the
+   * to them at the end of it (`deck/rect/rect/rect-discipline.ts`). It is a read, queued to the
    * next frame by the tracker; it writes no layout, which is the rule that callback
    * exists under.
    */

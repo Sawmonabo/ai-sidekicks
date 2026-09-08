@@ -42,7 +42,7 @@
 // the close is the ordinary one.
 
 import type { Announce } from "../../../primitives/index.js";
-import type { DeckLayout } from "../deck-layout.js";
+import type { DeckLayout } from "../model/deck-layout.js";
 import { paneDropAnnouncement } from "../pane-drag.js";
 
 /**

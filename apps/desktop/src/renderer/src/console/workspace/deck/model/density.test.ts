@@ -12,7 +12,7 @@ import {
   DECK_DENSITIES,
   DECK_MINIMUM_PANE_WIDTH_PX,
   DEFAULT_DECK_DENSITY,
-} from "../workspace-bounds.js";
+} from "../../workspace-bounds.js";
 import { isDeckDensity, minimumPaneWidthPx, panesThatFit } from "./density.js";
 
 describe("DECK_DENSITIES — the axis", () => {

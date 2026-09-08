@@ -19,7 +19,7 @@ import { useCallback } from "react";
 
 import { actorFollowHandler } from "../../seats/index.js";
 import type { ConsoleSessionEvent, SessionStore } from "../../store/index.js";
-import type { DeckLayout } from "../deck/deck-layout.js";
+import type { DeckLayout } from "../deck/model/deck-layout.js";
 
 /** What pressing a chip resolves to. */
 export type ActorFollowResolution =

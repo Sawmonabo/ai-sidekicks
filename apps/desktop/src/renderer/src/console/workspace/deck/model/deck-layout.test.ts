@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+import { DECK_RESTORED_PANE_CAP } from "../../../core/index.js";
 import { DeckLayout } from "./deck-layout.js";
 import { DECK_TOTAL_PERMILLE } from "./deck-model.js";
 

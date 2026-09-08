@@ -47,7 +47,7 @@ import {
   type ReadRound,
   type SessionStore,
 } from "../../store/index.js";
-import type { DeckLayout } from "./deck-layout.js";
+import type { DeckLayout } from "./model/deck-layout.js";
 
 /** The owner string the seat's refusal names. Reads as the surface, never as a task. */
 export const TAKE_THE_FLOOR_SEAT_OWNER = "workspace-deck";

@@ -8,8 +8,8 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AirspaceRegistry, ManualClock } from "../../core/index.js";
-import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../workspace-bounds.js";
+import { AirspaceRegistry, ManualClock } from "../../../core/index.js";
+import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../../workspace-bounds.js";
 import { PaneRectTracker } from "./rect-discipline.js";
 import { type TrackedRect } from "./rect-geometry.js";
 

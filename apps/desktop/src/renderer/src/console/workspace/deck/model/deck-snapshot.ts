@@ -42,9 +42,14 @@
 // is what lets the grammar be tested against hand-written records — including ones
 // no version of this console would ever write.
 
-import { isConsoleRefusal, isWireRecord, refuse, type NarrowedRefusal } from "../../core/index.js";
-import { isEphemeralPaneKind, isPaneKind, parseConsolePaneAddress } from "../../seats/index.js";
-import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../workspace-bounds.js";
+import {
+  isConsoleRefusal,
+  isWireRecord,
+  refuse,
+  type NarrowedRefusal,
+} from "../../../core/index.js";
+import { isEphemeralPaneKind, isPaneKind, parseConsolePaneAddress } from "../../../seats/index.js";
+import { DEFAULT_DECK_DENSITY, type DeckDensity } from "../../workspace-bounds.js";
 import { isDeckDensity } from "./density.js";
 import {
   DECK_TOTAL_PERMILLE,

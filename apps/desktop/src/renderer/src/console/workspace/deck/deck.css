@@ -170,7 +170,7 @@
 
 /*
  * The preset decides a minimum WIDTH, which the pane carries inline because the
- * number comes from `density.ts`. What lives here is the rhythm that goes with it:
+ * number comes from `model/density.ts`. What lives here is the rhythm that goes with it:
  * a tighter deck sets its chrome tighter, so the extra pane a person bought is
  * spent on content rather than on padding.
  *
