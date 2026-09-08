@@ -287,8 +287,8 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
     // — and seeding runs during a render React may throw away, so the pass that
     // opened one is not necessarily a pass anything will ever clean up after.
     for (const module of [
-      "console/frame/session-lifecycle.ts",
-      "console/frame/ui-state-lifecycle.ts",
+      "console/frame/session/session-lifecycle.ts",
+      "console/frame/bindings/ui-state-lifecycle.ts",
     ]) {
       const source = readModule(module);
       expect(source, `${module} no longer holds its resource through the holder`).toContain(

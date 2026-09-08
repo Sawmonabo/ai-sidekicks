@@ -9,7 +9,7 @@
 // and the first three were each written by somebody who had read the rule and had no
 // way to be told the primitive could already serve them.
 //
-// THE SECOND HOME IS NAMED RATHER THAN EXEMPTED. `frame/banner-announcements.ts` is a
+// THE SECOND HOME IS NAMED RATHER THAN EXEMPTED. `frame/composition/banner-announcements.ts` is a
 // latch by this reading and is deliberately not the primitive: it diffs a LIST by
 // banner id and speaks into the ASSERTIVE lane, because a refusal banner says the
 // whole room's capabilities moved, where the primitive holds sentences and speaks
@@ -38,7 +38,7 @@ import { announceLatchModules, declaresAnnounceLatch } from "./announce-latch-ce
  * rather than in a lane.
  */
 const LATCH_HOMES: readonly string[] = [
-  "console/frame/banner-announcements.ts",
+  "console/frame/composition/banner-announcements.ts",
   "console/primitives/announce/reading-announcement.ts",
 ];
 

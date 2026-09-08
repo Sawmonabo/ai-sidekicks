@@ -26,7 +26,7 @@
 // it holds what a store is opened with — and `store/` sits below `frame/` in the
 // family DAG, so this module cannot import the frame's run projectors and does not
 // try. The process-wide instance is minted here EMPTY and seeded by the composition,
-// where `frame/run-lifecycle-projector.ts` claims the run-lifecycle kinds under its
+// where `frame/run-projection/run-lifecycle-projector.ts` claims the run-lifecycle kinds under its
 // own name. That ordering is the point: families register, and only then does a
 // window open a session store.
 
@@ -97,7 +97,7 @@ export class ConsoleEntityProjectorRegistry {
  * The process-wide registry the composition seeds and every window's stores read.
  *
  * Minted EMPTY. The frame's run-lifecycle projectors reach it through
- * `registerConsoleFamilies`, which is handed this instance by `frame/ConsoleRoot.tsx`
+ * `registerConsoleFamilies`, which is handed this instance by `frame/composition/ConsoleRoot.tsx`
  * — the same way the surface board and the pane board are named at that one site
  * rather than reached for inside the composition.
  */

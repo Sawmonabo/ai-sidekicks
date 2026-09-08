@@ -14,7 +14,7 @@
 //
 // Nothing in this revision mounts a registered pane: `registerConsolePanes` claims
 // the `terminal` kind and the deck that would resolve a descriptor out of that
-// registry is a later family's. `console/frame/PaneHarnessSurface.tsx` is the
+// registry is a later family's. `console/frame/pane-harness/PaneHarnessSurface.tsx` is the
 // smallest honest door — a `define`-gated fixture surface, reached at
 // `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through
 // `ConsolePaneRegistry` and mounts one more of it per press. It is deliberately not

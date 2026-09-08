@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-projection/run-lifecycle-projector.js";
 import { emptyPartitions } from "../../store/entities/entities.js";
 import { EntityProjectionRunner } from "../../store/entities/entity-projection.js";
 import { eventOfKind } from "../../store/session-event.test-support.js";

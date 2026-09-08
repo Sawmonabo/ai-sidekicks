@@ -54,9 +54,9 @@ import {
 import type { UiStateStore } from "../persistence/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
-import { RAIL_ENTRY_TEMPLATES } from "./IconRail.js";
+import { RAIL_ENTRY_TEMPLATES } from "./composition/IconRail.js";
 import { type ConsoleSurfaceRegistry } from "../seats/index.js";
-import { routeForDestination, warmDestination } from "./rail-navigation.js";
+import { routeForDestination, warmDestination } from "./composition/rail-navigation.js";
 
 /** What the frame's own commands are built against: this window's store and acts. */
 export interface FrameCommandSurfaceInput {

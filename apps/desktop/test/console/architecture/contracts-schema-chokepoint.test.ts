@@ -120,7 +120,7 @@ describe("contracts-schema chokepoint — a schema value stops at the bridge", (
 
   it("leaves the non-schema VALUES the console reads today alone", async () => {
     // Both are live imports outside `bridge/` on this branch — the event-category
-    // census in `frame/run-lifecycle-projector.ts`, and the Tier-1 bridge factory the
+    // census in `frame/run-projection/run-lifecycle-projector.ts`, and the Tier-1 bridge factory the
     // frame's own suites construct. A ban that swept these up would be wrong in the
     // direction that gets a ban turned off.
     const messages = await restrictedImportMessages(
