@@ -56,3 +56,39 @@ export function issuesForMember(
     .filter((issue) => issue.memberPath === dotted)
     .map((issue) => issue.message);
 }
+
+/**
+ * What the schema said about ONE ENTRY of a list, addressed by the position it sits at.
+ *
+ * The validator addresses an array member by the array's path followed by the index —
+ * `reviewers.0` — so an entry's own findings are invisible to a lookup asking for
+ * `reviewers` alone, and a form that made only that lookup drew a control the schema had
+ * a complaint about and rendered the complaint nowhere.
+ *
+ * Composed here rather than at the surface, and by appending a segment to the same reader
+ * above, so the dotted spelling of a member path still has exactly one home.
+ */
+export function issuesForListEntry(
+  report: SchemaValidationReport | undefined,
+  memberPath: readonly string[],
+  index: number,
+): readonly string[] {
+  return issuesForMember(report, [...memberPath, String(index)]);
+}
+
+/**
+ * The one `aria-describedby` a control carries, composed from the ids it might have.
+ *
+ * The platform takes a space-separated id list in this attribute and drops an id that
+ * points at no element, which is why a caller passes the ids it MIGHT have rather than
+ * the ones it does: a control with neither a description nor a finding carries no
+ * attribute at all rather than one naming an element that was never rendered.
+ *
+ * A function because two modules compose it — a scalar field's chrome and one list
+ * entry's — and a second copy would drift the first time either grew a third describing
+ * element, in the direction where the drift is silent.
+ */
+export function describedByOf(ids: readonly (string | undefined)[]): string | undefined {
+  const present = ids.filter((id): id is string => id !== undefined);
+  return present.length === 0 ? undefined : present.join(" ");
+}

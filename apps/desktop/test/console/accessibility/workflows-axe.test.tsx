@@ -22,6 +22,14 @@
 // beside the instant the wire sent — a pair whose accessible reading is the thing
 // this tier is the instrument for.
 //
+// AND ONE COMPOSITION NO REGISTERED SURFACE CAN REACH. A human phase's form draws a
+// repeated control per list entry, and an entry exists only after a person adds one — so
+// the three mounts above audit a form that has never had one, and the control they never
+// see is the one drawn straight through the field dispatch with none of the chrome that
+// names a scalar field. It is audited as a component, on `collaboration-axe.test.tsx`'s
+// reasoning: one scheme, because it carries no surface of its own and inherits the tokens
+// the three surfaces above are already measured under.
+//
 // AND IT IS THE CASE THAT HAS TO BE WAITED FOR. Its phase graph is a lazily-loaded
 // chunk, and the mount helper returns on the run READ — the park banner — which lands
 // before the chunk does. `phase-graph-settled.test.ts` proves exactly that: at the
@@ -32,9 +40,10 @@
 // a graph, because the helper answers "no graph here" and "the graph has not arrived"
 // differently and a per-surface exception would be a second rule to keep true.
 
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme } from "../console-harness.js";
+import { emulateSystemScheme, renderSettled } from "../console-harness.js";
 import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
@@ -50,6 +59,10 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
+// The form stack's own door, for its sheet and for the one composer that mounts a form
+// over a schema. The family sheet the entry's controls also draw against is already on
+// the page: `../surfaces/workflows.js` above imports the family door for its registrars.
+import { HumanPhaseFormAnswer } from "../../../src/renderer/src/console/workflows/forms/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
@@ -97,6 +110,38 @@ describe("accessibility — the workflows surfaces", () => {
       });
     }
   }
+
+  it("has no axe violation on a human phase's form once list entries are added", async () => {
+    const { container } = await renderSettled(
+      <HumanPhaseFormAnswer
+        prompt="Who signs this release off?"
+        inputSchema={{
+          type: "object",
+          properties: {
+            reviewers: {
+              type: "array",
+              title: "Reviewers",
+              // A constraint on the ENTRY rather than on the collection, so the added
+              // entries carry findings of their own: the composition audited here is a
+              // repeated control with a name, a verdict, and the relationship between
+              // them, and a form with nothing wrong with it would audit none of that.
+              items: { type: "string", minLength: 3 },
+            },
+          },
+          required: ["reviewers"],
+        }}
+        onSubmit={() => undefined}
+      />,
+    );
+    const addEntry = screen.getByRole("button", { name: "Add an entry" });
+    fireEvent.click(addEntry);
+    fireEvent.click(addEntry);
+    // Stated before it is measured: an audit of a list with no entries is an audit of
+    // the surface the three mounts above already cover.
+    expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(2);
+
+    expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
+  });
 
   it("finds a planted violation, so a clean result means something", async () => {
     // Negative control for this file's own runs: the six cases above expect an

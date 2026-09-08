@@ -6,7 +6,7 @@
 // surface: a test that fed the component a fabricated plan would pass with the mapper
 // deleted.
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { SchemaForm } from "./SchemaForm.js";
@@ -14,15 +14,40 @@ import { useSchemaForm } from "./use-schema-form.js";
 
 afterEach(cleanup);
 
-/** The form, mounted over one schema through its own hook. */
+/** Where the host below writes the answer the controls composed, for a case to read. */
+const COMPOSED_ANSWER_CLASS = "composed-answer";
+
+/**
+ * The form, mounted over one schema through its own hook.
+ *
+ * It writes the composed answer out beside the controls, because the value a submission
+ * would carry is the only thing that settles what a control MEANT: a select that looks
+ * right and reports `undefined` renders identically to one that reports a member.
+ */
 function FormHost(props: { readonly inputSchema: unknown }): React.JSX.Element {
-  return <SchemaForm form={useSchemaForm(props.inputSchema)} />;
+  const form = useSchemaForm(props.inputSchema);
+  return (
+    <>
+      <SchemaForm form={form} />
+      <output className={COMPOSED_ANSWER_CLASS}>{JSON.stringify(form.answer)}</output>
+    </>
+  );
 }
 
 /** Render one schema's form and hand back the container it drew into. */
 function renderForm(inputSchema: unknown): HTMLElement {
   const { container } = render(<FormHost inputSchema={inputSchema} />);
   return container;
+}
+
+/** The answer the drawn controls have composed so far, read back as a value. */
+function composedAnswer(container: HTMLElement): unknown {
+  return JSON.parse(container.querySelector(`.${COMPOSED_ANSWER_CLASS}`)?.textContent ?? "null");
+}
+
+/** Press the control that adds one entry to the only list on the drawn form. */
+function addListEntry(): void {
+  fireEvent.click(screen.getByRole("button", { name: "Add an entry" }));
 }
 
 describe("the schema-derived form", () => {
@@ -53,11 +78,27 @@ describe("the schema-derived form", () => {
       properties: { severity: { type: "string", enum: ["low", "high"], title: "Severity" } },
     });
 
-    const options = [...screen.getByLabelText("Severity").querySelectorAll("option")].map(
-      (option) => option.value,
+    const options = [...screen.getByLabelText("Severity").querySelectorAll("option")];
+
+    expect(options.map((option) => option.textContent)).toEqual(["Not answered", "low", "high"]);
+    // The members are offered under their POSITIONS, so the unanswered option's value is
+    // not a string any enumeration can contain: it is the one value that is not an index.
+    expect(options.map((option) => option.value)).toEqual(["", "0", "1"]);
+  });
+
+  it("submits an enumeration member the schema spells empty rather than reading it as no answer", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { severity: { type: "string", enum: ["", "high"], title: "Severity" } },
+    });
+    const severity = screen.getByLabelText("Severity");
+    const emptyMemberOption = [...severity.querySelectorAll("option")].find(
+      (option) => option.textContent === "",
     );
 
-    expect(options).toEqual(["", "low", "high"]);
+    fireEvent.change(severity, { target: { value: emptyMemberOption?.value } });
+
+    expect(composedAnswer(container)).toEqual({ severity: "" });
   });
 
   it("says which members the schema requires without deciding whether they are answered", () => {
@@ -125,6 +166,45 @@ describe("the schema-derived form", () => {
     );
     expect(screen.getByRole("button", { name: "Add an entry" })).toBeDefined();
     expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(0);
+  });
+
+  it("names each repeated control by its collection and the position it sits at", () => {
+    const container = renderForm({
+      type: "object",
+      properties: { reviewers: { type: "array", title: "Reviewers", items: { type: "string" } } },
+    });
+    addListEntry();
+    addListEntry();
+
+    expect(screen.getByRole("textbox", { name: "Reviewers, entry 1" })).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "Reviewers, entry 2" })).toBeDefined();
+    // Spoken rather than drawn: the legend already names the collection and the ordered
+    // list already draws the position, so a visible label would say both a second time.
+    expect(container.querySelector(".meridian-schema-list__item label")?.className).toContain(
+      "meridian-visually-hidden",
+    );
+  });
+
+  it("renders an indexed finding under the entry it is about rather than on the whole list", () => {
+    const container = renderForm({
+      type: "object",
+      properties: {
+        reviewers: { type: "array", title: "Reviewers", items: { type: "string", minLength: 3 } },
+      },
+    });
+    addListEntry();
+
+    const entryControl = container.querySelector(".meridian-schema-list__item input");
+    const describedBy = entryControl?.getAttribute("aria-describedby") ?? "";
+
+    expect(describedBy).not.toBe("");
+    expect(document.getElementById(describedBy)?.textContent ?? "").not.toBe("");
+    // The collection itself has nothing wrong with it — `minItems` and its siblings are
+    // what a list-level finding is — so a message drawn against the fieldset here would
+    // be one nobody could attribute to an entry.
+    expect(
+      container.querySelector(".meridian-schema-list > .meridian-schema-field__issues"),
+    ).toBeNull();
   });
 
   it("opens the raw editor for a schema outside the drawn set, and never a refusal", () => {
