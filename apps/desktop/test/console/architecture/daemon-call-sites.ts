@@ -15,18 +15,16 @@
 // module that explains why it passes one, and a needle for the method matches the
 // registry's own table listing all thirty. Neither survives contact with this tree.
 //
-// AND THE DOOR IS THE BINDING THE CALL SEES, not a name in a set. Matching the callee
-// against this module's door spellings answered two questions wrongly at once. A
-// nested `send` — a parameter, a local, a callback argument — SHADOWS an import of the
-// door aliased to that spelling, and the language says the shadow wins while the name
-// set said the door did; and the exported spelling `callDaemon` was matched
-// unconditionally, in modules that never imported it, so any function of that name
-// would have been read as the door. Both are the same defect the method resolution
-// already refuses, so both are refused the same way: the callee is resolved through
-// `daemon-method-bindings.ts` at the call's own position, and it is a door call only
-// where that resolution lands on an import specifier the door was imported through.
-// A module holding no such import contributes no calls, which is what it means for a
-// module not to reach the door.
+// AND THE DOOR IS THE BINDING THE CALL SEES, not a name in a set — which is the same
+// defect the method resolution below refuses, refused the same way: the callee is
+// resolved through `daemon-method-bindings.ts` at the call's own position, and it is a
+// door call only where that resolution lands on an import of the door. A module holding
+// no such import contributes no calls, which is what it means for a module not to reach
+// the door. What "an import of the door" admits — a named specifier under any alias, a
+// namespace the door is read off, and nothing else — is `daemon-call-census.ts`'
+// `namesCallDoor`, stated in that module's header beside the consumer census that makes
+// the same reading of the same bindings, rather than restated here where it would be
+// one rule in two headers and would move in one.
 //
 // AND THE METHOD IS RESOLVED RATHER THAN REQUIRED TO BE A LITERAL — through the same
 // LEXICAL binding. Ten of the console's call sites name a module constant, one names a
@@ -58,7 +56,7 @@
 import ts from "typescript";
 
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
-import { CALL_DOOR_EXPORT } from "./daemon-call-census.js";
+import { namesCallDoor } from "./daemon-call-census.js";
 import { ModuleBindingScopes, withoutTypeWrappers } from "./daemon-method-bindings.js";
 import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
 import { readSignalArgument, type SignalArgumentReading } from "./daemon-signal-argument.js";
@@ -102,7 +100,10 @@ export function daemonCallSitesIn(
   const calls: ts.CallExpression[] = [];
 
   forEachDescendant(parsed, (node) => {
-    if (ts.isCallExpression(node) && isCallDoor(node, parsed, bindings)) {
+    if (
+      ts.isCallExpression(node) &&
+      namesCallDoor(node.expression, node.getStart(parsed), bindings)
+    ) {
       calls.push(node);
     }
   });
@@ -122,38 +123,6 @@ export function daemonCallSitesIn(
       ),
     };
   });
-}
-
-/**
- * Whether a call's callee is the door itself, through the binding at its own position.
- *
- * AN IMPORT SPECIFIER AND NOTHING ELSE. The door is a value another module exports, so
- * the only way a call in this module can name it is a specifier that imported it —
- * under the exported spelling or under whatever the clause aliased it to, which is the
- * `propertyName ?? name` reading `daemon-call-census.ts` states for the same clause.
- * Resolving the callee first is what makes a shadow a shadow: a parameter named `send`
- * binds nearer than the module's `import { callDaemon as send }`, so the call it makes
- * is that parameter's and not the door's, exactly as the language would run it.
- *
- * A module that spells `callDaemon` and imports nothing therefore contributes no
- * calls — the name resolves to no binding at all — which is the honest answer rather
- * than an exemption: such a module has no door to reach and no call of its own to hide.
- */
-function isCallDoor(
-  call: ts.CallExpression,
-  parsed: ts.SourceFile,
-  bindings: ModuleBindingScopes,
-): boolean {
-  const callee = call.expression;
-  if (!ts.isIdentifier(callee)) {
-    return false;
-  }
-  const declaration = bindings.resolve(callee.text, call.getStart(parsed))?.declaration;
-  return (
-    declaration !== undefined &&
-    ts.isImportSpecifier(declaration) &&
-    (declaration.propertyName ?? declaration.name).text === CALL_DOOR_EXPORT
-  );
 }
 
 /**
