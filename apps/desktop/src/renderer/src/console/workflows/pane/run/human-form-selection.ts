@@ -32,7 +32,7 @@
 
 import type { GrowthPort, WorkflowPhaseState, WorkflowRunSnapshot } from "../../../bridge/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
-import type { HumanFormMount } from "./slots/HumanFormSlot.js";
+import type { HumanFormMount } from "./slots/human-form-mount.js";
 
 /**
  * Why a phase parked on a person cannot be answered from here.
@@ -61,10 +61,27 @@ export function humanFormMountFor(
   if (phase.parkReason !== "waiting-human") {
     return undefined;
   }
-  const { phaseRunId, formRevision } = phase;
+  const { phaseRunId, formRevision, prompt, inputSchema } = phase;
   return phaseRunId === undefined || formRevision === undefined
     ? undefined
-    : { workflowRunId, phaseRunId, phaseId: phase.phaseId, formRevision };
+    : {
+        workflowRunId,
+        phaseRunId,
+        phaseId: phase.phaseId,
+        formRevision,
+        // Spread on the arm that carries one rather than passed as an explicit
+        // `undefined`, which `exactOptionalPropertyTypes` refuses — and which would
+        // also erase the distinction the mount is built on: the key's PRESENCE is
+        // whether the run reported what this phase asks, and a key carrying nothing
+        // reads identically to a daemon that reported it as empty.
+        //
+        // Neither one gates the mount, unlike the two members above it. A run that
+        // named no schema still parks a phase somebody has to be told about, and the
+        // form composes what it can; a run that named no phase-run handle or no
+        // revision has nothing to submit AGAINST, which is a different fact.
+        ...(prompt === undefined ? {} : { prompt }),
+        ...(inputSchema === undefined ? {} : { inputSchema }),
+      };
 }
 
 /**

@@ -206,3 +206,49 @@
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
 }
+
+/* ----------------------------------------------------------------- the answer */
+
+.meridian-schema-answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-schema-answer__prompt {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+/*
+ * The act and whatever came back of it, on one row: rule 9 keeps the control beside
+ * its refusal rather than replacing it, so the settlement wraps under the button on a
+ * narrow pane instead of pushing it off the surface.
+ */
+.meridian-schema-answer__act {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-schema-answer__submit {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-schema-answer__settlement {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
