@@ -24,6 +24,8 @@
 // both from the host's context and this pane forwards a prop only where its own
 // caller owns the pane's lifetime.
 
+import { useMemo } from "react";
+
 import { routeSessionId } from "../../routing/index.js";
 import { useFrameStore } from "../../store/index.js";
 import {
@@ -32,6 +34,7 @@ import {
   type OwnerSlotContract,
   type PaneContextOf,
 } from "../../seats/index.js";
+import { LedgerShellConditionProvider } from "../frame/index.js";
 import { TimelineRowHost } from "./feed/TimelineRowHost.js";
 
 /**
@@ -87,6 +90,12 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
   // to follow a navigation that changes which session it is a log of, and a
   // render-time snapshot read would leave it showing the session before last.
   const route = useFrameStore(context.frameStore, (state) => state.route);
+  // PUBLISHED HERE BECAUSE THIS IS WHERE THE STORE AND THE ROWS MEET. A row body that
+  // dispatches a mutating call has to read the supervisor's condition, and the seat it
+  // is handed carries nothing about the window — `ledger/frame/ShellConditionProvider.tsx`
+  // says why widening that seat is the wrong remedy. Held so the value's identity moves
+  // only when the store does, rather than on every navigation this pane follows.
+  const shellCondition = useMemo(() => ({ frameStore: context.frameStore }), [context.frameStore]);
 
   return (
     <ConsolePaneChrome
@@ -100,13 +109,15 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
       {...(props.onOpenInWindow === undefined ? {} : { onOpenInWindow: props.onOpenInWindow })}
     >
-      <TimelineRowHost
-        contract={TIMELINE_ROW_SLOT}
-        body={timelineRowRenderer()}
-        paneId={context.paneId}
-        sessionStore={context.sessionStore}
-        {...(context.entity === undefined ? {} : { channelId: context.entity.id })}
-      />
+      <LedgerShellConditionProvider channel={shellCondition}>
+        <TimelineRowHost
+          contract={TIMELINE_ROW_SLOT}
+          body={timelineRowRenderer()}
+          paneId={context.paneId}
+          sessionStore={context.sessionStore}
+          {...(context.entity === undefined ? {} : { channelId: context.entity.id })}
+        />
+      </LedgerShellConditionProvider>
     </ConsolePaneChrome>
   );
 }

@@ -33,7 +33,11 @@
 // current state with the state it was in before the window opened. The log grows; the
 // projection of the present does not move.
 
+import { ParticipantHueAllocator } from "../tokens/index.js";
 import type { ConsoleSessionEvent } from "./entities.js";
+import { OutstandingAskJournal } from "./outstanding-asks/index.js";
+import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
+import { capTimeline, type SessionStoreState, type TimelineRetainedEnd } from "./session-state.js";
 
 /** What one backward page added to a log, and what it could not. */
 export interface EarlierWindowMerge {
@@ -93,5 +97,78 @@ export function mergeEarlierWindow(
     admitted: prefix.length,
     refusedNotEarlier,
     duplicates,
+  };
+}
+
+/** Everything the state-level fold below advances beside the state it answers with. */
+export interface EarlierWindowCollaborators {
+  readonly sessionId: string;
+  readonly hueAllocator: ParticipantHueAllocator;
+  /** The ledger of what is still waiting on a person. Recovered rows advance it too. */
+  readonly outstandingAsks: OutstandingAskJournal;
+  readonly timelineCap: number | undefined;
+}
+
+/**
+ * Which end of an over-cap log survives a backward page, and why it is a constant.
+ *
+ * A page that admitted nothing never reaches the cap — the fold answers with no state
+ * at all — so every path that caps here is a path on which a row has just landed at the
+ * head. A reader who asked for the rows before the window's head has moved to the head,
+ * so the cap cuts the end they left rather than the end they went to. Cutting the other
+ * way would discard the page as it landed, and every press after it.
+ */
+const EARLIER_PAGE_RETAINED_END: TimelineRetainedEnd = "oldest";
+
+/** What one backward page did, and the state that records it. */
+export interface EarlierWindowFold {
+  readonly merge: EarlierWindowMerge;
+  /** The state to commit, or `undefined` where the page admitted nothing. */
+  readonly nextState: SessionStoreState | undefined;
+}
+
+/**
+ * One backward page, from the rows it carried to the state a store commits.
+ *
+ * BESIDE THE RULE IT APPLIES rather than in the store, on `applied-batch-fold.ts`'
+ * precedent and this module's own opening claim: the rule is stated here as a pure fold
+ * so the store holds no arithmetic, and the state-level half is the same claim one level
+ * up. A foreign session is refused here as it is on the forward path, and for the same
+ * reason: two sessions never share a store, and a page routed to the wrong one would put
+ * another session's rows under this session's ids.
+ *
+ * It advances the collaborators it is handed and sets nothing: the hue wheel takes every
+ * recovered author, and the outstanding-ask register takes every recovered row — which
+ * is the whole value of a backward page to it, since those rows are the ones the window
+ * was never sent and the register is order-insensitive by construction.
+ */
+export function foldEarlierWindowPage(
+  current: SessionStoreState,
+  events: readonly ConsoleSessionEvent[],
+  collaborators: EarlierWindowCollaborators,
+): EarlierWindowFold {
+  const admissible = orderBatchBySequence(
+    events.filter(
+      (event) =>
+        event.sessionId === collaborators.sessionId && isReconcilableSequence(event.sequence),
+    ),
+  );
+  const merge = mergeEarlierWindow(current.timeline, admissible);
+  if (merge.admitted === 0) {
+    return { merge, nextState: undefined };
+  }
+  for (const event of admissible) {
+    if (event.actorId !== undefined) {
+      collaborators.hueAllocator.admit(event.actorId);
+    }
+  }
+  collaborators.outstandingAsks.admit(admissible);
+  return {
+    merge,
+    nextState: {
+      ...current,
+      timeline: capTimeline(merge.timeline, collaborators.timelineCap, EARLIER_PAGE_RETAINED_END),
+      revision: current.revision + 1,
+    },
   };
 }

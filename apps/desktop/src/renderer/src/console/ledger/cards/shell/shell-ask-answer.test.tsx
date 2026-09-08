@@ -20,6 +20,13 @@ import { describe, expect, it } from "vitest";
 import type { RunId } from "@ai-sidekicks/contracts";
 
 import { bridgeFailingUntilCleared, callsTo, inBridge } from "./shell-hook-bridges.test-support.js";
+import {
+  connectedShell,
+  quietShell,
+  serveShell,
+  stopShell,
+  stoppedShell,
+} from "../../../store/shell-condition.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { useDriverAskAnswer } from "./shell-ask-answer.js";
 
@@ -30,14 +37,22 @@ const ASK_ANSWER = "driver.respondToRequest";
 /** The empty envelope `driver.respondToRequest` acknowledges with. */
 const DRIVER_ACK: Record<string, unknown> = {};
 
+// A shell that has reported nothing closes no control — silence is not an outage — so
+// it is the condition every case that is not about the shell is written under. Bound to
+// a case's own local rather than minted inside a render callback, where a fresh store
+// on every render would be a fresh subscription on every render.
 describe("useDriverAskAnswer — an answer is a settled act", () => {
   it("holds the refusal when the answer never reached the driver", async () => {
     // THE DEFECT, EXERCISED. The reply was discarded, so a run blocked on an ask the
     // daemon never received looked exactly like one waiting for somebody to type.
     const { held } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+    const frameStore = quietShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      {
+        wrapper: inBridge(held),
+      },
+    );
 
     act(() => {
       result.current.answer("develop");
@@ -54,9 +69,13 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
   it("settles as accepted when the driver acknowledges it", async () => {
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
     recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+    const frameStore = quietShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      {
+        wrapper: inBridge(held),
+      },
+    );
 
     act(() => {
       result.current.answer("develop");
@@ -73,9 +92,13 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
 
   it("dispatches again when a refused answer is retried", async () => {
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+    const frameStore = quietShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      {
+        wrapper: inBridge(held),
+      },
+    );
 
     act(() => {
       result.current.answer("develop");
@@ -96,9 +119,13 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
     // ask's terminal is the `driver_ask.responded` row's to state rather than a press's.
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
     recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, SAMPLE_ASK_ID), {
-      wrapper: inBridge(held),
-    });
+    const frameStore = quietShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      {
+        wrapper: inBridge(held),
+      },
+    );
 
     act(() => {
       result.current.answer("develop");
@@ -112,10 +139,124 @@ describe("useDriverAskAnswer — an answer is a settled act", () => {
     expect(callsTo(held, ASK_ANSWER)).toBe(1);
   });
 
+  it("negative control: a stopped shell puts no answer on the wire", async () => {
+    // THE BLOCK IS READ AT THE DISPATCH SITE, which is the only reading that can be
+    // right: the report lands after the render that drew the control, so a guard over
+    // the render's snapshot admits this press and the write goes out through a
+    // supervisor that has already stopped. `driver.respondToRequest` is a member of
+    // `MUTATING_DAEMON_METHODS`, so the console's own rule already says this call is
+    // one an outage closes — it was the only such dispatcher not asking.
+    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
+    recover();
+    const frameStore = stoppedShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      { wrapper: inBridge(held) },
+    );
+
+    act(() => {
+      result.current.answer("develop");
+    });
+    await settle();
+
+    expect(callsTo(held, ASK_ANSWER)).toBe(0);
+  });
+
+  it("settles the shell's own refusal rather than an avoidable one off the wire", async () => {
+    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
+    recover();
+    const frameStore = stoppedShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      { wrapper: inBridge(held) },
+    );
+
+    act(() => {
+      result.current.answer("develop");
+    });
+    await settle();
+
+    expect(result.current.delivery).toMatchObject({
+      status: "refused",
+      response: "develop",
+      refusal: { code: "shell-stopped", origin: "shell" },
+    });
+  });
+
+  it("closes the control while the block stands and opens it when the runtime serves", async () => {
+    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
+    recover();
+    const frameStore = stoppedShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      { wrapper: inBridge(held) },
+    );
+
+    expect(result.current.block?.code).toBe("shell-stopped");
+    act(() => {
+      serveShell(frameStore);
+    });
+
+    expect(result.current.block).toBeUndefined();
+  });
+
+  it("stops an answer whose press outran the report that closed the control", async () => {
+    // THE WINDOW THE DISPATCH-TIME READ EXISTS TO CLOSE. The controls were drawn under
+    // a serving runtime, so the handler's own closure holds no block; the report lands
+    // and the press reaches that closure before React has re-rendered it. A guard over
+    // the render's snapshot admits this press.
+    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
+    recover();
+    const frameStore = connectedShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      {
+        wrapper: inBridge(held),
+      },
+    );
+
+    act(() => {
+      stopShell(frameStore);
+      result.current.answer("develop");
+    });
+    await settle();
+
+    expect(callsTo(held, ASK_ANSWER)).toBe(0);
+    expect(result.current.delivery).toMatchObject({
+      status: "refused",
+      refusal: { code: "shell-stopped" },
+    });
+  });
+
+  it("negative control: a serving runtime puts the same answer on the wire", async () => {
+    // Without this the two cases above would pass over a hook that had stopped
+    // dispatching altogether, which is the failure they exist to avoid from the far
+    // side: a control nothing can ever answer through.
+    const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
+    recover();
+    const frameStore = connectedShell();
+    const { result } = renderHook(
+      () => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, SAMPLE_ASK_ID),
+      {
+        wrapper: inBridge(held),
+      },
+    );
+
+    expect(result.current.block).toBeUndefined();
+    act(() => {
+      result.current.answer("develop");
+    });
+    await settle();
+
+    expect(callsTo(held, ASK_ANSWER)).toBe(1);
+    expect(result.current.delivery.status).toBe("accepted");
+  });
+
   it("negative control: a row carrying no ask id sends nothing", async () => {
     const { held, recover } = bridgeFailingUntilCleared(ASK_ANSWER, DRIVER_ACK);
     recover();
-    const { result } = renderHook(() => useDriverAskAnswer(SAMPLE_RUN_ID, ""), {
+    const frameStore = quietShell();
+    const { result } = renderHook(() => useDriverAskAnswer(frameStore, SAMPLE_RUN_ID, ""), {
       wrapper: inBridge(held),
     });
 

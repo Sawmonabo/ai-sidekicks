@@ -9,7 +9,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { FrameStore } from "../../store/index.js";
-import { quietShell } from "../shell-condition.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   INVITE_1,

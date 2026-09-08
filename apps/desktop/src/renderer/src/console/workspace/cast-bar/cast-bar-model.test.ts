@@ -6,10 +6,11 @@
 // verb `cast-bar-model.ts` forbids — and no rendering test would ever notice, because
 // the fixture would simply never produce that kind.
 //
-// Attention is no longer a second kind table here: it is folded by each ask's own
-// lifecycle in `outstanding-asks.ts`, whose co-located test makes the same census
-// claim over the kinds that fold. The case below is the seam — that this derivation
-// reads that fold rather than the newest row.
+// Attention is no longer a second kind table here: it is held per lifecycle by
+// `store/outstanding-asks/outstanding-ask-journal.ts`, whose co-located test makes the same census
+// claim over the kinds it keys on, and read through `outstanding-asks.ts`. The case
+// below is the seam — that this derivation reads that ledger rather than the newest
+// row.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -19,9 +20,8 @@ import {
   CAST_LABEL_SOURCE_BY_EVENT_KIND,
   CAST_VERB_BY_EVENT_KIND,
   castChipAccessibleName,
-  deriveCastBar,
 } from "./cast-bar-model.js";
-import { castEvent, wheelFor, withRun } from "./cast-bar-model.test-support.js";
+import { castBarOver, castEvent, wheelFor, withRun } from "./cast-bar-model.test-support.js";
 
 const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
   SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
@@ -63,7 +63,7 @@ describe("the label vocabulary — wire truth", () => {
 describe("deriveCastBar — the name each participant was given", () => {
   it("takes the identity handle off a membership beat's own payload", () => {
     const wheel = wheelFor(["participant-priya"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         withPayload(castEvent(1, "participant-priya", "membership.created"), {
@@ -82,7 +82,7 @@ describe("deriveCastBar — the name each participant was given", () => {
     // The person who attached the agent is the actor. Keying on the envelope would
     // put the agent's name on that person's chip and leave the agent unnamed.
     const wheel = wheelFor(["participant-you", "agent-architect"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         withPayload(castEvent(1, "participant-you", "agent.attached"), {
@@ -100,7 +100,7 @@ describe("deriveCastBar — the name each participant was given", () => {
 
   it("lets a later config update rename an agent, because the fold's last writer wins", () => {
     const wheel = wheelFor(["agent-architect"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         withPayload(castEvent(1, "participant-you", "agent.attached"), {
@@ -124,7 +124,7 @@ describe("deriveCastBar — the name each participant was given", () => {
     // from the id — and an empty string would blank the chip rather than leave the
     // id on it.
     const wheel = wheelFor(["participant-you", "participant-priya"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         withPayload(castEvent(1, "participant-priya", "membership.created"), {
@@ -144,7 +144,7 @@ describe("deriveCastBar — the name each participant was given", () => {
 describe("castChipAccessibleName — the identifier and the verb", () => {
   it("speaks the label and the verb, which is the name the model composes", () => {
     const wheel = wheelFor(["participant-priya"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [
         withPayload(castEvent(1, "participant-priya", "membership.created"), {
@@ -169,7 +169,7 @@ describe("castChipAccessibleName — the identifier and the verb", () => {
 
   it("falls back to the id, and adds the frozen clause when the projection is stale", () => {
     const wheel = wheelFor(["participant-you"]);
-    const model = deriveCastBar({
+    const model = castBarOver({
       assignments: wheel.assignments(),
       timeline: [castEvent(1, "participant-you", "run.running")],
       isDegraded: true,

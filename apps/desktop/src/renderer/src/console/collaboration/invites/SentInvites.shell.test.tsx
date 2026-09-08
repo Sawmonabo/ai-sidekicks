@@ -20,7 +20,11 @@ import {
   type RecordedDaemonCall,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { FrameStore } from "../../store/index.js";
-import { connectedShell, stopShell, stoppedShell } from "../shell-condition.test-support.js";
+import {
+  connectedShell,
+  stopShell,
+  stoppedShell,
+} from "../../store/shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   INVITE_1,

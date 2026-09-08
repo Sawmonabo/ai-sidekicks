@@ -28,9 +28,9 @@
 // allocator's join-log order, which is the order rule 2 fixes and the order a
 // screenshot baseline depends on.
 
-import type { ConsoleSessionEvent } from "../../store/index.js";
+import type { ConsoleSessionEvent, OutstandingAskLedger } from "../../store/index.js";
 import type { ParticipantHueAssignment } from "../../tokens/index.js";
-import { foldOutstandingAsks } from "./outstanding-asks.js";
+import { foldOutstandingAsks, type OutstandingAsks } from "./outstanding-asks.js";
 
 /**
  * The verb each registered event kind puts on a chip, in present tense.
@@ -151,32 +151,59 @@ export interface CastMember {
   readonly needsAttention: boolean;
 }
 
+/**
+ * What the strip may claim about whether anything needs a person — three answers, not
+ * two.
+ *
+ * `all-clear` is the line `Spec-023 §The surface set` puts on the bar "when nothing is
+ * amber or red", and it is a CLAIM: it says the console read everything and found
+ * nothing. Two conditions make that claim false in different ways, and collapsing them
+ * into one boolean is what put the line over a run that was still blocked.
+ *
+ *   • `attention` — something IS outstanding, or the console has no standing to say
+ *     otherwise. A degraded projection is here beside a real block, because a store
+ *     with a sequence gap cannot know whether something needs somebody; so is the
+ *     node's health verdict, which is an amber mark this model cannot see and which a
+ *     line printed beside it would contradict. The bar says nothing at all in this
+ *     state — the mark, the row, and the banner are where those three are reported.
+ *   • `earlier-unread` — nothing is outstanding in what the console WAS SENT, and there
+ *     are rows it was not sent. A session's stream replays from the position this
+ *     participant was last acknowledged at, so a resumed window starts partway through
+ *     its log and the request lifecycles below its head have no base-state carrier to
+ *     be seeded from. Zero read is not zero, and this is the arm that says so.
+ */
+export type CastBarStanding = "all-clear" | "earlier-unread" | "attention";
+
 /** Everything the bar renders, derived in one pass. */
 export interface CastBarModel {
   readonly members: readonly CastMember[];
   /** Participants past the chip cap, folded into "+N". */
   readonly foldedMemberCount: number;
-  /**
-   * True when nothing in the session is amber or red AND the projection is whole.
-   *
-   * The degraded conjunct is the honest half: a store with a sequence gap cannot
-   * know whether something needs a person, and "Nothing needs you." over an
-   * incomplete projection is a claim the console has no standing to make.
-   *
-   * The node-health conjunct is the same rule reaching past the event log. The bar
-   * draws one amber mark this model does not derive — the health chip — and a line
-   * saying nothing is amber, printed beside an amber mark, is the surface
-   * contradicting itself. So the verdict is an INPUT here rather than a second
-   * derivation in the component: one decision, and the bar's two halves read it.
-   */
-  readonly isAllClear: boolean;
+  /** What the strip is allowed to say about whether anything needs a person. */
+  readonly standing: CastBarStanding;
 }
 
 export interface CastBarInput {
   /** Participants in join-log order — the hue allocator's own output. */
   readonly assignments: readonly ParticipantHueAssignment[];
-  /** The session's ordered event log, oldest first. */
+  /**
+   * The session's ordered event log, oldest first — the WINDOW this store holds.
+   *
+   * Read for the two questions a window can answer on its own: each participant's
+   * newest row, which is the verb, and the names the log gave them. What is
+   * OUTSTANDING is deliberately not one of them, and the member below is why.
+   */
   readonly timeline: readonly ConsoleSessionEvent[];
+  /**
+   * What the session still has open, from the register that outlives the window.
+   *
+   * An INPUT rather than a fold performed here, because the answer is not in the
+   * timeline: a session's stream replays from the position this participant was last
+   * acknowledged at, and the window is capped besides, so an approval raised below the
+   * head or pruned at the cap is in no fold's reach. `store/outstanding-asks/outstanding-ask-journal.ts`
+   * holds those lifecycles across every window replacement; this model reads them.
+   */
+  readonly outstandingAsks: OutstandingAskLedger;
   /** True while the store is degraded; freezes every verb with a stale mark. */
   readonly isDegraded: boolean;
   /**
@@ -200,12 +227,12 @@ export interface CastBarInput {
  * four-lane session.
  */
 export function deriveCastBar(input: CastBarInput): CastBarModel {
-  // Two passes over the log answering two different questions. The backwards one
-  // below finds each actor's newest row, which is the VERB. This one folds every ask
-  // by its own lifecycle, which is ATTENTION. Collapsing them — reading attention off
-  // the newest row — is what let a newer ordinary event clear an approval that was
-  // still blocking a parallel run.
-  const outstanding = foldOutstandingAsks(input.timeline);
+  // Two readings answering two different questions. The backwards pass below finds
+  // each actor's newest row, which is the VERB. This one reads the register, which is
+  // ATTENTION. Collapsing them — reading attention off the newest row — is what let a
+  // newer ordinary event clear an approval that was still blocking a parallel run, and
+  // reading it off the window is what let a resumed read clear one it never saw.
+  const outstanding = foldOutstandingAsks(input.outstandingAsks);
   const labelByParticipantId = foldParticipantLabels(input.timeline);
   const newestByParticipantId = new Map<string, ConsoleSessionEvent>();
   for (let position = input.timeline.length - 1; position >= 0; position -= 1) {
@@ -236,13 +263,26 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
   return {
     members: shown,
     foldedMemberCount: allMembers.length - shown.length,
-    // Read off the outstanding COUNT and not off the members, which is stronger than
-    // "every member, shown or folded": an ask the wire attributed to nobody puts no
-    // chip in amber and still means something in the session needs a person. And the
-    // node's health joins it for the same reason from outside the log: the strip's
-    // other amber mark is one this fold cannot see.
-    isAllClear: !input.isDegraded && !input.isNodeUnwell && outstanding.count === 0,
+    standing: castBarStanding(input, outstanding),
   };
+}
+
+/**
+ * Which of the three answers this reading is, in the one order that is honest.
+ *
+ * ATTENTION WINS, and it wins over `earlier-unread` deliberately: a session with a
+ * block the console DID read has nothing to gain from a sentence about rows it did
+ * not, and the two lines together would leave a reader deciding which one is the news.
+ *
+ * The count is read rather than the member set, which is stronger than "every member,
+ * shown or folded": an ask the wire attributed to nobody puts no chip in amber and
+ * still means something in the session needs a person.
+ */
+function castBarStanding(input: CastBarInput, outstanding: OutstandingAsks): CastBarStanding {
+  if (input.isDegraded || input.isNodeUnwell || outstanding.count > 0) {
+    return "attention";
+  }
+  return outstanding.isWindowHeadUnread ? "earlier-unread" : "all-clear";
 }
 
 /**

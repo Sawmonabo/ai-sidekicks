@@ -47,6 +47,13 @@ export interface CastBarBodyProps {
 export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, (state) => state.timeline);
   const degradedCause = useSessionStore(props.sessionStore, (state) => state.degradedCause);
+  // The register is not on the committed state, so its reading is taken from the store
+  // and the SUBSCRIPTION is to the revision — which is exact rather than approximate:
+  // every act that advances the ledger (a base state, an admitted batch, a recovered
+  // backward page) commits a state and bumps this, and no act bumps it without having
+  // offered the register its rows first. A mirror on the state would be a second copy
+  // of a value whose whole point is that it outlives what the state holds.
+  const projectionRevision = useSessionStore(props.sessionStore, (state) => state.revision);
   const hueAllocator = props.sessionStore.hueAllocator;
   // Minted once and kept, per `apps/desktop/AGENTS.md`: a handle rebuilt on a render
   // would detach every chip in the bar from the card they were opening into.
@@ -60,11 +67,19 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
       deriveCastBar({
         assignments: hueAllocator.assignments(),
         timeline,
+        outstandingAsks: props.sessionStore.outstandingAskLedger,
         isDegraded: degradedCause !== undefined,
         isNodeUnwell: props.isNodeHealthUnwell,
         chipCap: CAST_BAR_CHIP_CAP,
       }),
-    [hueAllocator, timeline, degradedCause, props.isNodeHealthUnwell],
+    [
+      hueAllocator,
+      timeline,
+      projectionRevision,
+      props.sessionStore,
+      degradedCause,
+      props.isNodeHealthUnwell,
+    ],
   );
 
   if (model.members.length === 0) {
@@ -99,8 +114,20 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
         />
       )}
       <span className="meridian-cast-bar__all-clear">
-        {model.isAllClear ? (
+        {/* One slot, three answers, and the third is why it is not a boolean: a window
+            that opened partway through its log has requests the console was never sent,
+            so "Nothing needs you." would be a claim about rows it never read. The
+            unread arm names the ledger's own "Load earlier" control rather than minting
+            a second one — this strip has no paging of its own and should not grow one
+            to explain a gap the ledger already closes. */}
+        {model.standing === "all-clear" ? (
           <span className="meridian-cast-bar__all-clear-line">Nothing needs you.</span>
+        ) : null}
+        {model.standing === "earlier-unread" ? (
+          <span className="meridian-cast-bar__all-clear-line">
+            Requests from before this window are not counted here. Load earlier in the ledger to
+            include them.
+          </span>
         ) : null}
         {/* The figure the accountant settled, or the honest absence where it did not
             answer. `CastBarSpend.tsx` owns both arms; nothing is summed on either. */}

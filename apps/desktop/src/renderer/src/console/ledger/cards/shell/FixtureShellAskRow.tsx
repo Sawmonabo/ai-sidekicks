@@ -21,6 +21,7 @@
 import { useMemo } from "react";
 
 import { useConsoleClock } from "../../../bridge/index.js";
+import { useLedgerShellCondition } from "../../frame/index.js";
 import { parseInstant } from "../../../core/index.js";
 import { useDeadlineWake } from "../../../store/index.js";
 import {
@@ -45,7 +46,12 @@ export interface FixtureShellAskRowProps {
 
 /** One provider-raised ask, with the answer path and the countdown it needs. */
 export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.Element {
-  const askAnswer = useDriverAskAnswer(props.ask.runId, props.ask.askId);
+  // THE WINDOW'S CONDITION REACHES THE ROW THROUGH THE LEDGER AND NOT THROUGH THE SEAT.
+  // An answer is a mutating call, so it is closed while the supervisor is not serving —
+  // and `TimelineRowSlotProps` says nothing about the window, by design.
+  // `ledger/frame/ShellConditionProvider.tsx` is where that argument is written down.
+  const shellCondition = useLedgerShellCondition();
+  const askAnswer = useDriverAskAnswer(shellCondition.frameStore, props.ask.runId, props.ask.askId);
   const clock = useConsoleClock();
   // THE WINDOW'S ANSWER TO "IS THIS ASK STILL OPEN", not this row's and not this
   // mount's. The row says only what its own event type says, and the delivery state
@@ -67,6 +73,7 @@ export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.El
       ask={ask}
       nowEpochMilliseconds={nowEpochMilliseconds}
       delivery={askAnswer.delivery}
+      {...(askAnswer.block === undefined ? {} : { shellBlock: askAnswer.block })}
       onAnswer={askAnswer.answer}
     />
   );

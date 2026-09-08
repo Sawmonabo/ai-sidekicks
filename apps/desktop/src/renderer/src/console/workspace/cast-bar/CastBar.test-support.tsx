@@ -9,7 +9,7 @@
 import { render } from "@testing-library/react";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
-import { SessionStore } from "../../store/index.js";
+import { SessionStore, type ConsoleEntity } from "../../store/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/index.js";
 
 export const SESSION_ID = "session-cast";
@@ -28,15 +28,37 @@ export interface TimelineRow {
   readonly payload?: Readonly<Record<string, unknown>>;
 }
 
+/** What a case says about the read that established this store's window. */
+export interface StoreWithOptions {
+  /**
+   * The position the read was performed FROM, where it submitted one.
+   *
+   * Present, the window opens partway through the log and the rows below it were
+   * never delivered here — which is the whole subject of `CastBar.resumed-window.test.tsx`.
+   * Absent, the read opened at the beginning of the log, which is what every other
+   * case in this family is written under.
+   */
+  readonly readFromCursor?: string;
+  /** Entities the read carried, for a case about what the base state authoritatively holds. */
+  readonly entities?: readonly ConsoleEntity[];
+  /** Rows the store retains, so a case can drive the cap the way the ledger does. */
+  readonly timelineCap?: number;
+}
+
 export function storeWith(
   participantIds: readonly string[],
   timeline: readonly TimelineRow[] = [],
+  options: StoreWithOptions = {},
 ): SessionStore {
-  const store = new SessionStore({ sessionId: SESSION_ID });
+  const store = new SessionStore({
+    sessionId: SESSION_ID,
+    ...(options.timelineCap === undefined ? {} : { timelineCap: options.timelineCap }),
+  });
   store.initialise({
     cursor: timeline.length,
-    entities: [],
+    entities: options.entities ?? [],
     participantJoinLog: participantIds,
+    ...(options.readFromCursor === undefined ? {} : { readFromCursor: options.readFromCursor }),
     timeline: timeline.map((row) => ({
       id: `event-${String(row.sequence)}`,
       sessionId: SESSION_ID,

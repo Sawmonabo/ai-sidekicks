@@ -1,16 +1,20 @@
-// The shell conditions this family's mutating surfaces are driven under.
+// The shell conditions a mutating surface is driven under.
 //
-// AT THE FAMILY ROOT rather than beside either ledger, on `repos/
-// pane-contexts.test-support.ts`' reasoning: both `invites/` and `members/` dispatch a
+// BESIDE THE MODULE THAT DERIVES THE BLOCK, which is the lowest family every reader
+// sits above. It began at the collaboration family's root, on `repos/
+// pane-contexts.test-support.ts`' reasoning — both `invites/` and `members/` dispatch a
 // daemon write and both disable their controls from the same seam, so a second copy of
 // "the supervisor said it is stopped" would let two suites disagree about which
-// condition they are asserting against — which is the one fact both of them turn on.
+// condition they are asserting against. The ledger's ask answer is the third dispatcher
+// on that seam and view families are siblings, so it could not reach a helper living in
+// another one: the hoist is `apps/desktop/AGENTS.md`'s own rule for a helper's second
+// family, and the alternative was exactly the second spelling this file exists to stop.
 //
 // A REPORT AND NOT A HAND-BUILT STATE. `FrameStore.publishShellReport` is the writer
 // the shipped supervisor binding uses, so a case driving it exercises the same fold a
 // window does; a state assembled by hand would assert against a shape nothing publishes.
 
-import { FrameStore, type ShellReport } from "../store/index.js";
+import { FrameStore, type ShellReport } from "./index.js";
 
 /** A supervisor reporting a healthy runtime: the condition that closes no control. */
 const CONNECTED_REPORT: ShellReport = {
