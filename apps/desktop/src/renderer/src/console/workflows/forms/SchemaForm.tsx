@@ -24,16 +24,34 @@
 // and the member path are both in hand, and each is handed to the surface it is about —
 // asking only for the unindexed path is what left an entry's finding drawn nowhere.
 //
+// AND A FINDING CAN BE ABOUT THE ANSWER ITSELF, WHICH IS A MEMBER NOTHING HERE DRAWS. A
+// root constraint — `oneOf`, `not`, `minProperties` — is checked against the whole object
+// and reports at the empty path, so a form asking only for its entries' paths drew every
+// control clean over a report that was invalid and said so nowhere on the screen. The
+// block is drawn ABOVE the entries and describes the form's own container, which is the
+// same move the group makes with its fieldset one level down: the finding is rendered on
+// the thing it is about, and the thing it is about here is the form.
+//
 // NOTHING IS SUBMITTED FROM HERE. This component composes an answer and renders the
 // schema's verdict on it; the act that sends one is the workflow plan's, arriving with
 // the revision it was composed against. That is the console's "absent, not disabled"
 // rule rather than a gap: a submit control with no producer is a control that cannot work.
+// So the root findings describe the CONTAINER rather than a submit control: the container
+// is what exists, and it is what a reader lands in.
+
+import { useId } from "react";
 
 import { SchemaFieldGroup } from "./SchemaFieldGroup.js";
+import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaFieldList } from "./SchemaFieldList.js";
 import { SchemaFormField } from "./SchemaFormField.js";
 import { SchemaJsonEditor } from "./SchemaJsonEditor.js";
-import { issuesForListEntry, issuesForMember } from "./schema-field-control.js";
+import {
+  describedByOf,
+  issuesForListEntry,
+  issuesForMember,
+  ROOT_MEMBER_PATH,
+} from "./schema-field-control.js";
 import type { SchemaFormEntry, SchemaLeafEntry } from "./schema-fields.js";
 import { encodeMemberPointer, type SchemaMemberPath } from "../../bridge/index.js";
 import type { SchemaFormState } from "./use-schema-form.js";
@@ -51,6 +69,10 @@ function leafPath(entry: SchemaLeafEntry): SchemaMemberPath {
 /** The schema-derived form, drawn or raw. */
 export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
   const { form } = props;
+  // Minted above the arm rather than inside the one that uses it: the raw arm returns
+  // before the fields arm's body is reached, so an id minted down there would be a hook
+  // this component calls on one render and not the next.
+  const rootIssuesId = useId();
 
   if (form.plan.shape === "raw") {
     return (
@@ -110,8 +132,13 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
       renderLeaf(entry)
     );
 
+  const rootIssues = issuesForMember(form.report, ROOT_MEMBER_PATH);
   return (
-    <div className="meridian-schema-form">
+    <div
+      className="meridian-schema-form"
+      aria-describedby={describedByOf([rootIssues.length === 0 ? undefined : rootIssuesId])}
+    >
+      <SchemaFieldIssues issues={rootIssues} issuesId={rootIssuesId} />
       {form.plan.entries.map((entry) => (
         <div
           className="meridian-schema-form__entry"

@@ -41,6 +41,17 @@ export function textValueOf(value: unknown): string {
 }
 
 /**
+ * The whole answer, as the path that addresses it.
+ *
+ * Named rather than written as an empty literal at the one surface that asks for it,
+ * because `[]` at a call site reads as "no path yet" and this is the opposite — it is the
+ * member a root constraint's finding is about. The validator spells it the same way
+ * (`SchemaValidationIssue.memberPath` is empty for an issue about the whole answer), so
+ * this is that spelling given a name and not a second convention.
+ */
+export const ROOT_MEMBER_PATH: SchemaMemberPath = [];
+
+/**
  * What the schema said about one member, addressed the way the mapper addresses it.
  *
  * A FUNCTION RATHER THAN A MAP BUILT ONCE, because the report is already a small list
@@ -53,6 +64,14 @@ export function textValueOf(value: unknown): string {
  * the join draws an array entry's finding under a property that merely reads like one.
  * The comparison itself is the validator's own — `isSameMemberPath`, beside the producer
  * of the paths it compares — so there is no second reading of what "the same member" is.
+ *
+ * EXACTLY THAT MEMBER, AND NEVER THE SUBTREE UNDER IT. `isSameMemberPath` compares the
+ * lengths before the segments, so `["scope"]` matches a finding about the group and not
+ * one about `["scope", "note"]` inside it — which is what lets every surface ask about
+ * its own member and lets the form root ask about `ROOT_MEMBER_PATH` and receive only
+ * what the schema said about the whole answer. A prefix reading would draw every finding
+ * on the form a second time at the root, and a group's fieldset would repeat each of its
+ * children's; the surfaces below rely on this rule rather than filtering afterwards.
  */
 export function issuesForMember(
   report: SchemaValidationReport | undefined,

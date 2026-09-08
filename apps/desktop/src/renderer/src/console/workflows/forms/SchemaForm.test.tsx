@@ -17,12 +17,20 @@ afterEach(cleanup);
 /** Where the host below writes the answer the controls composed, for a case to read. */
 const COMPOSED_ANSWER_CLASS = "composed-answer";
 
+/** Where the host writes what the schema actually said, so a case can walk the report. */
+const REPORTED_ISSUES_CLASS = "reported-issues";
+
 /**
  * The form, mounted over one schema through its own hook.
  *
  * It writes the composed answer out beside the controls, because the value a submission
  * would carry is the only thing that settles what a control MEANT: a select that looks
  * right and reports `undefined` renders identically to one that reports a member.
+ *
+ * And it writes the report's own sentences out for the same reason one level up: whether
+ * a finding reached a person is a question about the report and the DOM together, and a
+ * case that listed the expected sentences by hand would pass over a report that had grown
+ * a fourth one nothing drew.
  */
 function FormHost(props: { readonly inputSchema: unknown }): React.JSX.Element {
   const form = useSchemaForm(props.inputSchema);
@@ -30,6 +38,9 @@ function FormHost(props: { readonly inputSchema: unknown }): React.JSX.Element {
     <>
       <SchemaForm form={form} />
       <output className={COMPOSED_ANSWER_CLASS}>{JSON.stringify(form.answer)}</output>
+      <output className={REPORTED_ISSUES_CLASS}>
+        {JSON.stringify((form.report?.issues ?? []).map((issue) => issue.message))}
+      </output>
     </>
   );
 }
@@ -43,6 +54,25 @@ function renderForm(inputSchema: unknown): HTMLElement {
 /** The answer the drawn controls have composed so far, read back as a value. */
 function composedAnswer(container: HTMLElement): unknown {
   return JSON.parse(container.querySelector(`.${COMPOSED_ANSWER_CLASS}`)?.textContent ?? "null");
+}
+
+/** Every sentence the schema reported about this answer, read off the real report. */
+function reportedIssueTexts(container: HTMLElement): readonly string[] {
+  return JSON.parse(
+    container.querySelector(`.${REPORTED_ISSUES_CLASS}`)?.textContent ?? "[]",
+  ) as readonly string[];
+}
+
+/** Every sentence the form actually drew, wherever on the form it drew it. */
+function renderedIssueTexts(container: HTMLElement): readonly string[] {
+  return [...container.querySelectorAll(".meridian-schema-field__issues li")].map(
+    (entry) => entry.textContent ?? "",
+  );
+}
+
+/** The findings block the form drew about the whole answer, rather than about a member. */
+function rootIssuesElement(container: HTMLElement): Element | null {
+  return container.querySelector(".meridian-schema-form > .meridian-schema-field__issues");
 }
 
 /** Press the control that adds one entry to the only list on the drawn form. */
@@ -179,6 +209,58 @@ describe("the schema-derived form", () => {
     expect(
       container.querySelector(".meridian-schema-group")?.getAttribute("aria-describedby"),
     ).toBe(groupIssues?.id);
+  });
+
+  it("renders a finding addressed to the whole answer, which no control could be about", () => {
+    const container = renderForm({
+      type: "object",
+      properties: {
+        approver: { type: "string", title: "Approver" },
+        deputy: { type: "string", title: "Deputy" },
+      },
+      // Both members are optional, so every control on this form reads clean and the ONLY
+      // thing wrong with the answer is the root constraint — reported at the empty path,
+      // which is the one member this form draws no control for.
+      oneOf: [{ required: ["approver"] }, { required: ["deputy"] }],
+    });
+
+    const rootIssues = rootIssuesElement(container);
+
+    expect(rootIssues?.textContent ?? "").not.toBe("");
+    expect(container.querySelector(".meridian-schema-form")?.getAttribute("aria-describedby")).toBe(
+      rootIssues?.id,
+    );
+  });
+
+  it("draws every finding the report carries, at whatever depth the schema addressed it", () => {
+    // Three constraints failing at three depths at once: the root's `oneOf`, the group's
+    // own requiredness, and one leaf's length. The property is that the report and the
+    // drawn sentences are the SAME multiset — every finding reaches a person, and none is
+    // drawn twice by two blocks both claiming it.
+    const container = renderForm({
+      type: "object",
+      properties: {
+        approver: { type: "string", title: "Approver", minLength: 3, default: "ab" },
+        scope: {
+          type: "object",
+          title: "Scope",
+          properties: { note: { type: "string", title: "Note" } },
+          required: ["note"],
+        },
+      },
+      required: ["scope"],
+      oneOf: [{ required: ["approver", "scope"] }, { required: ["deputy"] }],
+    });
+
+    const reported = [...reportedIssueTexts(container)].sort();
+
+    expect(reported).toHaveLength(3);
+    expect([...renderedIssueTexts(container)].sort()).toEqual(reported);
+    // Three findings drawn by three separate blocks, which is what "each is addressed to
+    // what it is about" means here: one list carrying all three would satisfy the multiset
+    // above while telling a person nothing about where to go.
+    expect(container.querySelectorAll(".meridian-schema-field__issues")).toHaveLength(3);
+    expect(rootIssuesElement(container)?.textContent ?? "").not.toBe("");
   });
 
   it("draws a list with the control that adds an entry and none that removes one yet", () => {
