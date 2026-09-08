@@ -26,9 +26,11 @@
 // above draws no such field either; this is the second half of the same rule, stated
 // where a request is built.
 //
-// AND THE PAIR IS CANONICALIZED BEFORE IT IS SENT. The two ids are sorted, so the
-// pair a form composes does not depend on who was picked first: order carries no
-// meaning on this wire, and two orderings of one pair would read as two channels.
+// AND THE PAIR IS CANONICALIZED BEFORE IT IS SENT, by the rule `create-channel-pair.ts`
+// owns: the two ids are sorted, so the pair a form composes does not depend on who was
+// picked first — order carries no meaning on this wire, and two orderings of one pair
+// would read as two channels. That module also owns WHO may be in the pair, which is
+// the same rule the picker draws from and this file's readiness admits by.
 
 import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 
@@ -43,9 +45,12 @@ import type { ChannelCreateRequest } from "./channel-writes.js";
 import {
   CHANNEL_MODERATION_FIELDS,
   draftSnapshotsMatch,
+  readIdentifierList,
+  readTurnCap,
   type ChannelModerationField,
   type CreateChannelDraftSnapshot,
 } from "./create-channel-fields.js";
+import { canonicalMemberPair, isDirectChannelCandidate } from "./create-channel-pair.js";
 
 /**
  * Whether the form composes a request, or what it is still missing.
@@ -62,6 +67,28 @@ export type CreateChannelReadiness =
       readonly missing: readonly string[];
       readonly nameRefusal: string | undefined;
     };
+
+/**
+ * Everything outside the draft that a readiness answer depends on.
+ *
+ * ONE PARAMETER RATHER THAN THREE POSITIONAL ONES, because two of these are
+ * `string | undefined` and a caller that transposed them would compose a pair from the
+ * wrong half with nothing to say so. Named at every call site, the mistake is not
+ * available.
+ *
+ * ALL THREE ARE READS THE CALLER ALREADY HOLDS, which is why none of them is a field:
+ * a copy inside the draft would be a second answer to a question already asked, and it
+ * would be the STALE answer exactly when it matters — the live participant set moves
+ * under a mounted form every time somebody's membership ends.
+ */
+export interface CreateChannelContext {
+  /** The session the channel would be created in. `undefined` means nothing can be sent. */
+  readonly sessionId: string | undefined;
+  /** Which participant this window is, where that has been read. One half of a pair. */
+  readonly viewerParticipantId: string | undefined;
+  /** Who is still in this session, as the membership fold answers it right now. */
+  readonly liveParticipantIds: readonly string[];
+}
 
 export class CreateChannelDraft {
   readonly #changes = new Emitter<void>("create channel draft");
@@ -229,17 +256,22 @@ export class CreateChannelDraft {
   /**
    * The request this draft composes, or what it is still missing.
    *
-   * The session and the viewer are ARGUMENTS and never fields, for the reason the
-   * attach form gives about its own catalog: both are reads their owner already
-   * holds, and a copy inside the draft would be a second answer to a question already
-   * asked. An unread viewer is passed as the `undefined` it is and the direct arm
-   * fails closed — a pair composed from a caller identity nobody established would
-   * put two people in a room neither of them chose.
+   * The session, the viewer, and who is still in the session are ARGUMENTS and never
+   * fields, for the reason the attach form gives about its own catalog: all three are
+   * reads their owner already holds, and a copy inside the draft would be a second
+   * answer to a question already asked. An unread viewer is passed as the `undefined`
+   * it is and the direct arm fails closed — a pair composed from a caller identity
+   * nobody established would put two people in a room neither of them chose.
+   *
+   * AND THE PICK IS RE-ADMITTED ON EVERY ASK, against the live set as it is NOW. A
+   * draft holds an id and a membership ends without asking it: the person picked can
+   * be revoked or suspended a second after they were chosen, and a form that checked
+   * only that it held SOME id went on offering Create for a pair containing somebody
+   * the daemon would have to refuse. The candidate rule is the picker's own, so what
+   * is drawable and what is submittable move together.
    */
-  public readiness(
-    sessionId: string | undefined,
-    viewerParticipantId: string | undefined,
-  ): CreateChannelReadiness {
+  public readiness(context: CreateChannelContext): CreateChannelReadiness {
+    const { sessionId, viewerParticipantId } = context;
     const name = this.#name.trim();
     const missing: string[] = [];
     if (sessionId === undefined) {
@@ -273,8 +305,17 @@ export class CreateChannelDraft {
       missing.push("the round-robin order this policy requires");
     }
     if (this.#kind === "direct") {
-      if (this.#otherParticipantId === undefined) {
+      const picked = this.#otherParticipantId;
+      if (picked === undefined) {
         missing.push("the other person in the pair");
+      } else if (
+        !isDirectChannelCandidate(picked, context.liveParticipantIds, viewerParticipantId)
+      ) {
+        // A DIFFERENT SENTENCE FROM "nobody is picked", because they are different
+        // facts and only one of them is about somebody. Saying "the other person in
+        // the pair" for a pick that has just been revoked would report the person's
+        // own choice as though they had never made it.
+        missing.push("somebody who is still in this session — the person picked is no longer one");
       }
       if (viewerParticipantId === undefined) {
         missing.push("which participant this window is");
@@ -340,61 +381,4 @@ export class CreateChannelDraft {
       ...(postTurnReview === undefined ? {} : { postTurnReview }),
     };
   }
-}
-
-/**
- * The two ids in canonical order.
- *
- * Sorted rather than kept as picked, because the pair is a membership and not a
- * sequence: nothing on this wire reads position, so two orderings of one pair are one
- * channel described twice.
- */
-export function canonicalMemberPair(
-  firstParticipantId: string,
-  secondParticipantId: string,
-): readonly [string, string] {
-  return firstParticipantId <= secondParticipantId
-    ? [firstParticipantId, secondParticipantId]
-    : [secondParticipantId, firstParticipantId];
-}
-
-/** The typed list, or `undefined` where nothing was typed. Blank entries are dropped. */
-function readIdentifierList(typed: string): readonly string[] | undefined {
-  const entries = typed
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== "");
-  return entries.length === 0 ? undefined : entries;
-}
-
-/**
- * The typed cap: a positive whole number, nothing at all, or a value that is neither.
- *
- * The third arm is why this answers a union rather than `number | undefined`. A field
- * holding `two` is not the same fact as an empty one — the first is something a
- * person meant and the console could not read, and sending the session's default for
- * it would silently discard what they asked for.
- *
- * AND DIGIT-SHAPED IS NOT THE SAME FACT AS NUMBER-SHAPED, which is the second test.
- * The pattern alone accepts any run of digits, and past `Number.MAX_SAFE_INTEGER`
- * `Number` answers the nearest value it can represent rather than the one that was
- * typed — so a cap of `9007199254740993` composed a request carrying `…992`, a
- * different cap presented back as the person's own choice. Long enough and the answer
- * is `Infinity`, which JSON has no form for at all, so the request could not even be
- * encoded. Both are the SAME fact as `two`: something a person meant and this console
- * cannot read, so both take the unreadable arm and the field says so where it can
- * still be answered. There is no upper bound to check beyond that one — the corpus
- * registers `turnsPerAgent` as a number and declares no ceiling — and inventing one
- * here would be the form refusing a cap the daemon would have accepted.
- */
-function readTurnCap(typed: string): number | undefined | "unreadable" {
-  const trimmed = typed.trim();
-  if (trimmed === "") {
-    return undefined;
-  }
-  if (!/^[1-9][0-9]*$/.test(trimmed)) {
-    return "unreadable";
-  }
-  const turnCap = Number(trimmed);
-  return Number.isSafeInteger(turnCap) ? turnCap : "unreadable";
 }
