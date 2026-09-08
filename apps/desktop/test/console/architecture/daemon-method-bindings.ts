@@ -112,9 +112,14 @@ export class ModuleBindingScopes {
    * module declares none — an ambient or a global, which this scan cannot read either.
    */
   public resolve(name: string, position: number): NameBinding | undefined {
+    // Innermost first: the later start is the inner scope, and where two starts tie
+    // — the module scope and a declaration that is the module's first token both
+    // begin at byte zero — the narrower span is. On start alone a stable sort left
+    // the module scope first there, so a parameter shadowed by a module constant
+    // declared later resolved to the constant.
     const containing = this.#scopes
       .filter((scope) => position >= scope.start && position < scope.end)
-      .sort((inner, outer) => outer.start - inner.start);
+      .sort((inner, outer) => outer.start - inner.start || inner.end - outer.end);
     for (const scope of containing) {
       const binding = scope.bindingsByName.get(name);
       if (binding !== undefined) {

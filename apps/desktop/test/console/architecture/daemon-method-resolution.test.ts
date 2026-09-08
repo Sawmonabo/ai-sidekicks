@@ -205,6 +205,26 @@ describe("the method a call names", () => {
     ]);
   });
 
+  it("negative control: a declaration at the module's first byte still shadows the module", () => {
+    // THE TIE AT BYTE ZERO. The module scope starts at 0, and so does a function that
+    // is the module's first token, so a comparator on start alone left the module
+    // scope first for a call inside that function — and a record constant the module
+    // declares later then classified the call, exempting a read the parameter names.
+    // Planted without the helper's leading import, since the import is what kept
+    // every other planted declaration off byte zero.
+    const sites = plantedSitesDeclaringImports([
+      'export function dispatch(method: "repo.workspaceList", bridge, request) {',
+      "  return callDaemon(bridge, method, request);",
+      "}",
+      'const method = "session.join";',
+      'import { callDaemon } from "../../bridge/index.js";',
+    ]);
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["repo.workspaceList"]]);
+    expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([
+      "console/planted/surface.ts:2 — method reads (repo.workspaceList) and was handed no signal",
+    ]);
+  });
+
   it("negative control: a `var` in an inner block binds for the whole function", () => {
     // THE SHADOW A BLOCK DOES NOT MAKE. `var` is function-scoped, so the declaration
     // below binds `method` from the top of `dispatch` and the call after the block reads

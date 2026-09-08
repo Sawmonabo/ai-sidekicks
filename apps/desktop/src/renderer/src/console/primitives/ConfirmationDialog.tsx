@@ -1,5 +1,5 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
 
@@ -65,7 +65,10 @@ export function ConfirmationDialog(props: {
   readonly triggerAriaLabel: string;
   /** The caller's own row-control class for that button. See the note above. */
   readonly triggerClassName: string;
-  /** Some other act is in flight, so this one cannot be opened. */
+  /**
+   * Some other act is in flight, so this one cannot be opened — and, arriving while
+   * the dialog is open, closes it.
+   */
   readonly isDisabled: boolean;
   readonly title: string;
   /** The consequence, in the caller's words. Phrasing content only. */
@@ -77,8 +80,19 @@ export function ConfirmationDialog(props: {
   readonly tone: ConfirmationTone;
   readonly onConfirm: () => void;
 }): React.JSX.Element {
+  const [isOpen, setIsOpen] = useState(false);
+  if (isOpen && props.isDisabled) {
+    // A disable that arrives while the dialog is open closes it. The act is no longer
+    // available, and the reason is said by the caller's own surface — a section's
+    // sentence, a page's shell line — which an open modal covers; a disabled confirm
+    // inside the modal would be a dead control over an explanation nobody can read.
+    // Adjusted during render rather than in an effect, so no frame commits the open
+    // dialog beside the disabled trigger, and held as state rather than derived so a
+    // later re-enable does not reopen a dialog nobody asked for.
+    setIsOpen(false);
+  }
   return (
-    <AlertDialog.Root>
+    <AlertDialog.Root open={isOpen} onOpenChange={setIsOpen}>
       <AlertDialog.Trigger
         className={props.triggerClassName}
         disabled={props.isDisabled}
