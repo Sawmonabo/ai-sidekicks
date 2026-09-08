@@ -59,6 +59,10 @@ export { ChordHint } from "./ChordHint.js";
 // site is the only other way either could have one.
 export { observeElementResize } from "./element-resize.js";
 
+// The console's ONE clipping-ancestor walk, for the reason above and against the same
+// two families: the deck intersects what it finds, the browser collects rects from it.
+export { clippingAncestorsOf } from "./clipping-ancestors.js";
+
 // One boundary per surface, so a pane's render throw does not blank the window. It
 // is in this family rather than in the frame's because its only input is `core`'s
 // tripwire report, and because a view family wrapping its own rows cannot import the
