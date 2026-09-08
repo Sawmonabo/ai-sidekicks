@@ -13,9 +13,15 @@
 // account the registry has never held, refused in the account plane's own namespace
 // after the attach was submitted. So a case asserts the field a person meets is a
 // picker over the registry and not a box they type an opaque handle into.
+//
+// THE CLAIMS A COLUMN RENDER CANNOT MAKE ARE NEXT DOOR, in
+// `AccountAxisField.axis-alone.test.tsx`: the three states the reset control
+// distinguishes and the state a field is in when nothing is pinned differ only in what
+// the FORM is holding behind the field, and the column's own fixtures reach exactly one
+// of them.
 
-import { act, fireEvent, render, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { settleReads } from "../../agent-console/agent-console.test-support.js";
 import {
@@ -28,7 +34,6 @@ import {
   type ScriptedDaemon,
 } from "../../agent-console/agent-binding-column.test-support.js";
 import { AgentBindingColumn } from "../../agent-console/AgentBindingColumn.js";
-import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
 
 afterEach(disposeOpenedModels);
 
@@ -138,6 +143,24 @@ describe("the attach form's account axis — what reaches the wire", () => {
     expect(JSON.stringify(scriptedDaemon.attachRequest)).not.toContain("Personal");
   });
 
+  it("leaves the request unpinned even though the field speaks for the resolved default", async () => {
+    // The half of the fix that must NOT happen. Naming the account an unpinned attach
+    // resolves to is a READING; pinning it is a request member. A field that wrote the
+    // derived default back would turn the daemon's own resolution into an explicit
+    // override, and the run's receipt would then name an account nobody chose — while
+    // the registry's marked default and the account resolution actually reached are two
+    // different rows in this very fixture.
+    const scriptedDaemon = new HeldAttachDaemon();
+    const popup = await openedAttachForm(scriptedDaemon);
+
+    expect(accountField(popup).textContent ?? "").toContain("this attach resolves to Personal");
+    await act(async () => {
+      fireEvent.click(currentSubmitControl());
+    });
+
+    expect(scriptedDaemon.attachRequest).not.toHaveProperty("providerAccountId");
+  });
+
   it("clears the pin back to the provider's default rather than sending an empty account", async () => {
     const scriptedDaemon = new HeldAttachDaemon();
     const popup = await openedAttachForm(scriptedDaemon);
@@ -239,142 +262,5 @@ describe("the attach form's account axis — a registry that would not answer", 
     const popup = await openedAttachForm(new HeldAttachDaemon());
 
     expect(accountField(popup).textContent ?? "").not.toContain("call-rejected");
-  });
-});
-
-// THE AXIS ALONE, for the two claims a column render cannot make. The three states
-// the reset control distinguishes differ only in what the FORM is holding behind the
-// field — an entry over a definition's account, an entry over nothing, and a
-// definition's account with no entry at all — and the column's own fixtures reach
-// exactly one of them. Driven here through the real component over the real registry
-// read, with the form's two facts passed as the props they are.
-describe("the account axis — what its reset control promises", () => {
-  /** The field on its own, with the registry read settled. */
-  async function renderedAxis(
-    axis: Pick<AccountAxisFieldProps, "value" | "inheritedValue" | "isOverridden">,
-    onValueChange: (accountId: string | undefined) => void = () => {},
-  ): Promise<HTMLElement> {
-    const bridge = bridgeCalling(new HeldAttachDaemon());
-    const { container } = render(
-      <AccountAxisField
-        bridge={bridge}
-        driverName="claude"
-        value={axis.value}
-        inheritedValue={axis.inheritedValue}
-        isOverridden={axis.isOverridden}
-        onValueChange={onValueChange}
-      />,
-    );
-    await settleReads(bridge);
-    return container;
-  }
-
-  /** The reset control as it stands now, or `undefined` where none is drawn. */
-  function resetControl(container: HTMLElement): HTMLButtonElement | undefined {
-    return (
-      (container.querySelector(".meridian-axis-field__clear") as HTMLButtonElement) ?? undefined
-    );
-  }
-
-  it("names the definition's account where dropping the entry is what a press does", async () => {
-    const container = await renderedAxis({
-      value: "acct-personal",
-      inheritedValue: "acct-team",
-      isOverridden: true,
-    });
-
-    expect(resetControl(container)?.textContent).toBe("Use the definition’s account");
-  });
-
-  it("hands the drop up, which is the whole of what the press performs", async () => {
-    const dropped = vi.fn<(accountId: string | undefined) => void>();
-    const container = await renderedAxis(
-      { value: "acct-personal", inheritedValue: "acct-team", isOverridden: true },
-      dropped,
-    );
-
-    fireEvent.click(resetControl(container) as HTMLButtonElement);
-    // `undefined` and never the definition's account: substituting the inherited
-    // value here would send it as an explicit override, which is the opposite of
-    // returning the field to the definition.
-    expect(dropped).toHaveBeenCalledWith(undefined);
-  });
-
-  it("draws no control at all over a definition's own inherited account", async () => {
-    // The defect this replaces: the button stood here saying "Use the provider's
-    // default account", and a press dropped an entry that did not exist, so the
-    // field fell straight back to the same pinned account and the attach still used
-    // it. A control that cannot perform its label is absent rather than disabled.
-    const container = await renderedAxis({
-      value: "acct-team",
-      inheritedValue: "acct-team",
-      isOverridden: false,
-    });
-
-    expect(resetControl(container)).toBeUndefined();
-    expect(container.textContent ?? "").not.toContain("default account");
-    expect(container.textContent ?? "").toContain("This account is the definition’s");
-  });
-
-  it("negative control: an entry standing over nothing does reach the provider default", async () => {
-    // Without this, the case above would pass over a field that had simply stopped
-    // drawing the control — and the inline arm, where dropping an entry really does
-    // leave the axis unset, would lose its way back.
-    const container = await renderedAxis({
-      value: "acct-personal",
-      inheritedValue: undefined,
-      isOverridden: false,
-    });
-
-    expect(resetControl(container)?.textContent).toBe("Use the provider’s default account");
-  });
-
-  it("negative control: an unpinned axis offers nothing to reset", async () => {
-    const container = await renderedAxis({
-      value: undefined,
-      inheritedValue: undefined,
-      isOverridden: false,
-    });
-
-    expect(resetControl(container)).toBeUndefined();
-  });
-});
-
-describe("the account axis — the picker's accessible name", () => {
-  /** The field, unpinned and served — the state a person meets it in. */
-  async function renderedUnpinnedAxis(): Promise<HTMLElement> {
-    const bridge = bridgeCalling(new HeldAttachDaemon());
-    const { container } = render(
-      <AccountAxisField
-        bridge={bridge}
-        driverName="claude"
-        value={undefined}
-        inheritedValue={undefined}
-        isOverridden={false}
-        onValueChange={() => {}}
-      />,
-    );
-    await settleReads(bridge);
-    return container;
-  }
-
-  it("names the trigger with the field's own visible label", async () => {
-    // The trigger renders `role="combobox"`, which takes no name from its own
-    // content, and this field's root is a `div` rather than a `<label>` — so before
-    // the association it was an unnamed interactive control, and in this state, with
-    // no account pinned, it carried no value text to be read out either.
-    const field = within(await renderedUnpinnedAxis());
-
-    expect(field.getByRole("combobox", { name: "Provider account" })).not.toBeNull();
-  });
-
-  it("negative control: the query is naming the control rather than matching anything", async () => {
-    // Two halves. A control IS present, so the case above fails on the name and not
-    // on an absent trigger; and a name the field does not carry finds nothing, so a
-    // matcher that matched everything would be caught here.
-    const field = within(await renderedUnpinnedAxis());
-
-    expect(field.getAllByRole("combobox")).toHaveLength(1);
-    expect(field.queryByRole("combobox", { name: "Model" })).toBeNull();
   });
 });

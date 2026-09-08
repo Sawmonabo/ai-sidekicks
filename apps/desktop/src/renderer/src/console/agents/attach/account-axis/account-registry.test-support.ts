@@ -69,3 +69,32 @@ const REGISTRY_READINESS: readonly Record<string, unknown>[] = [
 export function registryListReply(): Record<string, unknown> {
   return { ...listReply(REGISTRY_ACCOUNTS, []), readiness: REGISTRY_READINESS };
 }
+
+/**
+ * The same node, with no account marked default under either provider.
+ *
+ * DERIVED FROM THE ROWS ABOVE rather than typed out beside them, so the two fixtures
+ * differ in exactly the fact this one is named for. The readiness entry is the
+ * `no_default` arm, which is the one state where accounts are registered and
+ * resolution deliberately reaches NONE of them: an attach that pins nothing is then
+ * asking for a default that does not exist, and the daemon refuses it.
+ *
+ * The remedy names the candidates and elects none, because electing one is exactly
+ * what the account plane refuses to do on the operator's behalf.
+ */
+export function registryWithNoDefaultReply(): Record<string, unknown> {
+  const accounts = REGISTRY_ACCOUNTS.map((row) => ({ ...row, isDefault: false }));
+  return {
+    ...listReply(accounts, []),
+    readiness: [
+      {
+        provider: "claude",
+        state: "no_default",
+        remedy: {
+          kind: "choose_default",
+          candidateAccountIds: ["acct-team", "acct-personal"],
+        },
+      },
+    ],
+  };
+}

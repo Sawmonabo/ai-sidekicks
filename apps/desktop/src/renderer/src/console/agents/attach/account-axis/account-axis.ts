@@ -1,5 +1,5 @@
-// Which provider accounts the attach form may pin, and what the registry stored
-// about each one.
+// Which provider accounts the attach form may pin, which one its advisories speak
+// for, and what the registry stored about each one.
 //
 // THE ACCOUNT AXIS IS A REGISTRY AXIS, NOT A TEXT FIELD. It was one — an untyped
 // input beside a standing sentence — and an untyped input is the one shape that
@@ -33,39 +33,25 @@
 // else, and this module keeps those apart rather than attributing a provider's
 // verdict to a row it was not computed for.
 //
+// WHICH IS ALSO WHY THE ENTRY IS WHAT AN UNPINNED AXIS IS ABOUT. An attach that pins
+// nothing is asking the daemon for the provider's registered default, and the entry
+// is that resolution's own answer — so {@link advisoryChoiceIn} reads the entry where
+// nothing is pinned rather than leaving a form silent about the account it is going
+// to use. The sentences themselves are `account-advisories.ts`'s.
+//
 // NOTHING HERE GATES. The spawn probe settles authentication, and a form that refused
 // on a stored observation would refuse an account that is about to work. What this
 // produces is a sentence beside a field.
-//
-// AND THE SENTENCE SAYS ONLY WHAT THE WEAKEST PRODUCER OF THAT STATE ESTABLISHED.
-// Four things write the stored health pair — the deliberate probe verb, validation at
-// spawn, the registration-time status invocation, and the background observer — and
-// the last of those is a freshness-and-liveness reading over LOCAL credential state
-// that never spends a credential rotation. So an `authenticated` value establishes
-// that a credential is present and not locally known to be dead, and nothing about
-// whether the provider would accept it right now: a server-revoked credential stays
-// in that arm until a run or a deliberate probe finds otherwise. Every sentence below
-// is therefore written to be true of every producer, which is what stops this field
-// reporting a local observation as a sign-in the provider has confirmed.
-//
-// AND IT NAMES WHEN. The reading travels with the moment it was taken precisely so a
-// surface can weigh it, and the pair is the only thing that separates "no observation
-// has ever been taken" from "one was taken and could not decide" — both of which
-// project the same `indeterminate` state. A sentence that dropped the instant would
-// render a reading from months ago and one from a moment ago identically and collapse
-// those two facts into one.
 
 import {
   PROVIDER_NAMES,
   type ProviderAccount,
   type ProviderName,
   type ProviderReadiness,
-  type ProviderRemedy,
 } from "@ai-sidekicks/contracts";
 
 import { readRefusalOf, type WireReadState } from "../../../bridge/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { formatDateTime } from "../../../primitives/index.js";
 
 /**
  * What this axis asks of the window's one account-plane reading.
@@ -118,6 +104,17 @@ export type AttachAccountAxisReading =
   | {
       readonly kind: "served";
       readonly provider: ProviderName;
+      /**
+       * This provider's own readiness entry, where the read carried one.
+       *
+       * DERIVED ONCE, IN {@link attachAccountAxisReadingFor}. The projection is keyed
+       * by provider and this arm is the one place the provider is settled, so a
+       * component that re-found the entry would be a second answer to which entry
+       * this axis is about — and the two would disagree the moment either match
+       * changed. Absent where the read carried no entry for this provider, which is
+       * not the same fact as an entry that resolved no account.
+       */
+      readonly providerReadiness: ProviderReadiness | undefined;
       readonly choices: readonly AttachAccountChoice[];
     };
 
@@ -169,16 +166,24 @@ export function attachAccountAxisReadingFor(
   if (registry.phase === "reading") {
     return { kind: "reading" };
   }
+  const providerReadiness = registry.readiness.find((entry) => entry.provider === provider);
   const choices = registry.accounts
     .filter((account) => account.provider === provider)
-    .map((account) => accountChoiceFor(account, registry.readiness));
-  return { kind: "served", provider, choices };
+    .map((account) => accountChoiceFor(account, providerReadiness));
+  return { kind: "served", provider, providerReadiness, choices };
 }
 
-/** One registry row, with the readiness entry that resolved to it where there is one. */
+/**
+ * One registry row, carrying this provider's entry only where it resolved to that row.
+ *
+ * Matched against the ONE entry this provider carries rather than against every entry
+ * the read holds: a projection that named an account of another provider would
+ * otherwise attach itself here, which is the cross-provider attribution the per-account
+ * rule exists to refuse.
+ */
 function accountChoiceFor(
   account: ProviderAccount,
-  readiness: readonly ProviderReadiness[],
+  providerReadiness: ProviderReadiness | undefined,
 ): AttachAccountChoice {
   return {
     accountId: account.accountId,
@@ -186,7 +191,8 @@ function accountChoiceFor(
     isProviderDefault: account.isDefault,
     healthState: account.healthState,
     healthObservedAt: account.healthObservedAt,
-    readiness: readiness.find((entry) => entry.resolvedAccountId === account.accountId),
+    readiness:
+      providerReadiness?.resolvedAccountId === account.accountId ? providerReadiness : undefined,
   };
 }
 
@@ -199,6 +205,42 @@ export function chosenAccountIn(
     return undefined;
   }
   return reading.choices.find((choice) => choice.accountId === accountId);
+}
+
+/**
+ * The choice the advisories speak for: the pinned one, else the resolved default.
+ *
+ * A SECOND RULE BESIDE {@link chosenAccountIn} rather than a widening of it. That one
+ * answers what the form PINS, and its other readers need exactly that — the sentence
+ * naming a value the picker cannot show and the registry-membership caveat are both
+ * about the caller's own entry, and a default nobody typed would make each of them
+ * false. This one answers which account the readings beside the field are ABOUT, which
+ * is a different question the moment nothing is pinned: an unpinned attach asks the
+ * daemon for the provider's registered default, so the readings that bear on it are
+ * that account's.
+ *
+ * THE READINESS ENTRY DECIDES, NEVER THE REGISTRY'S `isProviderDefault` FLAG. The flag
+ * is what the registry MARKS default; the entry is what resolution REACHED, computed
+ * by the same resolution the spawn path performs. Where the two disagree the entry is
+ * the spawn path's answer, so a field keyed on the flag would report the health of an
+ * account this attach is not going to use.
+ *
+ * A PINNED VALUE THE REGISTRY DOES NOT CARRY ANSWERS NOTHING, deliberately, rather
+ * than falling through to the default: the readings would then be about an account the
+ * caller did not ask for, rendered under a value they did.
+ *
+ * @param accountId The account this form PINS, or `undefined` where it pins none.
+ */
+export function advisoryChoiceIn(
+  reading: AttachAccountAxisReading,
+  accountId: string | undefined,
+): AttachAccountChoice | undefined {
+  if (accountId !== undefined) {
+    return chosenAccountIn(reading, accountId);
+  }
+  const resolvedAccountId =
+    reading.kind === "served" ? reading.providerReadiness?.resolvedAccountId : undefined;
+  return chosenAccountIn(reading, resolvedAccountId);
 }
 
 /**
@@ -217,108 +259,4 @@ export function registryCarriesAccount(
   return (
     reading.kind !== "served" || reading.choices.some((choice) => choice.accountId === accountId)
   );
-}
-
-/**
- * What the observation FOUND, given the moment it was taken.
- *
- * TOTAL over the contract's own union, so a fifth health state cannot land upstream
- * and leave this field rendering a term it never explains. It is a reading and never
- * a verdict: every sentence says what was OBSERVED, and none of them says the account
- * will or will not work — the spawn probe decides that and this form never does.
- *
- * EVERY ARM TAKES THE INSTANT rather than one of them appending it, because the age of
- * a reading is part of what the reading says: an account whose home went missing a
- * minute ago and one whose home went missing in March are two different situations
- * and the state alone renders them alike.
- *
- * AND EVERY ARM IS WORDED FOR THE WEAKEST PRODUCER OF THAT STATE, per the module
- * header. `authenticated` therefore claims credential presence and local health and
- * says outright where the question is actually settled; `reauth_required` names what
- * the account needs rather than who asked for it, because a terminal authentication
- * refusal on a token-mode account lands here too and nobody asked for anything there.
- */
-const OBSERVED_HEALTH_ADVISORIES: Readonly<
-  Record<ProviderAccount["healthState"], (observedAt: string) => string>
-> = {
-  authenticated: (observedAt) =>
-    `The observation at ${observedAt} found a credential in this account's home and nothing local reporting it dead. Whether the provider still accepts it is decided when a run starts.`,
-  reauth_required: (observedAt) =>
-    `The observation at ${observedAt} found this account needing a fresh sign-in before a run can use it.`,
-  home_missing: (observedAt) =>
-    `The observation at ${observedAt} found no credential home where this account expects one.`,
-  indeterminate: (observedAt) =>
-    `The observation at ${observedAt} did not decide about this account.`,
-};
-
-/**
- * Said instead wherever the account carries no observation time at all.
- *
- * ITS OWN SENTENCE AND NOT AN `indeterminate` VARIANT. A never-observed account and a
- * probe that could not decide both project `indeterminate`, and the timestamp is the
- * only member that separates them — so a field that rendered one sentence for both
- * would report "we looked and could not tell" over an account nothing has ever looked
- * at.
- *
- * Reached from every state rather than only from `indeterminate`, which is deliberate:
- * the durable pair is set and cleared together, so a null timestamp says no
- * observation was taken whatever state arrived beside it, and the contract's own
- * parser is what keeps the other three arms from reaching here at all.
- */
-const NEVER_OBSERVED_ADVISORY = "This account has never been observed.";
-
-/** The stored reading as one sentence: what was found, and when it was found. */
-function storedHealthAdvisoryFor(choice: AttachAccountChoice, locale: string | undefined): string {
-  const { healthObservedAt } = choice;
-  if (healthObservedAt === null) {
-    return NEVER_OBSERVED_ADVISORY;
-  }
-  // Through the console's ONE date formatter, which answers an em dash for a stamp it
-  // cannot read rather than throwing — so a malformed instant costs this sentence its
-  // reading and never the field.
-  return OBSERVED_HEALTH_ADVISORIES[choice.healthState](formatDateTime(healthObservedAt, locale));
-}
-
-/**
- * What the act that closes a readiness entry IS, named and never composed.
- *
- * TOTAL over the registered remedy kinds, and deliberately naming only the ACT. The
- * remedy's content — the credential home a sign-in authenticates into and the
- * provider's own first-party invocation — is the daemon's, it travels on the reply,
- * and it belongs on the operator surface that owns it. An attach form printing a
- * command a person is invited to run would be this console composing a remedy, which
- * the account plane's own rule forbids.
- */
-const REMEDY_ADVISORIES: Readonly<Record<ProviderRemedy["kind"], string>> = {
-  register: "No account is registered for this provider.",
-  choose_default: "Accounts are registered for this provider and none of them is the default.",
-  sign_in: "Signing this account in again is what run admission is waiting for.",
-};
-
-/**
- * Every advisory line this account carries, in the order they are read.
- *
- * A LIST rather than one joined sentence, because the two halves answer different
- * questions — what was stored about this account, and what run admission last made of
- * it — and a reader who only needs the first should not have to find it inside the
- * second. Empty is impossible: the stored reading always says something.
- *
- * @param locale Optional, and trailing, exactly as the console's own formatters take
- *   one: the stored reading names an instant, and the caller that has a locale to
- *   render it under is the one composing the field rather than this model.
- */
-export function accountAdvisoriesFor(
-  choice: AttachAccountChoice,
-  locale?: string,
-): readonly string[] {
-  const advisories = [storedHealthAdvisoryFor(choice, locale)];
-  const { readiness } = choice;
-  if (readiness === undefined) {
-    return advisories;
-  }
-  advisories.push(`Run admission last read this provider as ${readiness.state}.`);
-  if (readiness.remedy !== undefined) {
-    advisories.push(REMEDY_ADVISORIES[readiness.remedy.kind]);
-  }
-  return advisories;
 }

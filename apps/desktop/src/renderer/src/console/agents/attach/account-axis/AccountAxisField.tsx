@@ -32,6 +32,14 @@
 // {@link AccountAxisProvenance} names, and the reset control below is rendered — and
 // labelled — from them rather than from whether the field happens to hold a string.
 //
+// AND THE READINGS FOLLOW THE ACCOUNT THE ATTACH WILL USE, NOT ONLY THE ONE IT PINS.
+// Pinning nothing is the state a person meets this field in, and it is a request for
+// the provider's registered default — an account the readiness entry already names. A
+// field that spoke only for a pinned value therefore said nothing at all in the common
+// case, so a known-unhealthy default stayed silent until the daemon refused. Which
+// account a list is about is said before the list, because a default's health read as
+// a pinned one's is the one confusion this addition could introduce.
+//
 // NOTHING HERE GATES AND NOTHING HERE IS A COMMAND. Readiness is advisory against the
 // unchanged spawn probe, and the remedy is named as an ACT — never as the provider's
 // own sign-in invocation or the credential home it writes into, which reach the
@@ -45,8 +53,9 @@ import {
   type ConsoleBridge,
 } from "../../../bridge/index.js";
 import { WireFigure } from "../../../primitives/index.js";
+import { accountAdvisoriesFor, unresolvedDefaultAdvisoryIn } from "./account-advisories.js";
 import {
-  accountAdvisoriesFor,
+  advisoryChoiceIn,
   attachAccountAxisReadingFor,
   chosenAccountIn,
   registryCarriesAccount,
@@ -118,6 +127,14 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
   const chosen = chosenAccountIn(reading, value);
   const provenance = accountAxisProvenanceOf(props);
   const isPinned = provenance !== "unpinned";
+  // THE PIN AS THE PROVENANCE READ IT, and never the raw member. The form clears an
+  // axis by entering the empty string, so `value` carries two spellings of "pins
+  // nothing" and the provenance above is where that is decided — passing the member
+  // instead would put a second reading of emptiness in this file and let the field's
+  // own sentence and its advisories disagree about whether anything is pinned.
+  const pinnedAccountId = isPinned ? value : undefined;
+  const advisoryChoice = advisoryChoiceIn(reading, pinnedAccountId);
+  const unresolvedDefaultAdvisory = unresolvedDefaultAdvisoryIn(reading, pinnedAccountId);
   // The REASON is this call site's and never inferred downstream: a person pressing
   // "Try again" is a participant request, and stamping it as anything else would
   // report an act somebody performed as a window event nobody did.
@@ -174,14 +191,36 @@ export function AccountAxisField(props: AccountAxisFieldProps): React.JSX.Elemen
         </span>
       ) : null}
 
-      {chosen === undefined ? null : (
-        <ul className="meridian-axis-field__advisories">
-          {accountAdvisoriesFor(chosen).map((advisory) => (
-            <li key={advisory} className="meridian-axis-field__advisory">
-              {advisory}
-            </li>
-          ))}
-        </ul>
+      {/* WHICH ACCOUNT THE READINGS BELOW ARE ABOUT, SAID BEFORE THEM. An axis that
+          pins nothing asks the daemon for the provider's registered default, so the
+          readings that bear on this attach are that account's — and a list opening
+          with them unannounced would read as the health of an account the form had
+          pinned. Naming the account this attach resolves to is not the same act as
+          pinning it: nothing here writes the value, and the request still carries no
+          account from this path. */}
+      {advisoryChoice === undefined ? null : (
+        <>
+          <span className="meridian-axis-field__advisory">
+            {isPinned
+              ? `What follows is about ${advisoryChoice.displayLabel}, the account this form pins.`
+              : `Nothing is pinned, so this attach resolves to ${advisoryChoice.displayLabel}. What follows is that account’s reading, and the request still names no account.`}
+          </span>
+          <ul className="meridian-axis-field__advisories">
+            {accountAdvisoriesFor(advisoryChoice).map((advisory) => (
+              <li key={advisory} className="meridian-axis-field__advisory">
+                {advisory}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* THE STATE THAT RENDERED NOTHING AT ALL. Where nothing is pinned and
+          resolution reached no account, there is no row whose readings could carry
+          the remedy — so the form went on asking for a default that does not exist
+          and the daemon's refusal was the first thing to say so. */}
+      {unresolvedDefaultAdvisory === undefined ? null : (
+        <span className="meridian-axis-field__advisory">{unresolvedDefaultAdvisory}</span>
       )}
 
       <span className="meridian-axis-field__advisory">
