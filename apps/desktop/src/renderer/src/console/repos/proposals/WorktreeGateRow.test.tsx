@@ -12,7 +12,7 @@ import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { GrowthPortAnswer } from "../../bridge/growth-port/growth-port.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
@@ -49,7 +49,7 @@ const NOW = Date.UTC(2026, 0, 1, 9, 6, 0);
  * The real fixture bridge with this row's one read answering what a case scripts.
  *
  * NAMED FOR THE ROW rather than `bridgeAnswering`, which is
- * `bridge/fixture/fixture-bridge.test-support.ts`'s exported name for an unrelated contract —
+ * `bridge/fixture/call-plane/bridge.test-support.ts`'s exported name for an unrelated contract —
  * the bridge whose DAEMON call arm a suite decides. One grep giving two contracts under
  * one name is the reason the artifact copy was renamed before this one.
  *

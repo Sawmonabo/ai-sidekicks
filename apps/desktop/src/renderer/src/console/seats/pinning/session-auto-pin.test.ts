@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixture } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { SessionOriginEvidence } from "./auto-pin.js";
 import {

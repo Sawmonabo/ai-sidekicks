@@ -14,7 +14,7 @@ import {
   type ConsoleBridge,
   type GrowthOutcome,
 } from "../../../console/bridge/index.js";
-import { withDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../../../console/bridge/readings/scheduled-read.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import { SessionStore } from "../../../console/store/index.js";
@@ -33,7 +33,7 @@ const SCENARIO_ACCOUNT_LABEL = "Claude — team";
  * The shipped fixture with the roster operation answered.
  *
  * A spread over a REAL bridge and not a hand-built object, which is the shape
- * `fixture-bridge.test-support.ts` states for driving one namespace: the account
+ * `fixture/call-plane/bridge.test-support.ts` states for driving one namespace: the account
  * read, the clock, and the scenario stay the fixture's, so what these cases prove is
  * a join across two live seams rather than across two literals.
  */

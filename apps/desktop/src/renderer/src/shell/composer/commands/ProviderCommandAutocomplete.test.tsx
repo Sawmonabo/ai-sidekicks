@@ -22,7 +22,7 @@ import {
   registeredIds,
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
-import type { RecordedDaemonCall } from "../../../console/bridge/fixture/fixture-bridge.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture/call-plane/bridge.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
 import { ProviderCommandEnumeration } from "./provider-command-holder.js";
 import { crossMacrotaskBoundary } from "../../../console/core/macrotask-boundary.test-support.js";

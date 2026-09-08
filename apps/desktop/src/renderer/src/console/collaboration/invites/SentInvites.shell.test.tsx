@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { FrameStore } from "../../store/index.js";
 import { connectedShell, stopShell, stoppedShell } from "../shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";

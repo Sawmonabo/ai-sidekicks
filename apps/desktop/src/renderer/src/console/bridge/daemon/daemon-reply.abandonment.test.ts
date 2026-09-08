@@ -34,7 +34,7 @@ import { describe, expect, it, vi } from "vitest";
 import { callDaemon } from "./daemon-reply.js";
 import { CONSOLE_DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
 import { refusalOf, SESSION_ID } from "./daemon-reply.test-support.js";
-import { bridgeAnswering } from "../fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../fixture/call-plane/bridge.test-support.js";
 
 /** The code the door raises for a read whose owner has gone. */
 const READ_ABANDONED = "read-abandoned";

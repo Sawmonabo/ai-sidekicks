@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   fixtureBridgeWithGrowth,
   growthAnswering,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { settle } from "../../core/settle.test-support.js";
 import {
   PARTICIPANT_OTHER,

@@ -49,7 +49,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { withDaemonCall } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../bridge/fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../bridge/readings/scheduled-read.test-support.js";
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { ONBOARDING_SCENARIO } from "../bridge/scenarios/onboarding.js";

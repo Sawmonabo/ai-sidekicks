@@ -16,7 +16,7 @@
 // has an arm for.
 //
 // It lives beside the scripted-reply seam rather than inside any one reader because its
-// two importers straddle that seam. `fixture/fixture-workflow-scope.ts` derives what a
+// two importers straddle that seam. `fixture/workflows/workflow-scope.ts` derives what a
 // scenario DECLARES; `scenarios/workflow-fixture-replies.ts` reads the REQUEST a computed
 // reply is handed. A helper owned by either side would be reached from the other across a
 // boundary that is not there. The seam is this directory's, so the string read leaves

@@ -30,7 +30,7 @@
 // a surface goes through the door. Expressing that as `{ tests: true }` here is what
 // keeps it from being written as a fifth walk with its own idea of what a test file
 // is: the two walks it replaced disagreed with this one and with each other on
-// `.test-support.*`, so one gate scanned `fixture-bridge.test-support.ts` and another
+// `.test-support.*`, so one gate scanned `fixture/call-plane/bridge.test-support.ts` and another
 // did not, with nothing reporting the difference.
 //
 // THE ROOTS ARE A PARAMETER TOO, and one gate's subject is the whole package. A

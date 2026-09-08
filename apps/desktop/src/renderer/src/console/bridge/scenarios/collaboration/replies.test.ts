@@ -23,7 +23,7 @@ import { describe, expect, it } from "vitest";
 
 import { InviteCreateResponseSchema, type DaemonMethod } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge } from "../../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../../fixture/call-plane/bridge.js";
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { COLLABORATION_SCENARIO } from "../collaboration.js";
 import {

@@ -28,7 +28,7 @@ import {
   createFixture,
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../fixture/fixture-bridge.test-support.js";
+} from "../fixture/call-plane/bridge.test-support.js";
 import { settleScheduledRead } from "../readings/scheduled-read.test-support.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import type { QueueFeed } from "./queue-reading.js";

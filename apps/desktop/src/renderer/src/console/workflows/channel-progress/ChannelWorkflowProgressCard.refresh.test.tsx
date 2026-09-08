@@ -22,7 +22,7 @@ import {
   fixtureBridgeWithGrowth,
   growthAnswering,
   unscriptedScenario,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge, WorkflowRunListEntry } from "../../bridge/index.js";
 import { WORKFLOWS_CHANNEL_ID } from "../../bridge/scenarios/workflow-fixture-ids.js";
 import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";

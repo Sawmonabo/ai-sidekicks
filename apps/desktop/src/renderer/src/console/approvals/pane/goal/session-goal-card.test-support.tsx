@@ -12,7 +12,7 @@ import { vi } from "vitest";
 import { SessionGoalCard } from "./SessionGoalCard.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { type SessionGoalProjection } from "../../../bridge/index.js";
 
 // The revisions below stand for whatever entry the fold read each projection from.

@@ -13,7 +13,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.j
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import {
   UNSCRIPTED_COMPARISON_REFUSAL_CODE,

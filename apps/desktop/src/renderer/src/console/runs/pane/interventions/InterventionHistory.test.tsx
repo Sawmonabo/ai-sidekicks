@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import type { RollbackCompositeRejectionGuard } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { refuse } from "../../../core/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { InterventionHistory } from "./InterventionHistory.js";

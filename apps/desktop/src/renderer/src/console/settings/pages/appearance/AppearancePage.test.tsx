@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { unscriptedScenario } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { SCHEME_ATTRIBUTE } from "../../../tokens/index.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";

@@ -20,7 +20,7 @@ import {
   subscribeNodeDaemon,
   type ConsoleBridge,
 } from "../bridge/index.js";
-import { withDaemonSubscribe } from "../bridge/fixture/fixture-bridge.test-support.js";
+import { withDaemonSubscribe } from "../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ScenarioEngine } from "../bridge/scenario-runtime/scenario-engine.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { APPLY_COALESCE_MS, type Unsubscribe } from "../core/index.js";

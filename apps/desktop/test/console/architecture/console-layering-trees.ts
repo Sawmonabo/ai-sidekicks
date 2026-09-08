@@ -204,7 +204,7 @@ export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
  * same inversion an ordinary module's edge is — the symbol it wants lives above the
  * family that needs it, and the remedy is to hoist the symbol rather than to exempt
  * the reader. `crossMacrotaskBoundary` was exactly this shape in production: a timing
- * helper parked in `bridge/fixture/fixture-bridge.test-support.ts` that `store/` and
+ * helper parked in `bridge/fixture/call-plane/bridge.test-support.ts` that `store/` and
  * `frame/` suites both waited on, hoisted by this branch to
  * `core/macrotask-boundary.test-support.ts`.
  *

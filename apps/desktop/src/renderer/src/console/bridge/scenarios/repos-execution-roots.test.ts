@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../fixture/call-plane/bridge.js";
 import { REPOS_SCENARIO } from "./repos.js";
 import {
   ATTACHED_WORKSPACE_ID,

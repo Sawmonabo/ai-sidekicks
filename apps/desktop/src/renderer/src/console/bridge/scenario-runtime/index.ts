@@ -19,7 +19,7 @@
 // would give every reader of this door an edge into the fixture — which imports the
 // bridge contract, which imports the engine beside this line. Measured: it closes
 // four cycles `no-circular` fails. Both are reached by their own deep specifier, the
-// same remedy `fixture-refusal.ts` records for the same shape.
+// same remedy `fixture/call-plane/refusal.ts` records for the same shape.
 
 export type { ConsoleScenario, ScenarioBeat, ScenarioReply } from "./scenario.js";
 

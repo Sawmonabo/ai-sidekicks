@@ -11,7 +11,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AgentConsoleModels } from "../run-console/agent-console-model.js";
-import { growthRefusing } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { growthRefusing } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";
 import { SurfaceErrorBoundary } from "../../primitives/index.js";

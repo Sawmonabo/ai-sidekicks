@@ -15,7 +15,7 @@ import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/in
 import {
   unscriptedScenario,
   withDaemonCall,
-} from "../../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ManualClock } from "../../../core/index.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";
@@ -35,7 +35,7 @@ import { WorkspaceMountsPage } from "./WorkspaceMountsPage.js";
  * one. It used to be a literal ending `as unknown as SettingsPageContext`, which made
  * this the one of the family's three harnesses a widened `SettingsPageContext` would
  * NOT have failed — the cast answered for every member nobody had written yet. The
- * daemon arm is swapped through `bridge/fixture/fixture-bridge.test-support.ts`'s own
+ * daemon arm is swapped through `bridge/fixture/call-plane/bridge.test-support.ts`'s own
  * `withDaemonCall`, which is the console's one seam for that, and the context is
  * built by the family's one builder.
  *

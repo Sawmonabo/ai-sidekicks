@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 
-import { withDaemonCall } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";

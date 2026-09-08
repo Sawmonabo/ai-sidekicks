@@ -56,7 +56,7 @@ import { requestedIdentifier, answerFor, refuseAs } from "../computed-reply.js";
 import {
   MEMBERSHIP_ROSTER_READ_CALL,
   TERMINAL_CONTROL_HOLDER_READ_CALL,
-} from "../../fixture/fixture-collaboration-reads.js";
+} from "../../fixture/collaboration/collaboration-reads.js";
 import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
 import type { ScenarioReply } from "../../scenario-runtime/index.js";
 
@@ -133,7 +133,7 @@ export interface CollaborationGrowthChannelIds {
  * What creating a channel answers with. One id, because one create is scripted.
  *
  * It is also the one id this room's directory can hold that its opening table does not:
- * the create mints it and the fold in `fixture/fixture-channel-directory.ts` appends the
+ * the create mints it and the fold in `fixture/collaboration/channel-directory.ts` appends the
  * row, so a lifecycle move naming it is a move against a channel of this room's.
  */
 const CHANNEL_CREATED = "019b7904-8ce0-7c11-8140-cca0117a0398";
@@ -300,7 +300,7 @@ function roomChannelIdsOf(script: CollaborationGrowthScript): ReadonlySet<string
  *
  * RESOLVED AGAINST THE ROOM'S OWN DIRECTORY FIRST, and the reason is what the previous
  * reading cost. Any string-valued `channelId` was echoed back as a served receipt, and
- * `fixture/fixture-channel-lifecycle.ts` appends the matching transition frame for every
+ * `fixture/collaboration/channel-lifecycle.ts` appends the matching transition frame for every
  * served act — so a surface muting a channel by a stale identifier, or by one it had
  * composed from the wrong row, was answered exactly as a correct press is and the
  * directory grew a row for a channel this room has never held. The regression class that

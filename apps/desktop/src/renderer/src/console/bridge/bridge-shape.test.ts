@@ -40,7 +40,7 @@ import {
   type BridgeShape,
 } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture/fixture-bridge.js";
+import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
 import { growthSlateRow } from "./growth-port/growth-slate.js";
