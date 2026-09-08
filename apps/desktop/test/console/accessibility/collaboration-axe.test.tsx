@@ -55,6 +55,7 @@ import {
 } from "../../../src/renderer/src/console/bridge/scenarios/collaboration.js";
 import { ActivityIndicatorRegistry } from "../../../src/renderer/src/console/collaboration/activity-model.js";
 import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
+import { loaded as channelDirectory } from "../../../src/renderer/src/console/collaboration/channels/channels.test-support.js";
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/members/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/members/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
@@ -113,15 +114,12 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
   it("has no axe violation in the channel list", async () => {
     const { container } = await renderSettled(
       <ChannelList
-        state={{
-          kind: "loaded",
-          value: [
-            channel("channel-main", "main", "active"),
-            channel("channel-review", "review", "active"),
-            channel("channel-relay", "relay", "muted"),
-            channel("channel-old", "old", "archived"),
-          ],
-        }}
+        state={channelDirectory([
+          channel("channel-main", "main", "active"),
+          channel("channel-review", "review", "active"),
+          channel("channel-relay", "relay", "muted"),
+          channel("channel-old", "old", "archived"),
+        ])}
         bridge={createFixtureBridge({ scenario: COLLABORATION_SCENARIO })}
         sessionId={COLLABORATION_SCENARIO.sessionId}
         viewerParticipantId="participant-sawyer"
