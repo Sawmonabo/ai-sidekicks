@@ -9,8 +9,14 @@
 // A REFUSAL IS NOT HERE, and that is the rule rather than an omission: a refused act
 // speaks in the refusal's own words, which rule 9 forbids this console to paraphrase.
 
-import { type ArtifactDeleteReceipt } from "../artifacts/artifact-model.js";
-import { artifactDeleteReceiptSentence } from "../artifacts/artifact-copy.js";
+import {
+  type ArtifactDeleteReceipt,
+  type ArtifactVisibility,
+} from "../artifacts/artifact-model.js";
+import {
+  ARTIFACT_VISIBILITY_PRESENTATION,
+  artifactDeleteReceiptSentence,
+} from "../artifacts/artifact-copy.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
 /** What a settled act says, once, when it settles. A refusal speaks in its own words. */
@@ -27,6 +33,19 @@ export const MANIFEST_RE_READ_ANNOUNCEMENT =
  */
 export function artifactDeletedAnnouncement(receipt: ArtifactDeleteReceipt): string {
   return `Artifact deleted and the list read again. ${artifactDeleteReceiptSentence(receipt)}`;
+}
+
+/**
+ * What a settled visibility change says: the class the DAEMON settled on, in the words
+ * the row's own chip is drawn from.
+ *
+ * COMPOSED FROM `ARTIFACT_VISIBILITY_PRESENTATION` rather than written again here, so
+ * the sentence a person hears and the chip they then read cannot disagree about what
+ * the class means. The requested class is deliberately not a parameter: a policy-blocked
+ * share retains the original, and this sentence is about what happened.
+ */
+export function artifactVisibilityAnnouncement(visibility: ArtifactVisibility): string {
+  return `Visibility changed and the list read again. ${ARTIFACT_VISIBILITY_PRESENTATION[visibility].meaning}`;
 }
 
 /** What each settled payload fetch says. Total over the arms a served fetch can reach. */

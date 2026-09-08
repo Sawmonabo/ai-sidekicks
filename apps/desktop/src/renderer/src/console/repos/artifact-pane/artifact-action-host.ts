@@ -1,10 +1,11 @@
 // What an act needs from the half of the pane that reads, and the one write both
 // halves of the act side perform.
 //
-// A MODULE OF ITS OWN BECAUSE TWO CLASSES IMPLEMENT AGAINST IT. `artifact-actions.ts`
+// A MODULE OF ITS OWN BECAUSE THREE CLASSES IMPLEMENT AGAINST IT. `artifact-actions.ts`
 // owns the manifest re-read and the delete, `artifact-payload-fetch.ts` owns the
-// payload single flight, and both hold the same host and both record a refusal on a
-// row. Declared in either of them, the other would import a contract from a peer and
+// payload single flight, `artifact-visibility-update.ts` owns the per-row
+// re-classification, and all three hold the same host and all three record a refusal on
+// a row. Declared in any of them, the others would import a contract from a peer and
 // close a cycle; declared here, the seam has a name and a home.
 
 import type { ConsoleRefusal } from "../../core/index.js";

@@ -12,6 +12,7 @@ import {
   manifestReadInFlightRefusal,
   payloadFetchInFlightRefusal,
   readFailureRefusal,
+  visibilityUpdateInFlightRefusal,
 } from "./artifact-pane-refusals.js";
 
 describe("artifact pane refusals — a read that threw", () => {
@@ -75,10 +76,21 @@ describe("artifact pane refusals — the closed vocabulary", () => {
       readFailureRefusal(new Error("boom")).code,
       payloadFetchInFlightRefusal("artifact-1").code,
       manifestReadInFlightRefusal("artifact-1").code,
+      visibilityUpdateInFlightRefusal("artifact-1").code,
     ];
 
     expect([...ARTIFACT_PANE_REFUSAL_CODES].toSorted()).toStrictEqual(minted.toSorted());
     expect(new Set(ARTIFACT_PANE_REFUSAL_CODES).size).toBe(ARTIFACT_PANE_REFUSAL_CODES.length);
+  });
+
+  it("names the row a held visibility change is about, so the sentence is not generic", () => {
+    // The control that mints it is a TOGGLE whose label is read off the row, so a
+    // participant told only that "something is in flight" cannot tell which row is
+    // being re-classified or what it is being re-classified to.
+    const refusal = visibilityUpdateInFlightRefusal("artifact-7");
+
+    expect(refusal.detail).toContain("artifact-7");
+    expect(refusal.origin).toBe("artifact-pane-reader");
   });
 
   it("negative control: a code another author owns is not a member of this pane's set", () => {

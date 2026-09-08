@@ -13,7 +13,6 @@
 // beside the one that was pressed; and the delete confirm states the foreclosure
 // consequence before the act, in place.
 
-import type { ConsoleRefusal } from "../../core/index.js";
 import {
   Chip,
   DerivedFigure,
@@ -23,7 +22,9 @@ import {
   formatByteQuantity,
   formatRelativeTime,
 } from "../../primitives/index.js";
+import { artifactRefusalAction } from "./ArtifactRefusalRecovery.js";
 import { type ArtifactManifestRow } from "./artifact-model.js";
+import type { ArtifactSurfaceRefusal } from "./artifact-refusal-copy.js";
 import {
   ARTIFACT_DELETE_CONSEQUENCE,
   ARTIFACT_STATE_PRESENTATION,
@@ -48,10 +49,20 @@ export interface ArtifactRowProps {
   readonly row: ArtifactManifestRow;
   /** The instant the row was rendered against. Ages move when the surface re-reads. */
   readonly nowMilliseconds: number;
-  /** What the last act on THIS row answered. Refusals only; absent means none. */
-  readonly refusal?: ConsoleRefusal | undefined;
+  /**
+   * What the last act on THIS row answered. Refusals only; absent means none.
+   *
+   * The SURFACE shape rather than the bare one, because a blocked delete carries the
+   * manifests it was blocked by as a registered extension and the recovery renders
+   * them, and a rejected call carries the daemon's whole refusal one layer in. Every
+   * producer of a plain `ConsoleRefusal` still satisfies it — every member the surface
+   * shape adds is optional — so nothing upstream had to move to widen it.
+   */
+  readonly refusal?: ArtifactSurfaceRefusal | undefined;
   /** Whether this row's manifest re-read is on the wire. Holds the control that sent it. */
   readonly isManifestReadInFlight?: boolean | undefined;
+  /** Whether this row's visibility change is on the wire. Holds the control that sent it. */
+  readonly isVisibilityUpdateInFlight?: boolean | undefined;
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onChangeVisibility?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onDelete?: ((row: ArtifactManifestRow) => void) | undefined;
@@ -112,6 +123,14 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             type="button"
             className="meridian-artifact-row__act"
             onClick={() => props.onChangeVisibility?.(row)}
+            // HELD WHILE THIS ROW'S CHANGE IS OUTSTANDING, and the surface's own
+            // register is what holds it — there is no second flag to keep in step. The
+            // label names the class this press would move to, which is read off the row
+            // the daemon has not answered for yet, so a second press before the first
+            // settles would send the class the row is already being moved to. The acts
+            // refuse it in words, and this is what keeps a participant from meeting
+            // that refusal by pressing a control the panel was offering.
+            disabled={props.isVisibilityUpdateInFlight ?? false}
           >
             {row.visibility === "shared" ? "Make local-only" : "Share with the session"}
           </button>
@@ -153,9 +172,15 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
       {refusal === undefined ? null : (
         // Inline, beside the controls that produced it, and the controls stay: the
         // act did not happen and the participant may try another one. The daemon's
-        // own sentence is what renders — a blocked delete's remedy (delete the
-        // derivatives first, or keep the source) is the daemon's to state.
-        <InlineRefusal code={refusal.code} detail={refusal.detail} />
+        // own sentence renders VERBATIM in the message; what this family adds sits in
+        // the `action` slot rule 9 reserves for exactly that — the next move for the
+        // code, and, on a blocked delete, the referencing manifests the refusal itself
+        // named. A code this family has no move for renders with no action at all.
+        <InlineRefusal
+          code={refusal.code}
+          detail={refusal.detail}
+          action={artifactRefusalAction(refusal)}
+        />
       )}
 
       <details className="meridian-artifact-row__detail">

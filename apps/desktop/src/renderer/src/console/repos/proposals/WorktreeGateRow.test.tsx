@@ -8,8 +8,8 @@
 // told. The provider runs on a frozen clock, so the standing message is read rather
 // than raced against its own hold deadline.
 
-import { act, render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
@@ -107,6 +107,7 @@ function row(
         sessionStore={new SessionStore({ sessionId: ROOT.createdBySessionId })}
         nowMilliseconds={NOW}
         onRequestRead={() => undefined}
+        onOpenDiff={() => undefined}
         {...overrides}
       />
     </LiveAnnouncerProvider>
@@ -216,6 +217,18 @@ describe("WorktreeGateRow — the root and the gate under it", () => {
     );
     // The arm carries its own answer, so nothing is put beside it.
     expect(container.querySelector(".meridian-refusal-card")).toBeNull();
+  });
+
+  it("offers a change set over the root itself, whether or not a gate could be asked", async () => {
+    // THE DISPOSAL'S OWN REASONING, applied to a second control: what a root can be
+    // diffed against is a wire question, and the pairing this row may be missing is
+    // about the GATE rather than about the root's identity.
+    const onOpenDiff = vi.fn();
+    const { container } = await renderRow(SERVED_CONTEXT, { subject: undefined, onOpenDiff });
+    const control = container.querySelector(".meridian-open-diff") as HTMLButtonElement;
+    expect(control).not.toBeNull();
+    fireEvent.click(control);
+    expect(onOpenDiff).toHaveBeenCalledWith({ kind: "worktree", id: ROOT.worktreeId });
   });
 
   it("asks nothing at all where no read names the workspace to ask under", async () => {

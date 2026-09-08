@@ -29,6 +29,19 @@ const CARD: DiffInlineCardProps = {
   artifactManifestId: "artifact-manifest-01",
 };
 
+/**
+ * The same card, from a row that also knows what the turn compared.
+ *
+ * The two refs are the fixture's own, so the change set the card draws and the
+ * comparison the row names are one comparison rather than two that happen to render
+ * side by side.
+ */
+const CARD_NAMING_COMPARED_STATES: DiffInlineCardProps = {
+  ...CARD,
+  baseRef: "main",
+  headRef: "feat/rate-limit-wiring",
+};
+
 const DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
 // The card renders the pane's own virtualized rows, so it needs the same stated
@@ -170,5 +183,48 @@ describe("inline diff card — the one control it carries", () => {
     // pane's toolbar would pass every other case in this file.
     const { queryByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
     expect(queryByRole("toolbar")).toBeNull();
+  });
+});
+
+describe("inline diff card — the density the seat's compared states select", () => {
+  it("renders the change set where the row names both compared states", () => {
+    // `DiffChangeSet` and not a second body: the subject bar, the toolbar and the
+    // changed-file list are the pane's own, so a comparison the row named is drawn
+    // once and the files it touched are reachable from inside the conversation.
+    const { container, getByRole } = render(
+      <InlineDiffCard card={CARD_NAMING_COMPARED_STATES} diff={DIFF} />,
+    );
+    expect(container.querySelector(".meridian-diff-pane")).not.toBeNull();
+    expect(container.querySelector(".meridian-diff-pane__subject-bar")).not.toBeNull();
+    expect(getByRole("toolbar")).toBeDefined();
+  });
+
+  it("negative control: a row that names neither state keeps the capped reading", () => {
+    // The prior reading, unchanged — the glance the four clauses of this card's own
+    // rule describe. Without this the case above would pass over a card that had
+    // grown the change set on every row, which is the density the rule forbids.
+    const { container, getByRole } = render(<InlineDiffCard card={CARD} diff={DIFF} />);
+    expect(container.querySelector(".meridian-diff-pane")).toBeNull();
+    expect(container.querySelector(".meridian-diff-card__footer")).not.toBeNull();
+    expect(getByRole("button", { name: "Expand in place" })).toBeDefined();
+  });
+
+  it("reads the pair as a pair, so half a comparison selects nothing", () => {
+    // A base with no head names no comparison at all, and a card that tested one
+    // member would draw a subject bar with a blank on one side of it.
+    const { container } = render(
+      <InlineDiffCard card={{ ...CARD, baseRef: "main" }} diff={DIFF} />,
+    );
+    expect(container.querySelector(".meridian-diff-pane")).toBeNull();
+  });
+
+  it("says what was compared while the lines are still unread", () => {
+    // The seat's pair is read on the absence arm too: a row that knows the two states
+    // has answered half the question already, and withholding that half would be the
+    // card reporting less than it holds.
+    const { container } = render(<InlineDiffCard card={CARD_NAMING_COMPARED_STATES} />);
+    const nothing = container.querySelector(".meridian-nothing--not-checked");
+    expect(nothing?.textContent).toContain("main");
+    expect(nothing?.textContent).toContain("feat/rate-limit-wiring");
   });
 });

@@ -14,9 +14,10 @@
 // that rule on the directory that OWNS a sheet rather than on how deep the sheet sits:
 // a sub-directory carrying no barrel of its own is owned by this one however deep it
 // sits, and a sub-directory carrying a door owns itself. Every barrel-less sheet in
-// the tree is therefore imported below, and the only two that are not are the two pane
-// sub-modules', which have barrels: `diff.css` and `artifact.css` enter through those
-// and are named here only to say where they went.
+// the tree is therefore imported below, and the ones that are not are the sheets of the
+// directories that carry doors: `diff.css` and `artifact.css` enter through the two pane
+// sub-modules' barrels, and `diff-create.css` through the diff pane's own create door,
+// which is inside one of them. They are named here only to say where they went.
 //
 // WHAT IS HERE AND WHAT IS BELOW. This module imports every sheet it owns,
 // publishes the two registration entry points the console calls, and publishes the
