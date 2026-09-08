@@ -205,6 +205,96 @@ describe("the method a call names", () => {
     ]);
   });
 
+  it("negative control: a `var` in an inner block binds for the whole function", () => {
+    // THE SHADOW A BLOCK DOES NOT MAKE. `var` is function-scoped, so the declaration
+    // below binds `method` from the top of `dispatch` and the call after the block reads
+    // it — while a walk that recorded every variable in the block it was written in left
+    // the binding inside the braces, looked past it, and answered with the MODULE
+    // constant. That is the shadow direction that exempts: the outer name is a record,
+    // and a record is asked for no signal.
+    //
+    // AND WHAT THE FIX ANSWERS IS NOTHING, WHICH IS THE POINT. A `var` is writable, so
+    // `daemon-method-literals.ts` reduces it to no literal however it was initialized —
+    // the call is reported as naming a method this parse cannot read, which is the
+    // fail-closed reading. Resolving to the outer record was the answer that hid it.
+    const sites = plantedSites([
+      'const method = "session.join";',
+      "export async function dispatch(bridge, request) {",
+      "  {",
+      '    var method: "repo.workspaceList" = "repo.workspaceList";',
+      "  }",
+      "  return await callDaemon(bridge, method, request);",
+      "}",
+      "export async function dispatchElsewhere(bridge, request) {",
+      "  return await callDaemon(bridge, method, request);",
+      "}",
+    ]);
+    // The second call is the half that says the hoist reaches the FUNCTION and stops
+    // there: a walk that lifted every `var` to the module scope would answer this one
+    // from a binding written inside a function it is not in.
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([[], ["session.join"]]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
+      "console/planted/surface.ts:7 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
+    ]);
+  });
+
+  it("negative control: a caught binding shadows the constant it is spelled like", () => {
+    // THE BINDING NO DECLARATION LIST CARRIES. A `catch` clause names its own variable,
+    // and the name is a bare `VariableDeclaration` with no list over it — so a walk that
+    // reached bindings only through a list, a binding element or a declared function
+    // opened the catch's scope and then declared nothing into it, and the call inside
+    // resolved to the module constant one scope out. The caught value is whatever was
+    // thrown, and reading it as `session.join` classified this line as a record.
+    const sites = plantedSites([
+      'const method = "session.join";',
+      "export async function dispatch(bridge, request) {",
+      "  try {",
+      "    await mightThrow();",
+      "  } catch (method) {",
+      '    if (method === "repo.workspaceList") {',
+      "      return await callDaemon(bridge, method, request);",
+      "    }",
+      "  }",
+      "}",
+    ]);
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([[]]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
+      "console/planted/surface.ts:8 — method resolves to no registered method, so this call could name a read and nothing here says what stops it",
+    ]);
+  });
+
+  it("negative control: a class static block is a variable scope of its own", () => {
+    // WHERE HOISTING STOPS. A static initialization block runs once with a variable
+    // environment of its own, so the `var` below is the block's and reaches nothing after
+    // the class — and a walk that knew only which scopes a BLOCK opens carried it out to
+    // the nearest function or module, where it overwrote the door's own import. Both of
+    // this module's calls then stopped being door calls at all: the one inside the block
+    // names a local that is not the door, and the one after the class resolved the door's
+    // own name to that same local. A gate reporting no site is a gate reporting that this
+    // module makes no daemon call.
+    //
+    // THE `const` BESIDE IT IS THE HALF THAT ALREADY HELD, and it is planted anyway: the
+    // block's own body is a `Block`, so a lexical declaration inside one has always landed
+    // in a scope of its own. What the static block adds is the variable scope, and the two
+    // are asserted together so a later walk cannot trade one for the other.
+    const sites = plantedSites([
+      'const method = "session.join";',
+      "class Wiring {",
+      "  static {",
+      "    var callDaemon = (door, name, payload) => door.send(name, payload);",
+      '    const method = "repo.workspaceList";',
+      "    callDaemon(bridge, method, request);",
+      "  }",
+      "}",
+      "export async function dispatch(bridge, request) {",
+      "  return await callDaemon(bridge, method, request);",
+      "}",
+    ]);
+    expect(sites.map((site) => site.line)).toStrictEqual([11]);
+    expect(sites.map((site) => site.resolvedMethods)).toStrictEqual([["session.join"]]);
+    expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
+  });
+
   it("resolves a parameter declared as a union of literals", () => {
     const [site] = plantedSites([
       'async function dispatch(method: "session.join" | "repo.workspaceList") {',

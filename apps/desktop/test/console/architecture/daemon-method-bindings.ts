@@ -25,13 +25,6 @@
 // descent cannot be asked what encloses it — so the imports are declared from the
 // statement list first, before the walk, which is the whole set of them.
 //
-// AND AN UNREADABLE BINDING REFUSES RATHER THAN FALLS BACK. A destructured name, a
-// namespace import, a parameter with no declared literal type, a `const` bound to
-// anything but a string — each is recorded as a binding this parse cannot reduce, and
-// resolving one answers the empty set. Falling through to the name index instead is
-// what produced the shadow bug: the fallback fires exactly when the local answer is
-// unavailable, which is exactly when guessing is least defensible.
-//
 // A DECLARED FUNCTION OR CLASS IS A BINDING TOO, AND ITS NAME IS HOISTED. Recording only
 // variables and binding elements left `function callDaemon(…) { … }` invisible, so a call
 // inside a scope holding one resolved past it to the module's import and was read as a
@@ -47,93 +40,51 @@
 // language does not have — the opposite error, and the reason a class EXPRESSION opens a
 // scope here while a class DECLARATION does not need one.
 //
-// THE ONE INDEX THAT SURVIVES IS THE CROSS-MODULE ONE, and what a binding owes it is
-// the MODULE and not just the name. Two call sites name a constant
-// `agents/agent-wire.ts` declares, and the nearest binding for those is the import
-// specifier — so an imported binding carries both halves of what its declaration
-// says: the name the specifier came from, and the specifier's own module. What
-// `daemon-method-constants.ts` then does with the pair is its subject; that a name
-// alone is not enough to identify an export is this one's.
+// AND A `var` IS SCOPED TO ITS FUNCTION AND NOT TO ITS BLOCK, which is the second thing
+// hoisting means and the one a span-keyed walk gets wrong for free. Every declaration was
+// recorded in the scope the walk happened to be inside, so `{ var method = … }` left the
+// binding between those braces and a call two lines under them resolved to whatever the
+// name meant further out. The runtime reads the `var`; the gate read the shadow — and in
+// the direction that exempts, since the name further out is routinely a record and a
+// record is asked for no signal. So the walk carries a second scope beside the enclosing
+// one, the nearest FUNCTION scope, and hands a non-block-scoped declaration list that one.
+// Hoisting to the module instead would be the opposite error at the same seam: a `var` in
+// one function would shadow the door's own import for every other function in the file.
 //
-// AND THE DECLARATION TRAVELS WITH THE READING, because the method is not the only
-// question a call site asks of a name. `daemon-call-sites.ts` asks whether the name a
-// call INVOKES is the door's own import specifier, and `daemon-signal-argument.ts`
-// asks what the value handed as the signal is bound to; both are answered from the
-// declaration FORM — an import specifier, a parameter the caller filled in, a local a
-// round was opened into — rather than from a string literal. Interpreting those here
-// would put three subjects in this module; handing the declaration back leaves the
-// scope chain with the one job it has, which is saying which declaration a name at a
-// position means.
+// AND A CLASS STATIC BLOCK IS A VARIABLE SCOPE, which is where that second scope stops.
+// A static initialization block runs once with a variable environment of its own, so a
+// `var` inside one reaches nothing after the class — and a walk that knew only which
+// scopes a BLOCK opens would carry such a name past the class body into the enclosing
+// function or the module, where it can overwrite the door's own import. It is the only
+// variable scope in the language that is neither function-like nor a module body, which is
+// why it is named here rather than falling out of `ts.isFunctionLike`.
 //
-// AND WHAT A DECLARATION REDUCES TO IS `daemon-method-literals.ts`', for that same
-// sentence's reason. An initializer's string literal and the literals a declared type
-// admits are questions about expressions and type nodes with nothing lexical in them,
-// and they sat here until the scope chain grew the declaration forms a hoisted
-// `function` binds — at which point one file was holding the two subjects its own header
-// says it does not.
-//
-// A VARIABLE IS DECLARED FROM ITS LIST AND NEVER FROM ITSELF, which is the one shape of
-// this walk that a `const` rule dictates rather than the scope chain. `const` is a flag on
-// the declaration LIST and the declarations under it carry none, and the shared parse
-// leaves parent pointers off — so a walk that recorded each `VariableDeclaration` as it
-// reached it could not see the keyword that binds it, and recorded `let method =
-// "session.join"` as that method for the whole scope however many times the module wrote
-// it afterwards. Matching the list and declaring its own declarations is what puts the
-// keyword and the name in one place; the reduction itself, and the reason a scanner that
-// FOLLOWED the writes was not built instead, are `daemon-method-literals.ts`'.
-//
-// AND THE FORM TRAVELS BECAUSE ONE FACT ABOUT IT CANNOT BE RECOVERED DOWNSTREAM. `const` is
-// a flag on the LIST and parent pointers are off, so a consumer holding a
-// `VariableDeclaration` cannot tell `const round = openRound()` from `let round = …`, and
-// reading the two alike is a real defect: a held round is what a signal reading takes as
-// the caller's obligation and a rebindable name is not. Every other site states its own.
+// WHAT A NODE DECLARES INTO THE SCOPES THIS WALK SELECTS is
+// `daemon-method-binding-declarations.ts`', and what a declaration REDUCES TO is
+// `daemon-method-literals.ts`'. Which scope a name belongs in is a question about spans
+// and enclosing forms; what the name is worth is a question about initializers and type
+// nodes with nothing lexical in them. This file answers the first and hands the node to
+// the other two, which is what leaves the scope chain the one job it has.
 
 import ts from "typescript";
 
 import {
-  literalTypesIn,
-  moduleLiteralUnionAliases,
-  variableDeclarationBinding,
-  type MethodBinding,
-} from "./daemon-method-literals.js";
+  declareBindingsOf,
+  declareImports,
+  parameterBindings,
+  type BindingScope,
+  type NameBinding,
+} from "./daemon-method-binding-declarations.js";
+import { moduleLiteralUnionAliases } from "./daemon-method-literals.js";
 
 /**
- * Which declaration form bound a name — the closed set this walk records, and no more.
+ * What a name at a position is bound to, re-exported from the scope chain that answers it.
  *
- * The two variable arms are why the type exists. The other four are stated so no site
- * defaults: `import` covers all three import forms, and one arm covers a function or class
- * however written, since which SCOPE it binds in is this module's answer, not a consumer's.
+ * `resolve` is where a consumer meets a binding, so the type it hands back is named on the
+ * module a consumer already imports rather than on the one that happens to build the
+ * record — the split behind it is this pair's own and not a caller's to track.
  */
-export type BindingForm =
-  | "constant"
-  | "writable-variable"
-  | "parameter"
-  | "import"
-  | "destructured"
-  | "function-or-class";
-
-/**
- * What one name is bound to, in every reading a call site takes of a binding.
- *
- * One record and not two maps, so a name is bound in exactly one scope for every
- * question: a second map would let two readings disagree about WHICH declaration a
- * name at a position means, which is the shadow this module exists to refuse.
- */
-export interface NameBinding {
-  /** What this name means where a call passes it as its METHOD. */
-  readonly method: MethodBinding;
-  /** The declaration itself, for the questions this module does not answer. */
-  readonly declaration: ts.Declaration;
-  /** Which form declared it, for the one question the declaration cannot be asked. */
-  readonly form: BindingForm;
-}
-
-/** One lexical scope of a module, with everything declared directly in it. */
-interface BindingScope {
-  readonly start: number;
-  readonly end: number;
-  readonly bindingsByName: Map<string, NameBinding>;
-}
+export type { NameBinding };
 
 /**
  * Every lexical scope of one module, and what each of them binds.
@@ -153,7 +104,7 @@ export class ModuleBindingScopes {
     this.#aliasedUnions = moduleLiteralUnionAliases(parsed);
     const moduleScope = this.#openScope(0, parsed.end);
     declareImports(parsed, moduleScope);
-    this.#walk(parsed, moduleScope);
+    this.#walk(parsed, moduleScope, moduleScope);
   }
 
   /**
@@ -185,14 +136,23 @@ export class ModuleBindingScopes {
    * The enclosing one and the one the child OPENS, because which of them a name binds in
    * is decided by the declaration form: a `function` or `class` DECLARATION names itself
    * to the scope around it, and a function or class EXPRESSION names itself to its own
-   * body. Handing `#declare` only the opened scope put every declared function's name
-   * inside itself, which is a binding no caller can see.
+   * body. Handing the declarations only the opened scope put every declared function's
+   * name inside itself, which is a binding no caller can see.
+   *
+   * AND THE VARIABLE SCOPE BESIDE THEM, which is the enclosing scope for every form but
+   * one: a `var` list is handed the nearest function, module or static block instead. It
+   * travels as its own argument rather than being looked up, because the walk is the only
+   * reader that knows which function a node sits in — the parse leaves parent pointers
+   * off, so a node reached by descent cannot be asked. The list's own subtree is then
+   * walked with that scope as its enclosing one, so a destructured `var` element lands
+   * where the plain identifier beside it does rather than in the block it was written in.
    */
-  #walk(node: ts.Node, scope: BindingScope): void {
+  #walk(node: ts.Node, enclosing: BindingScope, variableScope: BindingScope): void {
     node.forEachChild((child) => {
-      const inner = this.#scopeOpenedBy(child, scope);
-      this.#declare(child, scope, inner);
-      this.#walk(child, inner);
+      const containing = hoistsPastBlocks(child) ? variableScope : enclosing;
+      const opened = this.#scopeOpenedBy(child, containing);
+      declareBindingsOf(child, containing, opened);
+      this.#walk(child, opened, opensVariableScope(child) ? opened : variableScope);
     });
   }
 
@@ -207,6 +167,11 @@ export class ModuleBindingScopes {
    * A CLASS EXPRESSION opens one for its own NAME, which is the one thing it binds that
    * nothing outside it can see. A class DECLARATION needs none: its name binds in the
    * scope around it and a reference from inside the body reaches that same binding.
+   *
+   * A CLASS STATIC BLOCK opens one so that the variable scope it is has a span to be
+   * recorded against. Its body block opens a second beneath it, exactly as a function's
+   * does, and the two nest rather than compete: both contain every call the block makes,
+   * and the inner one is the first the chain consults.
    */
   #scopeOpenedBy(node: ts.Node, enclosing: BindingScope): BindingScope {
     if (ts.isFunctionLike(node)) {
@@ -224,177 +189,38 @@ export class ModuleBindingScopes {
       ts.isForStatement(node) ||
       ts.isForOfStatement(node) ||
       ts.isForInStatement(node) ||
+      ts.isClassStaticBlockDeclaration(node) ||
       ts.isClassExpression(node)
     ) {
       return this.#openScope(node.getStart(this.#parsed), node.end);
     }
     return enclosing;
   }
-
-  /**
-   * Record one declaration form in the scope its own name belongs to.
-   *
-   * `enclosing` for the three forms that name the scope around them — a variable, a
-   * destructured element, and a hoisted `function` or `class` declaration — and `opened`
-   * for the two that name only themselves, a function or class EXPRESSION. A declared
-   * function is recorded as UNREADABLE rather than left unbound because it IS the binding
-   * a call in that scope names, and looking past it is the shadow this module refuses;
-   * what it is bound to is not a method this parse can reduce, which is what unreadable
-   * says.
-   *
-   * A variable is matched at its LIST and its own declarations are recorded from there,
-   * for the reason this module's header gives; the declaration itself is still what the
-   * binding carries, because that is what the readings this module does not answer are
-   * asked of.
-   *
-   * Imports are not among them — they are declared from the statement list before this
-   * walk starts, for the reason this module's header gives.
-   */
-  #declare(node: ts.Node, enclosing: BindingScope, opened: BindingScope): void {
-    if (ts.isVariableDeclarationList(node)) {
-      for (const declaration of node.declarations) {
-        if (ts.isIdentifier(declaration.name)) {
-          enclosing.bindingsByName.set(declaration.name.text, {
-            method: variableDeclarationBinding(node, declaration),
-            declaration,
-            form: (node.flags & ts.NodeFlags.Const) === 0 ? "writable-variable" : "constant",
-          });
-        }
-      }
-      return;
-    }
-    if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {
-      declareUnreadable(node.name, node, enclosing, "destructured");
-      return;
-    }
-    if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) {
-      declareUnreadable(node.name, node, enclosing, "function-or-class");
-      return;
-    }
-    if (ts.isFunctionExpression(node) || ts.isClassExpression(node)) {
-      declareUnreadable(node.name, node, opened, "function-or-class");
-    }
-  }
 }
 
 /**
- * Record one name as a binding this parse cannot reduce, where the declaration has one.
+ * Whether the names `node` declares belong to the nearest variable scope rather than here.
  *
- * A default-exported `function` and an anonymous `class` expression each name nothing,
- * and a form that binds no name shadows no name.
+ * The keyword is the whole test, and it is read off the LIST because that is the only node
+ * carrying it: `let`, `const` and `using` are block-scoped and `var` is not, so a list with
+ * none of those flags is the one form this walk lifts. `ts.NodeFlags.BlockScoped` is the
+ * union of the three the language block-scopes, named rather than spelled out so a fourth
+ * one the language adds arrives here rather than being silently hoisted.
  */
-function declareUnreadable(
-  name: ts.Identifier | undefined,
-  declaration: ts.Declaration,
-  scope: BindingScope,
-  form: BindingForm,
-): void {
-  if (name !== undefined) {
-    scope.bindingsByName.set(name.text, { method: { kind: "unreadable" }, declaration, form });
-  }
+function hoistsPastBlocks(node: ts.Node): boolean {
+  return ts.isVariableDeclarationList(node) && (node.flags & ts.NodeFlags.BlockScoped) === 0;
 }
 
 /**
- * Every imported name of one module, declared in its module scope.
+ * Whether `node` opens a variable environment — the scope a hoisted `var` stops at.
  *
- * FROM THE STATEMENT LIST, because an import specifier's reading needs the module its
- * own declaration names and the shared parse leaves parent pointers off. An import is
- * always a top-level statement, so the statements ARE the whole set — a walk would
- * reach the same specifiers and arrive at each of them holding nothing that says which
- * declaration it belongs to.
- *
- * A specifier whose declaration names its module with anything but a string literal is
- * recorded unreadable rather than left unbound: it IS the binding the call names, and
- * looking past it is the shadow this module refuses.
+ * Three forms and no more: anything function-like, a namespace body (which the emitter
+ * makes a function), and a class static block. A block, a `for` head, a `catch` clause and
+ * a `case` block each open a LEXICAL scope and no variable one, which is the whole
+ * distinction this predicate exists to keep separate from `#scopeOpenedBy`'s.
  */
-function declareImports(parsed: ts.SourceFile, scope: BindingScope): void {
-  for (const statement of parsed.statements) {
-    if (!ts.isImportDeclaration(statement) || statement.importClause === undefined) {
-      continue;
-    }
-    const moduleSpecifier = ts.isStringLiteralLike(statement.moduleSpecifier)
-      ? statement.moduleSpecifier.text
-      : undefined;
-    declareImportClause(statement.importClause, moduleSpecifier, scope);
-  }
-}
-
-/** One clause's three binding forms: a default name, a namespace, and the specifiers. */
-function declareImportClause(
-  clause: ts.ImportClause,
-  moduleSpecifier: string | undefined,
-  scope: BindingScope,
-): void {
-  if (clause.name !== undefined) {
-    scope.bindingsByName.set(clause.name.text, {
-      method: { kind: "unreadable" },
-      declaration: clause,
-      form: "import",
-    });
-  }
-  const namedBindings = clause.namedBindings;
-  if (namedBindings === undefined) {
-    return;
-  }
-  if (ts.isNamespaceImport(namedBindings)) {
-    scope.bindingsByName.set(namedBindings.name.text, {
-      method: { kind: "unreadable" },
-      declaration: namedBindings,
-      form: "import",
-    });
-    return;
-  }
-  for (const element of namedBindings.elements) {
-    scope.bindingsByName.set(element.name.text, {
-      method:
-        moduleSpecifier === undefined
-          ? { kind: "unreadable" }
-          : {
-              kind: "imported",
-              exportedName: (element.propertyName ?? element.name).text,
-              moduleSpecifier,
-            },
-      declaration: element,
-      form: "import",
-    });
-  }
-}
-
-/**
- * The string literals each of a function's parameters is declared to admit.
- *
- * Reached through TWO indirections that are how a narrowed method argument is really
- * spelled: a type parameter's constraint (`<MethodName extends DaemonMutationMethod>`)
- * and a module-level alias for the union itself. Both are declarations rather than
- * inferences, which is what keeps this a reading of the source rather than a partial
- * re-implementation of the checker. A parameter whose type reduces to no literal is
- * recorded as unreadable rather than left unbound — it IS the binding the call names,
- * and looking past it is the shadow this module refuses.
- */
-function parameterBindings(
-  declaration: ts.SignatureDeclaration,
-  aliasedUnions: ReadonlyMap<string, readonly string[]>,
-): ReadonlyMap<string, NameBinding> {
-  const constraints = new Map<string, ts.TypeNode>();
-  for (const typeParameter of declaration.typeParameters ?? []) {
-    if (typeParameter.constraint !== undefined) {
-      constraints.set(typeParameter.name.text, typeParameter.constraint);
-    }
-  }
-  const bindingsByParameterName = new Map<string, NameBinding>();
-  for (const parameter of declaration.parameters) {
-    if (!ts.isIdentifier(parameter.name)) {
-      continue;
-    }
-    const literals =
-      parameter.type === undefined
-        ? []
-        : literalTypesIn(parameter.type, constraints, aliasedUnions);
-    bindingsByParameterName.set(parameter.name.text, {
-      method: literals.length > 0 ? { kind: "literals", literals } : { kind: "unreadable" },
-      declaration: parameter,
-      form: "parameter",
-    });
-  }
-  return bindingsByParameterName;
+function opensVariableScope(node: ts.Node): boolean {
+  return (
+    ts.isFunctionLike(node) || ts.isModuleBlock(node) || ts.isClassStaticBlockDeclaration(node)
+  );
 }
