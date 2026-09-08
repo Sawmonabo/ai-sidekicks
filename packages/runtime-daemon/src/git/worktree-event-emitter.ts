@@ -448,8 +448,8 @@ export class WorktreeEventEmitter {
       // an event no reader could attribute. This gives `worktreeId` the same
       // loud, well-located runtime rejection `sessionId` already gets from the
       // family schema's own required field. The branded output flows into the
-      // parse below unchanged: both accept exactly `z.string().uuid()` and
-      // neither transforms the value.
+      // parse below unchanged: both accept exactly the branded factory's
+      // RFC 9562 text form and neither transforms the value.
       worktreeId: WorktreeIdSchema.parse(input.worktreeId),
       // The two optional associations are OMITTED outright when the caller
       // supplies none, rather than passed as an explicit `undefined`: today

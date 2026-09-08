@@ -154,7 +154,7 @@ export type RunId = string & { readonly __brand: "RunId" };
 // (Tier 6) import it UPWARD. Authoring it in either of those would make this
 // file's own SDK seam import backwards across tiers — forbidden by the build
 // order, not merely undesirable. Those higher-tier modules consume this symbol
-// rather than declaring a sibling; a second `z.string().uuid().brand(...)`
+// rather than declaring a sibling; a second branded UUID declaration
 // anywhere would be a second source of truth for what a run id is, and the two
 // would drift the first time either grew a constraint.
 //
@@ -175,7 +175,7 @@ export const RunIdSchema: z.ZodType<RunId, RunId> = brandedUuidIdSchema<RunId>("
 // below is the earliest-shipping (Tier 4) member typed `ArtifactId[]`.
 // `runControl.ts` (Plan-004, Tier 5) imports it for the `steer` arm of
 // `InterventionRequestPayload`, and `artifacts/` (Plan-014, Tier 7) imports it at
-// Task 1 rather than restating it — a second `z.string().uuid().brand(...)`
+// Task 1 rather than restating it — a second branded UUID declaration
 // anywhere would be a second source of truth for what an artifact id is, and the
 // two would drift the first time either grew a constraint. OWNERSHIP OF THE
 // SHAPE IS UNCHANGED and is Spec-014's / Plan-014's: a change to the brand's
@@ -2988,7 +2988,7 @@ export const DriverSubscribeEventsParamsSchema: z.ZodType<
 // Plan-016's `packages/contracts/src/orchestration.ts` (api-payload-contracts.md
 // §Branded ID Types), which is UNSHIPPED at this task's landing — and minting
 // the brand here instead would be exactly the second
-// `z.string().uuid().brand(...)` source of truth the `RunIdSchema` doctrine at
+// single branded-UUID source of truth the `RunIdSchema` doctrine at
 // the top of this file forbids, plus a barrel collision on the day Plan-016
 // exports the canonical symbol. So the member is typed `string` and
 // UUID-shape-validated at the seam (the `clientIdempotencyKey` precedent: an

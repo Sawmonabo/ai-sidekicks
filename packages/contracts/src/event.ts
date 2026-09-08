@@ -590,7 +590,7 @@ const buildCommonShape = () => ({
   // `id`: opaque on the wire (no UUID-format invariant). The daemon assigns
   // UUID v7 internally per Spec-006 (sortable timestamp ordering), but the
   // wire contract per `docs/architecture/contracts/api-payload-contracts.md §Plan-006 — Session Event Taxonomy` is `id: string`. A
-  // future spec edit may tighten this to `z.uuid()`; until then, accepting
+  // future spec edit may tighten this to the branded-id text form; until then, accepting
   // any non-empty bounded string (length cap + whitespace + NUL guards)
   // matches the documented contract.
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "EventEnvelope.id"),
@@ -1564,7 +1564,7 @@ export const WorktreeRetiredEventSchema: z.ZodType<WorktreeRetiredEvent> = z
 // node-level observations bound to the reserved RFC 9562 §5.10 Max UUID
 // sentinel `session_id` per
 // `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`. The
-// envelope's `sessionId` is `SessionIdSchema` (`z.uuid()`), which already
+// envelope's `sessionId` is `SessionIdSchema` (the RFC 9562 predicate), which already
 // admits that sentinel, and no schema-level narrowing to it is taken here:
 // the spec grants real-id carve-outs the narrowing would reject (an
 // `event.compacted` scoped to ONE session MAY carry that session's id;

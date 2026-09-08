@@ -3137,6 +3137,33 @@ describe("ArtifactIdSchema — the attachment element brand, homed by the same C
     // what an artifact id is cannot appear.
     expect(contracts.ArtifactIdSchema).toBe(ArtifactIdSchema);
   });
+
+  it.each([
+    ["the Max UUID, lowercase", "ffffffff-ffff-ffff-ffff-ffffffffffff"],
+    ["the Max UUID, UPPERCASE", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"],
+    ["the Max UUID, MiXeD case", "FfFfFfFf-ffFF-FFff-fFfF-fFFFffffFFFF"],
+    ["an uppercase v7", "0190F8A0-7E2D-7C4A-9B1C-1B7C5B3E8F00"],
+    ["the Nil UUID", "00000000-0000-0000-0000-000000000000"],
+  ])(
+    "accepts %s — `Spec-014`'s ratified accept set is any RFC 9562 form, case-insensitively",
+    (_label, value) => {
+      // `Spec-014 §Required Behavior` ratifies "any RFC 9562 form", and RFC 9562
+      // section 4 admits "uppercase or lowercase" hex. An id that parsed in one
+      // spelling and refused in the other would make the ratified accept set
+      // untrue of the shipped schema for exactly one value — the Max UUID, which
+      // is also the daemon-scope anchoring sentinel.
+      expect(ArtifactIdSchema.parse(value)).toBe(value);
+    },
+  );
+
+  it.each([
+    ["a version-9 nibble", "550e8400-e29b-91d4-a716-446655440000"],
+    ["a variant 0xxx form", "550e8400-e29b-41d4-0716-446655440000"],
+    ["a variant 11xx form", "550e8400-e29b-41d4-c716-446655440000"],
+    ["a 35-character string", "550e8400-e29b-41d4-a716-44665544000"],
+  ])("REFUSES %s — case is the only widening", (_label, value) => {
+    expect(ArtifactIdSchema.safeParse(value).success).toBe(false);
+  });
 });
 
 describe("DriverReadParams / DriverAckResult — the two empty envelopes", () => {

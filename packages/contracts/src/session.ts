@@ -5,7 +5,9 @@
 // (verbatim — adding/removing/renaming a field here is a contract break and
 // requires the spec edit first).
 //
-// ID format: `z.uuid()` accepts any RFC 9562 UUID. Daemon-assigned IDs are
+// ID format: the `brandedUuidIdSchema` factory's `RFC_9562_TEXT_FORM`
+// predicate accepts any RFC 9562 UUID, case-insensitively on every
+// alternative (general form, Nil, Max). Daemon-assigned IDs are
 // UUID v7 (sortable timestamp); admin-provisioned control-plane rows fall
 // through PostgreSQL's `gen_random_uuid()` which emits v4. Contracts must
 // accept both, so we deliberately do NOT pin to `z.uuidv7()`.
@@ -43,7 +45,8 @@ import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc
 // whole-program inference).
 //
 // UUID-based IDs use the `brandedUuidIdSchema` helper from `./internal/branded`
-// which encapsulates the `z.uuid().brand().as unknown as z.ZodType<T, T>` cast
+// which encapsulates the `RFC_9562_TEXT_FORM` predicate plus the
+// `.brand().as unknown as z.ZodType<T, T>` cast
 // pattern that bridges Zod's single-T `$ZodBranded` output to the double-T
 // shape required for Standard-Schema-V1 input inference in tRPC v11 (ADR-014).
 // Non-UUID branded scalars (see EventCursorSchema below) keep the inline cast.
@@ -79,7 +82,7 @@ export const EVENT_CURSOR_MAX_LEN = 256;
 export type EventCursor = string & { readonly __brand: "EventCursor" };
 // Non-UUID branded scalar — inline cast (not the `brandedUuidIdSchema` helper)
 // because the underlying parser is `z.string().min(1).max(EVENT_CURSOR_MAX_LEN)`,
-// not `z.string().uuid()`. The `as unknown as z.ZodType<T, T>` cast matches the
+// not the factory's RFC 9562 predicate. The `as unknown as z.ZodType<T, T>` cast matches the
 // helper's pattern (see `./internal/branded.ts` for the load-bearing rationale:
 // bridging single-T `$ZodBranded` output to the double-T shape required for
 // Standard-Schema-V1 input inference in tRPC v11 per ADR-014).

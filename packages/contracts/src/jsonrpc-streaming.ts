@@ -80,7 +80,7 @@
 //
 // Canonical source: this file. `subscriptionId` is a UUID-shaped
 // branded type; `crypto.randomUUID()` (Node 22.12+ native) emits
-// RFC 9562 UUIDs matching `z.uuid()`. The brand symbol convention
+// RFC 9562 UUIDs the branded factory's predicate admits. The brand symbol convention
 // follows session.ts §Branded ID Types verbatim. Per BL-102 no-mirror
 // disposition, `api-payload-contracts.md` does not maintain a doc-side
 // mirror of this code-side typed surface; ADR-018 §Decision #1 (MINOR
@@ -149,7 +149,7 @@ export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;
 /**
  * The opaque per-subscription identifier. Branded (TypeScript nominal)
  * over a UUID string at runtime — `crypto.randomUUID()` (Node 22.12+
- * native) emits RFC 9562 UUIDs matching `z.uuid()`'s acceptance.
+ * native) emits RFC 9562 UUIDs the branded factory's predicate admits.
  *
  * Brand pattern follows session.ts §Branded ID Types verbatim:
  *   * runtime is a plain UUID string;

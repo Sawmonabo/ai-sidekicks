@@ -104,7 +104,7 @@ import {
 } from "../worktree.js";
 
 // Real RFC 9562 UUIDs (mix of v4 and v7) — the same fixture stance as
-// repo.test.ts: z.uuid() validates the version nibble + variant bits, so the
+// repo.test.ts: `RFC_9562_TEXT_FORM` validates the version nibble + variant bits, so the
 // fixtures must be canonically valid, not lookalike strings.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
