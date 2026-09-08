@@ -39,6 +39,17 @@ import type { ShellState } from "./shell-state.js";
  * `mutating: false`. What the gate cannot answer — a corpus-registered verb whose
  * handler has not landed — is what the paragraph above is for.
  *
+ * AND A VERB THE DAEMON PROXIES IS STILL THIS CONSOLE'S WRITE. `membership.update` and
+ * `invite.revoke` reach the control plane THROUGH the daemon rather than terminating in
+ * it, and a durable act is no less durable for having been forwarded — the roster it
+ * changes is the session's. `bridge/daemon/daemon-reply-registry.ts` says exactly that
+ * while classifying them for a different question: both are `false` on its
+ * `CHANGES_A_RUN` table, and its own prose names them "mutations all the same" that
+ * "change the session's own roster". That table answers whether a call moves a RUN and
+ * says in so many words that it is not the door's read-versus-mutation rule, so its
+ * `false` is no evidence against this tuple — it is the corroboration that the
+ * classification belongs here.
+ *
  * The table stays a closed tuple so "exactly these and no others" is countable, and so
  * an added mutating verb is a deliberate edit here rather than a control that silently
  * stays live through an outage.
@@ -46,6 +57,8 @@ import type { ShellState } from "./shell-state.js";
 export const MUTATING_DAEMON_METHODS = [
   "session.create",
   "session.join",
+  "membership.update",
+  "invite.revoke",
   "driver.interruptRun",
   "driver.applyIntervention",
   "driver.respondToRequest",
@@ -56,7 +69,7 @@ export const MUTATING_DAEMON_METHODS = [
 /** One mutating method name. Derived from the tuple above. */
 export type MutatingDaemonMethod = (typeof MUTATING_DAEMON_METHODS)[number];
 
-/** Whether a method string is one of the seven. Total over every string. */
+/** Whether a method string is one of the nine. Total over every string. */
 export function isMutatingDaemonMethod(method: string): method is MutatingDaemonMethod {
   return (MUTATING_DAEMON_METHODS as readonly string[]).includes(method);
 }

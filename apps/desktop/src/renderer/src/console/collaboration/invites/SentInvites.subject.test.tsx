@@ -15,6 +15,8 @@ import {
   withDaemonCall,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge, InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
+import type { FrameStore } from "../../store/index.js";
+import { quietShell } from "../shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   EMPTY_SCENARIO,
@@ -25,6 +27,15 @@ import {
   invite,
   settle,
 } from "./sent-invites.test-support.js";
+
+/**
+ * The shell every case in this suite runs under: one that has reported nothing.
+ *
+ * Held once rather than minted per render, so a `rerender` re-subscribes to the same
+ * store the first render read. No case here drives the supervisor — the shell's effect
+ * on the revoke control has its own suite.
+ */
+const QUIET_SHELL: FrameStore = quietShell();
 
 describe("sent invites — the session a row and a control belong to", () => {
   /**
@@ -97,13 +108,15 @@ describe("sent invites — the session a row and a control belong to", () => {
       [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
       [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
     });
-    const view = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    const view = render(
+      <SentInvites bridge={bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     expect(view.container.textContent ?? "").toContain(INVITE_FROM_A);
 
     // No await: this is the committed frame between the render that renames the
     // session and the effect that installs its read.
-    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} />);
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} frameStore={QUIET_SHELL} />);
 
     expect(view.container.textContent ?? "").not.toContain(INVITE_FROM_A);
     expect(view.container.textContent ?? "").toContain("Reading this session's invitations");
@@ -139,11 +152,13 @@ describe("sent invites — the session a row and a control belong to", () => {
       },
     });
 
-    const view = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    const view = render(
+      <SentInvites bridge={bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />,
+    );
     await settle();
-    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} />);
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} frameStore={QUIET_SHELL} />);
     await settle();
-    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />);
     await settle();
 
     // The first visit's read answers now, naming a row only that visit asked for.
@@ -166,11 +181,13 @@ describe("sent invites — the session a row and a control belong to", () => {
       [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
       [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
     });
-    const view = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    const view = render(
+      <SentInvites bridge={bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />,
+    );
     await settle();
-    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} />);
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} frameStore={QUIET_SHELL} />);
     await settle();
-    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />);
     await settle();
 
     expect(view.container.textContent ?? "").toContain(INVITE_FROM_A);
@@ -182,7 +199,9 @@ describe("sent invites — the session a row and a control belong to", () => {
     const bridge = bridgeServingPerSession({
       [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
     });
-    const { container } = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    const { container } = render(
+      <SentInvites bridge={bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     expect(container.textContent ?? "").toContain(INVITE_FROM_A);
     expect(revokeControls(container)).toHaveLength(1);
@@ -195,9 +214,13 @@ describe("sent invites — the session a row and a control belong to", () => {
       [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
       [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
     });
-    const view = render(<SentInvites bridge={held.bridge} sessionId={SESSION_A} />);
+    const view = render(
+      <SentInvites bridge={held.bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />,
+    );
     await settle();
-    view.rerender(<SentInvites bridge={held.bridge} sessionId={SESSION_B} />);
+    view.rerender(
+      <SentInvites bridge={held.bridge} sessionId={SESSION_B} frameStore={QUIET_SHELL} />,
+    );
     await settle();
 
     await act(async () => {
@@ -213,7 +236,9 @@ describe("sent invites — the session a row and a control belong to", () => {
       [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
       [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
     });
-    const view = render(<SentInvites bridge={held.bridge} sessionId={SESSION_A} />);
+    const view = render(
+      <SentInvites bridge={held.bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     await act(async () => {
       revokeControls(view.container)[0]?.click();
@@ -221,7 +246,9 @@ describe("sent invites — the session a row and a control belong to", () => {
     });
     expect(held.revokeRequests).toHaveLength(1);
 
-    view.rerender(<SentInvites bridge={held.bridge} sessionId={SESSION_B} />);
+    view.rerender(
+      <SentInvites bridge={held.bridge} sessionId={SESSION_B} frameStore={QUIET_SHELL} />,
+    );
     await settle();
 
     // One coordinator per session: the unsettled revoke belongs to the session that
@@ -238,13 +265,17 @@ describe("sent invites — the session a row and a control belong to", () => {
       [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
       [SESSION_B]: [invite({ inviteId: INVITE_FROM_A })],
     });
-    const view = render(<SentInvites bridge={held.bridge} sessionId={SESSION_A} />);
+    const view = render(
+      <SentInvites bridge={held.bridge} sessionId={SESSION_A} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     await act(async () => {
       revokeControls(view.container)[0]?.click();
       await crossMacrotaskBoundary();
     });
-    view.rerender(<SentInvites bridge={held.bridge} sessionId={SESSION_B} />);
+    view.rerender(
+      <SentInvites bridge={held.bridge} sessionId={SESSION_B} frameStore={QUIET_SHELL} />,
+    );
     await settle();
 
     // The reply names an id THIS session also holds — the worst case, and the one a

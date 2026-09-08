@@ -74,20 +74,35 @@
 
 import { useEffect, useMemo } from "react";
 
-import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
+import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
-import { useSubjectScopedState } from "../../store/index.js";
+import {
+  shellBlockForMethod,
+  useShellState,
+  useSubjectScopedState,
+  type FrameStore,
+} from "../../store/index.js";
 import { partitionInvites, withSettledInvite, type LedgerReading } from "./invite-ledger.js";
 import {
   WireMutationCoordinator,
-  daemonMutation,
   useWireMutation,
+  type CollaborationMutation,
+  type CollaborationMutationMethod,
 } from "../mutation-coordinator.js";
 import { SentInvitesLedger } from "./SentInvitesLedger.js";
 import { InviteCreationAbsence } from "./InviteCreationAbsence.js";
 
-/** The wire method the revoke control calls, through the daemon gateway. */
-const INVITE_REVOKE_METHOD = "invite.revoke";
+/**
+ * The wire method the revoke control calls, through the daemon gateway.
+ *
+ * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
+ * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
+ * condition closes, so a revoke that ever left that tuple stops compiling here rather
+ * than quietly going back to being dispatchable through a stopped shell. The literal
+ * type survives it, which is what `callDaemon` needs to type the request and the
+ * reply; a wider annotation would take both.
+ */
+const INVITE_REVOKE_METHOD = "invite.revoke" satisfies CollaborationMutationMethod;
 
 /** Names this read in a refusal the call itself did not name. */
 const SENT_INVITES_ORIGIN = "sent-invites";
@@ -96,10 +111,19 @@ export interface SentInvitesProps {
   readonly bridge: ConsoleBridge;
   /** The session whose invites these are. `undefined` means nothing was asked. */
   readonly sessionId: string | undefined;
+  /**
+   * Where this window's shell condition is published.
+   *
+   * Held rather than a derived block passed in, because the question this surface
+   * asks is per METHOD: `shellBlockForMethod` answers about `invite.revoke` and the
+   * read beside it survives the same outage, which a whole-window block handed down
+   * could not express.
+   */
+  readonly frameStore: FrameStore;
 }
 
 export function SentInvites(props: SentInvitesProps): React.JSX.Element {
-  const { bridge, sessionId } = props;
+  const { bridge, frameStore, sessionId } = props;
   // One `invitesList` answer, held against the exact subject it was asked of.
   //
   // The bridge is the subject and the session is the key, because a window handed a
@@ -116,19 +140,29 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
     LedgerReading | undefined
   >(bridge, sessionId, () => undefined);
 
-  const revokeCoordinator = useMemo(
-    () =>
-      new WireMutationCoordinator({
-        perform: daemonMutation(bridge, INVITE_REVOKE_METHOD),
-        describeWhat: "The invitation",
-      }),
+  const revokeCoordinator = useMemo(() => {
+    // The door call sits HERE, where exactly one method is named, rather than behind
+    // a binder generic over the family's methods: one call site naming one method is
+    // what lets the read-signal gate read the deliberate absence of a cancellation
+    // signal as deliberate. A revoke that has reached the daemon has HAPPENED, so
+    // there is nothing this window may abandon it with.
+    const revokeInvite: CollaborationMutation<typeof INVITE_REVOKE_METHOD> = async (request) =>
+      await callDaemon(bridge, INVITE_REVOKE_METHOD, request);
+    return new WireMutationCoordinator({
+      perform: revokeInvite,
+      describeWhat: "The invitation",
+    });
     // Keyed on the SUBJECT and not only on the transport: the coordinator's whole
     // state — what is in flight, whose refusal stands — is about one session's
     // rows, and a session's ledger inheriting another's is what closed every
     // control here on the frame after a move.
-    [bridge, sessionId],
-  );
+  }, [bridge, sessionId]);
   const revoke = useWireMutation(revokeCoordinator);
+  // Whether this window may send the revoke at all, from the shell state the frame
+  // publishes. Asked of the one seam every dispatching control goes through, so the
+  // ledger's own read stays live through the same outage — that seam answers about a
+  // method, never about the window.
+  const revokeBlock = shellBlockForMethod(useShellState(frameStore), INVITE_REVOKE_METHOD);
 
   useEffect(() => {
     // The coordinator being retired is superseded rather than dropped: dropping the
@@ -192,9 +226,17 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         reading={reading}
         ledger={ledger}
         pendingRevokeKey={revoke.pendingKey}
+        revokeBlock={revokeBlock}
         refusalByInviteId={revoke.refusalByKey}
         onRevoke={(inviteId) => {
           if (sessionId === undefined) {
+            return;
+          }
+          // Fail-closed at the dispatch site and not only on the control, on the
+          // sessions destination's precedent: the button is disabled from this same
+          // block, so this is the guard rather than the affordance, and a press that
+          // reached here anyway must still put nothing.
+          if (revokeBlock !== undefined) {
             return;
           }
           void revokeCoordinator

@@ -13,7 +13,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { SessionStore, type ConsoleEntity } from "../../../store/index.js";
+import { FrameStore, SessionStore, type ConsoleEntity } from "../../../store/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../../bridge/scenarios/composer.js";
 import {
@@ -61,6 +61,7 @@ function renderSection(options: {
   const context: SidebarSectionContext = {
     sessionStore: store,
     bridge,
+    frameStore: new FrameStore(),
     openPane: (address) => openedPanes.push(address),
     isOpen: true,
     filterQuery: options.filterQuery ?? "",

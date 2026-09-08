@@ -86,7 +86,10 @@ import {
   channel,
   participant,
 } from "../surfaces/collaboration-fixtures.js";
-import { UNREPORTED_SHELL_STATE } from "../../../src/renderer/src/console/store/index.js";
+import {
+  FrameStore,
+  UNREPORTED_SHELL_STATE,
+} from "../../../src/renderer/src/console/store/index.js";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -223,6 +226,7 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
       <SentInvites
         bridge={createFixtureBridge({ scenario: COLLABORATION_SCENARIO })}
         sessionId={COLLABORATION_SCENARIO.sessionId}
+        frameStore={new FrameStore()}
       />,
     );
 

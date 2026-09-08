@@ -19,7 +19,7 @@ import type {
   ConsolePaneOpener,
   SidebarSectionContext,
 } from "../seats/index.js";
-import type { SessionStore } from "../store/index.js";
+import { FrameStore, type SessionStore } from "../store/index.js";
 
 /**
  * A section context with real collaborators.
@@ -32,17 +32,24 @@ import type { SessionStore } from "../store/index.js";
  * is the deck's act, so most section cases have nothing to say about it; a case that is
  * about the section reaching the deck — a card's own way into a pane — hands one in
  * rather than rebuilding the context around it.
+ *
+ * `frameStore` DEFAULTS TO A FRESH ONE ON THE SAME RULE. A fresh store reports nothing
+ * about the shell, which is the state that blocks no control — so a case about a
+ * section's ordinary rendering gets the shell out of its way, and a case about a write
+ * closed by an outage hands in a store it has driven to the condition it is asserting.
  */
 export function sectionContext(reached: {
   readonly isOpen: boolean;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
+  readonly frameStore?: FrameStore;
   readonly openPane?: ConsolePaneOpener;
 }): SidebarSectionContext {
   return {
     isOpen: reached.isOpen,
     bridge: reached.bridge,
     sessionStore: reached.sessionStore,
+    frameStore: reached.frameStore ?? new FrameStore(),
     openPane: reached.openPane ?? (() => undefined),
   };
 }

@@ -1,5 +1,6 @@
 import type { MembershipUpdate } from "@ai-sidekicks/contracts";
-import { Nothing, formatCount } from "../../primitives/index.js";
+import { InlineRefusal, Nothing, formatCount } from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 import { isLastRemainingOwner, type MembershipRow } from "./members-model.js";
 import { type WireMutationSnapshot } from "../mutation-coordinator.js";
 import { MembershipLedgerRow } from "./MembershipLedgerRow.js";
@@ -7,6 +8,13 @@ import { MembershipLedgerRow } from "./MembershipLedgerRow.js";
 export function MembershipLedger(props: {
   readonly rows: readonly MembershipRow[];
   readonly mutation: WireMutationSnapshot;
+  /**
+   * Why no membership change may be sent right now, or `undefined` while none applies.
+   *
+   * Scoped to the CONTROLS and not to the ledger: the rows are the session's own
+   * projection and an outage does not make them untrue.
+   */
+  readonly updateBlock: ShellMutationBlock | undefined;
   readonly onApply: (row: MembershipRow, update: MembershipUpdate) => void;
   readonly onDismissRefusal: (membershipId: string) => void;
 }): React.JSX.Element {
@@ -27,6 +35,17 @@ export function MembershipLedger(props: {
           ? "One membership."
           : `${formatCount(props.rows.length)} memberships.`}
       </p>
+      {/* DISABLED WITH ITS CAUSE BESIDE IT, never hidden, on the provider-readiness
+          row's precedent: a control that disappears while the runtime is away reads as
+          a control this build does not have, and a disabled one with its sentence off
+          screen reads as one that quietly stopped working. Through the console's one
+          row-scoped refusal shape, because the block's two members ARE a code and a
+          sentence. Said once above the rows rather than on each of them — the cause is
+          the window's, and the rows below it are a projection the outage does not
+          touch. */}
+      {props.updateBlock === undefined ? null : (
+        <InlineRefusal code={props.updateBlock.code} detail={props.updateBlock.detail} />
+      )}
       <ul className="meridian-members__rows">
         {props.rows.map((row) => (
           <li key={row.participantId}>
@@ -40,6 +59,7 @@ export function MembershipLedger(props: {
               // not only the pending one's: the coordinator applies one at a time,
               // so a second row's control offers an act the surface would refuse.
               isAnyPending={props.mutation.pendingKey !== undefined}
+              updateBlock={props.updateBlock}
               refusal={
                 row.membershipId === undefined
                   ? undefined

@@ -40,7 +40,8 @@
 // reading; printed in the confirmation it is the sentence they are agreeing to.
 
 import { useMemo, useState } from "react";
-import { useSessionPartition } from "../../store/index.js";
+import { callDaemon } from "../../bridge/index.js";
+import { shellBlockForMethod, useSessionPartition, useShellState } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import {
   InviteConfirmation,
@@ -49,14 +50,24 @@ import {
 import { deriveMembershipRows } from "./members-model.js";
 import {
   WireMutationCoordinator,
-  daemonMutation,
   useWireMutation,
+  type CollaborationMutation,
+  type CollaborationMutationMethod,
 } from "../mutation-coordinator.js";
 import { SentInvites } from "../invites/SentInvites.js";
 import { MembershipLedger } from "./MembershipLedger.js";
 
-/** The wire method every one of the four controls calls, through the daemon gateway. */
-const MEMBERSHIP_UPDATE_METHOD = "membership.update";
+/**
+ * The wire method every one of the four controls calls, through the daemon gateway.
+ *
+ * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
+ * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
+ * condition closes, so a membership change that ever left that tuple stops compiling
+ * here rather than quietly going back to being dispatchable through a stopped shell.
+ * The literal type survives it, which is what `callDaemon` needs to type the request
+ * and the reply; a wider annotation would take both.
+ */
+const MEMBERSHIP_UPDATE_METHOD = "membership.update" satisfies CollaborationMutationMethod;
 
 export interface MembershipsProps {
   readonly context: SidebarSectionContext;
@@ -80,15 +91,29 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
   const rows = useMemo(() => deriveMembershipRows(participantEntities), [participantEntities]);
   const [isConfirmationDismissed, setIsConfirmationDismissed] = useState(false);
 
-  const coordinator = useMemo(
-    () =>
-      new WireMutationCoordinator({
-        perform: daemonMutation(bridge, MEMBERSHIP_UPDATE_METHOD),
-        describeWhat: "The membership change",
-      }),
-    [bridge],
-  );
+  const coordinator = useMemo(() => {
+    // The door call sits HERE, where exactly one method is named, rather than behind
+    // a binder generic over the family's methods: one call site naming one method is
+    // what lets the read-signal gate read the deliberate absence of a cancellation
+    // signal as deliberate. A membership change that has reached the daemon has
+    // HAPPENED, so there is nothing this window may abandon it with.
+    const updateMembership: CollaborationMutation<typeof MEMBERSHIP_UPDATE_METHOD> = async (
+      request,
+    ) => await callDaemon(bridge, MEMBERSHIP_UPDATE_METHOD, request);
+    return new WireMutationCoordinator({
+      perform: updateMembership,
+      describeWhat: "The membership change",
+    });
+  }, [bridge]);
   const mutation = useWireMutation(coordinator);
+  // Whether this window may send a membership change at all, from the shell state the
+  // frame publishes. Asked of the one seam every dispatching control goes through, so
+  // the projected rows beside it stay on screen through the same outage — that seam
+  // answers about a method, never about the window.
+  const updateBlock = shellBlockForMethod(
+    useShellState(context.frameStore),
+    MEMBERSHIP_UPDATE_METHOD,
+  );
 
   const pendingInvite = isConfirmationDismissed ? undefined : props.pendingInvite;
   if (pendingInvite !== undefined) {
@@ -119,8 +144,16 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
       <MembershipLedger
         rows={rows}
         mutation={mutation}
+        updateBlock={updateBlock}
         onApply={(row, update) => {
           if (row.membershipId === undefined) {
+            return;
+          }
+          // Fail-closed at the dispatch site and not only on the control, on the
+          // sessions destination's precedent: the menu and the confirmation are
+          // disabled from this same block, so this is the guard rather than the
+          // affordance, and a press that reached here anyway must still put nothing.
+          if (updateBlock !== undefined) {
             return;
           }
           void coordinator.run(row.membershipId, update);
@@ -130,7 +163,11 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
         }}
       />
 
-      <SentInvites bridge={bridge} sessionId={sessionStore.sessionId} />
+      <SentInvites
+        bridge={bridge}
+        frameStore={context.frameStore}
+        sessionId={sessionStore.sessionId}
+      />
     </section>
   );
 }
