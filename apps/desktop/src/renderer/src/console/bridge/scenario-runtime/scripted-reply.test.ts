@@ -24,7 +24,8 @@ import { GROWTH_PORT_REFUSAL_CODES, type GrowthOutcome } from "../growth-port/gr
 import type { GrowthPort } from "../growth-port/growth-port.js";
 import { createLiveBridge } from "../live-bridge.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
-import type { ConsoleScenario, ScenarioReply } from "./scenario.js";
+import type { ScenarioReply } from "./scenario-reply.js";
+import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES } from "./scripted-reply.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";

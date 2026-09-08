@@ -33,7 +33,7 @@
 // travels on the settlement for the same reason: the diagnosis and the remedy are
 // properties of what the engine did, not of which surface asked.
 
-import type { ScenarioRefusalEnvelope } from "./scenario.js";
+import type { ScenarioRefusalEnvelope } from "./scenario-reply.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 
 /**

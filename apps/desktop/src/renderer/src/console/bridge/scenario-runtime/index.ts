@@ -21,7 +21,13 @@
 // four cycles `no-circular` fails. Both are reached by their own deep specifier, the
 // same remedy `fixture-refusal.ts` records for the same shape.
 
-export type { ConsoleScenario, ScenarioBeat, ScenarioReply } from "./scenario.js";
+export type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
+
+// The reply table, from the module that DECLARES it rather than through the shape that
+// composes it — the same rule the reading families below are published under. Its
+// siblings under `scenarios/` write a `readonly ScenarioReply[]` and name no other
+// member of a scenario, so the seam they take is the reply's and not the shape's.
+export type { ScenarioReply } from "./scenario-reply.js";
 
 // The tick-scheduled reading families, from the modules that DECLARE them rather than
 // through `scenario.ts`, which imports them to compose the shape and re-exports none:

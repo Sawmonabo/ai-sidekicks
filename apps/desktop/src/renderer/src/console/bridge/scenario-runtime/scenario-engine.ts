@@ -68,7 +68,8 @@ import {
 import type { ConsoleSessionEvent } from "../../store/index.js";
 import { HeldReplyQueue, type ScenarioReplyOutcome } from "./held-reply-queue.js";
 import { ScenarioSessionLog, type UnpositionedSessionEvent } from "./scenario-log.js";
-import type { ConsoleScenario, ScenarioReply } from "./scenario.js";
+import type { ScenarioReply } from "./scenario-reply.js";
+import type { ConsoleScenario } from "./scenario.js";
 
 /** Where a scenario's playback has got to. Rendered by the fixture picker. */
 export interface ScenarioProgress {

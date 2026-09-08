@@ -18,7 +18,8 @@ import {
   CORPUS_CONTROL_PLANE_PROCEDURES,
   CORPUS_DAEMON_METHODS_NOT_YET_BOUND,
 } from "./wire-truth/reply-walk.js";
-import type { ConsoleScenario, ScenarioReply } from "../scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../scenario-runtime/scenario-reply.js";
+import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 
 /** A call the flagship scripts no answer for, so a case adds one rather than shadowing one. */
 const PROBE_CALL = "run.queueList";

@@ -152,7 +152,7 @@ const SEAT_KIND_WORDS = "[a-z][a-z-]*(?: [a-z][a-z-]*)*";
  * A LIST AND NOT ONE ARGUMENT, because a board hands out as many registries as it
  * owns and a family writes into every one it claims a place on. The pane board has a
  * single parameter and its seats therefore pass one name; `console/families.ts` hands
- * out five, so no parameter of it is called `registry` and each of its seats passes
+ * out seven, so no parameter of it is called `registry` and each of its seats passes
  * the subset that family needs. An earlier form pinned the literal `(registry)`,
  * which reads the pane board and can never read the other: every family seat parsed
  * as an unmarked line, the block began at the first still-reserved comment below it,
@@ -213,7 +213,7 @@ function readSeatLine(text: string): SeatLine | undefined {
  *
  * The declaration is matched at COLUMN 0 — prose quoting an older board is indented
  * behind a `//` and is therefore not the board — and its parameter list may run over
- * several lines, which is what the family board's five parameters make it do. So the
+ * several lines, which is what the family board's seven parameters make it do. So the
  * body opens at the first line from the declaration onward that ENDS in a brace, and
  * closes at the first line that is exactly one: a composition-only body reaches that
  * closing brace at column 0, and a nested block's would be indented.

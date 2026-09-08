@@ -14,7 +14,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type GrowthPort } from "../../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../../bridge/growth-port/growth-port.js";
-import type { ConsoleScenario, ScenarioReply } from "../../../bridge/scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../../../bridge/scenario-runtime/scenario-reply.js";
+import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 import {
   WORKFLOWS_PARKED_RUN,
   WORKFLOWS_SCENARIO_RUNS,

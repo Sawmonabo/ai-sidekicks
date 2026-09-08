@@ -25,7 +25,8 @@ import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOutcome } from "../growth-port/growth-outcome.js";
 import { growthUnavailable } from "../growth-port/index.js";
 import { ScenarioEngine } from "../scenario-runtime/scenario-engine.js";
-import type { ConsoleScenario, ScenarioReply } from "../scenario-runtime/scenario.js";
+import type { ScenarioReply } from "../scenario-runtime/scenario-reply.js";
+import type { ConsoleScenario } from "../scenario-runtime/scenario.js";
 import { WORKFLOWS_PARKED_RUN } from "../scenarios/workflow-fixture-runs.js";
 import { settleScriptedReply } from "../scenario-runtime/scripted-reply.js";
 import {
