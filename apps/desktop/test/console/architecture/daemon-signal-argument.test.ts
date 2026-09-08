@@ -9,11 +9,10 @@
 //
 // ITS SUBJECT IS THE VALUE AND NOT THE CALL. `daemon-call-sites.test.ts` pins which
 // calls reach the door and `daemon-method-resolution.test.ts` what each of them names;
-// this one starts from a call that
-// does and asks what its options argument SHOWS about the thing that stops it, which
-// is the reading both of the census's rules are written against. The two benches and
-// `daemon-read-signal-census.test.ts` share one planted corpus so none of them drifts
-// from the others.
+// this one starts from a call that does and asks what its options argument SHOWS about
+// the thing that stops it, which is the reading both of the census's rules are written
+// against. The two benches and `daemon-read-signal-census.test.ts` share one planted
+// corpus so none of them drifts from the others.
 
 import { describe, expect, it } from "vitest";
 
@@ -58,6 +57,88 @@ describe("the signal a call hands the door", () => {
     expect(contextual?.signalArgument).toBe("present");
   });
 
+  it("negative control: a parameter the caller may omit is not a forwarded signal", () => {
+    // THE HOLE PARAMETERHOOD LEFT. `signal = new AbortController().signal` reached the
+    // accepting arm on the strength of having no declared type — and it is the exact
+    // shape the rule exists to refuse: every caller may leave it out, the default is a
+    // controller this scope minted, and no read scope ever aborts it, so the call looks
+    // stoppable and the read cannot be stopped. The annotated spelling is the same
+    // defect wearing the type the arm was checking for, and `signal?: AbortSignal` is
+    // the same permission to omit written with one token instead of an expression —
+    // whose omission hands the door `undefined`, which stops even less. The rest is
+    // written unannotated on purpose: an `AbortSignal[]` annotation is refused by the
+    // type test alone, so it would prove nothing about the conjunct it is here for.
+    const selfDefaulted = plantedSites([
+      "export async function performRead(bridge, request, signal = new AbortController().signal) {",
+      '  return await callDaemon(bridge, "repo.workspaceList", request, { signal });',
+      "}",
+    ]);
+    const annotatedDefault = plantedSites([
+      "export async function performRead(",
+      "  bridge,",
+      "  request,",
+      "  signal: AbortSignal = new AbortController().signal,",
+      ") {",
+      '  return await callDaemon(bridge, "repo.workspaceList", request, { signal });',
+      "}",
+    ]);
+    const optional = plantedSites([
+      "export async function performRead(bridge, request, signal?: AbortSignal) {",
+      '  return await callDaemon(bridge, "repo.workspaceList", request, { signal });',
+      "}",
+    ]);
+    const rest = plantedSites([
+      "export async function performRead(bridge, request, ...signal) {",
+      '  return await callDaemon(bridge, "repo.workspaceList", request, { signal });',
+      "}",
+    ]);
+    expect(
+      [selfDefaulted, annotatedDefault, optional, rest].map(
+        ([site]) => site?.signalArgument ?? "no site",
+      ),
+    ).toStrictEqual(["unrecognised", "unrecognised", "unrecognised", "unrecognised"]);
+  });
+
+  it("negative control: a round the caller may omit is not a held round either", () => {
+    // The same rule at the other parameter arm, which the annotation alone used to
+    // admit. A default this scope supplies is a round nothing outside the call
+    // supersedes, and the line has shown no more about what stops it than a defaulted
+    // signal does.
+    const [defaultedRound] = plantedSites([
+      "async function performRead(bridge, request, round: ReadRound = openSomeRound()) {",
+      '  return await callDaemon(bridge, "repo.workspaceList", request, { signal: round.signal });',
+      "}",
+    ]);
+    expect(defaultedRound?.signalArgument).toBe("unrecognised");
+  });
+
+  it("negative control: a round bound to a name the scope may rebind is not held", () => {
+    // THE LOCAL ARM'S OWN REQUIREDNESS. Reading the initializer says what the name meant
+    // at the line that opened it; `let` says the scope may mean something else by the
+    // time the call runs, and the two together show nothing about what stops THIS line.
+    // Both writable keywords are planted, and `var` is deliberately one the console never
+    // writes: the rule is the binding FORM, so it holds over a keyword no module uses
+    // rather than over the two a reviewer happens to have seen.
+    const [rebindable] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  let round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    expect(rebindable?.signalArgument).toBe("unrecognised");
+    const [varBound] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  var round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
+      "}",
+    ]);
+    expect(varBound?.signalArgument).toBe("unrecognised");
+    // AND NO WRITE IS NEEDED TO REACH THE REFUSAL. Neither planted scope rebinds the
+    // name, which is the point: a scan that read declarations and then made an exception
+    // for the ones it saw no write against would be following values, and the write it
+    // could not see — through a closure, or a later edit — is the one that matters.
+  });
+
   it("takes a round's signal, off the parameter and off the local it was opened into", () => {
     // The other two shapes `store/read-cancellation.ts` produces. A performer is
     // handed the round; a reader that owns the line opens one on its own scope.
@@ -88,6 +169,47 @@ describe("the signal a call hands the door", () => {
       "}",
     ]);
     expect(keyed?.signalArgument).toBe("present");
+  });
+
+  it("negative control: a type wrapper around the round is not a different round", () => {
+    // THE PEEL THE OBJECT SIDE WAS MISSING. The value handed as `signal` went through
+    // the shared peeler and the member read's own OBJECT went through a bare identifier
+    // test, so `(round as ReadRound).signal` — the accepted round, its accepted member,
+    // its accepted binding — answered `"unrecognised"` because a type assertion sat
+    // between the name and the dot. A wrapper is a claim about a type and this reading
+    // is about a binding, so it can never be the difference between the two verdicts.
+    const [asserted] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: (round as ReadRound).signal });',
+      "}",
+    ]);
+    expect(asserted?.signalArgument).toBe("present");
+    const [parenthesized] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: (round).signal });',
+      "}",
+    ]);
+    expect(parenthesized?.signalArgument).toBe("present");
+    // The fifth wrapper, pinned here because the peeler's list is the one that decides:
+    // `round!` asserts the round is not null and hands back the same binding, so it is
+    // the same round by exactly the reasoning the assertion and the parentheses are.
+    const [nonNull] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round!.signal });',
+      "}",
+    ]);
+    expect(nonNull?.signalArgument).toBe("present");
+    // And the peel is a peel rather than a rule that admits everything: a wrapper around
+    // something that is not a held round is still not one.
+    const [wrappedStranger] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: (ambient as ReadRound).signal });',
+      "}",
+    ]);
+    expect(wrappedStranger?.signalArgument).toBe("unrecognised");
   });
 
   it("negative control: a key this parse cannot resolve is not the round's signal", () => {

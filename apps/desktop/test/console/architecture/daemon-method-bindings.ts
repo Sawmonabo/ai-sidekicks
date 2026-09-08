@@ -81,6 +81,12 @@
 // it afterwards. Matching the list and declaring its own declarations is what puts the
 // keyword and the name in one place; the reduction itself, and the reason a scanner that
 // FOLLOWED the writes was not built instead, are `daemon-method-literals.ts`'.
+//
+// AND THE FORM TRAVELS BECAUSE ONE FACT ABOUT IT CANNOT BE RECOVERED DOWNSTREAM. `const` is
+// a flag on the LIST and parent pointers are off, so a consumer holding a
+// `VariableDeclaration` cannot tell `const round = openRound()` from `let round = …`, and
+// reading the two alike is a real defect: a held round is what a signal reading takes as
+// the caller's obligation and a rebindable name is not. Every other site states its own.
 
 import ts from "typescript";
 
@@ -90,6 +96,21 @@ import {
   variableDeclarationBinding,
   type MethodBinding,
 } from "./daemon-method-literals.js";
+
+/**
+ * Which declaration form bound a name — the closed set this walk records, and no more.
+ *
+ * The two variable arms are why the type exists. The other four are stated so no site
+ * defaults: `import` covers all three import forms, and one arm covers a function or class
+ * however written, since which SCOPE it binds in is this module's answer, not a consumer's.
+ */
+export type BindingForm =
+  | "constant"
+  | "writable-variable"
+  | "parameter"
+  | "import"
+  | "destructured"
+  | "function-or-class";
 
 /**
  * What one name is bound to, in every reading a call site takes of a binding.
@@ -103,6 +124,8 @@ export interface NameBinding {
   readonly method: MethodBinding;
   /** The declaration itself, for the questions this module does not answer. */
   readonly declaration: ts.Declaration;
+  /** Which form declared it, for the one question the declaration cannot be asked. */
+  readonly form: BindingForm;
 }
 
 /** One lexical scope of a module, with everything declared directly in it. */
@@ -234,21 +257,22 @@ export class ModuleBindingScopes {
           enclosing.bindingsByName.set(declaration.name.text, {
             method: variableDeclarationBinding(node, declaration),
             declaration,
+            form: (node.flags & ts.NodeFlags.Const) === 0 ? "writable-variable" : "constant",
           });
         }
       }
       return;
     }
     if (ts.isBindingElement(node) && ts.isIdentifier(node.name)) {
-      declareUnreadable(node.name, node, enclosing);
+      declareUnreadable(node.name, node, enclosing, "destructured");
       return;
     }
     if (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) {
-      declareUnreadable(node.name, node, enclosing);
+      declareUnreadable(node.name, node, enclosing, "function-or-class");
       return;
     }
     if (ts.isFunctionExpression(node) || ts.isClassExpression(node)) {
-      declareUnreadable(node.name, node, opened);
+      declareUnreadable(node.name, node, opened, "function-or-class");
     }
   }
 }
@@ -263,9 +287,10 @@ function declareUnreadable(
   name: ts.Identifier | undefined,
   declaration: ts.Declaration,
   scope: BindingScope,
+  form: BindingForm,
 ): void {
   if (name !== undefined) {
-    scope.bindingsByName.set(name.text, { method: { kind: "unreadable" }, declaration });
+    scope.bindingsByName.set(name.text, { method: { kind: "unreadable" }, declaration, form });
   }
 }
 
@@ -304,6 +329,7 @@ function declareImportClause(
     scope.bindingsByName.set(clause.name.text, {
       method: { kind: "unreadable" },
       declaration: clause,
+      form: "import",
     });
   }
   const namedBindings = clause.namedBindings;
@@ -314,6 +340,7 @@ function declareImportClause(
     scope.bindingsByName.set(namedBindings.name.text, {
       method: { kind: "unreadable" },
       declaration: namedBindings,
+      form: "import",
     });
     return;
   }
@@ -328,6 +355,7 @@ function declareImportClause(
               moduleSpecifier,
             },
       declaration: element,
+      form: "import",
     });
   }
 }
@@ -365,6 +393,7 @@ function parameterBindings(
     bindingsByParameterName.set(parameter.name.text, {
       method: literals.length > 0 ? { kind: "literals", literals } : { kind: "unreadable" },
       declaration: parameter,
+      form: "parameter",
     });
   }
   return bindingsByParameterName;

@@ -18,14 +18,16 @@
 // THE MODEL AND THE NEEDLES LIVE BESIDE THIS FILE, on the `daemon-call-census.ts`
 // pattern: `daemon-call-sites.ts` reads a call off the syntax tree,
 // `daemon-method-bindings.ts` resolves what the names it passes are bound to, and
-// `daemon-read-signal-census.ts` holds the partition and the four offender readings.
-// The first is driven against planted sources in `daemon-call-sites.test.ts`, the
-// second in `daemon-method-resolution.test.ts` and the last in
-// `daemon-read-signal-census.test.ts`, which is where the offending shapes can be
-// written; what stays here is the claim over the real tree.
+// `daemon-read-signal-census.ts` folds the console's own method partition — declared
+// in `bridge/daemon/daemon-method-classification.ts` — over those calls and holds the
+// four offender readings. The first is driven against planted sources in
+// `daemon-call-sites.test.ts`, the second in `daemon-method-resolution.test.ts` and
+// the last in `daemon-read-signal-census.test.ts`, which is where the offending shapes
+// can be written; what stays here is the claim over the real tree.
 
 import { describe, expect, it } from "vitest";
 
+import { MUTATING_DAEMON_METHODS } from "../../../src/renderer/src/console/store/shell-mutation-block.js";
 import type { DaemonCallSite } from "./daemon-call-sites.js";
 import {
   classifyDaemonCallSite,
@@ -36,16 +38,32 @@ import {
   unstoppableReadOffenders,
 } from "./daemon-read-signal-census.js";
 
+/**
+ * How many of the shell block's roster the registry binds, and so how many this gate
+ * can hold to the partition.
+ *
+ * Seven of its nine: `driver.applyIntervention` and `driver.respondToRequest` reach the
+ * daemon through a surface the console has not registered a reply shape for yet, so the
+ * partition says nothing about them and neither does this claim. A reading below that
+ * is the instrument having gone blind rather than the claim holding.
+ */
+const CLASSIFIED_BLOCKED_METHOD_COUNT = 7;
+
 describe("read cancellation — every door call declares which kind it is", () => {
   const { readings, sites } = readConsoleDaemonCalls();
   const verdicts = (kind: string): readonly DaemonCallSite[] =>
     sites.filter((site) => classifyDaemonCallSite(site, readings) === kind);
 
-  it("finds the registry's partition and the calls held to it", () => {
+  it("finds the console's partition and the calls held to it", () => {
     // The derivation's floor, on both sides. A partition that classified everything
     // one way, or a scan that resolved nothing, would make the claims below
     // vacuously true — which is the failure mode a derived set has and the reason the
     // module the fix landed in is named rather than counted.
+    //
+    // Counted at this commit: 31 bound methods, 12 of them readings and 19 records, and
+    // 36 door calls, 18 read and 18 record. The floors sit under those rather than on
+    // them, because the registry grows and a pin on today's total would fail on the
+    // diff that adds a method rather than on the defect this gate is about.
     expect([...readings.values()].filter(Boolean).length).toBeGreaterThanOrEqual(10);
     expect([...readings.values()].filter((reads) => !reads).length).toBeGreaterThanOrEqual(10);
     expect(verdicts("read").length).toBeGreaterThanOrEqual(15);
@@ -53,6 +71,21 @@ describe("read cancellation — every door call declares which kind it is", () =
     expect(sites.map((site) => site.displayPath)).toContain(
       "console/browser/pane/file/file-boundary.ts",
     );
+  });
+
+  it("classifies every method the shell block closes as a record", () => {
+    // THE TWO ANSWERS, HELD TOGETHER. `store/shell-mutation-block.ts` names the writes a
+    // supervisor outage closes and this partition names every write at the door; a
+    // method the first calls a write and the second calls a reading would be one console
+    // disabling a control while another gate demanded the abort signal that abandons it.
+    //
+    // ONE DIRECTION, BECAUSE THAT ROSTER IS A SUBSET ON PURPOSE — it names the writes a
+    // surface offers a CONTROL for, and a write no surface dispatches has no control to
+    // disable, so the partition's records are the wider set. The floor beside the claim
+    // is what keeps a roster that stopped resolving from reading as agreement.
+    const blocked = [...MUTATING_DAEMON_METHODS].filter((method) => readings.has(method));
+    expect(blocked).toHaveLength(CLASSIFIED_BLOCKED_METHOD_COUNT);
+    expect(blocked.filter((method) => readings.get(method) === true)).toStrictEqual([]);
   });
 
   it("every call names a method the registry classifies", () => {

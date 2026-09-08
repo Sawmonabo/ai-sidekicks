@@ -42,6 +42,31 @@
 // `"unrecognised"`, and the fix is at the call: hoist the spread into the value the
 // signal is read from, or hand the door a literal that says what it hands.
 //
+// A FORWARDED PARAMETER IS ONE THE CALLER MUST FILL IN, which is what the first
+// reading of it left out. It admitted any parameter with no declared type, and
+// `signal = new AbortController().signal` is exactly that — a parameter whose default
+// this scope mints, which every caller may omit, and which no read scope ever aborts.
+// So the test is REQUIREDNESS and not merely parameterhood: an initializer or a `?`
+// each mean the value can come from here rather than from the caller, and a `...` rest
+// is the remaining arguments rather than the one value handed as this signal. Any of
+// the three answers `"unrecognised"`, whatever the parameter is annotated — and the
+// held round's own parameter arm takes the identical test, because a round the caller
+// may omit shows no more about what stops this line than a signal one does.
+//
+// AND AN UNANNOTATED PARAMETER IS ADMITTED ON THE TYPE GATE'S PROOF, not on this
+// parse's guess. The one unannotated form the console writes is the contextually typed
+// callback — `read: async (signal) => …`, whose type the seat's own option type
+// supplies — and this parse cannot see the enclosing function at all, let alone what
+// contextually types it: `typescript-source.ts` sets `setParentNodes` off, so a
+// parameter node here has no parent. What CAN be relied on is the package's `strict`
+// setting: under `noImplicitAny` a parameter with no annotation, no initializer, and no
+// contextual type is a compile error, so a required unannotated parameter that reaches
+// this scan at all IS contextually typed — and `DaemonCallOptions.signal` is declared
+// `AbortSignal`, so the checker has already refused any context that would type it as
+// something else. An initializer is what breaks that proof rather than merely weakening
+// it: it makes the parameter its own type source, so `noImplicitAny` says nothing about
+// it and the value is one this scope supplies.
+//
 // THE HONEST LIMIT. A forwarded parameter is trusted one hop: this scan reads the
 // call, not the caller, so a helper handed a dead signal is a defect at the site that
 // handed it one. That hop is where the console's own line ends too — the round is
@@ -55,6 +80,16 @@
 // literal — `round[name]` — stays `"unrecognised"`, and that is the depth limit above
 // rather than an exception to this: resolving it means deciding what `name` holds, which
 // is a value this scan does not follow, and the read has then shown no signal.
+//
+// AND ITS OBJECT IS PEELED BY THE SAME SHARED PEELER THE VALUE IS. The member read's own
+// object went through a bare identifier test, so `(round as ReadRound).signal` — the
+// round, its member, its binding, all of them the accepted ones — answered
+// `"unrecognised"` because a type wrapper sat between the name and the dot. That is the
+// hazard `withoutTypeWrappers` exists for one line up, and it is the same hazard: a
+// wrapper is a claim about a TYPE and this reading is about a BINDING. So the object is
+// taken through `daemon-method-literals.ts`' peeler rather than a second one written
+// here, and which wrappers that peels is that module's closed list rather than a
+// sentence this file would have to keep in step with it.
 
 import ts from "typescript";
 
@@ -193,8 +228,9 @@ function readSignalValue(
   if (ts.isIdentifier(named)) {
     return isForwardedSignal(bindings.resolve(named.text, callStart)) ? "present" : "unrecognised";
   }
-  if (readsMember(named, SIGNAL_MEMBER) && ts.isIdentifier(named.expression)) {
-    return isHeldReadRound(bindings.resolve(named.expression.text, callStart))
+  if (readsMember(named, SIGNAL_MEMBER)) {
+    const holder = withoutTypeWrappers(named.expression);
+    return ts.isIdentifier(holder) && isHeldReadRound(bindings.resolve(holder.text, callStart))
       ? "present"
       : "unrecognised";
   }
@@ -202,20 +238,43 @@ function readSignalValue(
 }
 
 /**
+ * The parameter this declaration is, where the CALLER has to fill it in.
+ *
+ * The requiredness half of both parameter readings below, written once because it is
+ * one rule: an initializer or a `?` each mean the argument can be omitted, so what the
+ * door receives is this scope's own default or nothing at all, and a `...` rest binds
+ * the remaining arguments rather than the one value the caller handed. None of the
+ * three is a value an outer scope supplied, which is the property both readings are
+ * about.
+ */
+function requiredParameter(declaration: ts.Declaration): ts.ParameterDeclaration | undefined {
+  if (
+    !ts.isParameter(declaration) ||
+    declaration.initializer !== undefined ||
+    declaration.questionToken !== undefined ||
+    declaration.dotDotDotToken !== undefined
+  ) {
+    return undefined;
+  }
+  return declaration;
+}
+
+/**
  * Whether this binding is a signal the caller handed in.
  *
- * A PARAMETER, and its declared type where it declares one: the console's read helpers
- * annotate `signal: AbortSignal`, and the arrow a push-driven read calls with its
- * round's signal declares nothing because the seat's own option type declares it for
- * them. A parameter typed as anything else is refused rather than admitted on the
- * strength of being a parameter.
+ * A REQUIRED PARAMETER, and its declared type where it declares one: the console's read
+ * helpers annotate `signal: AbortSignal`, and the arrow a push-driven read calls with
+ * its round's signal declares nothing because the seat's own option type declares it
+ * for them. A parameter typed as anything else is refused rather than admitted on the
+ * strength of being a parameter, and an unannotated one is admitted on the type gate's
+ * proof rather than this parse's guess — for this module's header's reason.
  */
 function isForwardedSignal(binding: NameBinding | undefined): boolean {
-  if (binding === undefined || !ts.isParameter(binding.declaration)) {
+  const parameter = binding === undefined ? undefined : requiredParameter(binding.declaration);
+  if (parameter === undefined) {
     return false;
   }
-  const declared = binding.declaration.type;
-  return declared === undefined || namesType(declared, SIGNAL_TYPE);
+  return parameter.type === undefined || namesType(parameter.type, SIGNAL_TYPE);
 }
 
 /**
@@ -224,6 +283,19 @@ function isForwardedSignal(binding: NameBinding | undefined): boolean {
  *
  * The two forms `store/read-cancellation.ts` produces — a `ReadRound` a performer took
  * as its parameter, and a local the scope's own `openRound()` was opened into.
+ *
+ * The parameter arm takes the same requiredness test the signal arm does, and for the
+ * same reason: a round the caller may omit is a round this line does not show.
+ *
+ * AND THE LOCAL ARM TAKES THE BINDING FORM, because reading the initializer is not
+ * enough on its own. `let round = scope.openRound()` opens a round and then leaves the
+ * name writable, so the scope may rebind it — to a second round, or to anything at all —
+ * between that line and this call, and what the initializer said is then a claim about a
+ * value the call no longer receives. That the module happens not to rebind it is not the
+ * rule: this scan reads declarations rather than following writes, so `const` is the
+ * declaration that makes the initializer binding and `let` and `var` are refused whether
+ * a write exists or not. The keyword is unreachable from the declaration node here —
+ * `daemon-method-bindings.ts` reads it off the LIST and names it on the binding.
  */
 function isHeldReadRound(binding: NameBinding | undefined): boolean {
   if (binding === undefined) {
@@ -231,9 +303,15 @@ function isHeldReadRound(binding: NameBinding | undefined): boolean {
   }
   const { declaration } = binding;
   if (ts.isParameter(declaration)) {
-    return namesType(declaration.type, READ_ROUND_TYPE);
+    return (
+      requiredParameter(declaration) !== undefined && namesType(declaration.type, READ_ROUND_TYPE)
+    );
   }
-  return ts.isVariableDeclaration(declaration) && opensRound(declaration.initializer);
+  return (
+    binding.form === "constant" &&
+    ts.isVariableDeclaration(declaration) &&
+    opensRound(declaration.initializer)
+  );
 }
 
 /** Whether a declared type names `typeName`, which is how both forms above declare. */

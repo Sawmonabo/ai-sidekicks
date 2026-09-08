@@ -7,38 +7,36 @@
 // way — the account-quota seed and the queue list — and neither was visible to a gate
 // until the incident that produced them.
 //
-// THE PARTITION COMES OUT OF THE CONTRACTS AND NOT OUT OF THIS FILE, which is the
-// classifier `prerequisite-read-round.test.ts` already established for the repos
-// wrappers, taken here to the whole registry: a method's RESPONSE shape says whether
-// the call was a reading, because that is what the wire names it. `bindDaemonMethod`
-// pairs each method with its response schema in one table, so the classification is
-// read off that pairing — a method row added tomorrow is classified by the schema it
-// is bound to and is held to the rule without anybody naming it here. The reading
-// VERBS themselves live in `daemon-reading-verbs.ts`, which both this file and that
-// one derive from, because a closed set spelled in two places moves in one.
+// THE PARTITION IS THE CONSOLE'S OWN, AND THIS FILE IMPORTS IT. It used to be read
+// off the WORDS of each bound schema's operation — `Read`, `List`, `Check` — and that
+// is a naming convention wearing a classifier's clothes, wrong in both directions: a
+// durable write whose reply schema happens to carry one of those words classified as a
+// read and was then required to carry an abort signal that would abandon it, and a read
+// named with a fourth verb classified as a record and was excused from carrying one.
+// It was also a SECOND OPINION — `store/shell-mutation-block.ts` says which methods
+// this console writes with too — and two answers to that question could disagree with
+// nothing reporting it.
 //
-// AND IT IS THE SCHEMA'S EXPORTED NAME, NOT THE REGISTRY'S LOCAL SPELLING. A schema
-// operation is a name the CONTRACTS package chose, and a table row names it through
-// whatever its own import clause bound it to: `WorkspaceListResponseSchema as
-// WorkspaceResponseSchema` leaves `WorkspaceList` — the whole classification — outside
-// the identifier the row carries, and the reading verb goes with it, so a read
-// classifies as a record and is exempted from the signal rule by a rename in a file
-// the rule is not about. So the local name is resolved back through the clause that
-// bound it before any verb is looked for, which is `daemon-method-bindings.ts`'
-// `propertyName ?? name` reading applied to the other end of the same seam.
+// SO THE SOURCE IS `bridge/daemon/daemon-method-classification.ts`, which declares the
+// partition once as a map total over the registry's own key set: a method added to the
+// contract is a missing-property error there rather than a row that classifies itself
+// by default. No name is parsed for meaning here any more, which also retires the alias
+// hazard the word rule carried — `WorkspaceListResponseSchema as WorkspaceResponseSchema`
+// used to drop the whole classification out of the identifier a row carried.
 //
-// A SEMANTIC SOURCE WOULD BE BETTER AND THE CONTRACTS DO NOT CARRY ONE for this
-// method set, which was checked rather than assumed. `jsonrpc-registry.ts` publishes a
-// `mutating` REGISTRATION flag, but it is supplied per handler at register time and
-// DEFAULTS to `false`, so absence bounds the mutating set from below — the instrument
-// `store/shell-mutation-block.ts` already records as the wrong one for exactly this
-// question. `TIMELINE_METHOD_DESCRIPTORS` does state `mutating` per method, over the
-// four `timeline.*` rows and no others, none of which this registry binds.
-// `METHOD_NAME_FORMAT` is a shape grammar over dotted segments and says nothing about
-// what a call does. And the registry's own `CHANGES_A_RUN` answers a different
-// question in its own words. A partition read off any of those would be read off a
-// source that does not cover the set, which is worse than one read off the shape the
-// wire actually returns.
+// AND THE SHELL BLOCK IS HELD TO THAT SAME PARTITION rather than trusted to agree with
+// it: `read-signal-chokepoint.test.ts` asserts that every registered member of
+// `MUTATING_DAEMON_METHODS` classifies as a record. That roster is deliberately a
+// SUBSET — it names the writes a console surface offers a control for, and a write no
+// surface dispatches has no control to disable — so the claim runs in the one direction
+// a subset supports, exactly as `daemon-mutating-registrations.ts` runs its own.
+//
+// WHAT THE REGISTRY SOURCE IS STILL READ FOR IS THE SET AND NOT THE KIND. The keys come
+// off the binding table as WRITTEN, so a row this reader misses is a method absent from
+// `readings` and every call naming it is reported as unresolved rather than falling
+// through to the record arm; and a row naming a method the console does not register is
+// left out for the same reason, because the classification covers the contract's keys
+// and nothing else.
 //
 // FOUR VERDICTS, BECAUSE THREE COLLAPSED TWO FACTS INTO ONE. A call whose method this
 // scan could not resolve is a different fact from one it resolved to a mutation, and
@@ -59,13 +57,13 @@
 // are four readings, each owning its own sites, and `unresolvedMethodOffenders` reports
 // whatever it was handed exactly as the mixed reading does.
 //
-// AND UNRESOLVED MEANS UNREGISTERED TOO. A method the parse DID reduce to a name the
-// registry binds no schema for is not a record — the registry is where reading is
-// decided, and a name absent from it decides nothing. Reading `readings.get(method)`
+// AND UNRESOLVED MEANS UNCLASSIFIED TOO. A method the parse DID reduce to a name the
+// classified table does not carry is not a record — the classification is where reading
+// is decided, and a name absent from it decides nothing. Reading `readings.get(method)`
 // alone answered `undefined`, which fell through to the record arm and exempted an
-// unsignalled read from the rule; a table reader that missed one row (a computed key,
-// a namespace-qualified schema) therefore turned that row's every call site green.
-// Presence in `readings` is now required of every resolved method.
+// unsignalled read from the rule; a table reader that missed one row (a computed key, a
+// spread) therefore turned that row's every call site green. Presence in `readings` is
+// now required of every resolved method.
 //
 // AND STOPPABILITY IS ASKED OF BOTH SIDES, in the two directions their rules run. A
 // read must SHOW the signal that stops it; a record must SHOW it carries none. An
@@ -75,6 +73,8 @@
 
 import ts from "typescript";
 
+import { READING_DAEMON_METHODS } from "../../../src/renderer/src/console/bridge/daemon/daemon-method-classification.js";
+import { CONSOLE_DAEMON_METHODS } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply-registry.js";
 import {
   consoleSourceModules,
   readConsoleSourceModule,
@@ -83,20 +83,22 @@ import {
 import { parseSourceText } from "../typescript-source.js";
 import { daemonCallSitesIn, type DaemonCallSite } from "./daemon-call-sites.js";
 import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
-import { namesReadingVerb } from "./daemon-reading-verbs.js";
 
-/** Where the method-to-schema table the partition is read off lives. */
+/** Where the method table whose rows the partition is applied to lives. */
 const DAEMON_REPLY_REGISTRY_MODULE = "console/bridge/daemon/daemon-reply-registry.ts";
 
 /** The registry's own binding factory — one call per method row. */
 const BINDING_FACTORY = "bindDaemonMethod";
 
-/** Where the response schema sits in that factory's arguments. */
-const RESPONSE_SCHEMA_ARGUMENT_INDEX = 1;
+/** Every method the console's contract names, as the strings a parsed row carries. */
+const REGISTERED_METHODS: ReadonlySet<string> = new Set<string>(CONSOLE_DAEMON_METHODS);
+
+/** The half of those the console declares a reading, as the same strings. */
+const READING_METHODS: ReadonlySet<string> = new Set<string>(READING_DAEMON_METHODS);
 
 /** One reading of the console: the wire's partition, and every call made against it. */
 export interface ConsoleDaemonCallReading {
-  /** Every registered method, and whether its response says it read. */
+  /** Every classified method of the registry's table, and whether it reads. */
   readonly readings: ReadonlyMap<string, boolean>;
   /** Every door call under the console source roots, in scan order. */
   readonly sites: readonly DaemonCallSite[];
@@ -137,56 +139,32 @@ export function readConsoleDaemonCalls(): ConsoleDaemonCallReading {
 export type DaemonCallSiteVerdict = "read" | "record" | "mixed" | "unresolved";
 
 /**
- * Every registered method, and whether its response says it read.
+ * Every method the binding table names that the console classifies, and its kind.
  *
- * Taken off the binding table's own object literal: each property's name is the
- * method and its initializer is the factory call whose second argument names the
- * response schema. Read from the parse rather than from a pattern, because the
+ * TWO SOURCES, AND EACH ANSWERS THE HALF IT OWNS. The KEYS are taken off the binding
+ * table's own object literal — each property's name is the method and its initializer
+ * is the factory call — read from the parse rather than from a pattern, because the
  * registry's prose names both the factory and a dozen schemas while explaining them.
+ * The KIND is `daemon-method-classification.ts`', which is total over the contract's
+ * keys, so nothing here decides what a method is from how it or its schema is spelled.
  *
- * The schema identifier is then resolved back to the name the contracts package
- * EXPORTS it under, because that is the name the operation is spelled in and an alias
- * can drop the verb out of it entirely.
+ * A parsed row naming a method the contract does not carry is left OUT rather than
+ * guessed at: the classification covers the contract's keys and nothing else, and a
+ * method absent from this map is reported by the unresolved reading, which no options
+ * argument satisfies.
  */
 export function daemonMethodReadings(
   registrySource: string,
   fileName = "daemon-reply-registry.ts",
 ): ReadonlyMap<string, boolean> {
   const parsed = parseSourceText(fileName, registrySource);
-  const exportedNames = importedExportedNames(parsed);
   const readings = new Map<string, boolean>();
-  for (const binding of bindingTableEntries(parsed)) {
-    const operation = exportedNames.get(binding.responseSchema) ?? binding.responseSchema;
-    readings.set(binding.method, namesReadingVerb(operation));
+  for (const method of boundMethodNames(parsed)) {
+    if (REGISTERED_METHODS.has(method)) {
+      readings.set(method, READING_METHODS.has(method));
+    }
   }
   return readings;
-}
-
-/**
- * Every imported name of the registry, mapped to the name it was exported under.
- *
- * ONE HOP, AND IT IS THE ONLY ONE THIS MODULE'S TEXT CAN REACH. A rename can happen at
- * an import clause (`X as Y`) or at a re-export, and the schemas arrive through
- * `@ai-sidekicks/contracts`, whose barrel is `export *` throughout — a form that
- * cannot rename — so the exported name at that package boundary IS the declaring
- * module's, and this clause is the whole rename path. A schema the registry declares
- * itself rather than imports keeps its own name, which is also the name it would be
- * exported under.
- */
-function importedExportedNames(parsed: ts.SourceFile): ReadonlyMap<string, string> {
-  const exportedNames = new Map<string, string>();
-  for (const statement of parsed.statements) {
-    const namedBindings = ts.isImportDeclaration(statement)
-      ? statement.importClause?.namedBindings
-      : undefined;
-    if (namedBindings === undefined || !ts.isNamedImports(namedBindings)) {
-      continue;
-    }
-    for (const element of namedBindings.elements) {
-      exportedNames.set(element.name.text, (element.propertyName ?? element.name).text);
-    }
-  }
-  return exportedNames;
 }
 
 /**
@@ -198,7 +176,7 @@ function importedExportedNames(parsed: ts.SourceFile): ReadonlyMap<string, strin
  * is two kinds, which is why the answer is that the call has to stop being two kinds.
  *
  * AND A NAME THE REGISTRY DOES NOT BIND IS UNRESOLVED, not a record. `"record"` is a
- * positive finding — the registry says this method's answer is not a reading — and it
+ * positive finding — the console classifies this method as a write — and it
  * cannot be read off a method the registry never mentions. Requiring PRESENCE rather
  * than a `true` reading is what keeps a missed table row from exempting its own calls.
  */
@@ -276,7 +254,7 @@ export function mixedMethodOffenders(
     });
 }
 
-/** The methods this site can name that the registry binds no response schema for. */
+/** The methods this site can name that the classified method table does not carry. */
 function unregisteredMethodsOf(
   site: DaemonCallSite,
   readings: ReadonlyMap<string, boolean>,
@@ -336,7 +314,7 @@ function describeUnresolvedMethod(
   const named = namedMethodOf(site);
   const unregistered = unregisteredMethodsOf(site, readings);
   return unregistered.length > 0
-    ? `${named} names ${unregistered.join(", ")}, which the registry binds no response schema for, so nothing here says whether this call reads`
+    ? `${named} names ${unregistered.join(", ")}, which the classified method table does not carry, so nothing here says whether this call reads`
     : `${named} resolves to no registered method, so this call could name a read and nothing here says what stops it`;
 }
 
@@ -358,39 +336,28 @@ export function unresolvedMethodOffenders(
     .map((site) => `${describeSite(site)} — ${describeUnresolvedMethod(site, readings)}`);
 }
 
-/** One row of the registry's binding table. */
-interface DaemonMethodBindingRow {
-  readonly method: string;
-  readonly responseSchema: string;
-}
-
-/** Every `"<method>": bindDaemonMethod(request, response)` row in the registry source. */
-function bindingTableEntries(parsed: ts.SourceFile): readonly DaemonMethodBindingRow[] {
-  const rows: DaemonMethodBindingRow[] = [];
+/** Every method named by a `"<method>": bindDaemonMethod(…)` row in the source. */
+function boundMethodNames(parsed: ts.SourceFile): readonly string[] {
+  const methods: string[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isPropertyAssignment(node) && ts.isStringLiteralLike(node.name)) {
-      const responseSchema = boundResponseSchema(node.initializer);
-      if (responseSchema !== undefined) {
-        rows.push({ method: node.name.text, responseSchema });
-      }
+    if (
+      ts.isPropertyAssignment(node) &&
+      ts.isStringLiteralLike(node.name) &&
+      callsBindingFactory(node.initializer)
+    ) {
+      methods.push(node.name.text);
     }
     node.forEachChild(visit);
   };
   parsed.forEachChild(visit);
-  return rows;
+  return methods;
 }
 
-/** The response schema a binding-factory call names, or `undefined` for anything else. */
-function boundResponseSchema(initializer: ts.Expression): string | undefined {
-  if (
-    !ts.isCallExpression(initializer) ||
-    !ts.isIdentifier(initializer.expression) ||
-    initializer.expression.text !== BINDING_FACTORY
-  ) {
-    return undefined;
-  }
-  const responseSchema = initializer.arguments[RESPONSE_SCHEMA_ARGUMENT_INDEX];
-  return responseSchema !== undefined && ts.isIdentifier(responseSchema)
-    ? responseSchema.text
-    : undefined;
+/** Whether this initializer is the registry's own binding factory being called. */
+function callsBindingFactory(initializer: ts.Expression): boolean {
+  return (
+    ts.isCallExpression(initializer) &&
+    ts.isIdentifier(initializer.expression) &&
+    initializer.expression.text === BINDING_FACTORY
+  );
 }

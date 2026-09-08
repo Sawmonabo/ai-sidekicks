@@ -37,9 +37,9 @@
 // counted only because the module that dispatches it happens to name two other
 // controls beside it. Split that one function into its own module and the tripwire
 // goes blind to it, silently. So the needles are now derived from
-// `RUN_CHANGING_DAEMON_METHODS`, the registry's own classification of which methods
-// change a run, which is total over the method set and cannot omit a method the
-// contract names.
+// `RUN_CHANGING_DAEMON_METHODS`, the console's own classification of which methods
+// change a run (`bridge/daemon/daemon-method-classification.ts`), which is total over
+// the registry's method set and cannot omit a method the contract names.
 //
 // THE HONEST LIMIT, the one every source-text tripwire has. This reads text, so an
 // alias defeats it — a module that re-exported the controller under another name, or
@@ -58,7 +58,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RUN_CHANGING_DAEMON_METHODS } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply-registry.js";
+import { RUN_CHANGING_DAEMON_METHODS } from "../../../src/renderer/src/console/bridge/daemon/daemon-method-classification.js";
 import {
   consoleSourceModules,
   moduleNamed,
