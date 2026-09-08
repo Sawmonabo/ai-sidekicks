@@ -92,13 +92,13 @@ import "./pane-chrome.css";
 // plan-owned subtree mounting into the console would call — has no caller outside this
 // family yet; the family that lands the first one adds the line in its own diff. And
 // `ConsoleSurfaceDescriptor` joined them when the last shipped Tier-1 slot claim was
-// retired: every surviving registrar hands `register` an object literal and names the
-// type nowhere, so the line had only a test left reading it.
+// retired: every surviving registrar hands `register` an object literal or a
+// `ConsoleSurfaceRegistration` row and names the descriptor type nowhere, so the line
+// had only a test harness left reading it, and that harness takes the declaring module.
 export {
   ConsoleSurfaceRegistry,
   consoleSurfaceRegistry,
   surfaceSlotFor,
-  type ConsoleSurfaceDescriptor,
   // What a family hands `register`, published for the same reason
   // `ConsolePaneRegistration` is: a family claiming more than one slot keeps its
   // claims in a table, and a table needs the type its rows are. The workflows family
