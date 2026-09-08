@@ -89,6 +89,8 @@
 
 import { z } from "zod";
 
+import { brandedUuidIdSchema } from "./internal/branded.js";
+
 // --------------------------------------------------------------------------
 // Method-name constants
 // --------------------------------------------------------------------------
@@ -159,15 +161,14 @@ export type SubscriptionCancelMethod = typeof SUBSCRIPTION_CANCEL_METHOD;
 export type SubscriptionId = string & { readonly __brand: "SubscriptionId" };
 
 /**
- * Zod schema for `SubscriptionId`. Cast through `unknown` for the same
- * reason session.ts:48-51 does — Zod's `.brand<>()` produces a
- * `$ZodBranded<>` shape whose internal symbol marker is not structurally
- * compatible with our `__brand` field, but the runtime parser is correct
- * and the public type stays nominal.
+ * Zod schema for `SubscriptionId`, composed through the `brandedUuidIdSchema`
+ * factory exactly as `SessionIdSchema` is, so this brand shares the ONE
+ * RFC 9562 accept set every branded UUID id in the package parses with: a
+ * spelling `SessionId` admits is never refused as a `SubscriptionId`, and a
+ * change to that set reaches this brand without a second edit.
  */
-export const SubscriptionIdSchema: z.ZodType<SubscriptionId> = z
-  .uuid()
-  .brand<"SubscriptionId">() as unknown as z.ZodType<SubscriptionId>;
+export const SubscriptionIdSchema: z.ZodType<SubscriptionId, SubscriptionId> =
+  brandedUuidIdSchema<SubscriptionId>("SubscriptionId");
 
 // --------------------------------------------------------------------------
 // SubscribeAckResponse — canonical subscribe-init ack
