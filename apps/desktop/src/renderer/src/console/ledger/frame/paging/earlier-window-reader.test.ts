@@ -14,8 +14,12 @@ import { describe, expect, it } from "vitest";
 
 import type { SessionId, TimelineReadRequest, TimelineRow } from "@ai-sidekicks/contracts";
 
-import { createFixture } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import {
+  createFixture,
+  SCRIPTED_LATENCY_MS,
+} from "../../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/index.js";
+import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { SessionStore } from "../../../store/index.js";
 import { eventOfKind } from "../../../store/session-event.test-support.js";
 import { LedgerEarlierWindowReader } from "./earlier-window-reader.js";
@@ -24,6 +28,9 @@ const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 
 /** Where the store's window opens: the position its establishing read submitted. */
 const WINDOW_HEAD_CURSOR = "cursor-at-40";
+
+/** Where a later completed read re-opens it — the head a refresh moves the store to. */
+const LATER_WINDOW_HEAD_CURSOR = "cursor-at-60";
 
 function rowAt(sequence: number): TimelineRow {
   return {
@@ -54,26 +61,41 @@ const PAGES_BY_BEFORE_CURSOR: Readonly<Record<string, unknown>> = {
     nextCursor: "cursor-at-35",
   },
   "cursor-at-35": { entries: [rowAt(30), rowAt(31)], hasMore: false },
+  [LATER_WINDOW_HEAD_CURSOR]: { entries: [rowAt(55), rowAt(56)], hasMore: false },
 };
+
+/** The window a request asks for, read off the position it named. */
+function pageForRequest(request: unknown): unknown {
+  const beforeCursor = (request as TimelineReadRequest | undefined)?.beforeCursor;
+  return beforeCursor === undefined ? undefined : PAGES_BY_BEFORE_CURSOR[beforeCursor];
+}
 
 function pagingScenario(): ConsoleScenario {
   return {
     id: "ledger-backward-paging",
     label: "Backward paging",
-    purpose: "Serves three windows of one session's log, keyed by the position asked from.",
+    purpose: "Serves four windows of one session's log, keyed by the position asked from.",
     sessionId: SESSION_ID,
     participantIdsInJoinOrder: [],
     beats: [],
-    replies: [
-      {
-        call: "timeline.read",
-        resultFor: (request: unknown) => {
-          const beforeCursor = (request as TimelineReadRequest | undefined)?.beforeCursor;
-          return beforeCursor === undefined ? undefined : PAGES_BY_BEFORE_CURSOR[beforeCursor];
-        },
-      },
-    ],
+    replies: [{ call: "timeline.read", resultFor: pageForRequest }],
     startedAtIso: "2026-01-01T10:05:00.000Z",
+  };
+}
+
+/**
+ * The same script, answered a scripted latency later.
+ *
+ * A page is only in flight for as long as the transport takes, so a case about what
+ * happens to the store WHILE one is outstanding needs a reply the caller releases:
+ * the fixture holds this one until the engine is advanced past it, which is the one
+ * way this console can script that window without a hand-built transport.
+ */
+function delayedPagingScenario(): ConsoleScenario {
+  return {
+    ...pagingScenario(),
+    id: "ledger-backward-paging-held",
+    replies: [{ call: "timeline.read", afterMs: SCRIPTED_LATENCY_MS, resultFor: pageForRequest }],
   };
 }
 
@@ -172,10 +194,11 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
     await reader.loadEarlier(bridge, store);
     expect(reader.state(store).admittedRowCount).toBe(3);
 
-    // The same head cursor, so the comparison alone would not notice — what does is
-    // the store's own admitted count falling below what this walk delivered. The
-    // cursor is ahead of the store's, because a read behind it is refused as stale and
-    // would leave the log, and this walk's place in it, exactly as they were.
+    // The same head cursor, so a comparison of positions would notice nothing — what
+    // does is the store's window generation, which a completed read re-takes whichever
+    // position it answered at. The cursor is ahead of the store's, because a read
+    // behind it is refused as stale and would leave the log, and this walk's place in
+    // it, exactly as they were.
     store.initialise({
       cursor: 45,
       entities: [],
@@ -187,5 +210,72 @@ describe("LedgerEarlierWindowReader — three windows, two presses, and then not
     expect(reader.state(store).admittedRowCount).toBe(0);
     await reader.loadEarlier(bridge, store);
     expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 44, 45]);
+  });
+});
+
+/** The refresh a live session performs: a later completed read re-opens the window. */
+function refreshWindowHigherUp(store: SessionStore): void {
+  store.initialise({
+    cursor: 61,
+    entities: [],
+    participantJoinLog: [],
+    timeline: [60, 61].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
+    readFromCursor: LATER_WINDOW_HEAD_CURSOR,
+  });
+}
+
+describe("LedgerEarlierWindowReader — a refresh lands while a page is in flight", () => {
+  it("discards the page and fills the interval from the head the refresh established", async () => {
+    const { bridge, engine } = createFixture(delayedPagingScenario());
+    const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
+    const reader = new LedgerEarlierWindowReader();
+
+    const heldPage = reader.loadEarlier(bridge, store);
+    await crossMacrotaskBoundary();
+    expect(engine.pendingReplyCount).toBe(1);
+
+    refreshWindowHigherUp(store);
+    engine.advance(SCRIPTED_LATENCY_MS);
+    await heldPage;
+
+    // Rows 35-37 are earlier than a head this window never opened at. Merging them
+    // would put them in front of row 60 and move the log's head sequence down to 35,
+    // and every page after that — the ones that would have filled 38-59 — would be
+    // refused by the store's own strictly-earlier guard. So the window holds exactly
+    // what the refresh established.
+    expect(sequencesOf(store)).toStrictEqual([60, 61]);
+    expect(reader.state(store)).toMatchObject({
+      canLoadEarlier: true,
+      isReading: false,
+      refusal: undefined,
+      admittedRowCount: 0,
+    });
+
+    // And the interval is reachable: the next press asks from the head the store now
+    // has, and the rows below it land.
+    const nextPage = reader.loadEarlier(bridge, store);
+    await crossMacrotaskBoundary();
+    engine.advance(SCRIPTED_LATENCY_MS);
+    await nextPage;
+
+    expect(sequencesOf(store)).toStrictEqual([55, 56, 60, 61]);
+    expect(reader.state(store).admittedRowCount).toBe(2);
+  });
+
+  it("lands the same held page when nothing moved the window under it", async () => {
+    // The control for the case above: same scenario, same latency, same page — and
+    // with no refresh in the middle it merges exactly as an undelayed one does, so
+    // what the discard is caused by is the window moving and not the wait.
+    const { bridge, engine } = createFixture(delayedPagingScenario());
+    const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
+    const reader = new LedgerEarlierWindowReader();
+
+    const heldPage = reader.loadEarlier(bridge, store);
+    await crossMacrotaskBoundary();
+    engine.advance(SCRIPTED_LATENCY_MS);
+    await heldPage;
+
+    expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 40, 41]);
+    expect(reader.state(store).admittedRowCount).toBe(3);
   });
 });

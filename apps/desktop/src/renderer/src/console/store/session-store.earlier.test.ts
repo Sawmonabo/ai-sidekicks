@@ -51,7 +51,6 @@ describe("SessionStore.prependEarlierEvents — the head door", () => {
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([
       15, 16, 17, 18, 19, 20,
     ]);
-    expect(store.earlierEventCount).toBe(3);
   });
 
   it("refuses an event belonging to another session", () => {
@@ -96,8 +95,10 @@ describe("SessionStore.prependEarlierEvents — the head door", () => {
 
   it("releases the retained end when a completed read re-establishes the window", () => {
     const store = openStore({ timelineCap: 2 });
-    store.prependEarlierEvents(eventsAt([17]));
-    expect(store.earlierEventCount).toBe(1);
+    // The page that puts the store on the oldest end, asserted through the merge it
+    // answers with: the retained end is a private reading, and what a caller can see
+    // of it is which rows survive the cap.
+    expect(store.prependEarlierEvents(eventsAt([17])).admitted).toBe(1);
 
     store.initialise({
       cursor: 30,
@@ -107,7 +108,8 @@ describe("SessionStore.prependEarlierEvents — the head door", () => {
     });
     store.applyBatch(eventsAt([31]));
 
-    expect(store.earlierEventCount).toBe(0);
+    // The newest end again — which IS the release, stated as the only thing the cap
+    // lets an outside caller observe about it.
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([30, 31]);
   });
 });
