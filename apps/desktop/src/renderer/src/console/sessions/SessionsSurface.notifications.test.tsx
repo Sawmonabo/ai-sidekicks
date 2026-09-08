@@ -8,7 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { contextWith, renderSurface, settle } from "./session-surface.test-support.js";
+import { contextWith } from "./session-surface.context.test-support.js";
+import { renderSurface, settle } from "./session-surface.test-support.js";
 
 const ATTENTION_ITEM = {
   id: "attention-1",

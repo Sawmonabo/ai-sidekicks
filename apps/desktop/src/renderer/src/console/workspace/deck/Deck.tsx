@@ -48,7 +48,7 @@
 // indicator, the keyboard reorder path, and the density floor. Neither library ships
 // a stylesheet and neither is imported for one.
 
-import { Fragment, useCallback, useMemo, useRef } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
 import { type ConsoleRefusal } from "../../core/index.js";
@@ -62,6 +62,11 @@ import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./dec
 import { type DeckDensity } from "../workspace-bounds.js";
 import { minimumPaneWidthPx } from "./density.js";
 import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
+// Deep and intra-family, which is what this family's imports are: the sidebar declares
+// both halves of the row-drop seam beside each other, and the deck supplies the element
+// that makes its half real. A copy of the target here would be the second spelling of
+// one key, and the two would drift the first time either was renamed.
+import { useSidebarRowDeckDropTarget } from "../sidebar/drag/row-drag.js";
 import { DeckPaneSlot } from "./DeckPaneSlot.js";
 import { type TrackedRect } from "./rect-geometry.js";
 import {
@@ -147,6 +152,21 @@ export function Deck(props: DeckProps): React.JSX.Element {
   const dragCoordinator = useDeckDragCoordinator();
   useDeckDragMonitor(dragCoordinator, layout, announce);
   const dropIndicator = useDeckDropIndicator(dragCoordinator);
+
+  // The board a dragged SIDEBAR ROW may be dropped on — a different gesture from the
+  // one above, and the deck's only part in it is being somewhere to land.
+  //
+  // THE ROOT AND NOT THE GROUP. `containerReference` is on the resizable group, which
+  // is not rendered at all while the deck is empty — and an empty deck is exactly the
+  // one a person drags a row onto, so a target bound there would have refused the
+  // opening move. This element is rendered on every pass.
+  //
+  // Held in state through a callback ref rather than in a `useRef`, on
+  // `pane-drag.ts`'s own idiom for the same problem: a ref's `.current` is filled after
+  // the render that reads it, so an effect keyed on the ref binds nothing on the mount
+  // pass and never re-runs to correct itself.
+  const [deckRootElement, setDeckRootElement] = useState<HTMLElement | null>(null);
+  useSidebarRowDeckDropTarget(deckRootElement);
 
   // The five acts, built once per (layout, announcer) pair and shared by the two
   // things that dispatch them: this component's own key handler below, and the
@@ -282,6 +302,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
 
   return (
     <div
+      ref={setDeckRootElement}
       className="meridian-deck"
       data-density={state.density}
       role="group"

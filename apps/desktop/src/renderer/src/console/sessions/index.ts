@@ -18,22 +18,26 @@
 // family this one may not import — `console-view-family-isolation` fails that edge —
 // so it arrives as a COMPOSITION argument named by `families.ts`, the one file above
 // every family. The COMPONENT rather than a built element: which component mounts is
-// the root's decision, and which props it takes is this family's, because the bridge
-// comes off the surface context the root cannot reach when it registers.
+// the root's decision, and which props it takes is neither family's to spell twice —
+// `seats/new-session-seat.ts` declares them, because the surface supplies the bridge
+// AND the settlement, and both come off a context the root cannot reach here.
 
 import "./sessions.css";
 import "./acts/session-acts.css";
 
-import { createElement, type ComponentType } from "react";
+import { createElement } from "react";
 
-import type { ConsoleBridge } from "../bridge/index.js";
-import type { ConsoleSurfaceRegistry, FrameBindingRegistry } from "../seats/index.js";
+import type {
+  ConsoleSurfaceRegistry,
+  FrameBindingRegistry,
+  NewSessionControlComponent,
+} from "../seats/index.js";
 import { SessionAttentionBinding } from "./SessionAttentionBinding.js";
 import { SessionsSurface } from "./SessionsSurface.js";
 
 /** What the composition root supplies this family, because this family may not import it. */
 export interface SessionsSurfaceComposition {
-  readonly newSessionControl: ComponentType<{ readonly bridge: ConsoleBridge }>;
+  readonly newSessionControl: NewSessionControlComponent;
 }
 
 /** Claim the sessions surface slot. */
@@ -52,7 +56,12 @@ export function registerSessionsSurface(
         // directly, so the fixture cannot stand in for it, while the composed draft is
         // console-authored and takes the bridge it is handed. It runs on the fixture
         // exactly as it runs on the live preload.
-        newSession: createElement(composition.newSessionControl, { bridge: context.bridge }),
+        //
+        // Handed on as the COMPONENT rather than built here. The control's props are
+        // the bridge and the settlement a completed send is handed to, and the
+        // settlement is composed from the destination's own stores and its navigation
+        // — so the surface that owns those is the one place the element can be built.
+        newSessionControl: composition.newSessionControl,
       }),
   });
 }

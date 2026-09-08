@@ -52,11 +52,25 @@
 // composition, and it is the honest half of the trade: the alternative is a Send that
 // looks ordinary and either never lands or lands somewhere the console will not read
 // again, and a `sessionId` reported back for a session nobody can open.
+//
+// AND A COMPLETED SEND HANDS THE SESSION OUT, WHICH IS THE HALF THAT WAS MISSING. The
+// continuation used to publish its report and stop, so a send that fully succeeded
+// left a form on screen with Send still enabled and a real daemon session the console
+// could not name — absent from the all-sessions list until some later directory read
+// happened to notice it, and carrying none of the origin markers only this window can
+// report. The control now names the session through `seats/new-session-seat.ts`, and
+// the destination that mounts it settles the start on its own terms.
+//
+// AND IT IS THE COMPLETED ARM ALONE. A partial send made a session too, and the draft
+// stays for it on purpose: its refusal says which leg could not be made and a second
+// press resumes at exactly that one. Navigating away would take that sentence with it,
+// and would stamp a start the person has not finished making.
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 import { SIDEKICK_POSTURE_MODES, type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, useAnnounce } from "../../primitives/index.js";
+import type { NewSessionControlProps } from "../../seats/index.js";
 import {
   useSubjectScopedResource,
   useSubjectScopedState,
@@ -83,12 +97,8 @@ const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], strin
   refused: "Nothing was sent, and the draft is still here.",
 };
 
-export interface NewSessionControlProps {
-  readonly bridge: ConsoleBridge;
-}
-
 export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
-  const composition = useNewSessionComposition(props.bridge);
+  const composition = useNewSessionComposition(props.bridge, props.onSessionCreated);
 
   if (composition.draftState === undefined) {
     return (
@@ -227,7 +237,10 @@ const DRAFT_DISPOSAL: SubjectScopedDisposal<NewSessionDraft | undefined> = {
  * selections of its own: two copies of what a person has chosen is how a discard
  * clears one of them.
  */
-function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition {
+function useNewSessionComposition(
+  bridge: ConsoleBridge,
+  onSessionCreated: (sessionId: string) => void,
+): NewSessionComposition {
   const heldDraft = useSubjectScopedResource<NewSessionDraft | undefined>(
     bridge,
     undefined,
@@ -325,14 +338,49 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     );
   }, [openDraft, publishReport]);
 
+  // The settlement callback as it stood at the last COMMIT, so the effect below can
+  // read it without depending on its identity.
+  //
+  // The destination composes it from the stores its context carries and hands over a
+  // fresh function on every pass — the shape `SessionsSurface.tsx` states outright,
+  // because nothing over there needs a stable one. Named in the effect's dependencies
+  // it would re-run the whole settlement on every render of the surface above: the
+  // sentence said twice, the session opened twice, the navigation put twice. Written
+  // from a layout effect rather than the render body for `ledger/pane/feed`'s reason —
+  // a pass React discards still runs a render body, and a callback captured there
+  // belongs to a tree that never reached the screen.
+  const committedSessionCreatedRef = useRef(onSessionCreated);
+  useLayoutEffect(() => {
+    committedSessionCreatedRef.current = onSessionCreated;
+  });
+
   // Said once, when a settlement LANDS, rather than from inside the continuation: a
   // result that installed nowhere is one nobody was waiting for, and announcing from
   // the value that reached the screen is what keeps those two facts the same one.
+  //
+  // AND THE COMPLETED SEND IS SETTLED FROM HERE, in that order, for the same reason
+  // and one more. The reason: a result that reached the screen is a result whose draft
+  // is still the one on screen, so the session handed out is the session this
+  // composition asked for. The one more: settling navigates, so the sentence has to be
+  // spoken first — said afterwards it would be addressed to a destination that is
+  // already unmounting.
+  //
+  // The draft is dropped in the same act. It has done everything it can do — one draft
+  // object mints at most one session, and every leg it names has landed — so leaving it
+  // held would offer Send under a composition that can only re-report a session that
+  // already exists, on a holder that outlives the navigation away from here.
   useEffect(() => {
-    if (result !== undefined) {
-      announce(SEND_ANNOUNCEMENTS[result.outcome]);
+    if (result === undefined) {
+      return;
     }
-  }, [announce, result]);
+    announce(SEND_ANNOUNCEMENTS[result.outcome]);
+    if (result.outcome !== "sent" || result.sessionId === undefined) {
+      return;
+    }
+    const createdSessionId = result.sessionId;
+    publishDraft(undefined);
+    committedSessionCreatedRef.current(createdSessionId);
+  }, [announce, publishDraft, result]);
 
   return {
     draftState,

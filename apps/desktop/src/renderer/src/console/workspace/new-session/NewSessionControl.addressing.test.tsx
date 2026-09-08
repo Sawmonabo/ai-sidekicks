@@ -118,6 +118,20 @@ describe("the composed new-session draft — which composition a settlement land
   });
 });
 
+/**
+ * The settlement these cases hand over, which records nothing.
+ *
+ * Every case in this describe is about which BRIDGE a draft sends through, and none of
+ * them completes a send — only `session.create` is scripted, so each settles partial
+ * and the settlement arm is never reached. Declared once so the three mounts hand over
+ * one identity, which is the shape the destination does not: a settlement whose
+ * identity moved every pass is exactly what the control's committed reference exists to
+ * be correct under, and that property is asserted in `NewSessionControl.test.tsx`.
+ */
+function recordNothing(): void {
+  return undefined;
+}
+
 /** The fixture bridge, plus a count of the creates that actually reached it. */
 function bridgeCountingCreates(): {
   readonly bridge: ConsoleBridge;
@@ -144,14 +158,14 @@ describe("the composed new-session draft — the transport it would send through
     const live = bridgeCountingCreates();
     const { rerender } = render(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={retired.bridge} />
+        <NewSessionControl bridge={retired.bridge} onSessionCreated={recordNothing} />
       </LiveAnnouncerProvider>,
     );
     await openDraftWithPosture();
 
     rerender(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={live.bridge} />
+        <NewSessionControl bridge={live.bridge} onSessionCreated={recordNothing} />
       </LiveAnnouncerProvider>,
     );
 
@@ -171,7 +185,7 @@ describe("the composed new-session draft — the transport it would send through
     const composed = bridgeCountingCreates();
     render(
       <LiveAnnouncerProvider>
-        <NewSessionControl bridge={composed.bridge} />
+        <NewSessionControl bridge={composed.bridge} onSessionCreated={recordNothing} />
       </LiveAnnouncerProvider>,
     );
     await openDraftWithPosture();

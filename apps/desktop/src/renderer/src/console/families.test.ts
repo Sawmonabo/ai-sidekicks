@@ -371,7 +371,7 @@ const PLANTED_BINDING_NODE = "the planted binding";
 /**
  * What a planted binding is handed.
  *
- * Cast rather than constructed, on `sessions/session-surface.test-support.tsx`' rule:
+ * Cast rather than constructed, on `sessions/session-surface.context.test-support.ts`' rule:
  * the three real members are a bridge, a frame store, and a session-store registry, and
  * building all three to prove that a fold passes an object through would make the setup
  * the subject.

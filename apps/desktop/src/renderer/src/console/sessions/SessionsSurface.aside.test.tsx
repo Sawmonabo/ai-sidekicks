@@ -15,7 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { contextWith, renderSurface, settle } from "./session-surface.test-support.js";
+import { contextWith } from "./session-surface.context.test-support.js";
+import { renderSurface, settle } from "./session-surface.test-support.js";
 
 describe("what the destination puts beside the list", () => {
   it("mounts the invitations shelf and the attention panel", () => {
