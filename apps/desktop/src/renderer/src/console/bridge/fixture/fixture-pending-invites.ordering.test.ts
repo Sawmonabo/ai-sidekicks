@@ -22,7 +22,10 @@ import {
   attemptFrame,
   drainFrames,
   pendingFrame,
-  scenarioWithBothTables,
+  refusedFrame,
+  scenarioWithTables,
+  REFUSED_CODE,
+  REFUSED_DETAIL,
 } from "./fixture-pending-invites.test-support.js";
 import { ScenarioEngine } from "../scenario-runtime/index.js";
 
@@ -38,10 +41,10 @@ describe("fixture pending invites — two tables falling due on one advance", ()
     // An assertion about membership — that both arrived — would have passed on both
     // implementations and reported nothing.
     const engine = new ScenarioEngine({
-      scenario: scenarioWithBothTables(
-        [pendingFrame(LATE_REFERENCE, LATER_TICK_MS)],
-        [attemptFrame(EARLY_TICK_MS)],
-      ),
+      scenario: scenarioWithTables({
+        invitations: [pendingFrame(LATE_REFERENCE, LATER_TICK_MS)],
+        attempts: [attemptFrame(EARLY_TICK_MS)],
+      }),
     });
     const pendingInvites = new FixturePendingInvites(engine);
     const feed = pendingInvites.openPendingFeed();
@@ -60,10 +63,10 @@ describe("fixture pending invites — two tables falling due on one advance", ()
     // invitation a person can answer comes before a prompt to retry one that never
     // reached the control plane.
     const engine = new ScenarioEngine({
-      scenario: scenarioWithBothTables(
-        [pendingFrame(LATE_REFERENCE, EARLY_TICK_MS)],
-        [attemptFrame(EARLY_TICK_MS)],
-      ),
+      scenario: scenarioWithTables({
+        invitations: [pendingFrame(LATE_REFERENCE, EARLY_TICK_MS)],
+        attempts: [attemptFrame(EARLY_TICK_MS)],
+      }),
     });
     const pendingInvites = new FixturePendingInvites(engine);
     const feed = pendingInvites.openPendingFeed();
@@ -76,16 +79,48 @@ describe("fixture pending invites — two tables falling due on one advance", ()
     ]);
   });
 
+  it("puts a refusal last where all three tick together", async () => {
+    // The third rank, pinned on the case that decides it: a refusal offers nothing to
+    // press, so a feed leading with it would put the arrival a person can do least
+    // about in front of the two they can act on. Asserted on the whole array in order,
+    // so any other placement is a different array and fails here.
+    const engine = new ScenarioEngine({
+      scenario: scenarioWithTables({
+        invitations: [pendingFrame(LATE_REFERENCE, EARLY_TICK_MS)],
+        attempts: [attemptFrame(EARLY_TICK_MS)],
+        refusals: [refusedFrame(EARLY_TICK_MS)],
+      }),
+    });
+    const pendingInvites = new FixturePendingInvites(engine);
+    const feed = pendingInvites.openPendingFeed();
+
+    engine.advance(EARLY_TICK_MS);
+
+    await expect(drainFrames(feed)).resolves.toStrictEqual([
+      {
+        status: "ready",
+        reference: LATE_REFERENCE,
+        sessionId: `session-for-${LATE_REFERENCE}`,
+        joinMode: "collaborator",
+        expiresAt: "2026-01-08T10:05:00.000Z",
+        sessionName: "Design review — Q1 shell",
+        inviterDisplayName: "Priya Raman",
+      },
+      { status: "unavailable", retryable: true, attempt: UNREACHED_ATTEMPT },
+      { status: "refused", code: REFUSED_CODE, detail: REFUSED_DETAIL },
+    ]);
+  });
+
   it("orders the open-time walk by the same rule", async () => {
     // One due rule with two triggers, so the merge has to reach both: a fix that
     // reached only the advance would leave a feed opened after the tick — the deep
     // link's own case, since a protocol fire precedes any surface — reading in table
     // order still.
     const engine = new ScenarioEngine({
-      scenario: scenarioWithBothTables(
-        [pendingFrame(LATE_REFERENCE, LATER_TICK_MS)],
-        [attemptFrame(EARLY_TICK_MS)],
-      ),
+      scenario: scenarioWithTables({
+        invitations: [pendingFrame(LATE_REFERENCE, LATER_TICK_MS)],
+        attempts: [attemptFrame(EARLY_TICK_MS)],
+      }),
     });
     const pendingInvites = new FixturePendingInvites(engine);
 

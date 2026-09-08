@@ -20,6 +20,18 @@
 // only way the two handle-side outcome arms are reachable from a fixture at all, and
 // it is scripted here rather than described because a surface built against arms no
 // scenario can reach is a surface nobody has looked at.
+//
+// NOR IS THE FIFTH, AND THE FIFTH IS THE ONE WITH NOTHING TO PRESS. A link the control
+// plane REFUSED previews as far as the transport is concerned and is answered with a
+// typed code, so it mints neither a reference nor an attempt handle: the person is owed
+// the explanation and no act at all. The three below are the codes a followed link
+// actually meets — one past its expiry, one the sender took back, and one somebody has
+// already accepted — and they are three rather than one because the acceptance-side
+// copy is a sentence per code, so a deck carrying one would leave the other two
+// renderings reachable from nowhere. Every code is registered on this plane and its
+// `detail` is the sentence the wire would have sent, verbatim: the notice prints the
+// wire's own words beside the console's, and a fixture composing a sentence for a code
+// no plane mints would be teaching a shape the surface will never meet.
 
 import {
   INVITED_SESSION_AUDIT,
@@ -130,6 +142,49 @@ export const COLLABORATION_PENDING_INVITE_ATTEMPTS: NonNullable<
         membershipId: MEMBERSHIP_FROM_RETRY,
         role: "collaborator",
       },
+    },
+  },
+];
+
+/**
+ * The three links this window followed and the control plane turned down.
+ *
+ * NO HANDLE ON ANY ROW, which is why the table is a list and why nothing here scripts
+ * an outcome: a refused preview admits no act, so there is no confirmation to answer
+ * and no retry to re-drive. The ticks are staggered rather than shared so the queue
+ * reaches them one at a time — each is its own terminal explanation, and three arriving
+ * on one tick would put two of them behind a head nobody had read yet.
+ */
+export const COLLABORATION_PENDING_INVITE_REFUSALS: NonNullable<
+  ConsoleScenario["pendingInviteRefusals"]
+> = [
+  {
+    // The reading a person meets most: a link whose invitation is past the instant it
+    // carried. The sentence names that instant, because "expired" without one leaves a
+    // reader unable to tell a link they sat on from one that was stale when it arrived.
+    atMs: 220,
+    refusal: {
+      code: "invite.expired",
+      detail: "This invitation expired on 2 January 2026 at 10:05 UTC.",
+    },
+  },
+  {
+    // The sender took it back. Terminal in the other direction — nothing about the
+    // link was wrong and there is still nothing to press.
+    atMs: 260,
+    refusal: {
+      code: "invite.revoked",
+      detail: "The person who sent this invitation revoked it.",
+    },
+  },
+  {
+    // The invitation WORKED — possibly for this very person on another machine — which
+    // is the one refusal whose honest reading points at a session rather than at a
+    // failure, and it is unreachable from a deck that carries no refused row.
+    atMs: 300,
+    refusal: {
+      code: "invite.already_accepted",
+      detail: "This invitation has already been accepted.",
     },
   },
 ];

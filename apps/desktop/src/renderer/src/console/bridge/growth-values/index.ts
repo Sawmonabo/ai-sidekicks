@@ -93,12 +93,16 @@ export type {
   GrowthComposingReading,
 } from "./presence.js";
 
-// The pending confirmation and its six outcomes.
+// The pending confirmation and its six outcomes. `GrowthPendingInviteRefused` is
+// published beside the union because two siblings write the arm rather than only
+// reading it: `scenario-runtime/` derives what a scenario states about a refused deep
+// link from it, and `fixture/` stamps the discriminant back on when one falls due.
 export type {
   GrowthInviteAttempt,
   GrowthInviteOutcome,
   GrowthPendingInvite,
   GrowthPendingInvitePreviewFailure,
+  GrowthPendingInviteRefused,
   GrowthPendingInviteState,
 } from "./invites.js";
 
