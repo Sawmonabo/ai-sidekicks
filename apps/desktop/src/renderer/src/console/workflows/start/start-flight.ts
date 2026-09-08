@@ -170,10 +170,9 @@ class WorkflowStartFlight {
   /**
    * Put the start and settle whatever comes back.
    *
-   * The call is INSIDE the `try`, so the key goes back on every exit a dispatch has: an
-   * answer, a refusal the seam normalized, a rejection, and a publish that threw on the
-   * way out. A `.finally` hung off the settlement would not cover a call that threw
-   * before there was a promise to hang it on.
+   * The `try` covers every exit a dispatch has — an answer, a refusal the seam
+   * normalized, a rejection, and a publish that threw on the way out — so the key goes
+   * back on all of them. Making a synchronous throw one of those exits is `#putStart`'s.
    */
   async #dispatch(
     definition: WorkflowDefinitionRow,
@@ -181,13 +180,7 @@ class WorkflowStartFlight {
     claim: GenerationClaim,
   ): Promise<void> {
     try {
-      const outcome = await settleGrowthRead(
-        this.#growth.workflowRunStart({
-          workflowVersionId: definition.latestWorkflowVersionId,
-          sessionId: this.#sessionId,
-          ...(channelId === undefined ? {} : { channelId }),
-        }),
-      );
+      const outcome = await settleGrowthRead(this.#putStart(definition, channelId));
       // The claim's own `settle` is the guard: it asks whether this round is still the
       // live one, which a teardown retires. The addressing needs no second guard — this
       // flight is one session's, so an answer can only ever be published under the
@@ -210,6 +203,31 @@ class WorkflowStartFlight {
       // the entry goes rather than holding a receipt for a picker that has closed.
       this.#retireIfSpent();
     }
+  }
+
+  /**
+   * The port call, made where a SYNCHRONOUS throw is already a rejected promise.
+   *
+   * `async` is the whole of it, and it is load-bearing. A port whose `workflowRunStart`
+   * throws before returning threw out of the ARGUMENT expression when the call was
+   * written inline — past `settleGrowthRead`, so nothing normalized it and nothing
+   * published. The key came back and the flight stayed at `starting`, which the register
+   * deliberately keeps: the picker's rows stayed closed across a close and reopen with
+   * no answer coming and no way to ask again, and `#dispatch` rejected with nobody
+   * holding it. Inside an `async` body the same throw settles the returned promise as a
+   * rejection, which is the one shape the settlement seam reads — so both failure modes
+   * converge before anything narrows on them. A `try`/`catch` here would be a second
+   * reading of a rejection this console keeps in one place.
+   */
+  async #putStart(
+    definition: WorkflowDefinitionRow,
+    channelId: string | undefined,
+  ): Promise<Awaited<ReturnType<GrowthPort["workflowRunStart"]>>> {
+    return this.#growth.workflowRunStart({
+      workflowVersionId: definition.latestWorkflowVersionId,
+      sessionId: this.#sessionId,
+      ...(channelId === undefined ? {} : { channelId }),
+    });
   }
 
   #publish(act: WorkflowStartAct): void {

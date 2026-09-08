@@ -11,6 +11,11 @@
 // precision it admits, so what a person may type into it moves with the schema and each
 // arm is the other's negative control.
 //
+// SO DOES THE REFRESHED REVISION, which is the same shape again and the sharpest case of
+// it: the mount moves, the ATTEMPT does not, and the answer somebody typed is still on
+// screen. What the submit carries then is a fact about when the form was composed rather
+// than about the newest run read, and only a re-render can ask that question.
+//
 // The ports, the fixture mount, the render helpers and the press are
 // `HumanFormShell.test-support.tsx`'s, shared with the suite beside this one.
 
@@ -24,12 +29,12 @@ import {
   SECOND_WAIT_PHASE_ID,
   SECOND_WAIT_PHASE_RUN_ID,
   bridgeWatchingSubmits,
-  fixtureWaitMount,
+  fixtureWaitPhase,
   pressSubmit,
   renderSlot,
   renderSwitchableSlot,
 } from "./HumanFormShell.test-support.js";
-import type { HumanFormMount } from "./human-form-mount.js";
+import type { HumanFormPhase } from "./human-form-mount.js";
 
 afterEach(() => {
   cleanup();
@@ -37,8 +42,8 @@ afterEach(() => {
 
 describe("a run that parks two waits at once", () => {
   it("carries no part of one branch's answer onto the other branch's form", () => {
-    const first = fixtureWaitMount();
-    const second: HumanFormMount = {
+    const first = fixtureWaitPhase();
+    const second: HumanFormPhase = {
       ...first,
       phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
       phaseId: SECOND_WAIT_PHASE_ID,
@@ -48,7 +53,7 @@ describe("a run that parks two waits at once", () => {
     // a reason that is not the phase and this case would pass over the defect it is
     // about — two branches asking the same question is also when the confusion is worst.
     expect(second.inputSchema).toBe(first.inputSchema);
-    const slot = renderSwitchableSlot(first);
+    const slot = renderSwitchableSlot({ phase: first });
     fireEvent.change(screen.getByLabelText(/Notes/u), {
       target: { value: "for the first branch" },
     });
@@ -63,13 +68,13 @@ describe("a run that parks two waits at once", () => {
     // The harm the case above is about, at the wire: a form kept across the switch would
     // record the first branch's typing against the second branch's phase.
     const probe = bridgeWatchingSubmits();
-    const first = fixtureWaitMount();
-    const second: HumanFormMount = {
+    const first = fixtureWaitPhase();
+    const second: HumanFormPhase = {
       ...first,
       phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
       phaseId: SECOND_WAIT_PHASE_ID,
     };
-    const slot = renderSwitchableSlot(first, probe.bridge);
+    const slot = renderSwitchableSlot({ phase: first, bridge: probe.bridge });
     fireEvent.change(screen.getByLabelText(/Notes/u), {
       target: { value: "for the first branch" },
     });
@@ -96,7 +101,7 @@ describe("a run that parks two waits at once", () => {
 describe("a fractional answer to a number member", () => {
   it("reaches the daemon rather than being stopped by the control's own step", async () => {
     const probe = bridgeWatchingSubmits();
-    renderSlot({ ...fixtureWaitMount(), inputSchema: FIGURES_SCHEMA }, probe.bridge);
+    renderSlot({ ...fixtureWaitPhase(), inputSchema: FIGURES_SCHEMA }, probe.bridge);
     fireEvent.change(screen.getByLabelText("Ratio"), { target: { value: "1.5" } });
     await act(async () => {
       pressSubmit();
@@ -112,7 +117,7 @@ describe("a fractional answer to a number member", () => {
     // thing, so the press is refused — by the browser's own validation notice, which
     // this DOM shim does not draw but every shipped runtime does.
     const probe = bridgeWatchingSubmits();
-    renderSlot({ ...fixtureWaitMount(), inputSchema: FIGURES_SCHEMA }, probe.bridge);
+    renderSlot({ ...fixtureWaitPhase(), inputSchema: FIGURES_SCHEMA }, probe.bridge);
     fireEvent.change(screen.getByLabelText("Attempts"), { target: { value: "1.5" } });
     await act(async () => {
       pressSubmit();
@@ -120,5 +125,57 @@ describe("a fractional answer to a number member", () => {
     await settle();
 
     expect(probe.requests).toStrictEqual([]);
+  });
+});
+
+describe("a run read that refreshes under a live attempt", () => {
+  it("sends the revision the form was composed against, not the one the refresh carried", async () => {
+    // THE DEFECT THIS CASE EXISTS FOR. A refresh that finds the SAME waiting attempt at a
+    // newer revision re-renders this slot with a moved `formRevision` while the draft
+    // survives — it is keyed on the attempt, which has not changed. A submit that read
+    // the member at press time would stamp an answer composed against revision 0 with
+    // revision 1, and the daemon's optimistic comparison would find it current and
+    // accept it over whatever had moved the run. The captured value is refused instead,
+    // which is the whole point of the token.
+    const probe = bridgeWatchingSubmits();
+    const composedAgainst = fixtureWaitPhase();
+    const slot = renderSwitchableSlot({ phase: composedAgainst, bridge: probe.bridge });
+    fireEvent.change(screen.getByLabelText(/Notes/u), {
+      target: { value: "answered before the refresh" },
+    });
+
+    slot.switchTo({ ...composedAgainst, formRevision: composedAgainst.formRevision + 1 });
+
+    // The attempt did not change, so neither did the form: the draft standing here is
+    // what makes the stale revision a real hazard rather than a theoretical one.
+    expect(screen.getByLabelText(/Notes/u)).toHaveProperty("value", "answered before the refresh");
+
+    await act(async () => {
+      pressSubmit();
+    });
+    await settle();
+
+    expect(probe.requests.at(0)?.expectedRevision).toBe(composedAgainst.formRevision);
+  });
+
+  it("negative control: a new attempt captures afresh and sends the revision it opened at", async () => {
+    // Without this, the case above would hold over a surface that had simply pinned the
+    // first revision it ever saw — which would send a stale number for every later wait.
+    const probe = bridgeWatchingSubmits();
+    const first = fixtureWaitPhase();
+    const slot = renderSwitchableSlot({ phase: first, bridge: probe.bridge });
+
+    slot.switchTo({
+      ...first,
+      phaseRunId: SECOND_WAIT_PHASE_RUN_ID,
+      phaseId: SECOND_WAIT_PHASE_ID,
+      formRevision: first.formRevision + 1,
+    });
+    await act(async () => {
+      pressSubmit();
+    });
+    await settle();
+
+    expect(probe.requests.at(0)?.expectedRevision).toBe(first.formRevision + 1);
   });
 });

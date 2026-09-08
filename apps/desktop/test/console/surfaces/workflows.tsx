@@ -250,7 +250,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  * Every workflows mount here renders under the bridge provider, as the shell mounts
  * every body: a pane body reads its bridge off its context, but a slot body standing
  * in a seat is handed only the owner's mount and reaches the bridge through the
- * provider (`pane/run/slots/HumanFormShell.tsx`), so a capture mounted bare would
+ * provider (`pane/run/slots/HumanFormSubmitChannel.tsx`), so a capture mounted bare would
  * throw where the running console does not.
  *
  * Through the rail's own surface seat, with a session in scope — which is how a

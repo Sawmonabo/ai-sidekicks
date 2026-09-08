@@ -11,11 +11,19 @@
 // one intended act. Across two `act` scopes a rendered flag and a dispatch-time latch
 // behave identically, so a case written that way would pass over the very implementation
 // it exists to reject.
+//
+// AND THE LAST SUITE IS THE SAME WINDOW WITH NO ANSWER IN IT AT ALL. A port that throws
+// where it was supposed to return a promise never settles the flight through any of the
+// paths above, so the picker is left in the one state the register deliberately keeps —
+// which is why that case ends by closing and reopening the menu rather than by reading
+// the act once.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { GrowthPort } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
+import { unhandledRejectionsDuring } from "../../core/unhandled-rejection.test-support.js";
 import {
   PROBE_SESSION_ID,
   SECOND_PROBE_SESSION_ID,
@@ -264,5 +272,95 @@ describe("one start is in flight at a time, whichever row the second press lands
     });
 
     expect(port.requests).toHaveLength(0);
+  });
+});
+
+describe("a port that throws instead of answering settles like one that rejected", () => {
+  /**
+   * The message a synchronously throwing port carries, so the refusal can be read back.
+   *
+   * A plain `Error`, which is what a stub operation or a misconfigured port actually
+   * throws — the settlement seam's terminal arm keeps its message, so a person is told
+   * what failed rather than being handed a code with no account behind it.
+   */
+  const SYNCHRONOUS_START_FAILURE = new Error("this build serves no workflow start");
+
+  /** What one case asked, and a port whose start throws before it returns anything. */
+  interface ThrowingWorkflowStart {
+    readonly growth: GrowthPort;
+    readonly requests: Parameters<GrowthPort["workflowRunStart"]>[0][];
+  }
+
+  /**
+   * A port whose `workflowRunStart` throws SYNCHRONOUSLY rather than rejecting.
+   *
+   * Deliberately not `async`: an async function that throws hands back a rejected
+   * promise, which this flight has always settled. The failure this suite is about is
+   * the one that escapes the call expression itself, and only a non-async throw
+   * reproduces it. It is spread onto the console's real refusing port rather than an
+   * object shaped like one, so nothing else about the port is invented here.
+   */
+  function throwingStartPort(): ThrowingWorkflowStart {
+    const requests: Parameters<GrowthPort["workflowRunStart"]>[0][] = [];
+    const workflowRunStart: GrowthPort["workflowRunStart"] = (request) => {
+      requests.push(request);
+      throw SYNCHRONOUS_START_FAILURE;
+    };
+    return { growth: { ...createRefusingGrowthPort(), workflowRunStart }, requests };
+  }
+
+  it("publishes the normalized refusal, frees the key and lets the menu open again", async () => {
+    // THE DEFECT THIS CASE EXISTS FOR. The throw escaped past the settlement seam, so
+    // nothing published and the flight stayed at `starting` — a state the register keeps
+    // on purpose — leaving every row disabled across a close and reopen of the menu,
+    // with no answer coming and no way to ask again.
+    const port = throwingStartPort();
+    const started = observeStart(port.growth, PROBE_SESSION_ID);
+
+    const reported = await unhandledRejectionsDuring(async () => {
+      await act(async () => {
+        started.latest().start(RELEASE_DEFINITION);
+      });
+      await settle();
+    });
+
+    const settledAct = started.latest().act;
+    expect(settledAct.status).toBe("refused");
+    if (settledAct.status !== "refused") {
+      throw new Error("the picker never settled the start that threw");
+    }
+    // The seam's own terminal code and the thrown message verbatim: a failure nobody can
+    // read is still distinguishable from a start that was never put.
+    expect(settledAct.code).toBe("growth-read-call-failed");
+    expect(settledAct.detail).toBe(SYNCHRONOUS_START_FAILURE.message);
+    // The dispatch answered rather than rejecting, so nothing was left for the host to
+    // report — which is the other half of the same escape.
+    expect(reported).toStrictEqual([]);
+
+    // The key came back, so the row can be pressed again...
+    await act(async () => {
+      started.latest().start(RELEASE_DEFINITION);
+    });
+    expect(port.requests).toHaveLength(2);
+
+    // ...and the flight is spent, so a reopened picker offers every row from idle rather
+    // than reading a start that is never going to answer.
+    await settle();
+    started.closeAndReopen();
+    expect(started.latest().act.status).toBe("idle");
+  });
+
+  it("negative control: the port really throws rather than handing back a rejection", async () => {
+    // Without this, the case above would hold over an ordinary rejecting port — the
+    // failure the flight has always settled — and would say nothing about the throw that
+    // escaped the call expression.
+    const port = throwingStartPort();
+
+    expect(() =>
+      port.growth.workflowRunStart({
+        workflowVersionId: RELEASE_DEFINITION.latestWorkflowVersionId,
+        sessionId: PROBE_SESSION_ID,
+      }),
+    ).toThrow(SYNCHRONOUS_START_FAILURE.message);
   });
 });

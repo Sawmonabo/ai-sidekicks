@@ -7,11 +7,11 @@
 // numeric control admits. Both mount the same slot against the same ports, so that lives
 // here rather than in whichever file was written first with the other deep-importing it.
 //
-// THE MOUNT IS DERIVED FROM THE FIXTURE, never written out. `humanFormMountFor` is what
-// the pane resolves a wait through, so a mount built by hand here would keep passing the
+// THE WAIT IS DERIVED FROM THE FIXTURE, never written out. `humanFormPhaseFor` is what
+// the pane resolves a wait through, so a phase built by hand here would keep passing the
 // day the run read stopped carrying a prompt or a schema — which is exactly the state
 // this shell closed. A negative control in the suite beside this file asserts the fixture
-// really does carry both, so no case driven from this mount can be vacuous.
+// really does carry both, so no case driven from this wait can be vacuous.
 //
 // THE PORTS ARE THE CONSOLE'S OWN. The fixture bridge spread with the one operation a
 // case is about, rather than an object shaped like a port: a stand-in would agree with
@@ -29,9 +29,9 @@ import {
 import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
-import { humanFormMountFor } from "../human-form-selection.js";
+import { humanFormPhaseFor } from "../human-form-selection.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
-import type { HumanFormMount } from "./human-form-mount.js";
+import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
 
 /** The refusal a daemon raises on a submission composed against a stale revision. */
 export const STALE_REVISION_REFUSAL: WireErrorEnvelope = {
@@ -138,10 +138,10 @@ export function bridgeHoldingSubmits(): HeldSubmit {
 }
 
 /** The fixture's own waiting phase, resolved the way the run pane resolves it. */
-export function fixtureWaitMount(): HumanFormMount {
+export function fixtureWaitPhase(): HumanFormPhase {
   const wait = WORKFLOWS_PARKED_RUN.phaseStates
-    .map((phase) => humanFormMountFor(WORKFLOWS_PARKED_RUN.workflowRunId, phase))
-    .find((mount) => mount !== undefined);
+    .map((phase) => humanFormPhaseFor(WORKFLOWS_PARKED_RUN.workflowRunId, phase))
+    .find((resolved) => resolved !== undefined);
   if (wait === undefined) {
     throw new Error("the workflows fixture parks no addressable phase on a person");
   }
@@ -149,15 +149,33 @@ export function fixtureWaitMount(): HumanFormMount {
 }
 
 /** The slot with the shell inside it, under a bridge the case supplies. */
-export function renderSlot(mount: HumanFormMount | undefined, bridge?: ConsoleBridge): HTMLElement {
-  return renderSwitchableSlot(mount, bridge).container;
+export function renderSlot(phase: HumanFormPhase | undefined, bridge?: ConsoleBridge): HTMLElement {
+  return renderSwitchableSlot({ phase, ...(bridge === undefined ? {} : { bridge }) }).container;
 }
 
 /** What a case that moves the pane from one wait to another holds on to. */
 export interface SwitchableSlot {
   readonly container: HTMLElement;
-  /** Put another wait in the same slot, without unmounting anything above it. */
-  readonly switchTo: (next: HumanFormMount) => void;
+  /** Put another wait in the same slot, or clear it, without unmounting anything above. */
+  readonly switchTo: (next: HumanFormPhase | undefined) => void;
+}
+
+/**
+ * What a case mounts the human-form slot with.
+ *
+ * An object rather than three positional parameters, and the reason it exists at all is
+ * that the seat's own submit channel reads its port off the provider — so every case
+ * that opens a wait has to mount one, and every case that supplies an owner body has to
+ * mount the same one. Written out per suite, that is three chances to forget the
+ * provider and get a thrown bridge resolution instead of the claim under test.
+ */
+export interface HumanFormSlotMounting {
+  /** The open wait, or `undefined` for the arm where no phase is waiting on anybody. */
+  readonly phase: HumanFormPhase | undefined;
+  /** The bridge the channel reads through. A fresh fixture one where a case has none. */
+  readonly bridge?: ConsoleBridge;
+  /** An owner body, for a case about what a supplied body is handed. */
+  readonly body?: HumanFormBody;
 }
 
 /**
@@ -167,24 +185,21 @@ export interface SwitchableSlot {
  * switch a switch: a fresh bridge would re-address every subject-scoped holder in the
  * tree and reset the form for a reason that has nothing to do with the phase.
  */
-export function renderSwitchableSlot(
-  mount: HumanFormMount | undefined,
-  bridge?: ConsoleBridge,
-): SwitchableSlot {
-  const held = bridge ?? createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
-  const { container, rerender } = render(
+export function renderSwitchableSlot(mounting: HumanFormSlotMounting): SwitchableSlot {
+  const held = mounting.bridge ?? createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+  // Spread on the arm that carries one rather than passed as an explicit `undefined`,
+  // which `exactOptionalPropertyTypes` refuses on an optional prop.
+  const ownerBody = mounting.body === undefined ? {} : { body: mounting.body };
+  const slotFor = (phase: HumanFormPhase | undefined): React.JSX.Element => (
     <SidekicksBridgeProvider bridge={held}>
-      <HumanFormSlot phase={mount} />
-    </SidekicksBridgeProvider>,
+      <HumanFormSlot phase={phase} {...ownerBody} />
+    </SidekicksBridgeProvider>
   );
+  const { container, rerender } = render(slotFor(mounting.phase));
   return {
     container,
     switchTo: (next) => {
-      rerender(
-        <SidekicksBridgeProvider bridge={held}>
-          <HumanFormSlot phase={next} />
-        </SidekicksBridgeProvider>,
-      );
+      rerender(slotFor(next));
     },
   };
 }
