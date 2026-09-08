@@ -621,9 +621,9 @@ const SLUG_CASES: ReadonlyArray<readonly [string, string | null, string]> = [
     "aaaaaaaaa-bbbbbbbbb-ccccccccc-dddddddddd",
   ],
   ["cuts a single long word hard rather than to nothing", "a".repeat(50), "a".repeat(40)],
-  ["falls back to the run short id when the summary is punctuation", "---", "run-0190f8b4"],
-  ["falls back to the run short id when the summary is empty", "", "run-0190f8b4"],
-  ["falls back to the run short id when there is no summary", null, "run-0190f8b4"],
+  ["falls back to the run short id when the summary is punctuation", "---", "run-9e71c243"],
+  ["falls back to the run short id when the summary is empty", "", "run-9e71c243"],
+  ["falls back to the run short id when there is no summary", null, "run-9e71c243"],
 ];
 
 describe("deriveWorktreeBranchName", () => {
@@ -634,9 +634,31 @@ describe("deriveWorktreeBranchName", () => {
         runId: RUN_ID,
         taskSummary,
       });
-      expect(derived).toBe(`sidekicks/0190f8b0/${expectedSlug}`);
+      expect(derived).toBe(`sidekicks/5b3e8f00/${expectedSlug}`);
     });
   }
+
+  it("keeps two sessions minted in the same 65,536 ms window apart", () => {
+    // RFC 9562 v7: the first 8 hex digits are the high 32 bits of the
+    // millisecond timestamp, identical for every id minted within one
+    // 65,536 ms window. Two sessions created a minute apart on one repository
+    // with one task slug must still derive distinct branch names, so the short
+    // id must come from the id's random tail and never its timestamp head.
+    const sameWindowSessionId = "0190f8b0-7e2d-7c4a-9b1c-0f0e0d0c0b0a";
+    const first = deriveWorktreeBranchName({
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      taskSummary: "Fix login",
+    });
+    const second = deriveWorktreeBranchName({
+      sessionId: sameWindowSessionId,
+      runId: RUN_ID,
+      taskSummary: "Fix login",
+    });
+    expect(SESSION_ID.slice(0, 8)).toBe(sameWindowSessionId.slice(0, 8));
+    expect(second).toBe("sidekicks/0d0c0b0a/fix-login");
+    expect(second).not.toBe(first);
+  });
 
   it("refuses when neither a summary nor a run id can produce a slug", () => {
     let thrown: unknown;
@@ -760,10 +782,10 @@ describe("WorktreeService.create", () => {
     const second = await service.create(suffixingInput);
     const third = await service.create(suffixingInput);
 
-    expect(first.branchName).toBe("sidekicks/0190f8b0/fix-login");
-    expect(second.branchName).toBe("sidekicks/0190f8b0/fix-login-2");
-    expect(third.branchName).toBe("sidekicks/0190f8b0/fix-login-3");
-    expect(readWorktreeRow(second.worktreeId).branch_name).toBe("sidekicks/0190f8b0/fix-login-2");
+    expect(first.branchName).toBe("sidekicks/5b3e8f00/fix-login");
+    expect(second.branchName).toBe("sidekicks/5b3e8f00/fix-login-2");
+    expect(third.branchName).toBe("sidekicks/5b3e8f00/fix-login-3");
+    expect(readWorktreeRow(second.worktreeId).branch_name).toBe("sidekicks/5b3e8f00/fix-login-2");
   });
 
   it("selects the arm from `onCollision`, never from how the name was obtained", async () => {
@@ -834,7 +856,7 @@ describe("WorktreeService.create", () => {
     // reusable end to end — git keeps the branch after the worktree goes (see
     // the service header's residual section), and only T2.6's real-git tier can
     // observe that leg at all.
-    expect(second.branchName).toBe("sidekicks/0190f8b0/fix-login");
+    expect(second.branchName).toBe("sidekicks/5b3e8f00/fix-login");
   });
 
   it("re-throws an id collision rather than reading it as a branch collision", async () => {

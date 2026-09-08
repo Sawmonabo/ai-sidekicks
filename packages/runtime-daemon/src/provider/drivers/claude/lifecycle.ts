@@ -98,7 +98,7 @@ import {
   type SubagentDefinition,
   type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { PendingCompactionRegistry, type CompactionWaitScheduler } from "../../compaction-wait.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
@@ -162,6 +162,7 @@ import {
   normalizeClaudeSubagentLifecycle,
   type ClaudeSubagentLifecycleSignal,
 } from "./event-normalizer.js";
+import { mintUuidV7 } from "../../../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Canonical driver id + fixed message text
@@ -2335,8 +2336,11 @@ export interface ClaudeSessionLifecycleDependencies {
       ) => void)
     | undefined;
   // The provider-side session id pinned at spawn (`--session-id`). Injected so
-  // tests and a future deterministic id source can drive it; defaults to a v4
-  // UUID, the shape the CLI flag requires.
+  // tests and a future deterministic id source can drive it; defaults to
+  // `mintUuidV7`. The flag is version-agnostic — the pinned CLI documents it as
+  // `--session-id <uuid>`, "Use a specific session ID for the conversation
+  // (must be a valid UUID)" — so nothing here may be read as a v4 guarantee,
+  // and an injected source is free to supply any valid UUID.
   readonly mintProviderSessionId?: (() => string) | undefined;
   // The opaque session-binding handle the `resumed` arm carries. The daemon's
   // `runtime_bindings` store mints it in production; the default keeps this band
@@ -2552,8 +2556,8 @@ export class ClaudeSessionLifecycle implements ClaudeRunChannelLookup {
     this.#onSubagentLifecycle = dependencies.onSubagentLifecycle;
     this.#transcriptReplaySurfaceReader = dependencies.transcriptReplaySurfaceReader;
     this.#onReleasedFrameRoute = dependencies.onReleasedFrameRoute;
-    this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? randomUUID;
-    this.#mintBindingId = dependencies.mintBindingId ?? randomUUID;
+    this.#mintProviderSessionId = dependencies.mintProviderSessionId ?? mintUuidV7;
+    this.#mintBindingId = dependencies.mintBindingId ?? mintUuidV7;
     this.#readBoundProviderAccountId = dependencies.readBoundProviderAccountId;
     this.#pendingCompactions = new PendingCompactionRegistry(
       dependencies.compactionWaitScheduler ??

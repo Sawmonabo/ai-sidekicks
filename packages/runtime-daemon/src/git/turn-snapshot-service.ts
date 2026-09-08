@@ -4463,6 +4463,9 @@ export class TurnSnapshotService {
     }
 
     const ref: string = buildTurnSnapshotRef(input.runId, input.epoch, input.turnOrdinal);
+    // Deliberately NOT the daemon's `mintUuidV7` (`ids/uuid-v7.ts`): this is a
+    // collision-free filename for a scratch git index that is unlinked in the
+    // same call. It is not an id of anything, and no row or event stores it.
     const scratchIndexPath: string = join(this.#snapshotIndexDirectory, `${randomUUID()}.index`);
     // The cursor the funnel reports. Advanced immediately before each leg, so a
     // leg added later inherits the reporting rather than needing its own catch —

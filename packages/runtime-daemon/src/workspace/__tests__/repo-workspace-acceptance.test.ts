@@ -339,7 +339,7 @@ function buildDaemonStack(database: DatabaseType, now: () => string): DaemonStac
       signingKeySource: new FixedDaemonSigningKeySource(),
     }),
   });
-  // No `newWorkspaceId` / `newRepoMountId` override: the production `randomUUID`
+  // No `newWorkspaceId` / `newRepoMountId` override: the production `mintUuidV7`
   // sources run, and every assertion below names ids by identity or set
   // membership rather than by position in a pool.
   const workspaces = new WorkspaceService({ database, events: emitter, now });

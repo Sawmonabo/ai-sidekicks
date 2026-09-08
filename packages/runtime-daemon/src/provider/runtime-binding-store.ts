@@ -69,8 +69,6 @@
 // Refs: Plan-005 §Phase 2 / T2.2 + T2.6, `Spec-005 §Required Behavior`,
 // `Spec-005 §State And Data Implications`, invariant I-005-1.
 
-import { randomUUID } from "node:crypto";
-
 import type {
   CallbackToolInvocation,
   CallbackToolResult,
@@ -90,6 +88,7 @@ import {
   assertValidContractVersion,
   assertValidResumeHandle,
 } from "./provider-output-validation.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Public domain types (camelCase, parsed). LOCAL to runtime-daemon — NOT hoisted
@@ -622,10 +621,10 @@ export class RuntimeBindingStore {
 
   constructor(db: Database, deps: { now?: () => string; newId?: () => string } = {}) {
     this.#now = deps.now ?? ((): string => new Date().toISOString());
-    // `crypto.randomUUID()` is the established daemon id idiom (per
-    // `node/node-event-emitter.ts`). `id` is a store-minted surrogate because
-    // run → bindings is 1:many.
-    this.#newId = deps.newId ?? ((): string => randomUUID());
+    // `id` is a store-minted surrogate because run → bindings is 1:many, and it
+    // mints through the daemon-wide `mintUuidV7` (`ids/uuid-v7.ts`) — RFC 9562
+    // UUIDv7, so bindings sort by mint order in a table read straight back.
+    this.#newId = deps.newId ?? mintUuidV7;
 
     // Named-parameter binding (`@col`) throughout — mirrors NodeRegistry.
     this.#insertStmt = db.prepare(
