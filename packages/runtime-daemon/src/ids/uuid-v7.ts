@@ -19,9 +19,17 @@
 // so a second hand-rolled minter would have been the beginning of a family.
 // Every daemon-side persisted-row id and event id mints here; the ephemeral
 // correlation / subscription / scratch-path tokens that no row and no event
-// stores stay on `crypto.randomUUID()` and say so at their call site. The
-// `no-restricted-syntax` entry in the repo-root `eslint.config.mjs` scoped to
-// `packages/runtime-daemon/src/**` enforces the split mechanically.
+// stores stay on `crypto.randomUUID()` and say so at their call site.
+//
+// That split is enforced mechanically by
+// `src/ids/__tests__/daemon-id-factory-tripwire.test.ts`, whose
+// `finds no randomUUID mention outside ids beyond the allow-listed occurrences`
+// sweeps the daemon's sources and pairs every `randomUUID` line against an
+// allow-list of exact `(path, line text)` exemptions. It is a test and not a
+// `no-restricted-syntax` entry because flat config replaces a rule's options
+// at the last matching object and `packages/runtime-daemon/src/**` already
+// carries one for a different guard — that test's own header explains the
+// mechanics, and this module is not a second place to keep them.
 //
 // Why no dependency
 // -----------------

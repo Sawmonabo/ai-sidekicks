@@ -897,7 +897,7 @@ describe("WorktreeEventEmitter — determinism (injected monotonicNow/now/newEve
   });
 
   it("defaults newEventId to a unique-per-emit source so successive emits do not collide on the PRIMARY KEY", async () => {
-    // No `newEventId` override → the production `crypto.randomUUID()` default.
+    // No `newEventId` override → the production `mintUuidV7` default.
     // Two emits must land two rows with DISTINCT ids — this is what pins the dep
     // comment's claim that a CONSTANT id would collide on the TEXT PRIMARY KEY
     // across successive emits.
