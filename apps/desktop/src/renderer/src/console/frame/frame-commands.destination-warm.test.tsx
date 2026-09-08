@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 
 import { KeyBindingTable, consoleCommands } from "../palette/index.js";
 import { consoleSurfaceRegistry } from "../seats/index.js";
-import { mountConsole } from "./ConsoleRoot.test-support.js";
+import { mountConsole } from "./composition/ConsoleRoot.test-support.js";
 
 /** A key no console chord binds, and one that needs no modifier to press. */
 const PRESSED_CODE = "F9";

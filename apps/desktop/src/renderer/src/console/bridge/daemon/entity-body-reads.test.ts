@@ -8,7 +8,7 @@
 // violates an arm, and a role string the contract does not carry.
 //
 // Bodies are built here from the payload shapes rather than driven through
-// `frame/run-lifecycle-projector.ts`. That projector does not carry the posture
+// `frame/run-projection/run-lifecycle-projector.ts`. That projector does not carry the posture
 // onto the run entity today, so a projector-driven case would fail for its gap and
 // pass again when the gap closes — which asserts nothing about this module either
 // way. The end-to-end path belongs to the projector's own test.

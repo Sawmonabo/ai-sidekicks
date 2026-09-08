@@ -45,8 +45,8 @@
 
 import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerComposerFamily } from "../shell/index.js";
-import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
-import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
+import { registerPaneHarnessSurface } from "./frame/pane-harness/PaneHarnessSurface.js";
+import { registerRunLifecycleProjectors } from "./frame/run-projection/run-lifecycle-projector.js";
 import { registerConsolePanes } from "./panes/index.js";
 import { registerRepos } from "./repos/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";

@@ -20,7 +20,7 @@ import {
   applyConsoleScheme,
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
-import { MERIDIAN_STYLE_ELEMENT_ID } from "../../../src/renderer/src/console/frame/token-installation.js";
+import { MERIDIAN_STYLE_ELEMENT_ID } from "../../../src/renderer/src/console/frame/bindings/token-installation.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,

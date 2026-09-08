@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "../core/macrotask-boundary.test-support.js";
 import { consoleCommandSurface, type ConsoleCommand } from "../palette/index.js";
-import { mountConsole } from "./ConsoleRoot.test-support.js";
+import { mountConsole } from "./composition/ConsoleRoot.test-support.js";
 
 /** The family this file composes as, so its rows are withdrawn by owner. */
 const CONTRIBUTING_OWNER = "frame-commands-contributions-test";

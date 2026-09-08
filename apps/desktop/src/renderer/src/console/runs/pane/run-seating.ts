@@ -57,7 +57,7 @@ import type { RunProjection } from "./run-state-projection.js";
  * One run as the session's own record knows it, with no live reading behind it.
  *
  * Every member is wire-verbatim off the durable `run_lifecycle` payload that
- * `frame/run-lifecycle-projector.ts` folded onto the entity, and every one of them
+ * `frame/run-projection/run-lifecycle-projector.ts` folded onto the entity, and every one of them
  * is optional because the projector writes only what the payload named — a run
  * whose newest event carried no state has none here, and inventing one would be
  * the console reporting a state no daemon reported.

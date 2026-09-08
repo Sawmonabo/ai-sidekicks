@@ -48,7 +48,7 @@ import type { ConsoleEntity } from "../../store/index.js";
  * a default would read as a checked answer.
  *
  * WHAT THE PROJECTOR STILL OWES. This selector reads the run entity's body; the
- * projector is what puts a payload member there. `frame/run-lifecycle-projector.ts`
+ * projector is what puts a payload member there. `frame/run-projection/run-lifecycle-projector.ts`
  * claims every `run_lifecycle` kind and today keeps four members —
  * `runVersion`, the two state strings, and `agentId` — so the stamped posture does
  * not reach the run partition at all, and this selector answers `undefined` for

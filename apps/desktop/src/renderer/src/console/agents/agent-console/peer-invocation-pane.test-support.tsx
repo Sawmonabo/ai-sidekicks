@@ -22,7 +22,7 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-projection/run-lifecycle-projector.js";
 import { SessionStore } from "../../store/index.js";
 import { OWNED_AGENT_ID } from "./agent-console-body.test-support.js";
 import { AgentConsoleBody } from "./AgentConsoleBody.js";
