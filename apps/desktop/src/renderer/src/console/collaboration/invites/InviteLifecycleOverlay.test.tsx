@@ -27,7 +27,12 @@ import {
   growthRefusing,
 } from "../../bridge/fixture/fixture-bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
-import { mountOverlay, press } from "./invite-lifecycle-overlay.test-support.js";
+import {
+  closeThroughBackdrop,
+  closeThroughEscape,
+  mountOverlay,
+  press,
+} from "./invite-lifecycle-overlay.test-support.js";
 import {
   FIRST_SESSION,
   PENDING_INVITE_ATTEMPT,
@@ -140,34 +145,12 @@ describe("the invite lifecycle — every dismissal releases the reference", () =
   });
 
   it("releases it on Escape", async () => {
-    const body = await dismissThrough(async (root) => {
-      const popup = root.querySelector(".meridian-invite-confirmation");
-      if (popup === null) {
-        throw new Error("no popup");
-      }
-      await act(async () => {
-        popup.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-        );
-        await crossMacrotaskBoundary();
-      });
-    });
+    const body = await dismissThrough(closeThroughEscape);
     expect(stillNamesTheFirstArrival(body)).toBe(false);
   });
 
   it("releases it on a press outside it", async () => {
-    const body = await dismissThrough(async (root) => {
-      const backdrop = root.querySelector(".meridian-invite-confirmation__backdrop");
-      if (backdrop === null) {
-        throw new Error("no backdrop");
-      }
-      await act(async () => {
-        backdrop.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-        backdrop.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        backdrop.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        await crossMacrotaskBoundary();
-      });
-    });
+    const body = await dismissThrough(closeThroughBackdrop);
     expect(stillNamesTheFirstArrival(body)).toBe(false);
   });
 

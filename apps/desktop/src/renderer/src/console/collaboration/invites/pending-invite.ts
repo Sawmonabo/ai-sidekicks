@@ -70,7 +70,7 @@ import { PendingInviteArrivals } from "./pending-invite-arrivals.js";
 import { PENDING_INVITE_ORIGIN, PendingInviteFeeds } from "./pending-invite-feeds.js";
 import {
   EMPTY_PENDING_INVITE_SNAPSHOT,
-  isInviteOutcomeInProgress,
+  isInviteReferenceHeld,
   type PendingInviteAct,
   type PendingInviteSnapshot,
 } from "./pending-invite-reading.js";
@@ -230,7 +230,9 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
    * LOCAL AND SILENT. `Spec-002 §Required Behavior` mints no decline verb and
    * `InviteState` has no declined member to move to, so nobody is told: what this
    * does is release the reference main is holding, which is a different act from
-   * refusing an invitation and is the only one the wire has.
+   * refusing an invitation and is the only one the wire has. It is therefore also the
+   * close path after an ANSWER main kept the reference for, and the head is released
+   * on this call's own settlement, so a refused dismissal moves nothing at all.
    */
   public dismiss(): void {
     const head = this.#readyHead();
@@ -251,21 +253,21 @@ export class PendingInviteAdapter implements ReadTriggerTarget {
    * which is why it is a press and not a timer, since a result that cleared itself
    * would be a result somebody did not read.
    *
-   * A PROMPT STILL IN PROGRESS IS NOT SETTLED. An acceptance waiting on
-   * authentication has a terminal arm still to come and a reference main is still
-   * holding, so clearing it here would strand that answer against a prompt this
-   * window no longer has. Discarding is the way out of it, and that one is a wire act.
+   * A REFERENCE MAIN STILL HOLDS IS NOT ACKNOWLEDGEABLE, on the lifecycle's own
+   * predicate: an acceptance waiting on authentication and one the wire itself marked
+   * retryable are both handles a local release would strand until their TTL, ready to
+   * surface the same invitation on the next replay. {@link dismiss} is the way out.
    */
   public acknowledge(): void {
     const head = this.#arrivals.head;
     if (head === undefined) {
       return;
     }
-    if (head.status === "ready") {
-      const outcome = this.#outcomeByReference.get(head.reference);
-      if (outcome === undefined || isInviteOutcomeInProgress(outcome)) {
-        return;
-      }
+    if (
+      head.status === "ready" &&
+      isInviteReferenceHeld(this.#outcomeByReference.get(head.reference))
+    ) {
+      return;
     }
     this.#releaseHead();
   }

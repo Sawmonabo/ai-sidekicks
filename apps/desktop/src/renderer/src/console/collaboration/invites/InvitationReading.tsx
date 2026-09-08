@@ -19,7 +19,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { Chip, Nothing, WireFigure, formatDateTime } from "../../primitives/index.js";
 import { InviteOutcomeReport } from "./InviteOutcomeReport.js";
 import type { PendingInviteSnapshot } from "./pending-invite.js";
-import { isInviteReferenceHeld } from "./pending-invite-reading.js";
+import { isInviteAnswerOutstanding } from "./pending-invite-reading.js";
 
 export interface InvitationReadingProps {
   /** The lifecycle's current reading. Rendered only where it names an invitation. */
@@ -33,13 +33,18 @@ export interface InvitationReadingProps {
    * tree and is the one named, so a stray return key puts an invitation away rather
    * than accepting one.
    */
-  readonly dismissRef: React.RefObject<HTMLButtonElement | null>;
+  readonly closeRef: React.RefObject<HTMLButtonElement | null>;
   /** Accept it, on the reference the reading carries. */
   readonly onConfirm: () => void;
-  /** Release that reference and put the card away, telling nobody. */
-  readonly onDismiss: () => void;
-  /** Put a settled outcome away and move to whatever was waiting behind it. */
-  readonly onAcknowledge: () => void;
+  /**
+   * Put the card away — the card's one close act, already resolved.
+   *
+   * Whether it releases the reference over the wire or clears a spent prompt locally
+   * is decided once, by the card, from what main is still holding. This arm draws it
+   * and never chooses it: a body that branched again would be the second reading that
+   * let a retryable reference be closed away without being released.
+   */
+  readonly onClose: () => void;
 }
 
 export function InvitationReading(props: InvitationReadingProps): React.JSX.Element | null {
@@ -48,13 +53,16 @@ export function InvitationReading(props: InvitationReadingProps): React.JSX.Elem
   if (invite === undefined) {
     return null;
   }
-  // WHAT MAIN IS STILL HOLDING, on the lifecycle's own predicate. It is what decides
-  // whether the dismissal stays on screen, and it is deliberately not "is there an
-  // outcome": an acceptance waiting on authentication carries one while the reference
-  // is still main's, and reading the presence alone left that arm rendering a report
-  // with no control at all — a stalled ceremony a person could look at and not back
-  // out of.
-  const referenceHeld = isInviteReferenceHeld(outcome);
+  // WHETHER AN ANSWER IS STILL COMING, on the lifecycle's own predicate. It is what
+  // decides whether THIS arm draws the close or the report below does, and it is
+  // deliberately not "is there an outcome": an acceptance waiting on authentication
+  // carries one while main drives the ceremony, and reading the presence alone left
+  // that arm rendering a report with no control at all — a stalled ceremony a person
+  // could look at and not back out of. It is equally not "what main is holding": a
+  // `unavailable` answer is one main still holds the reference for AND one the report
+  // has words and a retry for, so drawing this row there would put two close controls
+  // on one card.
+  const answerOutstanding = isInviteAnswerOutstanding(outcome);
   return (
     <>
       <Dialog.Title className="meridian-invite-confirmation__title">
@@ -99,22 +107,24 @@ export function InvitationReading(props: InvitationReadingProps): React.JSX.Elem
           // reached the control plane is answered by confirming again, and inventing a
           // second callback for it would be one act reaching the lifecycle two ways.
           onConfirm={props.onConfirm}
-          onAcknowledge={props.onAcknowledge}
+          onClose={props.onClose}
           isActing={isActing}
         />
       )}
 
-      {/* THE ROW SURVIVES THE FIRST ANSWER WHERE THAT ANSWER IS NOT AN END. It used to
-          be replaced by the report outright, which is right for the five terminal arms
-          — their reference is spent, and the report carries the acts an answer admits
-          — and wrong for the one that is a step still running: it took the dismissal
-          off screen while main was still holding the reference, leaving the person
-          looking at a ceremony with nothing to press. What comes back is the SAME
-          control and not a fourth way to close: one act, one class, one `dismissRef`,
-          so the card still offers exactly one dismissal reached three ways. The
-          acceptance does not come back with it, because a second confirmation would
-          race the answer main is already driving. */}
-      {referenceHeld ? (
+      {/* THE ROW SURVIVES AN ANSWER THAT IS STILL RUNNING, AND ONLY THAT ONE. It used
+          to be replaced by the report outright, which is right for every arm that has
+          words to draw and an act to offer, and wrong for the one that is a step in
+          progress: it took the close off screen while main was still holding the
+          reference, leaving the person looking at a ceremony with nothing to press.
+          What comes back is the SAME act and not a fourth way to close — one callback,
+          one class, one `closeRef` — so the card still offers exactly one close reached
+          three ways. The acceptance does not come back with it, because a second
+          confirmation would race the answer main is already driving. And the row stays
+          OFF for an acceptance that could not be put: main holds that reference too,
+          but the report is what a person reads there, so the close belongs on its row
+          and drawing both would offer one act twice. */}
+      {answerOutstanding ? (
         <div className="meridian-invite-confirmation__acts">
           {/* First in the tree AND named by `initialFocus`: the ordering alone is
                   not enough, since a later control could be inserted above it, and the
@@ -122,10 +132,10 @@ export function InvitationReading(props: InvitationReadingProps): React.JSX.Elem
                   scanning the markup. */}
           <button
             type="button"
-            ref={props.dismissRef}
+            ref={props.closeRef}
             className="meridian-invite-confirmation__dismiss"
             disabled={isActing}
-            onClick={props.onDismiss}
+            onClick={props.onClose}
           >
             Not now
           </button>

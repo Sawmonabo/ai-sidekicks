@@ -182,6 +182,37 @@ export function scenarioWithArrivals(): ConsoleScenario {
 }
 
 /**
+ * The same two arrivals, with the first one's acceptance never reaching anybody.
+ *
+ * DERIVED FROM THE SCENARIO ABOVE rather than declared beside it, on that scenario's
+ * own rule: a second invitation table is a second place a member added to
+ * `GrowthPendingInvite` has to be remembered. What differs is one outcome, so one
+ * outcome is what this states.
+ *
+ * `unavailable` is the arm that separates "an answer arrived" from "main is done with
+ * the reference": nothing was decided, the wire says so with `retryable`, and the
+ * handle is still main's — so a prompt put away on this arm has to be RELEASED rather
+ * than cleared locally.
+ */
+export function scenarioWithUnsentAcceptance(): ConsoleScenario {
+  const scenario = scenarioWithArrivals();
+  const [firstArrival, ...laterArrivals] = scenario.pendingInvites ?? [];
+  if (firstArrival === undefined) {
+    throw new Error("the arrivals scenario scripts no invitation to leave unsent");
+  }
+  return {
+    ...scenario,
+    pendingInvites: [
+      {
+        ...firstArrival,
+        onConfirm: { kind: "unavailable", reference: FIRST_REFERENCE, retryable: true },
+      },
+      ...laterArrivals,
+    ],
+  };
+}
+
+/**
  * A started adapter over the real fixture port, with both feeds drained once.
  *
  * Hoisted on the second use, like the scenario above it: three suites drive the
