@@ -89,6 +89,13 @@ import { forEachDescendant, parseSourceText } from "../typescript-source.js";
  */
 const CONSOLE_PRESENCE_MARKER = "meridian-frame";
 
+/**
+ * The dev render scanner's specifier. A SECOND claim about the toggle, not a restatement
+ * of the handle case: that one proves its page handle is gone, this one proves the
+ * library went with it — a static import ships the library under a handle nobody sees.
+ */
+const RENDER_SCAN_SPECIFIER_MARKER = "react-scan";
+
 /** Where the scenario corpus lives, as one directory this tier reads rather than imports. */
 const SCENARIO_CORPUS_DIRECTORY: string = join(CONSOLE_DIRECTORY, "bridge", "scenarios");
 
@@ -301,6 +308,15 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
         "`__SIDEKICKS_CONSOLE_FIXTURES__` guard, or `out/renderer` currently holds a " +
         "fixtures build — `pnpm build:fixtures` and `pnpm build` write the same directory. " +
         "Re-run `pnpm --filter @ai-sidekicks/desktop build` and try again.",
+    ).toStrictEqual([]);
+  });
+
+  it("does not ship the dev render scanner", () => {
+    const carriers = carriersOf(RENDER_SCAN_SPECIFIER_MARKER, builtFiles);
+    expect(
+      carriers,
+      `"${RENDER_SCAN_SPECIFIER_MARKER}" reached the built tree. The toggle's dynamic ` +
+        "`import()` must stay inside its `__SIDEKICKS_CONSOLE_FIXTURES__` guard.",
     ).toStrictEqual([]);
   });
 
