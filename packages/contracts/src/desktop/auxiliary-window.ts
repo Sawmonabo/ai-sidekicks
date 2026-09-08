@@ -37,6 +37,52 @@ export interface AuxiliaryWindowDetachRequest {
 }
 
 /**
+ * The key a pane belonging to no session is filed under.
+ *
+ * A named value rather than an empty string, because it is a KEY and not an absent
+ * one: a workspace opened at a bare auxiliary route still holds panes of its own, and
+ * they must not share a record with whichever session happens to be first.
+ *
+ * The unit-separator prefix is `apps/desktop`'s own rule for a synthetic key — a
+ * control character no wire-minted id carries — written as an ESCAPE so the source
+ * file stays text: a raw control byte in one made git read a whole module as binary.
+ */
+const NO_SESSION_KEY = "\u001fno-session";
+
+/**
+ * The session a pane belongs to, as a key.
+ *
+ * Here rather than beside either reader because BOTH processes key on it and the two
+ * answers must be one: the renderer files its hand-offs by session so a returning
+ * visit reads the record its own deck wrote, and the main process files its held
+ * windows by the same session so two decks' identically-named panes are two panes.
+ * Spelled twice, the two would drift and the drift would be silent — a detach
+ * answering with another session's window.
+ */
+export function auxiliaryWindowSessionKey(sessionId: string | undefined): string {
+  return sessionId ?? NO_SESSION_KEY;
+}
+
+/**
+ * The identity of one pane across every session the shell is serving.
+ *
+ * WHY A PANE ID ALONE IS NOT ONE. Every deck mints its panes as `pane-N` from its own
+ * layout, so two sessions both hold a `pane-1`; a registry keyed on that name alone
+ * answers the second session's detach with the first session's window, focuses it,
+ * and leaves the second deck suppressing a pane whose body was never opened.
+ *
+ * RENDERED THROUGH `JSON.stringify` rather than through the separator-joined key
+ * `deck-model.ts` uses, and the difference is the inputs rather than taste: that rule
+ * is injective because every field before the last comes from a closed set, and here
+ * both fields are strings a renderer supplies over IPC. A pair rendered as JSON is
+ * injective whatever either field contains, because the encoding escapes the
+ * separator it uses.
+ */
+export function auxiliaryPaneIdentity(sessionId: string | undefined, paneId: string): string {
+  return JSON.stringify([auxiliaryWindowSessionKey(sessionId), paneId]);
+}
+
+/**
  * The shell's handle for one auxiliary window.
  *
  * OPAQUE to the renderer: focus, close, and the orderly-return report are all

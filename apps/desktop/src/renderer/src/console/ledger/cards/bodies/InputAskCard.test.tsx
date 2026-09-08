@@ -33,6 +33,9 @@ const PAST_THE_DEADLINE_MILLISECONDS = Date.UTC(2026, 8, 2, 10, 6, 0);
 function pendingAsk(overrides: Partial<DriverAskReading> = {}): DriverAskReading {
   return {
     askId: "ask-01",
+    // The card renders nothing off the run and the reading requires it, so a fixture
+    // that omitted it would be a shape the reader cannot produce.
+    runId: undefined,
     state: "requested",
     prompt: "Which branch should this land on?",
     options: [],

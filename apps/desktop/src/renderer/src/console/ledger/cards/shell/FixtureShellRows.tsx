@@ -111,7 +111,10 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
   // question. The ask reading is what distinguishes them, and it is a positive read
   // of the ask's own members rather than a sixth family nothing else would use.
   if (ask !== undefined) {
-    return <FixtureShellAskRow ask={ask} attributedRunId={attributedRunId} />;
+    // No second attribution beside the reading: the ask carries the run it was read
+    // off, which is the same row `attributedRunId` reads, and handing the row both
+    // would be two answers to which run an answer is delivered for.
+    return <FixtureShellAskRow ask={ask} />;
   }
 
   switch (family.family) {

@@ -34,7 +34,7 @@
 
 import { readWireString, type ConsoleRefusal } from "../../../core/index.js";
 import type { OwnerSlotContract } from "../../../seats/index.js";
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { RunId, TimelineRow } from "@ai-sidekicks/contracts";
 import { projectedPayload } from "../wire-payload.js";
 
 /**
@@ -88,6 +88,18 @@ export interface DriverAskOption {
 /** One input ask, as much of it as the row's payload actually carries. */
 export interface DriverAskReading {
   readonly askId: string;
+  /**
+   * The run this ask blocks, off the row's own arm — `undefined` on a row attributing
+   * none.
+   *
+   * CARRIED BECAUSE `askId` ALONE IS NOT AN IDENTITY. The id is the provider's, minted
+   * per provider session, so two runs answering in parallel legitimately raise asks
+   * under one id; the registered answer request addresses a run AND a request for the
+   * same reason. It is read off the row rather than off the payload because the row is
+   * where the projection attributes a run, and the ask row and the answer this surface
+   * dispatches then name the same one by construction.
+   */
+  readonly runId: RunId | undefined;
   readonly state: DriverAskState;
   /** The provider's question. `undefined` where the ask carried none. */
   readonly prompt: string | undefined;
@@ -157,6 +169,10 @@ export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
   }
   return {
     askId,
+    // The `run` arm is the only one carrying an attribution, and the `general` arm is
+    // the non-run arm by construction — so this narrows on `kind` rather than guessing
+    // a run out of a payload member.
+    runId: row.kind === "run" ? row.runId : undefined,
     state,
     prompt: readWireString(payload["prompt"]),
     options: readAskOptions(payload["options"]),
@@ -168,7 +184,44 @@ export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
 }
 
 /**
- * The terminal each ask in one window reached, keyed by `askId`.
+ * The identity one ask is known by inside a window: its run AND its ask id.
+ *
+ * PRIVATE, AND THE ONE PLACE THE KEY IS SPELLED. The fold below writes with it and
+ * {@link askTerminalIn} reads with it, so the two halves of the seam cannot disagree
+ * about what "the same ask" is — which is the whole defect a second spelling causes
+ * here, silently, on a screen that then removes a blocked run's answer controls.
+ *
+ * `undefined` where the row attributed no run, which is a REFUSAL to identify rather
+ * than a run-less key: an ask nothing attributes cannot be answered — the registered
+ * answer request names a run — so filing one would make an unanswerable ask able to
+ * settle an answerable one.
+ *
+ * Joined on the unit separator, `deck-model.ts`' rule for a composite key and for its
+ * reason: the field before the last is a schema-validated `RunId`, so the one
+ * free-form field is last and a key cannot be re-parsed into a different pair.
+ */
+function driverAskIdentity(ask: DriverAskReading): string | undefined {
+  return ask.runId === undefined ? undefined : `${ask.runId}\u001f${ask.askId}`;
+}
+
+/**
+ * The terminal one ask reached, out of the terminals a window holds.
+ *
+ * The READ half of {@link driverAskIdentity}, and a plain function rather than the
+ * hook's own body so the fold and the lookup are one seam a test can drive with no
+ * tree at all. An absent map is an ask rendered outside a ledger, which is the row's
+ * own reading being the whole truth about it.
+ */
+export function askTerminalIn(
+  terminalsByAskIdentity: ReadonlyMap<string, DriverAskReading> | undefined,
+  ask: DriverAskReading,
+): DriverAskReading | undefined {
+  const identity = driverAskIdentity(ask);
+  return identity === undefined ? undefined : terminalsByAskIdentity?.get(identity);
+}
+
+/**
+ * The terminal each ask in one window reached, keyed by run and ask id.
  *
  * WHY THIS IS A WINDOW FOLD AND NOT A ROW READ. The four `driver_ask.*` types are four
  * ROWS, not four states of one row: the request stays in the log exactly where it was
@@ -180,25 +233,35 @@ export function readDriverAsk(row: TimelineRow): DriverAskReading | undefined {
  * it. Neither the request row nor the reader over it can see the later row, so the
  * question is the WINDOW's and is answered once per window here.
  *
- * FIRST TERMINAL WINS. An ask settles once; a second terminal row for one `askId` is
+ * FIRST TERMINAL WINS. An ask settles once; a second terminal row for one ask is
  * either a duplicate delivery or a log that contradicts itself, and in both readings
  * the row that settled the ask is the first one. Taking the last would let a late
  * `canceled` overwrite the answer a participant actually gave.
+ *
+ * AND THE KEY IS THE RUN'S AS WELL AS THE ASK'S. A provider mints its ask ids per
+ * provider session, so two runs blocked at once legitimately raise `ask-1` each; keyed
+ * on that id alone, one run's answer settled the other's card — it read as responded,
+ * expired or canceled and lost its answer controls while its own run stayed blocked
+ * with nobody able to answer it.
  */
 export function deriveDriverAskTerminals(
   rows: readonly TimelineRow[],
 ): ReadonlyMap<string, DriverAskReading> {
-  const terminalsByAskId = new Map<string, DriverAskReading>();
+  const terminalsByAskIdentity = new Map<string, DriverAskReading>();
   for (const row of rows) {
     const reading = readDriverAsk(row);
     if (reading === undefined || reading.state === "requested") {
       continue;
     }
-    if (!terminalsByAskId.has(reading.askId)) {
-      terminalsByAskId.set(reading.askId, reading);
+    const identity = driverAskIdentity(reading);
+    // A terminal attributing no run settles nothing: it cannot be matched to a request
+    // without inventing an attribution, and a run-less key would be reachable from
+    // every unattributed ask in the window at once.
+    if (identity !== undefined && !terminalsByAskIdentity.has(identity)) {
+      terminalsByAskIdentity.set(identity, reading);
     }
   }
-  return terminalsByAskId;
+  return terminalsByAskIdentity;
 }
 
 /**

@@ -31,25 +31,28 @@ import {
   type DriverAskReading,
 } from "../bodies/index.js";
 import { useDriverAskAnswer } from "./shell-ask-answer.js";
-import type { RunId } from "@ai-sidekicks/contracts";
 
 export interface FixtureShellAskRowProps {
-  /** The ask this row is blocked on, read off the row by the shell that dispatched here. */
+  /**
+   * The ask this row is blocked on, read off the row by the shell that dispatched here.
+   *
+   * It carries the run the answer is delivered for, so this row takes no second
+   * attribution beside it: the reading and the dispatcher then name one run by
+   * construction, and no caller can hand a row an ask belonging to another.
+   */
   readonly ask: DriverAskReading;
-  /** The run the answer is delivered for, or `undefined` where the row attributes none. */
-  readonly attributedRunId: RunId | undefined;
 }
 
 /** One provider-raised ask, with the answer path and the countdown it needs. */
 export function FixtureShellAskRow(props: FixtureShellAskRowProps): React.JSX.Element {
-  const askAnswer = useDriverAskAnswer(props.attributedRunId, props.ask.askId);
+  const askAnswer = useDriverAskAnswer(props.ask.runId, props.ask.askId);
   const clock = useConsoleClock();
   // THE WINDOW'S ANSWER TO "IS THIS ASK STILL OPEN", not this row's and not this
   // mount's. The row says only what its own event type says, and the delivery state
   // beside it is local to a mount and resets with one — so a request answered from
   // another window, or answered here and then scrolled out and back, kept its controls.
   // The fold is the ledger's row model's; this is the lookup and the merge.
-  const askTerminal = useLedgerAskTerminal(props.ask.askId);
+  const askTerminal = useLedgerAskTerminal(props.ask);
   const ask = useMemo(() => askSettledBy(props.ask, askTerminal), [props.ask, askTerminal]);
   // ARMED ONLY WHILE THE ASK IS OPEN. A settled ask draws no countdown, so a wake-up
   // for its stamped deadline would be a timer this row can never spend.

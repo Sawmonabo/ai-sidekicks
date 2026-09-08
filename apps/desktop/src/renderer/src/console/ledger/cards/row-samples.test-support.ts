@@ -23,6 +23,13 @@ const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
 export interface SampleRowOverrides {
   readonly id?: string;
   readonly type?: string;
+  /**
+   * The run the row is attributed to, where a case is about more than one.
+   *
+   * Varied rather than fixed because the interesting folds are keyed on it: two runs
+   * blocked at once is a shape the projection produces and one run id cannot state.
+   */
+  readonly runId?: string;
   readonly summary?: string;
   readonly actor?: string;
   readonly timestamp?: string;
@@ -47,7 +54,7 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): TimelineRow {
     summary: overrides.summary ?? "The agent replied.",
     timestamp: overrides.timestamp ?? "2026-09-02T10:00:00.000Z",
     payload: { ...overrides.payload },
-    runId: SAMPLE_RUN_ID,
+    runId: (overrides.runId ?? SAMPLE_RUN_ID) as RunId,
     position: 1,
     epoch: 0,
     ...(overrides.actor === undefined ? {} : { actor: overrides.actor }),

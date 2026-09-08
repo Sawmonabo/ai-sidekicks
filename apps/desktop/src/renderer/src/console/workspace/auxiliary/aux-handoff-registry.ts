@@ -32,27 +32,22 @@
 // is the one its own deck wrote — the same restore that re-mints those ids from the
 // same persisted arrangement.
 //
+// AND THE KEY ITSELF IS THE CONTRACT'S, not this module's. The shell keeps its own
+// registry of held windows and had to scope it the same way for the same reason, so
+// `auxiliaryWindowSessionKey` lives beside the detach request in the package all three
+// processes read: two spellings of one key drift silently, and the drift is a detach
+// answered with another session's window.
+//
 // WHAT IT DELIBERATELY DOES NOT DO IS CLOSE WINDOWS ON DISPOSAL. Disposal happens when
 // the window tears down or its bridge is replaced, and in the first case the shell is
 // going away with it. In the second the windows are still the shell's and still open,
 // and this window's new registry does not know them — a real residual, named here
 // rather than answered by destroying somebody's window on a reconnect.
 
+import { auxiliaryWindowSessionKey } from "@ai-sidekicks/contracts";
+
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import { type ConsoleAuxiliaryWindowPort } from "./aux-window-signal-watch.js";
-
-/**
- * The key a workspace with no session is filed under.
- *
- * A named constant rather than an empty string, because it is a KEY and not an absent
- * value: a workspace opened at a bare auxiliary route still has one hand-off of its
- * own, and it must not share the record of whichever session happens to be first.
- *
- * The unit separator prefix on `deck-model.ts`' rule and for its reason — a control
- * character no wire-minted id carries — written as an ESCAPE so the source file stays
- * text: a raw control byte here made git read the whole module as binary.
- */
-const NO_SESSION_KEY = "\u001fno-session";
 
 export interface AuxiliaryHandoffRegistryOptions {
   readonly auxiliaryWindows: ConsoleAuxiliaryWindowPort;
@@ -105,7 +100,7 @@ export class AuxiliaryHandoffRegistry {
    * subscription rather than a resource nothing will close.
    */
   public handoffFor(sessionId: string | undefined): AuxiliaryHandoff {
-    const sessionKey = sessionId ?? NO_SESSION_KEY;
+    const sessionKey = auxiliaryWindowSessionKey(sessionId);
     const held = this.#handoffsBySessionKey.get(sessionKey);
     if (held !== undefined) {
       return held;

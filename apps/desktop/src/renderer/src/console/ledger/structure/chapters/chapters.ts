@@ -32,7 +32,7 @@
 // own newest lifecycle type and the account is the id the run was admitted under, so
 // neither is a word this console composed.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import type { ChildRunCompleteness, TimelineRow } from "@ai-sidekicks/contracts";
 
 import { ChapterBodyRowWindow, chapterClippedHeadRowCount } from "./chapter-body.js";
 import {
@@ -127,6 +127,13 @@ export interface LedgerChapter {
    * A child run this chapter summarizes whose expansion is incomplete
    * — the marked state this console gives a partial expansion. Read off
    * `TimelineRow.childRunSummary`, which is where the wire says so.
+   *
+   * DERIVED FROM THE LATEST READING OF EACH CHILD, never accumulated. A child
+   * summarized as incomplete and later summarized as complete is one child observed
+   * twice, and the second reading is the current one — the card beside this header
+   * already replaces its summary that way. Accumulated, the marker was permanent: the
+   * header went on saying a child was not fully expanded beside a card saying its
+   * summary was complete, and nothing a later row could carry would ever clear it.
    */
   readonly hasIncompleteChildExpand: boolean;
 }
@@ -157,7 +164,17 @@ interface ChapterAccumulator {
   lastSequence: number;
   firstTimestamp: string;
   lastTimestamp: string;
-  hasIncompleteChildExpand: boolean;
+  /**
+   * The LATEST completeness this chapter's rows reported for each child run.
+   *
+   * Per child and replaced in row order rather than folded into a boolean, because the
+   * question the header asks — is any child of this chapter still partly expanded — is
+   * a question about the current readings and not about every reading there has ever
+   * been. Keyed by the child's own run id, which is the key
+   * `child-runs/child-run-entries.ts` re-summarizes on, so the header and the card
+   * cannot disagree about which observation is current.
+   */
+  readonly childExpandCompletenessByChildRunId: Map<string, ChildRunCompleteness["state"]>;
 }
 
 /**
@@ -265,7 +282,7 @@ function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {
     lastSequence: row.sequence,
     firstTimestamp: row.timestamp,
     lastTimestamp: row.timestamp,
-    hasIncompleteChildExpand: false,
+    childExpandCompletenessByChildRunId: new Map(),
   };
 }
 
@@ -305,8 +322,13 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
     accumulator.terminalEventType = undefined;
     accumulator.terminalRowId = undefined;
   }
-  if (row.childRunSummary?.completeness.state === "incomplete") {
-    accumulator.hasIncompleteChildExpand = true;
+  if (row.childRunSummary !== undefined) {
+    // LATEST WINS, per child. Written unconditionally so a later `complete` REPLACES an
+    // earlier `incomplete` rather than being dropped beside it.
+    accumulator.childExpandCompletenessByChildRunId.set(
+      row.childRunSummary.runId,
+      row.childRunSummary.completeness.state,
+    );
   }
   if (row.sequence < accumulator.firstSequence) {
     accumulator.firstSequence = row.sequence;
@@ -336,6 +358,11 @@ function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
     lastSequence: accumulator.lastSequence,
     firstTimestamp: accumulator.firstTimestamp,
     lastTimestamp: accumulator.lastTimestamp,
-    hasIncompleteChildExpand: accumulator.hasIncompleteChildExpand,
+    // Derived at the seal beside the chapter's other derived members, from the map the
+    // fold advanced — never from a second walk over the rows, which would be a second
+    // reading of the same member with its own chance to disagree.
+    hasIncompleteChildExpand: [...accumulator.childExpandCompletenessByChildRunId.values()].some(
+      (state) => state === "incomplete",
+    ),
   };
 }

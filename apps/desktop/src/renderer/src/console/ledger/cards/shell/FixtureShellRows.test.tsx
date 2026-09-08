@@ -25,6 +25,14 @@ import {
 } from "./FixtureShellRows.js";
 import { sampleGeneralRow, sampleRunRow } from "../row-samples.test-support.js";
 
+/**
+ * A second run, for the one property one run cannot state.
+ *
+ * ULID-shaped like the builder's own default, so the two rows differ in exactly the
+ * member the fold keys on.
+ */
+const SECOND_RUN_ID = "01J0000000000000000000000C";
+
 afterEach(() => {
   unregisterTimelineRowRenderer();
 });
@@ -90,7 +98,9 @@ function MountedInAList(props: {
         {props.windowRows === undefined ? (
           row
         ) : (
-          <LedgerAskTerminalProvider terminalsByAskId={deriveDriverAskTerminals(props.windowRows)}>
+          <LedgerAskTerminalProvider
+            terminalsByAskIdentity={deriveDriverAskTerminals(props.windowRows)}
+          >
             {row}
           </LedgerAskTerminalProvider>
         )}
@@ -192,6 +202,33 @@ describe("routing a row to its card", () => {
     });
     const { container } = render(
       <MountedInAList row={request} listDensity="collapsed" windowRows={[request, otherAnswer]} />,
+    );
+    expect(container.querySelector(".meridian-input-ask__arms")).not.toBeNull();
+    expect(container.textContent).not.toContain("This ask was answered");
+  });
+
+  it("keeps a second run's ask open when another run settled the same ask id", () => {
+    // A provider mints its ask ids per provider session, so two runs blocked at once
+    // legitimately raise `ask-09` each. Keyed on that id alone, the first run's answer
+    // settled the second run's card: it read as answered and lost its arms while its
+    // own run was still blocked with nobody able to answer it.
+    const answeredElsewhere = sampleRunRow({
+      id: "row-01",
+      runId: SECOND_RUN_ID,
+      type: "driver_ask.responded",
+      payload: { askId: "ask-09", kind: "input", response: "develop" },
+    });
+    const request = sampleRunRow({
+      id: "row-02",
+      type: "driver_ask.requested",
+      payload: { askId: "ask-09", kind: "input", prompt: "Which branch?" },
+    });
+    const { container } = render(
+      <MountedInAList
+        row={request}
+        listDensity="collapsed"
+        windowRows={[answeredElsewhere, request]}
+      />,
     );
     expect(container.querySelector(".meridian-input-ask__arms")).not.toBeNull();
     expect(container.textContent).not.toContain("This ask was answered");

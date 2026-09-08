@@ -251,7 +251,9 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
             {/* INSIDE the two row channels and around the viewport, because it is read
                 by one row body and not by the list: the ask card asks for its own ask's
                 terminal, and every other row consumes nothing here. */}
-            <LedgerAskTerminalProvider terminalsByAskId={ledgerWindow.askTerminalByAskId}>
+            <LedgerAskTerminalProvider
+              terminalsByAskIdentity={ledgerWindow.askTerminalByAskIdentity}
+            >
               <LedgerViewport
                 binding={viewport}
                 renderRow={renderRow}

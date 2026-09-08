@@ -96,7 +96,19 @@ export function runRow(
     readonly position: number;
     readonly epoch?: number;
     readonly supersededTargetPosition?: number;
-    readonly childRunIncomplete?: boolean;
+    /**
+     * A child run this row summarizes, and how complete that reading is.
+     *
+     * CHILD-FIRST rather than a per-row boolean, because the fold it drives keys per
+     * child: one child observed twice, and two children observed once each, are the
+     * shapes that separate a latest-reading derivation from an accumulated flag, and
+     * neither can be written against a flag at all. The child's own id defaults to one
+     * derived from the parent, which is the single-child case every earlier case wanted.
+     */
+    readonly childRun?: {
+      readonly childRunId?: string;
+      readonly completeness: "complete" | "incomplete";
+    };
   },
 ): TimelineRow {
   const base = {
@@ -112,21 +124,28 @@ export function runRow(
       ? {}
       : { superseded: { targetPosition: input.supersededTargetPosition } };
   const childRunSummary =
-    input.childRunIncomplete === true
-      ? {
+    input.childRun === undefined
+      ? {}
+      : {
           childRunSummary: {
-            runId: `${input.runId}-child` as RunId,
+            runId: (input.childRun.childRunId ?? `${input.runId}-child`) as RunId,
             parentRunId: input.runId as RunId,
             state: "running",
             eventCount: 1,
-            completeness: {
-              state: "incomplete",
-              cause: "pending_backfill",
-              observedAt: fixtureTimestamp(input.sequence),
-            },
+            // The incomplete arm requires a cause and an observation time and the
+            // complete arm refuses both, so the two are built rather than spread: a
+            // summary carrying a cause while claiming completeness is a row the
+            // contract's own strict arms reject.
+            completeness:
+              input.childRun.completeness === "complete"
+                ? { state: "complete" }
+                : {
+                    state: "incomplete",
+                    cause: "pending_backfill",
+                    observedAt: fixtureTimestamp(input.sequence),
+                  },
           },
-        }
-      : {};
+        };
   return { ...base, ...superseded, ...childRunSummary } as TimelineRow;
 }
 

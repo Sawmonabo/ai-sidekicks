@@ -27,7 +27,7 @@
 
 import { createContext, useContext } from "react";
 
-import { type DriverAskReading } from "./input-ask.js";
+import { askTerminalIn, type DriverAskReading } from "./input-ask.js";
 
 /**
  * The terminals one window holds, or `undefined` outside a ledger.
@@ -41,8 +41,14 @@ const LedgerAskTerminalContext = createContext<ReadonlyMap<string, DriverAskRead
 );
 
 export interface LedgerAskTerminalProviderProps {
-  /** Every settled ask in this window, keyed by `askId`. */
-  readonly terminalsByAskId: ReadonlyMap<string, DriverAskReading>;
+  /**
+   * Every settled ask in this window, keyed by the identity `input-ask.ts` composes.
+   *
+   * Never by `askId` alone: a provider mints those per provider session, so two runs
+   * blocked at once raise the same one and the key would settle both cards from one
+   * answer. The key is that module's and neither side of this context spells it.
+   */
+  readonly terminalsByAskIdentity: ReadonlyMap<string, DriverAskReading>;
   readonly children: React.ReactNode;
 }
 
@@ -51,7 +57,7 @@ export function LedgerAskTerminalProvider(
   props: LedgerAskTerminalProviderProps,
 ): React.JSX.Element {
   return (
-    <LedgerAskTerminalContext value={props.terminalsByAskId}>
+    <LedgerAskTerminalContext value={props.terminalsByAskIdentity}>
       {props.children}
     </LedgerAskTerminalContext>
   );
@@ -60,11 +66,16 @@ export function LedgerAskTerminalProvider(
 /**
  * The terminal this ask reached, or `undefined` while it is still open.
  *
- * Three states collapse into that one answer, and collapsing them is correct: the ask
- * is unsettled, no window has been folded around this row, or the terminal is this
- * row's own. In all three the request row keeps offering its answer controls, which is
- * what an ask nothing has settled is for.
+ * Four states collapse into that one answer, and collapsing them is correct: the ask
+ * is unsettled, no window has been folded around this row, the row attributed no run
+ * so nothing can settle it, or the terminal is this row's own. In all four the request
+ * row keeps offering its answer controls, which is what an ask nothing has settled is
+ * for.
+ *
+ * TAKES THE READING AND NOT AN ID, because the lookup key is the run's as well as the
+ * ask's and {@link askTerminalIn} is the one place that key is composed — a caller
+ * passing an id could only compose a second one.
  */
-export function useLedgerAskTerminal(askId: string): DriverAskReading | undefined {
-  return useContext(LedgerAskTerminalContext)?.get(askId);
+export function useLedgerAskTerminal(ask: DriverAskReading): DriverAskReading | undefined {
+  return askTerminalIn(useContext(LedgerAskTerminalContext), ask);
 }

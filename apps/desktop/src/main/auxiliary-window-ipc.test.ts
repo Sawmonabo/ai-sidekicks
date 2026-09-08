@@ -31,6 +31,14 @@ vi.mock("electron", () => electronMock.moduleExports);
  */
 const SESSION_ID = "6f1b2a4c-9d3e-4f7a-8b12-5c0e7a9d4b31";
 
+/**
+ * A second session, for the one property a single session cannot show.
+ *
+ * Every `DeckLayout` mints its panes from `pane-1`, so the interesting collision is
+ * two sessions arriving under one pane id — which needs two sessions to state.
+ */
+const SECOND_SESSION_ID = "0b7c5e21-4a86-4d19-9f33-1e2d8c6b7a40";
+
 /** The renderer that asked, as `ipcMain` hands it to a handler. */
 interface RequestingRenderer {
   readonly sender: MockBrowserWindow["webContents"];
@@ -130,6 +138,39 @@ describe("the shell's detach handler", () => {
     expect(electronMock.constructed.length).toBe(openedAfterFirst);
     // And it is brought forward, which is the whole of what a second press should do.
     expect(lastConstructedWindow().focusCount).toBe(1);
+  });
+
+  it("opens a window per session for one pane id, rather than another session's window", async () => {
+    // This registry is one registry for the whole application and every deck mints its
+    // panes from `pane-1`, so two sessions' first panes arrive under one name. Keyed on
+    // that name alone the second detach was answered with the FIRST session's window and
+    // brought it forward, and the second deck then suppressed its own pane in favour of
+    // a window showing a session it is not about.
+    const { detachPane } = await installedHandlers();
+    const renderer = requestingRenderer();
+
+    const first = detachPane(renderer, {
+      paneId: "pane-1",
+      route: "timeline",
+      sessionId: SESSION_ID,
+    });
+    const firstWindow = lastConstructedWindow();
+    const openedAfterFirst = electronMock.constructed.length;
+    const second = detachPane(renderer, {
+      paneId: "pane-1",
+      route: "timeline",
+      sessionId: SECOND_SESSION_ID,
+    });
+
+    expect(second).toStrictEqual({ windowId: "auxiliary-window-2" });
+    expect(second).not.toStrictEqual(first);
+    expect(electronMock.constructed.length).toBe(openedAfterFirst + 1);
+    expect(lastConstructedWindow().loadedUrls.at(-1)).toContain(
+      `#/window/timeline/${SECOND_SESSION_ID}/auxiliary-window-2`,
+    );
+    // And the first window stays where it was: a request that is not about it must not
+    // pull it in front of the person who is looking at something else.
+    expect(firstWindow.focusCount).toBe(0);
   });
 
   it("refuses a pane kind that is not an auxiliary route, before anything is built", async () => {

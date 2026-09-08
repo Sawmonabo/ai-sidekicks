@@ -125,7 +125,83 @@ describe("chapters — what makes a chapter terminal", () => {
         type: "run.queued",
         runId: "run-a",
         position: 1,
-        childRunIncomplete: true,
+        childRun: { completeness: "incomplete" },
+      }),
+    ]);
+    expect(chapterFor(fold.chapters, "run-a").hasIncompleteChildExpand).toBe(true);
+  });
+
+  it("clears the marker when a later row summarizes that same child as complete", () => {
+    // The card beside this header already replaces its summary with the latest reading,
+    // so an accumulated marker left the header claiming a child was not fully expanded
+    // beside a card saying its summary was complete — permanently, because no later row
+    // could ever clear a monotonic flag.
+    const fold = foldChapters([
+      runRow({
+        id: "a1",
+        sequence: 1,
+        type: "run.queued",
+        runId: "run-a",
+        position: 1,
+        childRun: { completeness: "incomplete" },
+      }),
+      runRow({
+        id: "a2",
+        sequence: 2,
+        type: "subagent.completed",
+        runId: "run-a",
+        position: 2,
+        childRun: { completeness: "complete" },
+      }),
+    ]);
+    expect(chapterFor(fold.chapters, "run-a").hasIncompleteChildExpand).toBe(false);
+  });
+
+  it("marks it again when the latest reading of that child is the incomplete one", () => {
+    // Row ORDER decides, not the set of readings: the same two observations the other
+    // way round leave the child partly expanded, and a fold that took the last row it
+    // liked rather than the last row would answer both cases the same way.
+    const fold = foldChapters([
+      runRow({
+        id: "a1",
+        sequence: 1,
+        type: "subagent.completed",
+        runId: "run-a",
+        position: 1,
+        childRun: { completeness: "complete" },
+      }),
+      runRow({
+        id: "a2",
+        sequence: 2,
+        type: "run.queued",
+        runId: "run-a",
+        position: 2,
+        childRun: { completeness: "incomplete" },
+      }),
+    ]);
+    expect(chapterFor(fold.chapters, "run-a").hasIncompleteChildExpand).toBe(true);
+  });
+
+  it("marks a chapter while ANY of its children is still incomplete", () => {
+    // Per child rather than per chapter: one child completing says nothing about
+    // another, so a fold holding one reading for the whole chapter would clear the
+    // marker the moment either child finished.
+    const fold = foldChapters([
+      runRow({
+        id: "a1",
+        sequence: 1,
+        type: "run.queued",
+        runId: "run-a",
+        position: 1,
+        childRun: { childRunId: "run-child-1", completeness: "complete" },
+      }),
+      runRow({
+        id: "a2",
+        sequence: 2,
+        type: "run.queued",
+        runId: "run-a",
+        position: 2,
+        childRun: { childRunId: "run-child-2", completeness: "incomplete" },
       }),
     ]);
     expect(chapterFor(fold.chapters, "run-a").hasIncompleteChildExpand).toBe(true);

@@ -21,10 +21,18 @@
 //      every id in that descriptor, and whether the route is IMPLEMENTED, is then
 //      `createAuxiliaryWindow`'s own admission — which also runs to completion before
 //      it constructs anything, so a bad request costs a throw and not a live window.
-//   2. **One window per pane.** A pane's body cannot be in two windows at once, so a
-//      second detach of a pane already in one answers with the handle it already has
-//      and brings that window forward. Minting a second would orphan the first and
-//      leave the deck addressing a window nobody can reach.
+//   2. **One window per pane, and a pane is a SESSION's pane.** A pane's body cannot
+//      be in two windows at once, so a second detach of a pane already in one answers
+//      with the handle it already has and brings that window forward. Minting a second
+//      would orphan the first and leave the deck addressing a window nobody can reach.
+//      Which pane that is, though, is not the local `pane-N` a deck minted: every
+//      `DeckLayout` starts at `pane-1`, and this registry is one registry for the whole
+//      application, so two sessions' first panes collided here — session B's detach was
+//      answered with session A's window, and B's deck then suppressed its own pane in
+//      favour of a window showing A's. The identity is the session-scoped one both
+//      processes share (`auxiliaryPaneIdentity`), and the session half comes off the
+//      ADMITTED launch descriptor rather than off the request, so a member the route
+//      does not carry cannot scope a record.
 //   3. **Every ending is reported, and the two endings stay apart.** A window that was
 //      asked to close reports a RETURN; a window whose renderer died reports an
 //      ERROR carrying the reason. Both reach the renderer that asked for the window,
@@ -39,6 +47,7 @@ import { ipcMain, type BrowserWindow, type WebContents } from "electron";
 
 import {
   AUXILIARY_WINDOW_CHANNELS,
+  auxiliaryPaneIdentity,
   type AuxiliaryWindowDetachRequest,
   type AuxiliaryWindowHandle,
   type AuxiliaryWindowPaneError,
@@ -70,6 +79,16 @@ export class UnknownAuxiliaryWindowError extends Error {
 /** One auxiliary window this shell is holding, and who asked for it. */
 interface HeldAuxiliaryWindow {
   readonly windowId: string;
+  /**
+   * The session-scoped identity this window is filed under.
+   *
+   * Held beside {@link HeldAuxiliaryWindow.paneId} rather than instead of it, because
+   * the two are asked different questions: this one answers "is that pane already in a
+   * window", and the deck's own local id is what the reports name — the renderer files
+   * its hand-offs per session already, so a report carrying a composite would make it
+   * decode a key the shell composed.
+   */
+  readonly paneIdentity: string;
   readonly paneId: string;
   readonly browserWindow: BrowserWindow;
   /** The renderer that asked. Every report about this window goes to it and nowhere else. */
@@ -86,7 +105,7 @@ interface HeldAuxiliaryWindow {
  * state property 2 above exists to rule out.
  */
 class AuxiliaryWindowRegistry {
-  readonly #byPaneId = new Map<string, HeldAuxiliaryWindow>();
+  readonly #byPaneIdentity = new Map<string, HeldAuxiliaryWindow>();
   readonly #byWindowId = new Map<string, HeldAuxiliaryWindow>();
   #mintedWindowCount = 0;
 
@@ -96,33 +115,43 @@ class AuxiliaryWindowRegistry {
    * The handle is minted BEFORE the window is constructed, because the window's own
    * route carries it: a detached window addresses the shell about itself by that
    * handle, and one constructed without it could only ever close itself and leave the
-   * deck holding a placeholder for a window that no longer exists.
+   * deck holding a placeholder for a window that no longer exists. It is COMMITTED
+   * only on the miss, so a second detach of a pane that is already in a window neither
+   * mints a handle nor leaves a gap in the sequence the next one takes.
+   *
+   * The descriptor is composed once, ahead of the lookup, because the identity is read
+   * off it: `auxiliaryLaunchFor` is what decides whether a route carries the session at
+   * all, and a key composed from the raw request would file an `agent-console` detach
+   * under a session its own launch dropped.
    */
   public detachPane(
     request: AuxiliaryWindowDetachRequest,
     requester: WebContents,
   ): AuxiliaryWindowHandle {
     const route = admittedRoute(request.route);
-    const existing = this.#byPaneId.get(request.paneId);
+    const windowId = `auxiliary-window-${String(this.#mintedWindowCount + 1)}`;
+    // Every id the descriptor carries is validated inside the factory, against the
+    // shared route grammar, before a window exists — so a malformed session or agent
+    // id costs a throw and not a live window pointed at a URL.
+    const launch = auxiliaryLaunchFor(route, windowId, request);
+    const paneIdentity = auxiliaryPaneIdentity(launch.sessionId, request.paneId);
+    const existing = this.#byPaneIdentity.get(paneIdentity);
     if (existing !== undefined) {
       existing.browserWindow.focus();
       return { windowId: existing.windowId };
     }
 
     this.#mintedWindowCount += 1;
-    const windowId = `auxiliary-window-${String(this.#mintedWindowCount)}`;
-    // Every id the descriptor carries is validated inside the factory, against the
-    // shared route grammar, before a window exists — so a malformed session or agent
-    // id costs a throw and not a live window pointed at a URL.
-    const browserWindow = createAuxiliaryWindow(auxiliaryLaunchFor(route, windowId, request));
+    const browserWindow = createAuxiliaryWindow(launch);
 
     const held: HeldAuxiliaryWindow = {
       windowId,
+      paneIdentity,
       paneId: request.paneId,
       browserWindow,
       requester,
     };
-    this.#byPaneId.set(request.paneId, held);
+    this.#byPaneIdentity.set(paneIdentity, held);
     this.#byWindowId.set(windowId, held);
     this.#watchEnding(held);
     return { windowId };
@@ -194,7 +223,7 @@ class AuxiliaryWindowRegistry {
 
   #forget(held: HeldAuxiliaryWindow): void {
     this.#byWindowId.delete(held.windowId);
-    this.#byPaneId.delete(held.paneId);
+    this.#byPaneIdentity.delete(held.paneIdentity);
   }
 }
 

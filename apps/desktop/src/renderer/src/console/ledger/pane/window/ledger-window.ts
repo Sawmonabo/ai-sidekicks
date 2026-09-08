@@ -161,14 +161,18 @@ export interface LedgerWindowModel {
   /** The handoff behind each row that is one, on the same dispatch. */
   readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
   /**
-   * The terminal each settled ask reached, keyed by `askId`.
+   * The terminal each settled ask reached, keyed by the run AND the ask id.
    *
    * Folded HERE and not in the card, because the fact is about the window: a request
    * row and the row that answered, expired or cancelled it are two rows, and neither
    * one can see the other. The feed publishes this to the ask rows it mounts, so a
    * request whose answer has landed renders that disposition instead of controls.
+   *
+   * The key belongs to `input-ask.ts` and is never spelled here: a provider mints ask
+   * ids per provider session, so two runs blocked at once raise one id between them,
+   * and a map keyed on that id alone settles both cards from one answer.
    */
-  readonly askTerminalByAskId: ReadonlyMap<string, DriverAskReading>;
+  readonly askTerminalByAskIdentity: ReadonlyMap<string, DriverAskReading>;
   /** The rows in log order, for find, the chapter fold, and the replay scrub. */
   readonly rows: readonly TimelineRow[];
   /** Events the registered census carries no category for. Rendered, never hidden. */
@@ -282,7 +286,7 @@ export function deriveLedgerWindow(
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),
     // Over the same scoped window, so an ask settled in another channel's log does not
     // silence a request this pane is showing.
-    askTerminalByAskId: deriveDriverAskTerminals(rows),
+    askTerminalByAskIdentity: deriveDriverAskTerminals(rows),
     rows,
     unprojectableEventCount: projection.unprojectableEventCount,
     hasUnreceivedEntries,

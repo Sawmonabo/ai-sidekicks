@@ -5,10 +5,17 @@ import { describe, expect, it } from "vitest";
 import { sampleGeneralRow, sampleRunRow } from "../row-samples.test-support.js";
 import {
   askSettledBy,
+  askTerminalIn,
   deriveDriverAskTerminals,
   readDriverAsk,
   type DriverAskReading,
 } from "./input-ask.js";
+
+/** The run every sample row carries, restated so a case can name the other one. */
+const SAMPLE_RUN_ID = "01J0000000000000000000000B";
+
+/** A second run, for the asks two parallel runs raise under one provider-local id. */
+const SECOND_RUN_ID = "01J0000000000000000000000C";
 
 /** One `driver_ask` row, with the members the wire shape declares. */
 function askRow(
@@ -25,6 +32,16 @@ function askRowWithId(
   payload: Readonly<Record<string, unknown>>,
 ): ReturnType<typeof sampleRunRow> {
   return sampleRunRow({ id: rowId, type, payload: { kind: "input", ...payload } });
+}
+
+/** The same, attributed to a run the caller names. */
+function askRowForRun(
+  runId: string,
+  rowId: string,
+  type: string,
+  payload: Readonly<Record<string, unknown>>,
+): ReturnType<typeof sampleRunRow> {
+  return sampleRunRow({ id: rowId, runId, type, payload: { kind: "input", ...payload } });
 }
 
 /**
@@ -53,6 +70,9 @@ describe("readDriverAsk", () => {
     );
     expect(ask).toEqual({
       askId: "ask-01",
+      // Off the row's own arm rather than the payload — the projection is where a run
+      // is attributed, and the answer this surface dispatches is addressed by it.
+      runId: SAMPLE_RUN_ID,
       state: "requested",
       prompt: "Which branch should this land on?",
       options: [
@@ -137,17 +157,71 @@ describe("readDriverAsk", () => {
 });
 
 describe("deriveDriverAskTerminals", () => {
-  it("keys every settled ask in the window by its own identifier", () => {
+  it("keys every settled ask in the window by its own identity", () => {
     const terminals = deriveDriverAskTerminals([
       askRowWithId("row-01", "driver_ask.requested", { askId: "ask-01", prompt: "Which branch?" }),
       askRowWithId("row-02", "driver_ask.responded", { askId: "ask-01", response: "develop" }),
       askRowWithId("row-03", "driver_ask.requested", { askId: "ask-02", prompt: "Which host?" }),
       askRowWithId("row-04", "driver_ask.expired", { askId: "ask-03" }),
     ]);
-    expect([...terminals.keys()]).toStrictEqual(["ask-01", "ask-03"]);
-    expect(terminals.get("ask-01")?.state).toBe("responded");
-    expect(terminals.get("ask-01")?.deliveredAnswer).toBe("develop");
-    expect(terminals.get("ask-03")?.state).toBe("expired");
+    // Read through the lookup the card itself uses rather than by spelling the key: the
+    // key is the module's, and a case that composed one would be asserting against its
+    // own copy of the rule under test.
+    expect(terminals.size).toBe(2);
+    const answered = askTerminalIn(terminals, readAsk(askRow("driver_ask.requested", {})));
+    expect(answered?.state).toBe("responded");
+    expect(answered?.deliveredAnswer).toBe("develop");
+    expect(
+      askTerminalIn(terminals, readAsk(askRow("driver_ask.requested", { askId: "ask-03" })))?.state,
+    ).toBe("expired");
+    expect(
+      askTerminalIn(terminals, readAsk(askRow("driver_ask.requested", { askId: "ask-02" }))),
+    ).toBeUndefined();
+  });
+
+  it("keys a terminal by its RUN as well as its ask id", () => {
+    // A provider mints ask ids per provider session, so two runs blocked at once raise
+    // `ask-01` each. Keyed on the id alone, the first run's answer settled the second
+    // run's card — it read as answered and lost its arms while its own run stayed
+    // blocked on a question nobody could now answer.
+    const terminals = deriveDriverAskTerminals([
+      askRowForRun(SECOND_RUN_ID, "row-01", "driver_ask.responded", {
+        askId: "ask-01",
+        response: "develop",
+      }),
+    ]);
+    const ownRequest = readAsk(askRow("driver_ask.requested", { prompt: "Which branch?" }));
+
+    expect(askTerminalIn(terminals, ownRequest)).toBeUndefined();
+    expect(askSettledBy(ownRequest, askTerminalIn(terminals, ownRequest)).state).toBe("requested");
+    // And the run it IS about still reads its own terminal, so the key narrows rather
+    // than hides.
+    const otherRunRequest = readAsk(
+      askRowForRun(SECOND_RUN_ID, "row-02", "driver_ask.requested", { askId: "ask-01" }),
+    );
+    expect(askTerminalIn(terminals, otherRunRequest)?.state).toBe("responded");
+  });
+
+  it("negative control: a terminal attributing no run settles nothing", () => {
+    // Without this the run-less rows would share one key and the first unattributed
+    // terminal in a window would settle every unattributed ask in it.
+    const terminals = deriveDriverAskTerminals([
+      sampleGeneralRow({
+        id: "row-01",
+        type: "driver_ask.responded",
+        payload: { askId: "ask-01", kind: "input", response: "develop" },
+      }),
+    ]);
+    const unattributed = readAsk(
+      sampleGeneralRow({
+        id: "row-02",
+        type: "driver_ask.requested",
+        payload: { askId: "ask-01", kind: "input", prompt: "Which branch?" },
+      }),
+    );
+
+    expect(terminals.size).toBe(0);
+    expect(askTerminalIn(terminals, unattributed)).toBeUndefined();
   });
 
   it("negative control: an open ask reaches the map through no row", () => {
@@ -164,7 +238,9 @@ describe("deriveDriverAskTerminals", () => {
       askRowWithId("row-01", "driver_ask.responded", { askId: "ask-01", response: "develop" }),
       askRowWithId("row-02", "driver_ask.canceled", { askId: "ask-01" }),
     ]);
-    expect(terminals.get("ask-01")?.state).toBe("responded");
+    expect(askTerminalIn(terminals, readAsk(askRow("driver_ask.requested", {})))?.state).toBe(
+      "responded",
+    );
   });
 
   it("reads no ask out of a permission row or a row of another type", () => {
@@ -193,6 +269,7 @@ describe("askSettledBy", () => {
     const terminal = readAsk(askRow("driver_ask.responded", { response: "develop" }));
     expect(askSettledBy(request, terminal)).toStrictEqual({
       askId: "ask-01",
+      runId: SAMPLE_RUN_ID,
       state: "responded",
       prompt: "Which branch should this land on?",
       options: [{ value: "develop", label: undefined }],
