@@ -25,6 +25,14 @@
 // edge, so the subject is present by construction in CI and in `pnpm test`; a bare
 // `vitest run` in a clean checkout fails here with the command that produces one,
 // exactly as the budget gate beside it does.
+//
+// IT READS TWO MODULES BECAUSE ITS SUBJECT IS TWO THINGS. `initial-graph-census.ts`
+// reads the build; `initial-graph-owners.ts` says which directory owns a module. The
+// split is `built-renderer-tree.ts`'s, one tier-mate along: a module that reads files of
+// its own may hold no opinion about what counts as renderer source, and attributing a
+// source-map path to a directory is exactly such an opinion. It also buys the
+// attribution cases below their independence — they drive planted paths and need no
+// build at all, while the census cases need one and read nothing else.
 
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,11 +45,8 @@ import {
   RENDERER_MANIFEST_RELATIVE_PATH,
   RendererBundleOutputMissingError,
 } from "../../../scripts/budget/measure-bundle.mjs";
-import {
-  OWNER_PATH_SEGMENT_LIMIT,
-  initialGraphOwnerOf,
-  readInitialGraphCensus,
-} from "./initial-graph-census.js";
+import { readInitialGraphCensus } from "./initial-graph-census.js";
+import { OWNER_PATH_SEGMENT_LIMIT, initialGraphOwnerOf } from "./initial-graph-owners.js";
 
 /** An escape for censusing an out-of-tree build; NOT an escape from censusing. */
 const rendererOutputDirectory: string =
@@ -100,7 +105,6 @@ const INITIAL_GRAPH_OWNERS: readonly string[] = [
   "console/bridge/wire-shapes",
   "console/browser",
   "console/browser/pane",
-  "console/browser/settings",
   "console/collaboration",
   "console/collaboration/channels",
   "console/collaboration/invites",
