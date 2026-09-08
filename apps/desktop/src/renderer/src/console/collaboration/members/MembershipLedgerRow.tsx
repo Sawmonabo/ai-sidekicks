@@ -1,5 +1,6 @@
 import type { MembershipUpdate } from "@ai-sidekicks/contracts";
 import { Chip, InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 import { MembershipActionsMenu } from "./MembershipActionsMenu.js";
 import { MEMBERSHIP_ROLE_NOTES, type MembershipRow } from "./members-model.js";
 import { membershipRefusalRemedy } from "./members-model.js";
@@ -11,6 +12,14 @@ export function MembershipLedgerRow(props: {
   readonly isPending: boolean;
   /** Some row's change is in flight — this one's, or a neighbour's. */
   readonly isAnyPending: boolean;
+  /**
+   * Why the shell closes every membership change, or `undefined` while nothing does.
+   *
+   * The controls carry it as their disabled reason; the SENTENCE is said once for the
+   * whole ledger by `MembershipLedger.tsx`, because the cause is the window's and one
+   * copy per membership would be the same words repeated down a list.
+   */
+  readonly updateBlock: ShellMutationBlock | undefined;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;
   readonly onApply: (update: MembershipUpdate) => void;
   readonly onDismissRefusal: () => void;
@@ -61,6 +70,7 @@ export function MembershipLedgerRow(props: {
           row={row}
           isPending={props.isPending}
           isAnyPending={props.isAnyPending}
+          updateBlock={props.updateBlock}
           onApply={props.onApply}
         />
       )}

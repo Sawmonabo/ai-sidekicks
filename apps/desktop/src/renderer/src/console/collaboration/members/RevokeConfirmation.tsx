@@ -23,8 +23,14 @@ import {
  */
 export function RevokeConfirmation(props: {
   readonly row: MembershipRow;
-  /** Some row's change is in flight, so this row's confirmation cannot be opened. */
-  readonly isAnyPending: boolean;
+  /**
+   * No membership change may be put right now, so this one cannot be opened.
+   *
+   * One boolean rather than one per cause — a row's change in flight, the shell
+   * closing every write — because the confirmation's only question is whether the act
+   * is available; the ledger says WHY, once, above the rows.
+   */
+  readonly isClosed: boolean;
   readonly onConfirm: () => void;
 }): React.JSX.Element {
   const cost =
@@ -34,7 +40,7 @@ export function RevokeConfirmation(props: {
       triggerLabel={MEMBERSHIP_ACTION_NOTES.revoke.label}
       triggerAriaLabel={`Revoke the membership of ${props.row.participantId}`}
       triggerClassName="meridian-members__revoke"
-      isDisabled={props.isAnyPending}
+      isDisabled={props.isClosed}
       title="Revoke this membership?"
       description={cost ?? "The membership ends. Nothing else about the session changes."}
       keepLabel="Keep it"

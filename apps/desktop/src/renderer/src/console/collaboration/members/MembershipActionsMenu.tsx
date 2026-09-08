@@ -3,6 +3,7 @@ import { Menu } from "@base-ui/react/menu";
 import type { MembershipId, MembershipUpdate } from "@ai-sidekicks/contracts";
 
 import { OverlayMenuPopup } from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 
 import {
   MEMBERSHIP_ACTIONS,
@@ -51,9 +52,20 @@ export function MembershipActionsMenu(props: {
    * "not now" and "this is the one running" stay two different states on screen.
    */
   readonly isAnyPending: boolean;
+  /**
+   * Why the shell closes every one of these acts, or `undefined` while nothing does.
+   *
+   * Both controls close on it for the reason `isAnyPending` closes them: an act the
+   * surface would refuse should not be offered. Its SENTENCE is the ledger's, said
+   * once above the rows.
+   */
+  readonly updateBlock: ShellMutationBlock | undefined;
   readonly onApply: (update: MembershipUpdate) => void;
 }): React.JSX.Element {
   const { row } = props;
+  // One predicate for both controls, so the menu and the confirmation cannot disagree
+  // about whether this row is actionable.
+  const isClosed = props.isAnyPending || props.updateBlock !== undefined;
   // Non-null by the caller's guard; bound once so every arm below reads the same
   // value rather than re-asserting it four times.
   const membershipId = (row.membershipId ?? "") as MembershipId;
@@ -63,7 +75,8 @@ export function MembershipActionsMenu(props: {
       <Menu.Root>
         <Menu.Trigger
           className="meridian-members__manage"
-          disabled={props.isAnyPending}
+          disabled={isClosed}
+          title={props.updateBlock?.detail}
           aria-label={`Manage the membership of ${row.participantId}`}
         >
           {props.isPending ? "Applying…" : "Manage"}
@@ -111,7 +124,7 @@ export function MembershipActionsMenu(props: {
 
       <RevokeConfirmation
         row={row}
-        isAnyPending={props.isAnyPending}
+        isClosed={isClosed}
         onConfirm={() => {
           props.onApply({ membershipId, action: "revoke" });
         }}

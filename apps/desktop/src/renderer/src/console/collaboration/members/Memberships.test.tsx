@@ -7,87 +7,24 @@
 // act on with a control they cannot find; and a ledger that rendered its own
 // controls behind a pending confirmation would offer two jobs on one screen at
 // the moment the person has to concentrate on one.
+//
+// What the supervisor's condition closes is a subject of its own and has its own
+// file beside this one, because it is a fact about the WIRE rather than about the
+// ledger — the cast and the context it drives are the same, and both come from
+// `memberships.test-support.tsx`.
 
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { SessionStore } from "../../store/index.js";
-import type { SidebarSectionContext } from "../../seats/index.js";
 import { Memberships } from "./Memberships.js";
 import type { PendingInviteConfirmation } from "../invites/InviteConfirmation.js";
-
-type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
-
-const SESSION_ID = "session-collaboration";
-
-const EMPTY_SCENARIO: FixtureScenario = {
-  id: "collaboration-members-test",
-  label: "Memberships, with nothing scripted",
-  purpose: "Drives the membership ledger against a bridge that scripts no reply.",
-  sessionId: SESSION_ID,
-  participantIdsInJoinOrder: [],
-  beats: [],
-  replies: [],
-  startedAtIso: "2026-01-01T10:05:00.000Z",
-};
-
-interface ProjectedMembership {
-  readonly participantId: string;
-  readonly role?: string;
-  readonly membershipId?: string;
-  readonly state?: string;
-}
-
-/**
- * A store holding exactly the memberships a case is about.
- *
- * The REAL store, initialised from a snapshot — not a stand-in for it. What the
- * section derives from a projection is the thing under test, so the projection
- * has to be the real one.
- */
-function storeHolding(memberships: readonly ProjectedMembership[]): SessionStore {
-  const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({
-    cursor: 0,
-    participantJoinLog: memberships.map((membership) => membership.participantId),
-    entities: memberships.map((membership) => ({
-      kind: "participant" as const,
-      id: membership.participantId,
-      ...(membership.state === undefined ? {} : { state: membership.state }),
-      body: {
-        ...(membership.role === undefined ? {} : { role: membership.role }),
-        ...(membership.membershipId === undefined ? {} : { membershipId: membership.membershipId }),
-      },
-    })),
-  });
-  return store;
-}
-
-function contextFor(store: SessionStore, bridge?: ConsoleBridge): SidebarSectionContext {
-  return {
-    sessionStore: store,
-    bridge: bridge ?? createFixtureBridge({ scenario: EMPTY_SCENARIO }),
-    openPane: () => undefined,
-    isOpen: true,
-  };
-}
-
-const OWNER_AND_COLLABORATOR: readonly ProjectedMembership[] = [
-  {
-    participantId: "participant-you",
-    role: "owner",
-    membershipId: "019b7912-0001-7000-8000-000000000001",
-    state: "active",
-  },
-  {
-    participantId: "participant-priya",
-    role: "collaborator",
-    membershipId: "019b7912-0001-7000-8000-000000000002",
-    state: "suspended",
-  },
-];
+import {
+  OWNER_AND_COLLABORATOR,
+  SESSION_ID,
+  contextFor,
+  storeHolding,
+} from "./memberships.test-support.js";
 
 describe("memberships — the facts on a row", () => {
   it("prints the role and the membership state as wire figures", () => {

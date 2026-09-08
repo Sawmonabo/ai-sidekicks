@@ -8,6 +8,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { FrameStore } from "../../store/index.js";
+import { quietShell } from "../shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import {
   INVITE_1,
@@ -21,6 +23,15 @@ import {
   settle,
 } from "./sent-invites.test-support.js";
 
+/**
+ * The shell every case in this suite runs under: one that has reported nothing.
+ *
+ * Held once rather than minted per render, so a `rerender` re-subscribes to the same
+ * store the first render read. No case here drives the supervisor — the shell's effect
+ * on the revoke control has its own suite.
+ */
+const QUIET_SHELL: FrameStore = quietShell();
+
 describe("sent invites — one revoke at a time", () => {
   /** Every revoke control on screen, read fresh after each render. */
   function revokeControls(container: HTMLElement): readonly HTMLButtonElement[] {
@@ -32,6 +43,7 @@ describe("sent invites — one revoke at a time", () => {
       <SentInvites
         bridge={bridgeServing([invite({ inviteId: INVITE_ONE }), invite({ inviteId: INVITE_TWO })])}
         sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
       />,
     );
     await settle();
@@ -81,7 +93,9 @@ describe("sent invites — one revoke at a time", () => {
 describe("sent invites — a revoke that settles", () => {
   it("moves the row into the settled ledger from the reply itself", async () => {
     const served = bridgeSettlingRevoke([invite()]);
-    const { container } = render(<SentInvites bridge={served.bridge} sessionId={SESSION_ID} />);
+    const { container } = render(
+      <SentInvites bridge={served.bridge} sessionId={SESSION_ID} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     expect(container.querySelector(".meridian-invites__row-action")).not.toBeNull();
 
@@ -98,7 +112,9 @@ describe("sent invites — a revoke that settles", () => {
 
   it("puts no second read on the wire, because the reply carried the row", async () => {
     const served = bridgeSettlingRevoke([invite()]);
-    const { container } = render(<SentInvites bridge={served.bridge} sessionId={SESSION_ID} />);
+    const { container } = render(
+      <SentInvites bridge={served.bridge} sessionId={SESSION_ID} frameStore={QUIET_SHELL} />,
+    );
     await settle();
     expect(served.invitesListCallCount()).toBe(1);
 
@@ -111,7 +127,11 @@ describe("sent invites — a revoke that settles", () => {
     // Without this, the two cases above would pass over a ledger that settled every
     // row it was asked about, refusal or not.
     const { container } = render(
-      <SentInvites bridge={bridgeServing([invite()])} sessionId={SESSION_ID} />,
+      <SentInvites
+        bridge={bridgeServing([invite()])}
+        sessionId={SESSION_ID}
+        frameStore={QUIET_SHELL}
+      />,
     );
     await settle();
 

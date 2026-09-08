@@ -23,7 +23,7 @@ import { useCallback, useId, useMemo } from "react";
 import { Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
 import { GLYPH_SIZE_CHROME, GLYPH_SIZE_ROW } from "../../tokens/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
-import { type SessionStore } from "../../store/index.js";
+import { type FrameStore, type SessionStore } from "../../store/index.js";
 import {
   type ConsolePaneOpener,
   type SidebarSectionAttention,
@@ -102,6 +102,7 @@ export interface SidebarSectionProps {
   readonly filterQuery: string;
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
+  readonly frameStore: FrameStore;
   readonly openPane: ConsolePaneOpener;
   /** Handed the disclosure element so the cursor can move focus onto it. */
   readonly registerDisclosure: (id: SidebarSectionId, element: HTMLButtonElement | null) => void;
@@ -125,6 +126,7 @@ export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
     () => ({
       sessionStore: props.sessionStore,
       bridge: props.bridge,
+      frameStore: props.frameStore,
       openPane: props.openPane,
       isOpen: props.isOpen,
       filterQuery: props.filterQuery,
@@ -133,6 +135,7 @@ export function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
     [
       props.sessionStore,
       props.bridge,
+      props.frameStore,
       props.openPane,
       props.isOpen,
       props.filterQuery,

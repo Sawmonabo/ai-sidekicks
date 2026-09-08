@@ -31,7 +31,7 @@
 
 import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { type SessionStore } from "../store/index.js";
+import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type ConsolePaneOpener } from "./pane-registry.js";
 
 // Consumed by T-023p-1C-3
@@ -83,6 +83,20 @@ export type SidebarSectionAttention = (typeof SIDEBAR_SECTION_ATTENTIONS)[number
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
   readonly bridge: ConsoleBridge;
+  /**
+   * Where this window's shell condition is published.
+   *
+   * A section that dispatches a daemon WRITE has to ask `shellBlockForMethod` about
+   * the method it names — `Spec-023 §Daemon Supervision Lifecycle` step 3 blocks
+   * mutating operations while the supervisor is not serving — and the store is the one
+   * place that answer comes from. Handed down for `openPane`'s reason: a sidebar
+   * rendered in an auxiliary window reads THAT window's shell.
+   *
+   * The STORE and not a derived block, because the question is per method: the reads a
+   * section makes stay live through the same outage that closes its writes, which a
+   * whole-window block passed down could not express.
+   */
+  readonly frameStore: FrameStore;
   /**
    * How a section's cards open panes — "each a composition of its own read,
    * opening panes". Handed down rather than imported so a sidebar rendered in an
