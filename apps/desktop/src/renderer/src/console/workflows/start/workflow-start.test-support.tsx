@@ -1,10 +1,17 @@
-// What both of the picker's suites need before they can put a press.
+// What the picker's suites need before they can put a press.
 //
-// TWO SUITES, ONE SET OF SCAFFOLDING. `WorkflowStartMenu.test.tsx` is about what the
-// menu lists, names and renders; `start-act.test.tsx` is about the window between a
-// press and its answer. Both need the same two definitions and the same start held
-// still, so that lives here rather than in whichever file was written first with the
-// other deep-importing it.
+// THREE SUITES, ONE SET OF SCAFFOLDING. `WorkflowStartMenu.test.tsx` is about what the
+// menu lists, names and renders; `WorkflowStartMenu.continuation.test.tsx` is about the
+// pages past the first and what a refused one leaves offered; `start-act.test.tsx` is
+// about the window between a press and its answer. They need the same two definitions,
+// the same start held still, and the same mount, so those live here rather than in
+// whichever file was written first with the others deep-importing it.
+//
+// IT IS A `.tsx` BECAUSE THE MOUNT IS. The two menu suites each had their own copy of
+// `mountMenu` the moment there were two of them, which is the second implementation the
+// hoist rule exists to prevent: the session a picker is addressed at and the settle it
+// waits for are one decision, and two copies are two places to change it and one to
+// forget.
 //
 // THE PORTS ARE THE CONSOLE'S OWN — `createRefusingGrowthPort` spread with the one
 // operation a case is about — rather than objects shaped like a port. A stand-in would
@@ -16,11 +23,32 @@
 // into it; the act's suite needs the whole thing. Handing back both is one object rather
 // than two factories that would have to agree about how a start behaves.
 
+import { render } from "@testing-library/react";
+
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { growthUnavailableFromRejection, type GrowthPort } from "../../bridge/index.js";
 import type { WireErrorEnvelope } from "../../core/index.js";
 import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
-import { definition } from "../workflows-probe.test-support.js";
+import { PROBE_SESSION_ID, definition, settle } from "../workflows-probe.test-support.js";
+import { WorkflowStartMenu } from "./WorkflowStartMenu.js";
+
+/**
+ * Mount the picker over one port and let its enumeration settle.
+ *
+ * The session is the family's one probe id and is not a parameter: every case in both
+ * menu suites is about a picker the composer has already addressed, and a suite that
+ * chose its own would be asserting about a session its neighbours are not.
+ */
+export async function mountMenu(
+  growth: GrowthPort,
+  channelId: string | undefined = undefined,
+): Promise<HTMLElement> {
+  const { container } = render(
+    <WorkflowStartMenu growth={growth} sessionId={PROBE_SESSION_ID} channelId={channelId} />,
+  );
+  await settle();
+  return container;
+}
 
 /** The definition a first press names. */
 export const RELEASE_DEFINITION: WorkflowDefinitionRow = definition({

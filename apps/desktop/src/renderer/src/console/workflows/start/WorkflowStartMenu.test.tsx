@@ -10,8 +10,13 @@
 // nothing at all. Here the daemon's sentence is carried verbatim and the public role
 // matrix renders beside it — and, the half that is easy to lose, the matrix renders for
 // THAT code and not for every refusal a start can meet.
+//
+// THE PAGES PAST THE FIRST ARE NEXT DOOR, in `WorkflowStartMenu.continuation.test.tsx`:
+// a second page is another wire with its own four states, and the one case here about
+// the continuation is the one this suite's subject decides — whether the control is
+// offered at all.
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
@@ -22,8 +27,7 @@ import {
   portAnswering,
   settle,
 } from "../workflows-probe.test-support.js";
-import { WorkflowStartMenu } from "./WorkflowStartMenu.js";
-import { START_DEFINITIONS, heldStartPort } from "./workflow-start.test-support.js";
+import { START_DEFINITIONS, heldStartPort, mountMenu } from "./workflow-start.test-support.js";
 
 afterEach(cleanup);
 
@@ -33,18 +37,6 @@ const PROBE_CHANNEL_ID = "019b7a12-0280-75e5-8510-ada11a5a34c1";
 /** The two scoped names the picker gives its controls, as a person hears them. */
 const RELEASE_CONTROL = "Start Release checklist from the session scope";
 const AUDIT_CONTROL = "Start Quarterly audit from the project scope";
-
-/** Mount the picker over one port and let its enumeration settle. */
-async function mountMenu(
-  growth: GrowthPort,
-  channelId: string | undefined = undefined,
-): Promise<HTMLElement> {
-  const { container } = render(
-    <WorkflowStartMenu growth={growth} sessionId={PROBE_SESSION_ID} channelId={channelId} />,
-  );
-  await settle();
-  return container;
-}
 
 describe("the composer's workflow picker", () => {
   it("lists the definitions this session can start, each with the scope it resolves from", async () => {

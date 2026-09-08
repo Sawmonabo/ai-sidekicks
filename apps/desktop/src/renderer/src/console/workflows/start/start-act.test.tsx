@@ -59,12 +59,13 @@ function observeStart(
 ): {
   readonly latest: () => WorkflowStartDispatch;
   readonly readdress: (next: string) => void;
+  readonly closeAndReopen: () => void;
 } {
   const observed: WorkflowStartDispatch[] = [];
   const collect = (dispatch: WorkflowStartDispatch): void => {
     observed.push(dispatch);
   };
-  const view = render(<StartProbe growth={growth} sessionId={sessionId} onObserve={collect} />);
+  let view = render(<StartProbe growth={growth} sessionId={sessionId} onObserve={collect} />);
   return {
     latest: () => {
       const current = observed.at(-1);
@@ -75,6 +76,13 @@ function observeStart(
     },
     readdress: (next) => {
       view.rerender(<StartProbe growth={growth} sessionId={next} onObserve={collect} />);
+    },
+    // WHAT THE `+` DISCLOSURE DOES, which is an unmount and a fresh mount rather than a
+    // re-render: the menu renders its panel only while open, so the picker is absent
+    // from the tree between a close and the next open.
+    closeAndReopen: () => {
+      view.unmount();
+      view = render(<StartProbe growth={growth} sessionId={sessionId} onObserve={collect} />);
     },
   };
 }
@@ -172,6 +180,56 @@ describe("one start is in flight at a time, whichever row the second press lands
     // A key held for the life of the port would leave the picker permanently unable to
     // start anything after one call that threw instead of answering.
     expect(port.requests).toHaveLength(2);
+  });
+
+  it("holds the flight across a close and reopen of the disclosure", async () => {
+    // THE DEFECT THIS CASE EXISTS FOR. The `+` menu renders the picker only while open,
+    // so closing and reopening it unmounts and recreates the body — and a guard held in
+    // that body starts idle every time, which let a second press dispatch a second
+    // non-idempotent start while the first was still running.
+    const port = heldStartPort();
+    const started = observeStart(port.growth, PROBE_SESSION_ID);
+
+    await act(async () => {
+      started.latest().start(RELEASE_DEFINITION);
+    });
+    started.closeAndReopen();
+
+    // The reopened picker reads the SAME act, so its rows are closed for the same
+    // reason and it names the definition that is starting.
+    const reopened = started.latest().act;
+    expect(reopened.status).toBe("starting");
+    if (reopened.status !== "starting") {
+      throw new Error("the reopened picker lost the outstanding start");
+    }
+    expect(reopened.definitionName).toBe(RELEASE_DEFINITION.name);
+
+    await act(async () => {
+      started.latest().start(AUDIT_DEFINITION);
+    });
+
+    expect(port.requests).toHaveLength(1);
+  });
+
+  it("forgets a settled act once the disclosure closes, so a reopened picker offers every row", async () => {
+    // The other half of the rule: what outlives the disclosure is the FLIGHT and not the
+    // receipt. A picker reopened long after a start landed would otherwise present a
+    // stale run id as though it were news.
+    const port = heldStartPort();
+    const started = observeStart(port.growth, PROBE_SESSION_ID);
+
+    await act(async () => {
+      started.latest().start(RELEASE_DEFINITION);
+    });
+    await act(async () => {
+      port.serve();
+    });
+    await settle();
+    expect(started.latest().act.status).toBe("started");
+
+    started.closeAndReopen();
+
+    expect(started.latest().act.status).toBe("idle");
   });
 
   it("negative control: one session's outstanding start does not refuse another's first press", async () => {

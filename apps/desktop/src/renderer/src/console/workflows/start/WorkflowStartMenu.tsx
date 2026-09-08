@@ -35,19 +35,33 @@
 // row control in this console names itself.
 //
 // A START IN FLIGHT CLOSES EVERY ROW AND THE REASON IS SAID ONCE. The rows are one
-// control surface taking one start at a time (`start-act.ts` holds that rule and the
+// control surface taking one start at a time (`start-flight.ts` holds that rule and the
 // guard that enforces it), so while one is outstanding the others would be presses that
 // went nowhere. The cause is a sentence for the LIST rather than a copy per row: it is
 // one fact about the picker, and it names the definition that is starting, which is the
 // half a person needs. The continuation control is deliberately left alone — reading the
 // next page is another wire and closing it would be a guess about a call this guard says
 // nothing about.
+//
+// AND A REFUSED PAGE IS A FACT ABOUT ONE PAGE, WHICH IS WHY IT IS DRAWN BESIDE THE
+// CONTROL AND NOT INSTEAD OF THE LIST. The directory keeps the cursor a refused
+// continuation was asked with — the refusal was about the page, never about the handle —
+// so the same ask is exactly what a person retries. This menu used to render the
+// continuation only on the `available` arm and a refusal only when the WHOLE directory
+// was unavailable, so a refused second page vanished: the rows stayed, nothing said the
+// rest had failed to arrive, and the definitions past the first page were unreachable
+// again. All three live arms now reach the screen through one control — offered, closed
+// while its page is in flight, and offered again under the daemon's own sentence.
 
 import { Chip, InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import type { GrowthPort } from "../../bridge/index.js";
-import { useWorkflowDefinitionDirectory } from "../definitions/definition-directory.js";
+import {
+  useWorkflowDefinitionDirectory,
+  type WorkflowDefinitionContinuation,
+} from "../definitions/definition-directory.js";
 import { WorkflowStartDenial } from "./WorkflowStartDenial.js";
-import { useWorkflowStartAct, type WorkflowStartAct } from "./start-act.js";
+import { useWorkflowStartAct } from "./start-act.js";
+import type { WorkflowStartAct } from "./start-flight.js";
 
 export interface WorkflowStartMenuProps {
   /**
@@ -126,18 +140,63 @@ export function WorkflowStartMenu(props: WorkflowStartMenuProps): React.JSX.Elem
           ))}
         </ul>
       ) : null}
-      {state.status === "served" && state.continuation.status === "available" ? (
-        <button
-          type="button"
-          className="meridian-workflow-start-menu__more"
-          onClick={directory.continueReading}
-        >
-          Show more definitions
-        </button>
-      ) : null}
+      {state.status === "served"
+        ? renderContinuation(state.continuation, directory.continueReading)
+        : null}
       {renderAct(dispatch.act)}
     </div>
   );
+}
+
+/**
+ * What lies past the pages on screen, and the one control that asks for it.
+ *
+ * ONE CONTROL ACROSS THREE ARMS rather than a control on one of them and nothing on the
+ * rest. `exhausted` has nothing to ask for and renders nothing, which is the
+ * absent-not-disabled rule. The other three are the same ask in three conditions — it
+ * may be made, it has been made and is running, it was refused and may be made again —
+ * and a surface that dropped the control on two of them left a person with no way to
+ * reach the rest of the enumeration and nothing on screen saying why.
+ *
+ * THE REFUSAL IS INLINE AND CARRIES THE CONTROL AS ITS NEXT MOVE, which is what the
+ * inline shape is for: nothing changed, the rows already served are still true, and the
+ * act can be tried again. The label does not change with the arm — it is the same ask,
+ * and a control that renamed itself after a refusal would read as a second thing to
+ * press.
+ *
+ * A function rather than a component, on `renderAct`'s own precedent: it is one of this
+ * menu's regions and not a body with a life of its own.
+ */
+function renderContinuation(
+  continuation: WorkflowDefinitionContinuation,
+  continueReading: () => void,
+): React.ReactNode {
+  if (continuation.status === "exhausted") {
+    return null;
+  }
+  const more = (
+    <button
+      type="button"
+      className="meridian-workflow-start-menu__more"
+      // Closed only while the page it asked for is in flight: the hook refuses a second
+      // request for a page already running, so an open control there would be a press
+      // that went nowhere.
+      disabled={continuation.status === "reading"}
+      onClick={continueReading}
+    >
+      Show more definitions
+    </button>
+  );
+  if (continuation.status === "unavailable") {
+    return (
+      <InlineRefusal
+        code={continuation.refusal.code}
+        detail={continuation.refusal.detail}
+        action={more}
+      />
+    );
+  }
+  return more;
 }
 
 /**
