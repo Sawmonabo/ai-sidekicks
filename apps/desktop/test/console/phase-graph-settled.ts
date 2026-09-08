@@ -11,8 +11,9 @@
 // WHY A READER NEEDS THIS AT ALL. The run pane's phase graph is a lazily-loaded
 // chunk: the pane renders its absence primitive immediately, `import()`s the graph
 // renderer, and mounts the canvas when it arrives. `surfaces/workflows.tsx` waits for
-// the run READ — the park banner — which lands about a hundred milliseconds before
-// the chunk does, so nothing between that wait and the read waits for the picture.
+// the run READ — the park banner — and for every pane BODY still in flight, but the
+// graph renderer is neither: it is a chunk the body fetches for itself and it stamps
+// no pending-body marker, so nothing in the mount helper's wait waits for the picture.
 //
 // FOR AN AUDIT, THAT IS THE WHOLE SUBJECT MISSING. A tier that runs over the surface
 // at the mount helper's own return audits a loading placeholder: the canvas, its

@@ -21,6 +21,17 @@
 // frame, and no layout engine, and every claim below is measured on all three. The
 // browser tier is where "geometry a DOM shim cannot answer" already lives — the run
 // pane's own graph-box case is its neighbour — and it is on the aggregate.
+//
+// THE UNSETTLED STATE IS MANUFACTURED, NEVER RACED FOR. An earlier form of the first
+// case read the predicate straight after the mount and expected `false`, on the
+// grounds that the graph chunk lands after the run read does. That was a claim about
+// which of two fetches finishes first, and it held only while the mount helper
+// returned on the read: once the helper also waited for the pane's form body, whose
+// chunk is fetched beside the graph's, the graph was usually fitted by the time the
+// helper returned and the assertion flipped on the runner. A negative control that
+// depends on the order two chunks arrive in is not a control. So every unsettled
+// state below is produced through the cascade — the collapsing rule — where it is
+// exact, reversible, and independent of what the network did.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -40,7 +51,7 @@ import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-sett
  * A STYLESHEET RATHER THAN A REWRITTEN ELEMENT, so the collapse is reached the way the
  * real one was: through the cascade, over the shipped rule, at equal specificity and
  * later in the sheet order. Marked so the file's teardown finds it however a case
- * ended.
+ * ended, and so a case that lifts the collapse itself lifts exactly what it planted.
  */
 function collapseEveryGraphCanvas(): void {
   const collapsingRule = document.createElement("style");
@@ -49,21 +60,59 @@ function collapseEveryGraphCanvas(): void {
   document.head.append(collapsingRule);
 }
 
-afterEach(() => {
+/** Lift every collapse this file planted, so the graph's box is the pane's own again. */
+function restoreEveryGraphCanvas(): void {
   for (const injected of document.head.querySelectorAll("style[data-collapsed-graph]")) {
     injected.remove();
   }
+}
+
+/**
+ * How long the wait is watched for an early return before the collapse is lifted.
+ *
+ * Longer than the settle's own polling interval by a wide margin — `waitFor` re-reads
+ * every 50 ms and on every DOM mutation — so a wait that returned on a false reading
+ * has had many chances to do so before the timer wins, and short enough that a correct
+ * wait costs the case a fraction of its budget rather than most of it.
+ */
+const EARLY_RETURN_WATCH_MS = 300;
+
+/** Whether a promise settles before a bounded timer does. */
+async function settlesWithin(pending: Promise<unknown>, milliseconds: number): Promise<boolean> {
+  return Promise.race([
+    pending.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), milliseconds);
+    }),
+  ]);
+}
+
+afterEach(() => {
+  restoreEveryGraphCanvas();
 });
 
 describe("the capture's phase-graph readiness", () => {
-  it("is not satisfied by the mount helper's own wait, and is after the fit", async () => {
+  it("holds while the picture is off screen, and resolves once it is back", async () => {
     const mounted = await mountWorkflowParkedRunPane();
-    // The negative control, and the whole reason the helper exists: the run read has
-    // landed, the park banner is on screen, and the graph is not there yet — so a
-    // capture taken here pins a frame of the chunk's arrival rather than the picture.
-    expect(isPhaseGraphSettled(mounted.element)).toBe(false);
-
     await awaitPhaseGraphSettled(mounted.element);
+    expect(isPhaseGraphSettled(mounted.element)).toBe(true);
+
+    // The negative control, and the whole reason the helper exists. The graph is
+    // fitted — that transform stays on the viewport throughout — and its picture is
+    // taken away, so a wait that read the style attribute alone would return here at
+    // once. It must not: for as long as the box is empty the wait is still pending.
+    collapseEveryGraphCanvas();
+    expect(isPhaseGraphSettled(mounted.element)).toBe(false);
+    const waitingForThePicture = awaitPhaseGraphSettled(mounted.element);
+    expect(await settlesWithin(waitingForThePicture, EARLY_RETURN_WATCH_MS)).toBe(false);
+
+    // And it is a wait rather than a refusal: the picture coming back is what resolves
+    // it, without a second call and without the mount being touched.
+    restoreEveryGraphCanvas();
+    await waitingForThePicture;
     expect(isPhaseGraphSettled(mounted.element)).toBe(true);
 
     // Fitted AND still: the transform the capture will read is the one the last
