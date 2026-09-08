@@ -1,28 +1,19 @@
-// What happens to a walk when the projection under it moves.
+// What happens to a walk when the LOG under it grows.
 //
-// The subject is `useLedgerReplay`'s frozen set: which changes a walk survives, which
-// it counts as arrivals, and which re-mint the engine at the position the replaced
-// one held. What one POSITION reveals of a folded chapter is
-// `ledger-replay-reveal.test.ts`', and what the engine leaves armed on a pass that
+// The subject is `useLedgerReplay`'s frozen set: which arrivals a walk freezes out,
+// which it counts, and what the one exit that reaches them does. What happens when
+// the FOLD or the FILTER moves over a log that did not is
+// `ledger-replay-window.fold.test.ts`', what one POSITION reveals of a folded chapter
+// is `ledger-replay-reveal.test.ts`', and what the engine leaves armed on a pass that
 // never reached the screen is `ledger-replay-engine-lifetime.test.tsx`'.
 
-import { act, render, renderHook } from "@testing-library/react";
-import { createElement } from "react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ReplayControls, type ReplayPosition } from "../../structure/index.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
-import { foldChapterHeaders } from "../feed/ledger-chapter-fold.js";
 import { ledgerFixtureStampAt } from "../feed/ledger-feed-logs.test-support.js";
-import { isReplayEngaged } from "./ledger-replay-reveal.js";
 import { type LedgerReplayInputs, type LedgerReplayState } from "./ledger-replay-window.js";
-import {
-  CHAPTER_RUN_ID,
-  CHAPTERED_SESSION_ID,
-  ONE_ROW_MS,
-  chapteredLog,
-  mountReplayOver,
-} from "./ledger-replay.test-support.js";
+import { ONE_ROW_MS, mountReplayOver } from "./ledger-replay.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../window/ledger-window.js";
 
 describe("a replay across a projection change", () => {
@@ -172,191 +163,5 @@ describe("a replay across a projection change", () => {
     expect(replay.result.current.position.state).toBe("idle");
     expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(0);
     expect(revealedAtEndOfWalk(replay)).toContain(ADMITTED_ROW_ID);
-  });
-});
-
-/**
- * What the replay dock's primary control offers at one position.
- *
- * The REAL control rather than a reading of the state beside it: what a person is
- * offered at the end of a walk is the claim, and the state is only how the dock
- * decides it. A case that asserted the state alone would pass over a dock that
- * labelled `at-tail` as a resume.
- */
-function primaryDockOffer(position: ReplayPosition): string {
-  const { container } = render(
-    createElement(ReplayControls, {
-      position,
-      isRevealed: true,
-      onPlay: () => undefined,
-      onPause: () => undefined,
-      onSpeedChange: () => undefined,
-      onScrub: () => undefined,
-      onJumpToNextSeam: () => undefined,
-      onReplayFromRowInView: () => undefined,
-    }),
-  );
-  const primary = container.querySelector(".meridian-replay__primary");
-  return primary?.getAttribute("aria-label") ?? "";
-}
-
-describe("a replay across a fold or a filter change", () => {
-  /**
-   * The chapter's own message row — in the loaded log, out of the shut window.
-   *
-   * The row the disclosure is FOR, so it is what both claims here are about: it must
-   * not be counted as an arrival, and it must be reachable once the chapter opens.
-   */
-  const CHAPTER_MEMBER_ROW_ID = "e2";
-
-  /**
-   * The three windows one disclosure moves between, over ONE loaded log.
-   *
-   * The loaded window is minted once and handed to both arms by identity, which is
-   * the whole instrument: a fold change is exactly the case where the log did not
-   * move, and two projections of the same events would make it look like one that
-   * did.
-   */
-  function chapterDisclosure(): {
-    readonly loadedWindow: LedgerWindowModel;
-    readonly shut: LedgerWindowModel;
-    readonly open: LedgerWindowModel;
-  } {
-    const loadedWindow = deriveLedgerWindow(chapteredLog(), false);
-    return {
-      loadedWindow,
-      shut: foldChapterHeaders(loadedWindow, new Set<string>()).window,
-      open: foldChapterHeaders(loadedWindow, new Set([CHAPTER_RUN_ID])).window,
-    };
-  }
-
-  it("counts no arrival when a chapter is disclosed under a walk", () => {
-    // THE DEFECT: the walk was frozen over the FOLDED window, so opening a chapter
-    // put its members in the window and in no walk — and the ledger announced that
-    // the session had moved on and N entries had arrived, which it had not and they
-    // had not.
-    const { loadedWindow, shut, open } = chapterDisclosure();
-    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
-    act(() => {
-      replay.result.current.scrub(Number.MAX_SAFE_INTEGER);
-    });
-
-    act(() => {
-      replay.rerender({ ledgerWindow: open, loadedWindow });
-    });
-
-    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(0);
-  });
-
-  it("reveals the members of a chapter disclosed at the end of the walk", () => {
-    // The same defect's other half: at the end of the walk the header is admitted,
-    // so the disclosure is live — and pressing it opened a chapter whose rows the
-    // engine had never heard of, so the reveal dropped every one of them and the
-    // chapter opened onto nothing.
-    const { loadedWindow, shut, open } = chapterDisclosure();
-    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
-    act(() => {
-      replay.result.current.scrub(Number.MAX_SAFE_INTEGER);
-    });
-    expect(replay.result.current.position.revealedRowIds).not.toContain(CHAPTER_MEMBER_ROW_ID);
-
-    act(() => {
-      replay.rerender({ ledgerWindow: open, loadedWindow });
-    });
-
-    expect(replay.result.current.position.revealedRowIds).toContain(CHAPTER_MEMBER_ROW_ID);
-    // And the walk is still a walk: the position it was at is the position it is at.
-    expect(isReplayEngaged(replay.result.current.position.state)).toBe(true);
-  });
-
-  it("leaves a walk disclosed at the tail still at the tail", () => {
-    // THE REGRESSION THIS CLOSES. The re-minted engine could only be scrubbed to the
-    // position the replaced one held, and `at-tail` was reachable only by ADVANCING
-    // into it — so disclosing a chapter while following the tail settled `paused`,
-    // and the dock offered to resume a walk with nothing left to play.
-    const { loadedWindow, shut, open } = chapterDisclosure();
-    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
-    act(() => {
-      replay.result.current.scrub(Number.MAX_SAFE_INTEGER);
-    });
-    expect(replay.result.current.position.state).toBe("at-tail");
-
-    act(() => {
-      replay.rerender({ ledgerWindow: open, loadedWindow });
-    });
-
-    expect(replay.result.current.position.state).toBe("at-tail");
-    expect(primaryDockOffer(replay.result.current.position)).toBe("Replay from the beginning");
-  });
-
-  it("negative control: a walk paused mid-log re-mints paused where it was", () => {
-    // Without this the fix could be "always settle at the tail", which would tell
-    // somebody parked halfway through a session that there was nothing left to play.
-    const { loadedWindow, shut, open } = chapterDisclosure();
-    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
-    act(() => {
-      replay.result.current.scrub(ONE_ROW_MS);
-    });
-    expect(replay.result.current.position.state).toBe("paused");
-
-    act(() => {
-      replay.rerender({ ledgerWindow: open, loadedWindow });
-    });
-
-    expect(replay.result.current.position.state).toBe("paused");
-    expect(replay.result.current.position.elapsedMs).toBe(ONE_ROW_MS);
-    expect(primaryDockOffer(replay.result.current.position)).toBe("Resume the replay");
-  });
-
-  it("carries a playing walk across the disclosure at the position it held", () => {
-    const { loadedWindow, shut, open } = chapterDisclosure();
-    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
-    act(() => {
-      replay.result.current.scrub(2 * ONE_ROW_MS);
-      replay.result.current.play();
-    });
-    const elapsedBeforeDisclosure = replay.result.current.position.elapsedMs;
-
-    act(() => {
-      replay.rerender({ ledgerWindow: open, loadedWindow });
-    });
-
-    expect(replay.result.current.position.state).toBe("playing");
-    expect(replay.result.current.position.elapsedMs).toBe(elapsedBeforeDisclosure);
-  });
-
-  it("negative control: a walk still freezes out a row the log admitted", () => {
-    // Without this the fix could have been "follow the window", which would have
-    // re-minted on every admitted event too — and a replay would be interrupted by
-    // the session at the one moment nobody is looking at the dock.
-    const { loadedWindow, shut } = chapterDisclosure();
-    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
-    act(() => {
-      replay.result.current.scrub(ONE_ROW_MS);
-    });
-    const grownLoadedWindow = deriveLedgerWindow(
-      [
-        ...chapteredLog(),
-        {
-          id: "e5",
-          sessionId: CHAPTERED_SESSION_ID,
-          sequence: 5,
-          kind: "user.message",
-          occurredAt: ledgerFixtureStampAt(5),
-          payload: {},
-        },
-      ],
-      false,
-    );
-
-    act(() => {
-      replay.rerender({
-        ledgerWindow: foldChapterHeaders(grownLoadedWindow, new Set<string>()).window,
-        loadedWindow: grownLoadedWindow,
-      });
-    });
-
-    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(1);
-    expect(replay.result.current.position.elapsedMs).toBe(ONE_ROW_MS);
   });
 });

@@ -12,7 +12,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../../core/index.js";
-import { ReplayEngine, type ReplayPosition, type ReplayRow } from "./replay-model.js";
+import { ReplayEngine, type ReplayPosition } from "./replay-model.js";
+import { type ReplayRow } from "./replay-row-clock.js";
 import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import { LedgerSeamIndex } from "../seams/seams.js";
 
@@ -286,10 +287,9 @@ describe("replay — jump to the next seam", () => {
     expect(outOfClockOrder.position().elapsedMs).toBe(WINDOW_SPAN_MS);
   });
 
-  it("keeps the log's order between seams that share an instant", () => {
-    // The comparison is strict for this: two seams at one instant are not a
-    // question the clock can answer, so the log answers it.
-    const sharedInstant = new ReplayEngine({
+  /** Two seams recorded in the same millisecond, which the clock cannot order. */
+  function engineOverOneSharedInstant(): ReplayEngine {
+    return new ReplayEngine({
       clock: new ManualClock(),
       rows: [
         { rowId: "r1", occurredAt: "2026-01-01T09:00:00.000Z" },
@@ -297,7 +297,37 @@ describe("replay — jump to the next seam", () => {
         { rowId: "r3", occurredAt: "2026-01-01T09:00:10.000Z" },
       ],
     });
+  }
+
+  it("keeps the log's order between seams that share an instant", () => {
+    // The comparison is strict for this: two seams at one instant are not a
+    // question the clock can answer, so the log answers it.
+    expect(engineOverOneSharedInstant().jumpToNextSeam(seams)?.rowId).toBe("r2");
+  });
+
+  it("reaches both seams of one instant, one press each", () => {
+    // THE DEFECT: the first press scrubbed the position onto the shared offset, and
+    // the guard then refused every seam at that instant for the rest of the walk —
+    // so the second of two seams recorded in the same millisecond was unreachable
+    // by any number of presses, which is the opposite of the log-order tie this
+    // method claims to keep.
+    const sharedInstant = engineOverOneSharedInstant();
     expect(sharedInstant.jumpToNextSeam(seams)?.rowId).toBe("r2");
+    expect(sharedInstant.jumpToNextSeam(seams)?.rowId).toBe("r3");
+    expect(sharedInstant.position().elapsedMs).toBe(10_000);
+    // And the instant is then spent: a third press has nowhere left to go.
+    expect(sharedInstant.jumpToNextSeam(seams)).toBeUndefined();
+  });
+
+  it("negative control: a scrub onto that instant offers neither of its seams", () => {
+    // Without this the fix could have been a widened comparison, which would make
+    // the control offer to jump to the seam the position is already sitting on —
+    // a press that reports a move and moves nothing. What admits the second seam is
+    // having just jumped to the first, not merely standing at their offset.
+    const sharedInstant = engineOverOneSharedInstant();
+    sharedInstant.scrubTo(10_000);
+    expect(sharedInstant.jumpToNextSeam(seams)).toBeUndefined();
+    expect(sharedInstant.position().elapsedMs).toBe(10_000);
   });
 
   it("negative control: a monotonic window jumps in exactly the order it always did", () => {

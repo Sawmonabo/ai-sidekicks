@@ -26,13 +26,9 @@
 //     frozen clock in the fixture and in every test, so a replay is deterministic
 //     rather than wall-clock-dependent.
 
-import {
-  compareInstants,
-  parseInstant,
-  type ConsoleClock,
-  type ScheduledHandle,
-} from "../../../core/index.js";
+import { type ConsoleClock, type ScheduledHandle } from "../../../core/index.js";
 import { REPLAY_FRAME_INTERVAL_MS } from "../structure-bounds.js";
+import { ReplayRowClock, type ReplayRow } from "./replay-row-clock.js";
 import type { LedgerSeam } from "../seams/index.js";
 
 /**
@@ -62,13 +58,6 @@ export type ReplayState = (typeof REPLAY_STATES)[number];
 export const REPLAY_GRANULARITIES = ["turn", "stream"] as const;
 
 export type ReplayGranularity = (typeof REPLAY_GRANULARITIES)[number];
-
-/** One row the replay can reveal, reduced to what playback orders by. */
-export interface ReplayRow {
-  readonly rowId: string;
-  /** Wire-verbatim ISO instant. Playback orders by this and by nothing else. */
-  readonly occurredAt: string;
-}
 
 /** What the replay control renders. */
 export interface ReplayPosition {
@@ -109,26 +98,31 @@ export interface ReplayEngineOptions {
  */
 export class ReplayEngine {
   readonly #clock: ConsoleClock;
-  readonly #rowsInOrder: readonly ReplayRow[];
-  readonly #offsetsMs: readonly number[];
-  /**
-   * Where each row sits in the ordered window, keyed by its id.
-   *
-   * Built once, because every caller that names a row — a seam jump, "replay from
-   * here", the timestamp the control renders — otherwise scans the window, and the
-   * seam jump scanned it once per seam on every press. A repeated row id is a
-   * projection defect; the first occurrence wins, which is the row the ordering
-   * put first.
-   */
-  readonly #rowIndexByRowId: ReadonlyMap<string, number>;
+  /** Where the walk's rows sit on the replay clock — `replay-row-clock.ts`'s job. */
+  readonly #rowClock: ReplayRowClock;
   readonly #granularity: ReplayGranularity;
   readonly #onPositionChange: ((position: ReplayPosition) => void) | undefined;
   readonly #frameIntervalMs: number;
-  readonly #spanMs: number;
 
   #state: ReplayState = "idle";
   #speed: ReplaySpeed = 1;
   #elapsedMs = 0;
+  /**
+   * The seam the jump control last landed on, and the offset it landed at.
+   *
+   * BESIDE THE ELAPSED TIME BECAUSE THE CLOCK CANNOT SEPARATE SEAMS THAT SHARE AN
+   * INSTANT. `jumpToNextSeam` scrubs, so after landing on the first of them the
+   * position IS their offset, and a rule stated in elapsed time alone can only either
+   * refuse every seam at that instant — stranding the rest for the whole walk — or
+   * admit the one it is already standing on. The row this jump reached is the third
+   * fact that tells those apart.
+   *
+   * PAIRED WITH THE OFFSET SO IT INVALIDATES ITSELF. It answers one question — which
+   * seams of THIS instant are already behind the position — so it is read only while
+   * the position is still the one the jump left, and a scrub or an advancing frame
+   * retires it with no clearing step anywhere.
+   */
+  #seamJustJumpedTo: { readonly rowId: string; readonly atElapsedMs: number } | undefined;
   #armedHandle: ScheduledHandle | undefined;
   #disposed = false;
 
@@ -137,35 +131,7 @@ export class ReplayEngine {
     this.#granularity = options.granularity ?? "turn";
     this.#onPositionChange = options.onPositionChange;
     this.#frameIntervalMs = options.frameIntervalMs ?? REPLAY_FRAME_INTERVAL_MS;
-
-    // Ordered by `occurredAt`, which is what playback reveals in — a
-    // sequence order would be the log's order, and the two differ wherever the
-    // daemon admitted rows out of wall-clock order.
-    // Parsed ONCE per row rather than three times: the sort comparator, the base,
-    // and the offset all read the same instant, and `parseInstant` answers a
-    // reading rather than a number that may be `NaN`.
-    const readRows = options.rows.map((row) => ({ row, instant: parseInstant(row.occurredAt) }));
-    const rowsInOrder = [...readRows].sort((left, right) =>
-      compareInstants(left.instant, right.instant),
-    );
-    const firstMs = rowsInOrder[0]?.instant.epochMilliseconds ?? 0;
-    const offsets = rowsInOrder.map(({ instant }) =>
-      // An unreadable instant lands at the head rather than at `NaN`: the row is
-      // still part of the session and dropping it would make replay show fewer
-      // rows than the ledger does. `compareInstants` has already put such rows
-      // last in the order, so the head they land at is the playback's own start.
-      instant.epochMilliseconds === undefined ? 0 : instant.epochMilliseconds - firstMs,
-    );
-    const rowIndexByRowId = new Map<string, number>();
-    for (const [index, { row }] of rowsInOrder.entries()) {
-      if (!rowIndexByRowId.has(row.rowId)) {
-        rowIndexByRowId.set(row.rowId, index);
-      }
-    }
-    this.#rowsInOrder = rowsInOrder.map(({ row }) => row);
-    this.#offsetsMs = offsets;
-    this.#rowIndexByRowId = rowIndexByRowId;
-    this.#spanMs = offsets.length === 0 ? 0 : Math.max(...offsets);
+    this.#rowClock = new ReplayRowClock(options.rows);
   }
 
   /** Everything the control renders. */
@@ -175,9 +141,9 @@ export class ReplayEngine {
       speed: this.#speed,
       granularity: this.#granularity,
       elapsedMs: this.#elapsedMs,
-      spanMs: this.#spanMs,
-      positionIso: this.#positionIso(),
-      revealedRowIds: this.#revealedRowIds(),
+      spanMs: this.#rowClock.spanMs,
+      positionIso: this.#rowClock.positionIsoAt(this.#elapsedMs),
+      revealedRowIds: this.#rowClock.revealedRowIdsAt(this.#elapsedMs),
     };
   }
 
@@ -231,9 +197,9 @@ export class ReplayEngine {
    * flipping the state here would strand the armed frame this engine has out.
    */
   public scrubTo(elapsedMs: number): void {
-    this.#elapsedMs = Math.min(Math.max(0, elapsedMs), this.#spanMs);
+    this.#elapsedMs = Math.min(Math.max(0, elapsedMs), this.#rowClock.spanMs);
     if (this.#state !== "playing") {
-      this.#state = this.#elapsedMs >= this.#spanMs ? "at-tail" : "paused";
+      this.#state = this.#elapsedMs >= this.#rowClock.spanMs ? "at-tail" : "paused";
     }
     this.#notify();
   }
@@ -248,7 +214,7 @@ export class ReplayEngine {
    * absence rather than silently doing nothing.
    */
   public replayFrom(rowId: string): boolean {
-    const offsetMs = this.#offsetMsOf(rowId);
+    const offsetMs = this.#rowClock.offsetMsOf(rowId);
     if (offsetMs === undefined) {
       return false;
     }
@@ -267,15 +233,39 @@ export class ReplayEngine {
    * `occurredAt`, and the two differ wherever the daemon admitted rows out of
    * wall-clock order. Taking the first in log order there jumps PAST a nearer seam
    * — and because the jump scrubs, the skipped seam is then behind the elapsed
-   * position and no later press can ever reach it. The comparison is strict, so
-   * seams sharing an instant are taken in the order the log recorded them.
+   * position and no later press can ever reach it.
+   *
+   * SEAMS SHARING AN INSTANT ARE TAKEN IN THE ORDER THE LOG RECORDED THEM, and that
+   * is a claim about the whole run of them rather than about the first. Elapsed time
+   * cannot order two rows the daemon stamped in the same millisecond, so the walk
+   * through them is ordered by {@link #seamJustJumpedTo}: a seam at the position's own
+   * offset is behind it until the jump that reached the previous one, and after that
+   * one press takes each remaining seam of the instant in turn. A position a SCRUB
+   * left at that offset carries no such record and is offered neither — the control
+   * would otherwise offer to jump to the seam it is already standing on.
    */
   public jumpToNextSeam(seams: readonly LedgerSeam[]): LedgerSeam | undefined {
+    // The seams list is the caller's window and can be rebuilt between presses, so a
+    // record naming a row this list no longer carries simply never matches: the
+    // instant's seams are then all behind the position, which is the answer this
+    // method gave before the record existed.
+    const rowIdJustJumpedTo =
+      this.#seamJustJumpedTo?.atElapsedMs === this.#elapsedMs
+        ? this.#seamJustJumpedTo.rowId
+        : undefined;
+    let hasPassedTheSeamJustJumpedTo = false;
     let nearestSeam: LedgerSeam | undefined;
     let nearestOffsetMs = Number.POSITIVE_INFINITY;
     for (const seam of seams) {
-      const offsetMs = this.#offsetMsOf(seam.rowId);
-      if (offsetMs === undefined || offsetMs <= this.#elapsedMs || offsetMs >= nearestOffsetMs) {
+      if (seam.rowId === rowIdJustJumpedTo) {
+        hasPassedTheSeamJustJumpedTo = true;
+        continue;
+      }
+      const offsetMs = this.#rowClock.offsetMsOf(seam.rowId);
+      if (offsetMs === undefined || offsetMs < this.#elapsedMs || offsetMs >= nearestOffsetMs) {
+        continue;
+      }
+      if (offsetMs === this.#elapsedMs && !hasPassedTheSeamJustJumpedTo) {
         continue;
       }
       nearestSeam = seam;
@@ -285,6 +275,9 @@ export class ReplayEngine {
       return undefined;
     }
     this.scrubTo(nearestOffsetMs);
+    // After the scrub, so the offset recorded is the one the clamp settled on rather
+    // than the one this walk asked for.
+    this.#seamJustJumpedTo = { rowId: nearestSeam.rowId, atElapsedMs: this.#elapsedMs };
     return nearestSeam;
   }
 
@@ -321,32 +314,6 @@ export class ReplayEngine {
     return this.#armedHandle !== undefined;
   }
 
-  /** Where a row sits on the replay clock, or `undefined` for a row not in the window. */
-  #offsetMsOf(rowId: string): number | undefined {
-    const index = this.#rowIndexByRowId.get(rowId);
-    return index === undefined ? undefined : (this.#offsetsMs[index] ?? 0);
-  }
-
-  #positionIso(): string | undefined {
-    const revealed = this.#revealedRowIds();
-    const lastRevealedId = revealed[revealed.length - 1];
-    if (lastRevealedId === undefined) {
-      return this.#rowsInOrder[0]?.occurredAt;
-    }
-    const index = this.#rowIndexByRowId.get(lastRevealedId);
-    return index === undefined ? undefined : this.#rowsInOrder[index]?.occurredAt;
-  }
-
-  #revealedRowIds(): readonly string[] {
-    const revealed: string[] = [];
-    for (const [index, row] of this.#rowsInOrder.entries()) {
-      if ((this.#offsetsMs[index] ?? 0) <= this.#elapsedMs) {
-        revealed.push(row.rowId);
-      }
-    }
-    return revealed;
-  }
-
   #arm(): void {
     if (this.#disposed || this.#armedHandle !== undefined) {
       return;
@@ -361,8 +328,11 @@ export class ReplayEngine {
     if (this.#state !== "playing") {
       return;
     }
-    this.#elapsedMs = Math.min(this.#spanMs, this.#elapsedMs + this.#frameIntervalMs * this.#speed);
-    if (this.#elapsedMs >= this.#spanMs) {
+    this.#elapsedMs = Math.min(
+      this.#rowClock.spanMs,
+      this.#elapsedMs + this.#frameIntervalMs * this.#speed,
+    );
+    if (this.#elapsedMs >= this.#rowClock.spanMs) {
       // At the tail, following resumes — so the engine stops arming rather than
       // spinning a frame that would advance nothing.
       this.#state = "at-tail";
