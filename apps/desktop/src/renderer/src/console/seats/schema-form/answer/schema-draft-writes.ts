@@ -40,8 +40,8 @@ import {
   newListEntryDraft,
   seededGroupMembers,
 } from "./schema-answer.js";
-import { memberKeyOf, type SchemaFormPlan } from "./schema-fields.js";
-import type { SchemaMemberPath } from "../../bridge/index.js";
+import { memberKeyOf, type SchemaFormPlan } from "../plan/schema-fields.js";
+import type { SchemaMemberPath } from "../../../bridge/index.js";
 
 /**
  * Write one leaf at its path, activating the group it sits in where that group is not yet.

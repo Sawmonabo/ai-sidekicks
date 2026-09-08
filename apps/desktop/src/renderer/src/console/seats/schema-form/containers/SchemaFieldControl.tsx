@@ -16,13 +16,13 @@
 // same control with different chrome around it, so both mount this and neither re-decides
 // which of the six a kind means.
 
-import { SchemaArtifactField } from "./fields/SchemaArtifactField.js";
-import { SchemaCheckboxField } from "./fields/SchemaCheckboxField.js";
-import { SchemaChoiceField } from "./fields/SchemaChoiceField.js";
-import { SchemaLongTextField } from "./fields/SchemaLongTextField.js";
-import { SchemaNumberField } from "./fields/SchemaNumberField.js";
-import { SchemaTextField } from "./fields/SchemaTextField.js";
-import { fieldDrawsAsCheckbox } from "./schema-fields.js";
+import { SchemaArtifactField } from "../fields/SchemaArtifactField.js";
+import { SchemaCheckboxField } from "../fields/SchemaCheckboxField.js";
+import { SchemaChoiceField } from "../fields/SchemaChoiceField.js";
+import { SchemaLongTextField } from "../fields/SchemaLongTextField.js";
+import { SchemaNumberField } from "../fields/SchemaNumberField.js";
+import { SchemaTextField } from "../fields/SchemaTextField.js";
+import { fieldDrawsAsCheckbox } from "../plan/schema-fields.js";
 import type { SchemaFieldControlProps } from "./schema-field-control.js";
 
 /** Whichever of the six this field's kind names. */

@@ -22,13 +22,13 @@
 // times here — and the text it could not read travels with the member it belongs to
 // instead of living in component state that a list re-key would move to another row.
 
-import type { SchemaScalarDraft } from "./schema-draft.js";
-import type { SchemaFieldDescriptor } from "./schema-fields.js";
+import type { SchemaScalarDraft } from "../answer/schema-draft.js";
+import type { SchemaFieldDescriptor } from "../plan/schema-fields.js";
 import {
   isSameMemberPath,
   type SchemaMemberPath,
   type SchemaValidationReport,
-} from "../../bridge/index.js";
+} from "../../../bridge/index.js";
 
 /** One control's whole world: what it is, what it holds, and how it reports a change. */
 export interface SchemaFieldControlProps {

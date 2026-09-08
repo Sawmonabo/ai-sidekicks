@@ -38,7 +38,7 @@
 // representation and the writes over it — and every write rebuilds rather than mutates,
 // because the draft is the value React re-renders on.
 
-import type { SchemaMemberPath } from "../../bridge/index.js";
+import type { SchemaMemberPath } from "../../../bridge/index.js";
 
 /** One control's draft: the value it composed, or the text it could not read as one. */
 export type SchemaScalarDraft =

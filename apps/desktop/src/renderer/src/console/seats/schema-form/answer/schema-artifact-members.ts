@@ -57,8 +57,8 @@
 // count.
 
 import type { SchemaFormAnswer } from "./schema-answer-paths.js";
-import { asRecord, fieldKindOf } from "./schema-declarations.js";
-import type { SchemaFieldKind } from "./schema-fields.js";
+import { asRecord, fieldKindOf } from "../plan/schema-declarations.js";
+import type { SchemaFieldKind } from "../plan/schema-fields.js";
 
 /**
  * The one control whose value IS an artifact reference.

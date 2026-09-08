@@ -1,10 +1,13 @@
-// The mount two of this directory's suites drive their cases through.
+// The mount every suite in this directory that drives a whole form runs its cases through.
 //
-// HOISTED ON THE SECOND SUITE, not written twice. `SchemaForm.test.tsx` owns the form as
-// a whole and `SchemaFieldList.test.tsx` owns the collection surface, and both need the
-// same thing: one schema, mounted through the real hook, with the composed answer and the
-// real report readable beside the markup. A second copy of that mount would have been two
-// answers to what a form under test IS.
+// HOISTED ON THE SECOND SUITE, not written twice, and READ BY EVERY ONE SINCE — the three
+// that split out of `SchemaForm.test.tsx` (the leaf controls, the group fieldset, and
+// where a description and a finding are attached), the collection surface's, and the raw
+// editor's. A count of them is deliberately not written here: the number moves every time
+// a cluster earns its own file, which is the one thing this module is indifferent to. What
+// each of them needs is the same thing — one schema, mounted through the real hook, with
+// the composed answer and the real report readable beside the markup. A second copy of
+// that mount would have been two answers to what a form under test IS.
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
 

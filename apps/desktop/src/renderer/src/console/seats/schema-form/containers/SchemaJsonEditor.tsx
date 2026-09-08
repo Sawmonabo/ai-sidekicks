@@ -31,12 +31,12 @@ import { useId } from "react";
 
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { describedByOf } from "./schema-field-control.js";
-import type { SchemaFallback } from "./schema-fields.js";
+import type { SchemaFallback } from "../plan/schema-fields.js";
 import {
   encodeMemberPointer,
   type SchemaValidationReport,
   type SchemaValidator,
-} from "../../bridge/index.js";
+} from "../../../bridge/index.js";
 import type { RawAnswerReading } from "./use-schema-form.js";
 
 /** How tall the raw document opens. Layout only; the text is never bounded here. */

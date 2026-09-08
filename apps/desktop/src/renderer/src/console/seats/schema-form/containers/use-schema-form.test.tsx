@@ -23,8 +23,8 @@ import {
   mountForm,
   NESTED_SCHEMA,
 } from "./use-schema-form.test-support.js";
-import { unansweredScalar } from "./schema-draft.js";
-import { isSameMemberPath } from "../../bridge/index.js";
+import { unansweredScalar } from "../answer/schema-draft.js";
+import { isSameMemberPath } from "../../../bridge/index.js";
 
 afterEach(cleanup);
 

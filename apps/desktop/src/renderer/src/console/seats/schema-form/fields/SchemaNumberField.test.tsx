@@ -17,9 +17,9 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SchemaNumberField } from "./SchemaNumberField.js";
-import { answeredScalar, unansweredScalar } from "../schema-draft.js";
-import { type SchemaFieldDescriptor } from "../schema-fields.js";
-import { planSchemaForm } from "../schema-form-plan.js";
+import { answeredScalar, unansweredScalar } from "../answer/schema-draft.js";
+import { type SchemaFieldDescriptor } from "../plan/schema-fields.js";
+import { planSchemaForm } from "../plan/schema-form-plan.js";
 
 afterEach(cleanup);
 

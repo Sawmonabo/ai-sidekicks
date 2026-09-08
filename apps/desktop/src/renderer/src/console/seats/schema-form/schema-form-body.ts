@@ -31,6 +31,6 @@
 
 import "./schema-form.css";
 
-export { SchemaFormAnswer } from "./SchemaFormAnswer.js";
-export { SchemaFormPreview } from "./SchemaFormPreview.js";
-export { attachmentArtifactIdsIn } from "./schema-artifact-members.js";
+export { SchemaFormAnswer } from "./containers/SchemaFormAnswer.js";
+export { SchemaFormPreview } from "./containers/SchemaFormPreview.js";
+export { attachmentArtifactIdsIn } from "./answer/schema-artifact-members.js";

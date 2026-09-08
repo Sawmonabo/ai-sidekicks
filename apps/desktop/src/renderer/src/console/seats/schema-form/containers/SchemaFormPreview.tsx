@@ -29,10 +29,10 @@
 
 import { SchemaForm } from "./SchemaForm.js";
 import { humanPhaseFormConfigOf } from "./human-phase-config.js";
-import { schemaRootRefusal } from "./schema-root-shape.js";
+import { schemaRootRefusal } from "../plan/schema-root-shape.js";
 import { useSchemaForm } from "./use-schema-form.js";
-import type { WorkflowPhaseDefinition } from "../../bridge/index.js";
-import { InlineRefusal } from "../../primitives/index.js";
+import type { WorkflowPhaseDefinition } from "../../../bridge/index.js";
+import { InlineRefusal } from "../../../primitives/index.js";
 
 export interface SchemaFormPreviewProps {
   readonly phase: WorkflowPhaseDefinition;

@@ -47,7 +47,7 @@
 // way to show it: the form's raw editor submits THAT, because its display is the person's
 // own document and nothing rewrites it. A caller whose controls can show every member
 // seeds them instead and submits what they hold — same rule, closed at the display rather
-// than at the wire (`seats/schema-form/use-schema-form.ts`).
+// than at the wire (`seats/schema-form/containers/use-schema-form.ts`).
 //
 // AND THE LIBRARY CANNOT BE ASKED FOR LESS. `FromJSONSchemaParams` declares exactly two
 // members, `defaultTarget` and `registry` (`zod/v4/classic/from-json-schema.d.ts` at the

@@ -13,8 +13,8 @@
 // control reports an unanswered node rather than an answered `""`. The same node in both
 // places, so the two text controls cannot come to disagree about what an empty box means.
 
-import { textValueOf, type SchemaFieldControlProps } from "../schema-field-control.js";
-import { answeredScalar, UNANSWERED_SCALAR } from "../schema-draft.js";
+import { textValueOf, type SchemaFieldControlProps } from "../containers/schema-field-control.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 
 /** How tall a long-form control opens. Layout only; the answer is never bounded here. */
 const LONG_TEXT_ROWS = 4;

@@ -16,8 +16,8 @@
 // answer can put anything at this member, and `=== true` is the honest reading of it: the
 // box shows the one thing it can show, and the schema reports what is actually there.
 
-import { answeredScalar } from "../schema-draft.js";
-import { type SchemaFieldControlProps } from "../schema-field-control.js";
+import { answeredScalar } from "../answer/schema-draft.js";
+import { type SchemaFieldControlProps } from "../containers/schema-field-control.js";
 
 /** True or false. */
 export function SchemaCheckboxField(props: SchemaFieldControlProps): React.JSX.Element {

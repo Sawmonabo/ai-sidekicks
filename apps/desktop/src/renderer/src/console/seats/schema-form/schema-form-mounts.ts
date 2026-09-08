@@ -31,8 +31,8 @@ import { createElement } from "react";
 
 import { LoadedLazyBody } from "../lazy-body.js";
 import { PENDING_PANE_BODY_ATTRIBUTE } from "../pending-pane-body.js";
-import type { SchemaFormAnswerProps } from "./SchemaFormAnswer.js";
-import type { SchemaFormPreviewProps } from "./SchemaFormPreview.js";
+import type { SchemaFormAnswerProps } from "./containers/SchemaFormAnswer.js";
+import type { SchemaFormPreviewProps } from "./containers/SchemaFormPreview.js";
 
 /**
  * What the kit's chunk publishes, read off the chunk root rather than restated.

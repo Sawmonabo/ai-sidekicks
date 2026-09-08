@@ -40,8 +40,8 @@
 // the box. What is displayed is what is submitted, which is this subtree's whole rule, and
 // here it is met by submitting nothing.
 
-import { answeredScalar, unansweredScalar } from "../schema-draft.js";
-import { type SchemaFieldControlProps } from "../schema-field-control.js";
+import { answeredScalar, unansweredScalar } from "../answer/schema-draft.js";
+import { type SchemaFieldControlProps } from "../containers/schema-field-control.js";
 
 /** What a whole-number control steps by, matching the schema's `integer`. */
 const INTEGER_STEP = "1";
