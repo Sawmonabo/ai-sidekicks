@@ -25,7 +25,7 @@
 //
 // The root held all of that as one list of forty-three modules, each one `./` from
 // every other, which recorded nothing about which of them were allowed to know about
-// which — the condition `ledger/pane/index.ts` says the DAG rule exists to prevent,
+// which — the condition `ledger/pane/timeline-pane-body.ts` says the DAG rule exists to prevent,
 // one level down and with no rule reaching it. The ceiling is the console's rather
 // than this family's, and it is held in the architecture tier by
 // `test/console/architecture/console-directory-shape.test.ts`, which reads every

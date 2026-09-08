@@ -31,7 +31,7 @@
 // them deletes as a directory).
 //
 // A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS — the family's one criterion,
-// stated the same way in `ledger/pane/index.ts` and `ledger/structure/index.ts`, and it
+// stated the same way in `ledger/pane/timeline-pane-body.ts` and `ledger/structure/index.ts`, and it
 // is READERS and not directories: a door earns its place from the modules outside that
 // reach it, however few, because each of them would otherwise name a file rather than a
 // seam. `bodies/` and `ansi/` have none — every reader of both is a sibling inside this

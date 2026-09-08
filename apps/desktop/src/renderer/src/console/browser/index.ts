@@ -45,24 +45,27 @@
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 
-// TWO OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, and which two is a fact about the
-// GRAPH rather than about the directory. The settings section below leaves this door and
-// is mounted by `console/browser-settings-page.ts`, which the settings route reaches
-// statically — so every module that renders it is on the initial import graph, and the
-// rules it renders against have to arrive on that graph too. `settings/settings.css`
-// dresses the page's rows, partition table and switches; `controls.css` dresses the
-// button and the disclosure all three of this family's surfaces share, the settings page
-// among them. Deferring either behind the pane's chunk left Settings → Browser painting
-// undressed until an unrelated pane was opened, and then silently working.
+// NONE OF THIS FAMILY'S SEVEN STYLESHEETS ENTERS HERE ANY MORE, and that is a fact
+// about the GRAPH rather than about the directory. This door held two of them for one
+// reason: the settings section left it as a component, and `console/browser-settings-page.ts`
+// mounted that component from a `render`, which the settings board reached statically —
+// so every module rendering it was on the initial import graph and the rules it renders
+// against had to arrive there too. That registration is a LOADER now, so nothing this
+// door statically reaches renders against either sheet, and a sheet held here would be
+// one `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` reports as
+// unusable.
 //
-// THE OTHER FIVE ARE NOT HERE, and importing them would be the cost this door is
-// written to avoid. `pane/pane.css`, `pane/chrome/chrome.css`, `pane/file/file.css`,
+// WHERE THE SEVEN WENT. `pane/pane.css`, `pane/chrome/chrome.css`, `pane/file/file.css`,
 // `cards/cards.css` and `bounds/bounds.css` dress surfaces nothing on the initial graph
-// can render — the pane opens from the sidebar or the palette — so they enter at
-// `pane/browser-pane-body.ts`, the one chunk root this family has, and that module's
-// header carries the other half of this split.
+// can render — the pane opens from the sidebar or the palette — and enter at
+// `pane/browser-pane-body.ts`. `settings/settings.css` enters at
+// `settings/browser-settings-page-body.ts`, the second chunk root this family now has.
+// `controls.css` dresses the button and the disclosure all three surfaces wear and is
+// named from BOTH roots, which is the shape `agents/agent-console/` already takes for
+// its four: a sheet two chunks render against belongs to both of them, and naming it
+// from one would leave the other undressed. Each root's header carries its own half.
 //
-// BOTH HALVES ARE CHECKED, IN BOTH DIRECTIONS.
+// EVERY HALF IS CHECKED, IN BOTH DIRECTIONS.
 // `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails a sheet held
 // at a door whose own static graph can render nothing against it, AND a sheet deferred
 // to a chunk root while a module on the initial graph names a class no eagerly-arriving
@@ -76,9 +79,6 @@
 // this family's seven sheets declares a class any other family declares, and
 // `test/console/architecture/stylesheet-selector-owners.test.ts` is the census that
 // says so and fails if that stops being true.
-
-import "./settings/settings.css";
-import "./controls.css";
 
 import { registerComposerAttachMenuEntry, type ConsolePaneRegistry } from "../seats/index.js";
 import { browserAttachMenuEntry } from "./pane/attach-entry.js";
@@ -109,8 +109,15 @@ export function registerBrowserPanes(registry: ConsolePaneRegistry): void {
   });
 }
 
-// The settings section, for the console root that registers it into the settings
-// board. The BOUND component and not the projection beside it: what leaves this family
-// is one thing a composition site can mount with a bridge, so no caller outside the
-// browser has to know which reads dress the page.
-export { BrowserSettingsSection } from "./settings/BrowserSettingsSection.js";
+// THE SETTINGS SECTION DOES NOT LEAVE THIS DOOR, and what closed the line is the graph
+// rather than the boundary it drew. `console/browser-settings-page.ts` mounted the bound
+// component from a `render`, and this door is reached eagerly by `console/panes/index.ts`
+// for the pane registration above — so a door line for the section put the whole page,
+// its reads, its partition table and its clear rounds on the initial import graph of
+// every launch, whether or not settings was ever opened. A door is an EDGE to every
+// module it re-exports from, and a dynamic import of a module already assigned to the
+// static chunk defers nothing, so a loader naming THIS file would have changed nothing
+// either. The registration names `settings/browser-settings-page-body.ts` instead — the
+// page's own chunk root, which the eager graph does not reach — and that root declares
+// the one member the page reads rather than the settings family's context, so nothing
+// about which family may name which vocabulary moves.

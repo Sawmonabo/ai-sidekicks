@@ -1,7 +1,7 @@
 // The tool sub-family door: the shell that draws a treatment, and the slot it fills.
 //
 // A DOOR HERE BECAUSE THIS DIRECTORY HAS READERS OTHER THAN ITSELF — the family's one
-// criterion, stated in `ledger/pane/index.ts`: the tool card mounts the badge and
+// criterion, stated in `ledger/cards/index.ts`: the tool card mounts the badge and
 // reads the declaration, and the fixture shell rows hand it the slot.
 //
 // AND IT PUBLISHES EXACTLY WHAT THOSE TWO TAKE. The vocabulary tuple, the three

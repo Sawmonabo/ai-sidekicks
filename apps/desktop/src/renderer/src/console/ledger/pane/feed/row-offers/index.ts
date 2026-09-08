@@ -1,7 +1,7 @@
 // The row-offer door: the control one row wears, and the binding behind it.
 //
 // A DOOR HERE BECAUSE THIS DIRECTORY HAS READERS OTHER THAN ITSELF — the family's one
-// criterion, stated in `ledger/pane/index.ts`: the feed's row renderer draws the
+// criterion, stated in `ledger/cards/index.ts`: the feed's row renderer draws the
 // control and the feed itself binds it, and both are modules other than the ones that
 // declare these names. `feed/` publishes no door for the mirror-image reason, so this
 // is the nearest door the two readers can take.
