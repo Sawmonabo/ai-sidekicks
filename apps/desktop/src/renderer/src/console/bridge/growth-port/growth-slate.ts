@@ -475,14 +475,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "intervention-history-read",
     wire: "a run-scoped read of the durable intervention rows — the `origin` discriminator, the `admitting_principal_id` required exactly on the participant arm, the admitted queue item's row-anchored linkage, and the decrypted directive body, with a body-unavailable answer where the authoring participant's key has been shredded",
     owningDocument:
-      "Spec-004 \u00a7Required Behavior + \u00a7State And Data Implications (the durable columns and the resolution rule); Plan-004 (the read seam, which no method string, event payload, or code package carries)",
+      "Spec-004 §Required Behavior + §State And Data Implications (the durable columns and the resolution rule); Plan-004 (the read seam, which no method string, event payload, or code package carries)",
     wireRegistered: false,
   },
   "queue-item-run-binding": {
     id: "queue-item-run-binding",
-    wire: "the run each queued item is bound to \u2014 `queue_items.target_run_id`, which the registered `QueueItemSummary` carries no member for and its `.strict()` parse rejects",
+    wire: "the run each queued item is bound to — `queue_items.target_run_id`, which the registered `QueueItemSummary` carries no member for and its `.strict()` parse rejects",
     owningDocument:
-      "Spec-004 \u00a7Required Behavior (the run-bound delivery redesign); `docs/architecture/contracts/api-payload-contracts.md` \u00a7Plan-004 (the summary shape that omits it)",
+      "Spec-004 §Required Behavior (the run-bound delivery redesign); `docs/architecture/contracts/api-payload-contracts.md` §Plan-004 (the summary shape that omits it)",
     wireRegistered: false,
   },
 };
