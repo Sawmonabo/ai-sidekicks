@@ -35,6 +35,7 @@ import path from "node:path";
 import { app, type BrowserWindow } from "electron";
 import { installAuxiliaryWindowControls } from "./auxiliary-window-ipc.js";
 import { watchAuxiliaryWindowsForComposerChord } from "./composer-focus.js";
+import { createMainDiagnosticLog } from "./diagnostic-log.js";
 import { installApplicationMenu } from "./menu.js";
 import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
@@ -277,10 +278,21 @@ if (!gotTheLock) {
         startGcProbe(app);
       }
     })
-    .catch((err: unknown) => {
-      // Tier 1 substrate: structured logging routes through Sentry main at
-      // Tier 8 remainder. Until then, surface startup failures on stderr.
+    .catch(async (err: unknown) => {
+      // Two records, because they reach two different readers and neither covers the
+      // other. stderr is what a developer running the binary sees; the JSONL log is
+      // what survives a launch nobody was watching, which is the only kind a startup
+      // failure usually is. Drained before the exit — a queued append does not
+      // survive `app.exit`.
       console.error("[ai-sidekicks/desktop] startup failed:", err);
+      const startupLog = createMainDiagnosticLog(app.getPath("logs"));
+      startupLog.write({
+        at: new Date().toISOString(),
+        level: "error",
+        source: "main/index",
+        message: `startup failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      await startupLog.drain();
       app.exit(1);
     });
 

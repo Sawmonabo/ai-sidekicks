@@ -27,6 +27,11 @@ import type { CDPSession } from "@playwright/test";
 
 import type { ConsoleApplication } from "../electron-harness.js";
 import { SETTLE_ROUNDS } from "../heap-sampling.js";
+import {
+  captureHeapSnapshot,
+  retainedByConstructor,
+  type RetainedConstructorReading,
+} from "./heap-snapshot-analysis.js";
 
 /**
  * How many doubles the precision probe holds.
@@ -260,6 +265,36 @@ export class RendererHeapProbe {
       );
     }
     return readSettledHeapBytes(this.#consoleApplication);
+  }
+
+  /**
+   * Collect, then write a heap snapshot of this window to `snapshotPath`.
+   *
+   * On the reader that already owns the session rather than as a free function taking
+   * one, so a snapshot is taken over the same DevTools session as every reading in
+   * this tier — a second session would collect on its own schedule and photograph a
+   * heap the row beside it never saw.
+   *
+   * Collects first, for `readSettledBytes`' reason: an uncollected snapshot attributes
+   * unreachable objects to whatever last referenced them, which is the reading a leak
+   * investigation is trying to rule out.
+   */
+  public async captureSnapshotTo(snapshotPath: string): Promise<void> {
+    await this.#cdpSession.send("HeapProfiler.collectGarbage");
+    await captureHeapSnapshot(this.#cdpSession, snapshotPath);
+  }
+
+  /**
+   * What the named constructors retained in a snapshot this probe wrote.
+   *
+   * A method rather than a bare import at the case, so the capture and the reading are
+   * reached through one door and a case cannot analyse a snapshot no probe here took.
+   */
+  public async readRetainedByConstructor(
+    snapshotPath: string,
+    constructorNames: readonly string[],
+  ): Promise<readonly RetainedConstructorReading[]> {
+    return retainedByConstructor(snapshotPath, constructorNames);
   }
 
   public async detach(): Promise<void> {

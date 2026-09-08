@@ -82,6 +82,24 @@ allowBuilds:
   #   on every dev + CI platform that builds or runs the desktop shell;
   #   without the binary `electron-vite` and `electron .` cannot launch.
   electron: true
+  # Plan-023 Phase 1C — the endurance tier's heap-snapshot reader
+  # (`test/console/endurance/heap-snapshot-analysis.ts`) calls memlab's
+  # `getHeapFromFile` on a `.heapsnapshot` this repo captures itself over
+  # Electron's own CDP session. DENIED, all four, deliberately:
+  # - memlab / @memlab/cli: the install script builds the CLI's browser
+  #   automation, which upstream says is the only thing it drives
+  #   (facebook/memlab#51: "MemLab's CLI only supports E2E automation for web
+  #   pages"). This tier never invokes the CLI; it imports one parser.
+  # - puppeteer: @memlab/cli's driver. Its install script downloads a Chrome
+  #   build of its own — a second browser beside the Electron this package
+  #   already materializes, for an automation path no test here takes.
+  # - sleep: a native timer add-on pulled in under that same CLI tree; the
+  #   implicit `node-gyp rebuild` npm synthesizes for it would compile on
+  #   every install for a module the parser never loads.
+  memlab: false
+  "@memlab/cli": false
+  puppeteer: false
+  sleep: false
 
 # Workspace-wide dependency unification per ADR-022 §Decision row 1 (pnpm catalogs).
 # Catalogs eliminate per-package version drift for cross-cutting devDependencies (testing
