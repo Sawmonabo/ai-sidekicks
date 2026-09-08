@@ -77,6 +77,9 @@ import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/se
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
+// The leaf and not the seats door, on `settled-capture.ts`'s reasoning: the reader has no
+// production caller, so the door does not publish it.
+import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pending-pane-body.js";
 import {
   FrameStore,
   SessionStore,
@@ -308,6 +311,13 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  * header gives: a run with nothing parked would pin the emptiest frame the surface
  * has instead of its busiest, and the park banner is the thing an operator opens
  * this pane for.
+ *
+ * WAITED ON TWICE, because the pane arrives in two steps. The run read landing puts the
+ * park banners on the page; the waiting-human park then mounts the schema form, whose
+ * kit is its own chunk and rides the pending-body marker until it lands. A mount that
+ * returned on the first step handed the screenshot tier a tree still carrying that
+ * marker, and the tier refused the capture — correctly, and non-deterministically,
+ * since the chunk sometimes beat the capture and sometimes did not.
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
@@ -330,6 +340,10 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
   await waitFor(() => {
     if (region.querySelector(".meridian-park") === null) {
       throw new Error("the run read has not landed yet");
+    }
+    const pendingKinds = pendingPaneKindsIn(region);
+    if (pendingKinds.length > 0) {
+      throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
     }
   });
   return { element: region, bridge };
