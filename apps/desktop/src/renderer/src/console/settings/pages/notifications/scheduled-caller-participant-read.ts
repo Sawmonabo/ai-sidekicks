@@ -1,5 +1,13 @@
 // Which participant this window is, asked again whenever the window comes back.
 //
+// NAMED FOR THE POLICY IT OWNS AND NOT FOR THE WIRE IT CALLS. The proposals family
+// holds a reader of the same growth operation under the opposite rule — asked lazily by
+// the first act that needs it, absorbing every non-answer into an absence a request may
+// omit — and both classes were called `CallerParticipantRead`, in two files of that
+// name. A grep for the noun returned two different jobs, so each is named for its job:
+// that one is the attribution reader, and this is the SCHEDULED read, published onto an
+// arm a person looks at.
+//
 // IT WAS AN EFFECT THAT RAN ONCE, and that is the whole reason this module exists.
 // The identity call was made from a `useEffect` keyed on the bridge and the retained
 // session, so a transport outage — a call that answered `unavailable`, or a rejection
@@ -25,7 +33,7 @@
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
-import { consoleRefusalFrom } from "../../../seats/index.js";
+import { CALLER_PARTICIPANT_ORIGIN, consoleRefusalFrom } from "../../../seats/index.js";
 import {
   GenerationLatch,
   NO_TRIGGERING_EVENT_KINDS,
@@ -34,9 +42,6 @@ import {
   type RefreshReason,
 } from "../../../store/index.js";
 import type { CallerParticipantReading } from "./attention-preference-model.js";
-
-/** Names a read that produced no outcome at all, where the thrown value named none. */
-export const CALLER_PARTICIPANT_ORIGIN = "caller-participant";
 
 /**
  * The one key every read of this identity is taken under.
@@ -48,7 +53,7 @@ export const CALLER_PARTICIPANT_ORIGIN = "caller-participant";
  */
 const IDENTITY_READ_KEY = "caller-participant-read";
 
-export interface CallerParticipantReadOptions {
+export interface ScheduledCallerParticipantReadOptions {
   readonly bridge: ConsoleBridge;
   /**
    * The session the question is asked of, or `undefined` where no session is open.
@@ -71,7 +76,7 @@ export interface CallerParticipantReadOptions {
  * round, and the rule that decides which reply installs. The React binding is
  * `stored-attention-preferences.ts`, which holds nothing of its own.
  */
-export class CallerParticipantRead implements ReadTriggerTarget {
+export class ScheduledCallerParticipantRead implements ReadTriggerTarget {
   /**
    * No timeline event refreshes this read, and the empty set states it.
    *
@@ -89,7 +94,7 @@ export class CallerParticipantRead implements ReadTriggerTarget {
   #reading: CallerParticipantReading | undefined = undefined;
   #isDisposed = false;
 
-  public constructor(options: CallerParticipantReadOptions) {
+  public constructor(options: ScheduledCallerParticipantReadOptions) {
     this.#bridge = options.bridge;
     this.#sessionId = options.sessionId;
     this.#scheduler = new RefreshScheduler({

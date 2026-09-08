@@ -432,6 +432,37 @@ export {
 // hazard, four surfaces in two sibling families each holding one answer.
 export { useGrowthReadOnMount } from "./growth-read.js";
 
+// Which participant this window is, composed once for the four sibling view families
+// that ask it. The read lives on the growth port and the roster chaining lives in the
+// store, and neither family may reach the other — so the adapter between them was
+// written out at three composition roots and the narrowing at six. Here it is one
+// module: the identity alone for a surface that only needs to know who is looking,
+// the identity chained to the session roster for one that gates a control on the
+// caller's role, and the served-or-refused narrowing for a reader holding its own
+// outcome.
+// IN `identity/` AND NOT BESIDE THE OTHER SEATS. This family's root sits exactly on
+// the directory ceiling the console-wide shape gate holds, so the module that ends the
+// duplication cannot also be the module that turns this directory into a pile. The
+// seam is the subject rather than the count: `terminal/lease/viewer-identity.ts` still
+// holds its own effect for the same question and folds in here, which is what makes
+// this a directory rather than one module parked in a new folder.
+// NO SUB-MODULE DOOR — `bridge/readings/index.ts` states the rule and this door obeys
+// it: a family door re-exports from the DECLARING module, and a sub-door publishing
+// symbols no sibling inside the family takes would be a dead export the barrel census
+// counts.
+// The port's own reply shape rides along, because the question has ONE composition and
+// a family that holds its own reading of it must name that reading's inner type rather
+// than re-deriving the reply beside it — which is how two names for one shape appear.
+// `CallerParticipantIdentity` stays off: every reader of the hook narrows on `status`
+// and annotates nothing, so a specifier for it would be a dead export.
+export {
+  CALLER_PARTICIPANT_ORIGIN,
+  callerParticipantIdentityFrom,
+  useCallerMembershipRoleFor,
+  useCallerParticipantIdentity,
+  type CallerParticipantOutcome,
+} from "./identity/caller-participant.js";
+
 // The console's single copy of the daemon-EVENT cast. The brand
 // `SidekicksBridge.daemon.subscribe` takes is `never`-shaped until Plan-007 narrows
 // it, and every caller casts; one module casts, and the day the brand narrows one

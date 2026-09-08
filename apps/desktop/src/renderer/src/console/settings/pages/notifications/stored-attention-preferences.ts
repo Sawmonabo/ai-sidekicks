@@ -44,7 +44,7 @@ import {
   type CallerParticipantReading,
 } from "./attention-preference-model.js";
 import { AttentionPreferenceRead } from "./attention-preference-read.js";
-import { CallerParticipantRead } from "./caller-participant-read.js";
+import { ScheduledCallerParticipantRead } from "./scheduled-caller-participant-read.js";
 import { NotificationPreferenceWriter } from "./notification-preference-writer.js";
 import type { SettingsPageContext } from "../../settings-page-registry.js";
 import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
@@ -64,7 +64,7 @@ const ATTENTION_PREFERENCE_READ_DISPOSAL: SubjectScopedDisposal<AttentionPrefere
 };
 
 /** The same rule for the identity read in front of it, for the same reason. */
-const CALLER_PARTICIPANT_READ_DISPOSAL: SubjectScopedDisposal<CallerParticipantRead> = {
+const CALLER_PARTICIPANT_READ_DISPOSAL: SubjectScopedDisposal<ScheduledCallerParticipantRead> = {
   dispose: (read) => {
     read.dispose();
   },
@@ -117,7 +117,7 @@ export function useStoredAttentionPreferences(
   const { value: identityRead } = useSubjectScopedResource(
     bridge,
     retainedSessionId,
-    () => new CallerParticipantRead({ bridge, sessionId: retainedSessionId, clock }),
+    () => new ScheduledCallerParticipantRead({ bridge, sessionId: retainedSessionId, clock }),
     CALLER_PARTICIPANT_READ_DISPOSAL,
   );
   useWindowReadTriggers(identityRead, bridge.transportReconnect);

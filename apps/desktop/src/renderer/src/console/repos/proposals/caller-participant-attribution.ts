@@ -1,4 +1,12 @@
-// Which participant this window is, asked once and remembered only when it answers.
+// Which participant this window is, for ATTRIBUTION: asked once, kept only when it
+// answers, and never rendered.
+//
+// NAMED FOR THE POLICY IT OWNS AND NOT FOR THE WIRE IT CALLS. Two families held a class
+// called `CallerParticipantRead`, in two files of that name, wrapping the same growth
+// operation under opposite rules — this one absorbs every non-answer into an absence a
+// request may omit, and the notifications page's publishes each one onto an arm a person
+// reads. A grep for the noun returned two different jobs, so each is named for its job:
+// this is the attribution reader, and the sibling is the scheduled reading.
 //
 // A MODULE OF ITS OWN BECAUSE IT IS A DIFFERENT READ WITH A DIFFERENT RULE. The gate's
 // own read is scheduled, coalesced, re-armed by three observations, and published onto
@@ -20,8 +28,9 @@
 // and an unhandled rejection here would take down an act that had already been admitted.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { callerParticipantIdentityFrom } from "../../seats/index.js";
 
-export interface CallerParticipantReadOptions {
+export interface CallerParticipantAttributionOptions {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
 }
@@ -41,13 +50,13 @@ export interface CallerParticipantReadOptions {
  * gate's life — long after the read would have succeeded. Cleared on a non-answer, so
  * the next act asks again.
  */
-export class CallerParticipantRead {
+export class CallerParticipantAttribution {
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string;
 
   #pending: Promise<string | undefined> | undefined;
 
-  public constructor(options: CallerParticipantReadOptions) {
+  public constructor(options: CallerParticipantAttributionOptions) {
     this.#bridge = options.bridge;
     this.#sessionId = options.sessionId;
   }
@@ -72,13 +81,20 @@ export class CallerParticipantRead {
     return participantId;
   }
 
-  /** Put the identity question on the wire once, answering absence for a non-answer. */
+  /**
+   * Put the identity question on the wire once, answering absence for a non-answer.
+   *
+   * The served/refused narrowing comes from `seats/identity/caller-participant.ts`, which is the
+   * console's one reading of what that outcome means; ABSORBING the refusal into an
+   * absence is this reader's own policy and is stated here, over that result, rather
+   * than as a fourth re-derivation of the outcome's arms.
+   */
   async #ask(): Promise<string | undefined> {
     try {
-      const outcome = await this.#bridge.growth.callerParticipantRead({
-        sessionId: this.#sessionId,
-      });
-      return outcome.status === "served" ? outcome.value.participantId : undefined;
+      const identity = callerParticipantIdentityFrom(
+        await this.#bridge.growth.callerParticipantRead({ sessionId: this.#sessionId }),
+      );
+      return typeof identity === "string" ? identity : undefined;
     } catch {
       return undefined;
     }

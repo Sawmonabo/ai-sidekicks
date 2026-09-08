@@ -28,19 +28,21 @@
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import type { GrowthReading } from "../../../bridge/index.js";
 import { formatCount } from "../../../primitives/index.js";
+import type { CallerParticipantOutcome } from "../../../seats/index.js";
 
 /**
- * What each of the three calls this page makes answers.
+ * What each of the other calls this page makes answers.
  *
  * Derived off the port rather than restated, on `collaboration/invites/SentInvites.tsx`'s
  * rule: the bridge door exports the bridge and not the port's vocabulary, and a
  * hand-written copy of a reply shape is a second declaration nothing checks against
  * the first.
+ *
+ * The caller-participant reply is not among them: it is the seat's
+ * {@link CallerParticipantOutcome}, because that question now has one composition and a
+ * page-local declaration of its reply would be a second name for the same shape — which
+ * is the defect the rule above exists to refuse.
  */
-export type CallerParticipantOutcome = Awaited<
-  ReturnType<ConsoleBridge["growth"]["callerParticipantRead"]>
->;
-
 export type AttentionPreferenceReadOutcome = Awaited<
   ReturnType<ConsoleBridge["growth"]["attentionPreferenceRead"]>
 >;
