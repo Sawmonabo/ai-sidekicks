@@ -23,6 +23,12 @@
 // THE INPUT IS `unknown` BY CONSTRUCTION. A phase definition carries its config as an
 // untyped record — the wire declares no shape for it — so every read here is a probe
 // and a member that is not what it claims lands in the fallback like any other.
+//
+// AND A MEMBER PATH IS THE VALIDATOR'S OWN. `SchemaMemberPath` is declared beside the
+// schema reader that produces one, so a descriptor and a finding are addressed in one
+// representation and the lookup between them is a comparison rather than a translation.
+
+import { encodeMemberPointer, type SchemaMemberPath } from "../../bridge/index.js";
 
 /** The six controls a human phase's form may ask through. */
 export const SCHEMA_FIELD_KINDS = [
@@ -53,7 +59,7 @@ export const ARTIFACT_REFERENCE_FORMAT = "artifact";
 /** One control the form draws, with everything it needs to draw itself. */
 export interface SchemaFieldDescriptor {
   /** Where this member sits in the submitted object. One segment, or two in a group. */
-  readonly memberPath: readonly string[];
+  readonly memberPath: SchemaMemberPath;
   /** What a person reads. The schema's `title` where it has one, else the key. */
   readonly label: string;
   /** The schema's own `description`, or nothing where it carries none. */
@@ -74,7 +80,7 @@ export interface SchemaFieldDescriptor {
 
 /** An array of one repeated control. The item's descriptor carries the array's path. */
 export interface SchemaListDescriptor {
-  readonly memberPath: readonly string[];
+  readonly memberPath: SchemaMemberPath;
   readonly label: string;
   readonly description: string | undefined;
   readonly isRequired: boolean;
@@ -104,7 +110,7 @@ export type SchemaLeafEntry =
 
 /** One level of nesting, and the type is where "one level" is enforced. */
 export interface SchemaGroupDescriptor {
-  readonly memberPath: readonly string[];
+  readonly memberPath: SchemaMemberPath;
   readonly label: string;
   readonly description: string | undefined;
   readonly entries: readonly SchemaLeafEntry[];
@@ -129,7 +135,7 @@ export type SchemaFallbackCause = (typeof SCHEMA_FALLBACK_CAUSES)[number];
 export interface SchemaFallback {
   readonly cause: SchemaFallbackCause;
   /** The member that could not be drawn. Empty on the two whole-schema causes. */
-  readonly memberPath: readonly string[];
+  readonly memberPath: SchemaMemberPath;
   /** One sentence, written for the person looking at the form. */
   readonly detail: string;
 }
@@ -253,7 +259,7 @@ function outOfSet(memberPath: readonly string[]): SchemaFallback {
   return {
     cause: "member-out-of-set",
     memberPath,
-    detail: `The schema asks for ${memberPath.join(".")} in a shape this form cannot draw, so the whole answer is given as JSON instead.`,
+    detail: `The schema asks for ${encodeMemberPointer(memberPath)} in a shape this form cannot draw, so the whole answer is given as JSON instead.`,
   };
 }
 

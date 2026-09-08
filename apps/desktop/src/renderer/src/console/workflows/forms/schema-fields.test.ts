@@ -177,7 +177,7 @@ describe("the schema field mapper", () => {
     }
     expect(plan.fallback.cause).toBe("member-out-of-set");
     expect(plan.fallback.memberPath).toEqual(["nested", "deeper"]);
-    expect(plan.fallback.detail).toContain("nested.deeper");
+    expect(plan.fallback.detail).toContain("/nested/deeper");
   });
 
   it("sends an array of objects to the raw editor rather than repeating a shape it has no control for", () => {

@@ -11,6 +11,7 @@
 // unable to hear which group the control they landed on belongs to.
 
 import type { SchemaGroupDescriptor, SchemaLeafEntry } from "./schema-fields.js";
+import { encodeMemberPointer } from "../../bridge/index.js";
 
 export interface SchemaFieldGroupProps {
   readonly group: SchemaGroupDescriptor;
@@ -30,7 +31,7 @@ export function SchemaFieldGroup(props: SchemaFieldGroupProps): React.JSX.Elemen
       {group.entries.map((entry) => (
         <div
           className="meridian-schema-group__entry"
-          key={(entry.form === "field" ? entry.field : entry.list).memberPath.join(".")}
+          key={encodeMemberPointer((entry.form === "field" ? entry.field : entry.list).memberPath)}
         >
           {props.renderLeaf(entry)}
         </div>

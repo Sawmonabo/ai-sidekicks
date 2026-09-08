@@ -16,6 +16,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { useSchemaForm, type SchemaFormState } from "./use-schema-form.js";
+import { isSameMemberPath } from "../../bridge/index.js";
 
 afterEach(cleanup);
 
@@ -100,7 +101,9 @@ describe("the schema form's state", () => {
     const form = mountForm(NESTED_SCHEMA);
 
     expect(form().report?.status).toBe("invalid");
-    expect(form().report?.issues.some((issue) => issue.memberPath === "title")).toBe(true);
+    expect(
+      form().report?.issues.some((issue) => isSameMemberPath(issue.memberPath, ["title"])),
+    ).toBe(true);
 
     act(() => {
       form().setMemberValue(["title"], "Ship it");

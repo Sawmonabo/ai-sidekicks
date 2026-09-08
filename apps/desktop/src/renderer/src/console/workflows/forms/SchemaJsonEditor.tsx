@@ -21,7 +21,11 @@
 import { useId } from "react";
 
 import type { SchemaFallback } from "./schema-fields.js";
-import type { SchemaValidationReport, SchemaValidator } from "../../bridge/index.js";
+import {
+  encodeMemberPointer,
+  type SchemaValidationReport,
+  type SchemaValidator,
+} from "../../bridge/index.js";
 import type { RawAnswerReading } from "./use-schema-form.js";
 
 /** How tall the raw document opens. Layout only; the text is never bounded here. */
@@ -69,11 +73,16 @@ export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Elemen
       ) : null}
       {report === undefined || report.status === "valid" ? null : (
         <ul className="meridian-schema-field__issues">
-          {report.issues.map((issue) => (
-            <li key={`${issue.memberPath}:${issue.message}`}>
-              {issue.memberPath === "" ? issue.message : `${issue.memberPath}: ${issue.message}`}
-            </li>
-          ))}
+          {report.issues.map((issue) => {
+            // The pointer rather than a join, for the reason the paths are segments at
+            // all: two different members must not read as one line here either.
+            const pointer = encodeMemberPointer(issue.memberPath);
+            return (
+              <li key={`${pointer}:${issue.message}`}>
+                {pointer === "" ? issue.message : `${pointer}: ${issue.message}`}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -598,8 +598,23 @@ export {
 // `issues` and maps them where it stands, so the name has no production importer and a
 // door line for it would be a name published for symmetry, which the barrel census
 // fails.
-export { compileSchemaValidator } from "./wire-shapes/json-schema-check.js";
-export type { SchemaValidationReport, SchemaValidator } from "./wire-shapes/json-schema-check.js";
+//
+// The member-path trio DOES leave, because the surfaces that read a report address their
+// controls by those same paths: `SchemaMemberPath` is the one representation a descriptor
+// and an issue both carry, `isSameMemberPath` is how a control finds the findings that are
+// about it, and `encodeMemberPointer` is the single string spelling anything keyed on a
+// path may take. All three sit beside the producer, because a second reading of a path is
+// exactly how two spellings of one member come apart.
+export {
+  compileSchemaValidator,
+  encodeMemberPointer,
+  isSameMemberPath,
+} from "./wire-shapes/json-schema-check.js";
+export type {
+  SchemaMemberPath,
+  SchemaValidationReport,
+  SchemaValidator,
+} from "./wire-shapes/json-schema-check.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the
