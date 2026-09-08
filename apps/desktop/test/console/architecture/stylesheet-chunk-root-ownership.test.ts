@@ -55,10 +55,17 @@ vi.setConfig({ testTimeout: 60_000 });
  * collision census counted and this gate exempts, so the placement was masked by a
  * collision rather than reported. Resolving that collision — the card's disclosure now
  * carries the primitives family's own reveal-slot class instead — left the real state
- * on the record. It stays until the ledger's pane bodies move behind loaders, because
- * until then the family HAS no chunk root to move the sheet to: this pin names a fact
- * about the tree, and inventing a root to satisfy it would be the gate driving the
- * design rather than reporting it.
+ * on the record.
+ *
+ * That pin was written while the ledger had no chunk root to move the sheet to, and it
+ * has one now (`ledger/pane/timeline-pane-body.ts`). What is left is narrower than what
+ * it was: `ledger/cards/index.ts` is reachable only from behind that loader, so the sheet
+ * ALREADY travels in the timeline chunk rather than on the initial document — measured on
+ * the built bundle. What this gate reports is where the sheet ENTERS, and moving that
+ * entry to the chunk root reorders it against every other sheet inside that chunk, which
+ * is a cascade change carrying its own screenshot references rather than a placement fix.
+ * The pin names the fact; making the gate drive that reorder is what its own header
+ * refuses.
  */
 const PINNED_MISPLACED_SHEETS: readonly string[] = [
   "ledger/cards/cards.css <- ledger/cards/index.ts",

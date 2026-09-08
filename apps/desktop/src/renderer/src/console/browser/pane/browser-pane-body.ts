@@ -20,32 +20,43 @@
 // `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
 // outside itself. The family door imports this module by name instead.
 
-// FIVE OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the place those five surfaces
-// enter the graph at all. The door registers exactly one kind and registers it as a
-// loader, so nothing on the initial graph can render the pane, its chrome, its file
-// control, its cards, or its bounds table — which makes this module the way in to the
-// code those rules dress, and the placement rule then puts the rules on the same edge.
-// Imported one by one rather than through an `@import` chain, so every edge into this
-// family's CSS is visible at one site and "imported here and nowhere else" stays
-// checkable.
+// SIX OF THIS FAMILY'S SEVEN STYLESHEETS ENTER HERE, at the place those surfaces enter
+// the graph at all. The door registers exactly one kind and registers it as a loader, so
+// nothing on the initial graph can render the pane, its chrome, its file control, its
+// cards, or its bounds table — which makes this module the way in to the code those
+// rules dress, and the placement rule then puts the rules on the same edge. Imported one
+// by one rather than through an `@import` chain, so every edge into this family's CSS is
+// visible at one site and "imported here and nowhere else" stays checkable.
 //
-// THE OTHER TWO ARE AT THE FAMILY DOOR, and the split is read off the graph rather than
-// off the directory. `settings/settings.css` and `controls.css` dress
-// `BrowserSettingsSection`, which the settings route reaches STATICALLY through
-// `browser/index.ts` — so deferring them behind this loader left Settings → Browser
+// `controls.css` IS THE SIXTH, AND IT IS NAMED FROM TWO ROOTS — the one shape a SHARED
+// sheet can take once nothing eager renders against it. It dresses the button and the
+// disclosure all three of this family's surfaces wear, and the third of them, the
+// settings page, is behind a chunk root of its own now
+// (`../settings/browser-settings-page-body.ts`), which names this sheet too. Left at the
+// family door it would be a sheet no static reader can use, which
+// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` reports; named
+// from one of the two roots only, it would leave the other surface undressed, which that
+// same file reports from the other side. `agents/agent-console/` carries its four this
+// way already, and the duplication is a chunk each rather than a second copy of the
+// rules to keep in step.
+//
+// THE SEVENTH IS ON THAT OTHER ROOT, AND IT IS NOT AT THE DOOR EITHER.
+// `settings/settings.css` dresses `BrowserSettingsSection` alone, and the settings board
+// reaches that section through a LOADER now rather than statically through
+// `browser/index.ts` — so the eager reader the sheet was held at the door FOR is no
+// longer on the initial graph, and the sheet travels with it. It was deferred behind
+// THIS loader once while that reader was still static, which left Settings → Browser
 // painting its rows, its partition table and its buttons with no rules at all until
-// somebody opened a browser pane, after which it silently started working. That failure
-// is what `undressedEagerReaderOffences` reports, and
-// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` now fails on it in
-// both directions: a sheet deferred past a reader the initial graph carries, and a sheet
-// held at a door no static reader can use.
+// somebody opened a browser pane, after which it silently started working:
+// `undressedEagerReaderOffences` is what reports that, and it is why the reader and the
+// sheet move in one change rather than one at a time.
 //
 // `pane.css` STAYS, and its `.meridian-browser-chrome .meridian-browser-action` rule is
 // why the reading is a subtraction rather than a per-sheet question: that restatement
 // names a class the settings page also names, and it is not the sheet that owed those
-// rules — `controls.css` was, and it has moved.
+// rules — `controls.css` was, and it is named from both roots now.
 //
-// AND TWO OF THE FIVE ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN.
+// AND TWO OF THE SIX ARE ONE SHEET SPLIT, WHICH IS THE SAME ARGUMENT ONE LEVEL DOWN.
 // `pane.css` had grown to 458 lines over three directories, so it is split by WHICH
 // COMPONENT DRAWS EACH ROOT: `chrome/chrome.css` for the tab strip, the load hairline,
 // the page picker, and the overflow disclosure; `file/file.css` for the local file
@@ -57,6 +68,7 @@
 // at the door of the directory that owns it — and the directory that owns those two is
 // the chunk this module roots. The order below is the order the door had them in, so
 // the split changes no cascade.
+import "../controls.css";
 import "../cards/cards.css";
 import "./pane.css";
 import "./chrome/chrome.css";

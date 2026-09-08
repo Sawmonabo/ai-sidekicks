@@ -46,7 +46,6 @@ import { consoleCommandSurface } from "../palette/index.js";
 import { Nothing, SurfaceAbsence } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
 import {
-  paneBodyForKind,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
   type ConsoleSurfaceContext,
@@ -54,10 +53,7 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { SessionResumeDegraded } from "./SessionResumeDegraded.js";
-import { LedgerGapFill } from "./pane/replay/index.js";
-import { registerFixtureShellRowFooter } from "./cards/shell/FixtureShellRowFooter.js";
-import { registerFixtureShellRows } from "./cards/shell/FixtureShellRows.js";
-import { TimelinePane } from "./pane/index.js";
+import { LedgerGapFill } from "./pane/replay/LedgerGapFill.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
 // THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. `apps/desktop/AGENTS.md` §Module
@@ -71,15 +67,18 @@ import "./ledger.css";
 
 // This door carries the family's REGISTRATIONS and no pieces.
 //
-// `registerLedger` claims the surfaces, contributes the family's palette rows and
-// chords, and fills the row seat. It is an act rather than a part, which is what
-// makes it the door's business.
+// `registerLedger` claims the surfaces and contributes the family's palette rows and
+// chords. It is an act rather than a part, which is what makes it the door's business.
 //
-// THE ROW SEAT'S OWN CLAIM IS NOT A DOOR LINE. `registerFixtureShellRows` is called
-// from inside `registerLedger` and reached from outside by one accessibility suite,
-// which mounts the rows without the surfaces around them — and a door line whose only
-// consumer is a test is a door widened for testing, which `barrel-census.test.ts`
-// reports by name. That suite reaches the shell's own module directly.
+// THE ROW SEAT IS NOT CLAIMED HERE ANY MORE, and what moved it is the budget rather
+// than tidiness. This door called `registerFixtureShellRows` and
+// `registerFixtureShellRowFooter`, which put the whole card subtree — and the markdown
+// and ANSI renderers behind it — on the renderer's initial import graph for the sake of
+// a seat only `pane/TimelinePane.tsx` ever reads. Both calls live in
+// `pane/timeline-pane-body.ts` now, the root of the chunk that reads the seat, and that
+// module's header states the rest. The accessibility suite that mounts the rows without
+// the surfaces around them still reaches the shell's own module directly, which is what
+// keeps a door line out of this file either way.
 //
 // The three sub-barrels this used to re-export upward were reached by no importer
 // at all: the pane, the feed, and the cards reach `cards/`, `frame/`, and
@@ -157,23 +156,7 @@ export function registerLedger(
   registry: ConsoleSurfaceRegistry,
   composition: LedgerComposition,
 ): void {
-  // The row seat is filled here rather than by importing `FixtureShellRows.tsx` for
-  // its side effect, because a module whose IMPORT registers a seat cannot be
-  // composed twice and the seat's owner scoping would refuse the second composition
-  // rather than replace it. Registering from this function makes it idempotent: the
-  // seat admits a re-registration by the same owner, which is what a second window
-  // and a hot reload both are.
-  //
-  // AND IT IS DELETED WITH THE SHELL. `seats/timeline-row-slot.ts` states
-  // the absorb-by-import rule: the change that registers the timeline subtree's real
-  // rows deletes this call, `FixtureShellRows.tsx`, and `fixture-shell-projection.ts`
-  // in the same diff. A shell left registered beside the real row does not render
-  // both — it refuses the real one by name, at import time.
-  registerFixtureShellRows();
-  // The row FOOTER seat, claimed beside the row seat and retired the same way: both
-  // shells are deleted by the change that registers the real bodies.
-  registerFixtureShellRowFooter();
-  // And the family's palette rows and chords, through the frame's contribution
+  // The family's palette rows and chords, through the frame's contribution
   // door rather than through this function's argument: the surface registry it was
   // handed is the SURFACE table, and the commands go in the command table. Both
   // claims are owner-scoped, so composing this family twice replaces its rows in
@@ -214,13 +197,14 @@ export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "timeline",
     owner: LEDGER_SURFACE_OWNER,
-    // The narrowing and the refusal are the seat's, not this family's. The registry
-    // hands every body the whole context union and only one arm is this pane's; the
-    // mismatched arm is unreachable through the deck and is rendered rather than
-    // thrown anyway, because `core/refusal.ts`' rule is that a boundary refuses by
-    // name and leaves the surface standing. Six families answering that once each is
-    // six sentences for one case, which is what `paneBodyForKind` exists to prevent.
-    render: paneBodyForKind("timeline", (context) => createElement(TimelinePane, { context })),
+    // LOADER-BACKED, like every other kind on this board. The console opens on the
+    // `sessions` destination, so this pane — the signature surface or not — is reached
+    // by opening a session, which is an act; `pane/timeline-pane-body.ts` carries the
+    // rest of the reasoning and the narrowing this line used to spell. The specifier is
+    // written at the registration so the chunk boundary is visible where the claim is
+    // made, and the deck's own reserved pane chrome is what stands in the body's place
+    // while the module is in flight.
+    body: () => import("./pane/timeline-pane-body.js"),
   });
 }
 
