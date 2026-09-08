@@ -40,7 +40,7 @@ import {
   runHeapBudgetCommand,
   type HeapAtRestDelegationRecord,
 } from "../../../scripts/budget/measure-heap.mjs";
-import { TemporaryDirectoryTrail } from "./temporary-directory.js";
+import { TemporaryDirectoryTrail } from "../temporary-directory.js";
 
 const registry = ConsoleBudgetRegistry.load();
 const budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);

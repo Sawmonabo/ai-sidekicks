@@ -8,11 +8,20 @@
  * red where something failed). Grep any of these files for `amber` and `red` and
  * every hit is one of those.
  *
- * This sheet enters at the family door, `console/browser/index.ts`, because a
- * surface the settings route reaches STATICALLY renders against it. The split
- * between the two sheets at that door and the five at the family's chunk root is
- * read off the module graph rather than off the directory, and both halves of it
- * are stated at the two modules that carry the edges.
+ * This sheet enters at BOTH of the family's chunk roots —
+ * `pane/browser-pane-body.ts` and `settings/browser-settings-page-body.ts` — because the
+ * three surfaces that draw its shapes are split across those two chunks. A sheet two
+ * chunks render against is named at both and lands once, whichever arrives first; naming
+ * it at only one leaves the other painting undressed until an unrelated chunk happens to
+ * arrive, and then silently working. It USED to enter at the family door,
+ * `console/browser/index.ts`, because the settings page's section was reachable
+ * statically; that reader is now behind the registry's loader form, and NOTHING enters at
+ * that door any more — `browser/index.ts` is reached eagerly from `console/panes/index.ts`,
+ * so a sheet named there would land on every launch. Six sheets enter at the pane's root
+ * and two at the settings page's, which is seven distinct files because this one is named
+ * at both. The split is read off the module graph rather than off the directory, and
+ * `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` is what enforces it
+ * in both directions.
  *
  * It sits at the FAMILY ROOT rather than inside a sub-module directory, and that
  * placement is the claim the sheet already makes below: the shapes here belong to

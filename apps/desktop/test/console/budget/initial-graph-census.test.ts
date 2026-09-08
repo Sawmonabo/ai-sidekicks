@@ -61,7 +61,7 @@ import {
 } from "../../../scripts/budget/measure-bundle.mjs";
 import { readInitialGraphCensus } from "./initial-graph-census.js";
 import { OWNER_PATH_SEGMENT_LIMIT, initialGraphOwnerOf } from "./initial-graph-owners.js";
-import { TemporaryDirectoryTrail } from "./temporary-directory.js";
+import { TemporaryDirectoryTrail } from "../temporary-directory.js";
 
 /** An escape for censusing an out-of-tree build; NOT an escape from censusing. */
 const rendererOutputDirectory: string =
