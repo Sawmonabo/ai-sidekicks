@@ -45,7 +45,7 @@ import { posix } from "node:path";
 import ts from "typescript";
 
 import { parseSourceText } from "../typescript-source.js";
-import { withoutTypeWrappers } from "./daemon-method-bindings.js";
+import { withoutTypeWrappers } from "./daemon-method-literals.js";
 
 /** What the console's specifiers name a module by, since that is what it will import. */
 const EMITTED_EXTENSION = ".js";

@@ -47,14 +47,20 @@
 // handed it one. That hop is where the console's own line ends too — the round is
 // minted by the scope and handed down — which is why the accepted set is the round and
 // the forwarded parameter rather than a re-derivation of the whole call graph.
+//
+// AND THE ROUND'S MEMBER IS READ HOWEVER IT IS KEYED, through `daemon-call-census.ts`'
+// `readsMember` rather than a dotted copy: `round.signal` and `round["signal"]` name the
+// same member of the same binding, and a rule stated once over there and re-implemented
+// narrowly here is exactly how two readings of one spelling drift. A key that is not a
+// literal — `round[name]` — stays `"unrecognised"`, and that is the depth limit above
+// rather than an exception to this: resolving it means deciding what `name` holds, which
+// is a value this scan does not follow, and the read has then shown no signal.
 
 import ts from "typescript";
 
-import {
-  withoutTypeWrappers,
-  type ModuleBindingScopes,
-  type NameBinding,
-} from "./daemon-method-bindings.js";
+import { readsMember } from "./daemon-call-census.js";
+import { type ModuleBindingScopes, type NameBinding } from "./daemon-method-bindings.js";
+import { withoutTypeWrappers } from "./daemon-method-literals.js";
 
 /** The member of a call's options that stops a read, and the member a round publishes it as. */
 const SIGNAL_MEMBER = "signal";
@@ -187,11 +193,7 @@ function readSignalValue(
   if (ts.isIdentifier(named)) {
     return isForwardedSignal(bindings.resolve(named.text, callStart)) ? "present" : "unrecognised";
   }
-  if (
-    ts.isPropertyAccessExpression(named) &&
-    named.name.text === SIGNAL_MEMBER &&
-    ts.isIdentifier(named.expression)
-  ) {
+  if (readsMember(named, SIGNAL_MEMBER) && ts.isIdentifier(named.expression)) {
     return isHeldReadRound(bindings.resolve(named.expression.text, callStart))
       ? "present"
       : "unrecognised";

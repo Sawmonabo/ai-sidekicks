@@ -21,6 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { NAMESPACE_DOOR_CALLEES } from "./daemon-call-planting.test-support.js";
 import { daemonCallReaches, importsCallDoor } from "./daemon-call-census.js";
 
 describe("what a module shows about consuming the call door", () => {
@@ -63,14 +64,32 @@ describe("what a module shows about consuming the call door", () => {
     // so this needle skipped the whole shape — and a module reaching the door that way
     // contributed no calls to the site scan either, which is a surface holding the wire
     // while every count that protects it stays satisfied.
+    //
+    // COUNTED IN BOTH SPELLINGS OF THE READ, from the corpus's own declared set — the
+    // same set the site scan drives. A predicate admitting only the dotted form left
+    // this census answering `false` for the bracketed one, so the module was outside the
+    // pinned consumer count while the scan beside it was skipping the same callee: two
+    // numbers that have to move together, moving neither.
+    for (const door of NAMESPACE_DOOR_CALLEES) {
+      expect(
+        importsCallDoor(
+          [
+            'import * as daemonDoor from "../bridge/index.js";',
+            `export const reply = ${door}(bridge, "session.join", request);`,
+          ].join("\n"),
+        ),
+        door,
+      ).toBe(true);
+    }
+    // And not through a key this parse cannot resolve, which names no member at all.
     expect(
       importsCallDoor(
         [
           'import * as daemonDoor from "../bridge/index.js";',
-          'export const reply = daemonDoor.callDaemon(bridge, "session.join", request);',
+          "export const reply = daemonDoor[member](bridge, request);",
         ].join("\n"),
       ),
-    ).toBe(true);
+    ).toBe(false);
     // The local name is not what decides it, and neither is invoking the door: a named
     // import that is never called counts, so a namespace read that is never called has
     // to count with it or one number moves differently for two spellings of one act.
@@ -140,6 +159,12 @@ describe("what a module shows about reaching past the call door", () => {
       daemonCallReaches(`const reply = await bridge.sidekicks["daemon"].call(name, params);`),
     ).toStrictEqual(["called or aliased", "namespace taken by computed key"]);
     expect(daemonCallReaches(`const door = bridge.sidekicks["daemon"];`)) //
+      .toStrictEqual(["namespace taken by computed key"]);
+    // And with BOTH steps bracketed, which is the shape that used to fall between the
+    // two readings: the dotted needle did not see the first step and the computed one
+    // was asking about the second, so a module could take the namespace and be reported
+    // by neither. One member predicate for both spellings is what closes it.
+    expect(daemonCallReaches(`const door = bridge["sidekicks"]["daemon"];`)) //
       .toStrictEqual(["namespace taken by computed key"]);
     expect(daemonCallReaches(`const send = bridge.sidekicks.daemon["call"];`)) //
       .toStrictEqual(["called by computed key"]);

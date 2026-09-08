@@ -24,6 +24,12 @@
 // instead. Both are planted here rather than in one bench, so the site scan, the
 // signal reading over it, and the census that classifies the result all drive the
 // second shape from the one fixture — which is the whole reason a corpus is shared.
+//
+// AND IN BOTH SPELLINGS OF THE READ OFF IT, and both sides of the shadow that hides one.
+// A member read through a string key is the same read, and a hoisted `function` of the
+// door's own name is a binding the call sees before the import — two shapes that were
+// each invisible to every gate at once, so each is planted here and driven by every
+// bench rather than written into whichever one noticed it.
 
 import { daemonCallSitesIn } from "./daemon-call-sites.js";
 import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
@@ -43,6 +49,54 @@ const DOOR_IMPORT = 'import { callDaemon } from "../../bridge/index.js";';
  * through the sibling that plants nothing, as every claim about a clause does.
  */
 const DOOR_NAMESPACE_IMPORT = 'import * as daemonDoor from "../../bridge/index.js";';
+
+/**
+ * How a module reaches the door off that namespace, in the two spellings of ONE read.
+ *
+ * A door call is the BINDING it names, so `daemonDoor.callDaemon` and
+ * `daemonDoor["callDaemon"]` reach the same export off the same binding and the scan owes
+ * both the same answer. Declared here because THREE benches ask it — the site scan, the
+ * signal reading over it, and the consumer census — and a bench spelling its own would
+ * prove the reading for that spelling and say nothing about the other, which is exactly
+ * how the bracketed form stayed outside the site scan AND the pinned consumer count at
+ * once.
+ *
+ * Written against the namespace clause above, whose local name is a fixture spelling
+ * rather than a rule. A key that is not a literal is deliberately absent: `daemonDoor[x]`
+ * names no member this scan can resolve, so it is a non-match and the case that says so
+ * writes it in the bench that makes that claim.
+ */
+export const NAMESPACE_DOOR_CALLEES: readonly string[] = [
+  "daemonDoor.callDaemon",
+  'daemonDoor["callDaemon"]',
+];
+
+/**
+ * A module whose inner `function callDaemon` SHADOWS the door it imports.
+ *
+ * THREE CALLS AND ONE OF THEM IS THE DOOR. The two inside `withLocalHelper` are the local
+ * declaration's — a function declaration binds over the whole scope that contains it, so
+ * the call written ABOVE it resolves to it exactly as the one below does — and the call
+ * in the sibling function is the import's, which is the half a fail-closed rule could
+ * quietly lose. A scope builder recording only variables and binding elements resolved
+ * all three to the import and reported the two local ones as unsignalled daemon reads.
+ *
+ * Held here because both benches drive it: one asks which sites the scan produces, the
+ * other what the census then makes of them. Planted through `plantedSites`, so the door
+ * import is line 1 and the three calls sit at lines 3, 7 and 10.
+ */
+export const DOOR_SHADOWED_BY_FUNCTION_DECLARATION: readonly string[] = [
+  "export function withLocalHelper(bridge, request) {",
+  '  callDaemon(bridge, "repo.workspaceList", request);',
+  "  function callDaemon(door, method, payload) {",
+  "    return door.send(method, payload);",
+  "  }",
+  '  callDaemon(bridge, "repo.workspaceList", request);',
+  "}",
+  "export async function readAdmittedRoots(bridge, request, signal: AbortSignal) {",
+  '  return await callDaemon(bridge, "repo.workspaceList", request, { signal });',
+  "}",
+];
 
 /** A registry stub carrying one reading row and one recording row. */
 export const PLANTED_REGISTRY: string = [
