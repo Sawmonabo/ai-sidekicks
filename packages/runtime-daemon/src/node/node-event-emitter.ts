@@ -67,8 +67,6 @@
 // within-daemon debug data, not the replay key — the replay key is
 // `sequence`).
 
-import { randomUUID } from "node:crypto";
-
 import {
   EventEnvelopeVersionSchema,
   RuntimeNodeCapabilityDeclaredPayloadSchema,
@@ -92,6 +90,7 @@ import type {
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
 } from "../events/event-log-service.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Constants — type-bound to the contracts vocabulary so a future rename or
@@ -199,12 +198,13 @@ export interface RuntimeNodeEventEmitterDeps {
   readonly now?: () => string;
 
   // Event-id source for the `session_events.id` primary key. The column is
-  // `TEXT PRIMARY KEY -- ULID or UUID` (0001-initial.ts:68) with NO format
-  // constraint, so `crypto.randomUUID()` — the established daemon id idiom
-  // (pty/node-pty-host.ts, ipc/streaming-primitive.ts) and a Node builtin —
-  // is the production default. Injectable so deterministic tests can supply a
+  // `TEXT PRIMARY KEY -- ULID or UUID` with NO format constraint, but
+  // `packages/contracts/src/event.ts` states that daemon-assigned event ids
+  // are RFC 9562 UUIDv7, so the production default is the daemon-wide
+  // `mintUuidV7` (`ids/uuid-v7.ts`) rather than a v4 id, which carries no
+  // timestamp to sort by. Injectable so deterministic tests can supply a
   // counter (a CONSTANT id would collide on the `TEXT PRIMARY KEY` across
-  // successive emits). Defaults to `crypto.randomUUID()`.
+  // successive emits).
   readonly newEventId?: () => string;
 }
 
@@ -402,7 +402,7 @@ export class RuntimeNodeEventEmitter {
     this.#sessionEvents = deps.sessionEvents;
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
     this.#now = deps.now ?? (() => new Date().toISOString());
-    this.#newEventId = deps.newEventId ?? (() => randomUUID());
+    this.#newEventId = deps.newEventId ?? mintUuidV7;
   }
 
   /**

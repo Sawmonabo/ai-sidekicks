@@ -554,6 +554,11 @@ export class NodePtyHost implements PtyHost {
       useConptyDll: false,
     });
 
+    // Deliberately NOT the daemon's `mintUuidV7` (`ids/uuid-v7.ts`): this is a
+    // host-local handle into `this.sessions`, returned in `spawn_response` and
+    // dead when the PTY closes. Its format is backend-private — the Rust
+    // sidecar backend mints `s-{n}` for the same field — and no row or event
+    // stores it.
     const sessionId: string = randomUUID();
     // Single record reference shared by the listeners and the map —
     // mutations from inside `child.onExit` MUST be visible to the

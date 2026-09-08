@@ -59,8 +59,6 @@
 // append path and the type → category registry), CP-009-4 (the payload
 // schema and the union registration this seam consumes).
 
-import { randomUUID } from "node:crypto";
-
 import {
   EventEnvelopeVersionSchema,
   RepoWorkspaceLifecyclePayloadSchema,
@@ -83,6 +81,7 @@ import type {
   EventLogAppendReceipt,
   UnsequencedEventEnvelope,
 } from "../events/event-log-service.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Event names — type-bound to the contracts variants, never re-spelled as
@@ -213,8 +212,11 @@ export interface WorkspaceEventEmitterDeps {
   readonly now?: () => string;
 
   // Event-id source for the `session_events.id` primary key, which carries no
-  // format constraint. `crypto.randomUUID()` is the established daemon id
-  // idiom and the production default; injectable so deterministic tests can
+  // format constraint. The default is the daemon-wide `mintUuidV7`
+  // (`ids/uuid-v7.ts`) — RFC 9562 UUIDv7, which is what
+  // `packages/contracts/src/event.ts` says daemon-assigned event ids are, and
+  // whose leading 48 timestamp bits make an id sort by mint order rather than
+  // arriving as unordered v4 randomness. Injectable so deterministic tests can
   // supply a counter (a CONSTANT id would collide on the primary key across
   // successive emits).
   readonly newEventId?: () => string;
@@ -315,7 +317,7 @@ export class WorkspaceEventEmitter {
     this.#sessionEvents = deps.sessionEvents;
     this.#monotonicNow = deps.monotonicNow ?? (() => process.hrtime.bigint());
     this.#now = deps.now ?? (() => new Date().toISOString());
-    this.#newEventId = deps.newEventId ?? (() => randomUUID());
+    this.#newEventId = deps.newEventId ?? mintUuidV7;
   }
 
   /**

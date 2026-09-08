@@ -16,7 +16,7 @@ import { BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE } from "../test/console/browser-mode
  * stale `dist/`. Shared by every DOM-environment project, because each of them
  * imports `@ai-sidekicks/contracts` for value as well as type.
  */
-export const WORKSPACE_SOURCE_CONDITIONS = ["@ai-sidekicks/source", "import", "default"];
+export const WORKSPACE_SOURCE_CONDITIONS: string[] = ["@ai-sidekicks/source", "import", "default"];
 
 /**
  * Everything a browser-mode tier renders through, pre-bundled in ONE optimizer
@@ -27,10 +27,12 @@ export const WORKSPACE_SOURCE_CONDITIONS = ["@ai-sidekicks/source", "import", "d
  * leaves the tier with two React copies — the first Base UI `useContext` then
  * reads `null` and the whole tree fails to render.
  */
-export const BROWSER_MODE_OPTIMIZE_DEPS = { include: [...BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE] };
+export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
+  include: [...BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE],
+};
 
 /** The one React copy every browser-mode tier resolves. */
-export const BROWSER_MODE_DEDUPE = ["react", "react-dom"];
+export const BROWSER_MODE_DEDUPE: string[] = ["react", "react-dom"];
 
 /**
  * The window the console is measured in.

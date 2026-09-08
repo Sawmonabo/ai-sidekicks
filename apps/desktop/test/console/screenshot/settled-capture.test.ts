@@ -18,10 +18,22 @@
 // flushes the layout a resize caused — a state no capture can produce on demand — and
 // that is the state the restore ordering exists for, so it is handed to the class
 // rather than waited for.
+//
+// AND THE THIRD SUITE IS THE STABILITY WAIT, END TO END OVER THE SAME CLASS. What a
+// capture is given to settle in is decided by what its window ended up holding, so the
+// claim spans two modules — the ratio this class reports and the budget
+// `capture-viewport.ts` derives from it — and driving them together is the only way to
+// see the number a real capture would actually be handed. The arithmetic's own arms
+// are `capture-viewport.test.ts`'s; what is proved here is that the tall probe's own
+// geometry reaches this seam and comes back with more than one window's wait.
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { CaptureViewport } from "./capture-viewport.js";
+import {
+  STABILITY_WAIT_PER_VIEWPORT_MS,
+  stabilityWaitMsFor,
+  type CaptureViewport,
+} from "./capture-viewport.js";
 import {
   assertNoPendingPaneBodies,
   CaptureWindow,
@@ -36,6 +48,19 @@ const RESIZE_REJECTION = "the tester window could not be resized";
 
 /** How many windows tall the growing probe is: enough to need one, well under the ceiling. */
 const PROBE_WINDOWS_TALL = 2;
+
+/**
+ * The height of the surface `tall-capture.test.ts` holds whole, which is the failure.
+ *
+ * That probe photographs a 1 200 × 2 400 box, and on a loaded runner the capture of it
+ * reported "Could not capture a stable screenshot within 5000ms" against a diff that
+ * touched no renderer file. Its WIDTH is deliberately not reproduced here: a capture
+ * never widens its window — `captureWindowStep` carries `applied.width` into every
+ * grow it returns — so the window a hold ends on differs from the tier's in height
+ * alone, and a width restated in this file would be a number that cannot change the
+ * answer sitting in a case that looks like it depends on one.
+ */
+const TALL_CAPTURE_PROBE_HEIGHT_PX = 2400;
 
 /** Which call of each kind rejects, one-based, and `undefined` for a driver that never does. */
 interface WindowDriverRejections {
@@ -108,6 +133,15 @@ function mountSurfaceOfHeightPx(heightPx: number, startedAt: CaptureViewport): H
   return surface;
 }
 
+// One home for the mounted-probe cleanup, at file scope rather than repeated per
+// suite: two suites below mount surfaces into the same document, and a second copy of
+// this hook is the shape that goes stale the first time only one of them is edited.
+afterEach(() => {
+  for (const leftOver of document.body.querySelectorAll("div")) {
+    leftOver.remove();
+  }
+});
+
 describe("the screenshot tier's pending-body refusal", () => {
   it("passes a capture whose panes have all loaded", () => {
     expect(() => {
@@ -138,12 +172,6 @@ describe("the screenshot tier's pending-body refusal", () => {
 });
 
 describe("the tester window a capture opens", () => {
-  afterEach(() => {
-    for (const leftOver of document.body.querySelectorAll("div")) {
-      leftOver.remove();
-    }
-  });
-
   it("puts the window back when the settle after a resize rejects", async () => {
     // The failure the ordering exists for. The resize lands, the surface throws while
     // React flushes the layout it caused, and the window is left open — so a `restore`
@@ -198,5 +226,61 @@ describe("the tester window a capture opens", () => {
     await captureWindow.restore();
 
     expect(driver.resizedTo).toStrictEqual([]);
+  });
+});
+
+describe("the stability wait a capture is given for the window it held", () => {
+  it("gives a capture that fitted the tier's own wait", async () => {
+    // The unchanged capture, which is most of the committed set: a surface inside the
+    // window opens nothing, holds one window, and is compared under exactly the five
+    // seconds this tier has always given it.
+    const startedAt = testerWindow();
+    const captureWindow = new CaptureWindow(startedAt, new RecordingWindowDriver());
+    const surface = mountSurfaceOfHeightPx(Math.floor(startedAt.height / 2), startedAt);
+
+    await captureWindow.holdWhole(surface, "fits-in-the-window-probe");
+
+    expect(stabilityWaitMsFor(captureWindow.heldViewportRatio)).toBe(
+      STABILITY_WAIT_PER_VIEWPORT_MS,
+    );
+  });
+
+  // The measured failure, driven end to end. Before the wait was sized to the hold,
+  // this capture was raced against the same five seconds as one a quarter its size,
+  // and a static surface came back reported as unstable on a loaded runner.
+  it("gives the tall probe's own geometry more than one window's wait", async () => {
+    const startedAt = testerWindow();
+    const driver = new RecordingWindowDriver();
+    const captureWindow = new CaptureWindow(startedAt, driver);
+    const surface = mountSurfaceOfHeightPx(TALL_CAPTURE_PROBE_HEIGHT_PX, startedAt);
+
+    await captureWindow.holdWhole(surface, "tall-capture-probe");
+
+    // The hold is asserted first, so a wait that came back large because the window
+    // was never opened at all fails here with the sizes rather than there with a
+    // number that looks right for the wrong reason.
+    expect(driver.resizedTo).toStrictEqual([
+      { width: startedAt.width, height: TALL_CAPTURE_PROBE_HEIGHT_PX },
+    ]);
+    expect(stabilityWaitMsFor(captureWindow.heldViewportRatio)).toBeGreaterThan(
+      STABILITY_WAIT_PER_VIEWPORT_MS,
+    );
+  });
+
+  // The planted control on the other side of the same seam. A ratio read off the
+  // window a hold CLIMBED to rather than the one it left applied would still report
+  // the tall probe's several windows here, and would go on charging every later
+  // capture in the run for a window this one has already given back.
+  it("reports one window again once the capture has put the window back", async () => {
+    const startedAt = testerWindow();
+    const captureWindow = new CaptureWindow(startedAt, new RecordingWindowDriver());
+    const surface = mountSurfaceOfHeightPx(TALL_CAPTURE_PROBE_HEIGHT_PX, startedAt);
+
+    await captureWindow.holdWhole(surface, "tall-capture-probe");
+    await captureWindow.restore();
+
+    expect(stabilityWaitMsFor(captureWindow.heldViewportRatio)).toBe(
+      STABILITY_WAIT_PER_VIEWPORT_MS,
+    );
   });
 });

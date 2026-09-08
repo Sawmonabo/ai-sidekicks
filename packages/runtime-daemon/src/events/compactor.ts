@@ -159,6 +159,7 @@ import { isWithinSessionAppendLockHold, withSessionAppendLock } from "./session-
 import type { SessionContentKeyDisposer } from "./session-content-key-store.js";
 import type { Ed25519PrivateKey } from "./signer.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Trigger thresholds — `Spec-006 §Event Compaction Policy`
@@ -646,9 +647,9 @@ export interface CompactorDeps {
   readonly ageThresholdDays?: number;
   /** Override for `Spec-006`'s 500 MB-per-session storage trigger. */
   readonly storageThresholdBytes?: number;
-  /** Mints the per-pass `operationId`. Defaults to `crypto.randomUUID()`. */
+  /** Mints the per-pass `operationId`. Defaults to the daemon-wide `mintUuidV7`. */
   readonly operationIdFactory?: () => string;
-  /** Mints each `event.compacted` row's id. Defaults to `crypto.randomUUID()`. */
+  /** Mints each `event.compacted` row's id. Defaults to the daemon-wide `mintUuidV7`. */
   readonly newEventId?: () => string;
 }
 
@@ -817,8 +818,8 @@ export class Compactor {
     this.#eventCountThreshold = deps.eventCountThreshold ?? COMPACTION_EVENT_COUNT_THRESHOLD;
     this.#ageThresholdDays = deps.ageThresholdDays ?? COMPACTION_AGE_THRESHOLD_DAYS;
     this.#storageThresholdBytes = deps.storageThresholdBytes ?? COMPACTION_STORAGE_THRESHOLD_BYTES;
-    this.#operationIdFactory = deps.operationIdFactory ?? ((): string => crypto.randomUUID());
-    this.#newEventId = deps.newEventId ?? ((): string => crypto.randomUUID());
+    this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
+    this.#newEventId = deps.newEventId ?? mintUuidV7;
 
     // LAYER 1 of I-006-3-01, spelled once and shared by every candidate-facing
     // statement below: the two never-compacted categories are excluded in SQL,

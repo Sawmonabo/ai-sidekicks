@@ -237,6 +237,7 @@ import type { Database, Statement } from "better-sqlite3";
 
 import type { EventLogService, UnsequencedEventEnvelope } from "./event-log-service.js";
 import { withSessionAppendLock } from "./session-append-lock.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /**
  * The append surface this emitter needs, and nothing more.
@@ -542,8 +543,8 @@ export class SchemaMigrationEmitter {
     this.#appliedBy = requireNonBlank(deps.appliedBy, "appliedBy");
     this.#migrationSources = deps.migrationSources;
     this.#now = deps.now ?? ((): Date => new Date());
-    this.#eventIdFactory = deps.eventIdFactory ?? ((): string => crypto.randomUUID());
-    this.#operationIdFactory = deps.operationIdFactory ?? ((): string => crypto.randomUUID());
+    this.#eventIdFactory = deps.eventIdFactory ?? mintUuidV7;
+    this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
 
     // Plan-001 owns `schema_version`; this emitter only ever reads it. The
     // descriptions come from here rather than from `MigrationSource` because

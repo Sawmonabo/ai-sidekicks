@@ -265,7 +265,6 @@
 // `./worktree-service.ts` (the sibling this module's seams and git layer mirror).
 
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -288,6 +287,7 @@ import {
 import { WorkspaceBusyError, WorkspaceNotFoundError } from "../workspace/workspace-service.js";
 
 import { CloneNotFoundError, ClonePrepareFailedError } from "./worktree-errors.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Injected seams
@@ -432,7 +432,7 @@ export interface EphemeralCloneServiceDeps {
    * outliving expired ones with no error anywhere.
    */
   readonly now?: () => string;
-  /** `ephemeral_clones.id` source. Injectable for deterministic tests; defaults to `randomUUID`. */
+  /** `ephemeral_clones.id` source. Injectable for deterministic tests; defaults to `mintUuidV7`. */
   readonly newCloneId?: () => string;
 }
 
@@ -949,7 +949,7 @@ export class EphemeralCloneService {
     this.#filesystem = deps.filesystem ?? DEFAULT_EPHEMERAL_CLONE_FILESYSTEM;
     this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_CLONE_GIT_TIMEOUT_MS;
     this.#now = deps.now ?? ((): string => new Date().toISOString());
-    this.#newCloneId = deps.newCloneId ?? ((): string => randomUUID());
+    this.#newCloneId = deps.newCloneId ?? mintUuidV7;
 
     const database = deps.database;
 
@@ -1245,7 +1245,7 @@ export class EphemeralCloneService {
 
     // Parses the ROW's id, not the argument, and deliberately AFTER the
     // not-found refusal. The brand is an outbound claim about the value this
-    // service stored (always a `randomUUID()`), not an inbound validation of the
+    // service stored (always a `mintUuidV7()`), not an inbound validation of the
     // caller's string — so a malformed id gets `CloneNotFoundError`, the honest
     // answer, instead of a ZodError that names no domain fault.
     const parsedCloneId = EphemeralCloneIdSchema.parse(row.id);
