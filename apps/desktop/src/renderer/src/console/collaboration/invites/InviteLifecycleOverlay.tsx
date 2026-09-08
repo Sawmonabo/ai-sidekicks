@@ -57,9 +57,9 @@ import type { GrowthPendingInvite, GrowthPendingInvitePreviewFailure } from "../
 import { InlineRefusal } from "../../primitives/index.js";
 import type { WindowOverlaySeatProps } from "../../seats/index.js";
 import { useModalSurfaceClaim } from "../../store/index.js";
+import { inviteNoticeLede } from "./invite-queue-copy.js";
 import { InviteConfirmation } from "./InviteConfirmation.js";
 import { useJoinedOutcomeNavigation } from "./joined-outcome-navigation.js";
-import type { PendingInviteSnapshot } from "./pending-invite.js";
 import { usePendingInvites } from "./use-pending-invites.js";
 
 export type InviteLifecycleOverlayProps = WindowOverlaySeatProps;
@@ -144,7 +144,12 @@ export function InviteLifecycleOverlay(
         <div className="meridian-invite-notice" role="status">
           {hasPrompt ? (
             <>
-              <p className="meridian-invite-notice__lede">{noticeLede(snapshot)}</p>
+              {/* THE COUNT IS A FLOOR WHERE THE BOUND TURNED SOMETHING AWAY, and the
+                  copy module is where that is decided. This notice printed an exact
+                  figure off `waitingBehind`, which excludes the arrivals the queue's
+                  bound deferred to the replay — so a window holding eleven invitations
+                  reported eight as though that were all of them. */}
+              <p className="meridian-invite-notice__lede">{inviteNoticeLede(snapshot)}</p>
               <button
                 type="button"
                 className="meridian-invite-notice__open"
@@ -171,26 +176,4 @@ export function InviteLifecycleOverlay(
       />
     </>
   );
-}
-
-/**
- * What the notice says about the head, in one sentence.
- *
- * The two readings are genuinely different claims and neither can stand in for the
- * other: "an invitation is waiting" is an offer, and "a link did not open" is a
- * report. The count behind the head rides both, because a person deciding whether to
- * look now is deciding about the queue rather than about its first entry.
- */
-function noticeLede(snapshot: PendingInviteSnapshot): string {
-  const { waitingBehind } = snapshot;
-  if (snapshot.invite === undefined) {
-    return waitingBehind > 0
-      ? `An invitation link did not open. ${String(waitingBehind)} more ${
-          waitingBehind === 1 ? "is" : "are"
-        } waiting.`
-      : "An invitation link did not open.";
-  }
-  return waitingBehind > 0
-    ? `You have ${String(waitingBehind + 1)} invitations waiting.`
-    : "You have an invitation waiting.";
 }
