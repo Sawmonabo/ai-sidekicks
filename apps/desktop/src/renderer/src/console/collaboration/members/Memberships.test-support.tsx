@@ -47,7 +47,12 @@ export function Memberships(props: {
 
 type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];
 
-export const SESSION_ID: string = "session-collaboration";
+/**
+ * A UUID, because the call door parses every REQUEST against the registered schema
+ * before it sends: `sessionId` is a branded UUID scalar, so a readable id is refused
+ * as `request-unsendable` and a mint this section hosts never reaches the daemon.
+ */
+export const SESSION_ID: string = "019b7910-0007-7000-8000-000000000002";
 
 const EMPTY_SCENARIO: FixtureScenario = {
   id: "collaboration-members-test",

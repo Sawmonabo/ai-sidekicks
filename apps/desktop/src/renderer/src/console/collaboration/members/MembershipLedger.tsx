@@ -1,12 +1,6 @@
 import type { MembershipUpdate } from "@ai-sidekicks/contracts";
 import type { ConsoleRefusal } from "../../core/index.js";
-import {
-  DerivedFigure,
-  InlineRefusal,
-  Nothing,
-  PartialRead,
-  formatCount,
-} from "../../primitives/index.js";
+import { DerivedFigure, Nothing, PartialRead, formatCount } from "../../primitives/index.js";
 import type { ShellMutationBlock } from "../../store/index.js";
 import { isLastRemainingOwner, type MembershipRow } from "./members-model.js";
 import { type WireMutationSnapshot } from "../mutation-coordinator.js";
@@ -26,11 +20,13 @@ export function MembershipLedger(props: {
   /**
    * Why a membership cannot be changed from this window right now, or `undefined`.
    *
-   * The shell's own answer for `membership.update`, rendered as the refusal it is —
-   * a code and a sentence — rather than paraphrased into a line of this surface's own
-   * words. Absent is the ordinary state, including before anything has reported.
+   * What this ledger does with it is CLOSE its rows' controls, and nothing else. The
+   * SENTENCE is the section's, said once by `Memberships.tsx` above this list, because
+   * the cause is the window's and closes controls this ledger does not own — said here
+   * it went unsaid on exactly the session that had no rows to say it above. Absent is
+   * the ordinary state, including before anything has reported.
    */
-  readonly mutationBlock: ShellMutationBlock | undefined;
+  readonly updateBlock: ShellMutationBlock | undefined;
   readonly mutation: WireMutationSnapshot;
   readonly onApply: (row: MembershipRow, update: MembershipUpdate) => void;
   readonly onDismissRefusal: (membershipId: string) => void;
@@ -69,16 +65,12 @@ export function MembershipLedger(props: {
           <DerivedFigure text="This session's projection is behind, so these rows are the last state this window was sent." />
         </p>
       ) : null}
-      {props.mutationBlock === undefined ? null : (
-        <InlineRefusal code={props.mutationBlock.code} detail={props.mutationBlock.detail} />
-      )}
       <ul className="meridian-members__rows">
         {props.rows.map((row) => (
           <li key={row.participantId}>
             <MembershipLedgerRow
               row={row}
               isLastOwner={isLastRemainingOwner(row, props.rows)}
-              isReadOnly={props.mutationBlock !== undefined}
               isPending={
                 row.membershipId !== undefined && props.mutation.pendingKey === row.membershipId
               }
@@ -86,6 +78,7 @@ export function MembershipLedger(props: {
               // not only the pending one's: the coordinator applies one at a time,
               // so a second row's control offers an act the surface would refuse.
               isAnyPending={props.mutation.pendingKey !== undefined}
+              updateBlock={props.updateBlock}
               refusal={
                 row.membershipId === undefined
                   ? undefined

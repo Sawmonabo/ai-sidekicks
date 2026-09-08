@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
+import { quietShell } from "../shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";
 import { settle } from "./sent-invites.test-support.js";
 import { COLLABORATION_SCENARIO } from "../../bridge/scenarios/collaboration.js";
@@ -39,7 +40,11 @@ async function renderRoomLedger(): Promise<{
 }> {
   const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
   const { container } = render(
-    <SentInvites bridge={bridge} sessionId={COLLABORATION_SCENARIO.sessionId} />,
+    <SentInvites
+      bridge={bridge}
+      sessionId={COLLABORATION_SCENARIO.sessionId}
+      frameStore={quietShell()}
+    />,
   );
   await settle();
   return { container, bridge };

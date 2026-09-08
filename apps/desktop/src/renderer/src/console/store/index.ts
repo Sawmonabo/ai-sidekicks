@@ -116,6 +116,15 @@ export type {
 // What that condition COSTS, from the module that derives it. Beside the vocabulary
 // rather than inside it: a block is derived from a state and a method name, and the
 // two halves have different readers — see `shell-mutation-block.ts`'s own header.
+//
+// `currentShellBlock` ships beside `shellBlockForMethod` because a dispatching surface
+// needs both and they answer different questions: the rendered block draws the control,
+// and the current one decides whether the call is put. Five surfaces take it — the
+// membership ledger, the sent-invite ledger, the invitation mint, the sessions
+// destination's act block, and the onboarding step's re-check — and a family that
+// could not reach it through this door would spell
+// `getState().shellState` for itself, which is the second reading of which cell carries
+// the shell condition.
 export {
   MUTATING_DAEMON_METHODS,
   /** @consumedBy T-023p-1C-3, T-023p-1C-5 — the run controls and the composer's send. */

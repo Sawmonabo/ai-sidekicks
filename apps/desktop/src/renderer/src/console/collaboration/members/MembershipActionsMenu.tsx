@@ -1,8 +1,10 @@
 import { Menu } from "@base-ui/react/menu";
+import { useState } from "react";
 
 import type { MembershipId, MembershipUpdate } from "@ai-sidekicks/contracts";
 
 import { OverlayMenuPopup } from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 
 import {
   MEMBERSHIP_ACTIONS,
@@ -51,19 +53,42 @@ export function MembershipActionsMenu(props: {
    * "not now" and "this is the one running" stay two different states on screen.
    */
   readonly isAnyPending: boolean;
+  /**
+   * Why the shell closes every one of these acts, or `undefined` while nothing does.
+   *
+   * Both controls close on it for the reason `isAnyPending` closes them: an act the
+   * surface would refuse should not be offered. Its SENTENCE is the members section's,
+   * said once above everything under that heading.
+   */
+  readonly updateBlock: ShellMutationBlock | undefined;
   readonly onApply: (update: MembershipUpdate) => void;
 }): React.JSX.Element {
   const { row } = props;
+  // One predicate for both controls, so the menu and the confirmation cannot disagree
+  // about whether this row is actionable.
+  const isClosed = props.isAnyPending || props.updateBlock !== undefined;
+  // THE MENU IS CONTROLLED FOR ONE CASE: a close that arrives while it is open. The
+  // trigger's `disabled` reaches the trigger and nothing else — the items of a menu
+  // someone had already opened stayed pressable, and a press reached the dispatch-time
+  // guard and did nothing, silently. Adjusting state during render is React's own
+  // prescription for a value derived from props, and it commits before the closed menu
+  // could paint once; the menu stays closed when the acts come back, since reopening
+  // it would be a menu nobody asked for.
+  const [isOpen, setIsOpen] = useState(false);
+  if (isOpen && isClosed) {
+    setIsOpen(false);
+  }
   // Non-null by the caller's guard; bound once so every arm below reads the same
   // value rather than re-asserting it four times.
   const membershipId = (row.membershipId ?? "") as MembershipId;
   const isActive = row.state === "active";
   return (
     <div className="meridian-members__row-acts">
-      <Menu.Root>
+      <Menu.Root open={isOpen} onOpenChange={setIsOpen}>
         <Menu.Trigger
           className="meridian-members__manage"
-          disabled={props.isAnyPending}
+          disabled={isClosed}
+          title={props.updateBlock?.detail}
           aria-label={`Manage the membership of ${row.participantId}`}
         >
           {props.isPending ? "Applying…" : "Manage"}
@@ -111,7 +136,7 @@ export function MembershipActionsMenu(props: {
 
       <RevokeConfirmation
         row={row}
-        isAnyPending={props.isAnyPending}
+        isClosed={isClosed}
         onConfirm={() => {
           props.onApply({ membershipId, action: "revoke" });
         }}

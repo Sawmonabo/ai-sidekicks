@@ -72,20 +72,32 @@
 // wherever the reader happened not to be looking.
 
 import { useMemo } from "react";
+import { callDaemon } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
+import { InlineRefusal } from "../../primitives/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
-import { shellBlockForMethod, useShellState } from "../../store/index.js";
+import { currentShellBlock, shellBlockForMethod, useShellState } from "../../store/index.js";
 import type { MembershipRow } from "./members-model.js";
 import {
   WireMutationCoordinator,
-  daemonMutation,
+  type CollaborationMutation,
+  type CollaborationMutationMethod,
   useWireMutation,
 } from "../mutation-coordinator.js";
 import { SentInvites } from "../invites/SentInvites.js";
 import { MembershipLedger } from "./MembershipLedger.js";
 
-/** The wire method every one of the four controls calls, through the daemon gateway. */
-const MEMBERSHIP_UPDATE_METHOD = "membership.update";
+/**
+ * The wire method every one of the four controls calls, through the daemon gateway.
+ *
+ * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
+ * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
+ * condition closes, so a membership change that ever left that tuple stops compiling here rather
+ * than quietly going back to being dispatchable through a stopped shell. The literal
+ * type survives it, which is what `callDaemon` needs to type the request and the
+ * reply; a wider annotation would take both.
+ */
+const MEMBERSHIP_UPDATE_METHOD = "membership.update" satisfies CollaborationMutationMethod;
 
 export interface MembershipsProps {
   readonly context: SidebarSectionContext;
@@ -108,21 +120,32 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
   const { context, rows } = props;
   const { bridge, sessionStore } = context;
 
-  const coordinator = useMemo(
-    () =>
-      new WireMutationCoordinator({
-        perform: daemonMutation(bridge, MEMBERSHIP_UPDATE_METHOD),
-        describeWhat: "The membership change",
-      }),
-    [bridge],
-  );
+  const coordinator = useMemo(() => {
+    // The door call sits HERE, where exactly one method is named, rather than behind
+    // a binder generic over the family's methods: one call site naming one method is
+    // what lets the read-signal gate read the deliberate absence of a cancellation
+    // signal as deliberate. A membership change that has reached the daemon has HAPPENED, so
+    // there is nothing this window may abandon it with.
+    const updateMembership: CollaborationMutation<typeof MEMBERSHIP_UPDATE_METHOD> = async (
+      request,
+    ) => await callDaemon(bridge, MEMBERSHIP_UPDATE_METHOD, request);
+    return new WireMutationCoordinator({
+      perform: updateMembership,
+      describeWhat: "The membership change",
+    });
+  }, [bridge]);
   const mutation = useWireMutation(coordinator);
   // Whether this window can send the one method these controls call. SUBSCRIBED, so a
   // supervisor going down or coming back moves the controls without waiting for some
   // other read to settle — and asked per METHOD through the one seam that knows which
   // calls an outage closes, rather than read off the connection here, where a second
   // reading of that rule would be free to disagree with the banner above it.
-  const mutationBlock = shellBlockForMethod(
+  //
+  // WHAT THIS VALUE IS FOR IS THE RENDER, and only the render: it draws the controls,
+  // it rides them as their disabled reason, and it is the sentence below. Whether a
+  // press is admitted is asked again at the dispatch site, off the store, because this
+  // one is as old as the last committed render.
+  const updateBlock = shellBlockForMethod(
     useShellState(context.frameStore),
     MEMBERSHIP_UPDATE_METHOD,
   );
@@ -137,14 +160,36 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
         </p>
       </header>
 
+      {/* THE ONE SENTENCE FOR THE WHOLE SECTION, and it is here rather than inside the
+          ledger because the block closes every control under this heading — the four
+          per row, the revoke on every pending invitation, and the mint below. Said by
+          the ledger it was said only where there were ROWS to say it above: a session
+          whose memberships have not been read returns its empty state first, and an
+          outage went unnamed beside three disabled controls. */}
+      {updateBlock === undefined ? null : (
+        <InlineRefusal code={updateBlock.code} detail={updateBlock.detail} />
+      )}
+
       <MembershipLedger
         rows={rows}
         rosterRefusal={props.rosterRefusal}
         isLastKnown={props.isLastKnown}
-        mutationBlock={mutationBlock}
+        updateBlock={updateBlock}
         mutation={mutation}
         onApply={(row, update) => {
           if (row.membershipId === undefined) {
+            return;
+          }
+          // Fail-closed at the dispatch site and not only on the control, on the
+          // sessions destination's precedent: the menu and the confirmation are
+          // disabled from this same block, so this is the guard rather than the
+          // affordance, and a press that reached here anyway must still put nothing.
+          //
+          // READ NOW rather than closed over. `updateBlock` is the last committed
+          // render's answer, and a report landing between that render and this press
+          // leaves it `undefined` while the supervisor has stopped — so the store is
+          // asked at the moment the call would be put.
+          if (currentShellBlock(context.frameStore, MEMBERSHIP_UPDATE_METHOD) !== undefined) {
             return;
           }
           void coordinator.run(row.membershipId, update);
@@ -154,7 +199,11 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
         }}
       />
 
-      <SentInvites bridge={bridge} sessionId={sessionStore.sessionId} />
+      <SentInvites
+        bridge={bridge}
+        frameStore={context.frameStore}
+        sessionId={sessionStore.sessionId}
+      />
     </section>
   );
 }

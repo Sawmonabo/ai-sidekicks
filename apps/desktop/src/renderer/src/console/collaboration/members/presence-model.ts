@@ -238,7 +238,7 @@ export function createPresenceRoster(options: {
   return new PushDrivenRead<PresenceReading>({
     clock,
     origin: PRESENCE_ROSTER_ORIGIN,
-    read: async (signal) => {
+    read: async (signal: AbortSignal) => {
       const reply = await callDaemon(
         bridge,
         PRESENCE_READ_METHOD,

@@ -6,8 +6,10 @@
 // and a ledger that dropped its rows when the identifier read refused would
 // answer "this session has no members" to a question about identifiers.
 //
-// What a person can DO to a row is the sibling file, `Memberships.acts.test.tsx`;
-// the harness both drive is `Memberships.test-support.tsx`.
+// What a person can DO to a row is the sibling file, `Memberships.acts.test.tsx`, and
+// what the supervisor's condition closes is `Memberships.shell.test.tsx` — a fact about
+// the WIRE rather than about the ledger; the harness all three drive is
+// `Memberships.test-support.tsx`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
