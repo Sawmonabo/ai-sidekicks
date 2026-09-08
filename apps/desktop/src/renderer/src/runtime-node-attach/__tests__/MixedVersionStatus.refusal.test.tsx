@@ -40,10 +40,6 @@ import {
   FLOOR_REFUSAL_MESSAGE,
   buildRosterEntry,
 } from "./mixed-version-status.test-support.js";
-import {
-  BANNED_DIRECT_IMPORT_PATTERNS,
-  runtimeNodeSourceNamed,
-} from "./runtime-node-source.test-support.js";
 
 describe("MixedVersionStatus — how a refused write is surfaced", () => {
   describe("write-refusal surfacing", () => {
@@ -178,46 +174,5 @@ describe("MixedVersionStatus — how a refused write is surfaced", () => {
       // The node block still renders — a bad rejection value cannot eject the node.
       expect(screen.getByLabelText("mixed-version-node-facts")).toBeDefined();
     });
-  });
-
-  describe("bridge-projection", () => {
-    // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
-    // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
-    // renderer is the UNTRUSTED surface: it reaches the daemon / control plane ONLY
-    // through the `window.sidekicks` preload bridge.
-    //
-    // `apps/desktop/eslint.config.mjs` already bans `electron` / `node:*` /
-    // `**/main/**` / `**/preload/**` for renderer source, so those two arms are
-    // belt-and-braces; the `@ai-sidekicks/runtime-daemon` /
-    // `@ai-sidekicks/control-plane` arm has NO lint rule today (deferred to the
-    // Plan-023 Tier 8 remainder), so for that arm this tripwire is the sole
-    // operational enforcement.
-    //
-    // The pattern table and the glob are `runtime-node-source.test-support.ts`'s.
-    // What stays here is WHICH modules the claim is about, and it is BOTH of this
-    // view's: the rendering and `node-access-status.ts`, where the verdict resolution
-    // moved. A scan of the `.tsx` alone would have been blind to half the view.
-    const mixedVersionStatusSources = ["../MixedVersionStatus.tsx", "../node-access-status.ts"].map(
-      runtimeNodeSourceNamed,
-    );
-
-    // Negative control: a tripwire that has never fired positive proves nothing. Each
-    // pattern must MATCH a synthetic violating import before its clean verdict on the
-    // real sources below is worth anything.
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "%s matches a synthetic violating import (negative control)",
-      (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
-        expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
-      },
-    );
-
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "the view's own modules match no %s",
-      (_bannedImportPatternName, bannedImportPattern) => {
-        for (const source of mixedVersionStatusSources) {
-          expect(bannedImportPattern.test(source)).toBe(false);
-        }
-      },
-    );
   });
 });

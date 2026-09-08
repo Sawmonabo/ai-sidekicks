@@ -33,10 +33,6 @@ import {
   installMockBridge,
   removeMockBridge,
 } from "./attach-flow.test-support.js";
-import {
-  BANNED_DIRECT_IMPORT_PATTERNS,
-  runtimeNodeSourceNamed,
-} from "./runtime-node-source.test-support.js";
 
 describe("AttachFlow — the request it sends and how it settles", () => {
   afterEach(() => {
@@ -204,39 +200,5 @@ describe("AttachFlow — the request it sends and how it settles", () => {
         sessionId: TARGET_SESSION_ID,
       });
     });
-  });
-
-  describe("bridge-projection", () => {
-    // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
-    // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
-    // `@ai-sidekicks/runtime-daemon` / `@ai-sidekicks/control-plane` arm has no
-    // lint rule today (deferred to the Plan-023 Tier 8 remainder), so for that
-    // arm this tripwire is the sole operational enforcement.
-    //
-    // The pattern table and the glob are `runtime-node-source.test-support.ts`'s —
-    // both view suites had a verbatim copy. What stays here is WHICH modules the
-    // claim is about, and it is BOTH halves of this view: the rendering and the wire
-    // module the request moved to, so a banned import in the module that performs the
-    // call is caught by the surface that names the call.
-    const attachFlowSources = ["../AttachFlow.tsx", "../attach-request.ts"].map(
-      runtimeNodeSourceNamed,
-    );
-
-    // Negative control: a tripwire that has never fired positive proves nothing.
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "%s matches a synthetic violating import (negative control)",
-      (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
-        expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
-      },
-    );
-
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "the attach flow's own modules match no %s",
-      (_bannedImportPatternName, bannedImportPattern) => {
-        for (const source of attachFlowSources) {
-          expect(bannedImportPattern.test(source)).toBe(false);
-        }
-      },
-    );
   });
 });

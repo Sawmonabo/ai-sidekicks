@@ -40,7 +40,6 @@ import {
   settleUnlessAbandoned,
   useActController,
   type ActOutcome,
-  type ActPrerequisiteReading,
   type ActReading,
   type ActSettlementReading,
   type SessionStore,
@@ -61,9 +60,6 @@ export interface AttachSettlement {
   readonly status: "attached";
   readonly response: RepoAttachResponse;
 }
-
-/** Where the roster read stands, in the four states rule 8 keeps apart. */
-export type AttachRosterReading = ActPrerequisiteReading<readonly AttachNodeOption[]>;
 
 /** Where the attach itself stands. */
 export type AttachActReading = ActSettlementReading<AttachSettlement>;

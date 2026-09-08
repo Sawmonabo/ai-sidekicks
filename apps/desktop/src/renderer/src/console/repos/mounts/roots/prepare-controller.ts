@@ -40,9 +40,7 @@ import type { ConsoleClock } from "../../../core/index.js";
 import {
   ActSurfaceController,
   type ActOutcome,
-  type ActPrerequisiteReading,
   type ActReading,
-  type ActSettlementReading,
   type SessionStore,
 } from "../../../store/index.js";
 import { REPO_LIFECYCLE_EVENT_KINDS } from "../../repo-lifecycle-events.js";
@@ -60,12 +58,6 @@ export interface PrepareSettlement {
   readonly executionRoot: string;
   readonly state: string;
 }
-
-/** Where the reuse check stands, for the branch name currently in the form. */
-export type ReuseCheckReading = ActPrerequisiteReading<ReuseVerdict>;
-
-/** Where the prepare stands. Its served arm carries the root the daemon put on disk. */
-export type PrepareActReading = ActSettlementReading<PrepareSettlement>;
 
 /** Both halves, published together so a surface renders one consistent frame. */
 export type PrepareReading = ActReading<ReuseVerdict, PrepareSettlement>;

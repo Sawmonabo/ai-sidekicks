@@ -11,15 +11,20 @@
 // is itself an ENTRY, because the `console-unit` include glob claims it. So one
 // source-text suite made every module under `console/` reachable from an entry, and the
 // gate that reports orphans went silent for the whole family tree. `repos/` had the same
-// hole from `repos/tripwire-sites.test.ts`, and two of the legacy renderer families still
-// do, measured the same way.
+// hole from `repos/tripwire-sites.test.ts`, and two of the legacy renderer families had it
+// too, measured the same way — a `.ts` orphan planted under `runtime-node-attach/` and a
+// `.tsx` one under `session-members/` were each reported by nothing. All three were
+// settled rather than exempted: two suites narrowed to the single file each read by key,
+// and the family-wide reader moved to `runtime-node-attach-sites.test.ts` in this tier.
+// The roster of recorded exceptions those three held is empty, and the case below
+// therefore quantifies over the tree with no subtraction at all.
 //
 // WHY THE RULE IS THE PATTERN RATHER THAN THE CALL. A glob naming ONE file manufactures
 // no reachability that an ordinary import would not: the module it names is reached, and
 // nothing else is. What defeats the gate is the wildcard, which reaches a set nobody
 // enumerated — including files added later, by someone who never read this suite. So a
-// single-file pattern passes and a pattern carrying `*` does not, and the four
-// single-file globs the console keeps are covered by existing rather than by exemption.
+// single-file pattern passes and a pattern carrying `*` does not, and every single-file
+// glob the tree keeps is covered by existing rather than by exemption.
 //
 // AND THE SUBJECT IS EVERY MODULE UNDER `src/`, not only the suites. A production module
 // globbing a directory manufactures the same edges, and it would additionally defeat the
@@ -60,34 +65,6 @@ const WILDCARD = "*";
 
 /** How many single-file globs the tree must still hold for a clean result to mean anything. */
 const SINGLE_FILE_GLOB_FLOOR = 4;
-
-/**
- * The directory globs that predate this rule, each with what it costs.
- *
- * A ROSTER RATHER THAN A CONDITION, deliberately and only here: these are the three
- * sites in the three legacy renderer families `AGENTS.md §Tests` records as not
- * converted, and re-homing their suites is a different family's change. Each is a LIVE
- * defect and not a safe exception — a `.ts` orphan planted under `runtime-node-attach/`
- * and a `.tsx` orphan planted under `session-members/` were both invisible to
- * `structure:dead-code`, measured 2026-09-08 — so the entries record the remedy rather
- * than a justification, and the case below fails the run when one stops matching, on
- * the posture knip's own `--treat-tag-hints-as-errors` takes toward a marker that
- * outlived its cause.
- */
-const GLOBS_AWAITING_A_HOME: ReadonlyMap<string, string> = new Map([
-  [
-    "src/renderer/src/session-members/__tests__/invite-accept-view.test.tsx",
-    "reads one module by key; narrows to `../invite-accept-view.tsx`",
-  ],
-  [
-    "src/renderer/src/session-members/__tests__/participant-roster.test.tsx",
-    "reads one module by key; narrows to `../participant-roster.tsx`",
-  ],
-  [
-    "src/renderer/src/runtime-node-attach/__tests__/runtime-node-source.test-support.ts",
-    "a reader parameterised over the family; re-homes to this tier",
-  ],
-]);
 
 /** One module as this gate reads it: a name for a failure, and the text. */
 interface SourceModuleText {
@@ -172,30 +149,12 @@ describe("no module under `src/` globs a directory of its own", () => {
   });
 
   const callsInTree = (): readonly SourceGlobCall[] => sourceGlobCalls(tree.reading.texts);
-  const isAwaitingAHome = (call: SourceGlobCall): boolean =>
-    GLOBS_AWAITING_A_HOME.has(call.displayPath);
 
   it("manufactures no reachability the dead-code gate would then miss", () => {
-    const offenders = directoryGlobOffenders(
-      callsInTree().filter((call) => !isAwaitingAHome(call)),
-    );
-    expect(offenders).toStrictEqual([]);
-  });
-
-  it("keeps every recorded exception a live site, so none can outlive its cause", () => {
-    // A path that stopped globbing a directory — re-homed, narrowed, deleted — leaves
-    // an entry admitting nothing, and a roster nobody prunes is a roster that grows.
-    // The failure carries the entry's recorded remedy, so whoever prunes it can tell a
-    // site that was settled from one that was merely renamed out from under the key.
-    const stillGlobbing = new Set(
-      callsInTree()
-        .filter(manufacturesEdges)
-        .map((call) => call.displayPath),
-    );
-    const settled = [...GLOBS_AWAITING_A_HOME.entries()]
-      .filter(([path]) => !stillGlobbing.has(path))
-      .map(([path, remedy]) => `${path} no longer globs a directory (recorded remedy: ${remedy})`);
-    expect(settled).toStrictEqual([]);
+    // Quantified over the whole tree and over no exception, which is the state the
+    // roster this gate landed with was written to reach: three legacy sites recorded
+    // with their remedies, each settled by the change that removed its entry.
+    expect(directoryGlobOffenders(callsInTree())).toStrictEqual([]);
   });
 
   it("still sees the single-file globs the tree keeps, so a clean result means something", () => {
