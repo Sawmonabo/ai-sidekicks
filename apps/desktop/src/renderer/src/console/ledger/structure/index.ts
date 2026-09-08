@@ -13,9 +13,10 @@
 // directory is a value a test can drive with no DOM at all, which is why the
 // derivations and the painting live in different files.
 //
-// FIVE SEAMS, IN DIRECTORIES OF THEIR OWN. Forty-odd files on one floor is a pile with a
-// door rather than a module, and the concerns in it change for five different reasons —
-// `chapters/` (how the log folds), `narrowing/` (what a filter admits and what a query
+// SIX SEAMS, IN DIRECTORIES OF THEIR OWN. Forty-odd files on one floor is a pile with a
+// door rather than a module, and the concerns in it change for six different reasons —
+// `chapters/` (how the log folds), `child-runs/` (the runs a session spawned and the
+// handoffs between actors), `narrowing/` (what a filter admits and what a query
 // matched), `rail/` (the minimap: its ticks, its bands, its painter and its surface),
 // `replay/` (where a walk has got to), and `seams/` (where a run begins, ends, or is
 // retired). What stays at this root is what every one of them spends or publishes: this
@@ -23,7 +24,8 @@
 // the row fixture their suites share.
 //
 // A SUB-MODULE PUBLISHES A DOOR ONLY WHERE ONE HAS READERS. `seams/` does — the rail and
-// the replay engine both hold its index. The other four are read from outside only by
+// the replay engine both hold its index — and so does `child-runs/`, whose two rows and
+// disclosure hook the feed takes. The other four are read from outside only by
 // THIS file, which must reach the DECLARING module or `console-no-barrel-chain` reports
 // the second hop; a door whose only would-be reader cannot use it is a door with no
 // consumer, which `barrel-census` and the dead-code gate both fail. Their siblings reach
