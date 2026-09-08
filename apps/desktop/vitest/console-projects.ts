@@ -7,7 +7,7 @@
 // fixture define, the source-condition resolution, and the browser-mode options, and a
 // reader comparing two of them reads them next to each other.
 
-import type { TestProjectConfiguration } from "vitest/config";
+import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
 
 import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "../test/console/launch-budgets.js";
 import { tierTimeoutFor } from "../test/console/launch-deadline.js";
@@ -22,9 +22,10 @@ import {
   SCREENSHOT_TIER_MATCH_OPTIONS,
   SCREENSHOT_TIER_PROVIDER_OPTIONS,
 } from "./screenshot-pins.js";
+import { iconCompilationPlugin } from "./icon-compilation.js";
 
-/** Every console tier that runs under Vitest, in tier order. */
-export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
+/** Every console tier that runs under Vitest, in tier order, before the shared plugins. */
+const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
   {
     // Tier: unit. Store transitions, projection arms, exhaustiveness, the
     // refusal grammar. Co-located with the code it proves, because a console
@@ -267,3 +268,16 @@ export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
     },
   },
 ];
+
+/**
+ * The same tiers, each resolving `~icons/*`.
+ *
+ * Declared as a map rather than as a `plugins` line repeated ten times, because
+ * a tier that forgot the line would fail at import with a specifier no reader
+ * could place — and it would fail only for the tiers that happen to render a
+ * glyph, which is a hole nothing reports. A fresh plugin per tier: a Vite
+ * plugin instance belongs to the config that installs it.
+ */
+export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = CONSOLE_TIERS.map(
+  (tier) => ({ ...tier, plugins: [iconCompilationPlugin()] }),
+);

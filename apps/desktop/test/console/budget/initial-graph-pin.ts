@@ -37,7 +37,23 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Every module on the initial graph as `<owner>/<module>`, sorted and unique. */
+/**
+ * Every module on the initial graph as `<owner>/<module>`, sorted and unique.
+ *
+ * WHAT THIS SET CANNOT SEE, AND WHY IT IS STILL BOUNDED. An entry is a module a source
+ * map NAMED, so a module the bundler compiled out of a virtual specifier contributes no
+ * `sources` entry and therefore no row. Measured rather than assumed: the console's glyph
+ * faces compile from `~icons/<collection>/<name>` at build time, thirty-six of them ride
+ * the entry chunk, and not one appears in the pin. That is a real gap in the membership
+ * claim and it is closed by construction rather than by vigilance — the faces are a
+ * `Record<GlyphName, …>` over a closed `GLYPH_NAMES` array, so a thirty-seventh face is a
+ * member added to a set the compiler makes total, which is a reviewed edit to
+ * `console/tokens/glyphs.ts` and to `console/primitives/glyph-faces.ts`. The faces module
+ * is pinned as a module of its own; the tokens module contributes the closed array and
+ * its types, and the entry chunk keeps none of its runtime values, so it is not a named
+ * source there and holds no row. The bytes the faces weigh are on the budget gated next
+ * door either way.
+ */
 export type InitialGraphPin = readonly string[];
 
 /**

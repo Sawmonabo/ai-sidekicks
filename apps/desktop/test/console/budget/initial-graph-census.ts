@@ -13,8 +13,15 @@
 // emitted rather than a graph walk this file performs. `electron.vite.config.ts` builds
 // the renderer with `sourcemap: "hidden"` — the map is written beside every chunk and
 // no `sourceMappingURL` comment points at it — so the `sources` array of
-// `<chunk>.js.map` is exactly the set of modules rolldown put in that chunk. Nothing
-// here re-derives reachability, and nothing here parses an import.
+// `<chunk>.js.map` is the set of modules rolldown put in that chunk AND could name.
+// Nothing here re-derives reachability, and nothing here parses an import.
+//
+// That distinction is measured rather than hedged: a module the bundler compiled out of
+// a VIRTUAL specifier has no file behind it and contributes no `sources` entry, so it
+// rides the chunk in no row. The console's compiled glyph faces are thirty-six such
+// modules today. What a map names therefore bounds a chunk's membership from below and
+// never from above — which is a property of the reading, and is why the pin next door
+// says so where a reader meets it rather than only here.
 //
 // AND ONLY `sources`, NOT `mappings`. Attributing BYTES to a module means decoding the
 // VLQ segment stream, and a decoder is a second implementation of something no other
