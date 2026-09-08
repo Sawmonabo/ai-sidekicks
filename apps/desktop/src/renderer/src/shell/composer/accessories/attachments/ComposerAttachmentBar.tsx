@@ -113,8 +113,9 @@ export function ComposerAttachmentBar(props: ComposerAttachmentBarProps): React.
  * One artifact a view family put on this message.
  *
  * A DIFFERENT ROW FROM AN UPLOAD, deliberately: it has no ingest to watch, no retry to
- * offer, and no cancel to explain — it is already an artifact. What it shows is what
- * the family handed over, verbatim, plus who handed it over.
+ * offer, and no cancel to explain — it is already an artifact. What it shows is the
+ * three things the family handed over, verbatim, and the one act still available: take
+ * it back off this message, which leaves the artifact where it is.
  */
 function FamilyAttachmentChip(props: {
   readonly attachment: ComposerArtifactAttachment;
