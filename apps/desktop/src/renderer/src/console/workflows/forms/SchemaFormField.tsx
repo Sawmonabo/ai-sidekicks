@@ -15,6 +15,8 @@
 import { useId } from "react";
 
 import { SchemaFieldControl } from "./SchemaFieldControl.js";
+import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
+import { describedByOf } from "./schema-field-control.js";
 import type { SchemaFieldDescriptor } from "./schema-fields.js";
 
 export interface SchemaFormFieldProps {
@@ -32,14 +34,12 @@ export function SchemaFormField(props: SchemaFormFieldProps): React.JSX.Element 
   const descriptionId = useId();
   const issuesId = useId();
   // Both are attached through one attribute, which is the only way a control can carry a
-  // description AND its findings: the platform takes a space-separated id list here, and
-  // an element id pointing at nothing is dropped, so a field with neither carries none.
-  const describedBy = [
+  // description AND its findings. The composition itself is a leaf's, because one list
+  // entry's chrome composes the same attribute from the same rule.
+  const describedBy = describedByOf([
     field.description === undefined ? undefined : descriptionId,
     issues.length === 0 ? undefined : issuesId,
-  ]
-    .filter((id): id is string => id !== undefined)
-    .join(" ");
+  ]);
   return (
     <div className="meridian-schema-field">
       <label className="meridian-schema-field__label" htmlFor={controlId}>
@@ -53,20 +53,14 @@ export function SchemaFormField(props: SchemaFormFieldProps): React.JSX.Element 
         value={props.value}
         onChange={props.onChange}
         controlId={controlId}
-        describedById={describedBy === "" ? undefined : describedBy}
+        describedById={describedBy}
       />
       {field.description === undefined ? null : (
         <p className="meridian-schema-field__description" id={descriptionId}>
           {field.description}
         </p>
       )}
-      {issues.length === 0 ? null : (
-        <ul className="meridian-schema-field__issues" id={issuesId}>
-          {issues.map((issue) => (
-            <li key={issue}>{issue}</li>
-          ))}
-        </ul>
-      )}
+      <SchemaFieldIssues issues={issues} issuesId={issuesId} />
     </div>
   );
 }

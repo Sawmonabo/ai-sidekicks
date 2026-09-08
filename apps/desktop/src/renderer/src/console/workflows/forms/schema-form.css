@@ -137,6 +137,20 @@
   gap: var(--meridian-space-2);
 }
 
+/*
+ * One entry: its control, and the schema's findings about that entry beneath it. A column
+ * inside the row so the control that removes the entry stays beside the entry rather than
+ * dropping under its message, and `min-inline-size: 0` so a long finding wraps inside the
+ * column instead of widening the row past the fieldset.
+ */
+.meridian-schema-list__entry {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
 /* ------------------------------------------------------------- the raw editor */
 
 .meridian-schema-raw {

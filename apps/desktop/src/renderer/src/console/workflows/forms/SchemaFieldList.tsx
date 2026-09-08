@@ -15,8 +15,18 @@
 // AN EMPTY LIST IS AN ANSWER. It renders its heading, its add control, and no entries —
 // never a wait and never an absence, because a person who has added nothing yet has an
 // empty list and not an unread one.
+//
+// TWO KINDS OF FINDING AND TWO PLACES FOR THEM. What the schema says about the COLLECTION
+// — how few entries, how many, whether two of them are the same — is about this fieldset
+// and is drawn against it. What it says about one entry is about that entry, is addressed
+// by an indexed path, and is drawn by `SchemaListEntry` under the control it is about. A
+// list asking only for the unindexed path got the first and silently dropped the second.
 
-import { SchemaFieldControl } from "./SchemaFieldControl.js";
+import { useId } from "react";
+
+import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
+import { SchemaListEntry } from "./SchemaListEntry.js";
+import { describedByOf } from "./schema-field-control.js";
 import type { SchemaListDescriptor } from "./schema-fields.js";
 
 export interface SchemaFieldListProps {
@@ -27,13 +37,25 @@ export interface SchemaFieldListProps {
   readonly onRemove: (index: number) => void;
   /** The schema's findings about the list itself, rather than about one entry. */
   readonly issues: readonly string[];
+  /**
+   * The schema's findings about one entry, asked for by position.
+   *
+   * A function rather than an array aligned with `items`, so there is no second length to
+   * keep true: an array one entry short would render a control's verdict under its
+   * neighbour, which is worse than the silence this replaces.
+   */
+  readonly issuesForEntry: (index: number) => readonly string[];
 }
 
 /** A repeated control, one per entry, with the two controls that change how many. */
 export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element {
   const { list, items } = props;
+  const issuesId = useId();
   return (
-    <fieldset className="meridian-schema-list">
+    <fieldset
+      className="meridian-schema-list"
+      aria-describedby={describedByOf([props.issues.length === 0 ? undefined : issuesId])}
+    >
       <legend className="meridian-schema-list__legend">
         {list.label}
         {list.isRequired ? (
@@ -46,14 +68,14 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
       <ol className="meridian-schema-list__items">
         {items.map((item, index) => (
           <li className="meridian-schema-list__item" key={index}>
-            <SchemaFieldControl
-              field={list.item}
+            <SchemaListEntry
+              list={list}
+              index={index}
               value={item}
               onChange={(value) => {
                 props.onChangeItem(index, value);
               }}
-              controlId={`${list.memberPath.join(".")}-${String(index)}`}
-              describedById={undefined}
+              issues={props.issuesForEntry(index)}
             />
             <button
               type="button"
@@ -70,13 +92,7 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
       <button type="button" className="meridian-workflow__action" onClick={props.onAppend}>
         Add an entry
       </button>
-      {props.issues.length === 0 ? null : (
-        <ul className="meridian-schema-field__issues">
-          {props.issues.map((issue) => (
-            <li key={issue}>{issue}</li>
-          ))}
-        </ul>
-      )}
+      <SchemaFieldIssues issues={props.issues} issuesId={issuesId} />
     </fieldset>
   );
 }

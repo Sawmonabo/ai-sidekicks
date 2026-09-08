@@ -76,6 +76,21 @@ export interface SchemaListDescriptor {
   readonly item: SchemaFieldDescriptor;
 }
 
+/**
+ * What one entry of a list is called: the collection's name and where the entry sits.
+ *
+ * A NAME AND NOT A NUMBER. An array member has no key of its own, so the only thing that
+ * distinguishes one repeated control from the next is its position — and a position on
+ * its own ("entry 2") tells a person navigating by control nothing about which collection
+ * they are in, which is exactly the reading a form with two lists would give them.
+ *
+ * Composed here beside the labels it is built from rather than at the surface that speaks
+ * it, so the rendered name and any reading of it are one rule.
+ */
+export function listEntryLabel(list: SchemaListDescriptor, index: number): string {
+  return `${list.label}, entry ${String(index + 1)}`;
+}
+
 /** What a group may hold: a control, or a list of one. Never another group. */
 export type SchemaLeafEntry =
   | { readonly form: "field"; readonly field: SchemaFieldDescriptor }

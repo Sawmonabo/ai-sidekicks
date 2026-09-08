@@ -10,6 +10,12 @@
 // group — the two would drift the first time an issue, a disabled state, or a description
 // changed shape, and the drift would only show inside groups.
 //
+// A LIST IS ADDRESSED TWICE, BECAUSE THE VALIDATOR ADDRESSES IT TWICE. What the schema
+// says about the collection arrives at the array's own path; what it says about one entry
+// arrives at that path plus the index. Both readings are composed here, where the report
+// and the member path are both in hand, and each is handed to the surface it is about —
+// asking only for the unindexed path is what left an entry's finding drawn nowhere.
+//
 // NOTHING IS SUBMITTED FROM HERE. This component composes an answer and renders the
 // schema's verdict on it; the act that sends one is the workflow plan's, arriving with
 // the revision it was composed against. That is the console's "absent, not disabled"
@@ -19,7 +25,7 @@ import { SchemaFieldGroup } from "./SchemaFieldGroup.js";
 import { SchemaFieldList } from "./SchemaFieldList.js";
 import { SchemaFormField } from "./SchemaFormField.js";
 import { SchemaJsonEditor } from "./SchemaJsonEditor.js";
-import { issuesForMember } from "./schema-field-control.js";
+import { issuesForListEntry, issuesForMember } from "./schema-field-control.js";
 import type { SchemaFormEntry, SchemaLeafEntry } from "./schema-fields.js";
 import type { SchemaFormState } from "./use-schema-form.js";
 
@@ -68,6 +74,7 @@ export function SchemaForm(props: SchemaFormProps): React.JSX.Element {
             form.removeListItem(memberPath, index);
           }}
           issues={issues}
+          issuesForEntry={(index) => issuesForListEntry(form.report, memberPath, index)}
         />
       );
     }
