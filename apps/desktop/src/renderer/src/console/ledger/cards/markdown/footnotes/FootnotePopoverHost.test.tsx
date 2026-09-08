@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import { FootnotePopoverHost } from "./FootnotePopoverHost.js";
 import { FootnoteRegistry } from "./footnote-registry.js";
-import { MarkdownNodes } from "./MarkdownNodes.js";
+import { MarkdownNodes } from "../nodes/MarkdownNodes.js";
 import { collectFootnoteDefinitions } from "./footnote-collection.js";
-import { footnoteDefinitionPreamble, parseSettledBlock } from "./markdown-parse.js";
+import { footnoteDefinitionPreamble, parseSettledBlock } from "../parse/markdown-parse.js";
 
 const SOURCE_ID = "event-40";
 

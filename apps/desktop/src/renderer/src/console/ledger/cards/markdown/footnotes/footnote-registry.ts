@@ -217,4 +217,4 @@ function sourceOfKey(key: string): string {
   const boundary = key.indexOf(FOOTNOTE_KEY_SEPARATOR);
   return boundary === -1 ? key : key.slice(0, boundary);
 }
-import { Emitter, FOOTNOTE_DEFINITION_CAP, type Unsubscribe } from "../../../core/index.js";
+import { Emitter, FOOTNOTE_DEFINITION_CAP, type Unsubscribe } from "../../../../core/index.js";

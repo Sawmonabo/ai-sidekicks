@@ -26,8 +26,8 @@
 // is "never spend a frame on this", and a console that quietly broke that rule on hosts
 // without workers would break it exactly where nobody was measuring.
 
-import { measureUtf8ByteLength } from "../../../persistence/index.js";
-import { ByteBoundedCache } from "./byte-bounded-cache.js";
+import { measureUtf8ByteLength } from "../../../../persistence/index.js";
+import { ByteBoundedCache } from "../parse/byte-bounded-cache.js";
 import type { CodeTokenLine } from "./code-tokenizer.js";
 import type { HighlightableLanguage } from "./highlight-languages.js";
 import type { HighlightRequestMessage, HighlightResponseMessage } from "./highlight-protocol.js";
@@ -240,4 +240,4 @@ import {
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
   CODE_TOKEN_CACHE_BYTE_CAP,
   CODE_WORKER_THRESHOLD_BYTES,
-} from "../../../core/index.js";
+} from "../../../../core/index.js";

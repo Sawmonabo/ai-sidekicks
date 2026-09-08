@@ -3,7 +3,7 @@
 // `apps/desktop/AGENTS.md` §Chokepoints says "one byte-measurement function serves
 // every cap". That rule had no mechanism, and the console shipped two: the durable
 // path's `console/persistence/value-classes.ts` and a second declaration inside
-// `ledger/cards/markdown/byte-bounded-cache.ts`, re-published through the markdown
+// `ledger/cards/markdown/parse/byte-bounded-cache.ts`, re-published through the markdown
 // sub-module's own door. Both answered the same question and each carried a comment
 // justifying itself against the other — which is what a drift looks like before the
 // two answers separate.

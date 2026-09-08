@@ -47,7 +47,7 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindSt
   return {
     isOpen: false,
     query: "",
-    result: emptyFindResult(0, false),
+    result: emptyFindResult(0),
     beyondWindowMatchCount: 0,
     filteredAwayMatchCount: 0,
     foldedAwayMatchCount: 0,

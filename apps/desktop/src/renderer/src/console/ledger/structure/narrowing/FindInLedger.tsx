@@ -7,10 +7,12 @@
 // in `find-model.ts` and this is its only renderer, so the field cannot ship
 // without the sentence and the sentence cannot drift from what the matcher
 // actually did. The sentence is the whole offer: the field states the boundary and
-// hands over no act on it. `hasEarlierRows` is true when the viewport CAP took rows
-// this store still holds, so a control here would fetch rows the console already
-// has, and the backward read that fetches the ones it does NOT is the viewport's —
-// see `ledger/pane/feed/LedgerFeed.tsx`, which owns that decision.
+// hands over no act on it, and the sentence is therefore rendered unconditionally.
+// The viewport's own `hasEarlierRows` is true when its CAP took rows this store
+// still holds, so a control here would fetch rows the console already has, and the
+// backward read that fetches the ones it does NOT is the viewport's — see
+// `ledger/pane/feed/LedgerFeed.tsx`, which owns that decision. That is why the find
+// result carries no copy of that clip: nothing here would branch on one.
 //
 // TWO BOUNDARIES, NOT ONE. `LEDGER_FIND_SCOPE_NOTE` bounds what was SEARCHED; the
 // cap sentence beside it bounds what can be STEPPED THROUGH, and appears only when

@@ -208,4 +208,4 @@ function parseAgainstDefinitions(blockSource: string, definitionPreamble: string
 export function settledBlockCacheStats(): ReturnType<ByteBoundedCache<MarkdownRoot>["stats"]> {
   return settledBlockCache.stats();
 }
-import { MARKDOWN_BLOCK_CACHE_BYTE_CAP } from "../../../core/index.js";
+import { MARKDOWN_BLOCK_CACHE_BYTE_CAP } from "../../../../core/index.js";

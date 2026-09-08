@@ -32,7 +32,7 @@ import {
   COLOURED_CODE_TOKEN_FAMILIES,
   codeTokenVariableName,
   type CodeTokenFamily,
-} from "../../../src/renderer/src/console/ledger/cards/markdown/meridian-code-theme.js";
+} from "../../../src/renderer/src/console/ledger/cards/markdown/highlight/meridian-code-theme.js";
 import { generateMeridianCss } from "../../../src/renderer/src/console/tokens/generate-css.js";
 import {
   CONSOLE_DIRECTORY,
@@ -47,10 +47,10 @@ import {
  * A path rather than a naming convention, for `wire-figure-chokepoint.test.ts`' reason:
  * moving the chokepoint should be an edit a reviewer sees in the diff.
  */
-const MARKUP_CHOKEPOINT_MODULE = "console/ledger/cards/markdown/MathBlock.tsx";
+const MARKUP_CHOKEPOINT_MODULE = "console/ledger/cards/markdown/nodes/MathBlock.tsx";
 
 /** The module a second markup site would most plausibly appear in. */
-const MARKDOWN_MAPPER_MODULE = "console/ledger/cards/markdown/MarkdownNodes.tsx";
+const MARKDOWN_MAPPER_MODULE = "console/ledger/cards/markdown/nodes/MarkdownNodes.tsx";
 
 /**
  * The React prop that hands a string to the parser, in the only position that reaches

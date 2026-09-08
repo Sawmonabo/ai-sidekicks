@@ -34,7 +34,7 @@
 //   5. **Footnotes resolve through one registry keyed by source**, so a definition
 //      line never resolves as its own body.
 
-import { growthSlateRow, type GrowthSlateRow } from "../../../bridge/index.js";
+import { growthSlateRow, type GrowthSlateRow } from "../../../../bridge/index.js";
 
 /**
  * The URL `remend` writes into a link whose target has not finished arriving.

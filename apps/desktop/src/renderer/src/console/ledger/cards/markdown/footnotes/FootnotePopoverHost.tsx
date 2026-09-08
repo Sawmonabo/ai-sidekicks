@@ -28,12 +28,12 @@
 import { useCallback, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { Popover } from "@base-ui/react/popover";
 
-import { OverlayPopoverPopup } from "../../../primitives/index.js";
+import { OverlayPopoverPopup } from "../../../../primitives/index.js";
 
 import { DefinitionBody } from "./DefinitionBody.js";
 import type { FootnoteDefinition, FootnoteRegistry } from "./footnote-registry.js";
 import { FootnoteHostProvider, type FootnoteHostBinding } from "./footnote-popover-context.js";
-import { type MarkdownRenderContext } from "./MarkdownNodes.js";
+import { type MarkdownRenderContext } from "../nodes/MarkdownNodes.js";
 import { UncitedDefinitions } from "./UncitedDefinitions.js";
 
 /** How far the popup sits off the marker it belongs to. */

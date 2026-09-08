@@ -39,7 +39,7 @@
 // them because a `>`-prefixed blank line does not trim to empty. Each rule is decided
 // from two lines: the one the block OPENED on, and the one following the blank run.
 
-import { MARKDOWN_SETTLE_LAG_BLOCKS } from "../card-bounds.js";
+import { MARKDOWN_SETTLE_LAG_BLOCKS } from "../../card-bounds.js";
 
 /** The split, as a card renders it. */
 export interface MarkdownSegmentation {

@@ -49,7 +49,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Nothing } from "../../../primitives/index.js";
+import { Nothing } from "../../../../primitives/index.js";
 
 /** What one render attempt produced. Closed — a nameless failure is one a card cannot explain. */
 type MathRenderState =

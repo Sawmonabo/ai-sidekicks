@@ -64,11 +64,11 @@ import process from "node:process";
 
 import { expect, test } from "vitest";
 
-import { MarkdownBlockSegmenter } from "../../../src/renderer/src/console/ledger/cards/markdown/block-segmenter.js";
+import { MarkdownBlockSegmenter } from "../../../src/renderer/src/console/ledger/cards/markdown/parse/block-segmenter.js";
 import {
   parseSettledBlock,
   parseVolatileTail,
-} from "../../../src/renderer/src/console/ledger/cards/markdown/markdown-parse.js";
+} from "../../../src/renderer/src/console/ledger/cards/markdown/parse/markdown-parse.js";
 import {
   BenchmarkLedger,
   DEFAULT_BENCHMARK_LEDGER_PATH,

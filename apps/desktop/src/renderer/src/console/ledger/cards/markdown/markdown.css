@@ -5,14 +5,18 @@
  * reachable from TWO directories goes in their nearest shared parent's sheet — which is
  * `ledger.css` for the family, and a parent sheet in `structure/` for that subtree's
  * five if one of its rules is ever shared — none is today.
- * `structure/` is the only subtree split further, and the reason is the module ceiling
- * rather than symmetry: it was one 503-line sheet over five subjects that change for
- * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
- * ceiling, because their sub-modules draw INSIDE the boxes the parent sheet already
- * sizes — a body inside a card, a row inside the frame — and splitting a box from its
- * contents buys no reading. Every sheet is imported from `ledger/index.ts` and nowhere
- * else, parent before children, so they land once per bundle and cascade after the
- * primitives' and the frame's.
+ * `structure/` is the only subtree whose SHEET is split further, and the reason is the
+ * module ceiling rather than symmetry: it was one 503-line sheet over five subjects
+ * that change for five different reasons. `frame/`, `cards/` and this directory keep
+ * one sheet each, well inside the ceiling, because their sub-modules draw INSIDE the
+ * boxes the parent sheet already sizes — a body inside a card, a row inside the frame,
+ * a token inside a code block — and splitting a box from its contents buys no reading.
+ * That is also why the four groups under this directory — `parse/`, `nodes/`,
+ * `footnotes/` and `highlight/` — carry no door: a doorless sub-directory is its
+ * parent's to style, so this sheet stays the owner of every rule they render.
+ * Every sheet is imported from `ledger/index.ts` and nowhere else, parent before
+ * children, so they land once per bundle and cascade after the primitives' and the
+ * frame's.
  *
  * The nine code-token families the code block spends are colours rather than boxes
  * and live in `tokens/palette.ts`; the note below the first banner says why.

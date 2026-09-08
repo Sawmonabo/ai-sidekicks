@@ -23,7 +23,7 @@ import { runRow } from "../timeline-rows.test-support.js";
 const UNCAPPED_TOTAL = 940;
 
 /** Three rows, all matching "hit", so a query produces a walkable list. */
-function matchingResult(hasEarlierRows = false): LedgerFindResult {
+function matchingResult(): LedgerFindResult {
   return findInLedger(
     [
       runRow({
@@ -52,7 +52,6 @@ function matchingResult(hasEarlierRows = false): LedgerFindResult {
       }),
     ],
     "hit",
-    hasEarlierRows,
   );
 }
 
@@ -99,11 +98,12 @@ describe("find field — the boundary is rendered, never remembered", () => {
   });
 
   it("states the boundary over a partial window and offers no act on it", () => {
-    // The sentence is this field's whole answer to a clipped window. The act that
-    // would fetch what is missing belongs to the viewport's backward read and is
-    // offered there; a second entry point here would read the CAP — rows this store
-    // still holds — and send the daemon after them.
-    const { field } = renderField({ result: matchingResult(true) });
+    // The sentence is this field's whole answer, and it is stated unconditionally:
+    // the act that would fetch what is missing belongs to the viewport's backward
+    // read and is offered there; a second entry point here would read the CAP —
+    // rows this store still holds — and send the daemon after them. Which is why
+    // the result carries no clip member for this field to branch on.
+    const { field } = renderField({ result: matchingResult() });
     expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
   });
@@ -111,7 +111,7 @@ describe("find field — the boundary is rendered, never remembered", () => {
 
 describe("find field — the counter is the console's own reading", () => {
   it("reports how much was searched before anything is typed", () => {
-    const { field } = renderField({ result: emptyFindResult(42, false), query: "" });
+    const { field } = renderField({ result: emptyFindResult(42), query: "" });
     expect(field.textContent).toContain("42 rows loaded");
   });
 
@@ -150,7 +150,7 @@ describe("find field — the counter is the console's own reading", () => {
   });
 
   it("negative control: with nothing found it says so, and says it once", () => {
-    const empty = findInLedger([], "nothing here", false);
+    const empty = findInLedger([], "nothing here");
     const { field } = renderField({ result: empty, query: "nothing here" });
     expect(field.textContent).toContain("No matches");
     expect(field.textContent).toContain("No loaded row matches that.");
@@ -159,7 +159,7 @@ describe("find field — the counter is the console's own reading", () => {
   it("negative control: an untouched field shows no empty state", () => {
     // The empty state is a fact about a QUERY. Showing it before one is typed
     // would report a failed search nobody ran.
-    const { field } = renderField({ result: emptyFindResult(3, false), query: "" });
+    const { field } = renderField({ result: emptyFindResult(3), query: "" });
     expect(field.textContent).not.toContain("No loaded row matches that.");
   });
 });
@@ -186,7 +186,7 @@ describe("find field — the walk", () => {
   });
 
   it("negative control: with no matches the step buttons are disabled", () => {
-    renderField({ result: findInLedger([], "nothing here", false), query: "nothing here" });
+    renderField({ result: findInLedger([], "nothing here"), query: "nothing here" });
     for (const name of ["Next match", "Previous match"]) {
       expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
     }

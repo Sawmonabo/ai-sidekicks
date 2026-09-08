@@ -33,8 +33,8 @@ import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } 
 import { Fragment } from "react";
 
 import { arePathLinksRenderable, isDeferredFenceLanguage } from "./markdown-rules.js";
-import { CodeBlock } from "./CodeBlock.js";
-import { FootnoteReference } from "./FootnoteReference.js";
+import { CodeBlock } from "../highlight/CodeBlock.js";
+import { FootnoteReference } from "../footnotes/FootnoteReference.js";
 import { MathBlock } from "./MathBlock.js";
 
 /** Everything the mapper needs that is not the node itself. */
