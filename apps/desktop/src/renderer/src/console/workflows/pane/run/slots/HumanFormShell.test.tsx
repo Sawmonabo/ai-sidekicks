@@ -167,6 +167,25 @@ describe("the press composes the registered submit", () => {
 
     expect(screen.getByText(/The daemon recorded this answer/u)).not.toBeNull();
   });
+
+  it("speaks the settlement through a status live region", async () => {
+    // The press leaves focus on the submit control, and the pending notice it replaces
+    // says nothing on its own — so a settlement rendered as an ordinary paragraph is
+    // read by nobody using a screen reader. The receipt beside the workflow-start menu
+    // is the shape this follows: the sentence that lands IS the region.
+    const probe = bridgeWatchingSubmits();
+    renderSlot(fixtureWaitMount(), probe.bridge);
+    await act(async () => {
+      pressSubmit();
+    });
+    await settle();
+
+    // Both halves of what the daemon answered — that it was recorded, and how many
+    // outputs came of it — inside the region rather than beside it.
+    expect(screen.getByRole("status").textContent).toContain(
+      "The daemon recorded this answer and one output came of it.",
+    );
+  });
 });
 
 describe("every refusal renders as the refusal it is", () => {
