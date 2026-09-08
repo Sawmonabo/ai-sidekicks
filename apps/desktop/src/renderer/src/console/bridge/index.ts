@@ -578,6 +578,12 @@ export type {
 // export and an import is a view family and the READING side is a validator — pasted
 // text narrowed against closed vocabularies into a typed request.
 //
+// AND THROUGH THE CODEC RATHER THAN THE FORM ITSELF, because this door is on the
+// initial import graph and the form carries a YAML parser, a body reader and a
+// tool-binding reader. The codec is two awaited function bodies; everything under it is
+// fetched the first time somebody presses export or import. The module's own header
+// says why the deferral is on this side of the door.
+//
 // THE TWO FUNCTIONS AND NEITHER OF THEIR TYPES. A caller composes the import target as
 // a literal and reads the reading's `status` where it stands, so the two type names
 // have no production importer and a door line for one would be a name published for
@@ -586,7 +592,7 @@ export type {
 export {
   parseWorkflowDefinitionFile,
   serializeWorkflowDefinitionFile,
-} from "./wire-shapes/workflow-definition-file-form.js";
+} from "./wire-shapes/workflow-definition-file-codec.js";
 
 // The other validator this family holds, and the reason it is here rather than beside
 // the form it serves: a schema the wire delivered, compiled once into something a

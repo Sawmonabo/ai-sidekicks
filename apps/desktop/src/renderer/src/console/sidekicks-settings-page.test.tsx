@@ -7,16 +7,18 @@
 // required prop — that this registration actually hands it the bridge it reads
 // through.
 //
-// THE BODY IS AWAITED THROUGH THE REGISTRY'S OWN LOADER, never by settling generously.
-// This registration is loader-backed — the page is a chunk of its own, which is what
-// keeps it off every launch's initial graph — so a descriptor rendered straight after
-// registration draws the reserved region and nothing else. `preload` is the registration's
-// memoised loader, so awaiting it is exact: `test/console/surfaces/pane-body-resolution.ts`
-// states the same rule for the two boards in `seats/`, and the reason a wait must not be
-// a wider settle is there — a dynamic import needs more than the one macrotask a render
-// settle crosses, so a case that settled twice and passed would be a case that raced.
+// THE BODY IS RESOLVED THROUGH THE FAMILY'S OWN MOUNT SCAFFOLDING, never by a sequence
+// written here. This registration is loader-backed — the page is a chunk of its own, which
+// is what keeps it off every launch's initial graph — so a descriptor rendered straight
+// after registration draws the reserved region and nothing else.
+// `settings/settings-page-mount.test-support.tsx` owns both halves of that: the awaited
+// mount, which preloads the registration's memoised loader and then moves the bridge's
+// frozen clock, and the reserved mount, which renders the same registration before its
+// chunk lands. `test/console/surfaces/pane-body-resolution.ts` states the same rule for the
+// two boards in `seats/`, and the reason a wait must not be a wider settle is there — a
+// dynamic import needs more than the one macrotask a render settle crosses, so a case that
+// settled twice and passed would be a case that raced.
 
-import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { registerSidekicksPage } from "./sidekicks-settings-page.js";
@@ -27,10 +29,11 @@ import {
 } from "./settings/settings-page-registry.js";
 import { SETTINGS_SECTION_IDS } from "./settings/settings-sections.js";
 import { createFixtureBridge } from "./bridge/index.js";
-import { ManualClock } from "./core/index.js";
-import { LiveAnnouncerProvider } from "./primitives/index.js";
-import { consoleTestUiStateStore } from "./settings/settings-page-mount.test-support.js";
-import { UNREPORTED_SHELL_STATE } from "./store/index.js";
+import {
+  mountRegisteredSettingsPage,
+  mountReservedSettingsPage,
+  settingsPageContextWith,
+} from "./settings/settings-page-mount.test-support.js";
 // The pending marker's reader by its own leaf specifier, on `RouteSurface.test.tsx`'s
 // reason: the seats door publishes the ATTRIBUTE, which a producer needs, and not this
 // reader, whose consumers outside that directory are tests.
@@ -42,50 +45,35 @@ import { pendingPaneBodiesIn } from "./seats/pending-pane-body.js";
  * The fixture bridge rather than a stub object: what this file checks is that the
  * seam hands the page a working bridge, and a cast placeholder would compile past
  * exactly the wiring mistake — a `render` that passed no bridge at all — that this
- * page's first prop makes possible.
+ * page's first prop makes possible. Built by the family's own context builder, so a
+ * member added to `SettingsPageContext` is one compile error in one file.
+ *
+ * A FRESH ONE PER CASE, for the reason the memory-backed store beneath it has: the
+ * store's health ledger counts for its own lifetime, so two cases sharing one context
+ * would read each other's refusals.
  */
-const CONTEXT: SettingsPageContext = {
-  bridge: createFixtureBridge({
-    scenario: {
-      id: "settings-sidekicks-test",
-      label: "Sidekicks registration",
-      purpose: "Drives the sidekicks settings registration against a bridge that scripts nothing.",
-      sessionId: "session-settings",
-      participantIdsInJoinOrder: [],
-      beats: [],
-      replies: [],
-      startedAtIso: "2026-01-01T10:05:00.000Z",
-    },
-  }),
-  openSection: () => undefined,
-  retainedSessionId: undefined,
-  retainedSessionStore: undefined,
-  shellState: UNREPORTED_SHELL_STATE,
-  selection: undefined,
-  uiStateStore: consoleTestUiStateStore(),
-};
-
-/** The page speaks its settlement, so it is mounted inside the console's announcer. */
-function renderPage(body: React.ReactNode): { readonly container: HTMLElement } {
-  return render(<LiveAnnouncerProvider clock={new ManualClock()}>{body}</LiveAnnouncerProvider>);
+function sidekicksPageContext(): SettingsPageContext {
+  return settingsPageContextWith(
+    createFixtureBridge({
+      scenario: {
+        id: "settings-sidekicks-test",
+        label: "Sidekicks registration",
+        purpose:
+          "Drives the sidekicks settings registration against a bridge that scripts nothing.",
+        sessionId: "session-settings",
+        participantIdsInJoinOrder: [],
+        beats: [],
+        replies: [],
+        startedAtIso: "2026-01-01T10:05:00.000Z",
+      },
+    }),
+    undefined,
+  );
 }
 
 function registeredRegistry(): SettingsPageRegistry {
   const registry = new SettingsPageRegistry();
   registerSidekicksPage(registry);
-  return registry;
-}
-
-/**
- * The registry with this page's chunk already resolved, for the cases that mount it.
- *
- * A scoped registry per case rather than one shared instance, for the registrar's own
- * reason: the table is owner-scoped state, so two cases sharing one would make the second
- * depend on whether the first had run.
- */
-async function registryWithBodyLoaded(): Promise<SettingsPageRegistry> {
-  const registry = registeredRegistry();
-  await registry.preload("sidekicks");
   return registry;
 }
 
@@ -100,9 +88,11 @@ describe("the sidekicks settings page", () => {
   it("renders the agents family's page and not a local stand-in", async () => {
     // The page's own heading and its first standing fact, which only the real body
     // carries. A shell drawn here would pass an "it rendered something" assertion.
-    const descriptor = (await registryWithBodyLoaded()).descriptorFor("sidekicks");
-    expect(descriptor).toBeDefined();
-    const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
+    const container = await mountRegisteredSettingsPage(
+      "sidekicks",
+      registerSidekicksPage,
+      sidekicksPageContext(),
+    );
     expect(container.querySelector(".meridian-sidekicks__title")?.textContent).toBe("Sidekicks");
     expect(container.textContent ?? "").toContain("Where they live");
   });
@@ -114,8 +104,11 @@ describe("the sidekicks settings page", () => {
     // person sees, and it must carry the pending marker — the screenshot tier refuses to
     // photograph a tree holding one, and a settings page mid-load is exactly what that
     // refusal exists for.
-    const descriptor = registeredRegistry().descriptorFor("sidekicks");
-    const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
+    const container = mountReservedSettingsPage(
+      "sidekicks",
+      registerSidekicksPage,
+      sidekicksPageContext(),
+    );
     expect(container.querySelector(".meridian-sidekicks__title")).toBeNull();
     expect(pendingPaneBodiesIn(container).length).toBe(1);
   });
@@ -123,11 +116,20 @@ describe("the sidekicks settings page", () => {
   it("hands the page the bridge it reads through", async () => {
     // The seam's whole job now. A registration that composed the element with no
     // props would fail to compile, but one that passed a DIFFERENT bridge would
-    // not — so the check is that the page put a read in flight at all, which only
-    // the context's own bridge can answer.
-    const descriptor = (await registryWithBodyLoaded()).descriptorFor("sidekicks");
-    const { container } = renderPage(<>{descriptor?.render(CONTEXT)}</>);
-    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+    // not — so the check is that the page's read reached a bridge and was ANSWERED,
+    // which only the context's own bridge can do.
+    //
+    // The SETTLED arm rather than the unread one, which is what the shared mount
+    // changed and what makes this stronger: the mount moves the bridge's frozen clock,
+    // so a page that never asked and a page whose answer never arrived both stay in
+    // `not-loaded` and fail here, where before only the first of them did.
+    const container = await mountRegisteredSettingsPage(
+      "sidekicks",
+      registerSidekicksPage,
+      sidekicksPageContext(),
+    );
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
   });
 
   it("is found by the words a person types for it", () => {

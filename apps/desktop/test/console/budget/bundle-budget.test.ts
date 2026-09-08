@@ -10,11 +10,10 @@
 // clean checkout fails with the command that produces one. The refusal tests at
 // the bottom are what make that claim evidence rather than an assumption.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   ConsoleBudgetRegistry,
@@ -30,6 +29,7 @@ import {
   formatRendererBundleReport,
   type RendererBundleMeasurement,
 } from "../../../scripts/budget/measure-bundle.mjs";
+import { TemporaryDirectoryTrail } from "../temporary-directory.js";
 
 const registry = ConsoleBudgetRegistry.load();
 const budget = registry.requireBudget(RENDERER_BUNDLE_BUDGET_ID);
@@ -61,9 +61,16 @@ function measureOrFailLoudly(): RendererBundleMeasurement {
   }
 }
 
+/** Every fixture tree the refusal cases plant, removed after each of them. */
+const plantedFixtures = new TemporaryDirectoryTrail();
+
+afterEach(() => {
+  plantedFixtures.removeAll();
+});
+
 /** A renderer out-dir holding exactly the manifest given, for the refusal paths. */
 function outputDirectoryWithManifest(name: string, manifest: unknown): string {
-  const directory = mkdtempSync(path.join(tmpdir(), `console-bundle-${name}-`));
+  const directory = plantedFixtures.create(`console-bundle-${name}-`);
   const manifestPath = path.join(directory, ...RENDERER_MANIFEST_RELATIVE_PATH.split("/"));
   mkdirSync(path.dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify(manifest), "utf8");
@@ -119,7 +126,7 @@ describe("renderer initial-bundle budget", () => {
 // against a 450 kB ceiling; the harness must refuse rather than pass.
 describe("bundle measurement refusals", () => {
   it("refuses a tree with no chunk manifest", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "console-bundle-empty-"));
+    const directory = plantedFixtures.create("console-bundle-empty-");
     expect(() => new RendererBundleMeasurer(directory).measure()).toThrow(
       RendererBundleOutputMissingError,
     );
