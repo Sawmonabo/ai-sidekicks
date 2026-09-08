@@ -75,6 +75,32 @@ describe("the signal a call hands the door", () => {
       "}",
     ]);
     expect(opened?.signalArgument).toBe("present");
+    // THE SAME MEMBER, KEYED RATHER THAN DOTTED. `round["signal"]` reads the member
+    // `round.signal` reads, off the binding `round.signal` reads it off, so this reading
+    // takes `daemon-call-census.ts`' shared member predicate rather than the dotted copy
+    // it carried — which had the two spellings of one rule disagreeing one module over
+    // from where the rule is stated.
+    const [keyed] = plantedSites([
+      "export function readBoundary(bridge, readScope) {",
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round["signal"] });',
+      "}",
+    ]);
+    expect(keyed?.signalArgument).toBe("present");
+  });
+
+  it("negative control: a key this parse cannot resolve is not the round's signal", () => {
+    // The other side of that predicate, and the depth limit rather than an exception to
+    // it: `round[member]` requires deciding what `member` holds, which is a value this
+    // scan does not follow. The call has therefore SHOWN no signal, and the read rule
+    // refuses it exactly as it refuses one the call minted itself.
+    const [computed] = plantedSites([
+      "export function readBoundary(bridge, readScope, member) {",
+      "  const round = readScope.openRound();",
+      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round[member] });',
+      "}",
+    ]);
+    expect(computed?.signalArgument).toBe("unrecognised");
   });
 
   it("negative control: a signal this call minted itself is not the round's", () => {

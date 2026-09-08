@@ -67,7 +67,10 @@
 // the dotted form left the bracketed one matched by NEITHER: the site scan skipped the
 // callee and the clause census below skipped the module, so the pinned consumer count
 // did not move and an unsignalled read behind that spelling passed every gate at once,
-// which is the namespace form's own hole a second time under a different key.
+// which is the namespace form's own hole a second time under a different key. The
+// predicate is EXPORTED for the same reason it is one predicate: `daemon-signal-argument.ts`
+// asks the same question of a round's `signal` member, and a dotted-only copy of a rule
+// stated here would be the two spellings drifting apart one module over.
 //
 // A COMPUTED KEY THAT IS NOT A LITERAL IS NOT RESOLVABLE AND STAYS A NON-MATCH.
 // `daemonDoor[name]` requires deciding what `name` holds, which is a value rather than a
@@ -317,7 +320,7 @@ function callDoorLocalNames(parsed: ts.SourceFile): ReadonlySet<string> {
 }
 
 /** A member read, in the two spellings that still say the member's name in the text. */
-type MemberRead = ts.PropertyAccessExpression | ts.ElementAccessExpression;
+export type MemberRead = ts.PropertyAccessExpression | ts.ElementAccessExpression;
 
 /**
  * Whether `node` reads `<something>.<member>`, however the key was spelled.
@@ -329,8 +332,13 @@ type MemberRead = ts.PropertyAccessExpression | ts.ElementAccessExpression;
  *
  * The narrowing is what the callers need beyond the boolean: both spellings carry the
  * object as `.expression`, which is the half a binding resolution is asked of.
+ *
+ * Exported for the fourth consumer, `daemon-signal-argument.ts`' read of a round's own
+ * `signal` member. That reading is about a value's provenance rather than about the door,
+ * but the question it asks of the syntax is this one — and a dotted-only copy beside a
+ * rule stated here is how two readings of one spelling drift apart.
  */
-function readsMember(node: ts.Node, member: string): node is MemberRead {
+export function readsMember(node: ts.Node, member: string): node is MemberRead {
   return (
     readsMemberByDots(node, member) ||
     (ts.isElementAccessExpression(node) &&
