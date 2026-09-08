@@ -21,12 +21,18 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { DaemonMethod } from "@ai-sidekicks/contracts";
+import { InviteCreateResponseSchema, type DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge } from "../../fixture/fixture-bridge.js";
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { COLLABORATION_SCENARIO } from "../collaboration.js";
-import { INVITE_ACCEPTED, INVITE_EXPIRING, INVITE_MINTED, PARTICIPANT_YOU } from "./identifiers.js";
+import {
+  INVITE_ACCEPTED,
+  INVITE_EXPIRING,
+  INVITE_MINTED,
+  PARTICIPANT_YOU,
+  collaborationMintedInviteId,
+} from "./identifiers.js";
 
 /** How far past tick zero the pending invitation's declared expiry sits. */
 const INVITE_EXPIRY_MS = 40_000;
@@ -76,6 +82,20 @@ async function revokeThrough(bridge: ConsoleBridge, inviteId: string): Promise<u
       inviteId,
     } as never,
   );
+}
+
+/**
+ * The identity one mint receipt carries, read through the registered response shape.
+ *
+ * Parsed rather than cast, because the identity is DERIVED per mint and the derivation
+ * has a contract to meet: `InviteCreateResponse.inviteId` is a branded UUID, so a
+ * sequence spelled any other way would be a receipt the call door rejects — and that
+ * rejection is the failure this reader turns into a legible one.
+ */
+function mintedReceiptOf(receipt: unknown): { readonly inviteId: string; readonly token: string } {
+  const parsed = InviteCreateResponseSchema.safeParse(receipt);
+  expect(parsed.error?.issues.map((issue) => issue.message) ?? []).toStrictEqual([]);
+  return parsed.success ? parsed.data : { inviteId: "", token: "" };
 }
 
 /** The state each invite id reads as, right now, over the fixture's own growth port. */
@@ -192,5 +212,72 @@ describe("the collaboration room's ledger and the acts performed on it", () => {
     const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
 
     await expect(ledgerRowsFrom(bridge)).resolves.toHaveLength(2);
+  });
+});
+
+describe("the collaboration room's mint receipts", () => {
+  // The two mints are driven with IDENTICAL requests, which is what makes these cases
+  // about the receipt rather than about the form: the expiry and the join mode are the
+  // caller's and the same both times, so the only thing that can tell the two
+  // invitations apart is the identity the room mints for each.
+  const MINT_JOIN_MODE = "viewer";
+
+  it("mints a distinct identity per call, receipt and credential alike", async () => {
+    // The finding: `invite.create` answered with one fixed id for the life of the
+    // window. A person who dismissed the first link reveal and sent another invitation
+    // got the first one's identity back.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    const first = mintedReceiptOf(await mintThrough(bridge, MINT_JOIN_MODE));
+    const second = mintedReceiptOf(await mintThrough(bridge, MINT_JOIN_MODE));
+
+    expect(first.inviteId).toBe(INVITE_MINTED);
+    expect(second.inviteId).toBe(collaborationMintedInviteId(2));
+    // The token moves with the identity: it is handed out exactly once per invitation,
+    // so two live reveals showing one credential would be teaching a control plane that
+    // reissues them.
+    expect(second.token).not.toBe(first.token);
+  });
+
+  it("leaves the ledger one row per mint, each under its own key", async () => {
+    // The consequence on the read, which is where a person meets it: the ledger appends
+    // a row per served mint, so a shared identity put two rows under one key — which a
+    // list keyed by invite id draws as duplicate React keys.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    await mintThrough(bridge, MINT_JOIN_MODE);
+    await mintThrough(bridge, MINT_JOIN_MODE);
+
+    const rows = await ledgerRowsFrom(bridge);
+    const inviteIds = rows.map((row) => (row as { readonly inviteId: string }).inviteId);
+    expect(rows).toHaveLength(4);
+    expect(new Set(inviteIds).size).toBe(inviteIds.length);
+  });
+
+  it("revokes the minted row the caller named, and leaves the other mint alone", async () => {
+    // The consequence a shared identity had that a row count alone does not show: the
+    // ledger records a state move in a map keyed by invite id, so one revoke on a
+    // duplicated key moved BOTH rows at once.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    const first = mintedReceiptOf(await mintThrough(bridge, MINT_JOIN_MODE));
+    const second = mintedReceiptOf(await mintThrough(bridge, MINT_JOIN_MODE));
+    await revokeThrough(bridge, first.inviteId);
+
+    const states = await ledgerStatesFrom(bridge);
+    expect(states[first.inviteId]).toBe("revoked");
+    expect(states[second.inviteId]).toBe("pending");
+  });
+
+  it("negative control: one mint still appends exactly one row", async () => {
+    // Without it a reply that minted a fresh identity per ASK rather than per served
+    // mint would pass the cases above while quietly filling the ledger — and the same
+    // control catches the opposite fix, a ledger that appended a row per read.
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+
+    await mintThrough(bridge, MINT_JOIN_MODE);
+
+    await expect(ledgerRowsFrom(bridge)).resolves.toHaveLength(3);
+    await expect(ledgerRowsFrom(bridge)).resolves.toHaveLength(3);
   });
 });

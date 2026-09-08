@@ -159,9 +159,24 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * own frozen clock, so it is the SAME timeline the beats are due on rather than a
  * second one a reply could drift from, and a computation that ignores it settles
  * exactly where it always did.
+ *
+ * AND THE ORDINAL OF THIS ANSWER, which is what lets a room MINT. A reply that
+ * answered a create call with one fixed receipt handed the same identity to every
+ * caller: the second invitation a person sent arrived under the first one's id, so a
+ * keyed ledger held two rows under one key, a list drew duplicate keys, and revoking
+ * either moved both. The instant beside it cannot carry that — two calls parked on the
+ * frozen clock together are released by one advance and read the same tick — so the
+ * engine counts the answers it has produced for each call and hands the count in. The
+ * reply stays a computation over what it is handed, which is what keeps the count off
+ * the reply table and a playback replayable: the same calls in the same order are
+ * handed the same ordinals.
  */
 export interface ScenarioComputedReply extends ScenarioReplyBase {
-  readonly resultFor: (request: unknown, settledAtMilliseconds: number) => unknown;
+  readonly resultFor: (
+    request: unknown,
+    settledAtMilliseconds: number,
+    computedReplyOrdinal: number,
+  ) => unknown;
   readonly result?: never;
   readonly refusal?: never;
 }
