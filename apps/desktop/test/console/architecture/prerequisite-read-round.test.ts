@@ -20,12 +20,13 @@
 // remembering to name it here. The floors below are what keep the derivation from
 // quietly reporting on nothing.
 //
-// AND THE THREE VERBS THEMSELVES ARE NOT DECLARED HERE EITHER. They were, as a suffix
-// list, while `daemon-read-signal-census.ts` held the same closed set spelled as words
-// — so a fourth reading verb landing in the contracts moved whichever list its author
-// remembered and left the other gate reading that verb as a mutation. Both derive from
-// `daemon-reading-verbs.ts` now, and its own control widens the set and watches the two
-// derivations move together.
+// AND THE THREE VERBS THEMSELVES ARE NOT DECLARED HERE. They were, as a suffix list,
+// while `daemon-read-signal-census.ts` held the same closed set spelled as words — so a
+// fourth reading verb landing in the contracts moved whichever list its author
+// remembered and left the other gate reading that verb as a mutation. That census
+// classifies by no name at all now, the console declaring its own method partition, so
+// `daemon-reading-verbs.ts` has exactly one derivation left and it is this one; the
+// control below widens the set and watches this classifier move with it.
 //
 // AND THE CONTROLLER CLAIM IS DERIVED THE SAME WAY: every module that extends the act
 // controller base is found by its `extends` clause, and each is held to declaring the
@@ -50,7 +51,7 @@ import {
   readModuleNamed,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
-import { answersReadingResponse } from "./daemon-reading-verbs.js";
+import { READING_VERBS, answersReadingResponse } from "./daemon-reading-verbs.js";
 
 /** The repos family's one module of `repo.*` call wrappers. */
 const REPO_READS_MODULE = "console/repos/repo-reads.ts";
@@ -128,7 +129,8 @@ function callWrappers(source: string): readonly CallWrapper[] {
  * Not a list of functions: a question about the shape a reading method answers with.
  * Every `repo.*` read in the registry answers one of the three verbs' response types
  * and no recording method answers any of them, which is what makes the classifier
- * total over the module — and the verbs come from the one home both gates read.
+ * total over the module — and the verbs come from their own home rather than from a
+ * list written here, so the control below can widen the set and watch this move.
  */
 function isReadWrapper(wrapper: CallWrapper): boolean {
   return answersReadingResponse(wrapper.responseType);
@@ -248,6 +250,20 @@ describe("repos call wrappers — every read takes a signal, every act takes non
     ].join("\n");
     const found = callWrappers(planted);
     expect(found.map((wrapper) => isReadWrapper(wrapper))).toStrictEqual([false, true]);
+  });
+
+  it("negative control: the verb set is closed, and widening it moves this classifier", () => {
+    // THE CLOSED SET, PROVED CLOSED. `daemon-reading-verbs.ts` declares the three verbs
+    // this gate partitions on, and the `verbs` parameter exists so a control can widen
+    // the set and watch the answer move — which is the only way to show that the
+    // classification really is read off that declaration rather than off a list this
+    // file happens to agree with. A fourth verb landing in the contracts is a
+    // deliberate edit there, and this is what makes that edit's effect visible.
+    expect(answersReadingResponse("WorkspaceProbeResponse")).toBe(false);
+    const widened = [...READING_VERBS, "Probe"];
+    expect(answersReadingResponse("WorkspaceProbeResponse", widened)).toBe(true);
+    // And the widening is real rather than a rule that admits everything.
+    expect(answersReadingResponse("EphemeralCloneDisposeResponse", widened)).toBe(false);
   });
 
   it("negative control: a declaration that never calls the door is not a wrapper", () => {

@@ -1,6 +1,12 @@
 // The read-versus-record partition and its four offender readings, driven against
 // sources whose verdict is known.
 //
+// THE PARTITION IS NOT THIS BENCH'S EITHER. The console declares it in
+// `bridge/daemon/daemon-method-classification.ts`, total over the registry's own key
+// set; what the cases below drive is how a planted TABLE's rows are folded through it,
+// and what each of the four readings then makes of a call. The kind of a real method is
+// that module's claim and `read-signal-chokepoint.test.ts`' floors, not a fixture's.
+//
 // THE GATE IS NEXT DOOR AND THIS IS THE CLASSIFIER'S OWN BENCH, on the
 // `barrel-census.test.ts` pattern: `read-signal-chokepoint.test.ts` makes the claim
 // over the real console, and a clean result there is worth nothing until the checker
@@ -10,7 +16,7 @@
 //
 // WHAT A CALL SAYS IS THE NEIGHBOURING BENCH'S SUBJECT. `daemon-call-sites.test.ts`
 // pins the method resolution and the signal-value reading; this file starts from a
-// site and asks what the registry's partition makes of it, and what each of the four
+// site and asks what the console's partition makes of it, and what each of the four
 // readings then owes. The two share one planted corpus so neither drifts from the
 // other, and each site is owned by exactly one reading — which is itself a claim the
 // cases below make rather than assume.
@@ -35,77 +41,93 @@ import {
   unresolvedMethodOffenders,
   unstoppableReadOffenders,
 } from "./daemon-read-signal-census.js";
-import { READING_VERBS, answersReadingResponse, namesReadingVerb } from "./daemon-reading-verbs.js";
 
-describe("the response-shape partition", () => {
-  it("reads the registry's own binding rather than the method name", () => {
-    // The table pairs a method with the schema its answer is parsed against, and that
-    // pairing is what says whether the call was a reading. A gate reading the method
-    // string would be a naming convention wearing a classifier's clothes.
+/** One planted binding row, in the shape the registry's own table writes. */
+function plantedRow(method: string, responseSchema: string): string {
+  return `  ${JSON.stringify(method)}: bindDaemonMethod(RequestSchema, ${responseSchema}),`;
+}
+
+/** A planted binding table over the rows a case names. */
+function plantedTable(...rows: readonly string[]): string {
+  return ["export const CONSOLE_DAEMON_METHOD_BINDINGS = Object.freeze({", ...rows, "});"].join(
+    "\n",
+  );
+}
+
+describe("the console's declared partition, applied to the table's rows", () => {
+  it("takes the kind from the classification and the keys from the table", () => {
+    // TWO SOURCES, EACH ANSWERING ITS OWN HALF. The rows say which methods the registry
+    // binds; `bridge/daemon/daemon-method-classification.ts` says what each of them is.
+    // Nothing here decides a kind from how a method or its schema is spelled.
     expect(PLANTED_READINGS.get("repo.workspaceList")).toBe(true);
     expect(PLANTED_READINGS.get("session.join")).toBe(false);
     expect(daemonMethodReadings(PLANTED_REGISTRY).size).toBe(2);
   });
 
-  it("takes the reading verb as a word, wherever in the operation it sits", () => {
-    // The head-position case is real: three driver catalogs answer `ListModelsResult`
-    // and its siblings, which a suffix rule misses entirely.
-    expect(namesReadingVerb("QueueItemListResponseSchema")).toBe(true);
-    expect(namesReadingVerb("ListModelsResultSchema")).toBe(true);
-    expect(namesReadingVerb("WorktreeReuseCheckResponseSchema")).toBe(true);
-    expect(namesReadingVerb("WorkspaceExecutionModeCapabilitiesReadResponseSchema")).toBe(true);
+  it("negative control: a write whose reply schema is named like a reading still records", () => {
+    // THE FIRST HALF OF THE HAZARD THE WORD RULE CARRIED. `Read`, `List`, and `Check`
+    // were the whole classifier, so a durable write whose reply schema happened to
+    // carry one of them classified as a read — and was then required to carry an abort
+    // signal that would abandon it mid-flight. The schema name is not read at all now,
+    // so all three spellings answer what the console says the method is.
+    const readings = daemonMethodReadings(
+      plantedTable(
+        plantedRow("providerAccount.probe", "ProviderAccountProbeReadResponseSchema"),
+        plantedRow("repo.attach", "RepoAttachListResponseSchema"),
+        plantedRow("session.create", "SessionCreateCheckResponseSchema"),
+      ),
+    );
+    expect([...readings.values()]).toStrictEqual([false, false, false]);
   });
 
-  it("negative control: a word that merely contains a verb is not one", () => {
-    // The substring hazard, written as the schema that would exercise it. `Checklist`
-    // is one word and `Check` is not a word of it, which is the whole reason the split
-    // is on capital boundaries rather than on `includes`.
-    expect(namesReadingVerb("ChecklistUpdateResponseSchema")).toBe(false);
-    expect(namesReadingVerb("RunControlAckSchema")).toBe(false);
-    expect(namesReadingVerb("EphemeralCloneDisposeResponseSchema")).toBe(false);
+  it("negative control: a read whose reply schema carries no known verb still reads", () => {
+    // The other half. A reading named with a fourth verb classified as a record and was
+    // excused from carrying the signal that stops it, which is the direction that made
+    // the rule quietly weaker rather than noisily wrong.
+    const readings = daemonMethodReadings(
+      plantedTable(
+        plantedRow("repo.workspaceList", "WorkspaceProbeResponseSchema"),
+        plantedRow("presence.read", "PresenceAckSchema"),
+      ),
+    );
+    expect([...readings.values()]).toStrictEqual([true, true]);
   });
 
-  it("negative control: a fourth reading verb moves both gates at once", () => {
-    // THE SINGLE SOURCE, PROVED SINGLE. The suffix spelling this bench's neighbour
-    // classifies repos wrappers with and the word spelling the registry rows are
-    // classified with were two hand-written lists of the same closed set, so a verb
-    // added to one left the other reading it as a mutation. One added verb has to move
-    // both derivations or the set is not really one set.
-    expect(namesReadingVerb("WorkspaceProbeResponseSchema")).toBe(false);
-    expect(answersReadingResponse("WorkspaceProbeResponse")).toBe(false);
-    const widened = [...READING_VERBS, "Probe"];
-    expect(namesReadingVerb("WorkspaceProbeResponseSchema", widened)).toBe(true);
-    expect(answersReadingResponse("WorkspaceProbeResponse", widened)).toBe(true);
-    // And the widening is real rather than a rule that admits everything.
-    expect(namesReadingVerb("EphemeralCloneDisposeResponseSchema", widened)).toBe(false);
-    expect(answersReadingResponse("EphemeralCloneDisposeResponse", widened)).toBe(false);
-  });
-
-  it("negative control: a schema renamed by the import clause is classified as exported", () => {
-    // THE RENAME THAT DELETED THE VERB. The operation a schema names is the contracts
-    // package's, and a row reaches it through whatever the registry's own clause bound
-    // it to — so `WorkspaceListResponseSchema as WorkspaceResponseSchema` leaves the
-    // whole classification outside the identifier the row carries, `List` goes with
-    // it, and a read is exempted from the signal rule by a rename in a file the rule
-    // is not about.
+  it("negative control: an import clause that renames a schema changes nothing", () => {
+    // THE RENAME THAT USED TO DELETE THE VERB. `WorkspaceListResponseSchema as
+    // WorkspaceResponseSchema` left the whole classification outside the identifier the
+    // row carried, so a read was exempted from the signal rule by a rename in a file
+    // the rule is not about. The clause is now beside the point, which is a stronger
+    // property than resolving it correctly was.
     const aliased = daemonMethodReadings(
       [
         "import {",
         "  SessionJoinResponseSchema,",
         "  WorkspaceListResponseSchema as WorkspaceResponseSchema,",
         '} from "@ai-sidekicks/contracts";',
-        "export const CONSOLE_DAEMON_METHOD_BINDINGS = Object.freeze({",
-        '  "repo.workspaceList": bindDaemonMethod(WorkspaceListRequestSchema, WorkspaceResponseSchema),',
-        '  "session.join": bindDaemonMethod(SessionJoinRequestSchema, SessionJoinResponseSchema),',
-        "});",
+        plantedTable(
+          plantedRow("repo.workspaceList", "WorkspaceResponseSchema"),
+          plantedRow("session.join", "SessionJoinResponseSchema"),
+        ),
       ].join("\n"),
     );
     expect(aliased.get("repo.workspaceList")).toBe(true);
-    // And the rename is really a rename rather than a rule that admits everything: an
-    // unaliased record still records, and a local spelling with no clause behind it is
-    // classified as itself.
     expect(aliased.get("session.join")).toBe(false);
-    expect(daemonMethodReadings(PLANTED_REGISTRY).get("repo.workspaceList")).toBe(true);
+  });
+
+  it("negative control: a bound method the console does not register is left out", () => {
+    // FAIL-CLOSED AT THE OTHER EDGE. The classification is total over the contract's
+    // keys and says nothing about a name outside them, so a row for such a name is
+    // absent from the partition rather than defaulted onto one of its sides — and every
+    // call naming it is reported by the unresolved reading, which no options argument
+    // satisfies.
+    const readings = daemonMethodReadings(
+      plantedTable(
+        plantedRow("session.rename", "SessionRenameResponseSchema"),
+        plantedRow("session.join", "SessionJoinResponseSchema"),
+      ),
+    );
+    expect([...readings.keys()]).toStrictEqual(["session.join"]);
   });
 
   it("negative control: the table reader ignores everything that is not a binding", () => {
@@ -230,8 +252,8 @@ describe("the four offender readings", () => {
     // answered `undefined` for a method it holds no row for, `readMethodsOf` found no
     // `true` entry, and the site fell through to the RECORD arm — so an unsignalled
     // read of that method satisfied every one of the readings at once. A computed key
-    // or a namespace-qualified schema in the real registry is exactly how one row goes
-    // missing, and the classification cannot rest on the reader having caught them all.
+    // or a spread in the real registry is exactly how one row goes missing, and the
+    // classification cannot rest on the reader having caught them all.
     const sites = plantedSitesInReadHelper([
       'await callDaemon(bridge, "repo.mountRead", request);',
     ]);
@@ -239,7 +261,7 @@ describe("the four offender readings", () => {
       "unresolved",
     ]);
     expect(unresolvedMethodOffenders(sites, PLANTED_READINGS)).toStrictEqual([
-      'console/planted/surface.ts:3 — "repo.mountRead" names repo.mountRead, which the registry binds no response schema for, so nothing here says whether this call reads',
+      'console/planted/surface.ts:3 — "repo.mountRead" names repo.mountRead, which the classified method table does not carry, so nothing here says whether this call reads',
     ]);
     expect(stoppableRecordOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
     expect(unstoppableReadOffenders(sites, PLANTED_READINGS)).toStrictEqual([]);
