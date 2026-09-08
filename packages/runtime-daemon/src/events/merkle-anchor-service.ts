@@ -205,6 +205,7 @@ import {
   type DaemonCredentialProvider,
 } from "./daemon-credential-provider.js";
 import type { DaemonSigningKeySource } from "./signing-key-source.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 /**
  * The Ed25519 preimage of `root_signature` — the RFC 8785 canonicalization of
@@ -616,7 +617,7 @@ export interface MerkleAnchorServiceDeps {
    * happened. Tests inject a controlled clock; never assert against real time.
    */
   readonly now?: () => Date;
-  /** Mints `pending_anchor_uploads.id`; defaults to `crypto.randomUUID()`. */
+  /** Mints `pending_anchor_uploads.id`; defaults to the daemon-wide `mintUuidV7`. */
   readonly anchorIdFactory?: () => string;
 }
 
@@ -713,7 +714,7 @@ export class MerkleAnchorService {
     this.#signingKeySource = deps.signingKeySource;
     this.#uploadTransport = deps.uploadTransport;
     this.#now = deps.now ?? ((): Date => new Date());
-    this.#anchorIdFactory = deps.anchorIdFactory ?? ((): string => crypto.randomUUID());
+    this.#anchorIdFactory = deps.anchorIdFactory ?? mintUuidV7;
 
     // The COVERAGE query (`Spec-006 §Post-Compaction Integrity` step 1): an
     // anchor covers a range when it starts at or before it and ends at or after

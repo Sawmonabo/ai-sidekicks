@@ -249,7 +249,6 @@
 // (the append path this service's events ride).
 
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -277,6 +276,7 @@ import {
   WorktreeReuseConflictError,
 } from "./worktree-errors.js";
 import type { WorktreeEventEmitter } from "./worktree-event-emitter.js";
+import { mintUuidV7 } from "../ids/uuid-v7.js";
 
 // --------------------------------------------------------------------------
 // Injected seams
@@ -378,7 +378,7 @@ export interface WorktreeServiceDeps {
   readonly gitCommandTimeoutMs?: number;
   /** Wall clock for `created_at` / `updated_at` / `cleaned_at`. Injectable for tests. */
   readonly now?: () => string;
-  /** `worktrees.id` source. Injectable for deterministic tests; defaults to `randomUUID`. */
+  /** `worktrees.id` source. Injectable for deterministic tests; defaults to `mintUuidV7`. */
   readonly newWorktreeId?: () => string;
 }
 
@@ -519,7 +519,7 @@ export interface WorktreeCleanupPassResult {
 
 /** Inputs for {@link deriveWorktreeBranchName}. */
 export interface WorktreeBranchNameInput {
-  /** The session whose first 8 hex digits form the `<session-short-id>` segment. */
+  /** The session whose last 8 hex digits form the `<session-short-id>` segment. */
   readonly sessionId: string;
   /** The run behind the `run-<run-short-id>` fallback; `null` when there is none. */
   readonly runId: string | null;
@@ -770,7 +770,16 @@ export function deriveWorktreeBranchName(input: WorktreeBranchNameInput): string
 }
 
 /**
- * First {@link SHORT_ID_LENGTH} hex digits of an identifier.
+ * LAST {@link SHORT_ID_LENGTH} hex digits of an identifier.
+ *
+ * The tail and not the head, because the daemon mints RFC 9562 v7 ids: the
+ * first 8 hex digits are the high 32 bits of the millisecond timestamp and are
+ * identical for every id minted within one 65,536 ms window, so a head-derived
+ * short id collided across sessions created within a minute of each other —
+ * and the branch-name arbitration below is scoped per repo mount, so the
+ * second session reached `git worktree add` on an existing branch. The last 8
+ * digits are the low 32 of the id's 62 random bits (random under v4 too), so
+ * the handle keeps the entropy Spec-010's rule always assumed.
  *
  * Hyphens are stripped before slicing so the canonical UUID form and its
  * unhyphenated spelling yield the same short id, and the result is lowercased
@@ -780,7 +789,7 @@ export function deriveWorktreeBranchName(input: WorktreeBranchNameInput): string
  * anything durable joins on.
  */
 function shortId(identifier: string): string {
-  return identifier.replace(/-/g, "").slice(0, SHORT_ID_LENGTH).toLowerCase();
+  return identifier.replace(/-/g, "").slice(-SHORT_ID_LENGTH).toLowerCase();
 }
 
 /**
@@ -971,7 +980,7 @@ export class WorktreeService {
     this.#filesystem = deps.filesystem ?? DEFAULT_WORKTREE_FILESYSTEM;
     this.#gitCommandTimeoutMs = deps.gitCommandTimeoutMs ?? DEFAULT_WORKTREE_GIT_TIMEOUT_MS;
     this.#now = deps.now ?? ((): string => new Date().toISOString());
-    this.#newWorktreeId = deps.newWorktreeId ?? ((): string => randomUUID());
+    this.#newWorktreeId = deps.newWorktreeId ?? mintUuidV7;
 
     const database = deps.database;
 
@@ -1382,7 +1391,7 @@ export class WorktreeService {
 
     // Parses the ROW's id, not the argument, and deliberately AFTER the
     // not-found refusal. The brand is an outbound claim about the value this
-    // service stored (always a `randomUUID()`), not an inbound validation of
+    // service stored (always a `mintUuidV7()`), not an inbound validation of
     // the caller's string — so a malformed id gets `WorktreeNotFoundError`,
     // the honest answer, instead of a ZodError that names no domain fault.
     const parsedWorktreeId = WorktreeIdSchema.parse(row.id);
