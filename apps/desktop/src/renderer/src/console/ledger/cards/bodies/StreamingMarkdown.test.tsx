@@ -115,7 +115,7 @@ describe("a streaming body", () => {
         isComplete
       />,
     );
-    expect(footnotes.resolve("event-07", "1")).not.toBeUndefined();
+    expect(footnotes.definitionsFor("event-07").get("1")).not.toBeUndefined();
   });
 
   it("gives two identical settled blocks two identities", async () => {
@@ -277,7 +277,7 @@ describe("a streaming body", () => {
         isComplete={false}
       />,
     );
-    expect(footnotes.resolve("event-41", "2")).not.toBeUndefined();
+    expect(footnotes.definitionsFor("event-41").get("2")).not.toBeUndefined();
   });
 
   it("negative control: a rebase re-registers the prefix it re-derived", () => {
@@ -306,7 +306,7 @@ describe("a streaming body", () => {
     );
 
     expect(register).toHaveBeenCalled();
-    expect(footnotes.resolve("event-42", "1")?.bodyNodes).not.toBeUndefined();
+    expect(footnotes.definitionsFor("event-42").get("1")?.bodyNodes).not.toBeUndefined();
   });
 
   it("negative control: it registers nothing for a body with no definitions", () => {

@@ -87,6 +87,79 @@ describe("a footnote whose definition settles in another block", () => {
   });
 });
 
+describe("a footnote already open when its definition is rewritten", () => {
+  /** The note as the stream last published it before the body finished. */
+  const PENULTIMATE_NOTE = "cite[^1] here\n\n[^1]: the penultimate body\n";
+  /** The same note as the final update leaves it. */
+  const FINAL_NOTE = "cite[^1] here\n\n[^1]: the final body\n";
+
+  it("shows the final body in the same commit the registration lands in", () => {
+    // Definitions are recorded from an EFFECT, which runs after the render that read
+    // them, so the update's own commit showed the PREVIOUS definition and nothing was
+    // guaranteed to correct it: once the stream stops, no further render of this host
+    // is scheduled at all.
+    //
+    // ASSERTED SYNCHRONOUSLY, WHICH IS THE WHOLE CASE. Under the unsubscribed read this
+    // suite is green through `waitFor`, because the popover primitive happens to
+    // re-render its own subtree once more after layout and that incidental render reads
+    // the registry again. Waiting therefore asserts nothing about the guarantee — it
+    // asserts that something else eventually re-rendered. `rerender` runs inside `act`,
+    // so the registration, the store notification and the re-render it schedules have
+    // all flushed by the time it returns: what is on screen here is what the update's
+    // own commit put there, with nothing forced — no second press, no reopen, no wait.
+    const footnotes = new FootnoteRegistry();
+    const { rerender } = render(
+      <StreamingMarkdown
+        publishedText={PENULTIMATE_NOTE}
+        sourceId="event-25"
+        footnotes={footnotes}
+        isComplete={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Footnote 1" }));
+    expect(screen.getByText("the penultimate body")).toBeTruthy();
+
+    rerender(
+      <StreamingMarkdown
+        publishedText={FINAL_NOTE}
+        sourceId="event-25"
+        footnotes={footnotes}
+        isComplete
+      />,
+    );
+
+    expect(screen.getByText("the final body")).toBeTruthy();
+    expect(screen.queryByText("the penultimate body")).toBeNull();
+  });
+
+  it("negative control: another row's definition does not disturb this one", () => {
+    // Without this, a host that re-read on ANY registration would pass the case above
+    // and re-render every open popover in the ledger each time any message declared a
+    // note — the fan-out the source-keyed subscription exists to prevent. One registry
+    // serves every row, so the neighbour writes into the very store this host reads,
+    // and the write below happens outside `act` on purpose: a subscription that woke
+    // this host would be a React update with no `act` around it, which is reported.
+    const footnotes = new FootnoteRegistry();
+    render(
+      <StreamingMarkdown
+        publishedText={FINAL_NOTE}
+        sourceId="event-26"
+        footnotes={footnotes}
+        isComplete
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Footnote 1" }));
+    const held = footnotes.definitionsFor("event-26");
+
+    footnotes.register({ sourceId: "event-27", identifier: "1", bodyNodes: [] });
+
+    expect(screen.getByText("the final body")).toBeTruthy();
+    // The snapshot this host subscribes to did not move, which is what a re-render
+    // would have been reporting.
+    expect(footnotes.definitionsFor("event-26")).toBe(held);
+  });
+});
+
 describe("a footnote's definition", () => {
   it("opens into the card's own popover host when its marker is pressed", () => {
     render(

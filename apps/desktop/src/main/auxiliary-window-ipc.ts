@@ -14,7 +14,7 @@
 // pane's body and left a placeholder with nothing behind it. This is the handler that
 // makes the control real, and the console's auxiliary-window port calls it directly.
 //
-// THREE PROPERTIES THE HANDLERS OWE, EACH ONE MEASURED BY ITS OWN CASE:
+// FOUR PROPERTIES THE HANDLERS OWE, EACH ONE MEASURED BY ITS OWN CASE:
 //
 //   1. **Validation before construction.** A route is untrusted input arriving over
 //      IPC and is narrowed against the closed set before a descriptor is composed;
@@ -42,10 +42,21 @@
 //      session's hand-off and its decks all mint a `pane-1`, so a report naming only
 //      the pane reached every session holding that local id — and the ones whose
 //      windows were still open took their placeholders down over somebody else's crash.
+//   4. **A handle is served only to the renderer that opened the window it names.**
+//      Every preload-backed window in this application can reach these channels, and a
+//      handle is a short predictable string (`auxiliary-window-N`), so authorising on
+//      the handle alone let ANY renderer close — or bring forward — a window opened for
+//      another one, after which the legitimate owner's deck processed the return report
+//      for a window it never asked to lose. The check is one predicate in one place —
+//      the registry's own `#held`, which every handle-addressed operation goes through —
+//      so a handler added later cannot forget it; and it compares the `WebContents` ID
+//      recorded when the window opened, never a value the request carries, because a
+//      caller-supplied identity is the thing being authorised rather than the authority.
 //
 // The reports travel as `webContents.send`, which is the only direction available: an
 // `ipcMain.handle` reply answers the call that asked, and a window closing is not a
-// call anybody made.
+// call anybody made. That direction is already property 4's: a report goes to the held
+// `requester` and to nobody else, so it needs no check of its own.
 
 import { ipcMain, type BrowserWindow, type WebContents } from "electron";
 
@@ -66,12 +77,19 @@ import {
 } from "./auxiliary-window.js";
 
 /**
- * Refusal raised when a request names a window this shell is not holding.
+ * Refusal raised when a request names no window this renderer has open.
  *
  * A distinct class rather than a bare `Error` so the renderer's port can tell a
  * handle that has expired — a window that closed while a press was in flight — from
  * a handler that failed. The message names no handle: a value that failed a lookup is
  * caller-supplied, and echoing it into a log is how untrusted input reaches a reader.
+ *
+ * ONE REFUSAL FOR BOTH ARMS, deliberately: a handle this shell is not holding and a
+ * handle held for a DIFFERENT renderer are the same answer, because separating them
+ * would answer "does window 4 exist" for a caller that may not address window 4 — and
+ * the handles are consecutive, so that oracle enumerates every window the application
+ * has open. The renderer's port already treats this refusal as "that window is gone",
+ * which is the honest reading from where a caller that does not own it stands.
  */
 export class UnknownAuxiliaryWindowError extends Error {
   public constructor() {
@@ -97,6 +115,17 @@ interface HeldAuxiliaryWindow {
   readonly browserWindow: BrowserWindow;
   /** The renderer that asked. Every report about this window goes to it and nowhere else. */
   readonly requester: WebContents;
+  /**
+   * That renderer's `WebContents` ID, read once when the window opened.
+   *
+   * Held as a number rather than compared against {@link HeldAuxiliaryWindow.requester}
+   * at check time, because the check runs on paths where the requester may already be
+   * gone and reading any member of a destroyed `WebContents` throws — a refusal path
+   * that throws the wrong error is a refusal a caller cannot classify. A number copied
+   * at open is readable forever and is the identity Electron itself assigns, so no
+   * value a request carries takes part in the comparison.
+   */
+  readonly requesterId: number;
 }
 
 /**
@@ -127,6 +156,14 @@ class AuxiliaryWindowRegistry {
    * off it: `auxiliaryLaunchFor` is what decides whether a route carries the session at
    * all, and a key composed from the raw request would file an `agent-console` detach
    * under a session its own launch dropped.
+   *
+   * THIS ONE IS NOT HANDLE-ADDRESSED, so property 4 does not gate it: a detach names a
+   * PANE, and the answer is the window that pane is in. A second renderer naming a pane
+   * another one already detached is therefore answered with that window's handle and
+   * brings it forward — deliberately, because that is the one-window-per-pane rule and
+   * the pane it names is the pane it is shown. What that renderer does NOT get is any
+   * authority over the window: the handle is inert to it under property 4, so the
+   * disclosure is bounded to a window showing the very pane the caller asked for.
    */
   public detachPane(
     request: AuxiliaryWindowDetachRequest,
@@ -154,6 +191,7 @@ class AuxiliaryWindowRegistry {
       paneId: request.paneId,
       browserWindow,
       requester,
+      requesterId: requester.id,
     };
     this.#byPaneIdentity.set(paneIdentity, held);
     this.#byWindowId.set(windowId, held);
@@ -161,9 +199,9 @@ class AuxiliaryWindowRegistry {
     return { windowId };
   }
 
-  /** Bring one held window forward. An unheld handle refuses. */
-  public focusAuxiliary(handle: AuxiliaryWindowHandle): void {
-    this.#held(handle).browserWindow.focus();
+  /** Bring one held window forward. A handle this renderer does not own refuses. */
+  public focusAuxiliary(handle: AuxiliaryWindowHandle, sender: WebContents): void {
+    this.#held(handle, sender).browserWindow.focus();
   }
 
   /**
@@ -175,8 +213,8 @@ class AuxiliaryWindowRegistry {
    * shell's account of a window depend on who asked, which is the one fact the shell
    * is the authority on.
    */
-  public closeAuxiliary(handle: AuxiliaryWindowHandle): void {
-    const held = this.#held(handle);
+  public closeAuxiliary(handle: AuxiliaryWindowHandle, sender: WebContents): void {
+    const held = this.#held(handle, sender);
     if (!held.browserWindow.isDestroyed()) {
       held.browserWindow.close();
     }
@@ -221,9 +259,21 @@ class AuxiliaryWindowRegistry {
     });
   }
 
-  #held(handle: AuxiliaryWindowHandle): HeldAuxiliaryWindow {
+  /**
+   * The window this handle names, IF the renderer asking is the one that opened it.
+   *
+   * Property 4's single site. Every handle-addressed operation goes through here, so
+   * the authorisation is one predicate rather than one per handler — which is what the
+   * defect it closes was: the close handler discarded its `event.sender` and the lookup
+   * authorised on the handle alone, and `auxiliary-window-N` is guessable in one try.
+   *
+   * The lookup and the ownership test raise the SAME refusal, for the reason
+   * {@link UnknownAuxiliaryWindowError} records: telling them apart would answer a
+   * question about a window the caller may not address.
+   */
+  #held(handle: AuxiliaryWindowHandle, sender: WebContents): HeldAuxiliaryWindow {
     const held = this.#byWindowId.get(handle.windowId);
-    if (held === undefined) {
+    if (held === undefined || held.requesterId !== sender.id) {
       throw new UnknownAuxiliaryWindowError();
     }
     return held;
@@ -303,16 +353,19 @@ export function installAuxiliaryWindowControls(): void {
     AUXILIARY_WINDOW_CHANNELS.detachPane,
     (event, request: AuxiliaryWindowDetachRequest) => registry.detachPane(request, event.sender),
   );
+  // Both handle-addressed channels pass `event.sender` on to the registry, which is
+  // property 4: `ipcMain` is what says which renderer called, and a handler that drops
+  // it leaves the registry authorising on a string the caller chose.
   ipcMain.handle(
     AUXILIARY_WINDOW_CHANNELS.focusAuxiliary,
-    (_event, handle: AuxiliaryWindowHandle) => {
-      registry.focusAuxiliary(handle);
+    (event, handle: AuxiliaryWindowHandle) => {
+      registry.focusAuxiliary(handle, event.sender);
     },
   );
   ipcMain.handle(
     AUXILIARY_WINDOW_CHANNELS.closeAuxiliary,
-    (_event, handle: AuxiliaryWindowHandle) => {
-      registry.closeAuxiliary(handle);
+    (event, handle: AuxiliaryWindowHandle) => {
+      registry.closeAuxiliary(handle, event.sender);
     },
   );
 }
