@@ -39,21 +39,22 @@
 //     now** and is retired rather than re-labelled: once every close path releases the
 //     reference, the two controls performed one act under two names, and a card that
 //     offers one act twice is a card that says the quieter one does less.
-//   • Once an answer has SETTLED the close path is ACKNOWLEDGEMENT and not dismissal.
-//     The reference is already spent, so there is nothing left to release and a
-//     `dismissPending` on it would be an act against a handle main no longer holds.
-//     The card owns that branch because it already makes it — it is the same test
-//     that chooses which of the two blocks below renders.
-//   • AN ANSWER THAT IS STILL RUNNING IS NOT A SETTLED ONE, and it closes the way
-//     everything before an answer closes. An acceptance waiting on authentication has
-//     main driving a ceremony and HOLDING the reference across it, so the reading
-//     carries an outcome while the handle is still main's: routed to the
-//     acknowledgement above, every close path put the card away without releasing
-//     anything, the lifecycle refused to clear a prompt whose terminal was still
-//     coming, and the ceremony and its reference could be backed out of from nowhere
-//     at all. So the branch below tests what main is HOLDING rather than whether an
-//     outcome exists, and the in-progress arm keeps the one dismissal — reached by
-//     the same three ways as before, and by no fourth control.
+//   • Once the reference is SPENT the close path is ACKNOWLEDGEMENT and not dismissal.
+//     There is nothing left to release and a `dismissPending` on it would be an act
+//     against a handle main no longer holds. The card owns that branch because it is
+//     the only place that can make it once — see the resolved `close` below, which is
+//     handed to every path rather than being decided again per control.
+//   • AN ANSWER IS NOT THE SAME FACT AS A SPENT REFERENCE, and conflating them is what
+//     this branch got wrong twice. An acceptance waiting on authentication has main
+//     driving a ceremony and HOLDING the reference across it; an acceptance that never
+//     reached the control plane settles `unavailable`, which the wire itself marks
+//     retryable — main is holding that one too, and the report even offers a second
+//     attempt on it. Both were read as settled, so **Done**, Escape and the backdrop
+//     alike put the card away and released nothing: the reference stayed allocated
+//     until its TTL, and reopening or replaying the pending feed surfaced the same
+//     invitation again after the person had put it away. So the branch tests what main
+//     is HOLDING — `isInviteReferenceHeld`, the lifecycle's own predicate, which the
+//     adapter's own local release is refused by — and never whether an outcome exists.
 //
 // AND IT RENDERS THE TWO PREVIEWS THAT PRODUCED NO INVITATION, which is the other
 // half of what the pending feed carries. A preview the control plane REFUSED and one
@@ -91,19 +92,20 @@ export interface InviteConfirmationProps {
    */
   readonly onRetry: () => void;
   /**
-   * Release the reference and put the card away — the card's whole close path while
-   * nothing has settled, reached from **Not now**, Escape, and the backdrop alike.
+   * Release the reference and put the card away, telling nobody.
    *
-   * Nobody is told; there is no decline to send. The lifecycle refuses it while an act
-   * on the same reference is unsettled, which is why the control that dispatches it
-   * closes for that lifetime.
+   * The close act on every arm where main still holds the handle — nothing answered
+   * yet, a ceremony still running, or an acceptance that never reached the control
+   * plane — reached from the close control, Escape, and the backdrop alike. There is
+   * no decline to send. The lifecycle refuses it while an act on the same reference is
+   * unsettled, which is why the control that dispatches it closes for that lifetime.
    */
   readonly onDismiss: () => void;
   /**
-   * Put a settled outcome away and move to whatever was waiting behind it.
+   * Put a spent prompt away and move to whatever was waiting behind it.
    *
-   * The close path too, once an outcome has arrived: the reference is spent, so there
-   * is nothing left to release.
+   * The close act on the arms where main holds nothing: a reference already consumed,
+   * refused, or no longer resolving, and a preview that minted none at all.
    */
   readonly onAcknowledge: () => void;
   readonly overlayContainer?: HTMLElement | null | undefined;
@@ -115,22 +117,27 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
   // ONE REF FOR BOTH ARMS, because both name the same rule: the control that sends
   // nothing is first in the tree and is the one the dialog opens with focused. Exactly
   // one of the two arms is ever mounted, so exactly one control ever attaches to it.
-  const dismissRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   if (invite === undefined && previewFailure === undefined) {
     return null;
   }
   const isActing = snapshot.actInFlight !== undefined;
-  // The one close path, and the one branch that decides what closing MEANS. Closing
-  // is a DISMISSAL — the wire act that releases what main is holding — on exactly the
-  // arm where main is holding something: an invitation whose acceptance has not
-  // reached a terminal, an answer still running included. A settled outcome has
-  // already spent its reference and a preview failure never had one, so on both of
-  // those the act is the local acknowledgement, and a `dismissPending` there would be
-  // an act against a handle main does not hold. Which answers are still running is the
-  // lifecycle's own predicate, consulted rather than re-derived — a card deciding it
-  // separately is how the two came to disagree in the first place. The library hands
-  // this back for Escape and the backdrop as well as for the control, which is what
-  // makes every entry point one act.
+  // THE ONE CLOSE ACT, RESOLVED ONCE AND HANDED TO EVERY PATH. Closing is a DISMISSAL
+  // — the wire act that releases what main is holding — on exactly the arms where main
+  // is holding something: an invitation nobody has answered yet, an acceptance whose
+  // ceremony is still running, and one that never reached the control plane and is
+  // therefore still retryable. A reference that was consumed, refused or has stopped
+  // resolving is spent, and a preview failure never minted one, so on those the act is
+  // the local acknowledgement — a `dismissPending` there would be an act against a
+  // handle main does not hold. What main holds is the lifecycle's own predicate,
+  // consulted rather than re-derived, because a card deciding it separately is how the
+  // two came to disagree in the first place.
+  //
+  // It travels DOWN as one callback rather than as the pair this card is handed. The
+  // bodies below draw the close under two labels — **Not now** before an answer,
+  // **Done** once there is one to read — and the library hands the same act back for
+  // Escape and the backdrop, so four entry points reach one function and no component
+  // beneath this one gets to decide what closing means.
   const close =
     previewFailure === undefined && isInviteReferenceHeld(snapshot.outcome)
       ? props.onDismiss
@@ -166,16 +173,15 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
         label={
           previewFailure === undefined ? "Confirm this invitation" : "This invitation did not open"
         }
-        initialFocus={dismissRef}
+        initialFocus={closeRef}
       >
         {previewFailure === undefined ? (
           <InvitationReading
             snapshot={snapshot}
             isActing={isActing}
-            dismissRef={dismissRef}
+            closeRef={closeRef}
             onConfirm={props.onConfirm}
-            onDismiss={props.onDismiss}
-            onAcknowledge={props.onAcknowledge}
+            onClose={close}
           />
         ) : (
           <InvitePreviewFailureReading
@@ -183,8 +189,8 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
             canRetry={snapshot.canRetry}
             isActing={isActing}
             onRetry={props.onRetry}
-            onAcknowledge={props.onAcknowledge}
-            acknowledgeRef={dismissRef}
+            onClose={close}
+            closeRef={closeRef}
           />
         )}
 

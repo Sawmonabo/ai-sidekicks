@@ -31,27 +31,12 @@
 //     BEFORE the mint; a host that refuses ends the act there and mints nothing, so
 //     no row this ledger could show is ever one whose link could not be written.
 //
-// A MINT RE-READS THE LEDGER RATHER THAN WRITING INTO IT. `InviteCreateResponse`
-// carries no `state` and no `joinMode`, so folding a row in would mean composing two
-// members the wire did not send — the opposite of the revoke path below, whose reply
-// IS the row. One re-read at the moment a person acted is not a scheduled refresh:
-// nothing here polls, and `store/scheduling.ts` is still where a periodic re-read
-// would go if there were one.
-//
-// AND A PENDING ROW'S OWN EXPIRY RE-READS IT TOO. `pending` is what the read SAW, and
-// an expiry is a DEADLINE rather than an age: crossing it changes what the row says
-// and withdraws the one control on it. With a read only at mount and at a mint, an
-// invitation that lapsed while the page stayed open went on saying `pending` with
-// Revoke offered until something incidental remounted the section — the surface
-// asserting a session state that had stopped being true, and offering an act the
-// daemon could only refuse. Unlike the shelf next door this cannot be settled by
-// rendering against a moving instant: `state` is the wire's word and only the wire
-// says it, so the deadline has to reach the READ. It does that through
-// `store/deadline-wake.ts`, the console's one deadline mechanism — one single-shot
-// timer at the earliest outstanding expiry, re-armed from the ledger it just read,
-// and nothing armed at all once no row is pending. Still no interval, and still not
-// a scheduled refresh: nothing here asks again on a period, and an expiry already
-// behind arms nothing, so the chain stops on its own.
+// WHEN THE LEDGER ASKS AGAIN IS NOT HERE. A mint re-reads, a pending row crossing
+// its expiry re-reads, and both of those overlap with each other and with the
+// receipt below — so the read line, its ordering, and the answer it holds are
+// `sent-invites-reading.ts`, and this file renders what that hook publishes. Still
+// no interval: `store/scheduling.ts` is where a periodic re-read would go and there
+// is none, which that module states with its reasons.
 //
 // REVOKE IS DRAWN, because both of its inputs exist: the session comes from the
 // store this section is scoped to, and the invite id is on the served row. It is
@@ -60,11 +45,12 @@
 // which is the row itself, so the ledger consumes that projection rather than
 // re-reading `invitesList`: a row left saying "pending" beside a re-enabled Revoke
 // control would be this surface contradicting the answer it just received.
-// `invite-ledger.ts` owns the fold and says why no second read is put. One revoke
-// runs at a time, so while one is unsettled EVERY pending row's control is closed
-// rather than only the row being revoked — the coordinator would refuse a second
-// press, and a control that leads only to that refusal is worse than a control
-// that waits.
+// `invite-ledger.ts` owns the fold and says why no second read is put, and the
+// reading hook applies it ON the read line — so a refresh that was already in flight
+// when the revoke settled cannot restore the row afterwards. One revoke runs at a
+// time, so while one is unsettled EVERY pending row's control is closed rather than
+// only the row being revoked — the coordinator would refuse a second press, and a
+// control that leads only to that refusal is worse than a control that waits.
 //
 // REVOCATION IS SILENT AND THE SENDER IS TOLD SO (`Spec-002 §Invite Revocation`).
 // There is no decline column either — `InviteState` is exactly
@@ -94,30 +80,20 @@
 // to read. A timer counting down from a number the console invented would be
 // worse than the sentence.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
-import {
-  consoleClockFor,
-  expiryDeadlinesOf,
-  heldIdAsWireId,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
-import { consoleRefusalFrom } from "../../seats/index.js";
-import { useDeadlineWake, useSubjectScopedState } from "../../store/index.js";
-import { partitionInvites, withSettledInvite, type LedgerReading } from "./invite-ledger.js";
+import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
   useWireMutation,
 } from "../mutation-coordinator.js";
+import { useSentInviteLedger } from "./sent-invites-reading.js";
 import { SentInvitesLedger } from "./SentInvitesLedger.js";
 import { CreateInvite } from "./CreateInvite.js";
 
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
-
-/** Names this read in a refusal the call itself did not name. */
-const SENT_INVITES_ORIGIN = "sent-invites";
 
 export interface SentInvitesProps {
   readonly bridge: ConsoleBridge;
@@ -127,25 +103,10 @@ export interface SentInvitesProps {
 
 export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   const { bridge, sessionId } = props;
-  // One `invitesList` answer, held against the exact subject it was asked of.
-  //
-  // The bridge is the subject and the session is the key, because a window handed a
-  // replacement bridge for the same session is holding an answer from a transport
-  // that no longer exists, and the ledger's own control would dispatch through the
-  // replacement while showing the retired one's rows.
-  //
-  // Through the family's one holder rather than a `useState` and a render-time pair
-  // comparison: the pair is EQUAL on the first and third visit of an A to B to A
-  // round-trip and the holder's addressing is not, so the hand-written version rested
-  // on a per-effect-run flag whose correctness was not the holder's — a second copy of
-  // the primitive this family had just rebound onto.
-  const { value: reading, publish: publishReading } = useSubjectScopedState<
-    LedgerReading | undefined
-  >(bridge, sessionId, () => undefined);
-  // How many times a person has minted an invitation here. Bumped by the form and
-  // read by the effect below, which is what makes the ledger re-ask after an act —
-  // a counter rather than a boolean, so two mints in a row both re-read.
-  const [mintCount, setMintCount] = useState(0);
+  const { reading, ledger, noteMinted, applySettledRevoke } = useSentInviteLedger(
+    bridge,
+    sessionId,
+  );
 
   const revokeCoordinator = useMemo(
     () =>
@@ -170,67 +131,6 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
     };
   }, [revokeCoordinator]);
 
-  const ledger = useMemo(
-    () =>
-      reading?.kind === "answered" && reading.outcome.status === "served"
-        ? partitionInvites(reading.outcome.value)
-        : undefined,
-    [reading],
-  );
-
-  // The clock this window runs on, and not a second one. `consoleClockFor` mints a
-  // fresh `RealClock` per call, so it is memoised on the bridge — a new object every
-  // render would re-arm the timer every render, and under the fixture the clock this
-  // resolves to is the scenario's frozen one, which is what lets a case advance to an
-  // expiry rather than wait for it.
-  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  // Only a PENDING row has a lifetime left to run: every other `InviteState` is
-  // terminal, so arming on a settled row's expiry would wake to re-ask a question
-  // whose answer cannot move. Re-derived from each ledger, so a read that returns a
-  // new pending row arms for it and one that returns none arms nothing.
-  const expiryDeadlines = useMemo(() => expiryDeadlinesOf(ledger?.pending ?? []), [ledger]);
-  // Consumed as a READ TRIGGER rather than as an instant to render against, which is
-  // what separates this surface from the shelf and the clone list: those compare a
-  // moving instant to a threshold they hold, and this one holds no threshold — the
-  // row's `state` is the wire's word. So the instant enters the effect below as a
-  // dependency, and crossing an expiry re-asks. It cannot loop: the wake publishes
-  // the deadline it crossed, and every expiry at or behind that instant is one
-  // `useDeadlineWake` arms nothing for.
-  const wokeAtMilliseconds = useDeadlineWake(clock, expiryDeadlines);
-
-  useEffect(() => {
-    // One read on mount, one more each time this session mints an invitation, and one
-    // at each pending row's expiry. Nothing else re-asks: there is no interval here
-    // and no signal on this wire to wake on, so the only other thing that changes this
-    // ledger is the revoke below, whose own reply IS the row it changed.
-    if (sessionId === undefined) {
-      return;
-    }
-    // The publisher was captured during this render, so it names the subject that
-    // asked. A settlement arriving after a re-address publishes nowhere — including
-    // on the round-trip back to a subject this surface has already been on, which is
-    // the case an `isAttached` flag and a pair comparison both read as current.
-    void bridge.growth.invitesList({ sessionId }).then(
-      (outcome) => {
-        publishReading({ kind: "answered", outcome });
-      },
-      // The port's contract is that it RESOLVES with an outcome, so a rejection has
-      // no arm in that vocabulary. Left unhandled it published nothing and the
-      // ledger went on saying "Reading this session's invitations" for the life of
-      // the window over a call that had already failed.
-      (rejection: unknown) => {
-        publishReading({
-          kind: "unreadable",
-          refusal: consoleRefusalFrom(rejection, SENT_INVITES_ORIGIN),
-        });
-      },
-    );
-    // `wokeAtMilliseconds` is a dependency and never read in the body: it names WHEN
-    // to ask again, not what to ask. It moves at a crossed expiry and when the clock
-    // itself is replaced, and at no other time — never per render, and never because
-    // the ledger was rebuilt — so the steady state here is still one read.
-  }, [bridge, sessionId, publishReading, mintCount, wokeAtMilliseconds]);
-
   return (
     <section className="meridian-invites" aria-label="Invitations you sent">
       <header className="meridian-invites__head">
@@ -241,13 +141,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         </p>
       </header>
 
-      <CreateInvite
-        bridge={bridge}
-        sessionId={sessionId}
-        onMinted={() => {
-          setMintCount((count) => count + 1);
-        }}
-      />
+      <CreateInvite bridge={bridge} sessionId={sessionId} onMinted={noteMinted} />
 
       <SentInvitesLedger
         sessionId={sessionId}
@@ -272,17 +166,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
               if (settlement === undefined) {
                 return;
               }
-              // Published through the holder's own updater, so the subject check
-              // that used to be written out here is the holder's: a settlement
-              // arriving after a re-address is dropped rather than folded into
-              // whichever ledger is on screen now.
-              publishReading((held) => {
-                const settled = withSettledInvite(held, settlement);
-                // `undefined` here would mean the ledger held no answer at all, and
-                // this one does; identity means the settlement named no row it
-                // holds. Both leave the ledger exactly as it stands.
-                return settled ?? held;
-              });
+              applySettledRevoke(settlement);
             });
         }}
         onDismissRefusal={(inviteId) => {

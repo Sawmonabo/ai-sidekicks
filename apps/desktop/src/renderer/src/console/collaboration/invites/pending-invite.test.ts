@@ -21,6 +21,7 @@ import {
   FIRST_REFERENCE,
   SECOND_REFERENCE,
   scenarioWithArrivals,
+  scenarioWithUnsentAcceptance,
   settleFeeds,
   startedAdapter,
 } from "./pending-invite.test-support.js";
@@ -167,6 +168,55 @@ describe("the deep-link lifecycle — putting one away", () => {
     adapter.dismiss();
     await settleFeeds();
     expect(adapter.snapshot().outcome).toBeUndefined();
+    adapter.dispose();
+  });
+});
+
+describe("the deep-link lifecycle — an acceptance that never reached the control plane", () => {
+  // The defect this block exists for: `unavailable` was classified with the five
+  // terminal arms, so a local acknowledgement cleared the prompt and released nothing
+  // — while main went on holding a reference the wire had just called retryable, and
+  // the next replay of the pending feed put the same invitation back on screen.
+
+  it("refuses a local acknowledgement, because main is still holding the reference", async () => {
+    const adapter = await startedAdapter(scenarioWithUnsentAcceptance());
+    adapter.confirm();
+    await settleFeeds();
+    expect(adapter.snapshot().outcome?.kind).toBe("unavailable");
+
+    adapter.acknowledge();
+
+    expect(adapter.snapshot().invite?.reference).toBe(FIRST_REFERENCE);
+    adapter.dispose();
+  });
+
+  it("releases it through main when the dismissal is dispatched instead", async () => {
+    // The act that DOES work on this arm, driven through the real port: the entry is
+    // spent for confirmation and still present, so the dismissal is served and the
+    // queue moves.
+    const adapter = await startedAdapter(scenarioWithUnsentAcceptance());
+    adapter.confirm();
+    await settleFeeds();
+
+    adapter.dismiss();
+    await settleFeeds();
+
+    expect(adapter.snapshot().actRefusal).toBeUndefined();
+    expect(adapter.snapshot().invite?.reference).toBe(SECOND_REFERENCE);
+    adapter.dispose();
+  });
+
+  it("negative control: an answer that DID spend its reference is acknowledged away", async () => {
+    // Without this the first case would pass over an adapter that had stopped
+    // acknowledging anything at all, which would strand every settled prompt.
+    const adapter = await startedAdapter();
+    adapter.confirm();
+    await settleFeeds();
+    expect(adapter.snapshot().outcome?.kind).toBe("joined");
+
+    adapter.acknowledge();
+
+    expect(adapter.snapshot().invite?.reference).toBe(SECOND_REFERENCE);
     adapter.dispose();
   });
 });

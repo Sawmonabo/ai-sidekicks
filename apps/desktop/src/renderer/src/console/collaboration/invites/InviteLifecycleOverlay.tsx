@@ -86,32 +86,36 @@ export function InviteLifecycleOverlay(
   const [promptLookedAt, setPromptLookedAt] = useState<PendingInvitePrompt | undefined>(undefined);
   useJoinedOutcomeNavigation(snapshot, openSession);
 
-  // ONE HANDLER FOR EVERY WAY THE CARD CAN BE PUT AWAY. Whether the press releases
+  // ONE HANDLER PER ACT, AND NONE OF THEM CLOSES THE CARD. Whether a press releases
   // the reference or acknowledges a spent one is the card's own branch, because the
   // card already makes it to choose which block it renders; what this owns is what
-  // each of the two acts does to the lifecycle and to the card's open state.
+  // each act does to the lifecycle. The card closes because the prompt it was opened
+  // for is GONE — the rule the held prompt below already states — and never because a
+  // handler said so on the way out.
+  //
+  // THAT IS THE WHOLE OF WHY THE RETRY LOOKED DIFFERENT AND IS NOT. It has always been
+  // written this way, with a comment explaining that clearing the held prompt would
+  // take a REFUSED retry off the screen along with the refusal's own words; the same
+  // sentence is true of the two close acts, and they cleared it anyway. A refused
+  // dismissal leaves the invitation exactly where it was and puts the reason on the
+  // reading, and a local acknowledgement the lifecycle declines — a reference main is
+  // still holding — moves nothing at all. Both of them used to take the card away
+  // regardless, so the person saw the prompt vanish, the notice return, and no account
+  // anywhere of why. A served act releases the head, the head is what the card is open
+  // for, and so the card closes on its own with nothing left to say.
   const dismiss = useCallback(() => {
     // Local and silent. `Spec-002 §Required Behavior` mints no decline verb, so what
     // this releases is the reference the main process is holding and nobody is told.
     // The adapter refuses it while an act on the same reference is unsettled, which
     // is why the control that dispatches it closes for that lifetime.
     adapter.dismiss();
-    setPromptLookedAt(undefined);
   }, [adapter]);
   const acknowledge = useCallback(() => {
     adapter.acknowledge();
-    setPromptLookedAt(undefined);
   }, [adapter]);
   const confirm = useCallback(() => {
     adapter.confirm();
   }, [adapter]);
-  // NOT A CLOSE PATH, unlike the two above it, and that is a property of what a retry
-  // ANSWERS. Its answer is a fresh preview state on the pending feed rather than
-  // anything this card can render, so the lifecycle releases the head it was
-  // dispatched on when the call is served — and the card closes because the prompt it
-  // was opened for is gone, not because this handler said so. Clearing the held prompt
-  // here would take a REFUSED retry off the screen along with the refusal's own words,
-  // on the one arm where the head has not moved at all.
   const retry = useCallback(() => {
     adapter.retry();
   }, [adapter]);

@@ -30,10 +30,17 @@
 // a PREVIEW on an attempt handle, which is a property of a pending state rather than
 // of an answer already given.
 //
-// THE IN-PROGRESS ARM CLOSES NOTHING EITHER. Acknowledging clears the prompt, and a
-// prompt cleared before its terminal arrives strands that answer against an
-// invitation this window no longer holds — so the one act offered there is the
-// dismissal the card itself owns, which releases the reference over the wire.
+// THE IN-PROGRESS ARM DRAWS NO ROW AT ALL. There is no answer to put away yet, and a
+// prompt cleared before its terminal arrives strands that answer against an invitation
+// this window no longer holds — so the one act offered there is the close the card's
+// own act row keeps, which on that arm releases the reference over the wire.
+//
+// AND WHAT THE CLOSE DOES IS NOT THIS COMPONENT'S TO DECIDE. **Done** puts the prompt
+// away; whether that is a local acknowledgement or the wire act that releases a
+// reference main is still holding is resolved once, by the card, from the arm. The
+// `unavailable` arm is why that matters here: it is an answer with words and a retry,
+// so this row draws it, and the acceptance it reports never reached the control plane
+// — so main still holds the handle and **Done** has to release it.
 //
 // NOTHING HERE DISPATCHES ANYTHING. Every act is a callback the owner supplies, so
 // this is a pure reading of one value and a suite renders all six arms without a
@@ -61,8 +68,13 @@ export interface InviteOutcomeReportProps {
    * only where the reading says the arm admits it.
    */
   readonly onConfirm: () => void;
-  /** Put a settled result away and move to whatever was waiting behind it. */
-  readonly onAcknowledge: () => void;
+  /**
+   * Put this result away — the card's one close act, already resolved.
+   *
+   * Local where the reference is spent and the wire's dismissal where main still holds
+   * it. This row draws the control and never chooses between the two.
+   */
+  readonly onClose: () => void;
   /** True while an act on this reference is unsettled, so a second is not offered. */
   readonly isActing: boolean;
 }
@@ -85,7 +97,7 @@ export function InviteOutcomeReport(props: InviteOutcomeReportProps): React.JSX.
             type="button"
             className="meridian-invite-outcome__acknowledge"
             disabled={props.isActing}
-            onClick={props.onAcknowledge}
+            onClick={props.onClose}
           >
             Done
           </button>

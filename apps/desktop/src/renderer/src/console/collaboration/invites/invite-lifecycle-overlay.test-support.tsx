@@ -73,3 +73,53 @@ export async function press(root: HTMLElement, className: string): Promise<void>
     await crossMacrotaskBoundary();
   });
 }
+
+/**
+ * The open card's own element, or a thrown explanation of why there is none.
+ *
+ * Both library-driven closes below address it, and a fallback to the document body
+ * would send an Escape somewhere Base UI is not listening and read a card that never
+ * opened as a card that declined to close.
+ */
+function openCard(root: HTMLElement): Element {
+  const popup = root.querySelector(".meridian-invite-confirmation");
+  if (popup === null) {
+    throw new Error("no confirmation card is open");
+  }
+  return popup;
+}
+
+/**
+ * Close the card the way the keyboard does, letting whatever it dispatched settle.
+ *
+ * Hoisted on the second use, with the backdrop below it. Two suites drive the three
+ * close paths — which act each entry point reaches, and what a close does to a
+ * reference main is still holding — and these two are the event sequences the dialog
+ * library listens for rather than anything either suite owns. A second copy is two
+ * files disagreeing about what "the backdrop was pressed" means, and the one that gets
+ * it wrong closes nothing and then asserts an absence.
+ */
+export async function closeThroughEscape(root: HTMLElement): Promise<void> {
+  const popup = openCard(root);
+  await act(async () => {
+    popup.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await crossMacrotaskBoundary();
+  });
+}
+
+/** Close the card the way a press outside it does, letting that settle. */
+export async function closeThroughBackdrop(root: HTMLElement): Promise<void> {
+  openCard(root);
+  const backdrop = root.querySelector(".meridian-invite-confirmation__backdrop");
+  if (backdrop === null) {
+    throw new Error("the open card has no backdrop");
+  }
+  await act(async () => {
+    backdrop.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    backdrop.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    backdrop.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await crossMacrotaskBoundary();
+  });
+}

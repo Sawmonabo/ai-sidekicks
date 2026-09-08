@@ -46,8 +46,15 @@ export interface InvitePreviewFailureReadingProps {
   readonly isActing: boolean;
   /** Put the preview to the control plane again, on the head's own attempt handle. */
   readonly onRetry: () => void;
-  /** Put this prompt away and move to whatever was waiting behind it. */
-  readonly onAcknowledge: () => void;
+  /**
+   * Put this prompt away — the card's one close act, already resolved.
+   *
+   * Local on both arms here, and that is the card's reading rather than this one's: a
+   * preview that produced no invitation minted no reference, so there is nothing for
+   * `invite.dismissPending` to release. This body draws the control and chooses
+   * nothing, exactly as its sibling does.
+   */
+  readonly onClose: () => void;
   /**
    * The control the dialog opens with focused.
    *
@@ -55,7 +62,7 @@ export interface InvitePreviewFailureReadingProps {
    * tree and is the one named, so a stray return key closes a prompt rather than
    * putting a request on the wire.
    */
-  readonly acknowledgeRef: React.RefObject<HTMLButtonElement | null>;
+  readonly closeRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 export function InvitePreviewFailureReading(
@@ -88,10 +95,10 @@ export function InvitePreviewFailureReading(
         <div className="meridian-invite-outcome__acts">
           <button
             type="button"
-            ref={props.acknowledgeRef}
+            ref={props.closeRef}
             className="meridian-invite-outcome__acknowledge"
             disabled={props.isActing}
-            onClick={props.onAcknowledge}
+            onClick={props.onClose}
           >
             Done
           </button>
