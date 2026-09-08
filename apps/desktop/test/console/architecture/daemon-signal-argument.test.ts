@@ -18,6 +18,33 @@ import { describe, expect, it } from "vitest";
 
 import { plantedSites, plantedSitesInReadHelper } from "./daemon-call-planting.test-support.js";
 
+/** The store's read-scope door, as a module opening a scope through it imports it. */
+const READ_SCOPE_DOOR_IMPORT = 'import { useReadScope } from "../../store/index.js";';
+
+/**
+ * A planted read whose round is opened off the store's door, with the case's own lines
+ * as the body.
+ *
+ * THE RECEIVER IS PART OF THE READING, so it is scaffolding a case states once rather
+ * than a detail each one writes. A round is a round because of what it was opened OFF,
+ * and a case planting a stranger there would report the receiver's refusal under the
+ * name of whatever that case meant to be about — which is what every case below planting
+ * `readScope.openRound()` on a bare parameter was doing the moment the receiver started
+ * being resolved.
+ */
+function plantedReadOffScopeDoor(
+  bodyLines: readonly string[],
+  parameters = "bridge",
+): ReturnType<typeof plantedSites> {
+  return plantedSites([
+    READ_SCOPE_DOOR_IMPORT,
+    `export function readBoundary(${parameters}) {`,
+    '  const readScope = useReadScope(bridge, "roots");',
+    ...bodyLines.map((line) => `  ${line}`),
+    "}",
+  ]);
+}
+
 describe("the signal a call hands the door", () => {
   it("reports an options argument it cannot read as its own answer", () => {
     // A spread and a held variable each hide the member from this parse. Answering
@@ -119,18 +146,14 @@ describe("the signal a call hands the door", () => {
     // Both writable keywords are planted, and `var` is deliberately one the console never
     // writes: the rule is the binding FORM, so it holds over a keyword no module uses
     // rather than over the two a reviewer happens to have seen.
-    const [rebindable] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  let round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
-      "}",
+    const [rebindable] = plantedReadOffScopeDoor([
+      "let round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
     ]);
     expect(rebindable?.signalArgument).toBe("unrecognised");
-    const [varBound] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  var round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
-      "}",
+    const [varBound] = plantedReadOffScopeDoor([
+      "var round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
     ]);
     expect(varBound?.signalArgument).toBe("unrecognised");
     // AND NO WRITE IS NEEDED TO REACH THE REFUSAL. Neither planted scope rebinds the
@@ -150,11 +173,9 @@ describe("the signal a call hands the door", () => {
       "}",
     ]);
     expect(handed?.signalArgument).toBe("present");
-    const [opened] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
-      "}",
+    const [opened] = plantedReadOffScopeDoor([
+      "const round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal });',
     ]);
     expect(opened?.signalArgument).toBe("present");
     // THE SAME MEMBER, KEYED RATHER THAN DOTTED. `round["signal"]` reads the member
@@ -162,11 +183,9 @@ describe("the signal a call hands the door", () => {
     // takes `daemon-call-census.ts`' shared member predicate rather than the dotted copy
     // it carried — which had the two spellings of one rule disagreeing one module over
     // from where the rule is stated.
-    const [keyed] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round["signal"] });',
-      "}",
+    const [keyed] = plantedReadOffScopeDoor([
+      "const round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, { signal: round["signal"] });',
     ]);
     expect(keyed?.signalArgument).toBe("present");
   });
@@ -178,34 +197,28 @@ describe("the signal a call hands the door", () => {
     // its accepted binding — answered `"unrecognised"` because a type assertion sat
     // between the name and the dot. A wrapper is a claim about a type and this reading
     // is about a binding, so it can never be the difference between the two verdicts.
-    const [asserted] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: (round as ReadRound).signal });',
-      "}",
+    const [asserted] = plantedReadOffScopeDoor([
+      "const round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, { signal: (round as ReadRound).signal });',
     ]);
     expect(asserted?.signalArgument).toBe("present");
-    const [parenthesized] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: (round).signal });',
-      "}",
+    const [parenthesized] = plantedReadOffScopeDoor([
+      "const round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, { signal: (round).signal });',
     ]);
     expect(parenthesized?.signalArgument).toBe("present");
     // The fifth wrapper, pinned here because the peeler's list is the one that decides:
     // `round!` asserts the round is not null and hands back the same binding, so it is
     // the same round by exactly the reasoning the assertion and the parentheses are.
-    const [nonNull] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round!.signal });',
-      "}",
+    const [nonNull] = plantedReadOffScopeDoor([
+      "const round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, { signal: round!.signal });',
     ]);
     expect(nonNull?.signalArgument).toBe("present");
     // And the peel is a peel rather than a rule that admits everything: a wrapper around
     // something that is not a held round is still not one.
     const [wrappedStranger] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
+      "export function readBoundary(bridge) {",
       '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: (ambient as ReadRound).signal });',
       "}",
     ]);
@@ -217,12 +230,13 @@ describe("the signal a call hands the door", () => {
     // it: `round[member]` requires deciding what `member` holds, which is a value this
     // scan does not follow. The call has therefore SHOWN no signal, and the read rule
     // refuses it exactly as it refuses one the call minted itself.
-    const [computed] = plantedSites([
-      "export function readBoundary(bridge, readScope, member) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round[member] });',
-      "}",
-    ]);
+    const [computed] = plantedReadOffScopeDoor(
+      [
+        "const round = readScope.openRound();",
+        'return callDaemon(bridge, "repo.workspaceList", {}, { signal: round[member] });',
+      ],
+      "bridge, member",
+    );
     expect(computed?.signalArgument).toBe("unrecognised");
   });
 
@@ -277,12 +291,13 @@ describe("the signal a call hands the door", () => {
     // let a reordering edit flip a call from compliant to unsafe with no change to its
     // signal, and the fix is the same either way — hoist the spread into the value the
     // signal is read from.
-    const [afterSignal] = plantedSites([
-      "export function readBoundary(bridge, readScope, options) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal, ...options });',
-      "}",
-    ]);
+    const [afterSignal] = plantedReadOffScopeDoor(
+      [
+        "const round = readScope.openRound();",
+        'return callDaemon(bridge, "repo.workspaceList", {}, { signal: round.signal, ...options });',
+      ],
+      "bridge, options",
+    );
     expect(afterSignal?.signalArgument).toBe("unrecognised");
     const readings = plantedSitesInReadHelper([
       'await callDaemon(bridge, "repo.workspaceList", request, { ...options, signal });',
@@ -303,24 +318,20 @@ describe("the signal a call hands the door", () => {
     // scan that keeps reading is also the scan that reads the right one: a round's
     // signal written after a minted one is a read that IS stopped, and the reverse is
     // a read that is not.
-    const [lastWins] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, {',
-      "    signal: AbortSignal.abort(),",
-      "    signal: round.signal,",
-      "  });",
-      "}",
+    const [lastWins] = plantedReadOffScopeDoor([
+      "const round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, {',
+      "  signal: AbortSignal.abort(),",
+      "  signal: round.signal,",
+      "});",
     ]);
     expect(lastWins?.signalArgument).toBe("present");
-    const [lastLoses] = plantedSites([
-      "export function readBoundary(bridge, readScope) {",
-      "  const round = readScope.openRound();",
-      '  return callDaemon(bridge, "repo.workspaceList", {}, {',
-      "    signal: round.signal,",
-      "    signal: AbortSignal.abort(),",
-      "  });",
-      "}",
+    const [lastLoses] = plantedReadOffScopeDoor([
+      "const round = readScope.openRound();",
+      'return callDaemon(bridge, "repo.workspaceList", {}, {',
+      "  signal: round.signal,",
+      "  signal: AbortSignal.abort(),",
+      "});",
     ]);
     expect(lastLoses?.signalArgument).toBe("unrecognised");
   });

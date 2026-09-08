@@ -353,10 +353,11 @@ export type MemberRead = ts.PropertyAccessExpression | ts.ElementAccessExpressio
  * The narrowing is what the callers need beyond the boolean: both spellings carry the
  * object as `.expression`, which is the half a binding resolution is asked of.
  *
- * Exported for the fourth consumer, `daemon-signal-argument.ts`' read of a round's own
- * `signal` member. That reading is about a value's provenance rather than about the door,
- * but the question it asks of the syntax is this one — and a dotted-only copy beside a
- * rule stated here is how two readings of one spelling drift apart.
+ * Exported for the consumers outside this module: `daemon-signal-argument.ts`' read of a
+ * round's own `signal` member, and `daemon-read-round-receiver.ts`' read of the factory a
+ * round was opened by. Those readings are about a value's provenance rather than about
+ * the door, but the question each asks of the syntax is this one — and a dotted-only copy
+ * beside a rule stated here is how two readings of one spelling drift apart.
  */
 export function readsMember(node: ts.Node, member: string): node is MemberRead {
   return (

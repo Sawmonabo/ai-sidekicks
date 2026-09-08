@@ -60,6 +60,7 @@ import { namesCallDoor } from "./daemon-call-census.js";
 import { ModuleBindingScopes } from "./daemon-method-bindings.js";
 import { DaemonMethodConstantIndex } from "./daemon-method-constants.js";
 import { withoutTypeWrappers } from "./daemon-method-literals.js";
+import { ModuleReadScopes } from "./daemon-read-round-receiver.js";
 import { readSignalArgument, type SignalArgumentReading } from "./daemon-signal-argument.js";
 
 /** Where the method name sits in the door's argument list. */
@@ -85,11 +86,12 @@ export interface DaemonCallSite {
 /**
  * Every door call in one module, with its method resolved and its signal read.
  *
- * ONE PARSE, THREE MODELS OVER IT. The scope chain is built once by
- * `daemon-method-bindings.ts` and the calls are found by one walk; a call resolves
- * both the callee and the method argument against the scopes that contain its own
- * position, which is what makes an inner binding shadow an outer parameter rather than
- * the other way round.
+ * ONE PARSE, FOUR MODELS OVER IT. The scope chain is built once by
+ * `daemon-method-bindings.ts` and the read scopes once by `daemon-read-round-receiver.ts`
+ * over that same chain, and the calls are found by one walk; a call resolves both the
+ * callee and the method argument against the scopes that contain its own position, which
+ * is what makes an inner binding shadow an outer parameter rather than the other way
+ * round.
  */
 export function daemonCallSitesIn(
   displayPath: string,
@@ -98,6 +100,7 @@ export function daemonCallSitesIn(
 ): readonly DaemonCallSite[] {
   const parsed = parseSourceText(displayPath, source);
   const bindings = new ModuleBindingScopes(parsed);
+  const readScopes = new ModuleReadScopes(parsed, bindings);
   const calls: ts.CallExpression[] = [];
 
   forEachDescendant(parsed, (node) => {
@@ -121,6 +124,7 @@ export function daemonCallSitesIn(
         call.arguments[OPTIONS_ARGUMENT_INDEX],
         callStart,
         bindings,
+        readScopes,
       ),
     };
   });
