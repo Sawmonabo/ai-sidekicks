@@ -23,6 +23,22 @@
 // module for reasons that have nothing to do with the initial graph; per FAMILY it
 // could not have reported the settings page that arrived through a pane family's door.
 // Three segments is where a sub-tree becomes visible and a file does not.
+//
+// AND THE OWNER COMES WITH A MODULE IDENTITY, which is the second half of one
+// attribution rather than a second opinion: {@link initialGraphAttributionOf} answers
+// both at once, and there is deliberately no owner-only wrapper beside it — a second
+// entry point returning half the answer is an export the dead-code gate would report the
+// moment its last caller moved. The identity is the path BELOW the owner, so an owner
+// name and an identity reconstruct the module and neither repeats the other.
+//
+// WHY THE IDENTITY IS NOT THE PATH THE BUNDLER WROTE. A source-map source is relative
+// to the emitted chunk and, for an installed dependency, runs through the pnpm store —
+// `node_modules/.pnpm/@base-ui+react@1.7.0_@types+react@19.2.14_react-dom@19.2.6.../`.
+// Pinned raw, a lockfile bump would rewrite hundreds of pin rows while the graph was
+// unchanged, and a pin that churns for reasons the reader cannot check is a pin people
+// regenerate without reading — which is the state the pin exists to leave. Below the
+// owner, a dependency bump moves a row only when the FILES that dependency puts on the
+// initial graph move, which is the membership claim being made.
 
 import path from "node:path";
 
@@ -69,46 +85,68 @@ const INSTALLED_PACKAGE = /node_modules\/(@[^/]+\/[^/]+|[^/]+)(?:\/|$)(?![\s\S]*
 /** A workspace package, which is built from this repository rather than installed. */
 const WORKSPACE_PACKAGE = /(?:^|\/)packages\/([^/]+)\//u;
 
+/** Where one module on the initial graph belongs, and what it is called there. */
+export interface InitialGraphAttribution {
+  /** The directory, package, or sentinel the module is censused under. */
+  readonly owner: string;
+  /** The module's own path BELOW that owner, so the two reconstruct it. */
+  readonly moduleId: string;
+}
+
 /**
- * Which directory owns one source-map source path.
+ * Which owner holds one source-map source path, and what that module is called there.
  *
  * TOTAL, and the fall-through is a NAMED row rather than a discard: a source shape this
  * function does not recognise becomes `unclassified:<path>`, which shows up in the
  * census as an owner nobody pinned and fails the check that reads it. Dropping it would
  * make the census quietly smaller than the graph it claims to describe.
  */
-export function initialGraphOwnerOf(source: string): string {
+export function initialGraphAttributionOf(source: string): InitialGraphAttribution {
   const normalized = source.replaceAll(path.win32.sep, path.posix.sep);
   const installed = INSTALLED_PACKAGE.exec(normalized);
-  if (installed?.[1] !== undefined) {
-    return `package:${installed[1]}`;
+  if (installed?.[1] !== undefined && installed[0] !== undefined) {
+    return {
+      owner: `package:${installed[1]}`,
+      moduleId: normalized.slice(installed.index + installed[0].length),
+    };
   }
   const workspace = WORKSPACE_PACKAGE.exec(normalized);
-  if (workspace?.[1] !== undefined) {
-    return `workspace:${workspace[1]}`;
+  if (workspace?.[1] !== undefined && workspace[0] !== undefined) {
+    return {
+      owner: `workspace:${workspace[1]}`,
+      moduleId: normalized.slice(workspace.index + workspace[0].length),
+    };
   }
   const rendererIndex = normalized.lastIndexOf(RENDERER_SOURCE_MARKER);
   if (rendererIndex >= 0) {
-    return rendererOwnerOf(normalized.slice(rendererIndex + RENDERER_SOURCE_MARKER.length));
+    return rendererAttributionOf(normalized.slice(rendererIndex + RENDERER_SOURCE_MARKER.length));
   }
-  if (normalized.includes(CROSS_PROCESS_MARKER)) {
-    return CROSS_PROCESS_SEGMENTS.join(path.posix.sep);
+  const crossProcessIndex = normalized.lastIndexOf(CROSS_PROCESS_MARKER);
+  if (crossProcessIndex >= 0) {
+    return {
+      owner: CROSS_PROCESS_SEGMENTS.join(path.posix.sep),
+      moduleId: normalized.slice(crossProcessIndex + CROSS_PROCESS_MARKER.length),
+    };
   }
-  return `unclassified:${normalized}`;
+  return { owner: `unclassified:${normalized}`, moduleId: normalized };
 }
 
 /**
- * The owner of a path already known to be renderer source, relative to that root.
+ * The attribution of a path already known to be renderer source, relative to that root.
  *
  * A module directly under the root belongs to no directory, and the sentinel says so in
  * words rather than as an empty string — which sorts first, reads as a missing value,
  * and is a prefix of every other name.
  */
-function rendererOwnerOf(relativePath: string): string {
+function rendererAttributionOf(relativePath: string): InitialGraphAttribution {
   const segments = relativePath.split(path.posix.sep);
   const directorySegments = segments.slice(0, Math.max(0, segments.length - 1));
   if (directorySegments.length === 0) {
-    return "<renderer root>";
+    return { owner: "<renderer root>", moduleId: relativePath };
   }
-  return directorySegments.slice(0, OWNER_PATH_SEGMENT_LIMIT).join(path.posix.sep);
+  const ownerSegments = directorySegments.slice(0, OWNER_PATH_SEGMENT_LIMIT);
+  return {
+    owner: ownerSegments.join(path.posix.sep),
+    moduleId: segments.slice(ownerSegments.length).join(path.posix.sep),
+  };
 }
