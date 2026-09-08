@@ -1,4 +1,5 @@
-// The two dispositions a machine body can take, and the two it must never take.
+// The two dispositions a machine body can take, and the two it must never take —
+// and, below them, which of the three renderers a body reaches at all.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -15,18 +16,24 @@ const BEL = "\u0007";
 
 function renderBody(
   content: HydratedSessionEventContent | undefined,
-  overrides: { readonly liveText?: string } = {},
+  overrides: { readonly liveText?: string; readonly contentType?: string } = {},
 ): HTMLElement {
   const { container } = render(
     <MachineBody
       content={content}
       {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
+      {...(overrides.contentType === undefined ? {} : { contentType: overrides.contentType })}
       sourceId="event-01"
       footnotes={new FootnoteRegistry()}
       label="The agent's reply"
     />,
   );
   return container;
+}
+
+/** An assistant body whose producer declared `mediaType`, rendered. */
+function renderDeclaredBody(body: string, mediaType: string): HTMLElement {
+  return renderBody({ status: "available", body }, { contentType: mediaType });
 }
 
 describe("a body that opened", () => {
@@ -171,5 +178,95 @@ describe("command output", () => {
     expect(container.textContent).toContain("built cleanly");
     expect(container.textContent).not.toContain(ESCAPE);
     expect(container.textContent).not.toContain("0;a title");
+  });
+});
+
+describe("the media type its producer declared", () => {
+  // THE DEFECT THIS CLOSES. The renderer was chosen from the bytes alone, and
+  // `AssistantOutputPayload` has carried `contentType` all along — so a `text/plain`
+  // reply carrying an asterisk pair was reformatted into emphasis nobody wrote, and a
+  // markdown reply carrying one stray escape went through the terminal renderer whole,
+  // losing every heading, list and code fence in it.
+
+  it("renders a declared markdown body as markdown", () => {
+    const container = renderDeclaredBody("an ordinary **reply**", "text/markdown");
+    expect(container.querySelector(".meridian-markdown")).not.toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("reply");
+  });
+
+  it("keeps declared markdown on the markdown path when a control byte rode along", () => {
+    // The declaration is the producer's own statement of what it emitted. An escape
+    // sequence inside such a body is terminal residue the media type does not cover, so
+    // it is stripped and the markdown structure is still drawn — reading it instead as
+    // "this whole body is command output" throws that structure away for one byte.
+    const container = renderDeclaredBody(`${ESCAPE}[31m## A heading${ESCAPE}[39m`, "text/markdown");
+    expect(container.querySelector(".meridian-markdown")).not.toBeNull();
+    expect(container.querySelector(".meridian-ansi__body")).toBeNull();
+    expect(container.textContent).toContain("A heading");
+    expect(container.textContent).not.toContain(ESCAPE);
+  });
+
+  it("renders a declared plain-text body verbatim, reformatting nothing", () => {
+    const container = renderDeclaredBody("an ordinary *literal* reply", "text/plain");
+    expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
+    expect(container.querySelector(".meridian-markdown")).toBeNull();
+    expect(container.querySelector("em")).toBeNull();
+    expect(container.textContent).toContain("*literal*");
+  });
+
+  it("keeps declared plain text off the ANSI path and still puts no escape on the page", () => {
+    // The ANSI renderer is for command output, and an assistant body its producer called
+    // plain text is not that whichever bytes it carries — but the bytes are still bytes
+    // no reader should see.
+    const container = renderDeclaredBody(`${ESCAPE}]0;a title${BEL}built`, "text/plain");
+    expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
+    expect(container.querySelector(".meridian-ansi__body")).toBeNull();
+    expect(container.textContent).toBe("built");
+  });
+
+  it("takes the plain arm for a declaration this console has no renderer for", () => {
+    // Fail-closed on the safe side: a producer that described its body precisely is not
+    // second-guessed, and nothing is interpreted that was not asked for.
+    const container = renderDeclaredBody('{ "ok": **true** }', "application/json");
+    expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
+    expect(container.querySelector("strong")).toBeNull();
+    expect(container.textContent).toContain("**true**");
+  });
+
+  it("reads the type through its parameters and its case", () => {
+    // `contentType` is a free-form wire string, so the value arrives as the producer
+    // spelled it. A comparison against the raw member answers "unrecognised" for both of
+    // these and drops a real markdown reply onto the plain arm.
+    for (const declared of ["text/markdown; charset=utf-8", "TEXT/Markdown"]) {
+      const container = renderDeclaredBody("an ordinary **reply**", declared);
+      expect(container.querySelector("strong")?.textContent).toBe("reply");
+    }
+  });
+
+  it("declares the shape of a live turn as well as a stored one", () => {
+    // A streaming assistant turn has no stored body yet and the same declaration on its
+    // row, so a reading applied only to `content` would reformat the tail of every
+    // plain-text turn and settle it correctly one beat later.
+    const container = renderBody(undefined, {
+      liveText: "arriving *now*",
+      contentType: "text/plain",
+    });
+    expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
+    expect(container.textContent).toContain("arriving *now*");
+  });
+
+  it("negative control: a body with no declaration still reads its own bytes", () => {
+    // The tool trio carries no content type at all, so removing the byte reading would
+    // put a build log's escape sequences on the page as text — the defect the byte
+    // reading was added to close. Both of its answers are asserted here.
+    const ansi = renderBody({
+      status: "available",
+      body: `${ESCAPE}[31mfailed${ESCAPE}[39m`,
+    });
+    expect(ansi.querySelector(".meridian-ansi__body")).not.toBeNull();
+
+    const prose = renderBody({ status: "available", body: "an ordinary **reply**" });
+    expect(prose.querySelector(".meridian-markdown")).not.toBeNull();
+    expect(prose.querySelector(".meridian-machine-body__plain")).toBeNull();
   });
 });

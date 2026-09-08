@@ -100,6 +100,8 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
   const family = classifyCardFamily(props.row);
   const isParticipant = family.family === "participant-message";
   const payload = projectedPayload(props.row);
+  // Read once for both readers below: the body's renderer and the receipt's own line.
+  const assistantMediaType = readWireString(payload["contentType"]);
 
   return (
     <LedgerRowGroup groupLabel="a message row">
@@ -127,6 +129,11 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
             <MachineBody
               content={props.content}
               {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
+              // THE SHAPE THIS CARD DOES HAVE TO GIVE, unlike the tool card beside it.
+              // `AssistantOutputPayload` carries the producer's own media type, and the
+              // same reading feeds the receipt below — so the renderer a body takes and
+              // the type printed under it can never disagree.
+              {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
               sourceId={props.row.id}
               footnotes={props.footnotes}
               label={family.label}
@@ -137,7 +144,7 @@ export function MessageCard(props: MessageCardProps): React.JSX.Element {
           family.family === "assistant-reasoning" ||
           props.liveText !== undefined ? null : (
             <MessageReceipt
-              contentType={readWireString(payload["contentType"])}
+              contentType={assistantMediaType}
               contentLength={readWireCount(payload, "contentLength")}
             />
           )}

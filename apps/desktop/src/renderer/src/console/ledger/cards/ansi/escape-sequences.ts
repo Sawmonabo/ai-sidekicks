@@ -18,16 +18,44 @@ const ESCAPE = "\u001b";
 const BELL = "\u0007";
 
 /**
+ * The C1 string terminator — the single-byte spelling of `ESC \`.
+ *
+ * ACCEPTED AS A TERMINATOR THOUGH NOT AS AN INTRODUCER, and the asymmetry is a decision
+ * rather than an omission. This scanner opens on ESC and on nothing else, because the
+ * reading below tests for that byte alone and widening it to the C1 range would classify
+ * any body carrying one of those codepoints as command output. A stream that OPENED with
+ * `ESC P` may still close with this single byte, though, and refusing it here would leave
+ * the payload of a correctly formed sequence on the page.
+ */
+const STRING_TERMINATOR = "\u009c";
+
+/**
+ * The four string controls whose payload runs until a terminator ends it: DCS
+ * (`ESC P`), SOS (`ESC X`), PM (`ESC ^`) and APC (`ESC _`).
+ *
+ * THEY ARE NOT TWO-BYTE ESCAPES, which is what this scan read them as — so a terminal
+ * that sent a DCS put its whole payload on the page as text, up to the trailing ST the
+ * scan never looked for. OSC is the fifth member of the family and keeps a branch of its
+ * own, because it is the one that also ends at BEL.
+ */
+const STRING_CONTROL_INTRODUCERS: readonly string[] = ["P", "X", "^", "_"];
+
+/**
  * Whether a body carries ANSI escape sequences at all.
  *
- * THE WIRE'S OWN SHAPE READING, AND THE ONLY ONE AVAILABLE. No registered payload says
- * what shape a machine-authored body is: `ToolActivityPayload` carries a tool name, a
- * call id, a duration and the content descriptors and no content type, and
- * `HydratedSessionEventContent` carries the bytes and no type either. So the bytes are
- * what the console has to read, and they are enough — a body carrying an escape IS
- * command output, and one carrying none is prose. Answering "ANSI" for every tool
- * result read terminal output into an MCP reply; answering "prose" for every one of
- * them put a build log's escape sequences on the page as text.
+ * THE WIRE'S OWN SHAPE READING FOR A BODY WHOSE PRODUCER DECLARED NONE. The tool trio
+ * carries a tool name, a call id, a duration and the content descriptors and no content
+ * type, and `HydratedSessionEventContent` carries the bytes and no type either — so for
+ * those rows the bytes are what the console has to read, and they are enough: a body
+ * carrying an escape IS command output, and one carrying none is prose. Answering "ANSI"
+ * for every tool result read terminal output into an MCP reply; answering "prose" for
+ * every one of them put a build log's escape sequences on the page as text.
+ *
+ * IT IS NOT THE ONLY READING, AND THIS ONE IS THE FALLBACK. `AssistantOutputPayload`
+ * carries `contentType`, the producer's own declaration of the body's media type, and
+ * `MachineBody` prefers it where it is present: a `text/markdown` reply is markdown
+ * whether or not a stray control byte rode along with it, and a `text/plain` one is
+ * never reformatted. This reading answers for the rows that declare nothing.
  *
  * The introducer and nothing else: every sequence this module knows opens with it, and
  * a tab or a newline is ordinary text a prose renderer already handles.
@@ -80,7 +108,13 @@ function endOfSequenceAt(text: string, escapeAt: number): number {
     return escapeAt + 1;
   }
   if (introducer === "]") {
-    return endOfOperatingSystemCommand(text, escapeAt + 2);
+    // OSC: a string control that ALSO ends at BEL, which is what this build's shells send.
+    return endOfStringControl(text, escapeAt + 2, true);
+  }
+  if (STRING_CONTROL_INTRODUCERS.includes(introducer)) {
+    // DCS, SOS, PM, APC: the same shape as OSC minus the BEL, so the payload is consumed
+    // through its terminator rather than left standing as text after two bytes.
+    return endOfStringControl(text, escapeAt + 2, false);
   }
   if (introducer === "[") {
     // CSI: parameter bytes, then intermediates, then one final byte.
@@ -95,17 +129,33 @@ function endOfSequenceAt(text: string, escapeAt: number): number {
 }
 
 /**
- * Where an OSC ends: at BEL, at the two-byte string terminator, or at the body's end.
+ * Where a string control ends: at its terminator, or at the body's end.
  *
- * Both terminators, because a stream may use either and a half-matched sequence would
- * leave its tail on screen.
+ * ONE FUNCTION FOR ALL FIVE OF THEM, and the BEL is the only thing that separates OSC
+ * from the other four: every one of them opens a payload of arbitrary length and closes
+ * it with ST. Two copies of this walk would drift, and the copy that drifted would be
+ * the one leaving a payload on the page.
+ *
+ * BOTH SPELLINGS OF ST, because a stream may use either and a half-matched sequence
+ * leaves its tail on screen: the two-byte `ESC \` and the single-byte C1 form.
+ *
+ * AND AN ESCAPE THAT IS NOT ST ENDS THE CONTROL WHERE IT STANDS, which is
+ * resynchronisation rather than consumption — a payload containing one belongs to a
+ * sequence nobody terminated, so the scan hands that escape back to the caller's loop
+ * to be read as the start of whatever it introduces. The cursor has advanced past the
+ * introducer by then, so the walk always moves forward and a body of unterminated
+ * controls cannot spin.
  */
-function endOfOperatingSystemCommand(text: string, from: number): number {
+function endOfStringControl(text: string, from: number, endsAtBell: boolean): number {
   for (let cursor = from; cursor < text.length; cursor += 1) {
-    if (text[cursor] === BELL) {
+    const byte = text[cursor];
+    if (endsAtBell && byte === BELL) {
       return cursor + 1;
     }
-    if (text[cursor] === ESCAPE) {
+    if (byte === STRING_TERMINATOR) {
+      return cursor + 1;
+    }
+    if (byte === ESCAPE) {
       return text[cursor + 1] === "\\" ? cursor + 2 : cursor;
     }
   }

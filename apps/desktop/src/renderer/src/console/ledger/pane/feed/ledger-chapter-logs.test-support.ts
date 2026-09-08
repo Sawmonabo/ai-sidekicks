@@ -15,6 +15,7 @@
 
 import { SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
 import {
+  FILTERABLE_SESSION_ID,
   LIVE_RUN_ID,
   SESSION_ID,
   TERMINAL_RUN_ID,
@@ -152,6 +153,67 @@ export function openSessionStoreWithFoldedMessageChapter(): SessionStore {
   sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
   sessionStore.applyBatch([...foldedMessageChapterLog()]);
   return sessionStore;
+}
+
+/** The cutoff the rollback in {@link rewoundTerminalChapterLog} rewound to. */
+export const REWOUND_CHAPTER_TARGET_POSITION = 1;
+
+/**
+ * A run that was rewound part-way and then FINISHED, so one log carries both folds.
+ *
+ * Its own builder rather than a parameter on the two above, because the case it exists
+ * for is the overlap and nothing else: a chapter a reader has opened, holding a band that
+ * reader has folded. Neither fold alone can produce that state, and a row inside it is
+ * missing from the window for a reason only one of the two acts reaches — which is
+ * exactly what a jump into it has to decide.
+ *
+ * ON `FILTERABLE_SESSION_ID` RATHER THAN THE READABLE ONE, for that identifier's own
+ * stated reason: a boundary's payload is parsed against the wire schema and dropped when
+ * it does not satisfy it, so a log seeded under the readable session id derives no band
+ * at all and every case over it passes vacuously.
+ */
+export function rewoundTerminalChapterLog(): readonly ConsoleSessionEvent[] {
+  const turnCount = 4;
+  const turns = Array.from({ length: turnCount }, (_unused, index) => ({
+    id: ledgerFixtureEventId(index + 1),
+    sessionId: FILTERABLE_SESSION_ID,
+    sequence: index + 1,
+    kind: "assistant.message",
+    occurredAt: ledgerFixtureStampAt(index + 1),
+    payload: { sessionId: FILTERABLE_SESSION_ID, runId: TERMINAL_RUN_ID },
+  }));
+  return [
+    {
+      id: ledgerFixtureEventId(0),
+      sessionId: FILTERABLE_SESSION_ID,
+      sequence: 0,
+      kind: "run.running",
+      occurredAt: ledgerFixtureStampAt(0),
+      payload: { sessionId: FILTERABLE_SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+    ...turns,
+    {
+      id: ledgerFixtureEventId(turnCount + 1),
+      sessionId: FILTERABLE_SESSION_ID,
+      sequence: turnCount + 1,
+      kind: "run.rolled_back",
+      occurredAt: ledgerFixtureStampAt(turnCount + 1),
+      payload: {
+        sessionId: FILTERABLE_SESSION_ID,
+        runId: TERMINAL_RUN_ID,
+        runVersion: 6,
+        targetPosition: REWOUND_CHAPTER_TARGET_POSITION,
+      },
+    },
+    {
+      id: ledgerFixtureEventId(turnCount + 2),
+      sessionId: FILTERABLE_SESSION_ID,
+      sequence: turnCount + 2,
+      kind: "run.completed",
+      occurredAt: ledgerFixtureStampAt(turnCount + 2),
+      payload: { sessionId: FILTERABLE_SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+  ];
 }
 
 /**

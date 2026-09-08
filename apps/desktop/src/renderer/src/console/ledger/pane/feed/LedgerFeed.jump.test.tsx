@@ -94,12 +94,15 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     const feed = renderFeed(openSessionStoreWithFoldedMessageChapter());
 
     typeIntoFind(feed, projectedRowId(1));
-    expect(feed.textContent).toContain("inside a chapter that is not showing it");
+    // The sentence names the FOLD rather than the chapter, because a rewound band
+    // reaches this same arm — the act beside it is what names which fold this is.
+    expect(feed.textContent).toContain("folded away in this window");
+    expect(feed.textContent).toContain("whose chapter is folded shut");
     expect(feed.textContent).not.toContain("hidden by the filter");
 
     pressJumpAction(feed);
 
-    expect(feed.textContent).not.toContain("inside a chapter that is not showing it");
+    expect(feed.textContent).not.toContain("folded away in this window");
     expect(jumpActionLabel(feed)).toBe(REACHED);
   });
 
