@@ -282,7 +282,7 @@ export {
 // agrees with this one only until the marker attribute is renamed on one side.
 //
 // THE FOURTH IS THE INDEX ATTRIBUTE, and it is here for a reader in another family
-// rather than for that one: `ledger/frame/viewport/viewport-binding.ts` hands the
+// rather than for that one: `ledger/frame/viewport/surface/viewport-binding.ts` hands the
 // attribute name to the observer that measures a row, so the name the row WRITES and
 // the name the binding READS are one string. That is the same claim the target-props
 // type makes one step along, and a second spelling of it would be a measurement taken

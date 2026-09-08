@@ -1,7 +1,7 @@
 // The hook that holds one window's offer binding, and the three properties only a
 // React tree can settle.
 //
-// SPLIT FROM `ledger-row-offers-binding.test.tsx` on the same seam the module itself
+// SPLIT FROM `ledger-row-offers-binding.test.ts` on the same seam the module itself
 // is split on: that file drives the BEHAVIOUR with no render at all, and this drives
 // the WIRING — where the bridge comes from, when the surface is read, and whether the
 // binding's identity holds. One file carrying both went past this package's size rule.
@@ -51,7 +51,7 @@ describe("the hook that holds a window's row offers", () => {
   it("keeps ONE binding identity across renders whose surfaces moved", () => {
     const bindings: LedgerRowOffersBinding[] = [];
 
-    function OfferProbe(props: { readonly generation: number }): React.JSX.Element {
+    function BindingIdentityProbe(props: { readonly generation: number }): React.JSX.Element {
       // A fresh surface object per render, which is what a live feed hands it.
       bindings.push(
         useLedgerRowOffers({
@@ -67,12 +67,12 @@ describe("the hook that holds a window's row offers", () => {
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const { rerender } = render(
       <SidekicksBridgeProvider bridge={bridge}>
-        <OfferProbe generation={1} />
+        <BindingIdentityProbe generation={1} />
       </SidekicksBridgeProvider>,
     );
     rerender(
       <SidekicksBridgeProvider bridge={bridge}>
-        <OfferProbe generation={2} />
+        <BindingIdentityProbe generation={2} />
       </SidekicksBridgeProvider>,
     );
 
@@ -87,7 +87,7 @@ describe("the hook that holds a window's row offers", () => {
     const reached: string[] = [];
     let binding: LedgerRowOffersBinding | undefined;
 
-    function OfferProbe(props: { readonly generation: number }): React.JSX.Element {
+    function CommittedSurfacesProbe(props: { readonly generation: number }): React.JSX.Element {
       binding = useLedgerRowOffers({
         rowLease: () => undefined,
         setRowLease: (rowKey, lease) => {
@@ -102,13 +102,13 @@ describe("the hook that holds a window's row offers", () => {
     const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const { rerender } = render(
       <SidekicksBridgeProvider bridge={bridge}>
-        <OfferProbe generation={1} />
+        <CommittedSurfacesProbe generation={1} />
       </SidekicksBridgeProvider>,
     );
     act(() => {
       rerender(
         <SidekicksBridgeProvider bridge={bridge}>
-          <OfferProbe generation={2} />
+          <CommittedSurfacesProbe generation={2} />
         </SidekicksBridgeProvider>,
       );
     });
@@ -134,7 +134,7 @@ describe("the hook that holds a window's row offers", () => {
       },
     };
 
-    function OfferProbe(): React.JSX.Element {
+    function ProviderBridgeProbe(): React.JSX.Element {
       binding = useLedgerRowOffers({
         rowLease: () => undefined,
         setRowLease: () => undefined,
@@ -146,7 +146,7 @@ describe("the hook that holds a window's row offers", () => {
 
     render(
       <SidekicksBridgeProvider bridge={instrumented}>
-        <OfferProbe />
+        <ProviderBridgeProbe />
       </SidekicksBridgeProvider>,
     );
 

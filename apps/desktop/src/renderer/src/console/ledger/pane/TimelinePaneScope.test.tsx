@@ -20,7 +20,10 @@ import { unregisterTimelineRowRenderer } from "../../seats/single-slot/timeline-
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
 // height would be measuring its own setup.
-import { LEDGER_FACET_CHIP, withLaidOutViewport } from "./feed/LedgerFeedFixtures.test-support.js";
+import {
+  LEDGER_FACET_CHIP,
+  withLaidOutViewport,
+} from "./feed/surface/LedgerFeedFixtures.test-support.js";
 import { type TimelinePaneContext } from "./TimelinePane.js";
 import {
   TIMELINE_PANE_SESSION_ID,

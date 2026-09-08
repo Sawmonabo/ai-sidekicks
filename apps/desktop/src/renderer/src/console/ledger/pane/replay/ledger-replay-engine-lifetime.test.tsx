@@ -42,7 +42,7 @@ import {
   fixtureBridgeOnFrozenClock,
   underBridge,
 } from "./ledger-replay.test-support.js";
-import { foldChapterHeaders } from "../feed/ledger-chapter-fold.js";
+import { foldChapterHeaders } from "../feed/model/ledger-chapter-fold.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../window/ledger-window.js";
 
 /** What both probes take, so a claim and its foil run the identical script. */

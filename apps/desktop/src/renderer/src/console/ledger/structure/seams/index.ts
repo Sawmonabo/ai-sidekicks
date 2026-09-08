@@ -27,9 +27,5 @@ export { SupersededBandRow } from "./SupersededBandRow.js";
 
 export { SupersededBandCollapseState } from "./superseded-band-collapse.js";
 
-export {
-  LedgerSeamIndex,
-  SEAM_WIRE_BINDINGS,
-  type LedgerSeam,
-  type LedgerSeamKind,
-} from "./seams.js";
+export { LedgerSeamIndex, type LedgerSeam } from "./seams.js";
+export { SEAM_WIRE_BINDINGS, type LedgerSeamKind } from "./seam-vocabulary.js";

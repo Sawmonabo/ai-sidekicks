@@ -90,7 +90,7 @@ export const REVEAL_GATE_TAIL_CHARACTERS = 64;
  * How long the ledger must have been still for the next activity to trim first, in
  * milliseconds.
  *
- * MEASURED, NEVER ARMED. `viewport/idle-trim.ts` runs its pass on the first activity
+ * MEASURED, NEVER ARMED. `viewport/cycle/idle-trim.ts` runs its pass on the first activity
  * after a gap this wide rather than on a timer, because `Spec-023 §Console Design
  * (Meridian)` §The four bars allows no timer on the console's steady state and
  * `LedgerViewport.test.tsx` holds this frame to it. So this is a threshold a

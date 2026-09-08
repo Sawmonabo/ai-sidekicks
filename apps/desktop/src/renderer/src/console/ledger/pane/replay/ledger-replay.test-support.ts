@@ -18,7 +18,7 @@ import {
 import { LEDGER_QUIET_SCENARIO } from "../../../bridge/scenarios/ledger/ledger-quiet.js";
 import { ManualClock } from "../../../core/index.js";
 import { type ConsoleSessionEvent } from "../../../store/index.js";
-import { foldChapterHeaders } from "../feed/ledger-chapter-fold.js";
+import { foldChapterHeaders } from "../feed/model/ledger-chapter-fold.js";
 import { ledgerFixtureStampAt } from "../feed/ledger-feed-logs.test-support.js";
 import {
   useLedgerReplay,
