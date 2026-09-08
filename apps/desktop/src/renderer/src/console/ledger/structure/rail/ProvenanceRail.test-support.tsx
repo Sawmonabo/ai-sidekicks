@@ -76,8 +76,6 @@ export interface RailHarness {
   readonly slider: HTMLElement;
   /** Row ids the rail asked the ledger to scroll to, in press order. */
   readonly jumps: readonly string[];
-  /** How many times it asked for earlier rows. */
-  loadEarlierCount(): number;
   /** Hand the SAME mounted rail a different model — a replay, a filter, a prune. */
   showModel(model: ProvenanceRailModel): void;
 }
@@ -86,17 +84,11 @@ export function renderRail(
   options: {
     readonly model?: ProvenanceRailModel;
     readonly clock?: ManualClock;
-    /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
-    readonly canLoadEarlier?: boolean;
     /** The viewport band the thumb draws. The head quarter of the rail by default. */
     readonly viewport?: { readonly position: number; readonly extent: number };
   } = {},
 ): RailHarness {
   const jumps: string[] = [];
-  let loadEarlierCount = 0;
-  const loadEarlier = (): void => {
-    loadEarlierCount += 1;
-  };
   const clock = options.clock ?? new ManualClock();
   const railOver = (model: ProvenanceRailModel): ReactElement => (
     <ProvenanceRail
@@ -105,7 +97,6 @@ export function renderRail(
       viewportExtent={options.viewport?.extent ?? 0.25}
       isFollowing={false}
       onJumpToRow={(rowId) => jumps.push(rowId)}
-      {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
       clock={clock}
     />
   );
@@ -113,7 +104,6 @@ export function renderRail(
   return {
     slider: screen.getByRole("slider"),
     jumps,
-    loadEarlierCount: () => loadEarlierCount,
     showModel: (model) => {
       view.rerender(railOver(model));
     },

@@ -64,15 +64,23 @@
 // own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
 // follow seat in `ledger-actor-follow-seat.ts`.
 //
-// THE TWO STRUCTURAL CONTROLS STILL TAKE NO `onLoadEarlier` HANDLER, and the reason is
-// that they are about a different absence. `ledger-visible-window.ts` sets
-// `hasEarlierRows` exactly when the window CAP took rows — rows this store still
-// HOLDS — so the offer behind that clip would re-admit rows already in memory, which
-// is a decision about the cap and the reading pin in `ledger/frame/viewport/` and not
-// a fetch. Wiring the backward read to it would send the daemon after rows the console
-// is already holding. The clip is passed truthfully either way, so the rail still
-// draws its dotted segment and the find result still carries its boundary over a
-// window the cap has truncated.
+// THE TWO STRUCTURAL CONTROLS OFFER NO LOAD-EARLIER ACT, and the reason is that they
+// are about a different absence. `ledger-visible-window.ts` sets `hasEarlierRows`
+// exactly when the window CAP took rows — rows this store still HOLDS — so an offer
+// behind that clip would re-admit rows already in memory, which is a decision about
+// the cap and the reading pin in `ledger/frame/viewport/` and not a fetch. Wiring the
+// backward read to it would send the daemon after rows the console is already
+// holding. The clip is passed truthfully either way, so the rail still draws its
+// dotted segment and the find result still carries its boundary over a window the cap
+// has truncated.
+//
+// AND THE ACT ITSELF HAS A HOME, which is why neither surface takes one: the backward
+// read is `frame/paging/`'s, offered by `LoadEarlierAffordance` off the viewport this
+// mount already composes, over `earlier-window-reader`'s producer verdict about the
+// LOG rather than over the cap's fact about the window. Both surfaces carried a
+// handler prop for a while and no caller anywhere supplied one — two buttons, two CSS
+// blocks and a shared focus ring for an offer this file had already decided against —
+// so the props went and the readings stayed.
 
 import { useCallback, useMemo } from "react";
 

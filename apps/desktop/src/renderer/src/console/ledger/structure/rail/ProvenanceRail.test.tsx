@@ -250,24 +250,20 @@ describe("rail — the selection is a mark, and every walk starts from it", () =
 });
 
 describe("rail — clip honesty is rendered, not implied", () => {
-  it("offers to load earlier rows when the window is truncated", () => {
-    const harness = renderRail({ model: railModel(true) });
-    fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
-    expect(harness.loadEarlierCount()).toBe(1);
-  });
-
-  it("negative control: a complete window offers no such affordance", () => {
-    // Offering it over a complete log would promise something the press could not
-    // deliver.
-    renderRail({ model: railModel(false) });
-    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
-  });
-
-  it("keeps the dotted segment where the reader cannot page, and drops the button", () => {
-    // Clip honesty is a fact about the WINDOW, so the segment is drawn
-    // whether or not anybody can act on it; the button is a promise, so it is not.
-    const { slider } = renderRail({ model: railModel(true), canLoadEarlier: false });
-    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+  it("draws the dotted segment over a truncated window and offers no act on it", () => {
+    // Clip honesty is a fact about the WINDOW, so the segment is drawn whether or not
+    // anybody can act on it. The act belongs to the viewport's backward read, which
+    // is about the rows the daemon still holds; this segment is about the rows the
+    // CAP took, which this store is holding already.
+    const { slider } = renderRail({ model: railModel(true) });
     expect(slider.querySelector(".meridian-provenance-rail__unloaded")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+  });
+
+  it("negative control: a complete window draws no segment", () => {
+    // Without this the case above would pass over a rail that marked every session
+    // truncated, which is the lie clip honesty exists to prevent.
+    const { slider } = renderRail({ model: railModel(false) });
+    expect(slider.querySelector(".meridian-provenance-rail__unloaded")).toBeNull();
   });
 });

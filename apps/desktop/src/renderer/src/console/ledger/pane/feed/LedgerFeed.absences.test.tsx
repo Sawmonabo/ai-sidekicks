@@ -32,13 +32,12 @@ afterEach(() => {
 });
 
 describe("the ledger feed — what it does not hold", () => {
-  it("offers no load-earlier control, and names the rows the cap took", () => {
+  it("names the rows the cap took", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));
-    // No read this console can perform returns rows before the window's head, so
-    // the affordance is absent rather than drawn over an act nobody can complete.
-    expect(feed.querySelector(".meridian-provenance-rail__load-earlier")).toBeNull();
-    expect(feed.querySelector(".meridian-find__load-earlier")).toBeNull();
+    // The cap is a fact about the WINDOW and the feed states it. The act that fetches
+    // rows the daemon still holds is the viewport's backward read, which answers a
+    // different question and is offered where that read lives.
     expect(feed.textContent).toContain("Older entries are no longer in this window.");
   });
 
@@ -66,7 +65,6 @@ describe("the ledger feed — what it does not hold", () => {
     ]);
     const feed = renderFeed(sessionStore);
     expect(feed.textContent).toContain("Some entries never arrived.");
-    expect(feed.querySelector(".meridian-provenance-rail__load-earlier")).toBeNull();
   });
 
   it("negative control: a whole log under the cap claims nothing is missing", () => {

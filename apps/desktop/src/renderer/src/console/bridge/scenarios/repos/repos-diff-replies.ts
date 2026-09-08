@@ -50,6 +50,7 @@
 // the DEFERRED arm — a handle and no bytes — which is a served answer the diff surface
 // has to be able to draw and which no other scenario reaches.
 
+import { measureUtf8ByteLength } from "../../../persistence/index.js";
 import type { GrowthArtifactSummary } from "../../growth-values/index.js";
 import type { ConsoleScenario } from "../../scenario-runtime/index.js";
 
@@ -258,8 +259,11 @@ function diffManifest(diff: ScenarioDiff): GrowthArtifactSummary {
     artifactType: "diff",
     digest: `sha256:${diff.artifactManifestId.replaceAll("-", "")}`,
     // The payload's byte length, which for a `utf8` payload is what a decoder reads.
-    // Derived from the patch rather than written beside it, so the two cannot disagree.
-    size: new TextEncoder().encode(diff.patch).length,
+    // Derived from the patch rather than written beside it, so the two cannot disagree,
+    // and measured through the console's one byte measurement rather than an encoder of
+    // this module's own — a fixture that rules its own bytes is a second answer to a
+    // question the durable path already answers.
+    size: measureUtf8ByteLength(diff.patch),
     annotations: {},
     visibility: "local-only",
     state: "published",

@@ -2,8 +2,11 @@
  * surfaces that answer "show me less of this log".
  *
  * ONE SHEET PER DIRECTORY, imported from `ledger/index.ts` and nowhere else. They share
- * a sheet because they share a job and a row of chrome; the focus ring the facet bar
- * wears is `ledger.css`'s, because the jump action `ledger/pane/find/` renders shares it.
+ * a sheet because they share a job and a row of chrome. The focus ring the facet bar
+ * wears is at the foot of this file: it sat in `ledger.css` under one rule with the jump
+ * action's, which `ledger/pane/find/` renders, and a rule belongs to the sheet of the
+ * directory that draws it rather than to whichever sheet a shared declaration was
+ * written in.
  */
 
 /* --- Find in ledger ------------------------------------------------------- */
@@ -83,8 +86,9 @@
   outline-offset: -2px;
 }
 
-/* The boundary sentence and its escape hatch, together on one line so the
-   affordance is read as part of the statement rather than as a stray control. */
+/* The boundary sentence. One line, and a statement rather than a control: what the
+   window is missing is a fact about the window, and the act that would fetch it is
+   the viewport's own, offered where that read lives. */
 
 .meridian-find__scope {
   display: inline-flex;
@@ -92,15 +96,6 @@
   gap: var(--meridian-space-1);
   margin: 0;
   color: var(--meridian-text-faint);
-}
-
-.meridian-find__load-earlier {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--meridian-accent-text);
-  font: inherit;
-  cursor: pointer;
 }
 
 .meridian-find__empty {
@@ -182,4 +177,16 @@
   color: var(--meridian-text-muted);
   font: inherit;
   cursor: pointer;
+}
+
+/* The bar's two controls take one ring. It sat in `ledger.css` beside the jump
+   action's, which is the family root's own surface — three selectors under one rule,
+   two of which only this directory renders. A rule belongs to the sheet of the
+   directory that draws it, so the two came here and the jump action's stayed. */
+
+.meridian-ledger-filter__facet:focus-visible,
+.meridian-ledger-filter__clear:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--meridian-radius-sm);
 }

@@ -1,22 +1,16 @@
 // A bound that is spent in bytes, and a cache that never thrashes on the one input the
 // bound exists for.
+//
+// WHAT THE ENCODING CASES ARE NOT HERE. UTF-8 against UTF-16, the surrogate pair, the
+// two-byte accent — those are the ruler's own cases and they live beside the ruler in
+// `console/persistence/`. This suite asks only what the cache does with a measurement,
+// so the one call it keeps is the retained-byte assertion, which reads the same ruler
+// the cache spends rather than restating a number the cache would have to agree with.
 
 import { describe, expect, it } from "vitest";
 
-import { ByteBoundedCache, measureUtf8ByteLength } from "./byte-bounded-cache.js";
-
-describe("measuring a string in bytes", () => {
-  it("counts UTF-8 bytes and not UTF-16 code units", () => {
-    // The bound is stated in bytes, so an emoji is charged what it costs on the wire.
-    expect(measureUtf8ByteLength("abc")).toBe(3);
-    expect(measureUtf8ByteLength("é")).toBe(2);
-    expect(measureUtf8ByteLength("🙂")).toBe(4);
-  });
-
-  it("negative control: it is not `String.length`", () => {
-    expect(measureUtf8ByteLength("🙂")).not.toBe("🙂".length);
-  });
-});
+import { measureUtf8ByteLength } from "../../../persistence/index.js";
+import { ByteBoundedCache } from "./byte-bounded-cache.js";
 
 describe("the byte-bounded cache", () => {
   it("returns what it was given", () => {

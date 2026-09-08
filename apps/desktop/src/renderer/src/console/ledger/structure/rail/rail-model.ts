@@ -63,7 +63,9 @@ export interface RailTick {
  * What the rail is not showing.
  *
  * The clip honesty above. `hasUnloadedExtent` is the dotted segment's condition, and
- * `earliestLoadedSequence` is what a "load earlier" affordance asks from.
+ * `earliestLoadedSequence` names the head the segment is drawn from. Neither is an
+ * offer: the rail states what the window is missing and the viewport's backward read
+ * is what reaches it.
  */
 export interface RailClip {
   readonly hasUnloadedExtent: boolean;
