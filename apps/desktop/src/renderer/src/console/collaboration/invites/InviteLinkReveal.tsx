@@ -18,6 +18,16 @@
 //     lands in. There is no half-composed reveal to render, no token held on screen
 //     waiting for a second read, and no retry control here: a host that could not be
 //     read is a press that created nothing, reported on the form's own send control.
+//   • AND COPYING IS PRESSED MORE THAN ONCE, so the newest press is the only one that
+//     settles. The host's clipboard call is asynchronous and nothing orders its
+//     answers, so two presses can settle in either order — and while the reveal held
+//     "copied" and "the refusal" as two independent fields, a late rejection landed
+//     "Copied" beside an error and a late success landed the opposite. Both are closed
+//     here, and structurally rather than by care: the two facts are ONE value with
+//     three arms, so a contradictory pair cannot be written; and every press claims a
+//     round of the console's own generation latch under `supersedeAndClaim`, whose
+//     rule is exactly this surface's — the answer a person is waiting on is the one
+//     they asked for LAST — so a superseded attempt installs nothing when it lands.
 
 import { useState } from "react";
 import type { JoinMode } from "@ai-sidekicks/contracts";
@@ -25,6 +35,7 @@ import type { JoinMode } from "@ai-sidekicks/contracts";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
 import { Chip, InlineRefusal, WireFigure, formatDateTime } from "../../primitives/index.js";
+import { useGenerationLatch } from "../../store/index.js";
 
 /**
  * What one mint produced. Held only until a person puts it away.
@@ -52,10 +63,37 @@ export interface InviteLinkRevealProps {
   readonly onDone: () => void;
 }
 
+/**
+ * What the copy attempt that still counts produced.
+ *
+ * ONE VALUE AND NOT TWO FIELDS, because the two facts it replaces are mutually
+ * exclusive and were not held that way: a `Copied` flag beside a refusal has a fourth
+ * state that means nothing — the clipboard both took the link and refused it — and
+ * that state was reachable, since two presses settle in whatever order the host
+ * answers them. Three arms make it unwritable.
+ */
+type InviteLinkCopyState =
+  | { readonly kind: "untried" }
+  | { readonly kind: "copied" }
+  | { readonly kind: "refused"; readonly refusal: ConsoleRefusal };
+
+/** Nothing pressed yet, or a fresh press whose answer has not landed. */
+const COPY_UNTRIED: InviteLinkCopyState = { kind: "untried" };
+
+/** The one key every press of this reveal's Copy control claims. */
+const COPY_ATTEMPT_KEY = "copy";
+
+/** Where a clipboard refusal came from, as the reader sees it. */
+const COPY_REFUSAL_ORIGIN = "invite-link-copy";
+
 export function InviteLinkReveal(props: InviteLinkRevealProps): React.JSX.Element {
   const { minted } = props;
-  const [copyRefusal, setCopyRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const [isCopied, setIsCopied] = useState(false);
+  const [copyState, setCopyState] = useState<InviteLinkCopyState>(COPY_UNTRIED);
+  // THE SUBJECT IS THE MINTED INVITATION, which is what a press is about: the register
+  // is held weakly, a new mint is a new subject with its own round, and the attempts
+  // made against an invitation that has been put away can install nothing into the one
+  // that replaced it.
+  const copyAttempts = useGenerationLatch();
 
   return (
     <section className="meridian-invite-reveal" aria-label="The invitation you just created">
@@ -73,27 +111,52 @@ export function InviteLinkReveal(props: InviteLinkRevealProps): React.JSX.Elemen
           type="button"
           className="meridian-invite-reveal__copy"
           onClick={() => {
-            setCopyRefusal(undefined);
-            props.onCopy(minted.link).then(
-              () => {
-                setIsCopied(true);
-              },
-              (rejection: unknown) => {
-                // Rendered rather than swallowed: the link is still on screen and
-                // still selectable, so the person needs to know the copy did not
-                // happen rather than be told it did.
-                setCopyRefusal(consoleRefusalFrom(rejection, "invite-link-copy"));
-              },
-            );
+            // Taken BEFORE the call is put, and never refused: the newest press is the
+            // intent, so whatever is outstanding is abandoned here rather than allowed
+            // to answer for it. The control stays open on purpose — pressing again is
+            // the ordinary way somebody checks a copy landed, and closing it would
+            // make an unanswered clipboard call a control that never comes back.
+            const attempt = copyAttempts.supersedeAndClaim(minted, COPY_ATTEMPT_KEY);
+            // Neither arm of the previous answer survives a fresh press: it was about
+            // an attempt this one supersedes, and leaving `Copied` up would report the
+            // older press as the state of the newer one.
+            setCopyState(COPY_UNTRIED);
+            void props
+              .onCopy(minted.link)
+              .then(
+                () => {
+                  attempt.settle(() => {
+                    setCopyState({ kind: "copied" });
+                  });
+                },
+                (rejection: unknown) => {
+                  // Rendered rather than swallowed: the link is still on screen and
+                  // still selectable, so the person needs to know the copy did not
+                  // happen rather than be told it did. Behind the same round as the
+                  // success arm, so a rejection that lost the race says nothing over
+                  // an answer that came after it.
+                  attempt.settle(() => {
+                    setCopyState({
+                      kind: "refused",
+                      refusal: consoleRefusalFrom(rejection, COPY_REFUSAL_ORIGIN),
+                    });
+                  });
+                },
+              )
+              .finally(() => {
+                // Total and idempotent: a superseded round no longer owns the key, so
+                // this frees only the round that is still the live one.
+                attempt.release();
+              });
           }}
         >
-          {isCopied ? "Copied" : "Copy"}
+          {copyState.kind === "copied" ? "Copied" : "Copy"}
         </button>
       </div>
 
-      {copyRefusal === undefined ? null : (
-        <InlineRefusal code={copyRefusal.code} detail={copyRefusal.detail} />
-      )}
+      {copyState.kind === "refused" ? (
+        <InlineRefusal code={copyState.refusal.code} detail={copyState.refusal.detail} />
+      ) : null}
 
       <div className="meridian-invite-reveal__acts">
         <button type="button" className="meridian-invite-reveal__done" onClick={props.onDone}>

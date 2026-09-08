@@ -112,6 +112,27 @@ export function isInviteOutcomeInProgress(outcome: GrowthInviteOutcome): boolean
 }
 
 /**
+ * Whether main is still holding the head's reference, so putting the card away has to
+ * RELEASE it rather than merely clear the screen.
+ *
+ * THE QUESTION A CLOSE PATH ASKS, and it is not "has an answer arrived". Two states
+ * answer yes: nothing has been dispatched yet, and an acceptance waiting on
+ * authentication — which carries an outcome while main drives the ceremony and holds
+ * the reference across it. Reading the outcome's mere PRESENCE as a spent reference
+ * left that second state closable by a local acknowledgement the lifecycle then
+ * refused, so the prompt went off screen with the ceremony and its reference still
+ * outstanding and no surface left to back out from.
+ *
+ * ONE DEFINITION FOR THE CARD AND THE ARM ALIKE: the card routes Escape, the backdrop
+ * and the control through it, and the arm decides by it whether to keep the dismissal
+ * on screen. Two spellings of it are how a card comes to offer a control the
+ * lifecycle will refuse, or refuse one it would have served.
+ */
+export function isInviteReferenceHeld(outcome: GrowthInviteOutcome | undefined): boolean {
+  return outcome === undefined || isInviteOutcomeInProgress(outcome);
+}
+
+/**
  * Whether the answer already given admits the same act being put again.
  *
  * EXACTLY ONE ARM, AND THE WIRE DECIDES IT. An acceptance that never reached the

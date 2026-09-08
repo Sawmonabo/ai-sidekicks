@@ -75,13 +75,54 @@ describe("the confirmation — the six ways an attempt ends", () => {
     expect(outcomeActs(body)).toEqual(["meridian-invite-outcome__acknowledge"]);
   });
 
-  it("leaves a sign-in that is still running with nothing to press", () => {
+  it("offers a sign-in that is still running no act against the answer", () => {
     // Main is driving the ceremony and holding the reference across it, so there is
-    // no answer yet: a retry would race the one that is coming, and putting it away
-    // would strand it against an invitation this window no longer holds.
+    // no answer yet: a retry would race the one that is coming, and acknowledging
+    // would strand it against an invitation this window no longer holds. The report's
+    // own row is therefore empty — the act that IS available there is the card's
+    // dismissal, asserted in the case below.
     const body = outcomeCard({ kind: "authentication-required", reference: REFERENCE });
     expect(body.textContent ?? "").toContain("Sign in to finish joining.");
     expect(outcomeActs(body)).toEqual([]);
+  });
+
+  it("keeps the dismissal on screen while a sign-in is still running", () => {
+    // The prompt used to render this arm with no control at all: the act row is
+    // replaced by the report once an outcome exists, and this outcome is a step
+    // rather than an end. A person who reopened the card met a stalled ceremony they
+    // could look at and not back out of, while main still held the reference.
+    const onDismiss = vi.fn();
+    const body = outcomeCard(
+      { kind: "authentication-required", reference: REFERENCE },
+      { onDismiss },
+    );
+    const dismiss = control(body, "meridian-invite-confirmation__dismiss");
+    expect(dismiss.disabled).toBe(false);
+    // And not a second acceptance beside it: that would race the answer main is
+    // already driving on this same reference.
+    expect(body.querySelector(".meridian-invite-confirmation__confirm")).toBeNull();
+
+    dismiss.click();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the reference on Escape while a sign-in is still running", async () => {
+    // THE DEFECT THIS PAIR CLOSES. Escape and the backdrop reached the local
+    // acknowledgement here, which the lifecycle refuses on an answer still running —
+    // so the card went away, no `dismissPending` was sent, and the ceremony and its
+    // reference were left outstanding with no surface left to cancel them from.
+    const onDismiss = vi.fn();
+    const onAcknowledge = vi.fn();
+    const body = outcomeCard(
+      { kind: "authentication-required", reference: REFERENCE },
+      { onDismiss, onAcknowledge },
+    );
+    await settle();
+    fireEvent.keyDown(body.querySelector(".meridian-invite-confirmation") ?? body, {
+      key: "Escape",
+    });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onAcknowledge).not.toHaveBeenCalled();
   });
 
   it("tells a sign-in that failed apart from one that was never attempted", () => {
@@ -175,10 +216,19 @@ describe("the confirmation — the six ways an attempt ends", () => {
     expect(onAcknowledge).toHaveBeenCalledTimes(1);
   });
 
-  it("replaces both acts once an answer has arrived", () => {
+  it("replaces both acts once an answer has ENDED", () => {
     // One question at a time: an accepting control beside a settled result would
-    // invite a second act on a reference that is already spent.
-    const body = outcomeCard({ kind: "authentication-required", reference: REFERENCE });
+    // invite a second act on a reference that is already spent, and a dismissal there
+    // would release a handle main no longer holds. Asserted on a terminal arm, which
+    // is the whole of what "spent" means — the running arm keeps its dismissal, and
+    // the case above says so.
+    const body = outcomeCard({
+      kind: "joined",
+      reference: REFERENCE,
+      sessionId: INVITED_SESSION,
+      membershipId: MEMBERSHIP,
+      role: "collaborator",
+    });
     expect(body.querySelector(".meridian-invite-confirmation__confirm")).toBeNull();
     expect(body.querySelector(".meridian-invite-confirmation__dismiss")).toBeNull();
   });

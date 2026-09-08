@@ -34,8 +34,18 @@
 // explanation — expired, revoked, already accepted — that the person following that
 // link is owed and can learn nowhere else. So a refusal past the bound goes into a
 // SECOND bounded register beside the queue and is promoted into it the moment a
-// release makes room, ahead of asking for the replay: the arrivals a replay can
-// recover are exactly the ones that can afford to wait.
+// release makes room.
+//
+// AND THE TWO WAIT IN ONE ORDER, WHICH IS THE ORDER THEY ARRIVED IN. Promoting the
+// retained refusal on every release was the same rule stated without that clause, and
+// it reversed the feed: an invitation turned away first records replay debt, a refusal
+// arriving after it is retained, and the release that opens the slot hands it to the
+// LATER refusal — after which the queue is full again, the replay is declined for want
+// of room, and the older invitation stays off screen until every refusal ahead of it
+// has been dealt with. A burst of refusals starved the actionable arrivals behind
+// them. So both registers stamp one monotonic arrival sequence, and a slot goes to
+// whichever is older: the refusal where it is, and otherwise nobody, leaving the room
+// for the replay that is owed the arrival before it.
 
 import type { GrowthPendingInviteRefused, GrowthPendingInviteState } from "../../bridge/index.js";
 import { PENDING_INVITE_QUEUE_MAX, PENDING_INVITE_RETAINED_REFUSAL_MAX } from "../../core/index.js";
@@ -55,8 +65,25 @@ export class PendingInviteArrivals {
    * Never a second queue with a second head: nothing reads these but the promotion
    * below, so a person still meets one prompt at a time in the order they arrived.
    */
-  readonly #retainedRefusals: GrowthPendingInviteRefused[] = [];
-  #hasDeferredArrivals = false;
+  readonly #retainedRefusals: RetainedRefusal[] = [];
+  /**
+   * How many arrivals this window has been offered. The order both registers share.
+   *
+   * Stamped at arrival and never reissued, so a refusal held here and an arrival the
+   * bound turned away can be compared at all — which is what a slot is handed out on.
+   * A frame already held takes no number: it is not an arrival, it is the replay
+   * re-delivering one.
+   */
+  #arrivalsSeen = 0;
+  /**
+   * Where the OLDEST arrival a replay still owes this window sits in that order.
+   *
+   * `undefined` where nothing is owed. The oldest rather than the newest, because the
+   * question it answers is which of the two registers has waited longer — and a debt
+   * re-stamped by each later arrival would lose to every refusal that followed the
+   * first one.
+   */
+  #deferredSequence: number | undefined;
 
   /** The prompt on screen, in whichever state it arrived. */
   public get head(): GrowthPendingInviteState | undefined {
@@ -76,7 +103,7 @@ export class PendingInviteArrivals {
 
   /** Whether the bound turned an arrival away that a replay has not brought back. */
   public get hasDeferredArrivals(): boolean {
-    return this.#hasDeferredArrivals;
+    return this.#deferredSequence !== undefined;
   }
 
   /**
@@ -91,24 +118,33 @@ export class PendingInviteArrivals {
     if (identity !== undefined && this.#held.some((held) => arrivalIdentity(held) === identity)) {
       return false;
     }
+    const sequence = (this.#arrivalsSeen += 1);
     if (this.#held.length >= PENDING_INVITE_QUEUE_MAX) {
-      return arrival.status === "refused" ? this.#retain(arrival) : this.#recordDeferredArrival();
+      return arrival.status === "refused"
+        ? this.#retain(arrival, sequence)
+        : this.#recordDeferredArrival(sequence);
     }
     this.#held.push(arrival);
     return true;
   }
 
   /**
-   * Drop the head, hand it back, and give a retained refusal the slot it opened.
+   * Drop the head, hand it back, and give the slot to the oldest thing waiting.
    *
    * THE PROMOTION HAPPENS HERE AND NOT ON THE NEXT ADMISSION, because a window whose
    * feed has gone quiet admits nothing: a refusal held until the next arrival would
    * wait on an event that may never come, which is the same disappearance the retain
    * exists to prevent, one step later.
+   *
+   * AND IT PROMOTES NOTHING WHERE THE REPLAY IS OWED SOMETHING OLDER, which is the
+   * whole of the ordering rule: the slot is left open so {@link takeDeferredReplay}
+   * finds room, and the refusal takes the next one. Filling it regardless is what put
+   * the queue back at its bound with the replay declined and the older arrival hidden
+   * behind every refusal that followed it.
    */
   public releaseHead(): GrowthPendingInviteState | undefined {
     const released = this.#held.shift();
-    const promoted = this.#retainedRefusals.shift();
+    const promoted = this.#takeNextRetainedRefusal();
     if (promoted !== undefined) {
       this.#held.push(promoted);
     }
@@ -123,10 +159,10 @@ export class PendingInviteArrivals {
    * brought everything back.
    */
   public takeDeferredReplay(): boolean {
-    if (!this.#hasDeferredArrivals || this.#held.length >= PENDING_INVITE_QUEUE_MAX) {
+    if (this.#deferredSequence === undefined || this.#held.length >= PENDING_INVITE_QUEUE_MAX) {
       return false;
     }
-    this.#hasDeferredArrivals = false;
+    this.#deferredSequence = undefined;
     return true;
   }
 
@@ -139,7 +175,26 @@ export class PendingInviteArrivals {
   public clear(): void {
     this.#held.length = 0;
     this.#retainedRefusals.length = 0;
-    this.#hasDeferredArrivals = false;
+    this.#deferredSequence = undefined;
+  }
+
+  /**
+   * The retained refusal a freed slot belongs to, where one of them is the oldest.
+   *
+   * `undefined` on two different facts, deliberately answered the same way: nothing is
+   * retained, and something is retained that arrived AFTER the invitation the replay
+   * still owes. In both cases the slot is not this register's to take.
+   */
+  #takeNextRetainedRefusal(): GrowthPendingInviteRefused | undefined {
+    const next = this.#retainedRefusals[0];
+    if (next === undefined) {
+      return undefined;
+    }
+    if (this.#deferredSequence !== undefined && this.#deferredSequence < next.sequence) {
+      return undefined;
+    }
+    this.#retainedRefusals.shift();
+    return next.arrival;
   }
 
   /**
@@ -151,8 +206,8 @@ export class PendingInviteArrivals {
    * explanation a person most likely still wants is the one their last press
    * produced.
    */
-  #retain(arrival: GrowthPendingInviteRefused): boolean {
-    this.#retainedRefusals.push(arrival);
+  #retain(arrival: GrowthPendingInviteRefused, sequence: number): boolean {
+    this.#retainedRefusals.push({ arrival, sequence });
     if (this.#retainedRefusals.length > PENDING_INVITE_RETAINED_REFUSAL_MAX) {
       this.#retainedRefusals.shift();
       return false;
@@ -160,14 +215,33 @@ export class PendingInviteArrivals {
     return true;
   }
 
-  /** Record that the bound turned away an arrival a replay can bring back. */
-  #recordDeferredArrival(): boolean {
-    if (this.#hasDeferredArrivals) {
+  /**
+   * Record that the bound turned away an arrival a replay can bring back.
+   *
+   * The FIRST one keeps its place in the order and every later one joins it silently:
+   * one replay brings back everything main still holds, so the debt is one fact, and
+   * the position that matters is the oldest turned-away arrival's.
+   */
+  #recordDeferredArrival(sequence: number): boolean {
+    if (this.#deferredSequence !== undefined) {
       return false;
     }
-    this.#hasDeferredArrivals = true;
+    this.#deferredSequence = sequence;
     return true;
   }
+}
+
+/**
+ * One retained refusal and where it sits in the order both registers share.
+ *
+ * The sequence is carried BESIDE the arrival rather than written into it: what comes
+ * off the feed is main's frame, held unchanged and handed back unchanged, and a member
+ * this console added to it would travel to every reader of the head as though the wire
+ * had sent it.
+ */
+interface RetainedRefusal {
+  readonly arrival: GrowthPendingInviteRefused;
+  readonly sequence: number;
 }
 
 /**
