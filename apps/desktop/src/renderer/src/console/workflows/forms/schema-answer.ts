@@ -25,13 +25,28 @@
 // `Spec-017 §Default Behavior` fixes is what makes that the only honest reading: a
 // tri-state box would be a seventh kind of control, and there are six.
 //
-// AND A GROUP'S OWN `default` IS NOT SEEDED. A group is a container: no control displays
-// its object, so a value written there is a member of the submission that nothing on the
-// screen can account for — the very divergence this module exists to close. Its children's
-// declared values ARE seeded, each through the control that shows it, which creates the
-// group as a side effect of filling in something visible rather than as a value of its own.
+// A GROUP'S OWN `default` IS SEEDED THROUGH ITS CHILDREN AND NEVER AS AN OBJECT. A group
+// is a container: no control displays its object, so writing that object whole would put
+// a member into the submission nothing on the screen accounts for. But dropping it is the
+// same divergence from the other side — the compiled reader supplies a declared object to
+// its own accepted value, so a form that ignored one displayed blank controls while the
+// value it was told was valid carried the author's. So the seed takes the NEAREST declared
+// value on a member's path: the control's own where it has one, else the enclosing group's
+// projected at that member's key. A group default a child could not show never reaches
+// here at all — the mapper sends that schema to the raw editor.
+//
+// AND A DRAWN COLLECTION OPENS AS THE EMPTY LIST IT IS ALREADY SHOWING. A list with no
+// declared entries renders its heading, its add control, and no entries, which IS an
+// answer — so the member is `[]` rather than absent. Left out, a required array that
+// legally accepts zero entries opened invalid and could not be submitted until somebody
+// added an entry and removed it again.
 
-import type { SchemaFieldDescriptor, SchemaFormPlan, SchemaLeafEntry } from "./schema-fields.js";
+import {
+  type SchemaFieldDescriptor,
+  type SchemaFieldKind,
+  type SchemaFormPlan,
+  type SchemaLeafEntry,
+} from "./schema-fields.js";
 import { isSameMemberPath, type SchemaMemberPath } from "../../bridge/index.js";
 
 /** The answer being composed: the object a submission would carry. */
@@ -40,8 +55,35 @@ export type SchemaFormAnswer = Readonly<Record<string, unknown>>;
 /** The answer an untouched form composes before anything has been seeded into it. */
 const NOTHING_ANSWERED: SchemaFormAnswer = {};
 
-/** What one entry of a list opens holding where its own schema declares nothing. */
-const EMPTY_LIST_ENTRY = "";
+/** What a collection nobody has added to holds. Never written to; only ever replaced. */
+const NO_ENTRIES_YET: readonly unknown[] = [];
+
+/** The empty answer the two text controls display and write when a person clears one. */
+const EMPTY_TEXT = "";
+
+/**
+ * What one control of a kind holds while nobody has answered it, as a value.
+ *
+ * ONE TABLE, AND THE TWO PLACES AN OPENING VALUE IS DECIDED BOTH READ IT. It is the value
+ * that control's own `onChange` writes for its empty display — `""` from the two text
+ * boxes, `false` from a box that cannot be blank, and NOTHING at all from the three whose
+ * empty state is the member being absent: a number box shows nothing for a string, and a
+ * select's unanswered option is deliberately worth no member value, so `""` at either is a
+ * payload holding what no control on the screen is displaying.
+ */
+function untouchedControlValue(kind: SchemaFieldKind): unknown {
+  switch (kind) {
+    case "text":
+    case "long-text":
+      return EMPTY_TEXT;
+    case "checkbox":
+      return false;
+    case "number":
+    case "choice":
+    case "artifact-reference":
+      return undefined;
+  }
+}
 
 /**
  * Whatever this is, read as a set of named values — or nothing where it is not one.
@@ -114,16 +156,36 @@ function drawnLeaves(plan: SchemaFormPlan): readonly SchemaLeafEntry[] {
 }
 
 /**
- * What one control opens holding, or `undefined` where it opens with nothing at all.
+ * What one STANDALONE member opens holding, or `undefined` where it opens with nothing.
  *
  * `undefined` is unambiguous as "seed nothing": JSON carries no such value, so a schema
  * cannot declare one and a caller cannot mistake a declared value for an absent one.
+ *
+ * A member nobody has answered is ABSENT wherever the control can display that, which is
+ * why this asks the table above about one kind alone. Five controls have an empty state a
+ * person reads as unanswered, and absence is how this answer spells it — so a schema
+ * saying "at least three characters" about an optional text member reports nothing until
+ * somebody types, rather than opening with a complaint about a control they never touched.
+ * A box has no such state, so it alone opens at the value its own display already asserts.
  */
-function openingFieldValue(field: SchemaFieldDescriptor): unknown {
-  if (field.defaultValue !== undefined) {
-    return field.defaultValue;
+function openingMemberValue(field: SchemaFieldDescriptor, declaredValue: unknown): unknown {
+  if (declaredValue !== undefined) {
+    return declaredValue;
   }
-  return field.kind === "checkbox" ? false : undefined;
+  return field.kind === "checkbox" ? untouchedControlValue(field.kind) : undefined;
+}
+
+/**
+ * What one ENTRY of a list opens holding, which is never nothing.
+ *
+ * The position exists the moment somebody presses the add control, so absence is not
+ * available to it the way it is to a standalone member: the entry is on the screen either
+ * way. What it holds is therefore what its control shows for an untouched one — and the
+ * three whose untouched value is `undefined` are unanswered IN the drawn list, which is
+ * what the validator reads them as and what the control renders.
+ */
+function openingEntryValue(item: SchemaFieldDescriptor, declaredValue: unknown): unknown {
+  return declaredValue !== undefined ? declaredValue : untouchedControlValue(item.kind);
 }
 
 /**
@@ -139,14 +201,53 @@ function declaredEntries(declared: unknown): readonly unknown[] | undefined {
   return Array.isArray(declared) ? (declared as readonly unknown[]) : undefined;
 }
 
+/** Which member of an enclosing group's declared value belongs to this leaf. */
+function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
+  const memberPath = leaf.form === "field" ? leaf.field.memberPath : leaf.list.memberPath;
+  const last = memberPath[memberPath.length - 1];
+  return last === undefined ? undefined : String(last);
+}
+
+/**
+ * The NEAREST value declared for one leaf: its control's own, else its group's for it.
+ *
+ * Nearest and not merged, because the two are answers to the same question and a control
+ * that declares one has said what it opens at. A group one level up is the only other
+ * place a value for this member can be written — `SchemaGroupDescriptor` holds leaves and
+ * never another group, so there is no third level for a walk to reach.
+ */
+function nearestDeclaredValue(
+  leaf: SchemaLeafEntry,
+  groupDefault: SchemaFormAnswer | undefined,
+): unknown {
+  const ownValue = leaf.form === "list" ? leaf.list.defaultValue : leaf.field.defaultValue;
+  if (ownValue !== undefined || groupDefault === undefined) {
+    return ownValue;
+  }
+  const key = leafKeyOf(leaf);
+  return key === undefined ? undefined : groupDefault[key];
+}
+
 /** Where one leaf's value sits in the answer, and what it opens holding. */
-function openingValueOf(leaf: SchemaLeafEntry): {
+function openingValueOf(
+  leaf: SchemaLeafEntry,
+  groupDefault: SchemaFormAnswer | undefined,
+): {
   readonly memberPath: SchemaMemberPath;
   readonly value: unknown;
 } {
+  const declaredValue = nearestDeclaredValue(leaf, groupDefault);
   return leaf.form === "list"
-    ? { memberPath: leaf.list.memberPath, value: declaredEntries(leaf.list.defaultValue) }
-    : { memberPath: leaf.field.memberPath, value: openingFieldValue(leaf.field) };
+    ? {
+        memberPath: leaf.list.memberPath,
+        // The drawn collection is the answer's, so an undeclared one opens at the empty
+        // list its control is already rendering rather than at no member at all.
+        value: declaredEntries(declaredValue) ?? NO_ENTRIES_YET,
+      }
+    : {
+        memberPath: leaf.field.memberPath,
+        value: openingMemberValue(leaf.field, declaredValue),
+      };
 }
 
 /**
@@ -155,13 +256,24 @@ function openingValueOf(leaf: SchemaLeafEntry): {
  * Read ONCE, at the mount. A seed recomputed when the schema's identity changed would
  * discard what somebody had typed every time a run read refreshed and handed down an
  * equal schema as a new object.
+ *
+ * Walked as entries rather than as flattened leaves, because a group's declared value has
+ * to travel with the leaves it names: flattened, the only thing left of the group is the
+ * path segment its children carry, and the value would have nowhere to be read from.
  */
 export function seedAnswerFromPlan(plan: SchemaFormPlan): SchemaFormAnswer {
+  if (plan.shape !== "fields") {
+    return NOTHING_ANSWERED;
+  }
   let seeded: SchemaFormAnswer = NOTHING_ANSWERED;
-  for (const leaf of drawnLeaves(plan)) {
-    const opening = openingValueOf(leaf);
-    if (opening.value !== undefined) {
-      seeded = withMemberAt(seeded, opening.memberPath, opening.value);
+  for (const entry of plan.entries) {
+    const isGroup = entry.form === "group";
+    const groupDefault = isGroup ? asAnswerRecord(entry.group.defaultValue) : undefined;
+    for (const leaf of isGroup ? entry.group.entries : [entry]) {
+      const opening = openingValueOf(leaf, groupDefault);
+      if (opening.value !== undefined) {
+        seeded = withMemberAt(seeded, opening.memberPath, opening.value);
+      }
     }
   }
   return seeded;
@@ -170,18 +282,19 @@ export function seedAnswerFromPlan(plan: SchemaFormPlan): SchemaFormAnswer {
 /**
  * What an entry added to this list opens holding.
  *
- * The same rule one control opens under, applied to the control a new entry draws: the
- * item schema's own declared value where it has one, `false` for a box that would
- * otherwise render unchecked while the answer held a string, and the empty text every
- * other control reads as unanswered. A path the plan drew no list for is a caller asking
- * about a collection this form does not have, and takes the empty entry.
+ * The item schema's own declared value where it has one, and otherwise what that control
+ * shows for an untouched entry — read from the one table above, so a repeated control and
+ * a standalone one of the same kind never open at two different values.
+ *
+ * A path the plan drew no list for is a caller asking about a collection this form does
+ * not have. There is no control there to derive an opening value from, so there is no
+ * value: inventing one would put a member of some kind into a list of another.
  */
 export function newListEntryFor(plan: SchemaFormPlan, memberPath: SchemaMemberPath): unknown {
   for (const leaf of drawnLeaves(plan)) {
     if (leaf.form === "list" && isSameMemberPath(leaf.list.memberPath, memberPath)) {
-      const opening = openingFieldValue(leaf.list.item);
-      return opening === undefined ? EMPTY_LIST_ENTRY : opening;
+      return openingEntryValue(leaf.list.item, leaf.list.item.defaultValue);
     }
   }
-  return EMPTY_LIST_ENTRY;
+  return undefined;
 }

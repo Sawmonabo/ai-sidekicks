@@ -33,6 +33,33 @@ export const SCHEMA_FIELD_KINDS = [
 export type SchemaFieldKind = (typeof SCHEMA_FIELD_KINDS)[number];
 
 /**
+ * Whether a JSON value is one a control of this kind could show.
+ *
+ * KIND AND NOT CONSTRAINT. A number that a range refuses, or a string outside an
+ * enumeration, is a value this control DRAWS and the compiled validator complains about —
+ * a reading a person can see and act on. A string at a number control is the other thing:
+ * nothing renders it, so a form holding one displays an empty box while the answer carries
+ * text. This predicate separates exactly those two, which is why it reads the kind alone.
+ *
+ * Declared beside the vocabulary rather than at its one caller, because it IS the
+ * vocabulary — the six kinds and the values they stand for are one fact.
+ */
+export function valueSuitsFieldKind(kind: SchemaFieldKind, value: unknown): boolean {
+  switch (kind) {
+    case "number":
+      // A non-finite number is not JSON and no numeric control renders one.
+      return typeof value === "number" && Number.isFinite(value);
+    case "checkbox":
+      return typeof value === "boolean";
+    case "text":
+    case "long-text":
+    case "choice":
+    case "artifact-reference":
+      return typeof value === "string";
+  }
+}
+
+/**
  * The `format` annotations the two non-obvious kinds are declared by.
  *
  * Draft-07 gives a string type exactly one open extension point, and these are the
@@ -107,6 +134,17 @@ export interface SchemaGroupDescriptor {
   readonly label: string;
   readonly description: string | undefined;
   readonly entries: readonly SchemaLeafEntry[];
+  /**
+   * The schema's own `default` for the object itself, read through the controls below it.
+   *
+   * A GROUP HAS NO CONTROL OF ITS OWN, so this is carried rather than displayed: the seed
+   * projects each member of it onto the child control that shows that member, and a value
+   * here that a child could not show is what sends the whole schema to the raw editor
+   * (`group-default-undrawable`). Dropping it silently was the divergence — the schema's
+   * own reading of `{}` supplies the object, so a form that ignored it displayed blank
+   * controls while the accepted value carried the author's values.
+   */
+  readonly defaultValue: unknown;
 }
 
 /** Everything the form's root may hold. */
@@ -117,7 +155,7 @@ export type SchemaFormEntry =
 /**
  * Why a schema is answered in the raw editor instead of in drawn controls.
  *
- * `planSchemaForm` returns the first three and never the last: whether a schema COMPILES
+ * `planSchemaForm` returns the first four and never the last: whether a schema COMPILES
  * into something an answer can be checked against is a question this module holds no
  * answer to, and the caller holding both readings composes it. The cause still lives
  * here, because a surface reads one vocabulary and a second enumeration beside this one
@@ -127,6 +165,7 @@ export const SCHEMA_FALLBACK_CAUSES = [
   "root-not-an-object",
   "no-members",
   "member-out-of-set",
+  "group-default-undrawable",
   "schema-uncheckable",
 ] as const;
 

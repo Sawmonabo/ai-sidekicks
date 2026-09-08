@@ -23,6 +23,7 @@ import {
   type SchemaFormEntry,
   type SchemaFormPlan,
   type SchemaLeafEntry,
+  valueSuitsFieldKind,
 } from "./schema-fields.js";
 
 /** A JSON value read as a record, or nothing where it is not one. */
@@ -144,6 +145,57 @@ function outOfSet(memberPath: SchemaMemberPath): SchemaFallback {
   };
 }
 
+/** The raw-editor answer for a group whose declared value its controls could not show. */
+function undrawableGroupDefault(memberPath: SchemaMemberPath): SchemaFallback {
+  return {
+    cause: "group-default-undrawable",
+    memberPath,
+    detail: `The schema declares a value for ${encodeMemberPointer(memberPath)} that these controls could not show, so the whole answer is given as JSON instead.`,
+  };
+}
+
+/** Whether one declared value is one this leaf's control would display. */
+function valueSuitsLeaf(leaf: SchemaLeafEntry, value: unknown): boolean {
+  if (leaf.form === "field") {
+    return valueSuitsFieldKind(leaf.field.kind, value);
+  }
+  // A collection shows entries, so a declared value for one is a list of what its
+  // repeated control draws — and an entry of another shape is the same divergence one
+  // level in.
+  return (
+    Array.isArray(value) && value.every((entry) => valueSuitsFieldKind(leaf.list.item.kind, entry))
+  );
+}
+
+/** The key one leaf answers under inside its group: the last segment of its own path. */
+function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
+  const memberPath = leaf.form === "field" ? leaf.field.memberPath : leaf.list.memberPath;
+  const last = memberPath[memberPath.length - 1];
+  return last === undefined ? undefined : String(last);
+}
+
+/**
+ * Whether a group's declared value is one its own controls could show, member by member.
+ *
+ * TOTAL OVER THE DECLARED VALUE AND NOT OVER THE GROUP. Every member of it has to reach a
+ * control: a member naming no drawn child is a value the schema's own reading supplies to
+ * the accepted answer and nothing on the screen accounts for, which is the divergence
+ * this form exists to close, and a member of the wrong shape is that divergence with the
+ * control visibly showing something else. A child the declared value says nothing about
+ * is not a gap — it simply opens where it would have anyway.
+ */
+function groupDefaultIsDrawable(
+  declared: Readonly<Record<string, unknown>>,
+  entries: readonly SchemaLeafEntry[],
+): boolean {
+  return Object.entries(declared).every(([declaredKey, declaredValue]) => {
+    const leaf = entries.find(
+      (entry) => leafKeyOf(entry) === declaredKey && valueSuitsLeaf(entry, declaredValue),
+    );
+    return leaf !== undefined;
+  });
+}
+
 /** One leaf — a control or an array of one — or the fallback the member forces. */
 function planLeaf(
   memberSchema: unknown,
@@ -212,6 +264,13 @@ function planGroup(
     }
     entries.push(leaf);
   }
+  const declaredDefault = schema["default"];
+  if (declaredDefault !== undefined) {
+    const declaredMembers = asRecord(declaredDefault);
+    if (declaredMembers === undefined || !groupDefaultIsDrawable(declaredMembers, entries)) {
+      return undrawableGroupDefault(memberPath);
+    }
+  }
   return {
     form: "group",
     group: {
@@ -219,6 +278,7 @@ function planGroup(
       label: labelOf(schema, key),
       description: descriptionOf(schema),
       entries,
+      defaultValue: declaredDefault,
     },
   };
 }
