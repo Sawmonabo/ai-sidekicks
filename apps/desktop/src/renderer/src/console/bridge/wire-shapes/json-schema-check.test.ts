@@ -176,3 +176,73 @@ describe("the schema validator wrapper", () => {
     }
   });
 });
+
+// A REQUIRED MEMBER NOBODY ANSWERED IS THE ONE FINDING THE LIBRARY CANNOT PHRASE FOR A
+// FORM. It reports the absent member as a wrong value — "Invalid option", "expected
+// string, received undefined" — which reads as though the person picked badly when they
+// have not picked at all. The wrapper says what the form needs instead, and ONLY for the
+// absent class: a member that is present and wrong keeps the library's sentence verbatim,
+// which the negative control pins.
+describe("a required member nobody answered", () => {
+  const DECISION_SCHEMA = {
+    type: "object",
+    properties: {
+      decision: { type: "string", enum: ["approve", "send-back"] },
+      notes: { type: "string" },
+    },
+    required: ["decision", "notes"],
+  } as const;
+
+  function compiled(schema: unknown) {
+    const validator = compileSchemaValidator(schema);
+    if (validator.status !== "compiled") {
+      throw new Error("expected the schema to compile");
+    }
+    return validator;
+  }
+
+  function messageAt(schema: unknown, answer: unknown, pointer: string): string {
+    const report = compiled(schema).check(answer);
+    const issue = report.issues.find((found) => encodeMemberPointer(found.memberPath) === pointer);
+    if (issue === undefined) {
+      throw new Error(`expected a finding at ${pointer}`);
+    }
+    return issue.message;
+  }
+
+  it("names the choice an unanswered enumeration requires, not an invalid option", () => {
+    expect(messageAt(DECISION_SCHEMA, { notes: "ship it" }, "/decision")).toBe(
+      'Not answered — one of "approve" or "send-back" is required.',
+    );
+  });
+
+  it("says an unanswered scalar is required rather than received as undefined", () => {
+    expect(messageAt(DECISION_SCHEMA, { decision: "approve" }, "/notes")).toBe(
+      "Not answered — required.",
+    );
+  });
+
+  it("lists three or more members with the last one joined by 'or'", () => {
+    const schema = {
+      type: "object",
+      properties: { size: { type: "string", enum: ["small", "medium", "large"] } },
+      required: ["size"],
+    } as const;
+    expect(messageAt(schema, {}, "/size")).toBe(
+      'Not answered — one of "small", "medium" or "large" is required.',
+    );
+  });
+
+  it("negative control: a member that is present and wrong keeps the library's sentence", () => {
+    const message = messageAt(DECISION_SCHEMA, { decision: "maybe", notes: "" }, "/decision");
+    expect(message).not.toMatch(/^Not answered/);
+    expect(message).toContain("approve");
+  });
+
+  it("negative control: a finding about the whole answer is never rephrased as unanswered", () => {
+    const report = compiled(DECISION_SCHEMA).check("not an object");
+    expect(report.status).toBe("invalid");
+    expect(report.issues.map((issue) => encodeMemberPointer(issue.memberPath))).toEqual([""]);
+    expect(report.issues[0]?.message).not.toMatch(/^Not answered/);
+  });
+});

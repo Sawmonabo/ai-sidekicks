@@ -78,7 +78,10 @@ export type SchemaMemberPath = readonly (string | number)[];
 export interface SchemaValidationIssue {
   /** Where the finding is, as segments. Empty for an issue about the whole answer. */
   readonly memberPath: SchemaMemberPath;
-  /** The library's own sentence, carried verbatim. */
+  /**
+   * The library's own sentence, carried verbatim — except for the one class the library
+   * cannot phrase for a form, a required member nobody has answered (`unansweredSentence`).
+   */
   readonly message: string;
 }
 
@@ -159,6 +162,54 @@ function memberPathOf(path: readonly PropertyKey[]): SchemaMemberPath {
 }
 
 /**
+ * The value an answer holds at one issue path, or `undefined` where it holds none.
+ *
+ * Walked on the answer the library was handed, so "absent" means absent from what the
+ * person composed and never from the library's reading of it.
+ */
+function memberAt(answer: unknown, path: readonly PropertyKey[]): unknown {
+  let current: unknown = answer;
+  for (const segment of path) {
+    if (current === null || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<PropertyKey, unknown>)[segment];
+  }
+  return current;
+}
+
+/** `"a"`, `"a" or "b"`, `"a", "b" or "c"` — the members an enumeration offers, quoted. */
+function offeredMembers(values: readonly unknown[]): string {
+  const quoted = values.map((value) => JSON.stringify(value));
+  if (quoted.length <= 1) {
+    return quoted.join("");
+  }
+  return `${quoted.slice(0, -1).join(", ")} or ${quoted[quoted.length - 1]}`;
+}
+
+/**
+ * The sentence for one finding — the library's, except about a required member the
+ * answer does not hold at all.
+ *
+ * THE LIBRARY PHRASES AN ABSENT MEMBER AS A WRONG VALUE: "Invalid option: expected one of
+ * …", "expected string, received undefined". On a form that is a finding drawn beside a
+ * control reading "Not answered", telling a person they picked badly when they have not
+ * picked. So the absent class — a member path the answer holds nothing at — is phrased as
+ * what the form needs, and every other finding stays the library's own words: a member
+ * that is present and wrong is exactly the case those words are for. The whole-answer
+ * path is never rephrased, because there is no control an "unanswered" would sit beside.
+ */
+function sentenceOf(issue: zod.core.$ZodIssue, answer: unknown): string {
+  if (issue.path.length === 0 || memberAt(answer, issue.path) !== undefined) {
+    return issue.message;
+  }
+  if (issue.code === "invalid_value") {
+    return `Not answered — one of ${offeredMembers(issue.values)} is required.`;
+  }
+  return "Not answered — required.";
+}
+
+/**
  * Read a thrown value's sentence without asserting anything about its shape.
  *
  * The library throws a plain `Error` for an unimplemented construct today, and the
@@ -200,7 +251,7 @@ export function compileSchemaValidator(inputSchema: unknown): SchemaValidator {
         status: "invalid",
         issues: parsed.error.issues.map((issue) => ({
           memberPath: memberPathOf(issue.path),
-          message: issue.message,
+          message: sentenceOf(issue, answer),
         })),
       };
     },
