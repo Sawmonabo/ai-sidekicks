@@ -7,8 +7,8 @@
  * beside them, which is imported first; what is here is what only these two wear.
  *
  * THE BLOCK IS `meridian-repo-attach` AND NOT `meridian-attach`, because
- * `console/agents/agents.css` declares that block for the agents family's own attach
- * dialog and both sheets load into one document. Two families sharing a BEM block
+ * `console/agents/attach/attach.css` declares that block for the agents family's own
+ * attach dialog and both sheets load into one document. Two families sharing a BEM block
  * silently restyle each other, last sheet wins — so the block that shipped first keeps
  * the name and this one carries its family in it.
  *

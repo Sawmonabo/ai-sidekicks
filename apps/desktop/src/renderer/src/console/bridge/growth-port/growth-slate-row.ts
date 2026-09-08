@@ -33,6 +33,7 @@ export type GrowthSlateRowId =
   | "agent-snapshot-axes"
   | "child-run-linkage"
   | "agent-provider-switch-failure"
+  | "agent-provider-switch-terminal"
   | "gitflow-actions"
   | "artifact-ingest-and-crud"
   | "artifact-allowlist-and-abort"

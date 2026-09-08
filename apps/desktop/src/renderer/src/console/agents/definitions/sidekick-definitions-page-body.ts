@@ -18,17 +18,23 @@
 // collision census (`test/console/architecture/stylesheet-selector-owners.test.ts`): no
 // other family declares a class this sheet declares, so deferring it changes no surface
 // but this page's own. This is the only root that reaches the page, so the sheet is named
-// once rather than from a pair of roots the way the agent console's four are.
+// once rather than from a pair of roots the way the agent console's seven are.
 //
-// WHAT IT DECLARES IT NEEDS IS A BRIDGE, and that is the whole of it. `LoadedLazyBody`
-// asks for a body taking the board's context — here `SettingsPageContext` — and a function
-// accepting a wider parameter satisfies one expecting a narrower, so naming the one member
-// this page reads is both sufficient and true. Naming the settings context instead would
-// make the agents family import the settings family's vocabulary, which
-// `console-view-family-isolation` in `.dependency-cruiser.mjs` fails, and it would claim a
-// dependency on a rail, a retained session, and that session's store that this page does
-// not have: it reads the node-local definition registry and deletes through the same port,
-// and it navigates nowhere.
+// WHAT IT DECLARES IT NEEDS IS A BRIDGE AND A RETAINED SESSION, and that is the whole of
+// it. `LoadedLazyBody` asks for a body taking the board's context — here
+// `SettingsPageContext` — and a function accepting a wider parameter satisfies one
+// expecting a narrower, so naming the two members this page reads is both sufficient and
+// true. Naming the settings context instead would make the agents family import the
+// settings family's vocabulary, which `console-view-family-isolation` in
+// `.dependency-cruiser.mjs` fails, and it would claim a dependency on a rail and on that
+// session's store that this page does not have: it reads the node-local definition
+// registry, deletes through the same port, and navigates nowhere.
+//
+// THE SESSION ID IS HERE BECAUSE ONE ACT ON THIS PAGE IS SESSION-SCOPED. The registry is
+// node-local, but attaching from a row is not: an agent joins a session, and the only
+// session this page can name is the one this window is working in. It is threaded rather
+// than derived so the page never picks one, and `undefined` is a real answer — a window
+// that has opened no session offers no attach control at all.
 
 import "./sidekick-definitions-page.css";
 
@@ -38,6 +44,12 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { SidekickDefinitionsPage } from "./SidekickDefinitionsPage.js";
 
 /** The saved-sidekick registry page, as the settings board loads it. */
-export function Body(context: { readonly bridge: ConsoleBridge }): React.ReactNode {
-  return createElement(SidekickDefinitionsPage, { bridge: context.bridge });
+export function Body(context: {
+  readonly bridge: ConsoleBridge;
+  readonly retainedSessionId: string | undefined;
+}): React.ReactNode {
+  return createElement(SidekickDefinitionsPage, {
+    bridge: context.bridge,
+    retainedSessionId: context.retainedSessionId,
+  });
 }
