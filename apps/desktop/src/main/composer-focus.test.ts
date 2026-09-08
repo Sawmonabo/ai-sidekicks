@@ -6,11 +6,14 @@
 //   1. The chord brings the composer's window forward, and a minimised one is
 //      restored first — `show()` alone leaves a minimised window minimised on
 //      Windows and Linux, so the person would press and see nothing move.
-//   2. The press is CONSUMED only when it was acted on. Consuming it with no
+//   2. It then ASKS that window for the caret, on the shared channel and exactly
+//      once. `focus()` keys a window and moves no DOM focus, so without the ask a
+//      person whose main window was last on a ledger row is returned to that row.
+//   3. The press is CONSUMED only when it was acted on. Consuming it with no
 //      window to go to would swallow a keystroke the renderer may bind.
-//   3. `keyUp` is ignored. Electron delivers both halves of one press, and a
-//      handler that ran on each would perform the act twice.
-//   4. The window that HAS the composer is never watched. Consuming the chord
+//   4. `keyUp` is ignored. Electron delivers both halves of one press, and a
+//      handler that ran on each would perform the act twice — and ask twice.
+//   5. The window that HAS the composer is never watched. Consuming the chord
 //      there would take it away from the binding that moves the caret.
 //
 // No `electron` mock: this module imports only types from it, and `window-reveal.ts`
@@ -19,6 +22,7 @@
 import { type BrowserWindow } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
+import { COMPOSER_FOCUS_REQUEST_CHANNEL } from "../shared/composer-chord.js";
 import {
   installComposerFocusChord,
   watchAuxiliaryWindowsForComposerChord,
@@ -62,7 +66,14 @@ function hostWindowProbe(): HostWindowProbe {
   return probe;
 }
 
-/** The acts a target window records, so a case reads what happened to it. */
+/**
+ * The acts a target window records, so a case reads what happened to it.
+ *
+ * The send is recorded in the SAME list as the window acts rather than in a counter
+ * beside them, because the order is half of what is being claimed: asking for the
+ * caret before the window is on screen would move focus in a document nobody is
+ * looking at.
+ */
 interface TargetWindowProbe extends ComposerFocusTargetWindow {
   readonly acts: string[];
 }
@@ -92,8 +103,22 @@ function targetWindowProbe(
     showInactive: () => {
       acts.push("showInactive");
     },
+    webContents: {
+      // The channel is recorded rather than counted, so a send on a name the preload
+      // does not listen on reads as a different act instead of as the right one.
+      send: (channel: string) => {
+        acts.push(`send:${channel}`);
+      },
+    },
   };
 }
+
+/** What the target records for one answered press: reveal, keys, then the ask. */
+const REVEALED_AND_ASKED: readonly string[] = [
+  "show",
+  "focus",
+  `send:${COMPOSER_FOCUS_REQUEST_CHANNEL}`,
+];
 
 /** One `keyDown` of the chord as Electron reports it on a control-modifier host. */
 const CHORD_KEY_DOWN: ChordInput = {
@@ -126,7 +151,27 @@ describe("the composer chord brings the composer's window forward", () => {
     installComposerFocusChord(host.window, () => target, "linux");
 
     expect(press(host, CHORD_KEY_DOWN)).toBe(true);
-    expect(target.acts).toEqual(["show", "focus"]);
+    expect(target.acts).toEqual(REVEALED_AND_ASKED);
+  });
+
+  it("asks that window's composer for the caret, once, after it is on screen", () => {
+    // The half `focus()` cannot do. A `BrowserWindow` takes keys as a window; the
+    // caret belongs to an element inside it, and the element belongs to a renderer
+    // this process cannot reach into. Without the ask the person is returned to
+    // whichever control the main window last had focus on — a ledger row, the
+    // sidebar — and the chord that says "composer" delivers them somewhere else.
+    const host = hostWindowProbe();
+    const target = targetWindowProbe();
+    installComposerFocusChord(host.window, () => target, "linux");
+
+    press(host, CHORD_KEY_DOWN);
+
+    expect(target.acts.filter((act) => act.startsWith("send:"))).toEqual([
+      `send:${COMPOSER_FOCUS_REQUEST_CHANNEL}`,
+    ]);
+    // And it is the LAST act, not the first: a caret moved before the window is up
+    // lands in a document nobody is looking at.
+    expect(target.acts.at(-1)).toBe(`send:${COMPOSER_FOCUS_REQUEST_CHANNEL}`);
   });
 
   it("restores a minimised window before revealing it", () => {
@@ -137,18 +182,22 @@ describe("the composer chord brings the composer's window forward", () => {
     installComposerFocusChord(host.window, () => target, "linux");
 
     press(host, CHORD_KEY_DOWN);
-    expect(target.acts).toEqual(["restore", "show", "focus"]);
+    expect(target.acts).toEqual(["restore", ...REVEALED_AND_ASKED]);
   });
 
-  it("does not order keys onto a window that was not revealed", () => {
+  it("does not order keys onto a window that was not revealed, and asks it anyway", () => {
     // The unobtrusive-window policy's half of the act: a window that is not on
     // screen must not take focus, which is what `window-reveal.ts` exists to hold.
+    // The ASK is not held back with it, because it governs the screen and moving the
+    // caret inside a window takes nothing from the operator's current application —
+    // so an automated tier answers the chord in the document it already has instead
+    // of answering it by doing nothing at all.
     const host = hostWindowProbe();
     const target = targetWindowProbe({ visible: false });
     installComposerFocusChord(host.window, () => target, "linux");
 
     press(host, CHORD_KEY_DOWN);
-    expect(target.acts).toEqual(["show"]);
+    expect(target.acts).toEqual(["show", `send:${COMPOSER_FOCUS_REQUEST_CHANNEL}`]);
   });
 
   it("answers the macOS modifier only on a macOS host", () => {
@@ -158,7 +207,7 @@ describe("the composer chord brings the composer's window forward", () => {
 
     expect(press(host, CHORD_KEY_DOWN)).toBe(false);
     expect(press(host, { ...CHORD_KEY_DOWN, control: false, meta: true })).toBe(true);
-    expect(target.acts).toEqual(["show", "focus"]);
+    expect(target.acts).toEqual(REVEALED_AND_ASKED);
   });
 });
 

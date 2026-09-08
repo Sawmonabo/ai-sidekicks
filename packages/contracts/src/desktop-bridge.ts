@@ -221,6 +221,39 @@ export type UpdateState =
   | { readonly status: "error"; readonly message: string };
 
 // ---------------------------------------------------------------------------
+// Shell signals — the one namespace whose direction is main-to-renderer.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the desktop shell asks of the window it is speaking to.
+ *
+ * EVERY OTHER NAMESPACE ON THE BRIDGE RUNS THE OTHER WAY — the renderer calls and
+ * main answers — so this one is declared apart rather than folded into `native`,
+ * whose members are OS surfaces the renderer requests. A shell signal is not a
+ * request the renderer made; it is the shell reaching a window that could not have
+ * asked, because the keystroke that raised it landed somewhere else entirely.
+ *
+ * IT IS ALSO THE ONE NAMESPACE A TIER-1 BRIDGE CAN SERVE FOR REAL, which is why the
+ * factory below takes it rather than stubbing it: a shell signal needs no daemon, no
+ * control plane, and no credential — only the channel the preload is already sitting
+ * on. Every other namespace is a round trip to something that does not exist yet.
+ */
+export interface ShellSignals {
+  /**
+   * Told when the shell asks this window's composer to take the caret.
+   *
+   * NO PAYLOAD, in both directions. What focusing means belongs to the window that
+   * draws a composer, so a handler that received a value would eventually be one
+   * that branched on it — and nothing that crosses `contextBridge` has to be
+   * cloneable when nothing crosses it.
+   *
+   * Returns the disposer the caller owes. A window binds this once and releases it
+   * on unmount, exactly as it does every other subscription on this bridge.
+   */
+  subscribeToComposerFocusRequest(handler: () => void): Unsubscribe;
+}
+
+// ---------------------------------------------------------------------------
 // Error class — thrown by every Tier-1-stub bridge method.
 // ---------------------------------------------------------------------------
 
@@ -256,12 +289,13 @@ export class NotImplementedAtTier1Error extends Error {
  * The single typed object exposed on `window.sidekicks` via
  * `contextBridge.exposeInMainWorld('sidekicks', bridge)`.
  *
- * Six capability surfaces:
+ * Seven capability surfaces:
  *   • `daemon` — JSON-RPC over IPC to the local Plan-007 daemon
  *   • `controlPlane` — tRPC + relay WebSocket to the Plan-002/003/008 control plane
  *   • `native` — main-process-mediated OS dialogs and OS surfaces
  *   • `webAuthn` — main-process-orchestrated WebAuthn ceremony (ADR-010)
  *   • `update` — renderer observes the auto-updater state machine
+ *   • `shell` — the desktop shell asking THIS window to do something
  *   • `app` — read-only build/runtime meta
  *
  * Non-exposure (`Spec-023 §Preload Bridge Contract`):
@@ -320,6 +354,11 @@ export interface SidekicksBridge {
     deriveKeyMaterial(input: PrfInput): Promise<ArrayBuffer>;
   };
 
+  // the shell speaking to THIS window — main asks, the renderer decides what the
+  // ask means. The one direction the other namespaces do not cover: everywhere else
+  // the renderer asks and main answers.
+  readonly shell: ShellSignals;
+
   // auto-update — renderer observes state; main process drives
   readonly update: {
     getState(): Promise<UpdateState>;
@@ -360,14 +399,38 @@ function tier1Throw(method: string): never {
 }
 
 /**
- * Factory returning a `SidekicksBridge` whose every method throws
+ * The shell a bridge has when its builder supplied none.
+ *
+ * Not an empty subscription. A caller that holds no channel has not "no requests to
+ * report" — it has no shell at all — and the two are only distinguishable if the
+ * second one says so. This is the same reading every round-trip method above takes,
+ * and it is what makes a forgotten binding a refusal rather than a silence.
+ */
+const SHELL_WITHOUT_A_HOST: ShellSignals = {
+  subscribeToComposerFocusRequest: () => tier1Throw("shell.subscribeToComposerFocusRequest"),
+};
+
+/**
+ * Factory returning a `SidekicksBridge` whose every round-trip method throws
  * `NotImplementedAtTier1Error`. Called once by the preload script
  * (`apps/desktop/src/preload/index.ts`) to populate `window.sidekicks`.
  *
- * Tier 8 replaces this factory with a real implementation that wires each
- * method to the corresponding IPC channel on the main-process side.
+ * Tier 8 replaces those methods with real implementations that wire each one to
+ * the corresponding IPC channel on the main-process side.
+ *
+ * `shell` IS TAKEN RATHER THAN STUBBED, because it is the one namespace a caller can
+ * actually serve at this tier: it needs no daemon, no control plane, and no
+ * credential, only the channel the preload is already sitting on.
+ *
+ * ITS DEFAULT REFUSES RATHER THAN REPORTING NOTHING, and the difference decides how a
+ * preload that forgot to bind it fails. A never-firing default would compile, pass
+ * the shape comparison, and answer no shell request ever — a chord that silently does
+ * nothing, with no other observable anywhere. Refusing puts that bridge on exactly
+ * the footing every other unwired namespace here is already on, so the window that
+ * binds the signal raises `NotImplementedAtTier1Error` at its first subscription
+ * instead of running for a session and losing every ask.
  */
-export function createTier1Bridge(): SidekicksBridge {
+export function createTier1Bridge(shell: ShellSignals = SHELL_WITHOUT_A_HOST): SidekicksBridge {
   return {
     daemon: {
       call: () => tier1Throw("daemon.call"),
@@ -391,6 +454,9 @@ export function createTier1Bridge(): SidekicksBridge {
       getAssertion: () => tier1Throw("webAuthn.getAssertion"),
       deriveKeyMaterial: () => tier1Throw("webAuthn.deriveKeyMaterial"),
     },
+    // Handed through rather than stubbed: the caller that builds this bridge is the
+    // one holding the channel the shell speaks on, so there is nothing here to defer.
+    shell,
     update: {
       getState: () => tier1Throw("update.getState"),
       subscribe: () => tier1Throw("update.subscribe"),

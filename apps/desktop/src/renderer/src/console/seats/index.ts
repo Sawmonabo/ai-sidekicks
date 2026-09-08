@@ -264,7 +264,13 @@ export {
 // The other direction: a surface that told a person to type something asking the
 // mounted composer for the caret. Through the door because the asker and the answerer
 // are two view families that name each other nowhere.
-export { requestComposerFocus, subscribeToComposerFocus } from "./composer-focus.js";
+// The shell's own ingress into that seam rides the same door: main answers the chord
+// an auxiliary window cannot, and the frame is what binds this window to it.
+export {
+  requestComposerFocus,
+  subscribeToComposerFocus,
+  useShellComposerFocusRequests,
+} from "./composer-focus.js";
 
 export {
   SIDEBAR_SECTION_IDS,

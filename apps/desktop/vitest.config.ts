@@ -149,12 +149,18 @@ export default defineConfig({
           // joins the set because that subtree is imported by BOTH processes
           // (see `src/shared/auxiliary-routes.ts`), and a shared module no test
           // project reaches would be a subtree with no home for its own units.
+          // `src/preload/**` joins it on the same reasoning: `index.ts` is the
+          // expose call and holds nothing to check, but the modules beside it —
+          // `shell-signals.ts` is the first — are plain units over an injected
+          // receiver, and the environment they need is this project's rather
+          // than the renderer's.
           // `build/**` and `scripts/**` are the package's two executable trees,
           // and their units are co-located beside the executable exactly as
           // `src/main/**`'s are; both are spawned as commands from a node
           // environment, which is this project's.
           include: [
             "src/main/**/*.test.ts",
+            "src/preload/**/*.test.ts",
             "src/shared/**/*.test.ts",
             "build/**/*.test.ts",
             "scripts/**/*.test.ts",

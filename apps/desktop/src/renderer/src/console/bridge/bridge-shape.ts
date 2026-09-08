@@ -37,6 +37,7 @@ const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<SidekicksBridgeNamespace, true>
   controlPlane: true,
   native: true,
   webAuthn: true,
+  shell: true,
   update: true,
   app: true,
 };

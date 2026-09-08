@@ -17,12 +17,21 @@
 // answered and consumed without the auxiliary renderer needing a binding for a
 // control it does not have.
 //
-// WHAT IT DOES AND WHAT IT DOES NOT. It brings the composer's window forward.
-// Moving the caret into the composer is the other half of the same act and belongs
-// to the window that draws one; both halves read `../shared/composer-chord.ts`, so
-// they are one chord rather than two. Until that family lands, the press moves the
-// person to the window their composer is in, which is strictly the first thing the
-// blueprint's sentence asks for and is where the second half will happen.
+// BOTH HALVES OF THE ACT, AND WHY THE SECOND ONE IS A REQUEST. Bringing the window
+// forward is main's own act. Moving the caret is not: the composer's input element
+// belongs to the window that draws one, is created and destroyed by its own mount,
+// and `focus()` on a `BrowserWindow` keys the WINDOW rather than an element inside
+// it — so a person whose main window was last on a ledger row or a sidebar control
+// was returned to that control and not to the line they had asked for. So main asks,
+// on `COMPOSER_FOCUS_REQUEST_CHANNEL`, and the renderer decides what focusing means.
+// Both halves read `../shared/composer-chord.ts`, so they are one act rather than two.
+//
+// THE REQUEST IS SENT WHETHER OR NOT THE WINDOW TOOK KEYS. Revealing is a claim on a
+// person's screen and `./window-reveal.ts` governs it; moving the caret inside a
+// window is not, so an automated tier's unrevealed window still receives the ask and
+// answers it in the document it already has. A request that reaches a renderer with no
+// composer mounted is dropped by the seat that receives it, which is that seat's own
+// stated rule and not a second one invented here.
 //
 // THE REVEAL GOES THROUGH THE ONE REVEAL SITE. `./window-reveal.ts` owns how a
 // window is put on screen, including the test-build policy that keeps an automated
@@ -33,6 +42,7 @@
 import { type App, type BrowserWindow, type WebContents } from "electron";
 
 import {
+  COMPOSER_FOCUS_REQUEST_CHANNEL,
   composerChordPrimaryModifier,
   matchesComposerFocusChord,
 } from "../shared/composer-chord.js";
@@ -55,11 +65,19 @@ export interface ComposerChordHostWindow {
  * `isDestroyed` is first among these for a reason: a window closed between the
  * keystroke and this call is not an error, and every other method on a destroyed
  * `BrowserWindow` throws.
+ *
+ * `webContents` is narrowed to the one method this module calls, on
+ * {@link ComposerChordHostWindow}'s precedent and for its reason: the request is the
+ * only thing said to the page from here, and a whole `WebContents` would let a later
+ * edit reach for navigation, execution, or input injection through a window handle
+ * that was resolved for a keystroke.
  */
 export type ComposerFocusTargetWindow = Pick<
   BrowserWindow,
   "isDestroyed" | "isMinimized" | "isVisible" | "restore" | "focus" | "show" | "showInactive"
->;
+> & {
+  readonly webContents: Pick<WebContents, "send">;
+};
 
 /**
  * Watch `hostWindow` for the composer chord, and bring the composer's window
@@ -110,6 +128,14 @@ export function installComposerFocusChord(
       // steal `./window-reveal.ts` exists to prevent.
       composerWindow.focus();
     }
+    // LAST, AND UNGUARDED. Last, because the caret should land in a window that is
+    // already on screen and already holding keys — a request answered ahead of the
+    // reveal moves focus in a document nobody is looking at yet. Unguarded by
+    // `isVisible()`, because this moves focus WITHIN a window rather than between
+    // windows: it takes nothing from the operator's current application, so the
+    // reveal policy has nothing to say about it, and an unrevealed window that
+    // skipped it would answer the chord by going nowhere.
+    composerWindow.webContents.send(COMPOSER_FOCUS_REQUEST_CHANNEL);
   });
 }
 
