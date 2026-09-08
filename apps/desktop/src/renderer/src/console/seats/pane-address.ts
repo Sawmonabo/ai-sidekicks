@@ -346,7 +346,6 @@ export interface ConsolePaneLink {
   readonly linkedSourcePaneId: string;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * The call the sidebar and the palette make to open a pane.
  *

@@ -18,7 +18,6 @@ import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /**
  * Everything a pane body is handed. Nothing here is global; all of it is per pane,
  * in the window the pane is mounted in.
