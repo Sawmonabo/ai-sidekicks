@@ -19,13 +19,14 @@
 
 import { cleanup, screen } from "@testing-library/react";
 import { act } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { settle } from "../../../workflows-probe.test-support.js";
 import {
   bridgeHoldingSubmits,
   bridgeWatchingSubmits,
   fixtureWaitPhase,
+  loadSchemaFormBody,
   pressSubmit,
   renderSwitchableSlot,
 } from "./HumanFormShell.test-support.js";
@@ -56,6 +57,11 @@ function pressingBody(answer: Readonly<Record<string, unknown>>) {
     );
   };
 }
+
+// The schema form arrives as its own chunk. Resolved once here so every case below
+// renders the loaded form rather than the reserved region its mount would otherwise
+// suspend on — the loader memoises the load, so this is the state a second form opens in.
+beforeAll(loadSchemaFormBody);
 
 describe("the seat keeps the submit and the settlement, and the body keeps neither", () => {
   it("composes the registered submit out of the mount when the body presses", async () => {

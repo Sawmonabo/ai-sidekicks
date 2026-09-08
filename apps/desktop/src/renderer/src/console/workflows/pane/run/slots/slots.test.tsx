@@ -22,13 +22,13 @@
 
 import { render } from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../../../bridge/index.js";
 import { WORKFLOW_HUMAN_FORM_SLOT, WORKFLOW_RUN_DETAIL_SLOT } from "../../../owner-slots.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
-import { renderSwitchableSlot } from "./HumanFormShell.test-support.js";
+import { loadSchemaFormBody, renderSwitchableSlot } from "./HumanFormShell.test-support.js";
 import type { HumanFormMount, HumanFormPhase } from "./human-form-mount.js";
 import { RunDetailSlot, type RunDetailMount } from "./RunDetailSlot.js";
 
@@ -56,6 +56,11 @@ const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
   ["run detail", <RunDetailSlot key="run-detail" workflowRunId="wfr-01" />],
   ["human form", <HumanFormSlot key="human-form" phase={undefined} />],
 ];
+
+// The schema form arrives as its own chunk. Resolved once here so every case below
+// renders the loaded form rather than the reserved region its mount would otherwise
+// suspend on — the loader memoises the load, so this is the state a second form opens in.
+beforeAll(loadSchemaFormBody);
 
 describe("an unfilled slot is reserved, not stubbed", () => {
   it.each(UNFILLED_SLOTS)("%s stands in its own mount with an empty absence", (_name, element) => {

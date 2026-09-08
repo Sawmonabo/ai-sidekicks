@@ -21,7 +21,7 @@
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { act } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { settle } from "../../../workflows-probe.test-support.js";
 import {
@@ -30,6 +30,7 @@ import {
   SECOND_WAIT_PHASE_RUN_ID,
   bridgeWatchingSubmits,
   fixtureWaitPhase,
+  loadSchemaFormBody,
   pressSubmit,
   renderSlot,
   renderSwitchableSlot,
@@ -39,6 +40,11 @@ import type { HumanFormPhase } from "./human-form-mount.js";
 afterEach(() => {
   cleanup();
 });
+
+// The schema form arrives as its own chunk. Resolved once here so every case below
+// renders the loaded form rather than the reserved region its mount would otherwise
+// suspend on — the loader memoises the load, so this is the state a second form opens in.
+beforeAll(loadSchemaFormBody);
 
 describe("a run that parks two waits at once", () => {
   it("carries no part of one branch's answer onto the other branch's form", () => {

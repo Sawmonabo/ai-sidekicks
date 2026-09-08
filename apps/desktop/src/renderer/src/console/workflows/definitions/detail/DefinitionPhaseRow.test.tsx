@@ -10,9 +10,10 @@
 // scope arm and never two that collide, which is exactly the case this pins.
 
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import type { McpServerBindingRef, WorkflowPhaseDefinition } from "../../../bridge/index.js";
+import { schemaFormPreviewMount } from "../../../seats/index.js";
 import { DefinitionPhaseRow } from "./DefinitionPhaseRow.js";
 
 afterEach(cleanup);
@@ -55,6 +56,13 @@ function bindingRows(container: HTMLElement): readonly HTMLElement[] {
 function figureCount(row: HTMLElement): number {
   return row.querySelectorAll(".meridian-figure").length;
 }
+
+// The phase preview arrives on the schema form's own chunk. Resolved once here so every
+// case below renders the loaded preview rather than the reserved region its mount would
+// otherwise suspend on.
+beforeAll(async () => {
+  await schemaFormPreviewMount.load();
+});
 
 describe("a phase's tool bindings — the scope and what it refers to", () => {
   it("tells apart two bindings differing only in their scope reference", () => {

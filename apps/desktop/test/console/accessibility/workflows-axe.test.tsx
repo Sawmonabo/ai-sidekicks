@@ -59,10 +59,13 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-// The seats door, for the schema form seat's sheet and for the one composer that mounts a
-// form over a schema. The family sheet the entry's controls also draw against is already
-// on the page: `../surfaces/workflows.js` above imports the family door for its registrars.
-import { SchemaFormAnswer } from "../../../src/renderer/src/console/seats/index.js";
+// The seats door, for the schema form chunk's loader. The kit is not on the initial graph —
+// its two composed surfaces and its own sheet arrive together when a form first mounts —
+// so the cases below resolve that chunk and audit the component it publishes, which is
+// what puts the sheet on the page. The family sheet the entry's controls also draw
+// against is already there: `../surfaces/workflows.js` above imports the family door for
+// its registrars.
+import { schemaFormChunk } from "../../../src/renderer/src/console/seats/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
@@ -112,6 +115,7 @@ describe("accessibility — the workflows surfaces", () => {
   }
 
   it("has no axe violation on a human phase's form once list entries are added", async () => {
+    const { SchemaFormAnswer } = await schemaFormChunk.load();
     const { container } = await renderSettled(
       <SchemaFormAnswer
         prompt="Who signs this release off?"
@@ -150,6 +154,7 @@ describe("accessibility — the workflows surfaces", () => {
     // reader who never moves focus out of the editor with no indication of the invalid
     // state and no route to the sentences. The mount is a component's for the reason the
     // list-entry case above is: no registered surface opens this arm.
+    const { SchemaFormAnswer } = await schemaFormChunk.load();
     const { container } = await renderSettled(
       <SchemaFormAnswer
         prompt="Describe the rows this phase should publish."
