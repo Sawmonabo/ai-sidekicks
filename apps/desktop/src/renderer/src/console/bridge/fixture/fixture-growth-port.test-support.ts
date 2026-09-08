@@ -131,6 +131,49 @@ export function findScenariosNaming(
 }
 
 /**
+ * Scenarios stating a callback tool, under whatever member name they spell it.
+ *
+ * A STRUCTURAL READING RATHER THAN A NAME CENSUS, because the name census is now
+ * wrong. It banned any scenario carrying `inputSchema` anywhere, which was a workable
+ * proxy while a tool was the only thing in this fixture that had one — and a phase
+ * parked on a person carries the schema its own form is drawn from, so the proxy now
+ * reports a scenario that states no tool at all. What makes a callback tool a callback
+ * tool is the PAIR: a name to invoke it by beside the schema its arguments take, or
+ * the registry member the reply would carry it in. A phase's form schema has neither,
+ * and a tool spelled into some other member still has the first.
+ *
+ * Walks the whole scenario — beat payloads and scripted replies alike — because the
+ * premise being asserted is about what no scenario says anywhere, not about where.
+ */
+export function findScenariosStatingCallbackTool(
+  scenarios: readonly ConsoleScenario[],
+): readonly string[] {
+  return scenarios
+    .filter((scenario) => statesCallbackTool(scenario))
+    .map((scenario) => scenario.id);
+}
+
+/** Whether this value, or anything under it, is a stated callback tool. */
+function statesCallbackTool(candidate: unknown): boolean {
+  if (Array.isArray(candidate)) {
+    return candidate.some(statesCallbackTool);
+  }
+  if (typeof candidate !== "object" || candidate === null) {
+    return false;
+  }
+  const members = candidate as Record<string, unknown>;
+  // The registry member itself, which is what the reply would carry a tool list in.
+  if ("callbackTools" in members) {
+    return true;
+  }
+  // And the tool's own shape under any other spelling: a name beside a schema.
+  if (typeof members["name"] === "string" && "inputSchema" in members) {
+    return true;
+  }
+  return Object.values(members).some(statesCallbackTool);
+}
+
+/**
  * The value a served outcome carries, or a failure naming what the port answered.
  *
  * Hoisted here on its second reader rather than copied: the plane suites beside the

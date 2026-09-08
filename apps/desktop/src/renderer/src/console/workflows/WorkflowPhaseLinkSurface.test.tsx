@@ -15,7 +15,6 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { parseRoute, type ConsoleRoute } from "../routing/index.js";
 import {
   ConsoleSurfaceRegistry,
@@ -25,7 +24,7 @@ import {
 import { WORKFLOWS_PARKED_RUN } from "../bridge/scenarios/workflow-fixture-runs.js";
 import { registerWorkflowSurfaces } from "./index.js";
 import { fixtureHumanWait } from "./pane/run/WorkflowRunPane.test-support.js";
-import { composeWindow } from "./WorkflowsPaneHost.test-support.js";
+import { composeWindow, inWindowChrome } from "./WorkflowsPaneHost.test-support.js";
 import { settle } from "./workflows-probe.test-support.js";
 
 /**
@@ -81,9 +80,7 @@ describe("the workflow phase link — from the hash to the run pane", () => {
     await composed.paneRegistry.preload("workflow-run");
     let container: HTMLElement | undefined;
     await act(async () => {
-      container = render(
-        <LiveAnnouncerProvider>{descriptor.render(composed.context)}</LiveAnnouncerProvider>,
-      ).container;
+      container = render(inWindowChrome(composed, descriptor.render(composed.context))).container;
     });
     await settle();
     return {
@@ -147,9 +144,7 @@ describe("the workflow phase link — from the hash to the run pane", () => {
     await composed.paneRegistry.preload("workflow-run");
     let container: HTMLElement | undefined;
     await act(async () => {
-      container = render(
-        <LiveAnnouncerProvider>{descriptor.render(composed.context)}</LiveAnnouncerProvider>,
-      ).container;
+      container = render(inWindowChrome(composed, descriptor.render(composed.context))).container;
     });
     await settle();
 
