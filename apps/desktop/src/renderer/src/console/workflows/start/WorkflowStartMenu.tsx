@@ -25,8 +25,25 @@
 // daemon's adjudication; the control is offered and its refusal is rendered. A menu that
 // hid the entry for a viewer would be a renderer deciding a question it does not own —
 // and would hide the one surface that explains the refusal.
+//
+// A CONTROL IS NAMED BY ITS DEFINITION AND ITS SCOPE, BECAUSE THE NAME ALONE DOES NOT
+// IDENTIFY IT. Two definitions may deliberately share a name across scopes — that is what
+// the scope chip beside each row is FOR — and a chip is not part of the button's
+// accessible name, so a screen reader met several identically named start controls with
+// no way to tell which one it was about to press. The visible label stays the name alone,
+// as designed; the scope reaches the name through `aria-label`, which is how every other
+// row control in this console names itself.
+//
+// A START IN FLIGHT CLOSES EVERY ROW AND THE REASON IS SAID ONCE. The rows are one
+// control surface taking one start at a time (`start-act.ts` holds that rule and the
+// guard that enforces it), so while one is outstanding the others would be presses that
+// went nowhere. The cause is a sentence for the LIST rather than a copy per row: it is
+// one fact about the picker, and it names the definition that is starting, which is the
+// half a person needs. The continuation control is deliberately left alone — reading the
+// next page is another wire and closing it would be a guess about a call this guard says
+// nothing about.
 
-import { Chip, InlineRefusal, Nothing, PartialRead, WireFigure } from "../../primitives/index.js";
+import { Chip, InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import type { GrowthPort } from "../../bridge/index.js";
 import { useWorkflowDefinitionDirectory } from "../definitions/definition-directory.js";
 import { WorkflowStartDenial } from "./WorkflowStartDenial.js";
@@ -60,6 +77,9 @@ export function WorkflowStartMenu(props: WorkflowStartMenuProps): React.JSX.Elem
   const directory = useWorkflowDefinitionDirectory(growth, sessionId);
   const dispatch = useWorkflowStartAct({ growth, sessionId, channelId });
   const { state } = directory;
+  // Read once for the whole list rather than per row: it is one fact about the picker,
+  // and the sentence below the rows is the one place it is explained.
+  const startInFlight = dispatch.act.status === "starting";
 
   return (
     <div className="meridian-workflow-start-menu">
@@ -84,6 +104,11 @@ export function WorkflowStartMenu(props: WorkflowStartMenuProps): React.JSX.Elem
               <button
                 type="button"
                 className="meridian-workflow-start-menu__start"
+                // Composed from the same two values the row draws, so what is heard and
+                // what is seen cannot disagree, and the visible name leads it — a voice
+                // command spoken from the screen still reaches this control.
+                aria-label={`Start ${definition.name} from the ${definition.scope} scope`}
+                disabled={startInFlight}
                 onClick={() => {
                   dispatch.start(definition);
                 }}
@@ -126,7 +151,18 @@ function renderAct(act: WorkflowStartAct): React.ReactNode {
     return null;
   }
   if (act.status === "starting") {
-    return <PartialRead states={[{ kind: "reading" }]} subject="this workflow's run" />;
+    // A sentence rather than the reading notice this arm used to mount. That notice is
+    // rule 8's `not-loaded` absence, whose whole point is that it says nothing and is
+    // replaced a beat later — correct for a read in flight beside rows that are still
+    // offered, and wrong here, because the rows are now CLOSED and a closed control with
+    // no stated cause is a control that looks broken. `role="status"` so the reason is
+    // spoken when it appears: the disabled buttons carry no focus, so a description
+    // hung on them would reach nobody.
+    return (
+      <p className="meridian-workflow-start-menu__flight" role="status">
+        {`Starting ${act.definitionName}. This menu starts one workflow at a time, so the rest wait for the daemon's answer.`}
+      </p>
+    );
   }
   if (act.status === "refused") {
     return <WorkflowStartDenial code={act.code} detail={act.detail} />;
