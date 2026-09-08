@@ -50,11 +50,13 @@
 // door widened for testing, so those five suites reach their module directly and the
 // door publishes what production reaches.
 
-// The sheets this directory owns, imported by its own door. The four below the root
-// belong to children that carry no door of their own, so this is their nearest
-// owner; `seams/` has a door and imports its own. Parent before children, which is
-// the cascade order `ledger/ledger.css` states.
-import "./structure.css";
+// The sheets this directory owns, imported by its own door. Each belongs to a child
+// that carries no door of its own, so this is their nearest owner; `seams/` has a
+// door and imports its own. THERE IS NO PARENT SHEET BESIDE THEM: a parent sheet
+// holds what two of the five share, and the one rule that ever qualified was a focus
+// ring for two buttons no caller could reach, so it went when they did. A rule two
+// of them come to share again mints `structure.css` back, imported first for the
+// cascade order `ledger/ledger.css` states.
 import "./chapters/chapters.css";
 import "./narrowing/narrowing.css";
 import "./rail/rail.css";

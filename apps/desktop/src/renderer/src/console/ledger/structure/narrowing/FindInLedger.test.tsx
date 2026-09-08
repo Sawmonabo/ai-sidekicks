@@ -1,11 +1,10 @@
 // The find field, and the sentence that is the feature.
 //
-// The boundary note and the "load earlier" affordance are asserted here against
-// the model's own constant rather than against a literal typed twice, because two
-// copies would let the field drop the caption while this file kept passing against
-// its own string. The counter gets the same treatment from the other side: the
-// honest total and the capped walk are different numbers, and the field must show
-// the honest one.
+// The boundary note is asserted here against the model's own constant rather than
+// against a literal typed twice, because two copies would let the field drop the
+// caption while this file kept passing against its own string. The counter gets the
+// same treatment from the other side: the honest total and the capped walk are
+// different numbers, and the field must show the honest one.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -69,17 +68,12 @@ function renderField(
     readonly result?: LedgerFindResult;
     readonly query?: string;
     readonly currentMatchIndex?: number;
-    /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
-    readonly canLoadEarlier?: boolean;
     /** How many times the caller has asked for the field. One, unless a case re-opens it. */
     readonly openRequestCount?: number;
   } = {},
 ): FindHarness {
   const acts: string[] = [];
   const result = options.result ?? matchingResult();
-  const loadEarlier = (): void => {
-    acts.push("load-earlier");
-  };
   render(
     <FindInLedger
       query={options.query ?? result.query}
@@ -88,7 +82,6 @@ function renderField(
       openRequestCount={options.openRequestCount ?? 1}
       onQueryChange={(query) => acts.push(`query:${query}`)}
       onStep={(direction) => acts.push(`step:${direction}`)}
-      {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
       onClose={() => acts.push("close")}
     />,
   );
@@ -105,27 +98,14 @@ describe("find field — the boundary is rendered, never remembered", () => {
     expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
   });
 
-  it("offers to load earlier rows exactly when there are earlier rows", () => {
-    const harness = renderField({ result: matchingResult(true) });
-    fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
-    expect(harness.acts).toStrictEqual(["load-earlier"]);
-  });
-
-  it("negative control: over a complete window the affordance is absent", () => {
-    // Offering it would promise a press that could deliver nothing, and would
-    // make the scope sentence read as a warning about a boundary that is not
-    // there.
-    renderField({ result: matchingResult(false) });
-    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
-  });
-
-  it("draws no affordance where the reader cannot page, and still states the boundary", () => {
-    // The window IS partial and no registered read fetches what is missing. The
-    // sentence is the honest half and survives; the button is the half that would
-    // be a promise, and it is absent rather than drawn dead.
-    const { field } = renderField({ result: matchingResult(true), canLoadEarlier: false });
-    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+  it("states the boundary over a partial window and offers no act on it", () => {
+    // The sentence is this field's whole answer to a clipped window. The act that
+    // would fetch what is missing belongs to the viewport's backward read and is
+    // offered there; a second entry point here would read the CAP — rows this store
+    // still holds — and send the daemon after them.
+    const { field } = renderField({ result: matchingResult(true) });
     expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
+    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
   });
 });
 

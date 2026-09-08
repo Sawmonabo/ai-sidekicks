@@ -10,10 +10,10 @@
 // sentence because a person looking at an empty pane needs to be told the pane is
 // reserved. A row footer repeats once per participant message — a reserved marker
 // there would print a paragraph of unbuilt-feature prose down the whole ledger, and
-// the honest reading of an absent offer is the absent offer, which is exactly what
-// `ProvenanceRail.tsx` says about its own load-earlier button. The three facts the
-// seat answers live in `seats/single-slot/timeline-row-footer-seat.ts` for the developer who
-// needs them.
+// the honest reading of an absent offer is the absent offer — the same reading that
+// took the structural surfaces' load-earlier buttons out, recorded in
+// `pane/feed/LedgerFeed.tsx`. The three facts the seat answers live in
+// `seats/single-slot/timeline-row-footer-seat.ts` for the developer who needs them.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 

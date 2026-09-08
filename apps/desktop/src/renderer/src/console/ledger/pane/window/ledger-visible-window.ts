@@ -78,10 +78,10 @@ export interface VisibleLedgerWindow {
    * session over a window the cap had already truncated, and told the find result
    * it had searched a whole log.
    *
-   * So the two are separated: this is the fact, and an absent `onLoadEarlier`
-   * handler is the offer. The rail's dotted segment and the find result's boundary
-   * read the fact; the "load earlier" button reads both, which is why it is never
-   * drawn on this build.
+   * So the two are separated: this is the FACT, and the offer is somebody else's.
+   * The rail's dotted segment and the find result's boundary read this; the act that
+   * fetches rows the daemon still holds is `frame/paging/`'s, which asks the producer
+   * rather than the cap. Neither structural surface offers one — see `LedgerFeed.tsx`.
    */
   readonly hasEarlierRows: boolean;
   /**

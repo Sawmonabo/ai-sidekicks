@@ -29,7 +29,7 @@ import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
 import { growthSlateRow, type GrowthSlateRow } from "../../../bridge/index.js";
 import { Nothing, WireFigure, formatByteQuantity } from "../../../primitives/index.js";
-import { measureUtf8ByteLength } from "../markdown/index.js";
+import { measureUtf8ByteLength } from "../../../persistence/index.js";
 
 /**
  * The loss this console names when a stored body is a prefix.

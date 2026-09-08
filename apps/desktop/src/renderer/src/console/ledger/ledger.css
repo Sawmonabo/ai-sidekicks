@@ -3,7 +3,8 @@
  *
  * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
  * reachable from TWO directories goes in their nearest shared parent's sheet — which is
- * `ledger.css` for the family and `structure/structure.css` for that subtree's five.
+ * `ledger.css` for the family, and a parent sheet in `structure/` for that subtree's
+ * five if one of its rules is ever shared — none is today.
  * `structure/` is the only subtree split further, and the reason is the module ceiling
  * rather than symmetry: it was one 503-line sheet over five subjects that change for
  * five different reasons. `frame/` and `cards/` keep one sheet each, well inside the
@@ -150,8 +151,6 @@
   outline-offset: 2px;
 }
 
-.meridian-ledger-filter__facet:focus-visible,
-.meridian-ledger-filter__clear:focus-visible,
 .meridian-ledger__jump-action:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;

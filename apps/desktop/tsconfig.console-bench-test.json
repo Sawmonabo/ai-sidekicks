@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Typechecks the console BENCHMARK ledger.
+  //
+  // Same shape, same reasoning, and the same answer as
+  // `tsconfig.console-architecture-test.json`: a Node driver that pulls renderer
+  // modules into its program. `streaming-layer.bench.ts` imports the markdown
+  // segmenter and parse, `fan-out.bench.ts` imports the store's entity kinds, and
+  // both do it deliberately — a benchmark that timed a local copy of the module
+  // would be measuring the copy.
+  //
+  // WHY IT WAS NOT ALREADY HERE. Under `tsconfig.test.json` the tier compiled
+  // clean for as long as the renderer modules it happened to reach touched no
+  // browser global, which is a property of the module graph BELOW them rather than
+  // of anything this tier wrote. The day the markdown cache took its byte
+  // measurement from the console's one chokepoint — a downward edge the DAG has
+  // always allowed, restoring a rule `apps/desktop/AGENTS.md` §Chokepoints already
+  // stated — the persistence door came with it, and with the door came the
+  // IndexedDB adapter and fourteen TS2304s about globals no benchmark mentions.
+  // The tier was one edge from red the whole time; every sibling tier in this
+  // position was moved out of the Node-context config already, and this is that
+  // move for the last one.
+  //
+  // Widening `tsconfig.test.json` instead would hand the DOM to
+  // `launch.smoke.test.ts` and every `src/main/**` unit, where reaching for
+  // `document` is a defect the compiler should still catch. That is the
+  // architecture and Electron configs' own stated reasoning and it applies here
+  // unchanged.
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The `isolatedDeclarations` pairing the sibling configs document: the base
+    // sets it, it needs `declaration` or `composite`, so `declaration` stays on
+    // beside `noEmit` (TS5069) while `composite: false` keeps this config out of
+    // the project-references graph.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    // DOM joins the Node lib rather than replacing it — the tier's own files are
+    // Node (they spawn, read files, and write the ledger), and the console modules
+    // they import are renderer code. Kept in step with the renderer project's lib
+    // set.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // A console family barrel re-exports `.tsx` components, so the console's React
+    // modules are in this program whether or not a benchmark mentions one. Without
+    // `jsx` they fail TS6142 at the barrel.
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "test/console/bench/**/*",
+    // The console's build-time signals. Imported console modules read them at
+    // module scope, and this file is where they are declared.
+    "src/renderer/src/console/console-env.d.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}

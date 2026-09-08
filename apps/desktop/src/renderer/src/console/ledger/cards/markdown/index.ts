@@ -18,7 +18,6 @@ import "./markdown.css";
 export { FootnotePopoverHost } from "./FootnotePopoverHost.js";
 export { MarkdownNodes, type MarkdownRenderContext } from "./MarkdownNodes.js";
 export { MarkdownBlockSegmenter } from "./block-segmenter.js";
-export { measureUtf8ByteLength } from "./byte-bounded-cache.js";
 export { collectFootnoteDefinitions, collectFootnoteReferences } from "./footnote-collection.js";
 export { FootnoteRegistry } from "./footnote-registry.js";
 export {

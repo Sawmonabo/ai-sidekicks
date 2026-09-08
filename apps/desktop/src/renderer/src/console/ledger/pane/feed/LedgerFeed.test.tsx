@@ -139,9 +139,6 @@ describe("the ledger feed — the clip it draws is the clip that is true", () =>
     const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));
     expect(feed.querySelector(".meridian-provenance-rail__unloaded")).not.toBeNull();
     expect(feed.textContent).toContain("Older entries are no longer in this window.");
-    // And still no control, because no registered read returns rows before the head.
-    expect(feed.querySelector(".meridian-provenance-rail__load-earlier")).toBeNull();
-    expect(feed.querySelector(".meridian-find__load-earlier")).toBeNull();
   });
 
   it("negative control: a whole log under the cap draws no segment", () => {

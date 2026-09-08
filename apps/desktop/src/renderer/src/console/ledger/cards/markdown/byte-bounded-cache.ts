@@ -21,6 +21,13 @@
 // alternative — a timestamp per entry and a scan — costs a scan per insert to answer
 // the same question `Map` iteration order already answers.
 
+// The console's one byte measurement, taken from the door that publishes it.
+// `apps/desktop/AGENTS.md` §Chokepoints: one byte-measurement function serves every
+// cap. This cache spent a second one for a while, and the two justified themselves
+// against each other in their own doc comments — which is what a drift reads like
+// before the two answers separate on the first body neither was tested with.
+import { measureUtf8ByteLength } from "../../../persistence/index.js";
+
 /** What one cache reports about itself, so a budget test can read it. */
 export interface ByteBoundedCacheStats {
   readonly entryCount: number;
@@ -102,18 +109,4 @@ export class ByteBoundedCache<TValue> {
       this.#retainedByteCount -= entry.byteLength;
     }
   }
-}
-
-/**
- * UTF-8 byte length of a string.
- *
- * `TextEncoder` rather than `length`, because `length` counts UTF-16 code units and the
- * bound is stated in bytes — the same figure `CONTENT_PAYLOAD_PLAINTEXT_MAX` is stated
- * in, so an emoji-heavy body is charged what it actually costs. Constructed per call
- * rather than held at module scope: a module-level instance is the mutable singleton
- * `apps/desktop/AGENTS.md` rejects, and `encodeInto` on a throwaway encoder is
- * measurably cheaper than the parse this cache exists to skip.
- */
-export function measureUtf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
 }

@@ -2,7 +2,8 @@
  *
  * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it, and a rule
  * reachable from TWO directories goes in their nearest shared parent's sheet — which is
- * `ledger.css` for the family and `structure/structure.css` for that subtree's five.
+ * `ledger.css` for the family, and a parent sheet in `structure/` for that subtree's
+ * five if one of its rules is ever shared — none is today.
  * A sheet enters through the barrel of the directory that OWNS it: this one through
  * `cards/index.ts`, and a sub-module that carries a door of its own owns and enters its
  * own — `markdown/`, `tool-families/` and `bodies/` each do, on their own doors.

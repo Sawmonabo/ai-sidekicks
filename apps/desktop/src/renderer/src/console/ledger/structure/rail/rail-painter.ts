@@ -105,7 +105,7 @@ export interface RailPaintInput {
  * A class so the 2D context is resolved once per canvas rather than per paint, and
  * so a host with no canvas implementation — a DOM shim, a print preview — is a
  * no-op rather than a crash. The rail stays operable there: the slider, the
- * keyboard walk, the preview, and the "load earlier" affordance are all DOM.
+ * keyboard walk, and the preview are all DOM.
  */
 export class RailPainter {
   #context: CanvasRenderingContext2D | undefined;

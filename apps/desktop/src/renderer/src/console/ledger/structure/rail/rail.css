@@ -1,10 +1,10 @@
 /* `ledger/structure/rail/`'s styles — the provenance rail: its hit strip, its canvas,
- * its thumb, the live marker, the load-earlier control, and the hover preview.
+ * its thumb, the live marker, and the hover preview.
  *
  * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it. Every sheet
  * this family owns is imported from `ledger/index.ts` and nowhere else; a rule reachable
- * from two directories goes in the parent's sheet instead, which is where the shared
- * load-earlier focus ring is.
+ * from two of `structure/`'s directories would go in a parent sheet instead, and none
+ * is — the one that was, a focus ring shared by two dead buttons, went with them.
  *
  * The widths are set inline from `rail-model.ts`'s constants, so the numbers live in the
  * module that spends them and this sheet never restates them.
@@ -98,16 +98,6 @@
   border-radius: 50%;
   background: var(--meridian-accent);
   pointer-events: none;
-}
-
-.meridian-provenance-rail__load-earlier {
-  flex: 0 0 auto;
-  padding: var(--meridian-space-1);
-  border: 0;
-  background: transparent;
-  color: var(--meridian-accent-text);
-  font-size: var(--meridian-text-xs);
-  cursor: pointer;
 }
 
 /*
