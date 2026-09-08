@@ -1,4 +1,5 @@
 import { Menu } from "@base-ui/react/menu";
+import { useState } from "react";
 
 import type { MembershipId, MembershipUpdate } from "@ai-sidekicks/contracts";
 
@@ -66,13 +67,24 @@ export function MembershipActionsMenu(props: {
   // One predicate for both controls, so the menu and the confirmation cannot disagree
   // about whether this row is actionable.
   const isClosed = props.isAnyPending || props.updateBlock !== undefined;
+  // THE MENU IS CONTROLLED FOR ONE CASE: a close that arrives while it is open. The
+  // trigger's `disabled` reaches the trigger and nothing else — the items of a menu
+  // someone had already opened stayed pressable, and a press reached the dispatch-time
+  // guard and did nothing, silently. Adjusting state during render is React's own
+  // prescription for a value derived from props, and it commits before the closed menu
+  // could paint once; the menu stays closed when the acts come back, since reopening
+  // it would be a menu nobody asked for.
+  const [isOpen, setIsOpen] = useState(false);
+  if (isOpen && isClosed) {
+    setIsOpen(false);
+  }
   // Non-null by the caller's guard; bound once so every arm below reads the same
   // value rather than re-asserting it four times.
   const membershipId = (row.membershipId ?? "") as MembershipId;
   const isActive = row.state === "active";
   return (
     <div className="meridian-members__row-acts">
-      <Menu.Root>
+      <Menu.Root open={isOpen} onOpenChange={setIsOpen}>
         <Menu.Trigger
           className="meridian-members__manage"
           disabled={isClosed}
