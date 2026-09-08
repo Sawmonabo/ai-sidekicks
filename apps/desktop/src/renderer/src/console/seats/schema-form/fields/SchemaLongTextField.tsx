@@ -10,12 +10,11 @@
 // compiled validator is what reports it.
 //
 // AND IT CLEARS THE WAY THE ONE-LINE CONTROL CLEARS, through the same rule: an emptied
-// control returns the member to what an unanswered one is worth rather than writing an
-// answered `""`. Read from `schema-fields.ts` in both places, so the two text controls
-// cannot come to disagree about what an empty box means.
+// control reports an unanswered node rather than an answered `""`. The same node in both
+// places, so the two text controls cannot come to disagree about what an empty box means.
 
 import { textValueOf, type SchemaFieldControlProps } from "../schema-field-control.js";
-import { unansweredFieldValue } from "../schema-fields.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../schema-draft.js";
 
 /** How tall a long-form control opens. Layout only; the answer is never bounded here. */
 const LONG_TEXT_ROWS = 4;
@@ -31,7 +30,7 @@ export function SchemaLongTextField(props: SchemaFieldControlProps): React.JSX.E
       aria-describedby={props.describedById}
       onChange={(event) => {
         const typed = event.currentTarget.value;
-        props.onChange(typed === "" ? unansweredFieldValue(props.field) : typed);
+        props.onChange(typed === "" ? UNANSWERED_SCALAR : answeredScalar(typed));
       }}
     />
   );

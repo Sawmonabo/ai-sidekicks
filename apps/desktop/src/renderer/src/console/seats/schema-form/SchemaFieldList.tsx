@@ -6,11 +6,14 @@
 // holed. Anything else would leave the third entry called "3" while the answer carried
 // it second.
 //
-// THE KEY IS THE INDEX, WHICH IS RIGHT HERE AND WRONG ALMOST EVERYWHERE ELSE. These
-// entries carry no identity: two identical strings in a list are the same value twice,
-// and there is nothing else to key them by. The list is edited by the person looking at
-// it, one entry at a time, so the reconciliation an identity key would buy is a
-// reconciliation nothing here needs.
+// THE KEY IS THE ENTRY'S OWN IDENTITY AND NEVER ITS POSITION. An entry carries no value
+// that distinguishes it — two identical strings in a list are the same value twice — so
+// the draft mints an id when the entry is ADDED and the row keys on that
+// (`schema-draft.ts`). Keyed by index, a row holding control state the draft now carries
+// for it — an unreadable figure — was reused or unmounted under the wrong entry the
+// moment an earlier entry was removed, so the invalid text moved to a neighbour or
+// disappeared. The position is still what the entry is CALLED, because an array member
+// has no name of its own; it is no longer what React thinks the entry is.
 //
 // AN EMPTY LIST IS AN ANSWER. It renders its heading, its add control, and no entries —
 // never a wait and never an absence, because a person who has added nothing yet has an
@@ -35,14 +38,17 @@ import { useId } from "react";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
 import { SchemaListEntry } from "./SchemaListEntry.js";
 import { SchemaRequiredMark } from "./SchemaRequiredMark.js";
+import type { SchemaScalarDraft } from "./schema-draft.js";
 import { describedByOf } from "./schema-field-control.js";
 import { listAppendLabel, listRemoveLabel } from "./schema-list-labels.js";
 import type { SchemaListDescriptor } from "./schema-fields.js";
+import type { SchemaListEntryView } from "./schema-projection.js";
 
 export interface SchemaFieldListProps {
   readonly list: SchemaListDescriptor;
-  readonly items: readonly unknown[];
-  readonly onChangeItem: (index: number, value: unknown) => void;
+  /** Every drawn row, each carrying what it displays and the identity it keys on. */
+  readonly entries: readonly SchemaListEntryView[];
+  readonly onChangeEntry: (index: number, draft: SchemaScalarDraft) => void;
   readonly onAppend: () => void;
   readonly onRemove: (index: number) => void;
   /** The schema's findings about the list itself, rather than about one entry. */
@@ -59,7 +65,7 @@ export interface SchemaFieldListProps {
 
 /** A repeated control, one per entry, with the two controls that change how many. */
 export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element {
-  const { list, items } = props;
+  const { list, entries } = props;
   const issuesId = useId();
   return (
     <fieldset
@@ -74,14 +80,14 @@ export function SchemaFieldList(props: SchemaFieldListProps): React.JSX.Element 
         <p className="meridian-schema-field__description">{list.description}</p>
       )}
       <ol className="meridian-schema-list__items">
-        {items.map((item, index) => (
-          <li className="meridian-schema-list__item" key={index}>
+        {entries.map((entry, index) => (
+          <li className="meridian-schema-list__item" key={entry.entryId}>
             <SchemaListEntry
               list={list}
               index={index}
-              value={item}
-              onChange={(value) => {
-                props.onChangeItem(index, value);
+              view={entry}
+              onChange={(draft) => {
+                props.onChangeEntry(index, draft);
               }}
               issues={props.issuesForEntry(index)}
             />

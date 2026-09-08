@@ -148,6 +148,10 @@ describe("the schema-derived form", () => {
   });
 
   it("draws a group as a named fieldset holding its own members", () => {
+    // The same claim as before the draft tree, reached through the control that now says
+    // whether an OPTIONAL section is being answered: unanswered, it draws its name and
+    // that control and no members, because a control under a section nobody is answering
+    // would be a control whose value reaches nothing.
     const container = renderForm({
       type: "object",
       properties: {
@@ -161,8 +165,17 @@ describe("the schema-derived form", () => {
 
     const group = container.querySelector(".meridian-schema-group");
 
-    expect(group?.querySelector("legend")?.textContent).toBe("Release");
+    expect(group?.querySelector("legend")?.textContent).toContain("Release");
+    expect(screen.queryByLabelText("Tag")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Answer this section" }));
+
     expect(group?.contains(screen.getByLabelText("Tag"))).toBe(true);
+    expect(composedAnswer(container)).toEqual({ release: {} });
+
+    fireEvent.click(screen.getByRole("button", { name: "Leave unanswered" }));
+
+    expect(composedAnswer(container)).toEqual({});
   });
 
   it("says a group is required on its own legend, at the same depths a control says it", () => {

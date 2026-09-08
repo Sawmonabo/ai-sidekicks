@@ -11,7 +11,7 @@
 // it means.
 
 import { textValueOf, type SchemaFieldControlProps } from "../schema-field-control.js";
-import { unansweredFieldValue } from "../schema-fields.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "../schema-draft.js";
 
 /** An identifier naming an artifact the session already holds. */
 export function SchemaArtifactField(props: SchemaFieldControlProps): React.JSX.Element {
@@ -25,7 +25,7 @@ export function SchemaArtifactField(props: SchemaFieldControlProps): React.JSX.E
       placeholder="artifact id"
       onChange={(event) => {
         const typed = event.currentTarget.value;
-        props.onChange(typed === "" ? unansweredFieldValue(props.field) : typed);
+        props.onChange(typed === "" ? UNANSWERED_SCALAR : answeredScalar(typed));
       }}
     />
   );

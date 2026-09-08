@@ -594,10 +594,11 @@ export {
 // from importing a schema library at all, which is a claim about the LAYER — a validator
 // sits below every surface, so no surface can hold a second reading of one.
 //
-// `SchemaValidationIssue` is deliberately not published. A caller reads a report's
-// `issues` and maps them where it stands, so the name has no production importer and a
-// door line for it would be a name published for symmetry, which the barrel census
-// fails.
+// `SchemaValidationIssue` IS published, and it was not while every caller only READ a
+// report. The schema form now composes findings of its own — a drawn row the projection
+// dropped, which the answer has no way to express and the schema therefore never sees —
+// and folds them into the report the surface renders, so it constructs issues rather than
+// mapping them and needs the shape. One production importer, one door line.
 //
 // The member-path trio DOES leave, because the surfaces that read a report address their
 // controls by those same paths: `SchemaMemberPath` is the one representation a descriptor
@@ -612,6 +613,7 @@ export {
 } from "./wire-shapes/json-schema-check.js";
 export type {
   SchemaMemberPath,
+  SchemaValidationIssue,
   SchemaValidationReport,
   SchemaValidator,
 } from "./wire-shapes/json-schema-check.js";

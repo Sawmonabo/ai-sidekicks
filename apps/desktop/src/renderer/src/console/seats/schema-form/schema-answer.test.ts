@@ -9,14 +9,28 @@
 
 import { describe, expect, it } from "vitest";
 
-import { newListEntryFor, seedAnswerFromPlan } from "./schema-answer.js";
+import { newListEntryDraft, seedDraftFromPlan } from "./schema-answer.js";
+import { answeredScalar, UNANSWERED_SCALAR } from "./schema-draft.js";
 import { planSchemaForm } from "./schema-form-plan.js";
+import { projectAnswer } from "./schema-projection.js";
+import type { SchemaFormPlan } from "./schema-fields.js";
+
+/**
+ * The answer a form opens holding: the seeded draft, through the one projection.
+ *
+ * Composed rather than read off a seed, because the seed is now a TREE and the answer is
+ * a projection of it — so what a form opens holding is exactly what its first press would
+ * send, asserted through the same two functions the mounted form runs.
+ */
+function openingAnswer(plan: SchemaFormPlan): unknown {
+  return projectAnswer(plan, seedDraftFromPlan(plan));
+}
 
 describe("what a drawn form opens holding", () => {
   it("seeds nothing at all for a schema answered as raw JSON", () => {
     // The raw arm has no controls, so there is nothing for a seed to be visible in —
     // and its document is the person's, which nothing here writes into.
-    expect(seedAnswerFromPlan(planSchemaForm({ type: "string" }))).toEqual({});
+    expect(openingAnswer(planSchemaForm({ type: "string" }))).toEqual({});
   });
 
   it("opens a REQUIRED collection at the empty list its control already renders", () => {
@@ -29,7 +43,7 @@ describe("what a drawn form opens holding", () => {
     // The collection must exist, and an empty list is what its fieldset is already
     // drawing. Omitted, a required array that legally accepts zero entries opened invalid
     // and could not be submitted until somebody added an entry and removed it again.
-    expect(seedAnswerFromPlan(plan)).toEqual({ reviewers: [] });
+    expect(openingAnswer(plan)).toEqual({ reviewers: [] });
   });
 
   it("opens an OPTIONAL collection absent, so a presence-sensitive schema is answerable", () => {
@@ -41,7 +55,7 @@ describe("what a drawn form opens holding", () => {
     // A collection the answer may leave out, which this schema then refuses to accept
     // EMPTY. Seeded `[]`, the form opened invalid on a collection nobody had added to, and
     // the only state that cleared it was answering a question the schema had not asked.
-    expect(seedAnswerFromPlan(plan)).toEqual({});
+    expect(openingAnswer(plan)).toEqual({});
   });
 
   it("opens a REQUIRED group at the empty object its legend stands over", () => {
@@ -57,7 +71,27 @@ describe("what a drawn form opens holding", () => {
     // group is still required. Left to its leaves, the answer held no `release` at all,
     // the form offered no way to create the empty object the schema accepts, and typing
     // and clearing `tag` produced `{ release: { tag: "" } }` instead.
-    expect(seedAnswerFromPlan(plan)).toEqual({ release: {} });
+    expect(openingAnswer(plan)).toEqual({ release: {} });
+  });
+
+  it("keeps an OPTIONAL group absent even where its own members are required", () => {
+    const plan = planSchemaForm({
+      type: "object",
+      properties: {
+        settings: {
+          type: "object",
+          properties: { enabled: { type: "boolean" } },
+          required: ["enabled"],
+        },
+      },
+    });
+
+    // The shape the group seed could not answer. `enabled` is required INSIDE `settings`,
+    // so seeding each member on its own requiredness opened `{ settings: { enabled: false
+    // } }` — and a box can only replace that with true or false, so a schema that accepts
+    // or requires the whole group to be ABSENT had no state the drawn form could reach.
+    // The group opens inactive; somebody activates it on its legend.
+    expect(openingAnswer(plan)).toEqual({});
   });
 
   it("negative control: an OPTIONAL group with nothing answered into it stays absent", () => {
@@ -68,7 +102,7 @@ describe("what a drawn form opens holding", () => {
       },
     });
 
-    expect(seedAnswerFromPlan(plan)).toEqual({});
+    expect(openingAnswer(plan)).toEqual({});
   });
 
   it("seeds nothing for a collection whose declared default is not a list of entries", () => {
@@ -80,7 +114,7 @@ describe("what a drawn form opens holding", () => {
     // The mapper never draws this collection at all — a declared value its control could
     // not show sends the whole schema to the raw editor — so there is no control here for
     // "ada" to be invisible in, and the seed is the raw arm's empty one.
-    expect(seedAnswerFromPlan(plan)).toEqual({});
+    expect(openingAnswer(plan)).toEqual({});
   });
 
   it("seeds nothing a control could not display, whatever the schema declared", () => {
@@ -91,7 +125,7 @@ describe("what a drawn form opens holding", () => {
 
     // Seeded, "auto" reached the submission while `SchemaNumberField` rendered a blank
     // box: the answer carrying text nobody had seen or could clear.
-    expect(seedAnswerFromPlan(plan)).toEqual({});
+    expect(openingAnswer(plan)).toEqual({});
   });
 
   it("seeds nothing for an enumerated default the choice control could not offer", () => {
@@ -102,7 +136,7 @@ describe("what a drawn form opens holding", () => {
 
     // Seeded, "retired" reached the submission while the select showed "Not answered":
     // the answer carrying a member the control on the screen was not displaying.
-    expect(seedAnswerFromPlan(plan)).toEqual({});
+    expect(openingAnswer(plan)).toEqual({});
   });
 
   it("opens an optional yes-or-no unanswered rather than at the no a box would show", () => {
@@ -115,7 +149,7 @@ describe("what a drawn form opens holding", () => {
     // state that says so — which is why an optional boolean is drawn as a three-state
     // choice. Seeded `false`, a schema requiring this member's ABSENCE had no answer the
     // drawn form could reach.
-    expect(seedAnswerFromPlan(plan)).toEqual({});
+    expect(openingAnswer(plan)).toEqual({});
   });
 
   it("negative control: a required yes-or-no still opens at the false its box shows", () => {
@@ -125,7 +159,7 @@ describe("what a drawn form opens holding", () => {
       required: ["notify"],
     });
 
-    expect(seedAnswerFromPlan(plan)).toEqual({ notify: false });
+    expect(openingAnswer(plan)).toEqual({ notify: false });
   });
 
   it("negative control: a collection default that IS a list of entries is seeded", () => {
@@ -134,7 +168,7 @@ describe("what a drawn form opens holding", () => {
       properties: { reviewers: { type: "array", items: { type: "string" }, default: ["ada"] } },
     });
 
-    expect(seedAnswerFromPlan(plan)).toEqual({ reviewers: ["ada"] });
+    expect(openingAnswer(plan)).toEqual({ reviewers: ["ada"] });
   });
 });
 
@@ -154,7 +188,7 @@ describe("a value declared on the group rather than on the control that shows it
     // Dropped, the `tag` control opened blank while the schema's own reading of `{}` was
     // `{ release: { tag: "v1" } }` — so the form read valid and a press sent bytes
     // different from the value that was accepted.
-    expect(seedAnswerFromPlan(plan)).toEqual({ release: { tag: "v1" } });
+    expect(openingAnswer(plan)).toEqual({ release: { tag: "v1" } });
   });
 
   it("lets a child's own default win over the group's for the same member", () => {
@@ -170,7 +204,7 @@ describe("a value declared on the group rather than on the control that shows it
     });
 
     // The nearest declared value on the path, which is the control's own.
-    expect(seedAnswerFromPlan(plan)).toEqual({ release: { tag: "v2" } });
+    expect(openingAnswer(plan)).toEqual({ release: { tag: "v2" } });
   });
 
   it("carries a group default onto a collection the group holds", () => {
@@ -185,7 +219,7 @@ describe("a value declared on the group rather than on the control that shows it
       },
     });
 
-    expect(seedAnswerFromPlan(plan)).toEqual({ release: { reviewers: ["ada"] } });
+    expect(openingAnswer(plan)).toEqual({ release: { reviewers: ["ada"] } });
   });
 
   it("seeds nothing for a group default that names no member of it", () => {
@@ -206,7 +240,7 @@ describe("a value declared on the group rather than on the control that shows it
 
     // An empty declared value names nothing, so each control opens where it would have
     // anyway — which for the box is the `false` it is already showing.
-    expect(seedAnswerFromPlan(plan)).toEqual({ release: { signed: false } });
+    expect(openingAnswer(plan)).toEqual({ release: { signed: false } });
   });
 });
 
@@ -223,33 +257,34 @@ describe("what an added list entry opens holding", () => {
   };
 
   it("opens a repeated entry at the value its item schema declared", () => {
-    expect(newListEntryFor(planSchemaForm(listSchema), ["flags"])).toBe(true);
+    expect(newListEntryDraft(planSchemaForm(listSchema), ["flags"])).toEqual(answeredScalar(true));
   });
 
   it("opens a repeated entry with nothing declared as the empty text a control shows", () => {
-    expect(newListEntryFor(planSchemaForm(listSchema), ["names"])).toBe("");
+    expect(newListEntryDraft(planSchemaForm(listSchema), ["names"])).toEqual(answeredScalar(""));
   });
 
   it("opens a repeated number unanswered rather than as the empty string", () => {
     // A number control shows nothing for a string, so `""` there is a payload holding a
-    // value no control on the screen is displaying.
-    expect(newListEntryFor(planSchemaForm(listSchema), ["scores"])).toBeUndefined();
+    // value no control on the screen is displaying — and an UNANSWERED node rather than
+    // `undefined`, which inside the answer's array serializes as `null`.
+    expect(newListEntryDraft(planSchemaForm(listSchema), ["scores"])).toBe(UNANSWERED_SCALAR);
   });
 
   it("opens a repeated choice unanswered, including one whose enumeration spells empty", () => {
     // `""` is a member this enumeration legitimately contains, so inserting it would have
     // answered the question the moment somebody pressed the add control.
-    expect(newListEntryFor(planSchemaForm(listSchema), ["tiers"])).toBeUndefined();
+    expect(newListEntryDraft(planSchemaForm(listSchema), ["tiers"])).toBe(UNANSWERED_SCALAR);
   });
 
   it("opens a repeated artifact reference unanswered rather than as an empty identifier", () => {
-    expect(newListEntryFor(planSchemaForm(listSchema), ["evidence"])).toBeUndefined();
+    expect(newListEntryDraft(planSchemaForm(listSchema), ["evidence"])).toBe(UNANSWERED_SCALAR);
   });
 
   it("answers for a collection this form never drew rather than throwing", () => {
     // A caller asking about a member no control exists for is asking about a form it does
     // not have — which is a value question and never a crash, like every read here. There
     // is no control to derive an opening value from, so there is no value.
-    expect(newListEntryFor(planSchemaForm(listSchema), ["absent"])).toBeUndefined();
+    expect(newListEntryDraft(planSchemaForm(listSchema), ["absent"])).toBeUndefined();
   });
 });

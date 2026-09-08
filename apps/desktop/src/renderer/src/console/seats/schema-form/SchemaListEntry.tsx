@@ -15,24 +15,28 @@
 //
 // THE IDS ARE MINTED PER ENTRY rather than composed from the member path, because two
 // forms over one schema can be mounted at once — a definition's preview beside a run's
-// answer — and a path-derived id would be the same id in both documents.
+// answer — and a path-derived id would be the same id in both documents. Which entry a
+// mounted row IS, when positions shift, is the collection's own question and is answered
+// by the entry id it keys on.
 
 import { useId } from "react";
 
 import { SchemaFieldControl } from "./SchemaFieldControl.js";
 import { SchemaFieldIssues } from "./SchemaFieldIssues.js";
+import type { SchemaScalarDraft } from "./schema-draft.js";
 import { describedByOf } from "./schema-field-control.js";
 import { listEntryLabel } from "./schema-list-labels.js";
 import type { SchemaListDescriptor } from "./schema-fields.js";
+import type { SchemaControlView } from "./schema-projection.js";
 
 export interface SchemaListEntryProps {
   /** The collection this entry belongs to, which is what names it and types it. */
   readonly list: SchemaListDescriptor;
   /** Where it sits. Zero-based; the spoken position is the label rule's. */
   readonly index: number;
-  /** Whatever the answer holds at this position. Not yet proved to be anything. */
-  readonly value: unknown;
-  readonly onChange: (value: unknown) => void;
+  /** What this row's control displays, projected from the entry node it holds. */
+  readonly view: SchemaControlView;
+  readonly onChange: (draft: SchemaScalarDraft) => void;
   /** The schema's findings about this entry, addressed by its own indexed path. */
   readonly issues: readonly string[];
 }
@@ -48,7 +52,8 @@ export function SchemaListEntry(props: SchemaListEntryProps): React.JSX.Element 
       </label>
       <SchemaFieldControl
         field={props.list.item}
-        value={props.value}
+        value={props.view.value}
+        unreadableText={props.view.unreadableText}
         onChange={props.onChange}
         controlId={controlId}
         describedById={describedByOf([props.issues.length === 0 ? undefined : issuesId])}
