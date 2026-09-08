@@ -149,4 +149,4 @@ describe("the footnote registry", () => {
     ).not.toBeUndefined();
   });
 });
-import { FOOTNOTE_DEFINITION_CAP } from "../../../core/index.js";
+import { FOOTNOTE_DEFINITION_CAP } from "../../../../core/index.js";

@@ -1,9 +1,9 @@
 // A footnote marker — the control that opens its definition, or the marker alone.
 //
 // This console renders footnotes through one popover host per timeline over the
-// source-keyed registry `markdown/footnote-registry.ts` owns, and this is the control
-// that reaches it: a marker that could not be pressed made the definition unreachable —
-// the registry recorded every body and nothing ever asked it for one.
+// source-keyed registry `markdown/footnotes/footnote-registry.ts` owns, and this is
+// the control that reaches it: a marker that could not be pressed made the definition
+// unreachable — the registry recorded every body and nothing ever asked it for one.
 //
 // TWO ELEMENTS, AND WHICH ONE IS RENDERED IS A FACT ABOUT THE MESSAGE. A reference whose
 // own message declared a definition is a button: there is a body to open. A reference

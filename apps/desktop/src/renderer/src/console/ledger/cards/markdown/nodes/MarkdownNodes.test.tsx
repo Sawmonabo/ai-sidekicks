@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { MarkdownNodes } from "./MarkdownNodes.js";
-import { parseSettledBlock } from "./markdown-parse.js";
+import { parseSettledBlock } from "../parse/markdown-parse.js";
 
 function renderMarkdown(source: string, definedFootnotes: readonly string[] = []): HTMLElement {
   const { container } = render(

@@ -138,16 +138,14 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
   const result = useMemo(
     () =>
       query.trim().length === 0
-        ? emptyFindResult(visible.rows.length, visible.hasEarlierRows)
-        : findInLedger(visible.rows, query, visible.hasEarlierRows),
+        ? emptyFindResult(visible.rows.length)
+        : findInLedger(visible.rows, query),
     [visible, query],
   );
 
   const beyondWindowMatchCount = useMemo(
     () =>
-      query.trim().length === 0
-        ? 0
-        : findInLedger(visible.prunedAwayRows, query, false).totalMatchCount,
+      query.trim().length === 0 ? 0 : findInLedger(visible.prunedAwayRows, query).totalMatchCount,
     [visible, query],
   );
 
@@ -155,7 +153,7 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
     () =>
       query.trim().length === 0
         ? 0
-        : findInLedger(visible.withheldByReplayRows, query, false).totalMatchCount,
+        : findInLedger(visible.withheldByReplayRows, query).totalMatchCount,
     [visible, query],
   );
 
@@ -242,5 +240,5 @@ function matchesAmong(rows: readonly TimelineRow[], query: string): number {
   if (rows.length === 0 || query.trim().length === 0) {
     return 0;
   }
-  return findInLedger(rows, query, false).totalMatchCount;
+  return findInLedger(rows, query).totalMatchCount;
 }

@@ -80,8 +80,9 @@
 // the cap and the reading pin in `ledger/frame/viewport/` and not a fetch. Wiring the
 // backward read to it would send the daemon after rows the console is already
 // holding. The clip is passed truthfully either way, so the rail still draws its
-// dotted segment and the find result still carries its boundary over a window the cap
-// has truncated.
+// dotted segment; the find result states its own boundary as the rows it searched and
+// carries no copy of that clip, because no surface reading the result would branch on
+// one.
 //
 // AND THE ACT ITSELF HAS A HOME, which is why neither surface takes one: the backward
 // read is `frame/paging/`'s, offered by `LoadEarlierAffordance` off the viewport this

@@ -7,8 +7,8 @@
 
 import type { RootContent } from "mdast";
 
-import { Nothing } from "../../../primitives/index.js";
-import { MarkdownNodes, type MarkdownRenderContext } from "./MarkdownNodes.js";
+import { Nothing } from "../../../../primitives/index.js";
+import { MarkdownNodes, type MarkdownRenderContext } from "../nodes/MarkdownNodes.js";
 
 export interface DefinitionBodyProps {
   readonly bodyNodes: readonly RootContent[] | undefined;

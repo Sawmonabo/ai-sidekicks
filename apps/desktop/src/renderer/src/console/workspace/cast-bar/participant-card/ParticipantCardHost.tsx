@@ -7,8 +7,8 @@
 // had been a few macrotasks began exceeding the suite's five-second bound, and the two
 // cases after it failed on an empty body. So the bar mints ONE handle, every chip is a
 // trigger bound to it, and this file is the single popup they all open into — the same
-// arrangement `ledger/cards/markdown/FootnotePopoverHost.tsx` makes for the same reason,
-// and the arrangement the library's own handle API exists to serve.
+// arrangement `ledger/cards/markdown/footnotes/FootnotePopoverHost.tsx` makes for the
+// same reason, and the arrangement the library's own handle API exists to serve.
 //
 // THE ANCHORED PART OF THE CARD IS THE PRIMITIVE'S. `Tooltip.Root` and the handle stay
 // here — one popup driven by many triggers is the arrangement this file exists for —

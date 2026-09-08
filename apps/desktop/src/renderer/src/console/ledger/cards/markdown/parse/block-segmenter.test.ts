@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MARKDOWN_SETTLE_LAG_BLOCKS } from "../card-bounds.js";
+import { MARKDOWN_SETTLE_LAG_BLOCKS } from "../../card-bounds.js";
 import { MarkdownBlockSegmenter } from "./block-segmenter.js";
 
 /** Five paragraphs, the last of them still arriving. */

@@ -10,9 +10,15 @@
 //
 // THE BOUNDARY IS THE FEATURE. A find field that searched what it had and said
 // nothing would let a person conclude a session does not contain something it
-// does. So the boundary is a member of the result — `searchedRowCount` and
-// `hasEarlierRows` — rather than a caption the surface remembers to add, and
-// `LEDGER_FIND_SCOPE_NOTE` is the one sentence both the field and its test read.
+// does. So the boundary is a member of the result — `searchedRowCount` — rather
+// than a caption the surface remembers to add, and `LEDGER_FIND_SCOPE_NOTE` is the
+// one sentence both the field and its test read.
+//
+// WHETHER ROWS EXIST BEFORE THE WINDOW IS THE VIEWPORT'S READING AND NOT A MEMBER
+// HERE. `VisibleLedgerWindow.hasEarlierRows` is what the rail's dotted segment is
+// drawn from, and the find surface offers no act on it — so a copy of it on this
+// result would be a second home for one fact, read by nothing, with the field's own
+// scope sentence rendered unconditionally either way.
 //
 // WHAT IS SEARCHED. A row's `summary`, which is the human-readable line the daemon
 // composed, and its `type`, which is the wire-verbatim event kind — so typing
@@ -84,18 +90,13 @@ export interface LedgerFindResult {
    * behind nothing on screen. It rides BESIDE the walkable figure instead.
    */
   readonly totalMatchCount: number;
-  /** Rows the query was actually run over. Half of the stated boundary. */
+  /** Rows the query was actually run over. The stated boundary. */
   readonly searchedRowCount: number;
-  /** Whether the session has rows before this window. The other half. */
-  readonly hasEarlierRows: boolean;
 }
 
 /** The result an empty query produces: no matches, and the boundary still stated. */
-export function emptyFindResult(
-  searchedRowCount: number,
-  hasEarlierRows: boolean,
-): LedgerFindResult {
-  return { query: "", matches: [], totalMatchCount: 0, searchedRowCount, hasEarlierRows };
+export function emptyFindResult(searchedRowCount: number): LedgerFindResult {
+  return { query: "", matches: [], totalMatchCount: 0, searchedRowCount };
 }
 
 /**
@@ -110,14 +111,10 @@ export function emptyFindResult(
  * "everything" is what the ledger already shows, and a field that highlighted every
  * row the moment it was focused would be noise.
  */
-export function findInLedger(
-  rows: readonly TimelineRow[],
-  query: string,
-  hasEarlierRows: boolean,
-): LedgerFindResult {
+export function findInLedger(rows: readonly TimelineRow[], query: string): LedgerFindResult {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length === 0) {
-    return emptyFindResult(rows.length, hasEarlierRows);
+    return emptyFindResult(rows.length);
   }
   const needle = trimmedQuery.toLowerCase();
   const matches: LedgerFindMatch[] = [];
@@ -139,7 +136,6 @@ export function findInLedger(
     matches,
     totalMatchCount,
     searchedRowCount: rows.length,
-    hasEarlierRows,
   };
 }
 

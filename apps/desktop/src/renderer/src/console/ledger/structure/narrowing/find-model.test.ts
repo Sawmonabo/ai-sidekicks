@@ -54,40 +54,40 @@ describe("find — the boundary is a member of the result", () => {
     expect(LEDGER_FIND_SCOPE_NOTE).toBe("Searched loaded rows only.");
   });
 
-  it("reports what was searched and whether more exists, even with no query", () => {
-    const result = emptyFindResult(3, true);
+  it("reports what was searched even with no query", () => {
+    const result = emptyFindResult(3);
     expect(result.searchedRowCount).toBe(3);
-    expect(result.hasEarlierRows).toBe(true);
     expect(result.matches).toStrictEqual([]);
   });
 
-  it("carries both halves of the boundary through a real query", () => {
-    const result = findInLedger(searchWindow(), "deploy", true);
+  it("carries the searched count through a real query", () => {
+    const result = findInLedger(searchWindow(), "deploy");
     expect(result.searchedRowCount).toBe(3);
-    expect(result.hasEarlierRows).toBe(true);
   });
 
-  it("negative control: a complete window says so", () => {
-    expect(findInLedger(searchWindow(), "deploy", false).hasEarlierRows).toBe(false);
+  it("negative control: the count is the window's and not a constant", () => {
+    // Without this the two cases above would pass over a result that reported the
+    // three-row fixture's length whatever it was handed.
+    expect(findInLedger([], "deploy").searchedRowCount).toBe(0);
   });
 });
 
 describe("find — what a query matches", () => {
   it("matches a row's summary, case-insensitively", () => {
-    const result = findInLedger(searchWindow(), "deploy", false);
+    const result = findInLedger(searchWindow(), "deploy");
     expect(result.matches).toStrictEqual([{ rowId: "r1", sequence: 1, matchedIn: "summary" }]);
     expect(result.query).toBe("deploy");
   });
 
   it("matches the wire-verbatim event type when the summary does not carry it", () => {
-    const result = findInLedger(searchWindow(), "rolled_back", false);
+    const result = findInLedger(searchWindow(), "rolled_back");
     expect(result.matches).toStrictEqual([{ rowId: "r2", sequence: 2, matchedIn: "type" }]);
   });
 
   it("negative control: the payload is not searched", () => {
     // `g1`'s payload contains "deploy war room". A substring hit inside an open
     // record would rank a row a person cannot see the match in.
-    const matchedRowIds = findInLedger(searchWindow(), "war room", false).matches.map(
+    const matchedRowIds = findInLedger(searchWindow(), "war room").matches.map(
       (match) => match.rowId,
     );
     expect(matchedRowIds).toStrictEqual([]);
@@ -95,7 +95,7 @@ describe("find — what a query matches", () => {
 
   it("matches nothing on an empty or whitespace-only query", () => {
     for (const query of ["", "   ", "\t\n"]) {
-      const result = findInLedger(searchWindow(), query, false);
+      const result = findInLedger(searchWindow(), query);
       expect(result.matches).toStrictEqual([]);
       expect(result.totalMatchCount).toBe(0);
       expect(result.searchedRowCount).toBe(3);
@@ -105,11 +105,11 @@ describe("find — what a query matches", () => {
   it("negative control: an empty query does not silently match everything", () => {
     // Highlighting every row the moment the field is focused is the failure this
     // guards; "everything" is what the ledger already shows.
-    expect(findInLedger(searchWindow(), "", false).matches.length).not.toBe(3);
+    expect(findInLedger(searchWindow(), "").matches.length).not.toBe(3);
   });
 
   it("trims the query it reports, so the field echoes what it searched for", () => {
-    expect(findInLedger(searchWindow(), "  deploy  ", false).query).toBe("deploy");
+    expect(findInLedger(searchWindow(), "  deploy  ").query).toBe("deploy");
   });
 });
 
@@ -129,7 +129,7 @@ describe("find — the cap bounds the walk and never the count", () => {
   }
 
   it("walks at most the cap and reports the true total", () => {
-    const result = findInLedger(oversizedWindow(), "recurring", false);
+    const result = findInLedger(oversizedWindow(), "recurring");
     expect(result.matches).toHaveLength(FIND_MATCH_CAP);
     expect(result.totalMatchCount).toBe(FIND_MATCH_CAP + 5);
     expect(result.searchedRowCount).toBe(FIND_MATCH_CAP + 5);
@@ -139,14 +139,14 @@ describe("find — the cap bounds the walk and never the count", () => {
     // The counter draws its second figure and the field draws its cap sentence off
     // this one answer, so the two can never disagree about whether a walk is
     // bounded.
-    expect(isFindWalkCapped(findInLedger(oversizedWindow(), "recurring", false))).toBe(true);
+    expect(isFindWalkCapped(findInLedger(oversizedWindow(), "recurring"))).toBe(true);
     expect(LEDGER_FIND_TRUNCATION_NOTE).toContain(String(FIND_MATCH_CAP));
   });
 
   it("negative control: under the cap the two numbers agree", () => {
     // Which is what shows the divergence above is the cap reporting itself rather
     // than the counter being wrong.
-    const result = findInLedger(searchWindow(), "e", false);
+    const result = findInLedger(searchWindow(), "e");
     expect(result.totalMatchCount).toBe(result.matches.length);
     expect(isFindWalkCapped(result)).toBe(false);
   });
@@ -181,7 +181,6 @@ describe("find — stepping the walk", () => {
       }),
     ],
     "hit",
-    false,
   );
 
   it("walks forward and wraps at the end", () => {
@@ -200,7 +199,7 @@ describe("find — stepping the walk", () => {
   });
 
   it("negative control: there is nothing to walk with no matches", () => {
-    const empty = findInLedger(searchWindow(), "no row says this", false);
+    const empty = findInLedger(searchWindow(), "no row says this");
     expect(stepFindMatch(empty, 0, "next")).toBeUndefined();
   });
 
@@ -232,7 +231,7 @@ describe("find — the first step, before anything is selected", () => {
   }
 
   function resultOver(count: number): ReturnType<typeof findInLedger> {
-    return findInLedger(windowOfMatches(count), "hit", false);
+    return findInLedger(windowOfMatches(count), "hit");
   }
 
   /** Every match count a walk can be entered over, and where each direction lands. */

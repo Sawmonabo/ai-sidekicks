@@ -298,4 +298,4 @@ import {
   CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
   CODE_TOKEN_CACHE_BYTE_CAP,
   CODE_WORKER_THRESHOLD_BYTES,
-} from "../../../core/index.js";
+} from "../../../../core/index.js";

@@ -4,7 +4,7 @@
 // body and saying nothing would delete an author's words with no record, so this is
 // the line that keeps them on screen.
 
-import { Nothing } from "../../../primitives/index.js";
+import { Nothing } from "../../../../primitives/index.js";
 
 export interface UncitedDefinitionsProps {
   readonly identifiers: readonly string[];

@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { collectFootnoteDefinitions, collectFootnoteReferences } from "./footnote-collection.js";
-import { parseSettledBlock } from "./markdown-parse.js";
+import { parseSettledBlock } from "../parse/markdown-parse.js";
 
 describe("collecting a message's footnote definitions", () => {
   it("finds a definition and reports its identifier", () => {
