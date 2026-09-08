@@ -98,6 +98,17 @@ const INITIAL_GRAPH_CHUNKS: readonly string[] = ["core.js", "index.css", "index.
  * registration question `apps/desktop/AGENTS.md §Import boundaries` states — is this
  * painted before a person acts? — and the answers are a loader-backed registration, a
  * door line deleted, or a row added here with the reason it belongs.
+ *
+ * WHAT THIS SET CANNOT SEE, AND WHY IT IS STILL BOUNDED. A row is a directory a source
+ * map NAMED, so a module the bundler compiled out of a virtual specifier contributes no
+ * `sources` entry and therefore no row. Measured rather than assumed: the console's glyph
+ * faces compile from `~icons/<collection>/<name>` at build time, thirty-six of them ride
+ * the entry chunk, and not one appears below. That is a real gap in the membership claim
+ * and it is closed by construction rather than by vigilance — the faces are a
+ * `Record<GlyphName, …>` over a closed `GLYPH_NAMES` array, so a thirty-seventh face is a
+ * member added to a set the compiler makes total, which is a reviewed edit to
+ * `console/tokens/glyphs.ts` and to `console/primitives/glyph-faces.ts`, both censused as
+ * rows of their own. The bytes they weigh are on the budget gated next door either way.
  */
 const INITIAL_GRAPH_OWNERS: readonly string[] = [
   "<renderer root>",
