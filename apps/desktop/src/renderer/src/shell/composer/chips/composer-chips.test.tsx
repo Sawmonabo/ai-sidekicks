@@ -8,10 +8,34 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { AgentSwitchSettlement } from "../../../console/bridge/index.js";
 import type { AgentBindingReading } from "./agent-binding-read.js";
 import type { ComposerChannelTarget, ComposerRunTarget } from "./chip-models.js";
 import { PostureChip } from "./PostureChip.js";
+import type { TargetAxisReach } from "./target-axis-reach.js";
 import { TargetChip } from "./TargetChip.js";
+
+/**
+ * A reach the rail would have resolved, with one settlement layered on.
+ *
+ * Hand-built here on purpose: this suite is about what the chip RENDERS from what it
+ * is handed, and the resolution that produces these arms has its own suite next door.
+ */
+function axisReachOffered(settlement: AgentSwitchSettlement): TargetAxisReach {
+  return {
+    reach: "offered",
+    control: {
+      agent: { agentId: "agent-implementer", name: "Ada" },
+      catalog: { catalog: { kind: "not-loaded" }, reopen: () => undefined },
+      switching: {
+        isSubmitting: false,
+        settlement,
+        refusal: undefined,
+        apply: () => undefined,
+      },
+    },
+  };
+}
 
 /** Nothing was asked, which is what the channel path and an unmounted read read as. */
 const NOTHING_ASKED: AgentBindingReading = {
@@ -227,18 +251,25 @@ describe("TargetChip — every fact on it came from the wire", () => {
     // `turn_boundary` interpolated into prose reads as English only by accident.
     expect(container.textContent).toContain("Switch applies at the next turn");
     expect(container.textContent).not.toContain("turn_boundary");
-    // Eligibility is never derived in the renderer, and no wire member carries an
-    // axis mutation today — so the chip offers no button at all.
+    // Eligibility is never derived in the renderer: this chip was handed no axis
+    // reach at all, so it offers no control and states nothing about one.
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("renders no failed-switch chip, because neither carrier is reachable", () => {
-    // The negative control for the fabricated third read: a switch failure travels
-    // on `agent.configUpdate`'s response — a mutation this composer never issues —
-    // or on `agent.provider_switch_failed`, an event `packages/contracts` does not
-    // register. A reading that says a switch is pending renders exactly that, and
-    // no arm of this chip can render a failure at all.
-    const { container } = render(
+  it("renders the immediate arm of a failed switch, and nothing for the deferred one", () => {
+    // The two carriers are not alike now. The IMMEDIATE arm is
+    // `agent.configUpdate`'s own response, which the rail's latch holds and hands
+    // over on `axes` — so it renders. The DEFERRED arm rides
+    // `agent.provider_switch_failed`, an event `packages/contracts` does not
+    // register, so no reading can carry one and the pending clause stands alone.
+    const failed = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={bindingRead()}
+        axes={axisReachOffered({ status: "failed", reason: "account_unavailable" })}
+      />,
+    );
+    const pendingOnly = render(
       <TargetChip
         model={{ target: RUN_TARGET, bindingClause: undefined }}
         binding={bindingRead({
@@ -252,8 +283,27 @@ describe("TargetChip — every fact on it came from the wire", () => {
       />,
     );
 
-    expect(container.textContent).toContain("Switch applies at the next run");
-    expect(container.querySelector(".meridian-chip--failure")).toBeNull();
+    expect(failed.container.querySelector(".meridian-chip--failure")).not.toBeNull();
+    // The reason is the wire's own word, in mono, rather than prose this console wrote.
+    expect(failed.container.textContent).toContain("account_unavailable");
+    // The negative control: a reading that only says a switch is PENDING renders no
+    // failure at all, so the two states are never confused for one another.
+    expect(pendingOnly.container.textContent).toContain("Switch applies at the next run");
+    expect(pendingOnly.container.querySelector(".meridian-chip--failure")).toBeNull();
+  });
+
+  it("says the axis change is not reachable rather than drawing a dead control", () => {
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={bindingRead()}
+        axes={{ reach: "unreachable" }}
+      />,
+    );
+
+    expect(container.textContent).toContain("Axis change not offered");
+    // Fail-closed and never disabled: a disabled button asserts the act exists.
+    expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
   it("describes an unnamed channel target rather than printing an id", () => {

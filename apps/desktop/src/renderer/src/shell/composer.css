@@ -156,3 +156,45 @@
   gap: var(--meridian-space-1);
   align-items: center;
 }
+
+/* The axis popover's trigger. A control and not a chip: it is pressed rather than
+   read, so its boundary is `edge-strong` like this composer's other buttons rather
+   than the decorative `edge` hairline the chips and the frame wear, and it sits at
+   chip height so the rail stays one line. */
+.meridian-composer__axes-trigger {
+  padding: 0 var(--meridian-space-2);
+  font: inherit;
+  color: var(--meridian-accent);
+  background: none;
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-composer__axes-trigger:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The popup itself, dressed as `.meridian-footnote-popover` is and for its reasons.
+   Bounded, because the form inside carries five axis controls and a settlement line
+   and a popover that grew with its content would cover the message being composed.
+   `color` is declared rather than inherited because the popup PORTALS — it lands
+   outside the frame's subtree, so an inherited ink is whatever the document body
+   happens to carry. */
+.meridian-composer__axes-popover {
+  max-width: 26rem;
+  max-height: 24rem;
+  padding: var(--meridian-space-3);
+  overflow-y: auto;
+  color: var(--meridian-text);
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  box-shadow: 0 0.5rem 1.5rem oklch(0% 0 0 / 18%);
+}
+
+.meridian-composer__axes-popover:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

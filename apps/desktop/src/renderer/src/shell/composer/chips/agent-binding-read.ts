@@ -37,18 +37,26 @@
 // A label is still rendered only when BOTH reads served: an account id absent from the
 // label rows has not been read, and the chip says nothing rather than showing a handle.
 //
-// AND THE FAILED SWITCH IS DELIBERATELY NOT HERE. It has two carriers and this
-// console can reach neither. The IMMEDIATE arm is `agent.configUpdate`'s response
-// disposition (`switch.status === "failed"`), and this composer issues no
-// `agent.configUpdate` — the axis popover is not built, which `TargetChip.tsx` says
-// and gives its reason for. The DEFERRED arm rides `agent.provider_switch_failed`,
-// an event type `packages/contracts`' `event.ts` does not register (Plan-016 T1.13),
-// and a console cannot fold an event the union does not carry. So the pending chip
-// stands until the daemon reports through a carrier that exists, the wire is named
-// on `Plan-023 §Console growth slate` under `agent-provider-switch-failure`, and
-// nothing here invents a third carrier to render it from.
+// AND THE FAILED SWITCH IS STILL NOT HERE, THOUGH ONE OF ITS TWO CARRIERS IS NOW
+// REACHABLE. The IMMEDIATE arm is `agent.configUpdate`'s response disposition
+// (`switch.status === "failed"`), and the composer DOES issue that mutation now — the
+// axis popover is built — but the reply is the latch's and reaches the chip on its
+// own prop rather than through this reading. A roster read cannot carry it: only the
+// client that issued the mutation ever sees that response, so folding it in here
+// would make a per-window fact look like a property of the roster. The DEFERRED arm
+// rides `agent.provider_switch_failed`, an event type `packages/contracts`'
+// `event.ts` does not register (Plan-016 T1.13), and a console cannot fold an event
+// the union does not carry — the wire is named on `Plan-023 §Console growth slate`
+// under `agent-provider-switch-failure`, and nothing here invents a carrier for it.
+//
+// WHAT THIS READING DOES OWE THE MUTATION IS A RE-READ. `pendingSwitch` is the
+// roster's word about a switch accepted and unapplied, and the daemon only starts
+// saying it once a mutation has been answered — a moment no event announces to the
+// client that issued one. So the reading takes an optional settlement and re-reads on
+// it, which is what keeps the chip's pending clause moving on the daemon's answer
+// rather than on the local press.
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   consoleClockFor,
@@ -56,6 +64,7 @@ import {
   useProviderQuotas,
   type AgentPendingSwitch,
   type AgentRosterEntry,
+  type AgentSwitchSettlement,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
@@ -147,6 +156,14 @@ export function useAgentBindingReading(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
   agentId: string | undefined,
+  /**
+   * The newest `agent.configUpdate` settlement this window received, if any.
+   *
+   * Read by IDENTITY and not by content: the latch publishes one record per settled
+   * round, so a new object is a new answer and the same object across renders is the
+   * same one. A caller with no latch omits it and gets the four standing reasons.
+   */
+  settledSwitch?: AgentSwitchSettlement | undefined,
 ): AgentBindingReading {
   // The window's one account-plane reading, watched rather than re-read. Watched
   // unconditionally, because a hook may not be called conditionally and because the
@@ -174,6 +191,16 @@ export function useAgentBindingReading(
   // an effect armed once per addressing, so a switch queued by a collaborator after
   // this composer mounted never reached the chip.
   useReadTriggers(reading, sessionStore, bridge.transportReconnect);
+  // The fifth reason, and the one the store cannot supply. A settlement is a
+  // participant's own act reaching its answer, so it is scheduled as
+  // `participant-request` — the same reason the catalog's reopen control uses, and
+  // the one the scheduler treats as asked-for rather than as a background repair.
+  useEffect(() => {
+    if (settledSwitch === undefined) {
+      return;
+    }
+    reading.requestRead("participant-request");
+  }, [reading, settledSwitch]);
   const readout = useSyncExternalStore(
     (onReadoutChanged) => reading.subscribe(onReadoutChanged),
     () => reading.readout,

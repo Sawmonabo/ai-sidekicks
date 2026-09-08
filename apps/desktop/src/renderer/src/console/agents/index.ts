@@ -110,14 +110,21 @@ export { registerAgentsSidebarSection } from "./agents-sidebar-section.js";
 
 // --- THE PROVIDER SWITCH, FOR A HOST OUTSIDE THIS FAMILY ----------------
 //
-// Every name below is claimed for `T-023p-1C-3`, whose composer mounts this form in the
-// target chip's axis popover. The claims are retired by the change that imports them,
-// which is the one event `apps/desktop/AGENTS.md` retires a marker on.
+// The composer mounts this form in its target chip's axis popover, and what it imports
+// is the whole set: the loader, its context type, the two factories, and the two holder
+// shapes. Their `T-023p-1C-3` claims are retired here, which is the one event
+// `apps/desktop/AGENTS.md` retires a marker on.
+//
+// TWO NAMES THAT WERE CLAIMED FOR THAT HOST ARE GONE INSTEAD OF TAGGED, and the reason
+// is what building the host established: `AxisDraft` and `DriverCatalogReading` were
+// published on the premise that a caller composes the form's props from parts, and a
+// caller that takes the two holders whole never names either — `apply` and `catalog`
+// arrive already typed. A door line no task will import is deleted rather than carried
+// on a marker, so both are, and their declaring modules are read directly by the
+// intra-family callers that do need them.
 
 /**
  * The context this body is handed: exactly the form's own props.
- *
- * @consumedBy T-023p-1C-3
  */
 export type { ProviderSwitchBodyContext } from "./provider-switch/provider-switch-body.js";
 
@@ -127,8 +134,6 @@ export type { ProviderSwitchBodyContext } from "./provider-switch/provider-switc
  * A `LazyBodyLoader` and not a bare arrow, so a host resolves it through the same
  * `seats/lazy-body.ts` contract both boards resolve a registered body through — and so
  * the module's `Body` export name is checked here rather than at the mount.
- *
- * @consumedBy T-023p-1C-3
  */
 export const loadProviderSwitchBody: LazyBodyLoader<ProviderSwitchBodyContext> = () =>
   import("./provider-switch/provider-switch-body.js");
@@ -137,21 +142,8 @@ export const loadProviderSwitchBody: LazyBodyLoader<ProviderSwitchBodyContext> =
 // what leaves is how a host OPENS a catalog reading and how it holds one latch, so the
 // read, the scheduler, and the generation round stay this family's to own.
 export {
-  /** @consumedBy T-023p-1C-3 */
   useAgentBindingSwitch,
-  /** @consumedBy T-023p-1C-3 */
   useDriverCatalogReading,
-  /** @consumedBy T-023p-1C-3 */
   type AgentBindingSwitchHolder,
-  /** @consumedBy T-023p-1C-3 */
   type DriverCatalogHolder,
 } from "./provider-switch/provider-switch-host.js";
-
-// The two shapes a caller names to compose that context, from the modules that DECLARE
-// them. `AgentSwitchSettlement` and `PushDrivenReadState` are deliberately not here:
-// both are already public through `bridge/` and `seats/`, and a second route to one
-// symbol is a second answer to where it lives.
-/** @consumedBy T-023p-1C-3 */
-export type { AxisDraft } from "./provider-switch/provider-switch-draft.js";
-/** @consumedBy T-023p-1C-3 */
-export type { DriverCatalogReading } from "./driver-catalog.js";

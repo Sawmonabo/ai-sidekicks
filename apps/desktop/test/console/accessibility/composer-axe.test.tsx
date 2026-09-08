@@ -1,4 +1,4 @@
-// The accessibility tier over the composer family's five surfaces.
+// The accessibility tier over every surface the composer family mounts.
 //
 // `frame-axe.test.tsx` runs the frame; this file runs what the family mounts INTO
 // it, and it runs each surface scoped to itself rather than scanning the document,
@@ -15,7 +15,7 @@
 // an accessory rail. Its four addresses differ in which of those are offered, so a
 // name or a label lost on one address is invisible on the other three.
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
@@ -71,8 +71,29 @@ describe("accessibility — the composer and runs surfaces", () => {
     }
   }
 
+  it("has no axe violation on the target chip's open axis popover", async () => {
+    // Scoped to the POPUP rather than to the surface that opened it: the popover
+    // portals out of the composer into the window's overlay root, so a run over the
+    // mounted surface would report clean over a form it never reached.
+    await mountComposerProviderBoundRunning();
+    const trigger = [...document.querySelectorAll("button")].find(
+      (candidate) => candidate.textContent === "Change provider axes",
+    );
+    expect(trigger).not.toBeUndefined();
+    trigger?.click();
+    const popup = await vi.waitFor(() => {
+      const found = document.querySelector<HTMLElement>(".meridian-composer__axes-popover");
+      if (found === null || found.querySelector(".meridian-switch") === null) {
+        throw new Error("the axis form has not mounted into the popover yet");
+      }
+      return found;
+    });
+
+    expect(describeViolations(await runTierAxe(popup))).toStrictEqual([]);
+  });
+
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: the ten cases above expect an
+    // Negative control for this file's own runs: every case above expects an
     // empty list, and a misconfigured run returns exactly the same empty list.
     const planted = plantAxeViolation();
     try {
