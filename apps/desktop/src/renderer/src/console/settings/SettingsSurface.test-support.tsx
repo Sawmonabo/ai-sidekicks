@@ -20,7 +20,7 @@ import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/ind
 // The descriptor type by its own specifier: no production module names it, so the
 // seats door publishes no line for it and the barrel census would fail one written
 // for this harness alone.
-import type { ConsoleSurfaceDescriptor } from "../seats/surface-registry.js";
+import type { ConsoleSurfaceDescriptor } from "../seats/surface/surface-registry.js";
 
 /**
  * The render a window mounts, taken from the shipped registrar itself.

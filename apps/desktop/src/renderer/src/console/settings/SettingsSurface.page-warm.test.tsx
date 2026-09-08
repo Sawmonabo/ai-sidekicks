@@ -16,7 +16,7 @@ import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the family's production door.
-import { ManualIdleWarmScheduler } from "../seats/idle-warm.test-support.js";
+import { ManualIdleWarmScheduler } from "../seats/lazy-body/idle-warm.test-support.js";
 import type { FrameStore } from "../store/index.js";
 import { renderSurface, searchFor, windowAt } from "./SettingsSurface.test-support.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "./settings-page-registry.js";

@@ -48,11 +48,11 @@ import {
 // The pane probe by its own specifier, for the reason below it: a door cannot
 // publish a fixture helper, because the barrel census fails a door line no
 // production module reads.
-import { registerFreePaneKindProbe } from "./seats/pane-probe.test-support.js";
+import { registerFreePaneKindProbe } from "./seats/pane/pane-probe.test-support.js";
 // The slot tuple by its own specifier: the seats door does not publish it, because
 // this suite is its only reader and a door line no production module reaches is one
 // the barrel census fails.
-import { CONSOLE_SURFACE_SLOTS } from "./seats/surface-registry.js";
+import { CONSOLE_SURFACE_SLOTS } from "./seats/surface/surface-registry.js";
 
 declare global {
   interface ImportMeta {

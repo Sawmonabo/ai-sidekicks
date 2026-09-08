@@ -37,14 +37,14 @@ import { useHashRouteBinding } from "./hash-route-binding.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { BARE_TIMELINE_ROUTE } from "./RouteSurface.test-support.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
-import { deferredBodyModule } from "../seats/lazy-body.test-support.js";
+import { deferredBodyModule } from "../seats/lazy-body/lazy-body.test-support.js";
 // The pending marker's reader by its own leaf specifier: the seats door carries no line
 // for it, and its own header says why — a door line whose only consumer is a test is a
 // specifier no shipped module reaches.
-import { pendingPaneKindsIn } from "../seats/pending-pane-body.js";
+import { pendingPaneKindsIn } from "../seats/pane/pending-pane-body.js";
 // The module-scope registration door by its own specifier, on `RouteSurface.test.tsx`'s
 // reason: the seats door does not publish it.
-import { registerConsoleSurface } from "../seats/surface-registry.js";
+import { registerConsoleSurface } from "../seats/surface/surface-registry.js";
 
 /** The bare route whose grammar takes an agent WITH its session or not at all. */
 const BARE_AGENT_CONSOLE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "agent-console" };

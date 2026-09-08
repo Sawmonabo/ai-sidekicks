@@ -21,7 +21,7 @@ import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { SessionStore } from "../../store/index.js";
 import { type ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { type PaneContextOf } from "../../seats/index.js";
-import { paneContext } from "../../seats/pane-context.test-support.js";
+import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 
 /**
  * The approvals pane's context, over the shared builder.

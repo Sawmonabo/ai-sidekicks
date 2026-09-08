@@ -29,10 +29,10 @@ import { consolePaneRegistry } from "../../../src/renderer/src/console/seats/ind
 import {
   deferredBodyModule,
   syntheticPaneContextAt,
-} from "../../../src/renderer/src/console/seats/lazy-body.test-support.js";
-import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pending-pane-body.js";
-import { type ConsolePaneContext } from "../../../src/renderer/src/console/seats/pane-context.js";
-import { type PaneKind } from "../../../src/renderer/src/console/seats/pane-kinds.js";
+} from "../../../src/renderer/src/console/seats/lazy-body/lazy-body.test-support.js";
+import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pane/pending-pane-body.js";
+import { type ConsolePaneContext } from "../../../src/renderer/src/console/seats/pane/pane-context.js";
+import { type PaneKind } from "../../../src/renderer/src/console/seats/pane/pane-kinds.js";
 
 /** The kind this case borrows. Nothing else in this file's graph registers one. */
 const SYNTHETIC_KIND = "diff";

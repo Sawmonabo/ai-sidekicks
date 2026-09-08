@@ -47,7 +47,7 @@ import {
   type CallerParticipantReader,
   type SessionStore,
 } from "../../store/index.js";
-import { useGrowthReadOnMount } from "../growth-read.js";
+import { useGrowthReadOnMount } from "../read/growth-read.js";
 
 /**
  * Names a refusal the caller-identity read itself did not name.

@@ -51,7 +51,7 @@ import { bridgeAnswering } from "../../../src/renderer/src/console/bridge/fixtur
 import { SESSION_ID } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../src/renderer/src/console/core/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
-import { PushDrivenRead } from "../../../src/renderer/src/console/seats/push-driven-read.js";
+import { PushDrivenRead } from "../../../src/renderer/src/console/seats/read/push-driven-read.js";
 
 /**
  * How many open / read / close cycles one claim is measured over.

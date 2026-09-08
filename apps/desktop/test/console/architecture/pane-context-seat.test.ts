@@ -1,6 +1,6 @@
 // The pane-mount context has one builder, and every fixture reaches it.
 //
-// `seats/pane-context.test-support.ts` was written to end a class of duplication its
+// `seats/pane/pane-context.test-support.ts` was written to end a class of duplication its
 // own header names: a suite that mounts a pane needs an address and eight bindings,
 // reads two or three of them, and produces the rest as scaffolding — so every family
 // that mounted a pane had written that scaffolding again. The copies were not merely
@@ -35,10 +35,10 @@ const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
 vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS });
 
 /** The one home for the pane-mount context. Its own literal is the thing being shared. */
-const SEAT_MODULE = "seats/pane-context.test-support.ts";
+const SEAT_MODULE = "seats/pane/pane-context.test-support.ts";
 
 /** How a module names the seat, as the console's own specifier form spells it. */
-const SEAT_SPECIFIER_SUFFIX = "seats/pane-context.test-support.js";
+const SEAT_SPECIFIER_SUFFIX = "seats/pane/pane-context.test-support.js";
 
 /**
  * What makes an object literal a PANE binding stack rather than any other context.
@@ -177,7 +177,7 @@ describe("pane mount contexts — one builder, in the seat", () => {
     expect(
       importsTheSeat(
         "planted.tsx",
-        'import { paneContext } from "../../seats/pane-context.test-support.js";',
+        'import { paneContext } from "../../seats/pane/pane-context.test-support.js";',
       ),
     ).toBe(true);
     expect(
@@ -205,7 +205,7 @@ describe("pane mount contexts — one builder, in the seat", () => {
     expect(
       importsTheSeat(
         "explainer.ts",
-        "// Every mount goes through seats/pane-context.test-support.js.",
+        "// Every mount goes through seats/pane/pane-context.test-support.js.",
       ),
     ).toBe(false);
     expect(laundersThroughUnknown("checked.ts", "const region = node as HTMLElement;")).toBe(false);

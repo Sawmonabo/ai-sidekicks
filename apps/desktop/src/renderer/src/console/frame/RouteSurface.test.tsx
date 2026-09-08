@@ -31,7 +31,7 @@ import { BARE_TIMELINE_ROUTE } from "./RouteSurface.test-support.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "../seats/index.js";
 // The module-scope registration door by its own specifier: the seats door does not
 // publish it, no production module calling it having landed yet.
-import { registerConsoleSurface } from "../seats/surface-registry.js";
+import { registerConsoleSurface } from "../seats/surface/surface-registry.js";
 
 /** The rail's middle destination, whose slot this suite deliberately leaves unclaimed. */
 const WORKFLOWS_ROUTE: ConsoleRoute = { kind: "workflows" };

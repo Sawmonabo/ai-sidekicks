@@ -98,7 +98,7 @@ export function isOwningBarrel(modulePath: string): boolean {
  * A DOOR, ON THE SAME REASONING AS A BARREL. What a stylesheet edge needs is a module
  * that is the single way into the code the sheet paints, and a chunk root is exactly
  * that — the loader's `import()` is the only static reference to it, so a sheet it
- * imports arrives on that chunk and on no other. `seats/lazy-body.ts` makes this the
+ * imports arrives on that chunk and on no other. `seats/lazy-body/lazy-body.ts` makes this the
  * console's registration form for a body that is not on the flagship first paint, and
  * such a body is the entry to its own directory in the same way a barrel is.
  *
