@@ -75,7 +75,7 @@ describe("child-run entries — one card per child, at the row that first named 
       rowCarryingChildRun("r1", 1, completeSummary("run-child", 1)),
       rowCarryingChildRun("r2", 2, {
         ...completeSummary("run-child", 9),
-        state: "succeeded",
+        state: "completed",
         producingNodeId: "node-b" as NodeId,
         completeness: { state: "incomplete", cause: "compacted", observedAt: OBSERVED_AT },
       }),
@@ -85,7 +85,7 @@ describe("child-run entries — one card per child, at the row that first named 
     // every figure on it is the second row's.
     expect(entries[0]?.rowId).toBe("r1");
     expect(entries[0]?.summary.eventCount).toBe(9);
-    expect(entries[0]?.summary.state).toBe("succeeded");
+    expect(entries[0]?.summary.state).toBe("completed");
     expect(entries[0]?.summary.producingNodeId).toBe("node-b");
     expect(entries[0]?.summary.completeness).toEqual({
       state: "incomplete",
