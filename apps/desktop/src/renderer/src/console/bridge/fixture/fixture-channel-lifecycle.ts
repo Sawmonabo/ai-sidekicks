@@ -54,7 +54,7 @@
 // that declares no viewer, neither of which is a fact about a channel.
 
 import { answerScriptOnly } from "./fixture-scripted-answer.js";
-import { fixtureSessionMembershipCount } from "./fixture-session-snapshot.js";
+import { fixtureSessionMembershipCount } from "./fixture-session-membership.js";
 import type {
   GrowthChannelCreateReceipt,
   GrowthChannelLifecycleReceipt,
@@ -181,14 +181,22 @@ export class FixtureChannelLifecycle {
    * refuses any other number — so the pair is the membership, counted rather than
    * assumed at two, which is what keeps this reading the request instead of restating a
    * rule. Every other channel takes the session's own membership, counted through
-   * `fixture-session-snapshot.ts` so the act and the directory fold answer "who is in
+   * `fixture-session-membership.ts` so the act and the directory fold answer "who is in
    * this session" the same way, agents excluded.
+   *
+   * AND IT IS COUNTED AT THE CREATE INSTANT, off the frames this playback has actually
+   * delivered rather than off the roster the session opened with. The two differ the
+   * moment a membership ENDS: a room that has been told somebody was revoked and then
+   * creates a general channel was reporting that person as one of its members, because
+   * the base state's participant entities fold no lifecycle event and never will —
+   * they are the state at cursor zero by construction. The fold beside them is what
+   * the log has said since.
    */
   #membershipOfCreated(request: GrowthOperationSignatures["channelCreate"]["request"]): number {
     if (request.kind === "direct" && request.memberPair !== undefined) {
       return request.memberPair.length;
     }
-    return fixtureSessionMembershipCount(this.#engine.scenario, request.sessionId);
+    return fixtureSessionMembershipCount(this.#engine, request.sessionId);
   }
 
   /** Answer one move from the script, and publish what it says the daemon did. */

@@ -37,7 +37,7 @@ import {
   SESSION_ID,
 } from "./repos-fixture-data.js";
 import { secondsBeforeStart } from "./repos-beats.js";
-import { answerFor } from "./scripted-request.js";
+import { answerFor } from "./computed-reply.js";
 
 /**
  * What `repo.mountRead` answers, per mount.

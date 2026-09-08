@@ -29,8 +29,13 @@
 import type { ChannelState, SessionEventType } from "@ai-sidekicks/contracts";
 
 import { CHANNEL_CREATED_EVENT_KIND } from "./fixture-channel-lifecycle.js";
-import { fixtureSessionMembershipCount } from "./fixture-session-snapshot.js";
-import { isWireRecord, readWireString } from "../../core/index.js";
+import { fixtureSessionMembershipCount } from "./fixture-session-membership.js";
+import {
+  isWireRecord,
+  payloadContradictsSession,
+  payloadNamesSession,
+  readWireString,
+} from "../../core/index.js";
 import type { ScenarioEngine } from "../scenario-runtime/index.js";
 
 /**
@@ -157,6 +162,14 @@ interface DeliveredChannelDirectory {
  * channel answers a second press with the same identity — and a list would then put two
  * rows for one channel in the directory, which is a shape no `channel.list` can send.
  * One key means one row; insertion order keeps it where the session first heard of it.
+ *
+ * AND EVERY FRAME IS HELD TO ITS OWN ENVELOPE'S SESSION BEFORE IT MOVES A ROW. A
+ * transition is keyed by `channelId` alone, so a frame delivered on this session whose
+ * payload names another one used to move this session's channel on the strength of a
+ * claim about somebody else's — the identical defect the membership projection closed on
+ * its own five kinds, in a fold that no longer agreed with it. The rule is
+ * `core/wire-session-attribution.ts`'s and {@link statesThisSession} states which of its
+ * two arms each kind warrants and why.
  */
 function deliveredChannelDirectory(
   engine: ScenarioEngine,
@@ -169,6 +182,9 @@ function deliveredChannelDirectory(
     const payload = isWireRecord(event.payload) ? event.payload : undefined;
     const channelId = payload === undefined ? undefined : readWireString(payload["channelId"]);
     if (state === undefined || channelId === undefined || payload === undefined) {
+      continue;
+    }
+    if (!statesThisSession(event.kind, payload, event.sessionId)) {
       continue;
     }
     stateByChannelId.set(channelId, state);
@@ -185,15 +201,15 @@ function deliveredChannelDirectory(
 }
 
 /**
- * How many people are in the session being played.
+ * How many people are in the session being played, as the log has left it.
  *
- * Counted through `fixture-session-snapshot.ts` rather than off the scenario directly,
+ * Counted through `fixture-session-membership.ts` rather than off the scenario directly,
  * so one reader answers "who is in this session" for the fixture's whole surface — the
- * acts next door take the same one — and a room whose roster grows cannot have the
+ * acts next door take the same one — and a room whose roster moves cannot have the
  * directory and the create disagreeing about it.
  */
 function sessionMembershipCount(engine: ScenarioEngine): number {
-  return fixtureSessionMembershipCount(engine.scenario, engine.scenario.sessionId);
+  return fixtureSessionMembershipCount(engine, engine.scenario.sessionId);
 }
 
 /**
@@ -216,6 +232,44 @@ function createdDirectoryRow(
       CHANNEL_STATE_BY_LIFECYCLE_KIND[CHANNEL_CREATED_EVENT_KIND],
     participantCount: creation.participantCount,
   };
+}
+
+/**
+ * Whether one channel frame's PAYLOAD may be read as this session's.
+ *
+ * TWO ARMS, AND THE ASYMMETRY IS THE CONTRACT'S rather than this module's — the split
+ * `collaboration/members/membership-projector.ts` already takes over the membership
+ * plane's own five kinds, consuming the same two predicates.
+ *
+ * The three TRANSITIONS take the required arm. `Spec-006` gives `channel.muted`,
+ * `channel.unmuted` and `channel.archived` a `{sessionId, channelId}` payload, and both
+ * producers write it — the beats `collaboration/beats.ts` authors by hand and the frames
+ * `fixture-channel-lifecycle.ts` publishes from a served act — so a transition that omits
+ * the member is malformed rather than terse, and one that names another session is a
+ * frame no daemon emits. Either way it moves no row here: the whole of the fixture's
+ * subject-scoping discipline is that a reading about one session is never composed from a
+ * claim about a different one.
+ *
+ * `channel.created` takes the contradiction arm. It is the one kind here the corpus
+ * registers a payload variant for, and that variant is exactly `{channelId, name?}` with
+ * no `sessionId` in it at all — so requiring one would refuse every creation the fixture
+ * itself publishes, and only a PRESENT member naming somewhere else is refused.
+ *
+ * A REFUSED FRAME YIELDS NO ROW AND NOTHING ELSE, which is the disposition that
+ * projection gives the same contradiction. This fold is recomputed on every
+ * `channel.list` read, so a report raised from inside it would fire once per read of a
+ * scenario that carries one bad beat rather than once per defect — and the fixture's own
+ * home for "this scenario contradicts the shipped wire contract" is the wire-truth walk
+ * in `scenarios/wire-truth/`, which reads each scenario once and names the beat.
+ */
+function statesThisSession(
+  eventKind: string,
+  payload: Readonly<Record<string, unknown>>,
+  envelopeSessionId: string,
+): boolean {
+  return eventKind === CHANNEL_CREATED_EVENT_KIND
+    ? !payloadContradictsSession(payload, envelopeSessionId)
+    : payloadNamesSession(payload, envelopeSessionId);
 }
 
 /** The state this kind announces, or `undefined` for any kind that announces none. */

@@ -7,6 +7,13 @@
 // `fixture-session-directory.ts` derives what the node HAS; this one derives what one
 // session already CONTAINS at the moment a store opens on it.
 //
+// AND THAT MOMENT IS WHAT SCOPES IT. What a session contains LATER is a fold of the
+// delivered log over this base state, and it lives in `fixture-session-membership.ts`
+// beside the channel plane that reads it. The two are one reading in two halves rather
+// than two answers: that module's opening term is this module's snapshot, so a roster
+// this file derives and a roster the channel plane counts cannot disagree about who a
+// scenario declares — only about what has happened to them since.
+//
 // WHAT THE BASE STATE HONESTLY IS
 //
 // Cursor zero, the session's roster, and the memberships that roster holds. Zero
@@ -103,29 +110,6 @@ export function fixtureSessionSnapshot(
  * walk derives the first admissible beat position from it, so the two cannot drift.
  */
 export const BASE_STATE_CURSOR = 0;
-
-/**
- * How many PEOPLE hold a membership in one session.
- *
- * Counted off the entities above rather than off the join log, and the difference is
- * the agents: the join order holds everything that gets a hue, and an agent is
- * attached rather than admitted, so it appears there and holds no membership. A
- * channel's `participantCount` counts people, so the join order would report a session
- * larger than its own roster the moment a scenario attached one.
- *
- * Derived here rather than at either caller because the channel plane reads it from
- * both sides — the act that records how many people a create put in a channel, and the
- * directory fold that answers for a creation no act of this fixture performed — and two
- * counts of one roster are free to disagree about what a member is.
- */
-export function fixtureSessionMembershipCount(
-  scenario: ConsoleScenario,
-  sessionId: string,
-): number {
-  return fixtureSessionSnapshot(scenario, sessionId).entities.filter(
-    (entity) => entity.kind === "participant",
-  ).length;
-}
 
 /**
  * One participant entity per declared membership, in join order.

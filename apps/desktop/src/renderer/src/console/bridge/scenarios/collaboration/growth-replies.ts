@@ -39,15 +39,20 @@
 //     `pty.control_changed` beat happened to be last would be the exact derivation
 //     `Spec-023 §Console Design (Meridian)` 8.8 rules out.
 //
-// AND WHY THE FOUR WRITES ANSWER AND THE REFUSALS ARE NOT SCRIPTED HERE. A scenario
-// scripts one reply per call, and a reply is either a value or a refusal — so a script
-// that refused `channel.create` would make creating a channel impossible in the one
-// scenario built to show a room with channels in it. The refusal renderings are driven
-// where they can be driven exhaustively: co-located tests over the surfaces
-// themselves, one per registered code. What this script covers is the path a person
-// takes when nothing goes wrong, which no unit test covers.
+// AND WHY THE FOUR WRITES ANSWER RATHER THAN REFUSING AS A TABLE ROW. A scenario
+// scripts one reply per call, and a scripted refusal is that call's whole answer — so a
+// row that refused `channel.create` would make creating a channel impossible in the one
+// scenario built to show a room with channels in it. The refusal RENDERINGS are driven
+// where they can be driven exhaustively: co-located tests over the surfaces themselves,
+// one per registered code. What this script covers is the path a person takes when
+// nothing goes wrong, which no unit test covers.
+//
+// A COMPUTED reply refuses per REQUEST, which is a different mechanism and the one the
+// three lifecycle moves take: the call is served for every channel this room holds and
+// refused for an id it does not, so both paths stay reachable through one row. That is
+// the fixture answering as the daemon does rather than the scenario picking a side.
 
-import { requestedIdentifier, answerFor } from "../scripted-request.js";
+import { requestedIdentifier, answerFor, refuseAs } from "../computed-reply.js";
 import {
   MEMBERSHIP_ROSTER_READ_CALL,
   TERMINAL_CONTROL_HOLDER_READ_CALL,
@@ -59,6 +64,18 @@ import type { ScenarioReply } from "../../scenario-runtime/index.js";
 export interface CollaborationGrowthScript {
   readonly participants: readonly CollaborationGrowthParticipant[];
   readonly channelIds: CollaborationGrowthChannelIds;
+  /**
+   * Every channel id the room's DIRECTORY holds when it opens.
+   *
+   * A superset of {@link CollaborationGrowthChannelIds} rather than a second spelling of
+   * it: the roster read below deliberately omits the bootstrap channel, which has no
+   * channel row at all, while `channel.list` carries it like any other — so the three
+   * ids that reply states are what each channel is FOR and these are what the room
+   * contains. Supplied by the room from its own channel table on `presenceRowsAt`'s
+   * rule, because the directory is the room's fact and this script's business with it is
+   * only to know which ids a lifecycle move may name.
+   */
+  readonly directoryChannelIds: readonly string[];
   /**
    * The two humans the direct channel is between, in the order the daemon fixed.
    *
@@ -112,7 +129,13 @@ export interface CollaborationGrowthChannelIds {
   readonly direct: string;
 }
 
-/** What creating a channel answers with. One id, because one create is scripted. */
+/**
+ * What creating a channel answers with. One id, because one create is scripted.
+ *
+ * It is also the one id this room's directory can hold that its opening table does not:
+ * the create mints it and the fold in `fixture/fixture-channel-directory.ts` appends the
+ * row, so a lifecycle move naming it is a move against a channel of this room's.
+ */
 const CHANNEL_CREATED = "019b7904-8ce0-7c11-8140-cca0117a0398";
 
 /** The instant the created channel reports. The scenario's own start, one minute on. */
@@ -197,6 +220,10 @@ export function collaborationGrowthReplies(
         .presenceRowsAt(settledAtMilliseconds)
         .map((row) => [row.participantId, presenceDetailFor(row)]),
     );
+  // Built once here rather than per call, which is what keeps the three lifecycle
+  // replies computations: they read a set composed from the script and hold no state of
+  // their own, so a playback stays replayable tick-for-tick.
+  const roomChannelIds = roomChannelIdsOf(script);
   return [
     { call: "channel.rosterRead", result: channelRosterEntries(script) },
     {
@@ -236,24 +263,71 @@ export function collaborationGrowthReplies(
     },
     // The three lifecycle receipts echo the channel they were asked about rather than
     // naming one: a receipt about a different channel than the caller sent would teach
-    // a surface that a lifecycle move is session-wide.
+    // a surface that a lifecycle move is session-wide. They RESOLVE it first — see
+    // below for what a receipt for an id this room has never held would teach instead.
     {
       call: "channel.mute",
-      resultFor: (request) => lifecycleReceipt(request, "muted"),
+      resultFor: (request) => lifecycleReceipt(request, "muted", roomChannelIds),
     },
     {
       call: "channel.unmute",
-      resultFor: (request) => lifecycleReceipt(request, "active"),
+      resultFor: (request) => lifecycleReceipt(request, "active", roomChannelIds),
     },
     {
       call: "channel.archive",
-      resultFor: (request) => lifecycleReceipt(request, "archived"),
+      resultFor: (request) => lifecycleReceipt(request, "archived", roomChannelIds),
     },
   ];
 }
 
-/** What a lifecycle move answers: the channel asked about, in the state it now holds. */
-function lifecycleReceipt(request: unknown, state: string): unknown {
+/**
+ * Every channel this room can be asked to move: the directory it opens with, plus the
+ * one its own create mints.
+ *
+ * ARCHIVED ROWS STAY IN IT, because the directory keeps them — `channel.list` sinks an
+ * archived channel into its own region rather than dropping it, so an archived channel
+ * is one this room still holds and a move against it is a request the daemon answers
+ * (whether it answers with a receipt or with `channel.inactive` is a state rule this
+ * room does not script). What is NOT in it is an id no read of this room ever returns,
+ * which is the one thing being resolved.
+ */
+function roomChannelIdsOf(script: CollaborationGrowthScript): ReadonlySet<string> {
+  return new Set([...script.directoryChannelIds, CHANNEL_CREATED]);
+}
+
+/**
+ * What a lifecycle move answers: the channel asked about, in the state it now holds.
+ *
+ * RESOLVED AGAINST THE ROOM'S OWN DIRECTORY FIRST, and the reason is what the previous
+ * reading cost. Any string-valued `channelId` was echoed back as a served receipt, and
+ * `fixture/fixture-channel-lifecycle.ts` appends the matching transition frame for every
+ * served act — so a surface muting a channel by a stale identifier, or by one it had
+ * composed from the wrong row, was answered exactly as a correct press is and the
+ * directory grew a row for a channel this room has never held. The regression class that
+ * makes unreachable is the one a fixture exists to make reachable.
+ *
+ * The refusal is `channel.not_found`, which is what
+ * `docs/architecture/contracts/error-contracts.md` registers for a channel that does not
+ * exist in the session, thrown through the scenario seam's one refusal constructor so
+ * this room refuses in the shape the wire refuses in.
+ *
+ * A request carrying NO readable `channelId` still answers `undefined` rather than
+ * refusing, and the two are different facts: an unresolvable request is a malformed call
+ * this scenario scripts no answer for, which is the authoring gap the unscripted arm
+ * names, while a resolvable one naming a channel the room does not hold is a daemon
+ * refusal a surface has to render.
+ */
+function lifecycleReceipt(
+  request: unknown,
+  state: string,
+  roomChannelIds: ReadonlySet<string>,
+): unknown {
   const channelId = requestedIdentifier(request, "channelId");
-  return channelId === undefined ? undefined : { channelId, state };
+  if (channelId === undefined) {
+    return undefined;
+  }
+  if (!roomChannelIds.has(channelId)) {
+    refuseAs("channel.not_found", "No channel by that id exists in this session.");
+  }
+  return { channelId, state };
 }

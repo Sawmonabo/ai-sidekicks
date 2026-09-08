@@ -191,6 +191,12 @@ export const COLLABORATION_REPLIES: ConsoleScenario["replies"] = [
       handoff: CHANNEL_HANDOFF,
       direct: CHANNEL_DIRECT,
     },
+    // What the directory above OPENS with, derived from the same table that composes it
+    // rather than listed a second time — so a channel added to this room is one a
+    // lifecycle move can name, in one edit and without a second table agreeing to it.
+    // The bootstrap row is in here and deliberately absent from the roster read beside
+    // it: it is a channel this session holds and not a channel with a configuration.
+    directoryChannelIds: COLLABORATION_CHANNELS.map((channel) => channel.channelId),
     directChannelPair: [PARTICIPANT_YOU, PARTICIPANT_PRIYA],
     // Somebody else holds the shell. The viewer holding it would draw the one
     // arm every surface renders the same way it renders no holder at all.
