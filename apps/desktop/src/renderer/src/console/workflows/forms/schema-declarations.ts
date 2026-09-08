@@ -13,9 +13,9 @@
 // a member that is not what it claims comes back as nothing rather than as a cast.
 //
 // AND THE WHOLE-SCHEMA READERS LIVE HERE TOO. `asRecord` and `requiredKeysOf` are asked
-// of a member schema and of the root alike, which is why the root-constraint walk beside
-// the planner reaches them here rather than reaching into the planner: two readers of one
-// schema shape, one implementation of the reading.
+// of a member schema, of a group, and of the root alike, which is why the constraint walk
+// beside the planner reaches them here rather than reaching into the planner: two readers
+// of one schema shape, one implementation of the reading.
 
 import {
   ARTIFACT_REFERENCE_FORMAT,

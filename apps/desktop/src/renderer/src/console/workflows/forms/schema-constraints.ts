@@ -1,12 +1,19 @@
-// Which members a schema's ROOT constraints can require, read out of the constraints
-// themselves rather than guessed from the shape of the form.
+// Which members ONE object schema's own constraints can require, read out of the
+// constraints themselves rather than guessed from the shape of the form.
 //
-// WHY THIS EXISTS. A root constraint is checked against the whole answer and reported at
-// the empty path, so a schema whose `oneOf` arms require members its `properties` never
-// declares draws every control it has, reports a finding about the form itself, and
+// WHY THIS EXISTS. A constraint is checked against the object it sits on and reported at
+// that object's path, so a schema whose `oneOf` arms require members its own `properties`
+// never declares draws every control it has, reports a finding about that object, and
 // offers nobody a control that could ever clear it. That is the one shape a mapper whose
 // whole promise is "never a refusal" must still refuse to DRAW: the raw editor can answer
 // it and the drawn form cannot.
+//
+// AND IT IS ASKED AT EVERY LEVEL THAT DRAWS CONTROLS. The root asks it of its own members
+// and each drawn group asks it of its own, because a group whose `oneOf` names a member
+// that group declares no property for is the identical defect one level down — same
+// unclearable finding, same person looking at it. One walk answers both: the caller
+// supplies the schema whose constraints are being read and the names its controls drew,
+// and the root is simply the instance where the enclosing path is empty.
 //
 // A UNION AND NOT A SATISFIABILITY VERDICT. Every name any of these arms can require is
 // collected and each is asked of the drawn controls, rather than deciding which arm a
@@ -20,9 +27,11 @@
 // be ABSENT, so no control is owed for it and collecting the name would send a schema to
 // the raw editor for asking that something be left out.
 //
-// AND `properties` IS NOT DESCENDED INTO. What a nested object requires of its own members
-// is that object's business, answered where the group is planned; this walk is about the
-// root's members and follows combinators alone.
+// AND `properties` IS NOT DESCENDED INTO — WHICH IS WHAT MAKES THE PER-LEVEL CALL CORRECT.
+// What a nested object requires of its own members is that object's business, asked again
+// where that group is planned and against the controls that group drew. Descending here
+// would collect a child's names into the parent's answer, where no control ever draws them
+// and every nested `required` would read as a defect.
 
 import { asRecord, requiredKeysOf } from "./schema-declarations.js";
 
@@ -107,16 +116,19 @@ function collectFromSchema(
 }
 
 /**
- * Every member name this root schema's own constraints can require, in the order met.
+ * Every member name one object schema's own constraints can require, in the order met.
  *
  * Ordered because the caller names ONE member in the sentence it shows a person, and the
  * first undrawn name met walking the schema as written is the one an author reading their
  * own document would look for first.
+ *
+ * The names are the object's OWN keys, unqualified — this walk knows nothing about where
+ * in the form that object sits, and the caller that does supplies the path.
  */
-export function membersRootConstraintsCanRequire(
-  rootSchema: Readonly<Record<string, unknown>>,
+export function membersConstraintsCanRequire(
+  schema: Readonly<Record<string, unknown>>,
 ): readonly string[] {
   const collected = new Set<string>();
-  collectFromSchema(rootSchema, collected, new Set());
+  collectFromSchema(schema, collected, new Set());
   return [...collected];
 }

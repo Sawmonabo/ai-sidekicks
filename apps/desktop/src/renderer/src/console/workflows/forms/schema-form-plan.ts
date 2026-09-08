@@ -11,12 +11,17 @@
 // cannot act on.
 //
 // AND TWO OF THE FALLBACKS ARE ABOUT A FORM THAT WOULD HAVE DRAWN PERFECTLY. A declared
-// value no control could display, and a root constraint that can require a member
-// `properties` never declared, both produce controls that render and an answer nobody can
-// make valid — the first by seeding a value the control does not show, the second by
-// reporting a finding no control on the screen can clear. Both are decided here, before
-// the plan says "fields", because deciding them later means deciding them after somebody
-// has started typing.
+// value no control could display, and a constraint that can require a member the level it
+// sits on never declared, both produce controls that render and an answer nobody can make
+// valid — the first by seeding a value the control does not show, the second by reporting
+// a finding no control on the screen can clear. Both are decided here, before the plan
+// says "fields", because deciding them later means deciding them after somebody has
+// started typing.
+//
+// THE CONSTRAINT READING IS MADE AT EVERY LEVEL THAT DRAWS CONTROLS, root and group alike,
+// each against the members that level actually drew. One cause covers both depths and the
+// member it names carries its full path, so the sentence a person reads says which group
+// is short a control rather than only which key is.
 //
 // THE INPUT IS `unknown` BY CONSTRUCTION. A phase definition carries its config as an
 // untyped record — the wire declares no shape for it — so every read here is a probe
@@ -32,16 +37,16 @@ import {
   labelOf,
   requiredKeysOf,
 } from "./schema-declarations.js";
+import { membersConstraintsCanRequire } from "./schema-constraints.js";
 import {
   leafKeyOf,
-  leafPathOf,
+  memberKeyOf,
   type SchemaFallback,
   type SchemaFormEntry,
   type SchemaFormPlan,
   type SchemaLeafEntry,
   valueSuitsFieldKind,
 } from "./schema-fields.js";
-import { membersRootConstraintsCanRequire } from "./schema-root-constraints.js";
 
 /** The raw-editor answer for one member that could not be drawn. */
 function outOfSet(memberPath: SchemaMemberPath): SchemaFallback {
@@ -61,10 +66,10 @@ function undrawableDefault(memberPath: SchemaMemberPath): SchemaFallback {
   };
 }
 
-/** The raw-editor answer for a root constraint that can require a member nothing draws. */
-function undrawableRootConstraint(memberPath: SchemaMemberPath): SchemaFallback {
+/** The raw-editor answer for a constraint that can require a member nothing draws. */
+function undrawableConstraint(memberPath: SchemaMemberPath): SchemaFallback {
   return {
-    cause: "root-constraint-undrawable",
+    cause: "constraint-undrawable",
     memberPath,
     detail: `The schema can require ${encodeMemberPointer(memberPath)}, which it declares no member for, so the whole answer is given as JSON instead.`,
   };
@@ -215,6 +220,14 @@ function planGroup(
       return undrawableDefault(memberPath);
     }
   }
+  // The group's OWN constraints, asked of the controls this group drew — the same reading
+  // the root makes of its own, one level in. It sends the WHOLE schema to the raw editor
+  // rather than only this group, because a group drawn beside a finding no control in it
+  // can clear is the state this check exists to prevent, and there is no half-raw form.
+  const undrawnConstraint = undrawnConstraintFallback(schema, memberPath, entries);
+  if (undrawnConstraint !== undefined) {
+    return undrawnConstraint;
+  }
   return {
     form: "group",
     group: {
@@ -227,33 +240,41 @@ function planGroup(
   };
 }
 
-/** The root key each drawn entry answers under, whichever form it took. */
-function drawnRootMemberNames(entries: readonly SchemaFormEntry[]): ReadonlySet<string> {
+/** The key each drawn entry answers under at its own level, whichever form it took. */
+function drawnMemberNames(entries: readonly SchemaFormEntry[]): ReadonlySet<string> {
   const names = new Set<string>();
   for (const entry of entries) {
-    const memberPath = entry.form === "group" ? entry.group.memberPath : leafPathOf(entry);
-    const rootSegment = memberPath[0];
-    if (rootSegment !== undefined) {
-      names.add(String(rootSegment));
+    const key = entry.form === "group" ? memberKeyOf(entry.group.memberPath) : leafKeyOf(entry);
+    if (key !== undefined) {
+      names.add(key);
     }
   }
   return names;
 }
 
 /**
- * The first member the root's constraints can require and these controls do not draw.
+ * The fallback one level's own constraints force, or nothing where every name they can
+ * require reaches a control that level drew.
+ *
+ * ONE RULE AT BOTH DEPTHS, AND THE ROOT IS THE DEPTH-0 INSTANCE. `enclosingPath` is empty
+ * at the root and is the group's path inside a group, which is the whole difference — the
+ * member is named by its FULL path either way, so one cause covers both and a person
+ * reading `/release/signedBy` is told which group is missing the control rather than only
+ * which key.
  *
  * ONE NAME AND NOT THE SET, because the fallback shows a person one sentence and that
  * sentence names one member — the first met walking the schema as written, which is the
  * one an author reading their own document would look for first. The rest are the same
  * defect and are found again the moment this one is declared.
  */
-function undrawnConstraintMember(
+function undrawnConstraintFallback(
   schema: Readonly<Record<string, unknown>>,
+  enclosingPath: readonly string[],
   entries: readonly SchemaFormEntry[],
-): string | undefined {
-  const drawn = drawnRootMemberNames(entries);
-  return membersRootConstraintsCanRequire(schema).find((memberName) => !drawn.has(memberName));
+): SchemaFallback | undefined {
+  const drawn = drawnMemberNames(entries);
+  const undrawn = membersConstraintsCanRequire(schema).find((memberName) => !drawn.has(memberName));
+  return undrawn === undefined ? undefined : undrawableConstraint([...enclosingPath, undrawn]);
 }
 
 /**
@@ -306,9 +327,11 @@ export function planSchemaForm(inputSchema: unknown): SchemaFormPlan {
   // LAST, BECAUSE IT IS ASKED OF THE CONTROLS THAT WERE ACTUALLY DRAWN. Every member the
   // root's own constraints can require has to reach one of them; a name that reaches none
   // is a finding reported against the whole answer with nothing on the screen to clear it.
-  const undrawnMember = undrawnConstraintMember(schema, entries);
-  if (undrawnMember !== undefined) {
-    return { shape: "raw", fallback: undrawableRootConstraint([undrawnMember]) };
+  // The enclosing path is empty here — this is the depth-0 call of the check each drawn
+  // group has already made of its own constraints.
+  const undrawnConstraint = undrawnConstraintFallback(schema, [], entries);
+  if (undrawnConstraint !== undefined) {
+    return { shape: "raw", fallback: undrawnConstraint };
   }
   return { shape: "fields", entries };
 }

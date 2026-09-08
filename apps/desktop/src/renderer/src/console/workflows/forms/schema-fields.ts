@@ -167,15 +167,25 @@ export function leafPathOf(leaf: SchemaLeafEntry): SchemaMemberPath {
 }
 
 /**
+ * The key one member path answers under inside its own level: the last segment.
+ *
+ * ONE IMPLEMENTATION FOR BOTH DEPTHS. A root entry's path is one segment long and a
+ * group's leaf is two, and "which key does this answer under" is the same question at
+ * either — asking it twice is how a nested reading and a root reading come to disagree.
+ */
+export function memberKeyOf(memberPath: SchemaMemberPath): string | undefined {
+  const last = memberPath[memberPath.length - 1];
+  return last === undefined ? undefined : String(last);
+}
+
+/**
  * The key one leaf answers under inside its group: the last segment of its own path.
  *
  * Derived from the path above rather than reading the descriptors a second time, so the
  * two readings cannot disagree about which of the two forms holds the path.
  */
 export function leafKeyOf(leaf: SchemaLeafEntry): string | undefined {
-  const memberPath = leafPathOf(leaf);
-  const last = memberPath[memberPath.length - 1];
-  return last === undefined ? undefined : String(last);
+  return memberKeyOf(leafPathOf(leaf));
 }
 
 /** One level of nesting, and the type is where "one level" is enforced. */
@@ -216,17 +226,19 @@ export type SchemaFormEntry =
  * wherever a schema declares a value: a control that cannot display what the schema
  * declared for it would show one thing while the answer carried another.
  *
- * `root-constraint-undrawable` IS THE ONLY CAUSE ABOUT A MEMBER THE FORM NEVER MET. The
- * others name something the mapper read and could not draw; this one names a member the
- * root's own constraints can require and `properties` never declared, so the drawn form
- * would report a finding nobody had a control to clear.
+ * `constraint-undrawable` IS THE ONLY CAUSE ABOUT A MEMBER THE FORM NEVER MET. The others
+ * name something the mapper read and could not draw; this one names a member some level's
+ * own constraints can require and that level's `properties` never declared, so the drawn
+ * form would report a finding nobody had a control to clear. It is ONE cause and not one
+ * per depth: the root is the depth-0 instance of the same defect, and the member it names
+ * carries its full path, which is what tells the two apart without a second name.
  */
 export const SCHEMA_FALLBACK_CAUSES = [
   "root-not-an-object",
   "no-members",
   "member-out-of-set",
   "default-undrawable",
-  "root-constraint-undrawable",
+  "constraint-undrawable",
   "schema-uncheckable",
 ] as const;
 

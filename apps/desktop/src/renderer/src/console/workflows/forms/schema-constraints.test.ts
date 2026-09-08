@@ -1,4 +1,4 @@
-// Which members a root schema's constraints can require, asked of the walk directly.
+// Which members one object schema's own constraints can require, asked of the walk directly.
 //
 // SEPARATE FROM THE MAPPER'S SUITE because the two claims differ. The mapper's cases are
 // about which ARM a schema resolves to; these are about what the walk finds, which is the
@@ -8,15 +8,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import { membersRootConstraintsCanRequire } from "./schema-root-constraints.js";
+import { membersConstraintsCanRequire } from "./schema-constraints.js";
 
 /** What the walk found, ordered so a case can also pin which name is met first. */
-function requirable(rootSchema: Readonly<Record<string, unknown>>): readonly string[] {
-  return membersRootConstraintsCanRequire(rootSchema);
+function requirable(schema: Readonly<Record<string, unknown>>): readonly string[] {
+  return membersConstraintsCanRequire(schema);
 }
 
-describe("the members a root schema's constraints can require", () => {
-  it("finds the root's own required members", () => {
+describe("the members one schema's own constraints can require", () => {
+  it("finds the schema's own required members", () => {
     expect(requirable({ type: "object", required: ["approver", "scope"] })).toEqual([
       "approver",
       "scope",
@@ -73,8 +73,9 @@ describe("the members a root schema's constraints can require", () => {
   });
 
   it("does not descend into a nested object's own members", () => {
-    // What a group requires of its members is answered where that group is planned; this
-    // walk is about the root's members and follows combinators alone.
+    // What a group requires of its members is answered where that group is planned, by
+    // this same walk called on that group; descending here would collect a child's names
+    // into a parent whose controls never draw them.
     expect(requirable({ properties: { release: { required: ["tag"] } } })).toEqual([]);
   });
 
