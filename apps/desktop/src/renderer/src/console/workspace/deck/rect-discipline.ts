@@ -6,10 +6,13 @@
 // scroll on any ancestor, and layout movers (pane widths, rail collapse, theme change).
 // A `flushRect` step dedupes on a composed key so one frame produces one write. Native
 // views hide when either dimension of the visible clip is below one pixel. Overlay
-// elements register in an airspace registry on mount so a native view yields to them or
+// elements register in the WINDOW'S airspace on mount so a native view yields to them or
 // hides while one is up — which is the airspace half `Spec-023 §Console Libraries` owns
 // by name on its native-browser-view row: "OWN-BUILD the bounds bridge, the airspace
 // policy (hide the view and swap in a `capturePage` image while an overlay is open)".
+// That set is `core/airspace-registry.ts`'s and never this module's: it was declared
+// here too, for one window, and a second declaration of one rule is a second answer
+// that no overlay registering through `primitives/` was ever put into.
 //
 // TWO RULES DO ALL THE WORK, and both are about WHEN rather than what:
 //
@@ -36,7 +39,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
-  Emitter,
+  airspaceRegistryFor,
+  type AirspaceRegistry,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
@@ -50,68 +54,31 @@ import {
   type TrackedRect,
 } from "./rect-geometry.js";
 
-/**
- * Which overlays are up.
- *
- * Dialogs, popovers, context menus, toasts, and lightboxes register on mount; a
- * native view yields while any of them is registered. A registry rather than a
- * boolean because two overlays can be up at once and a boolean would let the first
- * one to close hand the airspace back while the second is still on screen.
- *
- * An instance rather than a module singleton, because an auxiliary window is its
- * own renderer with its own overlays — the same no-shared-state property I-023-12
- * states for stores.
- */
-export class AirspaceRegistry {
-  readonly #occupants = new Set<string>();
-  readonly #changes = new Emitter<boolean>("airspace change");
-
-  /**
-   * Claim the airspace. The returned function is the only way to release it.
-   *
-   * Emits on the false→true TRANSITION only, matching the release side, which
-   * already emits only where the delete removed something. A second overlay opening
-   * above the first changes nothing a subscriber would act on, and emitting for it
-   * would spend a re-measure of every tracked pane on an answer that cannot differ.
-   */
-  public claim(overlayId: string): Unsubscribe {
-    const wasOccupied = this.#occupants.size > 0;
-    this.#occupants.add(overlayId);
-    if (!wasOccupied) {
-      this.#changes.emit(true);
-    }
-    return () => {
-      if (this.#occupants.delete(overlayId)) {
-        this.#changes.emit(this.#occupants.size > 0);
-      }
-    };
-  }
-
-  public get isOccupied(): boolean {
-    return this.#occupants.size > 0;
-  }
-
-  public subscribe(listener: (isOccupied: boolean) => void): Unsubscribe {
-    return this.#changes.subscribe(listener);
-  }
-}
-
 export interface PaneRectTrackerOptions {
   readonly clock: ConsoleClock;
   /** Where a deduped batch of rects is written. Called at most once per frame. */
   readonly onFlush: (rects: readonly TrackedRect[]) => void;
-  readonly airspace?: AirspaceRegistry;
+  /**
+   * Which overlays are up in this window, so a pane's rect yields while one is.
+   *
+   * Required and injected rather than optional: every window has exactly one, and a
+   * tracker constructed without one read `isVisible` from the size floor alone while
+   * reporting the airspace rule in its own header — an unarmed policy that no caller
+   * could tell apart from an armed one with nothing on screen.
+   */
+  readonly airspace: AirspaceRegistry;
 }
 
 export class PaneRectTracker {
   readonly #clock: ConsoleClock;
   readonly #onFlush: (rects: readonly TrackedRect[]) => void;
-  readonly #airspace: AirspaceRegistry | undefined;
+  readonly #airspace: AirspaceRegistry;
   readonly #elementsByPaneId = new Map<string, Element>();
   readonly #pendingByPaneId = new Map<string, TrackedRect>();
   readonly #lastKeyByPaneId = new Map<string, string>();
   readonly #invalidationCountBySource = new Map<RectInvalidationSource, number>();
-  readonly #releaseAirspace: Unsubscribe | undefined;
+  readonly #releaseAirspace: Unsubscribe;
+  #wasAirspaceOccupied: boolean;
   #armedHandle: ScheduledHandle | undefined;
   #flushCount = 0;
   #writesDuringMeasurement = 0;
@@ -121,13 +88,26 @@ export class PaneRectTracker {
     this.#clock = options.clock;
     this.#onFlush = options.onFlush;
     this.#airspace = options.airspace;
+    this.#wasAirspaceOccupied = options.airspace.registeredCount > 0;
     // Subscribed HERE rather than sampled at each invalidation, because an overlay
     // opening fires none of the other four sources: the palette deliberately does not
     // lock document scroll and its inert carrier is `display: contents`, so nothing
     // about one appearing changes layout. Visibility is part of the dedupe key, so
     // without this the last flushed value simply stood — a native view composited over
     // a dialog that had just opened, or hidden after one had closed.
-    this.#releaseAirspace = options.airspace?.subscribe(() => {
+    //
+    // FILTERED TO THE TRANSITION, because the registry reports every change and this
+    // consumer reads only whether the count is above zero. A second overlay opening
+    // above the first, and any registered overlay MOVING, are changes the registry is
+    // right to publish — the browser family's publisher re-samples rectangles on
+    // exactly those — and re-measuring every tracked pane for them would spend the
+    // whole deck on an answer that cannot differ.
+    this.#releaseAirspace = options.airspace.subscribeToChanges(() => {
+      const isOccupied = this.#airspace.registeredCount > 0;
+      if (isOccupied === this.#wasAirspaceOccupied) {
+        return;
+      }
+      this.#wasAirspaceOccupied = isOccupied;
       this.invalidate("airspace");
     });
   }
@@ -187,7 +167,13 @@ export class PaneRectTracker {
       source,
       (this.#invalidationCountBySource.get(source) ?? 0) + 1,
     );
-    const isAirspaceOccupied = this.#airspace?.isOccupied === true;
+    // COUNT and not intersection, which is this module's rule rather than an
+    // approximation of the browser family's: §Console Libraries' native-view row is
+    // "hide the view … while an overlay is open". The per-pane intersection reading
+    // belongs to `browser/geometry/`'s publisher, which owns a pane's own box; a
+    // tracker that re-derived it here would be a second answer to one question.
+    const isAirspaceOccupied = this.#airspace.registeredCount > 0;
+    this.#wasAirspaceOccupied = isAirspaceOccupied;
     for (const [paneId, element] of this.#elementsByPaneId) {
       const clip = visibleClipOf(element);
       const isLargeEnough =
@@ -244,7 +230,7 @@ export class PaneRectTracker {
     this.#disposed = true;
     // Released before anything else, and safe against a racing emit either way:
     // `invalidate` early-returns once disposed.
-    this.#releaseAirspace?.();
+    this.#releaseAirspace();
     if (this.#armedHandle !== undefined) {
       this.#clock.cancel(this.#armedHandle);
       this.#armedHandle = undefined;
@@ -276,7 +262,6 @@ export class PaneRectTracker {
 export function usePaneRectTracker(options: {
   readonly clock: ConsoleClock;
   readonly onRects?: (rects: readonly TrackedRect[]) => void;
-  readonly airspace?: AirspaceRegistry;
 }): PaneRectTracker {
   const sink = useRef(options.onRects);
   useEffect(() => {
@@ -288,7 +273,12 @@ export function usePaneRectTracker(options: {
       new PaneRectTracker({
         clock: options.clock,
         onFlush: (rects) => sink.current?.(rects),
-        ...(options.airspace === undefined ? {} : { airspace: options.airspace }),
+        // Off the DOCUMENT and not off a prop, on `browser/pane/geometry-binding.ts`'s
+        // reading of the same rule: the overlays register on the registry their own
+        // element's document holds, so a deck handed one by a caller would be tracking
+        // an airspace nothing claims — which is what four prop hops of an `airspace`
+        // nobody ever passed had this family doing.
+        airspace: airspaceRegistryFor(document),
       }),
   );
 

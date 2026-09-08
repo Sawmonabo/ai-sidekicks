@@ -10,8 +10,8 @@ import {
   unscriptedScenario,
   withDaemonCall,
 } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { airspaceRegistryFor } from "../../../core/index.js";
 import { type SidebarBulkItem } from "../../../seats/index.js";
-import { AirspaceRegistry } from "../../deck/rect-discipline.js";
 import { BulkActionBar } from "./BulkActionBar.js";
 import { BulkSelectionModel } from "./bulk-selection.js";
 
@@ -41,17 +41,12 @@ const INVITE: SidebarBulkItem = {
 
 function renderBar(
   model: BulkSelectionModel,
-  options: { readonly airspace?: AirspaceRegistry; readonly bridge?: ConsoleBridge } = {},
+  options: { readonly bridge?: ConsoleBridge } = {},
 ): HTMLElement {
   const bridge =
     options.bridge ?? createFixtureBridge({ scenario: unscriptedScenario("sidebar-bulk-bar") });
   const { container } = render(
-    <BulkActionBar
-      model={model}
-      bridge={bridge}
-      sessionId={SESSION_ID}
-      {...(options.airspace === undefined ? {} : { airspace: options.airspace })}
-    />,
+    <BulkActionBar model={model} bridge={bridge} sessionId={SESSION_ID} />,
   );
   return container;
 }
@@ -172,25 +167,29 @@ describe("the bulk action bar", () => {
     expect(calls.map((call) => call.method)).toStrictEqual(["run.queueCancel"]);
   });
 
-  it("claims the airspace while the confirm is up and hands it back on cancel", () => {
-    // A dialog that did not claim it would be drawn under a native browser view,
-    // which is not a z-index this renderer can win.
-    const airspace = new AirspaceRegistry();
+  it("registers the confirm in the window's own airspace, and removes it on cancel", () => {
+    // Through `primitives/airspace-registration.ts` and into the registry the window's
+    // document holds, which is the pair of facts this case is about. The registration
+    // it replaced was a hand `claim` at this call site — the shape 12.3's Never bullet
+    // forbids — into a SECOND registry the workspace family declared, so every overlay
+    // it held was invisible to the predicate a native view actually reads.
+    const airspace = airspaceRegistryFor(document);
+    const before = airspace.registeredCount;
     const model = new BulkSelectionModel();
     model.toggle(FIRST_QUEUED);
-    const container = renderBar(model, { airspace });
+    const container = renderBar(model);
 
-    expect(airspace.isOccupied).toBe(false);
+    expect(airspace.registeredCount).toBe(before);
     act(() => {
       container.querySelector<HTMLButtonElement>(".meridian-sidebar-bulk__act")?.click();
     });
-    expect(airspace.isOccupied).toBe(true);
+    expect(airspace.registeredCount).toBe(before + 1);
 
     act(() => {
       container.querySelector<HTMLButtonElement>(".meridian-sidebar-bulk__confirm-cancel")?.click();
     });
 
-    expect(airspace.isOccupied).toBe(false);
+    expect(airspace.registeredCount).toBe(before);
   });
 
   it("renders each settled row's own outcome, refusal beside success", () => {

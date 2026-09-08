@@ -381,12 +381,13 @@ export { FileRestoreDisclosure } from "./restore/FileRestoreDisclosure.js";
 
 // The overlay shells, each registering what it mounts in the window's airspace
 // (`Spec-023 §Console Design (Meridian)` 12.3 — "at the primitive layer, never per
-// overlay instance"): the anchored five register their popup, and the two modal
-// wrappers register the backdrop that covers the window beside it, through the one
-// helper that owns that difference (`overlay/modal-airspace.ts`). Neither the
-// registration hook nor that helper is on this door: their only callers are these
-// seven, a consumer that could reach one could register an overlay by hand at a call
-// site, and 12.3's Never bullet forbids exactly that.
+// overlay instance"): the anchored five register their popup, the two modal wrappers
+// register the backdrop beside it through the one helper that owns that difference
+// (`overlay/modal-airspace.ts`, off this door — its only callers are those two), and
+// the hook is published for the surface that IS airspace and mounts no popup. Reaching
+// it is registering AT the door; 12.3's Never bullet forbids registering AROUND one,
+// which is a hand `register` on the accessor and is what the architecture tier gates.
+export { useAirspaceRegistration } from "./airspace-registration.js";
 export { OverlayAlertDialogPopup } from "./overlay/OverlayAlertDialogPopup.js";
 export { OverlayComboboxPopup } from "./overlay/OverlayComboboxPopup.js";
 export { OverlayDialogPopup } from "./overlay/OverlayDialogPopup.js";
