@@ -721,7 +721,7 @@ export default [
   },
   // --- The refresh cadence: no wall-clock polling in the renderer ----------------
   //
-  // Every refresh goes through `console/store/scheduling.ts`, which the console's own
+  // Every refresh goes through `console/store/read/refresh-scheduler.ts`, which the console's own
   // read scheduling is built on. A `setInterval` beside it is a second cadence nothing
   // cancels on unmount, nothing pauses when the window is hidden, and nothing bounds
   // when the daemon stops answering. Both spellings, because `window.setInterval` and
@@ -734,7 +734,7 @@ export default [
         {
           name: "setInterval",
           message:
-            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/scheduling.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
       "no-restricted-properties": [
@@ -743,13 +743,13 @@ export default [
           object: "window",
           property: "setInterval",
           message:
-            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/scheduling.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
         {
           object: "globalThis",
           property: "setInterval",
           message:
-            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/scheduling.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
+            "`apps/desktop/AGENTS.md` §Chokepoints: every refresh goes through `console/store/read/refresh-scheduler.ts`. A `setInterval` is a second cadence nothing cancels on unmount, nothing pauses when the window is hidden, and nothing bounds when the daemon stops answering.",
         },
       ],
     },
