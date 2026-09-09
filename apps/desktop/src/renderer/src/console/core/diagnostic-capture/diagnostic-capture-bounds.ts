@@ -9,9 +9,20 @@
 // every build, on a machine that may be short of exactly the resource the records
 // are describing — so the capture's own retention has to be a stated number rather
 // than "until the forwarder catches up". Each bound below says what happens at its
-// edge, and none of the three edges is silence: a dropped record is counted, a
-// refused probe is counted and says so once through a record of its own, and an
-// over-long detail is truncated with its own suffix.
+// edge: a dropped record is counted, a refused probe is counted and says so once
+// through a record of its own, and an over-long detail is truncated with its own
+// suffix.
+//
+// ONE PROBE IS EXCLUDED FROM THAT SECOND EDGE, deliberately, and it is the capture's
+// own forward seam. `flush` marks that seam blind whenever no forwarder is installed
+// and `record` flushes at every batch boundary, so counting it would report how often
+// the capture ran rather than how many subsystems went blind. Past a full set it is
+// neither counted nor recorded, which is a real silence and is the trade: an operator
+// whose thirty-two authored probes have all gone blind and whose forwarder then throws
+// reads the stream stopping and no marker naming why. It is bounded by needing all
+// thirty-two names to exist first — "far above the number that can exist", below —
+// and the alternative, a seam that speaks once per flush, drowns the count that names
+// the subsystems.
 
 /**
  * The retention bounds, by name. Closed — the table IS the declaration.

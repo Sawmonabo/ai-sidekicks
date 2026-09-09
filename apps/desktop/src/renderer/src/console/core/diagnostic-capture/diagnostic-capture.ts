@@ -185,20 +185,26 @@ export class DiagnosticCapture {
    * the blindness through the same stream as everything else.
    *
    * AT THE BOUND THE REFUSAL IS ITSELF A MARKER, which is what the bounds table next
-   * door promises ("none of the three edges is silence") and what the perf-meter
-   * registry does with its own refused series. A capture that dropped the
-   * thirty-third blind probe in silence would be a module whose whole purpose is
-   * telling an operator it cannot see, going quiet at exactly the cascade that filled
-   * it. The count is incremented BEFORE the record is captured, so a re-entrant
-   * `markBlind` reaching this arm sees a second refusal and does not emit again.
+   * door promises of this edge and what the perf-meter registry does with its own
+   * refused series. A capture that dropped the thirty-third blind probe in silence
+   * would be a module whose whole purpose is telling an operator it cannot see, going
+   * quiet at exactly the cascade that filled it. The count is incremented BEFORE the
+   * record is captured, so a re-entrant `markBlind` reaching this arm sees a second
+   * refusal and does not emit again.
    *
    * THE CAPTURE'S OWN FORWARD SEAM IS EXCLUDED FROM THE COUNT. `flush` marks it blind
    * whenever no forwarder is installed, and `record` flushes at every batch boundary,
    * so a full set turns one operator probe into a refusal of that seam per flush —
    * the number an operator reads as "how many probes went blind past the bound" would
-   * instead be a measure of how often the capture ran. Nothing is lost by leaving it
-   * out: this probe is the capture describing itself rather than a subsystem
-   * reporting a reading it could not take.
+   * instead be a measure of how often the capture ran. This probe is the capture
+   * describing itself rather than a subsystem reporting a reading it could not take.
+   *
+   * WHAT THAT COSTS, STATED RATHER THAN CLAIMED AT NOTHING: past a full set this seam
+   * is neither counted nor recorded, so if it is the FIRST refusal past the bound the
+   * `probe-blind-set-full` record never fires and a band whose forwarder then throws
+   * sees its stream stop with no marker naming why. Reaching it needs all thirty-two
+   * authored probe names blind first, which the bounds table calls far above the
+   * number that can exist.
    */
   public markBlind(probe: string, reason: string, at: string): void {
     if (this.#blindProbes.has(probe)) {
