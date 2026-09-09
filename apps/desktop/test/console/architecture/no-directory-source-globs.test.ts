@@ -26,11 +26,22 @@
 // single-file pattern passes and a pattern carrying `*` does not, and every single-file
 // glob the tree keeps is covered by existing rather than by exemption.
 //
-// AND THE SUBJECT IS EVERY MODULE UNDER `src/`, not only the suites. A production module
-// globbing a directory manufactures the same edges, and it would additionally defeat the
-// loader boundary `AGENTS.md §Module shape` fixes on `body: () => import("./<name>-body.js")`
-// — a lazily-loaded body found by wildcard is a body no board registered. The console
-// carries no such module today; the claim covers the ones nobody has written yet.
+// AND THE SUBJECT IS EVERY MODULE UNDER `src/` AND UNDER `test/`, not only the suites in
+// one of them. A production module globbing a directory manufactures the same edges, and
+// it would additionally defeat the loader boundary `AGENTS.md §Module shape` fixes on
+// `body: () => import("./<name>-body.js")` — a lazily-loaded body found by wildcard is a
+// body no board registered. The console carries no such module today; the claim covers
+// the ones nobody has written yet.
+//
+// THE TEST TIERS ARE IN THE SUBJECT BECAUSE THE DEFECT IS A PROPERTY OF AN ENTRY, not of
+// a directory. What made the measured hole is that a module a Vitest `include` glob
+// claims is an ENTRY, and knip reads the specifiers Vite resolved out of it as that
+// entry's dependency edges. Every module under `test/console/<tier>/` is such an entry —
+// so an architecture suite globbing `"../../../src/renderer/src/console/**/*.ts"` reopens
+// the measured defect verbatim, and a walk scoped to `src/` reports clean over it. The
+// walk is therefore `DESKTOP_PROSE_ROOTS`, and the case below PROVES that covers the
+// runner rather than assuming it: every include glob the console tiers declare is rooted
+// inside one of the walked roots, checked against `vitest/console-projects.ts` itself.
 //
 // THE INSTRUMENT IS THE PARSER. A text needle for `import.meta.glob` matches the mention
 // in this header, in every header that explains why a suite stopped using one, and in the
@@ -42,10 +53,18 @@
 // literal there, so such a call does not work anyway, and the alternative reading
 // (exempt what the parse cannot reduce) is the hole this file exists to close.
 
+import { relative } from "node:path";
+
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import ts from "typescript";
 
-import { ConsoleSourceTree, DESKTOP_SOURCE_ROOT } from "../console-source-modules.js";
+import { CONSOLE_TIER_INCLUDE_GLOBS } from "../../../vitest/console-projects.js";
+import {
+  ConsoleSourceTree,
+  DESKTOP_PACKAGE_ROOT,
+  DESKTOP_PROSE_ROOTS,
+  toPosixSeparators,
+} from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /**
@@ -65,6 +84,20 @@ const WILDCARD = "*";
 
 /** How many single-file globs the tree must still hold for a clean result to mean anything. */
 const SINGLE_FILE_GLOB_FLOOR = 4;
+
+/**
+ * How many modules the walk must reach under `test/` for the widening to mean anything.
+ *
+ * The vacuity guard on the roots rather than on the patterns: a walk that had stopped
+ * reaching the test tiers would satisfy the offender case over the tiers by finding no
+ * module in them at all, which reads exactly like a tier that globs nothing.
+ */
+const TEST_TIER_MODULE_FLOOR = 50;
+
+/** The roots this gate walks, package-relative, as an include glob spells them. */
+const WALKED_ROOT_NAMES: readonly string[] = DESKTOP_PROSE_ROOTS.map((root) =>
+  toPosixSeparators(relative(DESKTOP_PACKAGE_ROOT, root)),
+);
 
 /** One module as this gate reads it: a name for a failure, and the text. */
 interface SourceModuleText {
@@ -100,16 +133,24 @@ function isImportMetaGlob(node: ts.Expression): boolean {
   );
 }
 
-/** Every pattern one call names — Vite admits a literal or an array of them. */
+/**
+ * Every pattern one call names — Vite admits a literal or an array of them.
+ *
+ * A PARTIALLY-UNREADABLE ARRAY IS UNREADABLE, and answering `[]` is how this refuses:
+ * `manufacturesEdges` reads an empty list as the fail-closed arm the header promises.
+ * Filtering the unreadable elements out instead was a hole of exactly the shape this
+ * file exists to close — `import.meta.glob(["./one.ts", LEDGER_PATTERN])` reduced to one
+ * literal carrying no `*`, and a call whose other half reaches a set nobody enumerated
+ * cleared the gate with nothing reported.
+ */
 function patternsOf(call: ts.CallExpression): readonly string[] {
   const [first] = call.arguments;
   if (first === undefined) {
     return [];
   }
   if (ts.isArrayLiteralExpression(first)) {
-    return first.elements
-      .map(literalTextOf)
-      .filter((pattern): pattern is string => pattern !== undefined);
+    const patterns = first.elements.map(literalTextOf);
+    return patterns.every((pattern) => pattern !== undefined) ? (patterns as string[]) : [];
   }
   const single = literalTextOf(first);
   return single === undefined ? [] : [single];
@@ -141,7 +182,32 @@ function directoryGlobOffenders(calls: readonly SourceGlobCall[]): readonly stri
     .map((call) => `${call.displayPath}: ${call.patterns.join(", ") || "(pattern not a literal)"}`);
 }
 
-const tree = new ConsoleSourceTree({ roots: [DESKTOP_SOURCE_ROOT], tests: true });
+/**
+ * The directory an include glob is rooted at: every segment above its first wildcard.
+ *
+ * A pattern with no wildcard at all names one file, so its root is the directory holding
+ * it — the same reduction, one segment further in.
+ */
+function includeGlobRoot(includeGlob: string): string {
+  const segments = includeGlob.split("/");
+  const firstWildcard = segments.findIndex((segment) => segment.includes(WILDCARD));
+  return (firstWildcard === -1 ? segments.slice(0, -1) : segments.slice(0, firstWildcard)).join(
+    "/",
+  );
+}
+
+/** Every include glob whose root the walk does not reach, named the way a failure names it. */
+function unwalkedIncludeGlobs(
+  includeGlobs: readonly string[],
+  walkedRoots: readonly string[],
+): readonly string[] {
+  return includeGlobs.filter(
+    (includeGlob) =>
+      !walkedRoots.some((root) => `${includeGlobRoot(includeGlob)}/`.startsWith(`${root}/`)),
+  );
+}
+
+const tree = new ConsoleSourceTree({ roots: DESKTOP_PROSE_ROOTS, tests: true });
 
 describe("no module under `src/` globs a directory of its own", () => {
   beforeAll(() => {
@@ -155,6 +221,36 @@ describe("no module under `src/` globs a directory of its own", () => {
     // roster this gate landed with was written to reach: three legacy sites recorded
     // with their remedies, each settled by the change that removed its entry.
     expect(directoryGlobOffenders(callsInTree())).toStrictEqual([]);
+  });
+
+  it("reads the test tiers, where a glob would reopen the measured defect verbatim", () => {
+    // The widening's own non-vacuity. Every module under `test/console/<tier>/` is an
+    // ENTRY the runner's include globs make, so a suite there globbing the console
+    // manufactures the same edges a renderer suite does — and a walk scoped to `src/`
+    // reports clean over every one of them.
+    const tierModules = tree.reading.texts.filter((module) =>
+      module.displayPath.startsWith("test/console/"),
+    );
+    expect(tierModules.length).toBeGreaterThanOrEqual(TEST_TIER_MODULE_FLOOR);
+  });
+
+  it("walks every root the console tiers make an entry of", () => {
+    // Derived from `vitest/console-projects.ts` rather than asserted about it: a tier
+    // added under a root this walk does not reach is a hole nothing else reports, and a
+    // hand-listed copy of these globs would agree with the config exactly until one moved.
+    expect(unwalkedIncludeGlobs(CONSOLE_TIER_INCLUDE_GLOBS, WALKED_ROOT_NAMES)).toStrictEqual([]);
+    expect(CONSOLE_TIER_INCLUDE_GLOBS.length).toBeGreaterThan(WALKED_ROOT_NAMES.length);
+  });
+
+  it("negative control: an include root outside the walk is reported", () => {
+    // Without this the case above passes over a reduction that answered "inside" for
+    // every glob it was handed.
+    expect(
+      unwalkedIncludeGlobs(
+        ["e2e/**/*.test.ts", "test/console/architecture/**/*.test.ts", "srcx/thing.test.ts"],
+        WALKED_ROOT_NAMES,
+      ),
+    ).toStrictEqual(["e2e/**/*.test.ts", "srcx/thing.test.ts"]);
   });
 
   it("still sees the single-file globs the tree keeps, so a clean result means something", () => {
@@ -179,6 +275,21 @@ describe("no module under `src/` globs a directory of its own", () => {
         source: 'const many = import.meta.glob(LEDGER_PATTERN, { query: "?raw", eager: true });',
       },
       {
+        // The ARRAY form, one literal and one constant. Filtering the unreadable element
+        // out reduced this to `./one.ts` — one pattern, no `*` — and cleared a call whose
+        // other half reaches a set nobody enumerated.
+        displayPath: "src/renderer/src/console/ledger/ledger-mixed.test.ts",
+        source:
+          'const mixed = import.meta.glob(["./one.ts", LEDGER_PATTERN], { query: "?raw", eager: true });',
+      },
+      {
+        // The array form both of whose elements ARE readable, so the refusal above is a
+        // claim about the unreadable element rather than about arrays.
+        displayPath: "src/renderer/src/console/ledger/ledger-pair.test.ts",
+        source:
+          'const pair = import.meta.glob(["./one.ts", "./two.ts"], { query: "?raw", eager: true });',
+      },
+      {
         // A `.glob` that is not this one. Reading the member name alone would report a
         // module that never touched Vite's macro at all.
         displayPath: "src/renderer/src/console/ledger/ledger-search.ts",
@@ -189,6 +300,7 @@ describe("no module under `src/` globs a directory of its own", () => {
     expect(directoryGlobOffenders(sourceGlobCalls(planted))).toStrictEqual([
       "src/renderer/src/console/ledger/ledger-sites.test.ts: ./**/*.ts",
       "src/renderer/src/console/ledger/ledger-names.test.ts: (pattern not a literal)",
+      "src/renderer/src/console/ledger/ledger-mixed.test.ts: (pattern not a literal)",
     ]);
   });
 });

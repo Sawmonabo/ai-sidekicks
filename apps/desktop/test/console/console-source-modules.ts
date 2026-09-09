@@ -54,7 +54,18 @@ import { fileURLToPath } from "node:url";
 import { isSourceModulePath } from "./console-source-classification.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DESKTOP_PACKAGE_ROOT = resolve(HERE, "..", "..");
+
+/**
+ * The package this walk belongs to — what a package-relative path is measured from.
+ *
+ * EXPORTED because three gates had each resolved it for themselves, two of them by
+ * climbing four levels out of {@link CONSOLE_DIRECTORY} and one by naming the walked
+ * roots' own parent. Three spellings of one anchor is how a root move goes green in one
+ * gate and red in another, and this module already owns the anchor: every root below is
+ * derived from it.
+ */
+export const DESKTOP_PACKAGE_ROOT: string = resolve(HERE, "..", "..");
+
 const RENDERER_SOURCE_ROOT = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
 
 /** The Meridian console. Always present. */

@@ -278,6 +278,18 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
 ];
 
 /**
+ * Every `include` glob the console tiers declare, in tier order.
+ *
+ * DERIVED FROM THE TIERS THEMSELVES rather than restated, because the reader is a gate
+ * asserting that its own walk covers what the runner makes an ENTRY
+ * (`test/console/architecture/no-directory-source-globs.test.ts`), and a hand-listed
+ * copy of these globs would agree with this file exactly until a tier moved.
+ */
+export const CONSOLE_TIER_INCLUDE_GLOBS: readonly string[] = CONSOLE_TIERS.flatMap(
+  (tier) => tier.test?.include ?? [],
+);
+
+/**
  * The same tiers, each resolving `~icons/*`.
  *
  * Declared as a map rather than as a `plugins` line repeated ten times, because

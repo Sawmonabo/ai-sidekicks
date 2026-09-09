@@ -41,6 +41,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   CONSOLE_DIRECTORY,
+  DESKTOP_PACKAGE_ROOT,
   consoleSourceModules,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
@@ -51,7 +52,6 @@ import type { CensusModule } from "./barrel-syntax.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEST_CONSOLE_ROOT = resolve(HERE, "..");
 const RENDERER_SOURCE_ROOT = resolve(CONSOLE_DIRECTORY, "..");
-const DESKTOP_ROOT = resolve(CONSOLE_DIRECTORY, "..", "..", "..", "..");
 
 /** Where a console module sits in this census, and in a failure message. */
 const CONSOLE_PREFIX = "src/renderer/src/console/";
@@ -209,7 +209,7 @@ function findingLines(findings: readonly ClaimFinding[]): readonly string[] {
 /** The console and the tiers that read it, keyed as the shared consumer reading keys them. */
 function consoleCensusModules(): readonly CensusModule[] {
   return consoleSourceModules({ roots: CENSUS_ROOTS, tests: true }).map((module) => ({
-    path: relative(DESKTOP_ROOT, module.absolutePath).split("\\").join("/"),
+    path: relative(DESKTOP_PACKAGE_ROOT, module.absolutePath).split("\\").join("/"),
     source: readConsoleSourceModule(module),
     isTest:
       module.directory === TEST_CONSOLE_ROOT ||
