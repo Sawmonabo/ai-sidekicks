@@ -32,13 +32,13 @@ import { PERF_METER_BOUNDS } from "./perf-meter-bounds.js";
 
 /** The four things the console meters. Closed — the tuple is the declaration. */
 export const PERF_METER_KINDS = [
-  // Milliseconds one lane spent producing a frame.
+  // Milliseconds one scheduled frame spent draining its phases.
   "frame-time",
-  // Reveal units one lane drained in one frame.
+  // Reveal units one engine drained in one frame.
   "reveal-drain",
   // Milliseconds one store's apply chokepoint took to fold one batch.
   "apply-latency",
-  // Entries one store's partition holds. A gauge: the latest reading is the reading.
+  // Entries one store's timeline holds. A gauge: the latest reading is the reading.
   "store-size",
 ] as const;
 
@@ -253,7 +253,24 @@ export const devPerfMeters: PerfMeterRegistry | null = __SIDEKICKS_CONSOLE_FIXTU
   : null;
 
 /**
- * Record a frame's cost for one lane. The call site shape every producer uses.
+ * The instant a producer measures a duration against.
+ *
+ * `performance.now()` and not the console's `ConsoleClock`, whose `now()` answers
+ * `Date.now()`: its resolution is one millisecond, which is the whole of a frame
+ * budget, so a frame timed against it reads 0 ms or 17 ms and nothing in between.
+ *
+ * It is not a second clock seam. Nothing here schedules, every call site is inside a
+ * `__SIDEKICKS_CONSOLE_FIXTURES__` branch that folds away with the recording it
+ * feeds, and a value from here is only ever subtracted from another value from here.
+ * One home rather than a `performance.now()` at each producer, so the four durations
+ * a reader compares are all measured off the same source.
+ */
+export function perfMeterNow(): number {
+  return performance.now();
+}
+
+/**
+ * Record a frame's cost. The call site shape every producer uses.
  *
  * The guard is the define and not a null check on `devPerfMeters`, so the argument
  * expressions at the call site fold away with the call in a release build. A null

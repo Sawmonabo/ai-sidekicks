@@ -46,6 +46,7 @@ import {
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
   lossyStringify,
+  recordRevealDrain,
   type Unsubscribe,
 } from "../../../core/index.js";
 import { LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
@@ -256,6 +257,12 @@ export class RevealEngine {
       });
     }
     this.#frameEmitter.emit({ state: this.state, lanes: this.lanes(), charactersRevealed: spent });
+    // Keyed by this engine's own frame-task key, which the coordinator minted with an
+    // ordinal: two engines on one coordinator are two series rather than one series
+    // whose samples came from two drains.
+    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+      recordRevealDrain(this.#frameTaskKey, spent);
+    }
     this.#armFrame();
   }
 

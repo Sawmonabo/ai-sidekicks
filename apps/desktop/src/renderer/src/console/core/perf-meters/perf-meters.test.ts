@@ -1,6 +1,6 @@
 // What the dev perf meters promise: bounded retention, an honest percentile, a
-// counted refusal rather than an unbounded map, and a handle that exists only under
-// the fixture define.
+// counted refusal rather than an unbounded map, and four recording entry points that
+// reach the process registry only under the fixture define.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,8 +14,6 @@ import {
   recordRevealDrain,
   recordStoreSize,
 } from "./perf-meters.js";
-import { REACT_SCAN_FIXTURE_GLOBAL } from "../fixture-globals.js";
-import { renderScanControl } from "./render-scan-toggle.js";
 
 describe("perf meter series", () => {
   it("reports the nearest-rank percentile, which is a sample that was observed", () => {
@@ -119,21 +117,5 @@ describe("the four recording entry points", () => {
     expect(devPerfMeters?.reading("apply-latency", "run")?.latest).toBe(3);
     expect(devPerfMeters?.reading("store-size", "run")?.latest).toBe(128);
     devPerfMeters?.reset();
-  });
-});
-
-describe("the render-scan toggle", () => {
-  it("hangs its control on the page under the fixture define and starts disarmed", () => {
-    // Importing the module is what installs the handle, so this reads the real
-    // installation rather than a reconstruction of it.
-    expect((globalThis as Record<string, unknown>)[REACT_SCAN_FIXTURE_GLOBAL]).toBe(
-      renderScanControl,
-    );
-    expect(renderScanControl.isScanning()).toBe(false);
-  });
-
-  it("stopping before a start is inert rather than a load", () => {
-    renderScanControl.stop();
-    expect(renderScanControl.isScanning()).toBe(false);
   });
 });

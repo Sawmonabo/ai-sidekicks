@@ -49,6 +49,8 @@
 import {
   Emitter,
   lossyStringify,
+  perfMeterNow,
+  recordFrameTime,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
@@ -61,6 +63,16 @@ import {
  * this array is its precedence, and `#drainFrame` walks it forwards.
  */
 export const LEDGER_FRAME_PHASES = ["scroll-writes", "reveal-and-rail"] as const;
+
+/**
+ * The series the frame meter records under.
+ *
+ * One key rather than one per phase: the budget the reading is compared against is a
+ * FRAME budget, and a per-phase split would be two series neither of which is the
+ * number `Spec-023 §Console Design (Meridian)` states. One coordinator drives a
+ * window's frames, so one key is one window's frames.
+ */
+const FRAME_TIME_METER_SERIES = "ledger-frame";
 
 /** One frame phase. Derived from the enumeration, never restated. */
 export type LedgerFramePhase = (typeof LEDGER_FRAME_PHASES)[number];
@@ -217,6 +229,10 @@ export class LedgerFrameCoordinator {
    * at the end, which is the next frame.
    */
   #drainFrame(): void {
+    // Sampled inside the define's branch so a release build folds the read away with
+    // the recording it feeds — the whole cost of the meter in a shipped bundle is
+    // this branch on a build-time literal, which Rollup removes.
+    const startedAt = __SIDEKICKS_CONSOLE_FIXTURES__ ? perfMeterNow() : 0;
     for (const [phaseIndex, phase] of LEDGER_FRAME_PHASES.entries()) {
       const queue = this.#queueByPhase.get(phase);
       if (queue === undefined || queue.size === 0) {
@@ -230,6 +246,12 @@ export class LedgerFrameCoordinator {
       }
     }
     this.#drainingPhaseIndex = undefined;
+    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+      recordFrameTime(FRAME_TIME_METER_SERIES, perfMeterNow() - startedAt);
+    }
+    // AFTER the recording and before the next frame is armed: the sample belongs to
+    // the frame that has just finished, and arming first would put the next frame's
+    // scheduling inside this one's reading.
     this.#armFrame();
   }
 

@@ -102,12 +102,40 @@ describe("the I-am-blind marker", () => {
     expect(capture.blindProbes()[0]?.since).toBe(AT);
   });
 
-  it("holds at most the blind-probe bound", () => {
+  it("holds at most the blind-probe bound, and counts what it refuses past it", () => {
     const capture = new DiagnosticCapture();
-    for (let index = 0; index < DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount + 5; index += 1) {
+    // A forwarder from the start, so the auto-flush at the batch bound does not spend a
+    // slot marking the forward seam blind — that would make the arithmetic below about
+    // this test's own scaffolding rather than about the refusal.
+    const batches: string[] = [];
+    capture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    const refusedProbeCount = 5;
+    for (
+      let index = 0;
+      index < DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount + refusedProbeCount;
+      index += 1
+    ) {
       capture.markBlind(`probe-${index}`, "unsupported", AT);
     }
+    capture.flush();
+
     expect(capture.blindProbes()).toHaveLength(DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount);
+    expect(capture.refusedBlindProbeCount).toBe(refusedProbeCount);
+    // ONE record, on the first refusal. The set being full is one fact about the
+    // console, and restating it per refused probe would spend the pending buffer the
+    // capture keeps for the failures it can still carry.
+    const refusalRecords = batches
+      .join("\n")
+      .split("\n")
+      .map((line) => JSON.parse(line) as DiagnosticRecord)
+      .filter((record) => record.kind === "probe-blind-set-full");
+    expect(refusalRecords).toHaveLength(1);
+    expect(refusalRecords[0]?.severity).toBe("warning");
+    expect(refusalRecords[0]?.detail).toContain(
+      `probe-${DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount}`,
+    );
   });
 
   it("a throwing forwarder loses no record and becomes a blind seam", () => {

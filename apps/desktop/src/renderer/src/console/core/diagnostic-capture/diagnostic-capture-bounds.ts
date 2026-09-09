@@ -10,8 +10,8 @@
 // are describing — so the capture's own retention has to be a stated number rather
 // than "until the forwarder catches up". Each bound below says what happens at its
 // edge, and none of the three edges is silence: a dropped record is counted, a
-// refused probe is a marker, and an over-long detail is truncated with its own
-// suffix.
+// refused probe is counted and says so once through a record of its own, and an
+// over-long detail is truncated with its own suffix.
 
 /**
  * The retention bounds, by name. Closed — the table IS the declaration.
@@ -23,9 +23,11 @@ export const DIAGNOSTIC_CAPTURE_BOUNDS = {
   /**
    * Records held pending before the oldest is dropped.
    *
-   * 512 at the truncated detail length below is about 524,000 bytes in the worst case,
-   * which is affordable on a machine already in trouble and is roughly a minute of a
-   * pathological failure loop. Past it the OLDEST goes, because a failure cascade's
+   * 512 at the truncated detail length below is about 1 MB in the worst case — the
+   * detail bound counts `String.length`, which is UTF-16 code units, so 512 × 1,024
+   * characters is roughly 1,048,576 bytes and not the 524,000 a byte-per-character
+   * reading gives. Affordable on a machine already in trouble, and roughly a minute of
+   * a pathological failure loop. Past it the OLDEST goes, because a failure cascade's
    * first record is usually the cause and its five-hundredth is the same consequence
    * repeated — but the drop is counted and the count rides the next batch, so the
    * band is told what it did not receive.

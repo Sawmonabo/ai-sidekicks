@@ -14,6 +14,7 @@
 import { type ReactNode } from "react";
 
 import { SidekicksBridgeProvider } from "../../bridge/index.js";
+import { RealClock, routeConsoleTripwiresToDiagnosticCapture } from "../../core/index.js";
 import { registerConsoleFamilies } from "../../families.js";
 import { consoleEntityProjectorRegistry } from "../../store/index.js";
 import {
@@ -80,6 +81,22 @@ registerConsoleFamilies(
   frameBindingRegistry,
   pinnedPaneRegionRegistry,
 );
+
+// And the eighth thing composed here, which is a wire rather than a board: every
+// tripwire this process reports reaches the diagnostic capture.
+//
+// AT MODULE SCOPE FOR THE BOARDS' OWN REASON, ordering included. A tripwire can fire
+// during the first render — an apply-chokepoint bypass, a surface that threw — and a
+// route armed in an effect is armed after the paint that would have reported it, so
+// the one class of breach the capture most needs to carry is the one it would miss.
+//
+// THE DETACH IS DELIBERATELY DROPPED. The route's lifetime is the renderer process's:
+// there is no moment at which this window stops wanting its own invariant breaches
+// recorded, and a handle held here would be a handle nothing could correctly call.
+// A window that needs its own pair — a test, an auxiliary window with its own capture
+// — arms `routeTripwiresToDiagnosticCapture` over registries of its own and touches
+// neither of the singletons this line joins.
+routeConsoleTripwiresToDiagnosticCapture(new RealClock());
 
 export interface ConsoleRootProps {
   /** Which fixture scenario to play. Ignored when fixtures are compiled out. */

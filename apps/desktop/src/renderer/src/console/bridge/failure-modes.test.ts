@@ -29,6 +29,7 @@ import { growthUnavailable } from "./growth-port/growth-refusals.js";
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS } from "./growth-port/growth-slate.js";
 import type { GrowthSlateRow } from "./growth-port/growth-slate-row.js";
+import { findFrozenTickRegistryDefects } from "./scenario-runtime/frozen-tick-registry.js";
 import {
   consoleScenarioManifest,
   findOrphanedLedgerRowIds,
@@ -135,6 +136,32 @@ describe("failure matrix — a growth-slate row lands and the port still claims 
     };
 
     expect(findOrphanedLedgerRowIds(withoutBrowserRow)).toContain("browser-pane-namespace");
+  });
+
+  it("pins a frame of every scenario it serves, and pins none of a scenario it dropped", () => {
+    // The manifest's THIRD list, held to the same both-directions rule as the other
+    // two. Read off the manifest rather than off the registry module, so what a
+    // surface would be handed is what is walked.
+    const manifest = consoleScenarioManifest();
+
+    expect(findFrozenTickRegistryDefects(manifest.scenarios, manifest.frozenTicks)).toStrictEqual(
+      [],
+    );
+
+    // The negative control, and the day it fires is the day a scenario is retired:
+    // the row stays behind pinning a session that can no longer be played, which
+    // reads exactly like a correct row until someone tries to capture it.
+    const withoutTheFlagship: ConsoleScenarioManifest = {
+      ...manifest,
+      scenarios: manifest.scenarios.filter((scenario) => scenario.id !== "flagship"),
+    };
+    const defects = findFrozenTickRegistryDefects(
+      withoutTheFlagship.scenarios,
+      withoutTheFlagship.frozenTicks,
+    );
+
+    expect(defects.map((defect) => defect.scenarioId)).toStrictEqual(["flagship"]);
+    expect(defects[0]?.reason).toContain("no longer carries");
   });
 
   it("refuses every operation under the live bridge, as the not-checked absence", async () => {

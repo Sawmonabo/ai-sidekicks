@@ -16,6 +16,7 @@ import {
 } from "./ledger-window-growth.js";
 import { IncidentPlayer } from "../../scenario-runtime/incident/incident-replay.js";
 import { frozenTicksFor } from "../../scenario-runtime/frozen-tick-registry.js";
+import { consoleScenarioManifest } from "../../scenario-runtime/scenario-manifest.js";
 
 /** The recorded row count the defect needed: 51 rows against a one-screen window. */
 const RECORDED_FRAME_COUNT = 51;
@@ -101,7 +102,12 @@ describe("the session the recording replays as", () => {
   });
 
   it("pins the frame the defect was visible in", () => {
-    const ticks = frozenTicksFor(LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO_ID);
+    // Through the manifest's own table: the pin a capture tier would be handed is the
+    // one asserted here, not a second read of the registry beside it.
+    const ticks = frozenTicksFor(
+      LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO_ID,
+      consoleScenarioManifest().frozenTicks,
+    );
     const lastBeatAtMs = LEDGER_WINDOW_GROWTH_INCIDENT_SCENARIO.beats.at(-1)?.atMs;
 
     expect(ticks).toHaveLength(1);

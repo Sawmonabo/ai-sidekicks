@@ -27,6 +27,10 @@
 // photographing at. `money-shot` is the flagship's own composed frame per §14.7. A
 // scenario that wants a second frame adds a second row with its own name; the rules
 // below hold the pair to an ascending, uniquely-named sequence.
+//
+// NO LABEL IS MINTED HERE. The `<scenarioId>@t=<tick>` spelling the design quotes is
+// what a person writes in a document; no capture tier reads a reference file by it, and
+// a formatter with no caller is a handle nothing is held by.
 
 import type { ConsoleScenario } from "./scenario.js";
 
@@ -69,17 +73,6 @@ export const SCENARIO_FROZEN_TICKS: FrozenTickTable = {
   onboarding: [{ name: "settled", atMs: 0 }],
   "incident-ledger-window-growth": [{ name: "settled", atMs: 20_000 }],
 };
-
-/**
- * The label a pinned frame is referred to by, in the corpus's own spelling.
- *
- * One function rather than a template every caller writes, because the spelling is the
- * handle: a reference file, a failure message, and a design document all have to name
- * one frame the same way or they are naming three.
- */
-export function frozenTickLabel(scenarioId: string, tick: ScenarioFrozenTick): string {
-  return `${scenarioId}@t=${String(tick.atMs)}`;
-}
 
 /**
  * The frames pinned for one scenario, or an empty list where none are.

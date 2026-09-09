@@ -1,6 +1,8 @@
 // What the main-process log promises: a level filter that counts what it refused,
-// one-generation rotation at a named byte ceiling, serialized appends that never
-// interleave, and a failure that stops the log rather than reaching its caller.
+// one-generation rotation at a named byte ceiling — against the bytes in the FILE and
+// not the bytes one process wrote — serialized appends that never interleave, a log
+// directory the sink creates rather than assumes, and a failure that stops the log and
+// is readable afterwards rather than reaching its caller.
 
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +11,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  createFileSystemDiagnosticLogSink,
   MainDiagnosticLog,
+  reportUnwrittenDiagnostics,
   type DiagnosticLogFileSink,
   type MainDiagnosticEntry,
   rotatedPathFor,
@@ -23,25 +27,25 @@ function entry(level: MainDiagnosticEntry["level"], message: string): MainDiagno
 }
 
 /**
- * The real file sink, over `node:fs/promises`.
+ * The shipped file sink, not a copy of it.
  *
- * The suite drives the real one rather than a double for rotation, because rotation
- * is two file operations in an order that matters and a double would prove only that
- * the module called them.
+ * The suite drives the real one rather than a double for rotation, because rotation is
+ * two file operations in an order that matters and a double would prove only that the
+ * module called them — and because a hand-written copy here is the second
+ * implementation of a seam that has one, which drifts the moment the shipped sink grows
+ * an operation.
  */
-const realFileSink: DiagnosticLogFileSink = {
-  async appendUtf8(filePath, text) {
-    const { appendFile } = await import("node:fs/promises");
-    await appendFile(filePath, text, "utf8");
-  },
-  async replace(fromPath, toPath) {
-    const { rename } = await import("node:fs/promises");
-    await rename(fromPath, toPath);
-  },
-  async remove(filePath) {
-    await rm(filePath, { force: true });
-  },
-};
+const realFileSink: DiagnosticLogFileSink = createFileSystemDiagnosticLogSink();
+
+/** A sink whose appends always fail, with the message the failure carries. */
+function rejectingSink(failureMessage: string): DiagnosticLogFileSink {
+  return {
+    byteCountOf: () => Promise.resolve(0),
+    appendUtf8: () => Promise.reject(new Error(failureMessage)),
+    replace: () => Promise.resolve(),
+    remove: () => Promise.resolve(),
+  };
+}
 
 describe("main diagnostic log", () => {
   let directory = "";
@@ -153,15 +157,63 @@ describe("main diagnostic log", () => {
     expect(messages).toStrictEqual(Array.from({ length: 40 }, (_unused, index) => `line ${index}`));
   });
 
+  it("rotates on the bytes the file holds, not the bytes one instance wrote", async () => {
+    const oneLine = toLogLine(entry("error", "a"));
+    const fileByteCeiling = Buffer.byteLength(oneLine, "utf8") * 2;
+    const beforeRestart = new MainDiagnosticLog({
+      filePath,
+      sink: realFileSink,
+      minimumLevel: "notice",
+      fileByteCeiling,
+    });
+    beforeRestart.write(entry("error", "a"));
+    beforeRestart.write(entry("error", "a"));
+    await beforeRestart.drain();
+    expect(beforeRestart.rotationCount).toBe(0);
+
+    // A restart: a second instance over the file the first one left full. The
+    // ceiling is a property of the FILE, so the very first line this instance
+    // writes has to rotate — a count that started at zero would let the log grow
+    // by a whole ceiling per launch and keep a rotation that holds two lines.
+    const afterRestart = new MainDiagnosticLog({
+      filePath,
+      sink: realFileSink,
+      minimumLevel: "notice",
+      fileByteCeiling,
+    });
+    afterRestart.write(entry("error", "b"));
+    await afterRestart.drain();
+
+    expect(afterRestart.rotationCount).toBe(1);
+    expect(await readFile(filePath, "utf8")).toBe(toLogLine(entry("error", "b")));
+    const rotated = await readFile(rotatedPathFor(filePath), "utf8");
+    expect(rotated.split("\n").filter((line) => line.length > 0)).toHaveLength(2);
+  });
+
+  it("creates the log directory rather than assuming one exists", async () => {
+    // `app.getPath("logs")` names a directory Electron has not necessarily made,
+    // and the first thing main writes there is the record of a startup that
+    // failed — the one line that has nowhere else to go.
+    const nestedFilePath = join(directory, "logs", "main.jsonl");
+    const log = new MainDiagnosticLog({
+      filePath: nestedFilePath,
+      sink: realFileSink,
+      minimumLevel: "notice",
+      fileByteCeiling: 64 * 1024,
+    });
+    log.write(entry("error", "sidecar refused to start"));
+    await log.drain();
+
+    expect(log.writeFailureCount).toBe(0);
+    expect(await readFile(nestedFilePath, "utf8")).toBe(
+      toLogLine(entry("error", "sidecar refused to start")),
+    );
+  });
+
   it("stops accepting on a failed write, records why, and never throws at the caller", async () => {
-    const failingSink: DiagnosticLogFileSink = {
-      appendUtf8: () => Promise.reject(new Error("no space left on device")),
-      replace: () => Promise.resolve(),
-      remove: () => Promise.resolve(),
-    };
     const log = new MainDiagnosticLog({
       filePath,
-      sink: failingSink,
+      sink: rejectingSink("no space left on device"),
       minimumLevel: "notice",
       fileByteCeiling: 64 * 1024,
     });
@@ -174,5 +226,50 @@ describe("main diagnostic log", () => {
     expect(log.writeFailureCount).toBe(1);
     expect(log.lastWriteFailure).toBe("no space left on device");
     expect(log.writtenEntryCount).toBe(0);
+  });
+});
+
+describe("reporting what the log could not write", () => {
+  let directory = "";
+  let filePath = "";
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "sidekicks-main-log-"));
+    filePath = join(directory, "main.jsonl");
+  });
+
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("hands a failed write to the reporter after the queue settles", async () => {
+    const log = new MainDiagnosticLog({
+      filePath,
+      sink: rejectingSink("no space left on device"),
+      minimumLevel: "notice",
+      fileByteCeiling: 64 * 1024,
+    });
+    log.write(entry("error", "startup failed"));
+
+    const reported: string[] = [];
+    await reportUnwrittenDiagnostics(log, (message) => reported.push(message));
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toContain("no space left on device");
+  });
+
+  it("says nothing when every write landed", async () => {
+    const log = new MainDiagnosticLog({
+      filePath,
+      sink: realFileSink,
+      minimumLevel: "notice",
+      fileByteCeiling: 64 * 1024,
+    });
+    log.write(entry("error", "startup failed"));
+
+    const reported: string[] = [];
+    await reportUnwrittenDiagnostics(log, (message) => reported.push(message));
+
+    expect(reported).toStrictEqual([]);
   });
 });

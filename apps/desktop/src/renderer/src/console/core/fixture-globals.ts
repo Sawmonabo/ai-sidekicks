@@ -11,7 +11,7 @@
 // that matters. The sweep's whole job is to report nothing; a name it does not
 // know about is a name it reports nothing about, and a fixture handle that reached
 // a release bundle would pass the gate exactly as an absent one does. Deriving
-// `FIXTURE_GLOBAL_NAMES` from the four constants rather than restating them makes
+// `FIXTURE_GLOBAL_NAMES` from the three constants rather than restating them makes
 // the sweep iterate a CLOSED set: a fourth global cannot be added without joining
 // the tuple, and joining the tuple is joining the sweep.
 //
@@ -33,9 +33,6 @@ export const SCENARIO_FIXTURE_GLOBAL = "__sidekicksConsoleScenario__";
 /** The property a fixture build hangs the session-store diagnostics on. */
 export const SESSION_DIAGNOSTICS_FIXTURE_GLOBAL = "__sidekicksConsoleSessions__";
 
-/** The property a fixture build hangs the dev render-scan toggle on. */
-export const REACT_SCAN_FIXTURE_GLOBAL = "__sidekicksConsoleRenderScan__";
-
 /**
  * Every fixture global. Closed — adding one is a deliberate edit to this tuple.
  *
@@ -55,10 +52,4 @@ export const FIXTURE_GLOBAL_NAMES: readonly [
   typeof TRIPWIRE_FIXTURE_GLOBAL,
   typeof SCENARIO_FIXTURE_GLOBAL,
   typeof SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  typeof REACT_SCAN_FIXTURE_GLOBAL,
-] = [
-  TRIPWIRE_FIXTURE_GLOBAL,
-  SCENARIO_FIXTURE_GLOBAL,
-  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  REACT_SCAN_FIXTURE_GLOBAL,
-];
+] = [TRIPWIRE_FIXTURE_GLOBAL, SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL];

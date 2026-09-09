@@ -483,9 +483,10 @@ jobs:
       # The bench tier, in its own step and deliberately not in the aggregate `test`
       # script's groups above.
       #
-      # It is here because a benchmark nothing runs is a benchmark that rots: both
-      # arms import console source, and an apply path refactored out from under them
-      # would be a red only when someone thought to run this by hand. What it asserts
+      # It is here because a benchmark nothing runs is a benchmark that rots: each arm
+      # drives a shipped console module — the store's own partition merge, the
+      # markdown segmenter — and one refactored out from under them would be a red
+      # only when someone thought to run this by hand. What it asserts
       # is a RATIO with a wide margin — partitioning against a flat map, incremental
       # block layout against a full re-parse — never an absolute millisecond count, so
       # a slow or noisy runner does not fail it; only the structural claim going away

@@ -18,7 +18,10 @@
 // at the same severity as a broken store invariant would teach an operator to
 // discount both.
 
+import type { ConsoleClock } from "../clock.js";
+import { consoleDiagnosticCapture } from "./diagnostic-capture.js";
 import type { DiagnosticCapture, DiagnosticSeverity } from "./diagnostic-capture.js";
+import { consoleTripwires } from "../tripwires.js";
 import type { TripwireKind, TripwireRegistry, TripwireReport } from "../tripwires.js";
 
 /** The subsystem name every routed record carries. */
@@ -62,4 +65,23 @@ export function routeTripwiresToDiagnosticCapture(
       detail: `${report.site}: ${report.detail}`,
     });
   });
+}
+
+/**
+ * Arm the route between this renderer process's own registry and its own capture.
+ *
+ * The composition site names THIS rather than the two singletons, and that is what
+ * keeps them where they are: `consoleTripwires` is deliberately held off the `core/`
+ * door because its installer is its own module, and publishing the capture beside it
+ * would hand every family above a second way to record. One function crossing the
+ * door arms both and publishes neither.
+ *
+ * Takes the clock the console runs on rather than reaching for `Date`, so a window
+ * driven by a frozen clock stamps its records at the instant the rest of the window
+ * agrees it is.
+ */
+export function routeConsoleTripwiresToDiagnosticCapture(clock: ConsoleClock): () => void {
+  return routeTripwiresToDiagnosticCapture(consoleTripwires, consoleDiagnosticCapture, () =>
+    new Date(clock.now()).toISOString(),
+  );
 }

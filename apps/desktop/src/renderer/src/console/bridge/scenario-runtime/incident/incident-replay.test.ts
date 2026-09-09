@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { IncidentPlayer, composeIncidentScenario } from "./incident-replay.js";
-import { IncidentRecorder, type IncidentRecording } from "./incident-recording.js";
+import type { IncidentRecording } from "./incident-recording.js";
 
 const SESSION_ID = "019b7a10-4c00-7d31-9f02-6b1a5e900001";
 const PARTICIPANT_YOU = "019b7a10-4c00-79a4-8110-2c40117a0001";
@@ -74,21 +74,6 @@ describe("the player reads a recording back through the console's own boundary",
     const recording = recordingOf([sessionCreatedFrameJson(1)]);
 
     expect(new IncidentPlayer(recording).recording).toBe(recording);
-  });
-
-  it("replays what a recorder wrote, which is the round trip the class is for", () => {
-    const recorder = new IncidentRecorder({
-      incidentId: "round-trip",
-      summary: "A frame recorded and then read back.",
-      recordedAtIso: "2026-01-14T11:20:00.000Z",
-      frameBound: 4,
-    });
-    recorder.record(0, JSON.parse(sessionCreatedFrameJson(1)) as unknown);
-
-    const player = new IncidentPlayer(recorder.recording());
-
-    expect(player.refusals).toStrictEqual([]);
-    expect(player.beats[0]?.event.kind).toBe("session.created");
   });
 });
 

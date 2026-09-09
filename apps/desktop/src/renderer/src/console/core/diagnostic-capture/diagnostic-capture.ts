@@ -128,6 +128,7 @@ export class DiagnosticCapture {
   #forwarder: DiagnosticBatchForwarder | null = null;
   #droppedRecordCount = 0;
   #forwardedRecordCount = 0;
+  #refusedBlindProbeCount = 0;
 
   /**
    * Attach the forwarder that carries batches to the band.
@@ -173,12 +174,34 @@ export class DiagnosticCapture {
    * attempt, and re-marking it on each one would spend the pending buffer restating
    * one fact. The first marking is captured as a record too, so the band learns of
    * the blindness through the same stream as everything else.
+   *
+   * AT THE BOUND THE REFUSAL IS ITSELF A MARKER, which is what the bounds table next
+   * door promises ("none of the three edges is silence") and what the perf-meter
+   * registry does with its own refused series. A capture that dropped the
+   * thirty-third blind probe in silence would be a module whose whole purpose is
+   * telling an operator it cannot see, going quiet at exactly the cascade that filled
+   * it. The count is incremented BEFORE the record is captured, so the re-entrant
+   * `markBlind` that a batch-boundary flush performs sees a second refusal and does
+   * not emit again.
    */
   public markBlind(probe: string, reason: string, at: string): void {
     if (this.#blindProbes.has(probe)) {
       return;
     }
     if (this.#blindProbes.size >= DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount) {
+      this.#refusedBlindProbeCount += 1;
+      if (this.#refusedBlindProbeCount === 1) {
+        this.record({
+          at,
+          severity: "warning",
+          source: CAPTURE_SOURCE,
+          kind: "probe-blind-set-full",
+          detail:
+            `the blind-probe set is full at ${String(DIAGNOSTIC_CAPTURE_BOUNDS.blindProbeCount)} names, ` +
+            `so "${probe}" is counted rather than marked and every probe refused after it is counted too. ` +
+            "Read refusedBlindProbeCount for the total.",
+        });
+      }
       return;
     }
     this.#blindProbes.set(probe, { probe, reason, since: at });
@@ -257,17 +280,29 @@ export class DiagnosticCapture {
   public get forwardedRecordCount(): number {
     return this.#forwardedRecordCount;
   }
+
+  /**
+   * Blind probes refused because the blind set was already full. Never silent.
+   *
+   * A count rather than a wider set, on `PerfMeterRegistry.refusedSeriesCount`'
+   * reasoning: the number IS the finding, and it says the console went blind in more
+   * places than a bounded set can name.
+   */
+  public get refusedBlindProbeCount(): number {
+    return this.#refusedBlindProbeCount;
+  }
 }
 
 /**
  * The console's capture. One per renderer process, on `consoleTripwires`' reasoning:
  * an auxiliary window is its own renderer process and therefore its own capture.
  *
- * The instance is declared here and installed nowhere yet: the forwarder that carries
- * a batch to the daemon's band is the shell's, and the task that owns this module owns
- * that wiring. Declared now rather than with its installer because the marker and the
- * bounds above are the half that has to exist before anything can be forwarded.
- *
- * @consumedBy T-023p-1C-8
+ * It has one producer and no forwarder. `tripwire-diagnostic-route.ts` routes this
+ * process's tripwire registry into it and the composition site arms that route, so
+ * every invariant breach a window detects is captured; the forwarder that would carry
+ * a batch to the daemon's band is the shell's, and the READING surface — a diagnostics
+ * page — is the measurement task's, T-023p-1C-8. Until one of those installs a
+ * forwarder the capture marks its own forward seam blind and holds what it has under
+ * the pending bound, which is the state its marker exists to make legible.
  */
 export const consoleDiagnosticCapture: DiagnosticCapture = new DiagnosticCapture();

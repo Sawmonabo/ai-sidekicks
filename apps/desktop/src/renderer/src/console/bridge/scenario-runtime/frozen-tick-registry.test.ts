@@ -7,10 +7,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  SCENARIO_FROZEN_TICKS,
   findFrozenTickRegistryDefects,
   findScenariosWithoutFrozenTick,
-  frozenTickLabel,
   frozenTicksFor,
   type FrozenTickTable,
 } from "./frozen-tick-registry.js";
@@ -116,14 +114,5 @@ describe("reading the registry", () => {
   it("answers an inherited property name with nothing rather than a function", () => {
     expect(frozenTicksFor("constructor")).toStrictEqual([]);
     expect(frozenTicksFor("toString")).toStrictEqual([]);
-  });
-
-  it("spells a pinned frame the way the design names it", () => {
-    const flagshipTick = SCENARIO_FROZEN_TICKS["flagship"]?.[0];
-
-    expect(flagshipTick).toBeDefined();
-    expect(frozenTickLabel("flagship", flagshipTick ?? { name: "", atMs: 0 })).toBe(
-      "flagship@t=2450",
-    );
   });
 });

@@ -19,6 +19,21 @@
 // larger than the heap it describes, so buffering one into the process that is
 // measuring heap growth would make the instrument the leak. The chunks stream to
 // disk; the reader hands memlab a path; the caller removes the file.
+//
+// AND THAT CLAIM IS ONLY TRUE IF THE WRITES HONOUR BACK-PRESSURE. `write` answers
+// `false` once the kernel buffer is full and holds the rest IN MEMORY until the
+// stream drains, so firing a chunk at the stream per event and never waiting is the
+// same buffered snapshot the file was supposed to avoid, reached one level down. The
+// chunks therefore go through one queue that waits for `drain` — a queue rather than
+// a bare `await` per event, because CDP emits its chunks faster than a disk takes
+// them and two unordered waiters would interleave the file into something memlab
+// cannot parse.
+//
+// A STREAM ERROR IS RAISED, NOT LEFT TO ESCAPE. A `WriteStream` with no `error`
+// listener THROWS the event, so an unwritable path used to surface as an uncaught
+// exception from inside a `finally` — a report about the instrument, arriving where a
+// reader is looking for a report about the console. The failure is raced against both
+// waits instead, so it arrives as this function rejecting with the reason.
 
 import { createWriteStream } from "node:fs";
 import { once } from "node:events";
@@ -53,9 +68,24 @@ export async function captureHeapSnapshot(
   snapshotPath: string,
 ): Promise<void> {
   const snapshotFile = createWriteStream(snapshotPath, { encoding: "utf8" });
-  const onChunk = (event: Protocol.HeapProfiler.AddHeapSnapshotChunkEvent): void => {
-    snapshotFile.write(event.chunk);
+  // `once` on `"error"` FULFILS with the event's arguments rather than rejecting, so
+  // this is simply pending for the whole of an ordinary run — never an unhandled
+  // rejection, and never a listener that has to be removed.
+  const streamFailure = once(snapshotFile, "error");
+  const raiseWhenTheStreamFails = async (): Promise<never> => {
+    const [failure] = await streamFailure;
+    throw failure instanceof Error ? failure : new Error(String(failure));
   };
+
+  let queuedWrites: Promise<void> = Promise.resolve();
+  const onChunk = (event: Protocol.HeapProfiler.AddHeapSnapshotChunkEvent): void => {
+    queuedWrites = queuedWrites.then(async () => {
+      if (!snapshotFile.write(event.chunk)) {
+        await Promise.race([once(snapshotFile, "drain"), raiseWhenTheStreamFails()]);
+      }
+    });
+  };
+
   cdpSession.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
   try {
     const request: Protocol.HeapProfiler.TakeHeapSnapshotRequest = {
@@ -66,8 +96,16 @@ export async function captureHeapSnapshot(
     await cdpSession.send("HeapProfiler.takeHeapSnapshot", request);
   } finally {
     cdpSession.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
-    snapshotFile.end();
-    await once(snapshotFile, "close");
+    // The queue settles before the end, and the end is reached whether it settled or
+    // threw: a stream left un-ended holds a descriptor for the rest of the run, and a
+    // truncated snapshot reaches memlab as a parse failure that says nothing about
+    // the write error underneath it.
+    try {
+      await queuedWrites;
+    } finally {
+      snapshotFile.end();
+      await Promise.race([once(snapshotFile, "close"), raiseWhenTheStreamFails()]);
+    }
   }
 }
 

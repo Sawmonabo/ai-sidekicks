@@ -1,6 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 import { ManualClock } from "../../../core/index.js";
+import { devPerfMeters } from "../../../core/perf-meters/perf-meters.js";
 import {
   LEDGER_FRAME_PHASES,
   LedgerFrameCoordinator,
@@ -13,6 +14,28 @@ const constructCoordinator = (): { clock: ManualClock; coordinator: LedgerFrameC
 };
 
 describe("LedgerFrameCoordinator", () => {
+  beforeEach(() => {
+    devPerfMeters?.reset();
+  });
+
+  test("records the cost of every frame it drains, and nothing for a frame it does not", () => {
+    const { clock, coordinator } = constructCoordinator();
+    expect(devPerfMeters, "this project is not compiling the fixture define").not.toBe(null);
+
+    // Nothing scheduled: the clock's frame runs no drain, so there is nothing to
+    // meter and a series that existed here would be measuring the scheduler.
+    clock.runFrame();
+    expect(devPerfMeters?.readings()).toStrictEqual([]);
+
+    coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
+    clock.runFrame();
+
+    const reading = devPerfMeters?.readings().find((entry) => entry.kind === "frame-time") ?? null;
+    expect(reading, "a drained frame recorded no frame-time sample").not.toBeNull();
+    expect(reading?.recordedCount).toBe(1);
+    expect(Number(reading?.latest)).toBeGreaterThanOrEqual(0);
+  });
+
   test("runs scroll writes before reveal and rail work, whatever order they were submitted in", () => {
     const { clock, coordinator } = constructCoordinator();
     const order: string[] = [];

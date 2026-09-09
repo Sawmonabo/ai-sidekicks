@@ -6,12 +6,14 @@
 //   • `growthOperations` — one row per eventual bridge operation, each naming the
 //     `Plan-023 §Console growth slate` row it serves and whether the fixture has a
 //     script for it. Operations are what a surface CALLS.
-//   • `frozenTicks` — per scenario, the frames the capture tiers pin, in the
-//     `<scenarioId>@t=<tick>` spelling the design names. Read from
+//   • `frozenTicks` — per scenario, the frames the capture tiers pin. Read from
 //     `frozen-tick-registry.ts` rather than declared here, for the same reason the
 //     scenarios themselves are read from their own seat board: the manifest is the
 //     place all three lists are ASSERTED against each other, never a fourth home
-//     for one of them.
+//     for one of them. That assertion is `failure-modes.test.ts`' registry walk,
+//     which reads the board and the ticks off ONE manifest — a walk that read the
+//     shipped registry directly would agree with itself no matter what the manifest
+//     handed a surface.
 //   • `prerequisites` — the rest of the slate: types, settings keys, pane-kind
 //     declarations, event-type registrations, error namespaces, and one governing
 //     document that does not exist yet. These are what a slate row needs and a

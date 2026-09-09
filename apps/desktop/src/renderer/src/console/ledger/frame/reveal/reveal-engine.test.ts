@@ -9,9 +9,10 @@
 // engine does with a smoother that threw, what such a lane goes on costing, and what
 // it takes to get it back.
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock, REVEAL_FRAME_CHARACTER_BUDGET } from "../../../core/index.js";
+import { devPerfMeters } from "../../../core/perf-meters/perf-meters.js";
 import { REVEAL_CATCH_UP_MULTIPLIER } from "../frame-bounds.js";
 import { LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
@@ -26,6 +27,31 @@ function engineOn(clock: ManualClock): RevealEngine {
 }
 
 describe("the reveal engine — the frame budget", () => {
+  beforeEach(() => {
+    devPerfMeters?.reset();
+  });
+
+  it("records what each drain revealed, keyed so two engines are two series", () => {
+    const clock = new ManualClock();
+    const frameCoordinator = new LedgerFrameCoordinator({ clock });
+    const first = new RevealEngine({ frameCoordinator });
+    const second = new RevealEngine({ frameCoordinator });
+    expect(devPerfMeters, "this project is not compiling the fixture define").not.toBe(null);
+
+    first.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
+    second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
+    clock.runFrame();
+
+    const drains = devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ?? [];
+    // TWO series, not one: both engines drained inside the same coordinator frame, and
+    // a producer keying by anything the two share would fold their samples together.
+    expect(drains).toHaveLength(2);
+    expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
+    for (const drain of drains) {
+      expect(drain.latest).toBeGreaterThan(0);
+    }
+  });
+
   it("arms nothing until there is work, and nothing again once settled", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);

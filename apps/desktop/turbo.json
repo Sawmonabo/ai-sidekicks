@@ -274,7 +274,7 @@
       // side effect. It does gate: CI runs it in its own step with the ledger
       // pointed at the runner's temp directory, and both arms assert a RATIO with
       // a wide margin rather than a millisecond count, so a noisy runner cannot
-      // fail it and an apply path that lost its partitioning can.
+      // fail it and the store's own `mergeUpsert` losing its partitioning can.
       //
       // `passThroughEnv` is what makes that redirection reach the runner: Turborepo
       // 2's default `strict` env mode filters out every variable no task declares,

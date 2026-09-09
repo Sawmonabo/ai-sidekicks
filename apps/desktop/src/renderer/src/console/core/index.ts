@@ -312,6 +312,23 @@ export { driverAskIdentitySegments } from "./driver-ask-identity.js";
 // reach. The emitter itself stays in `bridge/`.
 export type { TransportReconnectObservable } from "./transport-reconnect.js";
 export { NO_TRANSPORT_RECONNECT } from "./transport-reconnect.js";
+// The four perf-meter recording entry points and the instant they measure against.
+// Through the door because their producers are the console's chokepoints and every
+// one of them sits above this family: the ledger's frame coordinator and reveal
+// engine, and the session store's apply. The REGISTRY is not published — a reader is
+// the diagnostics surface T-023p-1C-8 owns, and publishing the instance here would
+// give a view family a second way to record beside the four entry points.
+export {
+  perfMeterNow,
+  recordApplyLatency,
+  recordFrameTime,
+  recordRevealDrain,
+  recordStoreSize,
+} from "./perf-meters/perf-meters.js";
+// The route from this process's tripwire registry into its diagnostic capture, armed
+// by the composition site. Neither singleton is published — see the function's own
+// header for why one line crossing the door is the whole of what is exported.
+export { routeConsoleTripwiresToDiagnosticCapture } from "./diagnostic-capture/tripwire-diagnostic-route.js";
 export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
