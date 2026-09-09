@@ -54,7 +54,7 @@ const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
  * only numbers in the tree gated by nothing.
  *
  * Five of them are the launch slices the scaffolding applies to ITSELF.
- * `renderer-initial-fonts` is not: it bounds a shipped artifact, the six
+ * `renderer-initial-fonts` is not: it bounds a shipped artifact, the
  * self-hosted `woff2` faces on the renderer's initial graph, and it is here
  * because the spec's table names no font row and a ninth `product` id would cost
  * the countability that list exists for. Its unit is raw bytes rather than gzip

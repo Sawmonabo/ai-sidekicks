@@ -90,7 +90,7 @@ const rendererOutputDirectory: string =
 /**
  * The assets a launch fetches before it can paint, named without their content hashes.
  *
- * Eight. Six are code: the entry chunk and its stylesheet, `routing`, which the entry
+ * Ten. Six are code: the entry chunk and its stylesheet, `routing`, which the entry
  * and every body that reads an address both reach, `core`, hoisted out BECAUSE it is
  * shared with lazy bodies and therefore initial by construction, `chunk` — rolldown's
  * shared CommonJS-interop runtime (`__commonJS` / `__toESM`), hoisted into a chunk of
@@ -100,16 +100,19 @@ const rendererOutputDirectory: string =
  * imported chunk's own stylesheet and shared dependencies before handing the module
  * back.
  *
- * The other two are the self-hosted faces `console/frame/bindings/typeface.ts` declares
- * as `?url` imports — one VARIABLE file per family, which is what serves the weights the
- * console asks for — emitted as content-hashed assets on the entry's own graph. They are
- * fetched by the style engine rather than parsed by a script, which is why the budget
- * gate next door bounds them in RAW bytes on a row of their own; here they are ordinary
- * members of the initial graph and are named for the same reason every other member is —
- * a third font file is a change to what a launch fetches, and it should be visible as one.
- * Their names carry spaces because the foundry's own filenames do and the bundler keeps
- * them; the renderer scheme's handler decodes the request path, so what the census reads
- * and what a launch fetches are the same file.
+ * The other four are the self-hosted faces `console/frame/bindings/typeface.ts` declares
+ * as `?url` imports — a VARIABLE upright and a VARIABLE italic per family, the first
+ * serving every weight the console asks for and the second every run it sets in italic —
+ * emitted as content-hashed assets on the entry's own graph. They are emitted by the
+ * entry and fetched by the style engine rather than parsed by a script, which is why the
+ * budget gate next door bounds them in RAW bytes on a row of their own; the style engine
+ * requests one only when a run matches its rule, so an italic face is on this graph and
+ * on no first paint that renders no italic. Here they are ordinary members of the initial
+ * graph and are named for the same reason every other member is — another font file is a
+ * change to what a launch can fetch, and it should be visible as one. Their names carry
+ * spaces because the foundry's own filenames do and the bundler keeps them; the renderer
+ * scheme's handler decodes the request path, so what the census reads and what a launch
+ * fetches are the same file.
  *
  * THE HELPER IS THE SECOND KIND OF MOVE AND NOT THE FIRST. The entry has performed
  * dynamic imports carrying stylesheet dependencies for as long as bodies have been
@@ -132,7 +135,9 @@ const rendererOutputDirectory: string =
  * measurement of record; this list is the membership.
  */
 const INITIAL_GRAPH_CHUNKS: readonly string[] = [
+  "IBM Plex Mono Var-Italic-Latin1.woff2",
   "IBM Plex Mono Var-Roman-Latin1.woff2",
+  "IBM Plex Sans Var-Italic-Latin1.woff2",
   "IBM Plex Sans Var-Roman-Latin1.woff2",
   "chunk.js",
   "core.js",

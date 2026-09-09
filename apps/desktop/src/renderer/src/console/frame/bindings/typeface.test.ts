@@ -22,11 +22,31 @@ describe("the self-hosted faces", () => {
     }
   });
 
-  it("ship one variable file per family and no per-weight cuts", () => {
-    expect(TYPEFACE_FACES.map((face) => face.family)).toStrictEqual([
-      "IBM Plex Sans",
-      "IBM Plex Mono",
+  it("ship one variable file per family and style, and no per-weight cuts", () => {
+    expect(TYPEFACE_FACES.map((face) => `${face.family} ${face.style}`)).toStrictEqual([
+      "IBM Plex Sans normal",
+      "IBM Plex Sans italic",
+      "IBM Plex Mono normal",
+      "IBM Plex Mono italic",
     ]);
+  });
+
+  // Eleven rules across six stylesheets ask for `font-style: italic`, and both
+  // families are reached. A family that declares only its upright face does not
+  // lose those runs — the browser SYNTHESIZES an oblique by slanting the upright
+  // outlines, which is a transform of the wrong drawing rather than the italic the
+  // foundry cut, and `Spec-023 §Console Design (Meridian)` rule 4 names the faces
+  // and not a slant of them. This is the assertion that keeps the omission from
+  // being invisible: a family present with one style is a family whose italic runs
+  // are faux, and nothing else in this file would notice.
+  it("declare a real italic for every family, never a synthesized oblique", () => {
+    for (const family of new Set(TYPEFACE_FACES.map((face) => face.family))) {
+      const styles = TYPEFACE_FACES.filter((face) => face.family === family).map(
+        (face) => face.style,
+      );
+      expect(styles, `${family} declares no real italic`).toContain("italic");
+      expect(styles, `${family} declares no upright face`).toContain("normal");
+    }
   });
 
   // The whole point of the variable build over the six static cuts it replaced:
@@ -79,6 +99,30 @@ describe("the generated @font-face block", () => {
     }
   });
 
+  // `font-style` is the descriptor that decides whether an italic run gets the
+  // italic FILE or a slant of the upright one, so it is emitted per face rather
+  // than written once into the generator. A block whose style did not match its
+  // file's would load real italic outlines and then never be selected for an
+  // italic run, which reads on screen exactly like the omission it replaced.
+  it("declares each face under the style its own file carries", () => {
+    for (const style of ["normal", "italic"]) {
+      expect(css.match(new RegExp(`font-style: ${style};`, "g")) ?? []).toHaveLength(
+        TYPEFACE_FACES.filter((face) => face.style === style).length,
+      );
+    }
+    // Read block by block, because a style declared in the right COUNT and the
+    // wrong block is the failure this is for: the sheet would carry one of each
+    // and still serve the italic file to upright text.
+    const blocks = css.split("@font-face").filter((block) => block.includes("src:"));
+    expect(blocks).toHaveLength(TYPEFACE_FACES.length);
+    for (const face of TYPEFACE_FACES) {
+      const blockOfFace = blocks.find((block) => block.includes(`url("${face.url}")`));
+      expect(blockOfFace, `no block declares ${face.url}`).toBeDefined();
+      expect(blockOfFace).toContain(`font-style: ${face.style};`);
+      expect(blockOfFace).toContain(`font-family: "${face.family}";`);
+    }
+  });
+
   // A `font-stretch` descriptor NARROWS what the browser will take from the file,
   // so declaring one over a file with no width axis is a claim about bytes that
   // are not there. Only the sans build carries `wdth`, so only the sans rule may
@@ -104,17 +148,25 @@ describe("the generated @font-face block", () => {
   });
 
   // Each face bounds itself to the codepoints its OWN split carries, and the two
-  // splits do not carry the same set — the sans file covers `U+0000` and `U+000D`
-  // and the mono file does not. One shared range would over-claim for one of them,
-  // which is a glyph rendered from the wrong file rather than fallen through.
+  // FAMILIES do not carry the same set — the sans files cover `U+0000` and `U+000D`
+  // and the mono files do not. One range shared across families would over-claim for
+  // one of them, which is a glyph rendered from the wrong file rather than fallen
+  // through. Within a family the two styles DO publish one range, which is read out
+  // of the packages rather than assumed, so the roster is asserted family-wise: two
+  // distinct ranges over four faces, and never four.
   it("bounds every face to the subset it actually contains", () => {
     expect(css.match(/unicode-range: /g)).toHaveLength(TYPEFACE_FACES.length);
     for (const face of TYPEFACE_FACES) {
       expect(css).toContain(`unicode-range: ${face.unicodeRange};`);
     }
-    expect(new Set(TYPEFACE_FACES.map((face) => face.unicodeRange)).size).toBe(
-      TYPEFACE_FACES.length,
-    );
+    const familyCount = new Set(TYPEFACE_FACES.map((face) => face.family)).size;
+    expect(new Set(TYPEFACE_FACES.map((face) => face.unicodeRange)).size).toBe(familyCount);
+    for (const family of new Set(TYPEFACE_FACES.map((face) => face.family))) {
+      const rangesOfFamily = TYPEFACE_FACES.filter((face) => face.family === family).map(
+        (face) => face.unicodeRange,
+      );
+      expect(new Set(rangesOfFamily).size, `${family} bounds its styles differently`).toBe(1);
+    }
   });
 
   it("is deterministic", () => {

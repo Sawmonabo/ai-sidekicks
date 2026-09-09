@@ -74,12 +74,13 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
  * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces
  * (`Spec-023 §Console Design (Meridian)` rule 4 and `§Console Libraries`, the
  * motion/fonts/icons row), and the console self-hosts the VARIABLE builds those
- * two places name: `frame/bindings/typeface.ts` declares one `@font-face` rule per
- * family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable`, each the
- * Roman Latin-1 split, admitted as a distributed OFL-1.1 dependency by ADR-020's
- * Decision Log. The platform fallbacks stay, and they are not decoration — each
- * face carries a `unicode-range`, so a codepoint outside Latin-1 falls through to
- * them rather than rendering as a notdef box.
+ * two places name: `frame/bindings/typeface.ts` declares two `@font-face` rules per
+ * family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable` — the Roman
+ * and Italic Latin-1 splits of each, so an italic run gets the italic the foundry
+ * cut rather than a browser-slanted upright — admitted as a distributed OFL-1.1
+ * dependency by ADR-020's Decision Log. The platform fallbacks stay, and they are
+ * not decoration — each face carries a `unicode-range`, so a codepoint outside
+ * Latin-1 falls through to them rather than rendering as a notdef box.
  *
  * These two constants did not move when the faces arrived, which was the point of
  * naming the families here before anything loaded them: the stack is the design's
@@ -88,11 +89,11 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
  * that is the same property holding: the family a rule ASKS for is this file's,
  * and which bytes answer is the other module's.
  *
- * WHAT VARIABLE BUYS, IN THIS CONSOLE, IS ONE WEIGHT. Both files carry a
+ * WHAT VARIABLE BUYS, IN THIS CONSOLE, IS ONE WEIGHT. Every file carries a
  * continuous `wght 100–700` axis, so the 400, 500, and 600 the stylesheets ask for
  * and the 640 `palette/palette.css` asks for are each a real instance. Under the
  * static packages that preceded them there were three cuts per family and 640
- * silently became 600. The sans build additionally carries `wdth 85–100`; nothing
+ * silently became 600. The sans builds additionally carry `wdth 85–100`; nothing
  * here asks for a width today, and the declaration bounds it rather than using it.
  */
 export const FONT_STACKS: Readonly<Record<string, string>> = {
