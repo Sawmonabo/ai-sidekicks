@@ -69,28 +69,43 @@
 // WHAT THE TWO ARMS ARE, AND WHAT THEY ARE NOT
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Both stores below are LOCAL REFERENCE IMPLEMENTATIONS of one MAP SHAPE, and
-// neither is the console's. They isolate the immutable apply so the two shapes
-// are compared and nothing else is: `SessionStore.applyBatch` also validates,
-// dedupes, detects gaps, and runs projectors, so driving it here would price
-// that work into a figure the spec states about the map.
+// THE PARTITIONED ARM IS THE CONSOLE'S OWN MERGE. It drives `mergeUpsert` from
+// `console/store/entities/entity-partitions.ts` — the single function every
+// projected upsert in the console goes through — over the partition set
+// `emptyPartitions()` builds. The store class below holds the value between calls
+// and computes no partition of its own, which is what makes this arm a gate: an
+// apply path refactored back onto a flat map under a per-row selector turns this
+// benchmark red, and a bench-local copy of the merge could not have noticed.
 //
-// The entity KIND SET is not local, and no longer could be. `CONSOLE_ENTITY_KINDS`
-// is imported from `console/store/entities/entities.ts`, which declares it once: a second
-// copy here would have been a closed set restated, and it drifted the moment the
-// store grew `workflow-definition` — under-counting the partitions this benchmark
-// exists to measure.
+// It is the MERGE and not `SessionStore.applyBatch`, which also validates, dedupes,
+// detects gaps, and runs projectors — work the spec's figure is not about, and work
+// that would price a wire contract into a number stated about a map shape.
+//
+// THE FLAT ARM IS A MODEL, and is the one thing here that has to be. It is the
+// control the partitioned figure is a ratio against, and the console does not ship
+// a flat entity map to import — the shape exists only as the alternative this
+// benchmark exists to price.
+//
+// The entity KIND SET is not local either, and no longer could be.
+// `CONSOLE_ENTITY_KINDS` is imported from `console/store/entities/entities.ts`,
+// which declares it once: a second copy here would have been a closed set restated,
+// and it drifted the moment the store grew `workflow-definition` — under-counting
+// the partitions this benchmark exists to measure.
 
 import process from "node:process";
 import { performance } from "node:perf_hooks";
 
 import { expect, test } from "vitest";
 
-import { CONSOLE_ENTITY_KINDS } from "../../../src/renderer/src/console/store/entities/entities.js";
-import type {
-  ConsoleEntity,
-  ConsoleEntityKind,
+import {
+  CONSOLE_ENTITY_KINDS,
+  emptyPartitions,
 } from "../../../src/renderer/src/console/store/entities/entities.js";
+import type { ConsoleEntity } from "../../../src/renderer/src/console/store/entities/entities.js";
+import {
+  mergeUpsert,
+  type SessionPartitions,
+} from "../../../src/renderer/src/console/store/entities/entity-partitions.js";
 import {
   BenchmarkLedger,
   DEFAULT_BENCHMARK_LEDGER_PATH,
@@ -158,38 +173,32 @@ export class FlatConsoleEntityStore implements ConsoleEntityStore {
 }
 
 /**
- * The shape `Spec-023 §Console Libraries` adopts: one partition per entity kind,
- * each with its own immutable apply, under an outer record of one key per kind.
+ * The console's own partitioned apply, held between calls.
+ *
+ * Everything measured here is imported: `emptyPartitions` builds the partition set
+ * the console builds, and `mergeUpsert` is the single merge every projected upsert
+ * goes through. This class contributes the value that carries from one apply to the
+ * next and nothing else — no copy of the merge, no partition arithmetic of its own —
+ * which is what makes the arm a gate on the shipped path rather than a measurement
+ * of a shape that resembles it.
+ *
+ * The seed goes through the same merge for the same reason. It costs more than
+ * building the maps directly and it is outside the timer, and what it buys is that
+ * the population the timed applies run against is one the shipped path produced.
  */
 export class PartitionedConsoleEntityStore implements ConsoleEntityStore {
-  #partitions: Readonly<Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>>>;
-
-  constructor() {
-    this.#partitions = PartitionedConsoleEntityStore.#emptyPartitions();
-  }
-
-  static #emptyPartitions(): Record<ConsoleEntityKind, Record<string, ConsoleEntity>> {
-    const partitions = {} as Record<ConsoleEntityKind, Record<string, ConsoleEntity>>;
-    for (const kind of CONSOLE_ENTITY_KINDS) {
-      partitions[kind] = {};
-    }
-    return partitions;
-  }
+  #partitions: SessionPartitions = emptyPartitions();
 
   seed(entities: readonly ConsoleEntity[]): void {
-    const partitions = PartitionedConsoleEntityStore.#emptyPartitions();
+    let seeded: SessionPartitions = emptyPartitions();
     for (const entity of entities) {
-      partitions[entity.kind][entity.id] = entity;
+      seeded = mergeUpsert(seeded, entity);
     }
-    this.#partitions = partitions;
+    this.#partitions = seeded;
   }
 
   apply(entity: ConsoleEntity): void {
-    const partition = this.#partitions[entity.kind];
-    this.#partitions = {
-      ...this.#partitions,
-      [entity.kind]: { ...partition, [entity.id]: entity },
-    };
+    this.#partitions = mergeUpsert(this.#partitions, entity);
   }
 
   get entityCount(): number {
@@ -304,7 +313,7 @@ const ledgerFilePath: string =
   process.env["CONSOLE_BENCH_LEDGER_PATH"] ?? DEFAULT_BENCHMARK_LEDGER_PATH;
 
 test(
-  "store fan-out: a partitioned entity map applies an event more cheaply than a flat one at 20,000 entities",
+  "store fan-out: the console's partition merge applies an event more cheaply than a flat map at 20,000 entities",
   { timeout: 300_000 },
   () => {
     const entities = buildConsoleEntities(BENCHMARK_ENTITY_COUNT);
@@ -344,12 +353,12 @@ test(
       },
       {
         benchmarkId: "store-fan-out.partitioned",
-        label: "Partitioned entity map — immutable apply at 20,000 entities",
+        label: "Partitioned entity map — the console's own mergeUpsert at 20,000 entities",
         unit: "ms/event",
         samples: partitioned.samples,
         context: {
           ...sharedContext,
-          storeShape: "Record<ConsoleEntityKind, Record<string, ConsoleEntity>>",
+          storeShape: "console/store/entities/entity-partitions.ts mergeUpsert",
         },
       },
     ];
@@ -371,7 +380,7 @@ test(
     expect(
       speedup,
       `Partitioning bought ${speedup.toFixed(1)}× against a floor of ${MINIMUM_PARTITIONING_SPEEDUP}×. ` +
-        "Either the apply path under test lost its partitioning, or the claim in " +
+        "Either the console's own partition merge lost its partitioning, or the claim in " +
         "`Spec-023 §Console Libraries` (State row) no longer holds and the spec's cost model needs re-deriving.",
     ).toBeGreaterThanOrEqual(MINIMUM_PARTITIONING_SPEEDUP);
   },

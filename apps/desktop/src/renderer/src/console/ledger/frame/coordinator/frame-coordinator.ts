@@ -49,6 +49,10 @@
 import {
   Emitter,
   lossyStringify,
+  perfMeterNow,
+  recordFrameTime,
+  retireFrameTimeSeries,
+  retireRevealDrainSeries,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
@@ -61,6 +65,21 @@ import {
  * this array is its precedence, and `#drainFrame` walks it forwards.
  */
 export const LEDGER_FRAME_PHASES = ["scroll-writes", "reveal-and-rail"] as const;
+
+/**
+ * The label every frame meter series carries, before this coordinator's own ordinal.
+ *
+ * One key per COORDINATOR rather than one per phase or one per window. Per phase is
+ * wrong because the budget the reading is compared against is a FRAME budget, and a
+ * split would be two series neither of which is the number the budget names. Per
+ * window is wrong because there is one coordinator per FEED — `coordinator-binding.ts`
+ * says so in its first line and `ledger/pane/feed/model/ledger-feed-windows.ts` mints
+ * one per feed model — so two feeds open side by side would have folded two feeds'
+ * frames into one series, and the p95 an author read would have been an average over
+ * a feed that was blowing the budget and one that was idle, with no second series
+ * anywhere to notice it by.
+ */
+const FRAME_TIME_METER_LABEL = "ledger-frame";
 
 /** One frame phase. Derived from the enumeration, never restated. */
 export type LedgerFramePhase = (typeof LEDGER_FRAME_PHASES)[number];
@@ -85,6 +104,29 @@ export class LedgerFrameCoordinator {
     LEDGER_FRAME_PHASES.map((phase) => [phase, new Map<string, () => void>()]),
   );
 
+  /**
+   * The ordinal the next coordinator takes.
+   *
+   * On the CLASS rather than in a module binding, which is the package's rule for a
+   * counter that has to be shared: a class field is state a reader meets where the
+   * thing it identifies is declared. It never resets, which is what makes two
+   * coordinators in one renderer process two identities for the life of that process.
+   */
+  static #nextCoordinatorOrdinal = 1;
+
+  /** This coordinator's identity — the prefix every reading it produces is keyed by. */
+  readonly #coordinatorId: string;
+
+  /**
+   * Every task key this coordinator has handed out.
+   *
+   * Held so `dispose` can retire the meter series its holders opened under them. It
+   * grows with HOLDERS rather than with frames — a feed's reveal engine and its
+   * scroll chokepoint claim one each at construction — so this set is a handful of
+   * short strings for the coordinator's lifetime and is dropped whole with it.
+   */
+  readonly #claimedTaskKeys = new Set<string>();
+
   #armedFrame: ScheduledHandle | undefined;
   #drainingPhaseIndex: number | undefined;
   #nextTaskKeyOrdinal = 1;
@@ -92,6 +134,38 @@ export class LedgerFrameCoordinator {
 
   public constructor(options: LedgerFrameCoordinatorOptions) {
     this.#clock = options.clock;
+    this.#coordinatorId = `${FRAME_TIME_METER_LABEL}#${String(LedgerFrameCoordinator.#nextCoordinatorOrdinal)}`;
+    LedgerFrameCoordinator.#nextCoordinatorOrdinal += 1;
+  }
+
+  /**
+   * This coordinator's identity, for a reader that has to name which feed a series
+   * came from.
+   *
+   * A holder composing a series key of its own takes `meterSeriesKeyFor` below and
+   * not this: its own task key is unique per coordinator and not across them — every
+   * feed's first engine claims the same ordinal — so a reading keyed by the task key
+   * alone merged every feed's drains into one series.
+   */
+  public get coordinatorId(): string {
+    return this.#coordinatorId;
+  }
+
+  /**
+   * The meter series key a holder of one of this coordinator's task keys records
+   * under. One composer for both sides of that key.
+   *
+   * The holder records with it and this coordinator's `dispose` retires with it, and
+   * the two have to spell the identical string or the retirement silently closes
+   * nothing. Composed HERE rather than at each end because the two ends are one seam:
+   * a separator changed at one of them and not the other reads as a working key set
+   * that never shrinks.
+   *
+   * Kind-agnostic on purpose — which meter a holder records into is the holder's
+   * concern, and this answers only "who, under which coordinator".
+   */
+  public meterSeriesKeyFor(taskKey: string): string {
+    return `${this.#coordinatorId}/${taskKey}`;
   }
 
   /**
@@ -104,7 +178,9 @@ export class LedgerFrameCoordinator {
   public claimTaskKey(label: string): string {
     const ordinal = this.#nextTaskKeyOrdinal;
     this.#nextTaskKeyOrdinal += 1;
-    return `${label}#${String(ordinal)}`;
+    const taskKey = `${label}#${String(ordinal)}`;
+    this.#claimedTaskKeys.add(taskKey);
+    return taskKey;
   }
 
   /**
@@ -171,7 +247,23 @@ export class LedgerFrameCoordinator {
     return this.#diagnosticEmitter.subscribe(sink);
   }
 
-  /** Terminal. A disposed coordinator arms nothing, runs nothing, and reaches nobody. */
+  /**
+   * Terminal. A disposed coordinator arms nothing, runs nothing, and reaches nobody.
+   *
+   * AND IT RETIRES THE METER SERIES ITS IDENTITY OPENED — its own `frame-time` key
+   * and one `reveal-drain` key per task key it handed out. The ordinal never resets,
+   * so without this the live key set is bounded by how many feeds this renderer has
+   * ever mounted rather than by how many are open: past the registry's series bound
+   * every further feed is refused, and the p95 an author reads is the p95 of feeds
+   * that closed while the feed on screen contributes nothing.
+   *
+   * THE COORDINATOR RETIRES THE DRAIN KEYS AND THE ENGINE DOES NOT, because the
+   * engine composes its key out of this coordinator's identity and its own task key:
+   * one owner for a composed key is what keeps the two halves from disagreeing, and
+   * an engine outliving its coordinator is not a state `coordinator-binding.ts`
+   * produces. A task key whose holder never recorded a drain retires nothing, which
+   * is what `PerfMeterRegistry.retire` answering `false` means.
+   */
   public dispose(): void {
     if (this.#armedFrame !== undefined) {
       this.#clock.cancel(this.#armedFrame);
@@ -181,6 +273,11 @@ export class LedgerFrameCoordinator {
       queue.clear();
     }
     this.#diagnosticEmitter.clear();
+    retireFrameTimeSeries(this.#coordinatorId);
+    for (const taskKey of this.#claimedTaskKeys) {
+      retireRevealDrainSeries(this.meterSeriesKeyFor(taskKey));
+    }
+    this.#claimedTaskKeys.clear();
     this.#disposed = true;
   }
 
@@ -217,6 +314,10 @@ export class LedgerFrameCoordinator {
    * at the end, which is the next frame.
    */
   #drainFrame(): void {
+    // Sampled inside the define's branch so a release build folds the read away with
+    // the recording it feeds — the whole cost of the meter in a shipped bundle is
+    // this branch on a build-time literal, which Rollup removes.
+    const startedAt = __SIDEKICKS_CONSOLE_FIXTURES__ ? perfMeterNow() : 0;
     for (const [phaseIndex, phase] of LEDGER_FRAME_PHASES.entries()) {
       const queue = this.#queueByPhase.get(phase);
       if (queue === undefined || queue.size === 0) {
@@ -230,6 +331,12 @@ export class LedgerFrameCoordinator {
       }
     }
     this.#drainingPhaseIndex = undefined;
+    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+      recordFrameTime(this.#coordinatorId, perfMeterNow() - startedAt);
+    }
+    // AFTER the recording and before the next frame is armed: the sample belongs to
+    // the frame that has just finished, and arming first would put the next frame's
+    // scheduling inside this one's reading.
     this.#armFrame();
   }
 

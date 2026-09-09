@@ -113,14 +113,18 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
       expect(Number(deliveredBeatCount)).toBe(FLAGSHIP_SCENARIO.beats.length);
       await expectFlagshipSessionCarriesContent(consoleApplication);
 
-      // The instrument before the reading it serves: a launch that lost the precise
-      // flag reports a quantized, cached figure, which for a CEILING would silently
-      // pass or fail on a bucket boundary rather than on this renderer's heap.
-      await expectPreciseHeapInstrument(consoleApplication);
-
+      // Attached before the precondition, which needs it: the precondition proves the
+      // instrument by measuring a difference of two readings, and it takes each of
+      // them behind this reader's own forced collection so the difference is the
+      // probe's allocation rather than whatever the collector reclaimed in between.
       const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
       let atRestHeapBytes: number;
       try {
+        // The instrument before the reading it serves: a launch that lost the precise
+        // flag reports a quantized, cached figure, which for a CEILING would silently
+        // pass or fail on a bucket boundary rather than on this renderer's heap.
+        await expectPreciseHeapInstrument(consoleApplication, heapProbe);
+
         atRestHeapBytes = await heapProbe.readSettledBytes();
       } finally {
         // Detached before the wrapper closes the window, and before the assertions:

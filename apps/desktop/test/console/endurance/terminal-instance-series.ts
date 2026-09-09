@@ -34,7 +34,7 @@
 // fails the run before any reading is taken unless every instance reports `webgl`.
 
 import type { ConsoleApplication } from "../electron-harness.js";
-import type { RendererHeapProbe } from "./heap-instrument.js";
+import { medianOfHeapReadings, type RendererHeapProbe } from "./heap-instrument.js";
 import { closeEveryPane, openPaneAndAwaitWebglReadiness } from "./terminal-pane-harness.js";
 
 /**
@@ -64,6 +64,11 @@ export const MEASURED_INSTANCE_COUNT: number = 3;
  * Each read is itself `RendererHeapProbe.readSettledBytes` — four forced collections
  * and a floor over six settling samples — so this is a median over floors, not a
  * median over snapshots.
+ *
+ * The median itself is `medianOfHeapReadings`, in `heap-instrument.js` beside the
+ * reader: the tier's precision precondition combines its own windows the same way and
+ * for the same reason, and two private copies of the word would be two definitions
+ * that could drift apart with neither failing.
  */
 export const HEAP_READING_SAMPLE_COUNT: number = 3;
 
@@ -174,21 +179,13 @@ function kilobytes(bytes: number): string {
   return `${String(Math.round(bytes / 1024))} kB`;
 }
 
-function medianOf(values: readonly number[]): number {
-  const ordered = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(ordered.length / 2);
-  const lower = ordered[ordered.length % 2 === 0 ? middle - 1 : middle] ?? 0;
-  const upper = ordered[middle] ?? 0;
-  return (lower + upper) / 2;
-}
-
 /** One point of the sweep: the median of {@link HEAP_READING_SAMPLE_COUNT} reads. */
 async function readMedianSettledBytes(heapProbe: RendererHeapProbe): Promise<number> {
   const reads: number[] = [];
   for (let sample = 0; sample < HEAP_READING_SAMPLE_COUNT; sample += 1) {
     reads.push(await heapProbe.readSettledBytes());
   }
-  return medianOf(reads);
+  return medianOfHeapReadings(reads);
 }
 
 /**

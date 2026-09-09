@@ -70,6 +70,15 @@ export interface MenuTemplateItem {
   readonly submenu?: MenuTemplateItem[];
 }
 
+/**
+ * Where the mocked `app.getPath` says Electron's per-application directories are.
+ *
+ * A path that exists on no machine, deliberately: a module under test that took an
+ * answered path to the real file system fails loudly on it rather than writing into
+ * the developer's own tree.
+ */
+const MOCK_APP_PATH_ROOT = "/sidekicks-electron-mock";
+
 /** How to parameterise the mock. */
 export interface ElectronMockOptions {
   /**
@@ -121,6 +130,16 @@ export interface ElectronMock {
    */
   failLoadsContaining(substring: string, error: Error): void;
   /**
+   * Makes `app.getPath(pathName)` THROW `error` instead of answering.
+   *
+   * Electron's `getPath` throws when a path cannot be resolved, and `logs` is the
+   * one a failed startup is least likely to reach: the conditions that break a
+   * startup — a read-only home, a revoked profile directory, a full disk — are the
+   * conditions that break the lookup for the directory the failure would be
+   * recorded in.
+   */
+  failPathLookup(pathName: string, error: Error): void;
+  /**
    * Re-arms `app.whenReady()` with a fresh unresolved promise and clears the
    * operation log.
    *
@@ -148,6 +167,7 @@ class ElectronMockImpl implements ElectronMock {
   readonly #recordOrder: boolean;
   readonly #initialPackaged: boolean;
   readonly #loadFailures: { readonly substring: string; readonly error: Error }[] = [];
+  readonly #pathLookupFailures = new Map<string, Error>();
   #packaged: boolean;
   #nextWindowId = 1;
   #releaseReady: () => void = () => {};
@@ -191,6 +211,7 @@ class ElectronMockImpl implements ElectronMock {
     this.installedMenuTemplates.length = 0;
     this.ipcHandlers.clear();
     this.#loadFailures.length = 0;
+    this.#pathLookupFailures.clear();
     this.#nextWindowId = 1;
     this.#packaged = this.#initialPackaged;
   }
@@ -201,6 +222,10 @@ class ElectronMockImpl implements ElectronMock {
 
   public failLoadsContaining(substring: string, error: Error): void {
     this.#loadFailures.push({ substring, error });
+  }
+
+  public failPathLookup(pathName: string, error: Error): void {
+    this.#pathLookupFailures.set(pathName, error);
   }
 
   public armReady(): void {
@@ -231,6 +256,14 @@ class ElectronMockImpl implements ElectronMock {
         },
         requestSingleInstanceLock: vi.fn(() => true),
         whenReady: vi.fn(awaitReady),
+        getPath: vi.fn((pathName: string) => {
+          this.record(`app.getPath:${pathName}`);
+          const failure = this.#pathLookupFailures.get(pathName);
+          if (failure !== undefined) {
+            throw failure;
+          }
+          return `${MOCK_APP_PATH_ROOT}/${pathName}`;
+        }),
         on: vi.fn(),
         quit: vi.fn(() => {
           this.record("app.quit");

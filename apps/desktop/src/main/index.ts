@@ -35,6 +35,7 @@ import path from "node:path";
 import { app, type BrowserWindow } from "electron";
 import { installAuxiliaryWindowControls } from "./auxiliary-window-ipc.js";
 import { watchAuxiliaryWindowsForComposerChord } from "./composer-focus.js";
+import { createMainDiagnosticLog, reportUnwrittenDiagnostics } from "./diagnostic-log.js";
 import { installApplicationMenu } from "./menu.js";
 import { startGcProbe } from "./probes/gc-probe.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke-probe.js";
@@ -277,11 +278,47 @@ if (!gotTheLock) {
         startGcProbe(app);
       }
     })
-    .catch((err: unknown) => {
-      // Tier 1 substrate: structured logging routes through Sentry main at
-      // Tier 8 remainder. Until then, surface startup failures on stderr.
-      console.error("[ai-sidekicks/desktop] startup failed:", err);
-      app.exit(1);
+    .catch(async (startupFailure: unknown) => {
+      // Two records, because they reach two different readers and neither covers the
+      // other. stderr is what a developer running the binary sees; the JSONL log is
+      // what survives a launch nobody was watching, which is the only kind a startup
+      // failure usually is. Drained before the exit — a queued append does not
+      // survive `app.exit`.
+      //
+      // And if the second record did not land, that goes to the first: the log never
+      // throws at this handler, so an unread failure would leave a startup failure
+      // recorded nowhere at all while the exit path behaved as though it were.
+      console.error("[ai-sidekicks/desktop] startup failed:", startupFailure);
+      try {
+        const startupLog = createMainDiagnosticLog(app.getPath("logs"));
+        startupLog.write({
+          at: new Date().toISOString(),
+          level: "error",
+          source: "main/index",
+          message: `startup failed: ${startupFailure instanceof Error ? startupFailure.message : String(startupFailure)}`,
+        });
+        await reportUnwrittenDiagnostics(startupLog, (message) => {
+          console.error(message);
+        });
+      } catch (loggingFailure) {
+        // The conditions that break a startup are the conditions that break the
+        // record of one — a read-only home, a revoked profile directory, a full
+        // disk — so this is the arm most likely to be taken on the launches this
+        // whole block exists for. `app.getPath` throws when a path cannot be
+        // resolved, and the directory has to be created before the first append.
+        console.error(
+          "[ai-sidekicks/desktop] the startup log could not be written:",
+          loggingFailure,
+        );
+      } finally {
+        // THE EXIT IS THE CONTRACT AND THE RECORD IS BEST-EFFORT, which is why it is
+        // here rather than after the record. This handler is the terminal one on the
+        // chain, so a rejection escaping it is an UNHANDLED one: the process dies
+        // through Node's own path instead of Electron's, `app.quit`'s hooks never
+        // run, and the sidecar drain registered at position 0 above is skipped — a
+        // startup failure orphaning the children a clean exit would have reaped.
+        app.exit(1);
+      }
     });
 
   app.on("window-all-closed", () => {

@@ -67,7 +67,17 @@
 //
 // Absence is still a failure and never a skip: the diagnostics handle is installed
 // on both arms, and a build without it would make every reading below vacuous.
+//
+// AND ONE CASE ASKS THE OTHER QUESTION. The growth ceiling says a run leaked; it
+// never says what held the bytes, and bisecting a two-hundred-cycle replay by hand
+// to find out is the cost `heap-snapshot-analysis.ts` exists to remove. The last
+// case here spends that instrument: it snapshots the renderer's heap over the same
+// workload and reads what named constructors retained, so the tier can bound a
+// retention it can also name.
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import process from "node:process";
 
 import { describe, expect, it } from "vitest";
@@ -122,6 +132,62 @@ const CHURN_CYCLE_COUNT = 200;
  * to do with how big the application was to begin with.
  */
 const STEADY_HEAP_GROWTH_CEILING_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The constructors the snapshot case reads, and why each one is in the list.
+ *
+ * `Detached HTMLDivElement` is the SUBJECT: a churn cycle mounts a destination and
+ * unmounts it, and a frame that kept a reference into the tree it unmounted retains
+ * the whole detached subtree — the leak shape a heap total reports as a number and
+ * a snapshot reports as a name.
+ *
+ * `Map` and `Array` are the READ control, and they are here because the subject's own
+ * reading cannot tell "nothing is retained" from "nothing was read". A snapshot that
+ * failed to parse or a path nothing was written to reports the subject as zero; neither
+ * of these two can be zero in a heap that has run a React application, so a zero there
+ * fails the case instead.
+ *
+ * `HTMLDivElement` — the ATTACHED one — is the NAMING control, and it closes what the
+ * two above cannot. `"Detached HTMLDivElement"` is a V8/blink snapshot node name with no
+ * other reader in this repository, so a Chromium that spelled DOM nodes any other way
+ * would turn the subject into a permanent zero while `Map` and `Array` stayed non-zero
+ * and the case stayed green — an absence claim quietly resting on a name nothing checks.
+ * A console with a window open has divs in its tree, so a zero here means the naming the
+ * subject is built on is not what this renderer's snapshot uses, and it fails rather than
+ * passing on a subject nothing could ever match.
+ */
+const RETAINED_READING_CONSTRUCTORS = [
+  "Detached HTMLDivElement",
+  "HTMLDivElement",
+  "Map",
+  "Array",
+] as const;
+
+/**
+ * What the detached-node reading may reach and still pass.
+ *
+ * Four megabytes over the cycles below, which is a per-cycle allowance well above
+ * the transient detachment a React unmount leaves for the next collection and far
+ * below a frame that retained one route's subtree per cycle. It is deliberately not
+ * derived from `STEADY_HEAP_GROWTH_CEILING_BYTES`: that one bounds a DIFFERENCE of
+ * two readings over the whole application, and this one bounds an absolute retention
+ * attributed to one constructor, so a shared figure would make two unlike claims
+ * move together.
+ */
+const DETACHED_NODE_RETENTION_CEILING_BYTES = 4 * 1024 * 1024;
+
+/**
+ * How many cycles the snapshot case churns.
+ *
+ * A quarter of the gate case's, and stated as its own number rather than shared: the
+ * subject here is retention per mount-and-unmount rather than a slope, so what the
+ * count buys is the smallest per-cycle retention the ceiling above can see — about
+ * 80 kB at this many cycles — and the case says that rather than implying a
+ * sensitivity it does not have. The tier already spends two full runs; a third at
+ * full length would be a minute of runner time for a sharper figure than the ceiling
+ * is written to.
+ */
+const SNAPSHOT_CHURN_CYCLE_COUNT = Math.ceil(CHURN_CYCLE_COUNT / 4);
 
 /**
  * How far the frozen clock moves on each churn cycle.
@@ -207,7 +273,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // Every figure below is a DIFFERENCE of two heap readings, which the default
         // quantized instrument cannot carry — so the instrument is proved before the
         // arithmetic that rests on it.
-        await expectPreciseHeapInstrument(consoleApplication);
+        await expectPreciseHeapInstrument(consoleApplication, heapProbe);
 
         const baselineHeapBytes = await heapProbe.readSettledBytes();
 
@@ -357,6 +423,83 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         await heapProbe.detach();
       }
     });
+  });
+
+  it("names what the run's heap is holding, and bounds the detached nodes in it", async () => {
+    const snapshotDirectory = await mkdtemp(join(tmpdir(), "sidekicks-endurance-heap-"));
+    const snapshotPath = join(snapshotDirectory, "renderer.heapsnapshot");
+    try {
+      await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
+        const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+        try {
+          expect(
+            await readPlayingScenarioId(consoleApplication),
+            `${SCENARIO_FIXTURE_GLOBAL} is not exposed by this build, or the launch did not select a scenario`,
+          ).toBe(FLAGSHIP_SCENARIO.id);
+
+          for (let cycle = 0; cycle < SNAPSHOT_CHURN_CYCLE_COUNT; cycle += 1) {
+            await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
+          }
+
+          // Collects first, then streams the snapshot to a file — the probe's own
+          // door, so the capture runs over the same DevTools session every reading
+          // in this tier is taken through.
+          await heapProbe.captureSnapshotTo(snapshotPath);
+          const readings = await heapProbe.readRetainedByConstructor(snapshotPath, [
+            ...RETAINED_READING_CONSTRUCTORS,
+          ]);
+          const retainedBytesOf = (constructorName: string): number =>
+            readings.find((reading) => reading.constructorName === constructorName)
+              ?.retainedByteCount ?? 0;
+          const instancesOf = (constructorName: string): number =>
+            readings.find((reading) => reading.constructorName === constructorName)
+              ?.instanceCount ?? 0;
+
+          // Reported whether or not it passes, for the growth gate's own reason: a
+          // reading nobody sees until it fails gives a reviewer no way to watch a
+          // margin close.
+          process.stdout.write(
+            `[console-endurance] retained after ${String(SNAPSHOT_CHURN_CYCLE_COUNT)} cycles: ` +
+              readings
+                .map(
+                  (reading) =>
+                    `${reading.constructorName} ${String(reading.instanceCount)} \u00d7 ` +
+                    `${String(Math.round(reading.retainedByteCount / 1024))} kB`,
+                )
+                .join(", ") +
+              "\n",
+          );
+
+          // The control, first: a snapshot that was never written or never parsed
+          // reports every constructor as absent, and the subject's bound below would
+          // pass over it.
+          expect(
+            instancesOf("Map"),
+            "the snapshot reports no Map at all, so it was not written, not parsed, or not this renderer's",
+          ).toBeGreaterThan(0);
+          expect(instancesOf("Array")).toBeGreaterThan(0);
+
+          // And the naming control, which the two above do not cover: a snapshot can
+          // parse perfectly and still spell DOM nodes differently, which would make the
+          // subject a permanent zero rather than a bounded reading.
+          expect(
+            instancesOf("HTMLDivElement"),
+            "this renderer's snapshot names no attached HTMLDivElement, so the `Detached HTMLDivElement` subject below is a name nothing in this heap can match",
+          ).toBeGreaterThan(0);
+
+          expect(
+            retainedBytesOf("Detached HTMLDivElement"),
+            "the console is retaining detached DOM subtrees across route churn — a frame or a store is holding a reference into a tree it unmounted",
+          ).toBeLessThanOrEqual(DETACHED_NODE_RETENTION_CEILING_BYTES);
+        } finally {
+          await heapProbe.detach();
+        }
+      });
+    } finally {
+      // The snapshot is larger than the heap it describes; the writer's own header
+      // makes removing it the caller's job.
+      await rm(snapshotDirectory, { recursive: true, force: true });
+    }
   });
 
   it("leaves no tripwire firing after sustained use", async () => {

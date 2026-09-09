@@ -14,6 +14,11 @@
 import { type ReactNode } from "react";
 
 import { SidekicksBridgeProvider } from "../../bridge/index.js";
+import {
+  ForwardingConsoleClock,
+  RealClock,
+  routeConsoleTripwiresToDiagnosticCapture,
+} from "../../core/index.js";
 import { registerConsoleFamilies } from "../../families.js";
 import { consoleEntityProjectorRegistry } from "../../store/index.js";
 import {
@@ -71,6 +76,45 @@ import { ConsoleFrameHost } from "./ConsoleFrameHost.js";
 // board's reason: a binding is registered before any window renders, so the frame
 // wraps its first subtree in every binding a family claimed rather than in whichever
 // ones had evaluated by then.
+//
+// The eighth thing composed here is a wire rather than a board — every tripwire this
+// process reports reaches the diagnostic capture — and it is armed FIRST, above the
+// families. A registrar can report during composition (the boards refuse a second
+// owner on one slot, and a projector claim can collide), so a route armed below this
+// call would leave exactly the composition-time breaches recorded nowhere.
+
+/**
+ * The clock the tripwire route stamps its records off.
+ *
+ * ONE IDENTITY, REBOUND, RATHER THAN A FRESH `RealClock`. The route is armed before
+ * any bridge is resolved, so there is nothing else it could start on; but the console
+ * runs on the bridge's clock, which under a fixture is the scenario engine's FROZEN
+ * one. A route holding wall time would stamp a tripwire record hours away from the
+ * frame it describes, in the one build where every other timestamp in the window is
+ * the scenario's — the exact disagreement the route's clock parameter exists to
+ * prevent. `ForwardingConsoleClock` is the seam for precisely this: the identity is
+ * fixed at arming and the reading is whatever the window's clock is when a record is
+ * made, so `SidekicksBridgeProvider` hands it the resolved bridge's clock below.
+ *
+ * NOTHING RESTORES WALL TIME WHEN A WINDOW UNMOUNTS, deliberately. A breach reported
+ * while a window is tearing down belongs to that window's timeline, and a clock
+ * restored on unmount would stamp it against a frame the window no longer has.
+ */
+const consoleTripwireRouteClock = new ForwardingConsoleClock(new RealClock());
+
+// AT MODULE SCOPE FOR THE BOARDS' OWN REASON, ordering included. A tripwire can fire
+// during the first render — an apply-chokepoint bypass, a surface that threw — and a
+// route armed in an effect is armed after the paint that would have reported it, so
+// the one class of breach the capture most needs to carry is the one it would miss.
+//
+// THE DETACH IS DELIBERATELY DROPPED. The route's lifetime is the renderer process's:
+// there is no moment at which this window stops wanting its own invariant breaches
+// recorded, and a handle held here would be a handle nothing could correctly call.
+// A window that needs its own pair — a test, an auxiliary window with its own capture
+// — arms `routeTripwiresToDiagnosticCapture` over registries of its own and touches
+// neither of the singletons this line joins.
+routeConsoleTripwiresToDiagnosticCapture(consoleTripwireRouteClock);
+
 registerConsoleFamilies(
   consoleSurfaceRegistry,
   consolePaneRegistry,
@@ -93,6 +137,7 @@ export function ConsoleRoot(props: ConsoleRootProps): React.JSX.Element {
   return (
     <SidekicksBridgeProvider
       {...(props.scenarioId === undefined ? {} : { scenarioId: props.scenarioId })}
+      clockToRebind={consoleTripwireRouteClock}
     >
       <ConsoleFrameHost
         {...(props.renderOverlays === undefined ? {} : { renderOverlays: props.renderOverlays })}

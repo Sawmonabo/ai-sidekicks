@@ -9,9 +9,10 @@
 // engine does with a smoother that threw, what such a lane goes on costing, and what
 // it takes to get it back.
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock, REVEAL_FRAME_CHARACTER_BUDGET } from "../../../core/index.js";
+import { devPerfMeters } from "../../../core/perf-meters/perf-meters.js";
 import { REVEAL_CATCH_UP_MULTIPLIER } from "../frame-bounds.js";
 import { LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
 import { revealProse as prose } from "./reveal.test-support.js";
@@ -26,6 +27,75 @@ function engineOn(clock: ManualClock): RevealEngine {
 }
 
 describe("the reveal engine — the frame budget", () => {
+  beforeEach(() => {
+    devPerfMeters?.reset();
+  });
+
+  it("records what each drain revealed, keyed so two engines are two series", () => {
+    const clock = new ManualClock();
+    const frameCoordinator = new LedgerFrameCoordinator({ clock });
+    const first = new RevealEngine({ frameCoordinator });
+    const second = new RevealEngine({ frameCoordinator });
+    expect(devPerfMeters, "this project is not compiling the fixture define").not.toBe(null);
+
+    first.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
+    second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
+    clock.runFrame();
+
+    const drains = devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ?? [];
+    // TWO series, not one: both engines drained inside the same coordinator frame, and
+    // a producer keying by anything the two share would fold their samples together.
+    expect(drains).toHaveLength(2);
+    expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
+    for (const drain of drains) {
+      expect(drain.latest).toBeGreaterThan(0);
+    }
+  });
+
+  it("keys a drain by its coordinator too, so two feeds are two series", () => {
+    // The task key alone cannot carry this: the ordinal restarts at 1 inside every
+    // coordinator, and there is one coordinator per feed, so both engines below hold
+    // the identical `ledger-reveal-drain#1` and their drains folded into one series.
+    const clock = new ManualClock();
+    const firstFeed = new LedgerFrameCoordinator({ clock });
+    const secondFeed = new LedgerFrameCoordinator({ clock });
+    const first = new RevealEngine({ frameCoordinator: firstFeed });
+    const second = new RevealEngine({ frameCoordinator: secondFeed });
+
+    first.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
+    second.ingest({ laneId: "lane-b", mode: "direct", text: prose(40) });
+    clock.runFrame();
+
+    const drains = devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain") ?? [];
+    expect(drains).toHaveLength(2);
+    expect(new Set(drains.map((entry) => entry.seriesKey)).size).toBe(2);
+  });
+
+  it("has its drain series retired when the coordinator that keyed it is disposed", () => {
+    // The engine's key is composed out of the coordinator's identity, so the
+    // coordinator's dispose is what closes it — one owner for one key. Left open, a
+    // feed's drain series outlives the feed, and the registry's bound then counts
+    // engines this renderer has ever mounted rather than the ones it is drawing.
+    const clock = new ManualClock();
+    const frameCoordinator = new LedgerFrameCoordinator({ clock });
+    const engine = new RevealEngine({ frameCoordinator });
+
+    engine.ingest({ laneId: "lane-a", mode: "direct", text: prose(40) });
+    clock.runFrame();
+    expect(devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain")).toHaveLength(
+      1,
+    );
+
+    frameCoordinator.dispose();
+
+    expect(
+      devPerfMeters?.readings().filter((entry) => entry.kind === "reveal-drain"),
+    ).toStrictEqual([]);
+    // And the coordinator's own reading goes with it, so nothing is left holding the
+    // bound for a feed that has been torn down.
+    expect(devPerfMeters?.seriesCount).toBe(0);
+  });
+
   it("arms nothing until there is work, and nothing again once settled", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
