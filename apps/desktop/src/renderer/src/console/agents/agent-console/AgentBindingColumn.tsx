@@ -344,7 +344,9 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
             applySwitch(soleAgent.agentId, axes, interruptAndSwitch);
           }}
           isSubmitting={isBindingMutating}
-          settlement={shownBinding.status === "settled" ? shownBinding.settlement : undefined}
+          round={
+            shownBinding.status === "settled" ? { settlement: shownBinding.settlement } : undefined
+          }
           refusal={switchRefusal}
         />
       )}

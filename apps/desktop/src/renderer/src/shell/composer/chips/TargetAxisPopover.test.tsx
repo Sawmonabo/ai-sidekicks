@@ -297,6 +297,93 @@ describe("the target chip's axis popover — opened, loaded, and dispatched", ()
     expect(document.body.textContent).toContain("did not switch");
   });
 
+  it("re-reads the binding on a reply that named no switch at all", async () => {
+    // `switch` is OPTIONAL on the reply — absent on a pure rename or rebind — and the
+    // re-read effect keyed on the MEMBER, so exactly those replies left the chip on
+    // the pre-switch binding until an unrelated trigger happened to fire. It keys on
+    // the ROUND now: the daemon answered, so the binding it answered about has moved.
+    let rosterReads = 0;
+    const mounted = await mountRail({
+      growth: {
+        agentList: async () => {
+          rosterReads += 1;
+          return await Promise.resolve({ status: "served", value: { agents: [rosterRow()] } });
+        },
+        agentConfigUpdate: async () => ({ status: "served", value: {} }),
+      },
+    });
+    const form = await openAxisForm(mounted);
+    editPayingAccount(form, "acct-claude-research");
+    const beforeApply = rosterReads;
+
+    fireEvent.click(submitActions(form)[0] as HTMLButtonElement);
+    await settleScriptedRead(mounted.bridge);
+
+    expect(beforeApply).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(rosterReads).toBe(beforeApply + 1);
+    });
+    // And the form reports the answered round rather than standing blank.
+    expect(document.body.textContent).toContain("named no switch");
+  });
+
+  it("keeps the refusal on the chip once the popover has been dismissed", async () => {
+    // THE ONE OUTCOME A MUTATION SURFACE MAY NOT HAVE. The refusal reached only the
+    // form's own `refusal` prop, and the popup is portalled with no `keepMounted` —
+    // base-ui unmounts it on an outside click or Escape. So a participant who pressed
+    // Apply and clicked back into the message line to keep typing met a chip showing
+    // the pre-switch binding, no failure, and no code, while the daemon had refused.
+    const mounted = await mountRail({
+      growth: {
+        agentConfigUpdate: async () => {
+          throw new Error("the daemon refused the move");
+        },
+      },
+    });
+    const form = await openAxisForm(mounted);
+    editPayingAccount(form, "acct-claude-research");
+    fireEvent.click(submitActions(form)[0] as HTMLButtonElement);
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("the daemon refused the move");
+    });
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => {
+      expect(document.querySelector(".meridian-switch")).toBeNull();
+    });
+
+    // The chip is what is still on screen, so the chip is where the answer has to be.
+    const refusal = mounted.container.querySelector(".meridian-refusal");
+    expect(refusal).not.toBeNull();
+    expect(refusal?.textContent).toContain("read-failed");
+    expect(mounted.container.textContent).toContain("the daemon refused the move");
+    // Rule 4's third clause, which the wire never carries: what to do next.
+    expect(mounted.container.textContent).toContain("Open the axis control and submit again");
+  });
+
+  it("negative control: a round that was never refused puts no failure on the chip", async () => {
+    // Without this the case above would pass over a chip that rendered a refusal
+    // unconditionally, which is a worse defect than the silence it replaced.
+    const mounted = await mountRail({
+      growth: {
+        agentConfigUpdate: async () => ({
+          status: "served",
+          value: { switch: { status: "pending" } },
+        }),
+      },
+    });
+    const form = await openAxisForm(mounted);
+    editPayingAccount(form, "acct-claude-research");
+    fireEvent.click(submitActions(form)[0] as HTMLButtonElement);
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    await waitFor(() => {
+      expect(document.querySelector(".meridian-switch")).toBeNull();
+    });
+
+    expect(mounted.container.querySelector(".meridian-refusal")).toBeNull();
+    expect(mounted.container.textContent).not.toContain("Axis change not applied");
+  });
+
   it("renders the catalog's refusal with the way back the form holds no stream for", async () => {
     // The catalog announces no change on any wire, so a refusal is terminal without a
     // control that asks again — and the form owns no stream, so the reopen has to

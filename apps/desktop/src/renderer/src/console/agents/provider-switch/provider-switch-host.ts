@@ -25,7 +25,7 @@
 // and one agent is a different composition over the same parts, and pretending
 // otherwise would put a roster column's membership test inside a popover.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   consoleClockFor,
@@ -144,12 +144,34 @@ export function useDriverCatalogReading(bridge: ConsoleBridge): DriverCatalogHol
   return { catalog, reopen };
 }
 
+/**
+ * One answered `agent.configUpdate` round.
+ *
+ * A VALUE FOR THE SETTLED ARM, because the reply's own `switch` member cannot stand in
+ * for one. That member is optional — "absent on a pure rename or rebind" — so a holder
+ * that published it bare collapsed `{ settled, settlement: undefined }` into a plain
+ * `undefined`, which is indistinguishable from "nothing has been answered". The form
+ * then reported nothing and every consumer keyed on the member's presence — the chip's
+ * binding re-read among them — never fired: a press that appeared to do nothing at all
+ * while the daemon had in fact answered.
+ */
+export interface AgentSwitchRound {
+  /** The reply's `switch` member, verbatim. Absent on a pure rename or rebind. */
+  readonly settlement: AgentSwitchSettlement | undefined;
+}
+
 /** The mutation half of `ProviderSwitchProps`, ready to hand over. */
 export interface AgentBindingSwitchHolder {
   /** Straight onto `ProviderSwitchProps.isSubmitting`. */
   readonly isSubmitting: boolean;
-  /** Straight onto `ProviderSwitchProps.settlement`. The reply's `switch` member. */
-  readonly settlement: AgentSwitchSettlement | undefined;
+  /**
+   * Straight onto `ProviderSwitchProps.round`. Present once the daemon has answered.
+   *
+   * Stable by identity between rounds, which is what a consumer reading it in an effect
+   * dependency rests on: a fresh record on every render would re-fire that effect for a
+   * settlement nothing new had happened to.
+   */
+  readonly settled: AgentSwitchRound | undefined;
   /** Straight onto `ProviderSwitchProps.refusal`. Why the press did not happen. */
   readonly refusal: ConsoleRefusal | undefined;
   /** Straight onto `ProviderSwitchProps.onApply`. */
@@ -190,6 +212,13 @@ export function useAgentBindingSwitch(
       }),
   );
   const state = useAgentMutationControl(control);
+  // Derived from the control's own state and held to its identity: that state is stable
+  // between changes, so this record is minted once per settled round rather than once
+  // per render — which is what makes it safe to read in an effect dependency.
+  const settled = useMemo(
+    () => (state.status === "settled" ? { settlement: state.settlement } : undefined),
+    [state],
+  );
   useEffect(() => {
     control.supersede();
   }, [control, bridge, sessionId, agentId]);
@@ -207,7 +236,7 @@ export function useAgentBindingSwitch(
   );
   return {
     isSubmitting: state.status === "in-flight",
-    settlement: state.status === "settled" ? state.settlement : undefined,
+    settled,
     refusal: state.status === "refused" ? state.refusal : undefined,
     apply,
   };

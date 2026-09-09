@@ -127,8 +127,56 @@ describe("the binding latch admits one round per subject", () => {
     });
 
     expect(updates()).toBe(1);
-    expect(rendered.result.current.settlement?.switchId).toBe("switch-7");
+    expect(rendered.result.current.settled?.settlement?.switchId).toBe("switch-7");
     expect(rendered.result.current.isSubmitting).toBe(false);
+  });
+
+  it("settles the round even when the reply names no switch", async () => {
+    // `switch` is OPTIONAL on the reply — absent on a pure rename or rebind — and a
+    // holder that published only the member collapsed that reply into the same
+    // `undefined` a round nobody had submitted wears. So the form said nothing, the
+    // binding re-read never fired, and the participant's press had no answer.
+    const { bridge, updates } = bridgeAnswering({ status: "served", value: {} });
+    const rendered = renderHook(() => useAgentBindingSwitch(bridge, SESSION_ID, AGENT_ID));
+
+    await act(async () => {
+      rendered.result.current.apply({ modelId: "claude-opus" }, false);
+      await crossMacrotaskBoundary();
+    });
+
+    expect(updates()).toBe(1);
+    expect(rendered.result.current.settled).not.toBeUndefined();
+    expect(rendered.result.current.settled?.settlement).toBeUndefined();
+    expect(rendered.result.current.refusal).toBeUndefined();
+  });
+
+  it("negative control: a round nobody submitted is not a settled round", async () => {
+    // What the case above would read as passing against if the holder published the
+    // round unconditionally: an idle latch answers nothing and must stay absent.
+    const { bridge } = bridgeAnswering({ status: "served", value: {} });
+    const rendered = renderHook(() => useAgentBindingSwitch(bridge, SESSION_ID, AGENT_ID));
+
+    expect(rendered.result.current.settled).toBeUndefined();
+  });
+
+  it("publishes one round object per settlement, so a re-read fires once", async () => {
+    // The binding re-read keys on the round by IDENTITY, which is what makes it fire
+    // on an answer and not on a render. A holder minting a fresh object each pass
+    // would re-read the roster on every keystroke in the form beside it.
+    const { bridge } = bridgeAnswering({ status: "served", value: {} });
+    const rendered = renderHook(() => useAgentBindingSwitch(bridge, SESSION_ID, AGENT_ID));
+
+    await act(async () => {
+      rendered.result.current.apply({ modelId: "claude-opus" }, false);
+      await crossMacrotaskBoundary();
+    });
+    const firstRead = rendered.result.current.settled;
+
+    await act(async () => {
+      rendered.rerender();
+    });
+
+    expect(rendered.result.current.settled).toBe(firstRead);
   });
 
   it("refuses a second press while the first is outstanding", async () => {
@@ -165,7 +213,7 @@ describe("the binding latch admits one round per subject", () => {
 
     expect(rendered.result.current.refusal?.origin).toBe("agent-mutation");
     expect(rendered.result.current.refusal?.detail).toContain("the daemon refused the move");
-    expect(rendered.result.current.settlement).toBeUndefined();
+    expect(rendered.result.current.settled).toBeUndefined();
   });
 
   it("carries the port's own unavailable arm untouched", async () => {
@@ -180,7 +228,7 @@ describe("the binding latch admits one round per subject", () => {
     });
 
     expect(rendered.result.current.refusal).not.toBeUndefined();
-    expect(rendered.result.current.settlement).toBeUndefined();
+    expect(rendered.result.current.settled).toBeUndefined();
   });
 
   it("drops a settlement once the agent it was submitted for has moved", async () => {
@@ -200,13 +248,13 @@ describe("the binding latch admits one round per subject", () => {
       rendered.result.current.apply({ modelId: "claude-opus" }, false);
       await crossMacrotaskBoundary();
     });
-    expect(rendered.result.current.settlement?.switchId).toBe("switch-7");
+    expect(rendered.result.current.settled?.settlement?.switchId).toBe("switch-7");
 
     await act(async () => {
       rendered.rerender({ agentId: "agent-other" });
     });
 
-    expect(rendered.result.current.settlement).toBeUndefined();
+    expect(rendered.result.current.settled).toBeUndefined();
   });
 
   it("negative control: a host addressed at no agent submits nothing at all", async () => {

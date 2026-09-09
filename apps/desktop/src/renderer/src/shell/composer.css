@@ -205,3 +205,22 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
+
+/* The axis mutation's own refusal, on the chip rail rather than in the popover that
+   issued it. A column and not a row: it carries three lines — this console's
+   sentence, the wire's verbatim reason, and the remedy — and a row would put the
+   remedy off the end of a rail that already wraps. */
+.meridian-composer__axis-refusal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+/* Full text colour, for `run-interventions.css`'s reason: the remedy is the one
+   line on a refused row that names an act, and muting it beside the code and the
+   cause loses it. */
+.meridian-composer__axis-remedy {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}

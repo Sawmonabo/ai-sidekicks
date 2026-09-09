@@ -80,7 +80,7 @@ export function TargetAxisPopover(props: TargetAxisPopoverProps): React.JSX.Elem
     onCatalogReopen: catalog.reopen,
     onApply: switching.apply,
     isSubmitting: switching.isSubmitting,
-    settlement: switching.settlement,
+    round: switching.settled,
     refusal: switching.refusal,
   };
   return (

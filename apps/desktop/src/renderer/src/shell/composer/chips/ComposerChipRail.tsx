@@ -57,10 +57,10 @@ export function ComposerChipRail(props: ComposerSeatProps): React.JSX.Element {
     props.bridge,
     props.sessionStore,
     addressedAgentId,
-    switching.settlement,
+    switching.settled,
   );
   const catalog = useDriverCatalogReading(props.bridge);
-  const axes = resolveTargetAxisReach(props.bridge, binding.agent, catalog, switching);
+  const axes = resolveTargetAxisReach(props.bridge, binding, catalog, switching);
   return (
     <div className="meridian-composer__chips">
       <TargetChip

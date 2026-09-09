@@ -52,9 +52,11 @@
 // WHAT THIS READING DOES OWE THE MUTATION IS A RE-READ. `pendingSwitch` is the
 // roster's word about a switch accepted and unapplied, and the daemon only starts
 // saying it once a mutation has been answered — a moment no event announces to the
-// client that issued one. So the reading takes an optional settlement and re-reads on
-// it, which is what keeps the chip's pending clause moving on the daemon's answer
-// rather than on the local press.
+// client that issued one. So the reading takes the mutation's settled ROUND and re-reads
+// on it, which is what keeps the chip's pending clause moving on the daemon's answer
+// rather than on the local press. The round and not the reply's optional `switch`
+// member: that member is absent on a pure rename or rebind, and a reply carrying none
+// has still been answered about a binding that has still moved.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -64,9 +66,9 @@ import {
   useProviderQuotas,
   type AgentPendingSwitch,
   type AgentRosterEntry,
-  type AgentSwitchSettlement,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
+import type { AgentSwitchRound } from "../../../console/agents/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import {
   useReadTriggers,
@@ -157,13 +159,18 @@ export function useAgentBindingReading(
   sessionStore: SessionStore,
   agentId: string | undefined,
   /**
-   * The newest `agent.configUpdate` settlement this window received, if any.
+   * The newest `agent.configUpdate` ROUND this window received, if any.
    *
    * Read by IDENTITY and not by content: the latch publishes one record per settled
    * round, so a new object is a new answer and the same object across renders is the
    * same one. A caller with no latch omits it and gets the four standing reasons.
+   *
+   * THE ROUND AND NOT ITS `switch` MEMBER, which is what this effect used to key on.
+   * That member is optional on the reply — absent on a pure rename or rebind — so a
+   * reply that left it out never re-read the binding at all, and the chip went on
+   * showing the pre-switch axes until some unrelated trigger fired.
    */
-  settledSwitch?: AgentSwitchSettlement | undefined,
+  settledSwitch?: AgentSwitchRound | undefined,
 ): AgentBindingReading {
   // The window's one account-plane reading, watched rather than re-read. Watched
   // unconditionally, because a hook may not be called conditionally and because the
@@ -191,10 +198,13 @@ export function useAgentBindingReading(
   // an effect armed once per addressing, so a switch queued by a collaborator after
   // this composer mounted never reached the chip.
   useReadTriggers(reading, sessionStore, bridge.transportReconnect);
-  // The fifth reason, and the one the store cannot supply. A settlement is a
+  // The fifth reason, and the one the store cannot supply. A ROUND SETTLING is a
   // participant's own act reaching its answer, so it is scheduled as
   // `participant-request` — the same reason the catalog's reopen control uses, and
-  // the one the scheduler treats as asked-for rather than as a background repair.
+  // the one the scheduler treats as asked-for rather than as a background repair. It
+  // fires on the round and never on the reply's optional `switch` member: a reply that
+  // carries none has still been answered, and the binding it answered about has still
+  // moved.
   useEffect(() => {
     if (settledSwitch === undefined) {
       return;

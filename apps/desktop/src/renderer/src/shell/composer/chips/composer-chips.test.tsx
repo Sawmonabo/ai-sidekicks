@@ -9,6 +9,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AgentSwitchSettlement } from "../../../console/bridge/index.js";
+import type { AgentBindingSwitchHolder } from "../../../console/agents/index.js";
 import type { AgentBindingReading } from "./agent-binding-read.js";
 import type { ComposerChannelTarget, ComposerRunTarget } from "./chip-models.js";
 import { PostureChip } from "./PostureChip.js";
@@ -21,7 +22,7 @@ import { TargetChip } from "./TargetChip.js";
  * Hand-built here on purpose: this suite is about what the chip RENDERS from what it
  * is handed, and the resolution that produces these arms has its own suite next door.
  */
-function axisReachOffered(settlement: AgentSwitchSettlement): TargetAxisReach {
+function axisReachOffered(overrides: Partial<AgentBindingSwitchHolder> = {}): TargetAxisReach {
   return {
     reach: "offered",
     control: {
@@ -29,12 +30,18 @@ function axisReachOffered(settlement: AgentSwitchSettlement): TargetAxisReach {
       catalog: { catalog: { kind: "not-loaded" }, reopen: () => undefined },
       switching: {
         isSubmitting: false,
-        settlement,
+        settled: undefined,
         refusal: undefined,
         apply: () => undefined,
+        ...overrides,
       },
     },
   };
+}
+
+/** The same reach with one settled round layered on, which is the common case. */
+function axisReachSettled(settlement: AgentSwitchSettlement): TargetAxisReach {
+  return axisReachOffered({ settled: { settlement } });
 }
 
 /** Nothing was asked, which is what the channel path and an unmounted read read as. */
@@ -266,7 +273,7 @@ describe("TargetChip — every fact on it came from the wire", () => {
       <TargetChip
         model={{ target: RUN_TARGET, bindingClause: undefined }}
         binding={bindingRead()}
-        axes={axisReachOffered({ status: "failed", reason: "account_unavailable" })}
+        axes={axisReachSettled({ status: "failed", reason: "account_unavailable" })}
       />,
     );
     const pendingOnly = render(
@@ -304,6 +311,123 @@ describe("TargetChip — every fact on it came from the wire", () => {
     expect(container.textContent).toContain("Axis change not offered");
     // Fail-closed and never disabled: a disabled button asserts the act exists.
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("names the daemon's reason when the roster read behind the axes refused", () => {
+    // One arm carried all four roster phases and said the row "has not been read",
+    // which is false for a read that ANSWERED and drops the reason it answered with.
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={{ ...NOTHING_ASKED, phase: "refused" }}
+        axes={{
+          reach: "refused",
+          refusal: {
+            code: "reply-unreadable",
+            detail: "The roster reply did not parse.",
+            origin: "growth-port",
+          },
+        }}
+      />,
+    );
+
+    expect(container.textContent).toContain("reply-unreadable");
+    expect(container.textContent).toContain("did not parse");
+    // The negative control on the sentence this arm replaced.
+    expect(container.textContent).not.toContain("roster row has not been read");
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("separates a travelling read, an unasked one, and a roster holding no such agent", () => {
+    const phrases = (["loading", "not-checked", "no-such-agent"] as const).map((reach) => {
+      const { container } = render(
+        <TargetChip
+          model={{ target: RUN_TARGET, bindingClause: undefined }}
+          binding={NOTHING_ASKED}
+          axes={{ reach }}
+        />,
+      );
+      return container.textContent ?? "";
+    });
+
+    // The badge shape carries its second line as a tooltip, so what a reader MEETS
+    // is the title — which is why each arm's title has to differ, not just its
+    // detail. The unreachable arm's own words are asserted in the case above.
+    expect(phrases[0]).toContain("Reading this agent's axes");
+    expect(phrases[1]).toContain("Axes not read");
+    expect(phrases[2]).toContain("Agent not on the roster");
+    // The negative control, and the whole of the finding: three states that read the
+    // same are one state with three names.
+    expect(new Set(phrases).size).toBe(3);
+    expect(phrases.some((phrase) => phrase.includes("Axis change not offered"))).toBe(false);
+  });
+
+  it("carries the axis mutation's own refusal, which no popover is holding", () => {
+    // The refusal reached only the portalled form, which unmounts on a dismissal —
+    // so the chip, which is what stays on screen, said nothing about a press the
+    // daemon had refused. It is rendered BESIDE a failed settlement, never instead
+    // of one: a call that did not land and a daemon that answered "failed" are two
+    // facts and neither is reachable from the other.
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={bindingRead()}
+        axes={axisReachOffered({
+          settled: { settlement: { status: "failed", reason: "account_unavailable" } },
+          refusal: {
+            code: "read-failed",
+            detail: "The daemon refused the move.",
+            origin: "agent-mutation",
+          },
+        })}
+      />,
+    );
+    const text = container.textContent ?? "";
+
+    expect(text).toContain("Axis change not applied");
+    expect(text).toContain("read-failed");
+    expect(text).toContain("The daemon refused the move.");
+    // Rule 4's third clause, which is this console's sentence and not the wire's.
+    expect(text).toContain("Open the axis control and submit again");
+    // And the settlement beside it, unreplaced.
+    expect(text).toContain("Switch failed");
+    expect(text).toContain("account_unavailable");
+  });
+
+  it("renders an unbuilt wire's refusal as an absence rather than as a failure", () => {
+    // The popover is offered when the PORT carries a method, which a live bridge does
+    // for a wire the corpus has not registered — so this refusal is reachable on every
+    // live build and would otherwise wear an alert glyph for a wire nobody landed.
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={bindingRead()}
+        axes={axisReachOffered({
+          refusal: {
+            code: "wire-unregistered",
+            detail: "Not checked — agent.configUpdate is not registered on this build yet.",
+            origin: "growth-port",
+          },
+        })}
+      />,
+    );
+
+    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+    expect(container.textContent).not.toContain("wire-unregistered");
+    expect(container.querySelector(".meridian-chip--failure")).toBeNull();
+  });
+
+  it("negative control: a latch that refused nothing puts no refusal on the chip", () => {
+    const { container } = render(
+      <TargetChip
+        model={{ target: RUN_TARGET, bindingClause: undefined }}
+        binding={bindingRead()}
+        axes={axisReachOffered()}
+      />,
+    );
+
+    expect(container.textContent).not.toContain("Axis change not applied");
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
   });
 
   it("describes an unnamed channel target rather than printing an id", () => {

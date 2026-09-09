@@ -32,10 +32,12 @@
 
 import { Chip, Nothing } from "../../../console/primitives/index.js";
 import type { AgentBindingReading } from "./agent-binding-read.js";
+import { AxisSwitchRefusal } from "./AxisSwitchRefusal.js";
 import { PayingAccount } from "./PayingAccount.js";
+import { RosterReadRefusal } from "./RosterReadRefusal.js";
 import { switchBoundarySentence } from "./switch-boundary.js";
 import { TargetAxisPopover } from "./TargetAxisPopover.js";
-import { failedSwitchOf, type TargetAxisReach } from "./target-axis-reach.js";
+import { failedSwitchOf, switchRefusalOf, type TargetAxisReach } from "./target-axis-reach.js";
 import type { TargetChipModel } from "./chip-models.js";
 
 /** The glyph each path wears, so the two are distinguishable without reading. */
@@ -67,6 +69,7 @@ export function TargetChip(props: TargetChipProps): React.JSX.Element {
   const { target } = props.model;
   const isProviderBound = target.path === "provider-bound";
   const failedSwitch = failedSwitchOf(props.axes);
+  const switchRefusal = switchRefusalOf(props.axes);
   return (
     <div
       className="meridian-composer__target"
@@ -114,17 +117,33 @@ export function TargetChip(props: TargetChipProps): React.JSX.Element {
           )}
         </>
       )}
+      {/* The mutation's own refusal, beside the settlement rather than instead of it:
+          a call that did not land and a daemon that answered "failed" are two facts,
+          and each is unreachable from the other. It lives HERE rather than only on the
+          form because the form is portalled and unmounts on a dismissal, and a
+          participant who pressed Apply and clicked away would otherwise be told
+          nothing at all. */}
+      {switchRefusal === undefined ? null : <AxisSwitchRefusal refusal={switchRefusal} />}
       {renderAxisAffordance(props.axes)}
     </div>
   );
 }
 
+/** What is absent, worded once so every arm below says the same thing is missing. */
+const AXIS_CHANGE_NOT_OFFERED = "Axis change not offered";
+
 /**
  * What the chip offers — or says instead — about changing this agent's axes.
  *
  * A total function over the union, so each arm's sentence is written exactly once.
- * Neither absence arm draws a disabled control: a disabled button asserts that the
- * act exists and is momentarily unavailable, and neither of these states is that.
+ * No absence arm draws a disabled control: a disabled button asserts that the act
+ * exists and is momentarily unavailable, and none of these states is that.
+ *
+ * FOUR OF THE SIX ARMS ARE THE ROSTER READING'S OWN PHASES, and they are four
+ * sentences because they are four facts. One arm carried all of them and said the
+ * roster row "has not been read" — false for a read that refused, false for one still
+ * travelling, and false for a roster that served and holds no such agent. The refused
+ * one additionally dropped the daemon's reason on the floor.
  */
 function renderAxisAffordance(axes: TargetAxisReach | undefined): React.ReactNode {
   if (axes === undefined) {
@@ -134,17 +153,50 @@ function renderAxisAffordance(axes: TargetAxisReach | undefined): React.ReactNod
     return (
       <Nothing
         kind="not-checked"
-        title="Axis change not offered"
+        title={AXIS_CHANGE_NOT_OFFERED}
         detail="This build carries no operation that moves an agent's provider axes, so there is no control here that would reach one."
       />
     );
   }
-  if (axes.reach === "agent-not-read") {
+  if (axes.reach === "refused") {
+    // The same three arms the paying-account chip renders off this same read, from
+    // the one module that owns them: an unbuilt wire is not an error, and a refusal
+    // that carried no reason is still a refusal.
+    return (
+      <RosterReadRefusal
+        title={AXIS_CHANGE_NOT_OFFERED}
+        noReasonDetail="The agent roster read refused and carried no reason, so there is no binding to offer a change from."
+        refusal={axes.refusal}
+      />
+    );
+  }
+  if (axes.reach === "loading") {
+    return (
+      <Nothing
+        kind="not-loaded"
+        title="Reading this agent's axes"
+        detail="The agent roster read is still travelling, so there is nothing yet to offer a change from."
+      />
+    );
+  }
+  if (axes.reach === "not-checked") {
     return (
       <Nothing
         kind="not-checked"
         title="Axes not read"
-        detail="This agent's roster row has not been read, so the console does not know what it is bound to and cannot offer a change from it."
+        detail="Nothing has asked the daemon what this agent is bound to, so the console cannot offer a change from it."
+      />
+    );
+  }
+  if (axes.reach === "no-such-agent") {
+    // Its own words and not {@link AXIS_CHANGE_NOT_OFFERED}: a badge carries its
+    // detail as a tooltip, so two arms sharing a title are two facts a reader meets
+    // as one — which is the collapse rule 8 forbids, one layer down from the union.
+    return (
+      <Nothing
+        kind="empty"
+        title="Agent not on the roster"
+        detail="The agent roster was read and holds no row for this agent, so there is no binding to move."
       />
     );
   }

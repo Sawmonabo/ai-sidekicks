@@ -145,5 +145,6 @@ export {
   useAgentBindingSwitch,
   useDriverCatalogReading,
   type AgentBindingSwitchHolder,
+  type AgentSwitchRound,
   type DriverCatalogHolder,
 } from "./provider-switch/provider-switch-host.js";

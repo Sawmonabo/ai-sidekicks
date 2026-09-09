@@ -48,3 +48,14 @@
 .meridian-settlement__superseded {
   color: var(--meridian-text-muted);
 }
+
+/* The round the daemon answered without naming a switch. Dressed as the settlement
+   line is — same rule, same indent — because it is the same kind of statement: this
+   is what came back. It carries no caution border, since nothing failed. */
+.meridian-switch__no-switch {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  padding-inline-start: var(--meridian-space-3);
+  border-inline-start: 2px solid var(--meridian-edge-strong);
+  color: var(--meridian-text-muted);
+}

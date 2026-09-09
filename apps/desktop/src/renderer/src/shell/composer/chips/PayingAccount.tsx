@@ -4,14 +4,18 @@
 // because the arms below are the whole of rule 8 applied to one fact — a component
 // with four absence arms inside another component is where an author eventually
 // collapses two of them. The refusal's own three arms went one file further, to
-// `PayingAccountRefusal.tsx`, for that same reason.
+// `RosterReadRefusal.tsx`, for that same reason — a module shared with the axis
+// affordance, which renders those same three arms off the same roster read.
 
 import { Chip, Nothing } from "../../../console/primitives/index.js";
 import type { AgentBindingReading } from "./agent-binding-read.js";
-import { PayingAccountRefusal } from "./PayingAccountRefusal.js";
+import { RosterReadRefusal } from "./RosterReadRefusal.js";
 
 /** What the chip says when the roster served and named no account for this agent. */
 const PROVIDER_DEFAULT_ACCOUNT = "Provider's default account";
+
+/** What is absent, worded once so every refused arm says the same thing is missing. */
+const PAYING_ACCOUNT_NOT_READ = "Paying account not read";
 
 export interface PayingAccountProps {
   readonly binding: AgentBindingReading;
@@ -41,13 +45,19 @@ export interface PayingAccountProps {
 export function PayingAccount(props: PayingAccountProps): React.JSX.Element {
   const { phase, payingAccountLabel, isProviderDefaultAccount, refusal } = props.binding;
   if (phase === "refused" || refusal !== undefined) {
-    return <PayingAccountRefusal refusal={refusal} />;
+    return (
+      <RosterReadRefusal
+        title={PAYING_ACCOUNT_NOT_READ}
+        noReasonDetail="The agent roster read refused and carried no reason."
+        refusal={refusal}
+      />
+    );
   }
   if (phase === "not-checked") {
     return (
       <Nothing
         kind="not-checked"
-        title="Paying account not read"
+        title={PAYING_ACCOUNT_NOT_READ}
         detail="Nothing has asked the daemon which account pays for this agent's turns."
       />
     );

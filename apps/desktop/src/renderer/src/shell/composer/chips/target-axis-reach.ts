@@ -1,7 +1,7 @@
 // Whether this composer may move the addressed agent's provider axes, and on what.
 //
 // THE DECISION IS HERE RATHER THAN IN THE CHIP because it is a decision, not a
-// layout: three states with three different sentences, and a component branching on
+// layout: six states with six different sentences, and a component branching on
 // them inline would be the one place the order of the checks is written down. The
 // order is the whole of it — reachability is settled BEFORE the roster is consulted,
 // so a build that carries no way to move an axis says so whether or not it ever read
@@ -18,16 +18,23 @@
 // difference FROM a binding. Without the row there is no binding to differ from, and
 // an axis surface composed over an absent one would be offering the participant a
 // change to values nobody has read.
+//
+// WHICH IS WHY THE WHOLE READING COMES IN AND NOT JUST ITS ROW. The row is absent in
+// four different situations and they are four different sentences: nobody asked, the
+// read is travelling, the read refused, and the roster served and holds no such agent.
+// This resolver took the row alone, so all four reached one arm whose sentence — "this
+// agent's roster row has not been read" — is false for three of them and drops the
+// daemon's own reason for one. `PayingAccount.tsx`, one file over, renders the same
+// four correctly; the phase is what tells them apart and it rides the reading.
 
-import type {
-  AgentRosterEntry,
-  AgentSwitchSettlement,
-  ConsoleBridge,
-} from "../../../console/bridge/index.js";
 import type {
   AgentBindingSwitchHolder,
   DriverCatalogHolder,
 } from "../../../console/agents/index.js";
+import type { AgentRosterEntry, AgentSwitchSettlement } from "../../../console/bridge/index.js";
+import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import type { ConsoleRefusal } from "../../../console/core/index.js";
+import type { AgentBindingReading } from "./agent-binding-read.js";
 
 /**
  * Everything the axis popover's body needs, gathered by the rail that armed it.
@@ -46,14 +53,23 @@ export interface TargetAxisControl {
 /**
  * What the chip may say about changing this agent's axes.
  *
- * A closed three-arm union rather than an optional control beside a boolean: "no
- * control because this build cannot" and "no control because nothing has been read
- * yet" are different sentences a person is owed, and two optional members would make
- * "both" and "neither" representable with nothing able to answer them.
+ * A closed union rather than an optional control beside a boolean: each arm is a
+ * different sentence a person is owed, and optional members would make combinations
+ * representable that nothing could answer. The four middle arms are the roster
+ * reading's own phases, which is what keeps this vocabulary from drifting from the
+ * reading it is derived from — a fifth phase there is a compile error here.
  */
 export type TargetAxisReach =
+  /** This build carries no operation that moves an axis, whatever the roster says. */
   | { readonly reach: "unreachable" }
-  | { readonly reach: "agent-not-read" }
+  /** Nobody has asked the daemon what this agent is bound to. */
+  | { readonly reach: "not-checked" }
+  /** The roster read is travelling. */
+  | { readonly reach: "loading" }
+  /** The roster read refused, with the reason it carried where it carried one. */
+  | { readonly reach: "refused"; readonly refusal: ConsoleRefusal | undefined }
+  /** The roster served and this session holds no such agent. */
+  | { readonly reach: "no-such-agent" }
   | { readonly reach: "offered"; readonly control: TargetAxisControl };
 
 /**
@@ -71,17 +87,27 @@ function carriesAxisMutation(bridge: ConsoleBridge): boolean {
 /** Settle what the chip may offer, in the order the header states. */
 export function resolveTargetAxisReach(
   bridge: ConsoleBridge,
-  agent: AgentRosterEntry | undefined,
+  binding: AgentBindingReading,
   catalog: DriverCatalogHolder,
   switching: AgentBindingSwitchHolder,
 ): TargetAxisReach {
   if (!carriesAxisMutation(bridge)) {
     return { reach: "unreachable" };
   }
-  if (agent === undefined) {
-    return { reach: "agent-not-read" };
+  if (binding.phase === "refused") {
+    return { reach: "refused", refusal: binding.refusal };
   }
-  return { reach: "offered", control: { agent, catalog, switching } };
+  if (binding.phase === "not-checked") {
+    return { reach: "not-checked" };
+  }
+  if (binding.phase === "loading") {
+    return { reach: "loading" };
+  }
+  // The roster served. A row is present exactly where it named this agent, and its
+  // absence here is the one remaining fact: this session holds no such agent.
+  return binding.agent === undefined
+    ? { reach: "no-such-agent" }
+    : { reach: "offered", control: { agent: binding.agent, catalog, switching } };
 }
 
 /**
@@ -101,6 +127,23 @@ export function failedSwitchOf(
   if (axes === undefined || axes.reach !== "offered") {
     return undefined;
   }
-  const settlement = axes.control.switching.settlement;
+  const settlement = axes.control.switching.settled?.settlement;
   return settlement !== undefined && settlement.status === "failed" ? settlement : undefined;
+}
+
+/**
+ * Why the axis mutation this window issued did not happen, or nothing.
+ *
+ * A SIBLING OF {@link failedSwitchOf} AND A DIFFERENT FACT. That one is the daemon's
+ * answer that the switch failed; this one is the call itself not landing — a transport
+ * failure, a permission refusal, or the latch's own arm. Both belong on the chip for
+ * the same reason: the refusal reaches only the popover's form, which is portalled and
+ * carries no `keepMounted`, so base-ui unmounts it on an outside click or Escape. A
+ * participant who pressed Apply and clicked back into the message line to keep typing
+ * was then told nothing at all — the one outcome a mutation surface may not have.
+ */
+export function switchRefusalOf(axes: TargetAxisReach | undefined): ConsoleRefusal | undefined {
+  return axes === undefined || axes.reach !== "offered"
+    ? undefined
+    : axes.control.switching.refusal;
 }
