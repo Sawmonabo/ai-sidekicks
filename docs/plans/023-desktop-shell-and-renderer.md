@@ -9372,6 +9372,82 @@ shipped:
       surface to run under.
       `phase: 1`: `1C` is a supplement label and can never be a manifest phase key, so the task id
       carries the assertion.
+  - phase: 1
+    task: T-023p-1C-1
+    pr: 477
+    sha: c51f441
+    merged_at: 2026-09-09
+    files:
+      - apps/desktop/AGENTS.md
+      - apps/desktop/src/renderer/src/console/agents/agents.css
+      - apps/desktop/src/renderer/src/console/agents/attach/attach.css
+      - apps/desktop/src/renderer/src/console/agents/axis-field.css
+      - apps/desktop/src/renderer/src/console/agents/run-console/run-console.css
+      - apps/desktop/src/renderer/src/console/approvals/pane/approvals-sections.css
+      - apps/desktop/src/renderer/src/console/approvals/pane/approvals.css
+      - apps/desktop/src/renderer/src/console/browser/controls.css
+      - apps/desktop/src/renderer/src/console/browser/pane/chrome/chrome.css
+      - apps/desktop/src/renderer/src/console/browser/pane/pane.css
+      - apps/desktop/src/renderer/src/console/collaboration/collaboration.css
+      - apps/desktop/src/renderer/src/console/collaboration/invites/invites.css
+      - apps/desktop/src/renderer/src/console/collaboration/members/members.css
+      - apps/desktop/src/renderer/src/console/frame/frame.css
+      - apps/desktop/src/renderer/src/console/primitives/absence/nothing.css
+      - apps/desktop/src/renderer/src/console/primitives/accent-fill.css
+      - apps/desktop/src/renderer/src/console/primitives/chord/chord.css
+      - apps/desktop/src/renderer/src/console/primitives/figures/WireFigure.tsx
+      - apps/desktop/src/renderer/src/console/primitives/figures/chip.css
+      - apps/desktop/src/renderer/src/console/primitives/figures/choice-list.css
+      - apps/desktop/src/renderer/src/console/primitives/figures/figure.css
+      - apps/desktop/src/renderer/src/console/primitives/figures/glyph.css
+      - apps/desktop/src/renderer/src/console/primitives/figures/ledger-row.css
+      - apps/desktop/src/renderer/src/console/primitives/partial-read.css
+      - apps/desktop/src/renderer/src/console/primitives/refusal.css
+      - apps/desktop/src/renderer/src/console/primitives/shared.css
+      - apps/desktop/src/renderer/src/console/repos/artifacts/artifacts.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/MountCard.tsx
+      - apps/desktop/src/renderer/src/console/repos/mounts/attach/attach.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/mount-acts.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/mounts.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/root-cards.css
+      - apps/desktop/src/renderer/src/console/repos/mounts/roots/roots.css
+      - apps/desktop/src/renderer/src/console/repos/repos.css
+      - apps/desktop/src/renderer/src/console/runs/index.ts
+      - apps/desktop/src/renderer/src/console/runs/pane/RunRow.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/StatusHistory.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/interventions/InputAskSlot.tsx
+      - apps/desktop/src/renderer/src/console/runs/pane/runs-pane-body.ts
+      - apps/desktop/src/renderer/src/console/runs/pane/runs.css
+      - apps/desktop/src/renderer/src/console/sessions/acts/session-acts.css
+      - apps/desktop/src/renderer/src/console/sessions/sessions.css
+      - apps/desktop/src/renderer/src/console/settings/pages/notifications/notifications.css
+      - apps/desktop/src/renderer/src/console/settings/pages/provider-accounts/shell/provider-accounts-shell.css
+      - apps/desktop/src/renderer/src/console/settings/shared/preference-toggle-row.css
+      - apps/desktop/src/renderer/src/console/settings/shared/settings-page.css
+      - apps/desktop/src/renderer/src/console/terminal/emulator/emulator.css
+      - apps/desktop/src/renderer/src/console/terminal/focus-ring.css
+      - apps/desktop/src/renderer/src/console/terminal/lease/lease.css
+      - apps/desktop/src/renderer/src/console/terminal/pane/terminal-pane-body.ts
+      - apps/desktop/src/renderer/src/console/workflows/destination/workflows-destination.css
+      - apps/desktop/src/renderer/src/console/workflows/index.ts
+      - apps/desktop/src/renderer/src/console/workflows/pane/builder/builder-authoring.css
+      - apps/desktop/src/renderer/src/console/workflows/runs/run-list.css
+      - apps/desktop/src/renderer/src/console/workflows/workflows.css
+      - apps/desktop/test/console/surfaces/schema-form.tsx
+      - apps/desktop/test/console/surfaces/workflows.tsx
+    verifies_invariant: []
+    spec_coverage: []
+    notes: |
+      T-023p-1C-1, the stylesheet-ownership repair: every console class is declared by exactly
+      one sheet, so which family's rules win no longer depends on which pane a session opened
+      first and lazily loading one body can no longer re-lay-out a surface that never imported
+      it — 37 classes declared by two or more sheets before, none after, across a census that
+      moves 112 sheets / 1,772 classes to 111 / 1,774. No replacement census test, source
+      reader, or tripwire is added: the retired pin's claim is carried by the ownership itself
+      and checked by a layout-and-computed-style probe (2,298 readings, 0 changed), which is
+      what caught the 8 px regression the flat rename introduced before a baseline saw it.
+      `phase: 1`: `1C` is a supplement label and can never be a manifest phase key, so the task
+      id carries the assertion.
 ```
 
 ### Notes
