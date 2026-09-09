@@ -118,8 +118,16 @@ const rendererOutputDirectory: string =
  * file codec moved its form module behind `import()`. That is a re-derivation and not
  * a regression, and it is why the total gzip figure the budget gate reads is the
  * measurement of record; this list is the membership.
+ *
+ * `agent-wire` IS THAT SECOND KIND AND NOT THE FIRST. It names no view family's body:
+ * the composer's target chip hosts the provider-switch form, so the agents door is on
+ * the entry graph while the form itself stays behind `loadProviderSwitchBody`, and the
+ * one module both sides read — the agent wire shapes — is hoisted into a chunk of its
+ * own rather than duplicated into each. What would be the regression is a chunk here
+ * carrying that form, and the module census next door is what names it.
  */
 const INITIAL_GRAPH_CHUNKS: readonly string[] = [
+  "agent-wire.js",
   "chunk.js",
   "core.js",
   "index.css",
