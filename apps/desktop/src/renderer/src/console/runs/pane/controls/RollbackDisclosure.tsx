@@ -19,17 +19,25 @@
 // second copy of the enumerations because a second copy is how the two came to
 // disagree about whether an empty list is an all-clear.
 //
+// AND THAT HALF ARRIVES ON ITS OWN CHUNK. It is drawn only under a settlement that
+// touched files, so `apps/desktop/AGENTS.md` §Module shape reaches it through a loader —
+// `file-restore-mount.ts` beside this file, over the loader the primitives door
+// publishes. What renders while the chunk is in flight is the substrate's hidden
+// reserved region: no spinner, no skeleton, nothing that moves this settlement's layout.
+//
 // IT MOUNTS ON EXACTLY THE ARMS THAT CARRY ENUMERATIONS, which is the reading's own
 // answer (`files !== undefined`) and never a check on the disposition name: they ride
 // `files-restored`, `files-partially-restored`, and `resend-unapplied`, and a
 // disposition that mutated no file has no working tree to disclose.
 
-import {
-  Chip,
-  FileRestoreDisclosure,
-  InlineRefusal,
-  WireFigure,
-} from "../../../primitives/index.js";
+import { Chip, InlineRefusal, WireFigure } from "../../../primitives/index.js";
+// The working-tree half arrives through its MOUNT and never by name: it is drawn only
+// under a settlement that touched files, so it is a chunk of its own rather than code
+// every session downloads. `file-restore-mount.ts` holds the loader the primitives door
+// publishes; a value import of the component here would put it back on the initial graph,
+// because a symbol reachable both statically and dynamically is assigned to the STATIC
+// chunk.
+import { fileRestoreDisclosureMount } from "./file-restore-mount.js";
 import {
   resendSettlementSentence,
   type RollbackDispositionReading,
@@ -95,11 +103,15 @@ export function RollbackDisclosure(props: RollbackDisclosureProps): React.JSX.El
       )}
       {reading.files === undefined ? null : (
         <div className="meridian-rollback__files">
-          <FileRestoreDisclosure
-            result={props.result}
-            onOpenPath={props.onPathAction}
-            pathActionLabel={ENUMERATED_PATH_ACTION_LABEL}
-          />
+          {/* The mount's own render and not an element built here: what a loader-backed
+              body renders is the mount's decision — the settled body where its chunk has
+              landed, the substrate's hidden reserved region where it has not — and this
+              component's job is to say which props it takes. */}
+          {fileRestoreDisclosureMount.render({
+            result: props.result,
+            onOpenPath: props.onPathAction,
+            pathActionLabel: ENUMERATED_PATH_ACTION_LABEL,
+          })}
           {props.pathActionRefusal === undefined ? null : (
             <InlineRefusal
               code={props.pathActionRefusal.code}
