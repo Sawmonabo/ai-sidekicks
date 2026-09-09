@@ -61,71 +61,188 @@ export const PRECISION_PROBE_NOMINAL_BYTES: number = 4_000_000;
 /**
  * The character the probe's string is made of.
  *
- * Named because it crosses into the renderer as an argument and comes back as a
- * character code the assertion checks: the flattening read has to be OBSERVED to
- * have read the payload, and a code compared against a literal spelled twice is a
- * comparison of this file with itself.
+ * EXPORTED for the same reason the size beside it is: the control that proves the
+ * collection happened plants an allocation of the same shape, and a shape is a size
+ * AND a character. Left private, the size half was single-sourced and the shape half
+ * was two bare literals in two files — so a move to a two-byte character would halve
+ * the bytes-per-character identity this whole design rests on and the control would
+ * go on planting the old one with nothing failing.
+ *
+ * Both call sites take it as an ARGUMENT rather than reading it from module scope,
+ * because a function handed to `page.evaluate` is serialized by its source and
+ * captures no closure: an identifier from this module would be undefined inside the
+ * renderer. That is also why the two construction bodies are spelled twice rather
+ * than shared — the values are single-sourced and the three lines around them cannot
+ * be.
  */
-const PRECISION_PROBE_FILL_CHARACTER = "x";
+export const PRECISION_PROBE_FILL_CHARACTER: string = "x";
 
 /**
- * What V8 spends AROUND the payload, and the only slack the window below carries.
+ * How far either end of the window sits from the payload, and the only slack it
+ * carries.
  *
- * The retained value is the payload plus a sequential-string header, and the
- * doubling the repeat performs leaves a handful of concatenation cells the
- * flattening read degenerates rather than frees. Measured across fourteen collected
- * windows on this build the whole of that overhead was 560 B — the same figure
- * every time — so this allowance is not a tolerance the reading needs. It is room
- * for a platform whose header width or large-object alignment differs from this
- * one's, and it is stated rather than absorbed so a reader can see how much of the
- * window is measurement and how much is margin.
+ * It answers a different question at each end, which is why one figure serves both.
+ * ABOVE the payload it is what V8 spends around it: a sequential-string header, plus
+ * the handful of concatenation cells the doubling leaves and the flattening read
+ * degenerates rather than frees. Measured across fourteen collected windows the whole
+ * of that overhead was 560 B, the same figure every time, and 1,852 B on the first
+ * window of a session, where the evaluate's own first-call allocations are still
+ * counted — so upward this is not a tolerance the reading needs, it is room for a
+ * platform whose header width or large-object alignment differs from the one measured
+ * here (macOS, Electron 44).
+ * BELOW it, the difference of two readings can fall under the payload when the
+ * collector nets bytes out inside the window, which the forced collection makes rare
+ * rather than impossible; the widest such excursion measured here was 6,684 B, and
+ * this is ten times it.
  *
- * Sixty-four kibibytes: two orders of magnitude above the measured overhead, and
- * far below what it has to keep out. The shape this probe replaced overshot by a
- * whole second backing store — four megabytes — and the default instrument moves by
- * nothing at all.
+ * Sixty-four kibibytes: two orders of magnitude above the measured overhead in one
+ * direction and an order above the measured excursion in the other, and far inside
+ * what it has to keep out at both ends. The shape this probe replaced overshot by a
+ * whole second backing store — four megabytes — an unflattened payload undershoots by
+ * very nearly the whole of it, and the default instrument does not move at all.
+ *
+ * Stated rather than absorbed, so a reader can see how much of the window is
+ * measurement and how much is margin.
  */
 const PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES = 65_536;
 
 /**
- * The window the probe's own growth has to land in.
+ * The window the probe's own growth has to land in — the payload, plus or minus the
+ * allowance at either end.
  *
- * FLOOR: the payload itself. Four million one-byte characters weigh four million
- * bytes on the heap and cannot weigh less, so this end is arithmetic rather than a
- * tolerance — and it is the end that rules out the default instrument, which is
- * quantized and served from a long-interval cache and recites one value for both
- * reads. Measured with the flag dropped from this tier's launch: growth of exactly
- * 0 B across twelve windows (macOS, Electron 44). That figure is not cited as
- * evidence here — `heap-instrument.test.ts` launches without the flag and asserts
- * this function REFUSES, so the claim is run rather than recorded.
+ * SYMMETRIC, and the lower end is where that matters. The payload cannot weigh less
+ * than four million bytes, but the quantity asserted is not the payload: it is a
+ * DIFFERENCE of two heap readings, and a difference sits below the payload whenever
+ * the collector nets bytes out inside the window. This file records its own
+ * counterexample a few lines down — an uncollected window that read 3,993,316 B,
+ * 6,684 B under the payload. A floor at the payload itself would have had 560 B of
+ * headroom against that, so it would have been a second version of the ceiling
+ * failure this shape was chosen to fix, moved to the other end.
  *
- * CEILING: the payload plus the overhead allowance. A floor alone passes any
- * instrument that moved by at least this much for any reason — a quantized one that
- * stepped its grid, or the replaced shape carrying a second backing store — so the
- * ceiling is what turns "the reading moved" into "the reading measured this".
+ * WHAT THE FLOOR STILL RULES OUT, at 3,934,464 B. The default instrument read 0 B in
+ * every one of twelve windows with the flag dropped from this tier's launch (macOS,
+ * Electron 44), so any floor above zero rejects it and this one stands 3,934,464 B
+ * clear. Nor is that a knife edge if the cache in front of it ever lapses: the widest
+ * the recited value moved BETWEEN those windows was 21,280 B, and this end is roughly
+ * two hundred times that. An unflattened payload is ruled out just as widely — a rope
+ * measures a few hundred bytes. None of it is cited as evidence here;
+ * `heap-instrument.test.ts` launches without the flag and asserts this function
+ * REFUSES, so the claim is run rather than recorded.
+ *
+ * CEILING: the payload plus the same allowance. A floor alone passes any instrument
+ * that moved by at least this much for any reason, so the ceiling is what turns "the
+ * reading moved" into "the reading measured this" — and it is what the replaced
+ * shape failed, carrying a second backing store. It is NOT claimed to rule out a
+ * quantized instrument that stepped its grid at every heap size: a coarse step is a
+ * fraction of the heap it steps on, so at a large enough renderer one step could
+ * land inside this band. What makes the coarse launch fail here is the cache in
+ * front of the reading, which serves one value to both reads.
  */
-const PRECISION_PROBE_MIN_OBSERVED_BYTES = PRECISION_PROBE_NOMINAL_BYTES;
+const PRECISION_PROBE_MIN_OBSERVED_BYTES =
+  PRECISION_PROBE_NOMINAL_BYTES - PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES;
 
 const PRECISION_PROBE_MAX_OBSERVED_BYTES =
   PRECISION_PROBE_NOMINAL_BYTES + PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES;
 
 /**
- * How many windows the probe takes, and why the largest of them is the reading.
+ * How many windows the probe takes, and why the middle one is the reading.
  *
- * A collection that lands BETWEEN the two reads can only lower their difference: it
- * reclaims bytes that were already there and adds none. So a window a collection
- * landed in is not a measurement of this allocation, and the largest of several
- * windows is the one least contaminated by one. Nothing about that weakens the
- * ceiling — it is applied to the largest, which is the strictest place to apply it —
- * and it cannot rescue the default instrument, whose every window is 0.
+ * THREE, TAKEN AS A MEDIAN, which is `HEAP_READING_SAMPLE_COUNT`'s count and
+ * `HEAP_READING_SAMPLE_COUNT`'s statistic — the same question asked by
+ * `terminal-instance-series.ts` about the same kind of quantity, and answered there
+ * for the same reason: what a repeat has to reject is one outlying read, and
+ * contamination runs BOTH ways. A collection landing between the two reads lowers
+ * the difference; anything allocating into the window raises it. The largest of the
+ * three would be robust against the first and defenceless against the second — and
+ * the second is the direction the failure this shape replaced came from — 8,022,500 B
+ * against an 8,000,000 B ceiling, a second backing store still counted. A
+ * median discards one outlier at either end, and this module takes it through
+ * {@link medianOfHeapReadings} rather than a second definition of the word.
  *
- * Three, because each window is taken behind its own forced collection and that
- * makes a contaminated window rare rather than routine. Measured on this build:
- * fourteen COLLECTED windows read 4,000,560 B every time, where fourteen
- * uncollected windows on the same launch read 4,000,560 B ten times, 4,001,852 B
- * and 3,993,316 B — below the payload — once each, and −40,452,864 B once.
+ * Three is also what a forced collection per window buys, and the measurements that
+ * settled the count were taken as a sweep of fourteen consecutive windows on one
+ * launch. Collected, all fourteen read 4,000,560 B — the same figure every time.
+ * UNCOLLECTED on the same launch they read 4,000,560 B nine times, 4,001,852 B /
+ * 4,000,592 B / 4,000,580 B once each, 3,993,316 B — below the payload — once, and
+ * −40,452,864 B once. So a contaminated window is the exception, and three is the
+ * smallest count whose median survives one.
+ *
+ * WHAT THE PROBE ITSELF READS is the head of that sweep rather than its body, and it
+ * carries one systematic difference: across four launches the three windows read
+ * 4,001,852 B, 4,000,560 B, 4,000,560 B, the same three figures in the same order
+ * every time. The extra 1,292 B is what the FIRST evaluate of a session allocates for
+ * itself and keeps. Far inside the allowance either way, so nothing here depended on
+ * noticing it — recorded because it is what a maximum would have reported on every
+ * run, where a median reports the figure two independent windows agree on.
  */
 const PRECISION_PROBE_WINDOW_COUNT = 3;
+
+/**
+ * The median of a small set of heap readings.
+ *
+ * ONE IMPLEMENTATION, because this tier now asks the question twice — the precision
+ * precondition over its windows, and `terminal-instance-series.ts` over the reads
+ * behind each point of its sweep — and two private copies of a median are two
+ * definitions of the word that can drift apart without either failing. It lives here
+ * rather than beside either caller because the sweep already imports this module for
+ * {@link RendererHeapProbe}, so this direction is the one that closes no cycle.
+ *
+ * Averaging the two middle values on an even count rather than taking a rank, which
+ * is the sweep's own rule carried over verbatim: both current callers pass three, so
+ * the arms agree today, and a hoist that quietly changed the even case would move a
+ * printed figure with nothing saying so. `frame-time.test.ts` keeps its own median
+ * deliberately — it is defined there in terms of that file's nearest-rank percentile,
+ * over frame durations rather than heap bytes, and folding the two would change the
+ * statistic that file reports.
+ */
+export function medianOfHeapReadings(readings: readonly number[]): number {
+  const ordered = [...readings].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  const lower = ordered[ordered.length % 2 === 0 ? middle - 1 : middle] ?? 0;
+  const upper = ordered[middle] ?? 0;
+  return (lower + upper) / 2;
+}
+
+/**
+ * Whether a set of probe windows is a measurement of the probe's own allocation, and
+ * the sentence to raise when it is not.
+ *
+ * SEPARATED FROM THE LAUNCH ON PURPOSE. Everything above this line is arithmetic over
+ * numbers, and reaching it only through a real Electron meant the band, the statistic,
+ * and the two refusals could be exercised in exactly one configuration — the passing
+ * one. Pulled out, `heap-instrument.test.ts` drives the real function over the
+ * readings this tier has actually observed, including the ones a live launch cannot
+ * be made to produce on demand.
+ *
+ * `null` for a measurement rather than a boolean, so a caller asserting on it prints
+ * the refusal itself when it fails instead of `false`.
+ */
+export function precisionProbeRefusalFor(observedBytesPerWindow: readonly number[]): string | null {
+  const observedBytes = medianOfHeapReadings(observedBytesPerWindow);
+  const observedWindowsText = observedBytesPerWindow.map((bytes) => String(bytes)).join(", ");
+  const preamble =
+    `a ${String(PRECISION_PROBE_NOMINAL_BYTES)} B allocation moved the renderer's heap reading ` +
+    `by ${String(observedBytes)} B (windows: ${observedWindowsText}), which is `;
+  if (observedBytes < PRECISION_PROBE_MIN_OBSERVED_BYTES) {
+    // Two causes, and the message names both because the assertion cannot tell them
+    // apart: the flattening this probe relies on is V8 doing what it does today, not
+    // a guarantee, and a rope reaches this end from the same direction a lost launch
+    // flag does.
+    return (
+      `${preamble}less than the allocation weighs — either this launch lost ` +
+      "`--enable-precise-memory-info` and is reading Blink's default quantized, cached " +
+      "MemoryInfo, or the payload reached the second read unflattened"
+    );
+  }
+  if (observedBytes > PRECISION_PROBE_MAX_OBSERVED_BYTES) {
+    return (
+      `${preamble}more than the allocation weighs — the reading is carrying something other ` +
+      "than this probe's own string, so a difference taken with it is not a measurement of " +
+      "what was allocated between two reads"
+    );
+  }
+  return null;
+}
 
 /**
  * How many settling samples the minimum below is taken over.
@@ -165,8 +282,17 @@ const HEAP_INSTRUMENT_UNAVAILABLE =
  * So the flag is not trusted. An allocation of a size known at this call site is
  * made between two reads and the growth has to land in a window drawn around that
  * size, which is a claim about the instrument rather than about the console — and it
- * is asserted by the cases that spend the instrument, not inside the reader, so it
- * costs a few round trips per tier case rather than one per sample.
+ * is asserted by the cases that spend the instrument, not inside the reader, so the
+ * cost is per tier case and not per sample.
+ *
+ * WHAT A CALL COSTS, stated because it is no longer a few round trips: three windows,
+ * each a forced collection — `SETTLE_ROUNDS` collections and as many round trips —
+ * and one evaluate, so twelve collections and fifteen round trips per call, at the
+ * five call sites this tier has. It is affordable against a per-test allowance of
+ * `ENDURANCE_BODY_ALLOWANCE_MS`, and the cases spend it once each at the top rather
+ * than around every reading; the control in `heap-instrument.test.ts` adds one cold
+ * Electron launch to a project that runs its files serially, whose whole body is one
+ * call to this function.
  *
  * EACH WINDOW IS TAKEN BEHIND A FORCED COLLECTION, which is the correction rather
  * than a precaution. An uncollected window reports whatever the collector reclaimed
@@ -200,11 +326,18 @@ export async function expectPreciseHeapInstrument(
         };
         const beforeBytes = readHeapBytes();
         const retained = fillCharacter.repeat(characterCount);
-        // The repeat builds by doubling and answers a rope of concatenation cells
-        // weighing a few hundred bytes; THIS read is what flattens it into the one
-        // sequential string the window is measuring. It is taken for that reason and
-        // not as a check, and its result is returned so the flattening cannot be
-        // elided as a read nothing consumes.
+        // The repeat builds by doubling and answers a ROPE of concatenation cells
+        // weighing a few hundred bytes, not the four megabytes this window is drawn
+        // around. This read is the ask that gets it flattened: V8's character
+        // accessor flattens the receiver before indexing it, so today this call is
+        // what turns the rope into one sequential one-byte string. That is a runtime
+        // heuristic and not a language guarantee, which is why NOTHING HERE ASSERTS
+        // FLATNESS — the window's own floor is the evidence. A rope that reached the
+        // second read unflattened measured 548 B on this build and fails that floor
+        // by three orders of magnitude, so the probe cannot pass while resting on an
+        // engine that stopped flattening here. The result is returned for a smaller
+        // reason: an indexing read nothing consumes is elidable, and an elided read
+        // flattens nothing.
         const lastCharacterCode = retained.charCodeAt(characterCount - 1);
         const afterBytes = readHeapBytes();
         // Read AFTER the second sample so the string is still reachable across it — an
@@ -220,22 +353,19 @@ export async function expectPreciseHeapInstrument(
     observedBytesPerWindow.push(Number(probe.afterBytes) - Number(probe.beforeBytes));
   }
 
-  const observedBytes = Math.max(...observedBytesPerWindow);
-  const observedWindows = observedBytesPerWindow.map((bytes) => String(bytes)).join(", ");
-  expect(
-    observedBytes,
-    `a ${String(PRECISION_PROBE_NOMINAL_BYTES)} B allocation moved the renderer's heap reading by ` +
-      `${String(observedBytes)} B at most (${observedWindows}), which is less than the allocation ` +
-      "weighs — this launch is reading Blink's default quantized, cached MemoryInfo rather than " +
-      "the precise one",
-  ).toBeGreaterThanOrEqual(PRECISION_PROBE_MIN_OBSERVED_BYTES);
-  expect(
-    observedBytes,
-    `a ${String(PRECISION_PROBE_NOMINAL_BYTES)} B allocation moved the renderer's heap reading by ` +
-      `${String(observedBytes)} B at most (${observedWindows}), which is more than the allocation ` +
-      "weighs — the reading is carrying something other than this probe's own string, so a " +
-      "difference taken with it is not a measurement of what was allocated between two reads",
-  ).toBeLessThanOrEqual(PRECISION_PROBE_MAX_OBSERVED_BYTES);
+  // The band, the statistic and both refusals are {@link precisionProbeRefusalFor}'s,
+  // so what runs here is the same function the non-launching cases drive over readings
+  // a live renderer cannot be asked to produce.
+  //
+  // RAISED AS THE FAILURE'S OWN MESSAGE rather than asserted as a value: an expectation
+  // on the string renders it as a compared VALUE, and vitest elides a value past its
+  // print width — the refusal arrived at the reader as "expected 'a 4000000 B
+  // allocation mov…' to be null", which names neither the reading nor the cause. The
+  // sentence this function exists to produce has to survive to the operator whole.
+  const refusal = precisionProbeRefusalFor(observedBytesPerWindow);
+  if (refusal !== null) {
+    expect.fail(refusal);
+  }
 }
 
 /**
