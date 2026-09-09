@@ -16,6 +16,11 @@
 // `growth-operations/` and `growth-prerequisites.ts`, the outcome ledger, and the
 // scenario manifest. Only a reader that needs the ROWS reaches `growth-slate.ts`,
 // which is the edge that keeps the ledger's churn out of everything downstream of it.
+//
+// AND THE ROW CARRIES ONLY WHAT A RUNNING CONSOLE READS. `consumingSurface` left for
+// `growth-slate-consumers.ts` — a split by CONSUMER and not by size — because no module
+// in the shipped renderer has ever read it, so carrying it here put sixty sentences
+// written for a reader of the plan on the document every session downloads.
 
 /** A row's stable identifier. Used by port entries and by the manifest. */
 export type GrowthSlateRowId =
@@ -86,8 +91,6 @@ export interface GrowthSlateRow {
   readonly wire: string;
   /** The document that owns registering it. */
   readonly owningDocument: string;
-  /** The console surface family that consumes it. */
-  readonly consumingSurface: string;
   /**
    * Always false while the row is on the slate. Present as a field rather than
    * implied so the test's assertion reads as a check rather than a tautology, and
