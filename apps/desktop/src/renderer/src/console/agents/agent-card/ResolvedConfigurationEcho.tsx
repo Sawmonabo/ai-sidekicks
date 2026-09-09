@@ -11,8 +11,9 @@
 // definition is never attributed to one, because an inline attach resolves a
 // configuration too.
 
-import { WireFigure } from "../primitives/index.js";
-import type { AgentResolvedConfiguration } from "../bridge/index.js";
+import { WireFigure } from "../../primitives/index.js";
+import type { AgentResolvedConfiguration } from "../../bridge/index.js";
+import { type AgentToolGrantPosition } from "./tool-grant.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";
 
@@ -33,6 +34,14 @@ import { ProseRow } from "./ProseRow.js";
 export function ResolvedConfigurationEcho(props: {
   readonly resolved: AgentResolvedConfiguration;
   readonly definitionId: string | undefined;
+  /**
+   * The grant the card already read, handed down rather than re-read here.
+   *
+   * The Tools row and the governance line above the disclosure state one wire value,
+   * and a second read of `resolved.toolAllowlist` in this subtree is how they came to
+   * state it two different ways.
+   */
+  readonly toolGrant: AgentToolGrantPosition;
 }): React.JSX.Element {
   const { resolved } = props;
   return (
@@ -59,7 +68,7 @@ export function ResolvedConfigurationEcho(props: {
         <div className="meridian-agent-card__resolved-row">
           <dt>Tools</dt>
           <dd>
-            <ToolAllowlist allowlist={resolved.toolAllowlist} />
+            <ToolAllowlist position={props.toolGrant} />
           </dd>
         </div>
         <ProseRow label="Instructions" text={resolved.instructions} />

@@ -1,5 +1,5 @@
-import { WireFigure } from "../primitives/index.js";
-import { type AgentRosterEntry } from "../bridge/index.js";
+import { WireFigure } from "../../primitives/index.js";
+import { type AgentRosterEntry } from "../../bridge/index.js";
 
 /**
  * The mode the provider declared, beside the one that was requested.
