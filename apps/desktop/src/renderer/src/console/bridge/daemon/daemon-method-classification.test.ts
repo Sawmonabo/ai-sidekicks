@@ -14,11 +14,7 @@
 // own totality over the registry is a compile-time claim the annotation makes, and
 // what a runtime check adds is the pairing.
 
-import {
-  DAEMON_METHOD_KINDS,
-  RECORD_DAEMON_METHODS,
-  isRecordDaemonMethod,
-} from "./daemon-method-classification.js";
+import { DAEMON_METHOD_KINDS, isRecordDaemonMethod } from "./daemon-method-classification.js";
 import { CONSOLE_DAEMON_METHODS } from "./daemon-reply-registry.js";
 import { MUTATING_DAEMON_METHODS, isMutatingDaemonMethod } from "../../store/index.js";
 
@@ -39,7 +35,12 @@ describe("the record classification covers the registry", () => {
 
 describe("the roster IS the registry's record set", () => {
   it("names every record the registry binds", () => {
-    const unrostered = RECORD_DAEMON_METHODS.filter((method) => !isMutatingDaemonMethod(method));
+    // Through the shipped predicate rather than a list of its own: a second
+    // enumeration here would be a third answer to the question this suite exists to
+    // keep at two, and it would ride the renderer's initial graph for a test's sake.
+    const unrostered = CONSOLE_DAEMON_METHODS.filter(
+      (method) => isRecordDaemonMethod(method) && !isMutatingDaemonMethod(method),
+    );
 
     expect(unrostered).toStrictEqual([]);
   });

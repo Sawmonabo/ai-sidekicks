@@ -22,7 +22,7 @@
 // both directions by `daemon-method-classification.test.ts`, so neither can drift
 // from the other or from the registry.
 
-import { CONSOLE_DAEMON_METHODS, type ConsoleDaemonMethod } from "./daemon-reply-registry.js";
+import type { ConsoleDaemonMethod } from "./daemon-reply-registry.js";
 
 /**
  * What one call does on the far side.
@@ -91,16 +91,6 @@ export const DAEMON_METHOD_KINDS: Record<ConsoleDaemonMethod, DaemonMethodKind> 
   // transaction.
   "providerAccount.probe": "record",
 });
-
-/**
- * Every method that puts a record, derived from the table above.
- *
- * Derived rather than restated so the two cannot disagree, and ordered by the
- * registry's own key order so a reader meets the namespaces in one sequence.
- */
-export const RECORD_DAEMON_METHODS: readonly ConsoleDaemonMethod[] = Object.freeze(
-  CONSOLE_DAEMON_METHODS.filter((method) => DAEMON_METHOD_KINDS[method] === "record"),
-);
 
 /**
  * Whether a method string names a record. Total over every string.
