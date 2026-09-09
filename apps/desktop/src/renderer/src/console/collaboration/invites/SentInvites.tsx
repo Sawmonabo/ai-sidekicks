@@ -83,12 +83,7 @@
 import { useEffect, useMemo } from "react";
 
 import { callDaemon, heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
-import {
-  currentShellBlock,
-  shellBlockForMethod,
-  useShellState,
-  type FrameStore,
-} from "../../store/index.js";
+import { currentShellBlock, useShellBlockFor, type FrameStore } from "../../store/index.js";
 import {
   WireMutationCoordinator,
   type CollaborationMutation,
@@ -119,7 +114,7 @@ export interface SentInvitesProps {
    * Where this window's shell condition is published.
    *
    * Held rather than a derived block passed in, because the question this surface
-   * asks is per METHOD: `shellBlockForMethod` answers about `invite.revoke` and the
+   * asks is per METHOD: `useShellBlockFor` answers about `invite.revoke` and the
    * read beside it survives the same outage, which a whole-window block handed down
    * could not express.
    */
@@ -157,7 +152,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   // method, never about the window. This value draws the row's control and rides it as
   // its disabled reason; whether a press is admitted is asked again at the dispatch
   // site, off the store, because this one is as old as the last committed render.
-  const revokeBlock = shellBlockForMethod(useShellState(frameStore), INVITE_REVOKE_METHOD);
+  const revokeBlock = useShellBlockFor(frameStore, INVITE_REVOKE_METHOD);
 
   useEffect(() => {
     // The coordinator being retired is superseded rather than dropped: dropping the

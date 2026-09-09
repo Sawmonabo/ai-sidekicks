@@ -41,6 +41,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { RepoMountState } from "@ai-sidekicks/contracts";
 import type { ChipTone } from "../../primitives/index.js";
+import type { ShellMutationBlock } from "../../store/index.js";
 import { selectionInFlightCopy } from "./execution-mode-selection.js";
 
 /**
@@ -228,4 +229,32 @@ export function workspaceControlPosture(
     return { live: false, heldBecause: selectionInFlightCopy(pendingMode) };
   }
   return WORKSPACE_CONTROLS_LIVE;
+}
+
+/**
+ * The one sentence a workspace's binding controls are closed with, or `undefined`
+ * while nothing closes them.
+ *
+ * TWO FACTS MEET HERE AND THE MOUNT'S GOES FIRST, which is `workspaceControlPosture`'s
+ * own precedence carried one step further. A withheld posture is a fact about the ROW —
+ * a detached mount, an unreachable root, a switch already on the wire — and a shell
+ * block is a fact about this WINDOW's runtime. Reporting the transient one over the
+ * permanent one would tell somebody to wait out a mount that has finished its life,
+ * which is exactly what `bindControlPosture` refuses to do.
+ *
+ * A FUNCTION AND NOT A LINE AT EACH CONTROL, because the two controls this serves are
+ * the pair `workspaceControlPosture` exists to keep in step: the picker names the mode
+ * a run binds in and the preparation puts that mode's root on disk, and a fold written
+ * twice is the shape that drifted the last time. The BLOCK is still read per control,
+ * off the method that control dispatches — this folds the two readings, it does not
+ * take one control's reading and spend it on another's.
+ */
+export function controlHoldSentence(
+  posture: WorkspaceControlPosture,
+  shellBlock: ShellMutationBlock | undefined,
+): string | undefined {
+  if (!posture.live) {
+    return posture.heldBecause;
+  }
+  return shellBlock?.detail;
 }

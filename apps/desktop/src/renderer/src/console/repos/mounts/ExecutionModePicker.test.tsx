@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
 import { workspaceControlPosture, type WorkspaceControlPosture } from "./mount-health.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 
 /** The two postures a card hands down, composed through the real predicate. */
 const CONTROLS_LIVE: WorkspaceControlPosture = workspaceControlPosture(
@@ -55,6 +56,7 @@ function renderPicker(
       refusalMode={undefined}
       pendingMode={undefined}
       posture={CONTROLS_LIVE}
+      frameStore={quietShell()}
       onSelect={() => undefined}
       {...overrides}
     />,
@@ -158,10 +160,14 @@ describe("ExecutionModePicker — refusals and absences", () => {
   });
 
   it("disables the whole group when the mount withholds its bind controls", () => {
-    const { container } = renderPicker(GIT_CAPABILITIES, {
+    const { container, getByRole } = renderPicker(GIT_CAPABILITIES, {
       posture: CONTROLS_HELD_BY_THE_MOUNT,
     });
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
+    // AND SAYS WHY. A disabled `fieldset` paints nothing that explains itself, so a
+    // group that only asserted `disabled` here would pass against the picker that
+    // shipped before this line existed: every row greyed and no sentence anywhere.
+    expect(getByRole("status").textContent).toBe("This mount is no longer reachable.");
   });
 });
 
@@ -189,6 +195,25 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
     // pressed.
     expect(getByRole("status").textContent).toContain("Switching to");
     expect(getByRole("status").textContent).toContain("worktree");
+  });
+
+  it("announces the mount's own reason and not the switch when both hold the group", () => {
+    // THE PRECEDENCE, AND THE COUNT, IN ONE CASE. A mount can go unreachable while a
+    // switch is still on the wire, and the two facts are not equal: "wait for the
+    // daemon to answer" is a lie about a root nobody can reach. `workspaceControlPosture`
+    // puts the mount first, and the picker renders whichever sentence it chose.
+    //
+    // `getByRole` IS THE COUNT ASSERTION. It throws on two matches, so a picker that
+    // rendered the general line beside the pending one — one fact, two wordings, two
+    // announcements a screen reader reads in sequence — fails here rather than passing
+    // with the first match.
+    const { getByRole } = renderPicker(GIT_CAPABILITIES, {
+      pendingMode: "worktree",
+      posture: CONTROLS_HELD_BY_THE_MOUNT,
+    });
+
+    expect(getByRole("status").textContent).toBe("This mount is no longer reachable.");
+    expect(getByRole("status").textContent).not.toContain("Switching to");
   });
 
   it("negative control: with nothing pending the rows are live and nothing is announced", () => {

@@ -44,6 +44,7 @@ import { InputAskSlot, INPUT_ASK_SLOT_CONTRACT } from "./interventions/InputAskS
 import { InterventionHistory } from "./interventions/InterventionHistory.js";
 import { RunControls } from "./controls/RunControls.js";
 import type { RunControlSurface } from "./controls/run-control-surface.js";
+import type { FrameStore } from "../../store/index.js";
 import { runElapsedMilliseconds, type RunProjection } from "./run-state-projection.js";
 import {
   RUN_CLEAN_CLOSE_SENTENCE,
@@ -77,6 +78,11 @@ export interface RunRowProps {
   readonly posture: ExecutionPosture | undefined;
   readonly surface: RunControlSurface;
   readonly bridge: ConsoleBridge;
+  /**
+   * Passed through to the control row, which reads this window's shell condition off
+   * it: an outage closes the controls in the window that has it and in no other.
+   */
+  readonly frameStore: FrameStore;
   /** Passed through to the control row, which resolves it for this row's run. */
   readonly driverCapabilities: DriverCapabilityReadout | undefined;
   /** Ask the pane to compose a rewind for this run. */
@@ -119,6 +125,7 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
           run={run}
           surface={props.surface}
           bridge={props.bridge}
+          frameStore={props.frameStore}
           driverCapabilities={props.driverCapabilities}
           onTakeTheFloor={onTakeTheFloor}
           onRequestRewind={onRequestRewind}

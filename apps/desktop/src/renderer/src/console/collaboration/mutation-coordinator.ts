@@ -89,9 +89,10 @@ export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
  *
  * Intersected with the call door's own registry key type, so the constraint carries
  * both halves of what a dispatch needs: the method is a WRITE, and the door binds
- * request and response schemas for it. A mutating verb the registry does not bind —
- * `driver.applyIntervention` and `driver.respondToRequest` are two today — fails to
- * compile at the call rather than resolving to an untyped payload.
+ * request and response schemas for it. That second half subtracts nothing TODAY — the
+ * roster and the registry's record set are held equal in both directions by the
+ * registry's own suite — and it stays because it is the half that fails at the CALL,
+ * the moment a write is rostered ahead of a schema for it, rather than at the wire.
  *
  * DAEMON-AS-GATEWAY, per the shipped `invite-accept-view.tsx`: the renderer speaks one
  * transport and the daemon proxies the control-plane `invite.*` and `membership.*`

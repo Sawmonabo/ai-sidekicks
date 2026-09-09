@@ -52,9 +52,10 @@ import { type ConsoleBridge } from "../../../bridge/index.js";
 import { Glyph, useLatestRef } from "../../../primitives/index.js";
 import { takeTheFloor, type TakeTheFloorOutcome } from "../../../seats/index.js";
 import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
-import { useSubjectScopedState } from "../../../store/index.js";
+import { useShellBlockFor, useSubjectScopedState, type FrameStore } from "../../../store/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
 import { readStepInState } from "./step-in-state.js";
+import { RUN_CONTROL_METHODS } from "./run-control-dispatch.js";
 import { type RunControlSurface } from "./run-control-surface.js";
 
 /** The deck's answer, kept beside the token whose settlement asked for it. */
@@ -66,6 +67,14 @@ interface SettledFloor {
 export interface StepInProps {
   /** Holds the token this control dispatched under, and rotates it with the transport. */
   readonly bridge: ConsoleBridge;
+  /**
+   * The window's own shell condition, read for the ONE method this control sends.
+   *
+   * Read here rather than handed down as a reason, because this control is more than a
+   * button: it holds its own dispatch and its own receipt, so it asks the seam about
+   * its own call the way every other dispatching surface does.
+   */
+  readonly frameStore: FrameStore;
   /** The pane's one dispatcher and its in-flight latch, shared with the palette row. */
   readonly surface: RunControlSurface;
   /** The run to take over, and the version guard the daemon compares against. */
@@ -82,10 +91,22 @@ export interface StepInProps {
    * flight would show a run that is still running under a control that says it is not.
    */
   readonly onTakeTheFloor: () => void;
+  /**
+   * The element the strip renders the closing sentence in, where one is being rendered.
+   *
+   * The strip owns the sentence for the same reason `ControlButton` does not: one
+   * outage closes every control in the row, and a sentence per button is one
+   * announcement per button for a single fact.
+   */
+  readonly reasonElementId?: string | undefined;
 }
 
 export function StepIn(props: StepInProps): React.JSX.Element {
-  const { bridge, surface, targetRunId, expectedRunVersion, onTakeTheFloor } = props;
+  const { bridge, frameStore, surface, targetRunId, expectedRunVersion, onTakeTheFloor } = props;
+  // What closes the pause this control sends, subscribed. The rendered half only: the
+  // press itself is settled again at `callDaemon`, which refuses a record method at the
+  // door, so a block arriving after this render is caught there.
+  const pauseBlock = useShellBlockFor(frameStore, RUN_CONTROL_METHODS.pause);
   const { value: dispatchToken, publish: publishDispatchToken } = useSubjectScopedState<
     string | undefined
   >(bridge, targetRunId, () => undefined);
@@ -147,7 +168,17 @@ export function StepIn(props: StepInProps): React.JSX.Element {
         type="button"
         className="meridian-step-in__action"
         aria-busy={state.phase === "pausing"}
-        onClick={stepIn}
+        // `aria-disabled` and a sentence the strip renders as text, never `disabled`
+        // and a `title`: `ControlButton.tsx`'s header states why, and this button sits
+        // in that same row and is closed by that same condition.
+        aria-disabled={pauseBlock !== undefined}
+        aria-describedby={pauseBlock === undefined ? undefined : props.reasonElementId}
+        onClick={() => {
+          if (pauseBlock !== undefined) {
+            return;
+          }
+          stepIn();
+        }}
       >
         <Glyph name="pause" size={GLYPH_SIZE_ROW} />
         Step in

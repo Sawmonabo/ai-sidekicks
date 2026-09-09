@@ -49,11 +49,19 @@ export const CLIENT_COMMAND_REFUSAL_ORIGIN = "composer-commands";
  * something it cannot act on: no name at all, a name nothing matches, a name several
  * things match. None of those is `command-failed`, which says the command RAN and
  * failed, and saying so would send a person looking for a broken command rather than
- * at the words after it. A fifth is a decision on the same footing.
+ * at the words after it.
+ *
+ * The fifth is this decision. A command whose OWNER has closed it — the local runtime
+ * is not serving, so the write it sends cannot be sent — is not `command-failed`, which
+ * says it ran, and not `command-unavailable-here`, which is a claim about SCOPE and
+ * would send a person to a different pane to try the same closed act again. It exists
+ * here, it applies here, and it cannot be sent right now; the owner supplies the
+ * sentence saying why, and this zone carries it rather than composing one.
  */
 export const CLIENT_COMMAND_REFUSAL_CODES = [
   "unknown-command",
   "command-unavailable-here",
+  "command-unavailable-now",
   "command-argument-invalid",
   "command-failed",
 ] as const;

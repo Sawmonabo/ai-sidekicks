@@ -83,3 +83,24 @@ export function stopShell(store: FrameStore): void {
 export function serveShell(store: FrameStore): void {
   store.publishShellReport(CONNECTED_REPORT);
 }
+
+/**
+ * A supervisor mid-ladder: the runtime is not connected and is being retried.
+ *
+ * THE ARM WHOSE SENTENCE CARRIES A FIGURE, which is what makes it worth a helper of its
+ * own rather than another `stopped`. `shellMutationBlock` composes the attempt and the
+ * limit into the reconnecting detail, so a surface that retyped its own wording would
+ * pass a `stopped` case and still be wrong here — and a control that failed to re-open
+ * when the ladder ends is invisible under any arm that never ends.
+ */
+const RECONNECTING_REPORT: ShellReport = {
+  ...CONNECTED_REPORT,
+  connection: { kind: "reconnecting", attempt: 2, attemptLimit: 5 },
+};
+
+/** A frame store whose supervisor is retrying the local runtime. */
+export function reconnectingShell(): FrameStore {
+  const store = new FrameStore();
+  store.publishShellReport(RECONNECTING_REPORT);
+  return store;
+}

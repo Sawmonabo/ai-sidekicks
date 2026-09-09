@@ -24,6 +24,7 @@ import type { ScriptedPaneViewHost } from "./fixture/pane-view-host-script.js";
 import type { GrowthOperationId, GrowthPort } from "./growth-port/index.js";
 import type { RuntimeNodePresenceSubscribe, RuntimeNodeRosterRead } from "./runtime-nodes/index.js";
 import type { ScenarioEngine } from "./scenario-runtime/index.js";
+import type { ShellConditionGate } from "./daemon/shell-condition-gate.js";
 import type { TransportReconnectSignal } from "./transport/transport-reconnect.js";
 
 /** Which bridge the console is running against. Rendered, never inferred. */
@@ -146,6 +147,16 @@ export interface ConsoleBridge {
    * floor, which is subscribe-only.
    */
   readonly transportReconnect: TransportReconnectSignal;
+  /**
+   * The window's supervisor condition, as the call door reads it.
+   *
+   * Minted per bridge and BOUND FROM ABOVE, exactly as the reconnect signal is: the
+   * frame store this answers off is born inside the frame composition with the bridge
+   * already a prop, so the bridge holds the gate and the frame hands it the store.
+   * `daemon/shell-condition-gate.ts` says what an unbound one answers and why that is
+   * the same answer a bound one gives at that moment.
+   */
+  readonly shellCondition: ShellConditionGate;
   readonly source: ConsoleBridgeSource;
   /** Present only under the fixture, so a surface can drive playback in a story. */
   readonly scenarioEngine: ScenarioEngine | undefined;

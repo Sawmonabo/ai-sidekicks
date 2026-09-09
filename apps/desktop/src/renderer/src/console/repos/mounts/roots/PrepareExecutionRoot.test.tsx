@@ -27,6 +27,7 @@ import { advanceScenarioUntil } from "../../../bridge/scenario-runtime/scenario-
 import { workspaceControlPosture, type WorkspaceControlPosture } from "../mount-health.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 import { REUSE_UNANSWERED_COPY } from "./root-act-model.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 
 /** The fixture branch with a live, dirty, compatible candidate — the consent case. */
 const DIRTY_CANDIDATE_BRANCH = "feat/rate-limit-wiring";
@@ -62,6 +63,7 @@ function renderForm(executionMode: ExecutionMode = "worktree"): FormUnderTest {
       executionMode={mode}
       sessionStore={sessionStore}
       posture={CONTROLS_LIVE}
+      frameStore={quietShell()}
       onPrepared={() => undefined}
     />
   );

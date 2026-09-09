@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { type RunProjection } from "../run-state-projection.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 import { capabilityReadout } from "./driver-capability-readout.test-support.js";
 import { recordingRunControlSurface, runProjection } from "./run-control-commands.test-support.js";
 import {
@@ -45,6 +46,8 @@ function inputFor(
   return {
     runs,
     driverCapabilities: CAPABLE,
+    // Silence, which closes no row. A case about a closed one hands its own.
+    frameStore: quietShell(),
     surface,
     onRequestSteer: () => undefined,
     onRequestRewind: () => undefined,

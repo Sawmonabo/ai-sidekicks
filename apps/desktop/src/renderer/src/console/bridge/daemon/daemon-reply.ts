@@ -67,15 +67,20 @@
 // consumed for its leaf helpers rather than for this.
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
-import { isReadAbandoned, settleUnlessAbandoned } from "../../store/index.js";
-import { lossyStringify, readGuardedProperty } from "../../../../../shared/wire-errors.js";
+import {
+  isReadAbandoned,
+  settleUnlessAbandoned,
+  type ShellMutationBlock,
+} from "../../store/index.js";
 import type { ConsoleBridge } from "../console-bridge.js";
 import {
   CONSOLE_DAEMON_METHOD_BINDINGS,
+  isRecordDaemonMethod,
   type ConsoleDaemonMethod,
   type DaemonRequestOf,
   type DaemonResponseOf,
 } from "./daemon-reply-registry.js";
+import { describeFailingPaths } from "./failing-member-paths.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
@@ -108,6 +113,29 @@ export const DAEMON_REPLY_REFUSAL_CODES = [
   "read-abandoned",
 ] as const;
 
+/**
+ * The block's own code, as the door's refusal code.
+ *
+ * NOT A MEMBER OF THE TUPLE ABOVE, and the omission is the design. Those four name
+ * failures that are the console's own to describe; a shell block is the SUPERVISOR's
+ * condition, and `store/shell/shell-mutation-block.ts` already owns the four
+ * `shell-*` codes and the sentence each one carries. Re-labelling one of them with a
+ * code minted here would give one condition two names — the disabled control saying
+ * `shell-stopped` and the refused dispatch saying something else about the same
+ * moment — so the block's own code and detail travel verbatim, and the origin is
+ * this door's because this door is what refused.
+ */
+function shellBlockedCall(method: string, block: ShellMutationBlock): DaemonReply<never> {
+  return {
+    status: "refused",
+    refusal: refuse(
+      DAEMON_REPLY_REFUSAL_ORIGIN,
+      block.code,
+      `${method} was not sent. ${block.detail}`,
+    ),
+  };
+}
+
 /** One console-side call refusal code. Derived, so the vocabulary is declared once. */
 export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number];
 
@@ -120,15 +148,6 @@ export type DaemonReplyRefusalCode = (typeof DAEMON_REPLY_REFUSAL_CODES)[number]
 export type DaemonReply<TValue> =
   | { readonly status: "served"; readonly value: TValue }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
-
-/**
- * How many failing member paths a refusal sentence names before it stops.
- *
- * A bound rather than the whole list: a response that is wrong in forty places is
- * wrong in one way, and forty paths in a sentence is not a sentence. Three is
- * enough to tell a reader which part of the reply moved.
- */
-const NAMED_FAILING_PATH_CAP = 3;
 
 /**
  * How a caller says this call has an owner who may walk away from it.
@@ -218,6 +237,25 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
     return abandonedRead(method);
   }
 
+  // THE SUPERVISOR BLOCK, ENFORCED ONCE AND HERE. `Spec-023 §Daemon Supervision
+  // Lifecycle` step 3 blocks mutating operations while the supervisor is not serving
+  // and keeps reads live, and before this guard existed the rule was applied by
+  // whichever surfaces remembered to ask: a run control, a repo write, or a composer
+  // send pressed during an outage went out through a stopped supervisor and came back
+  // as a transport refusal the design says it must never send. Enforced at the door,
+  // no surface can forget it — and the READ ARM IS UNTOUCHED, so a read stays live
+  // through every shell condition, which is the other half of the same sentence.
+  //
+  // BEFORE THE REQUEST PARSE, deliberately: a blocked call is not sent, so what it
+  // would have sent is not a question worth answering, and a caller whose request was
+  // also malformed should meet the condition that actually stopped it.
+  if (isRecordDaemonMethod(method)) {
+    const shellBlock = bridge.shellCondition.currentBlock();
+    if (shellBlock !== undefined) {
+      return shellBlockedCall(method, shellBlock);
+    }
+  }
+
   const sendable = binding.requestSchema.safeParse(request);
   if (!sendable.success) {
     return {
@@ -296,56 +334,4 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
   // registered schema admits, so a member the contract does not carry cannot reach
   // a component even when the wire sent one.
   return { status: "served", value: readable.data };
-}
-
-/**
- * Name the members that failed, without naming what was in them.
- *
- * PATHS ONLY. A path is a member name the contract itself publishes; the value at
- * that path is whatever the wire or the caller supplied, which may be participant
- * content. The validator's own message interpolates those values, which is why it
- * is never rendered.
- *
- * Takes `unknown` because that is honestly what a caller of this module knows about
- * a validator's error object: the registry types its schemas through the contracts
- * package's re-exported `ZodType` so that nothing above the bridge imports the
- * validator, and the same reason applies to its errors. A shape this cannot read
- * yields no clause rather than a wrong one.
- *
- * TOTAL, because that sentence is a claim and not a hope. A cast to
- * `{ issues?: unknown }` reads a property, a property read runs a getter, and both
- * `null` and `undefined` throw a `TypeError` on the way in — from inside the one
- * module that answers for a value nobody validated. Every read here therefore goes
- * through `readGuardedProperty`, which collapses absent and unreadable to the same
- * `undefined`, and every path segment through the family's total stringifier rather
- * than bare `String(...)`, which runs ToPrimitive and throws on a null-prototype
- * segment. Both are cheap on a path that only runs once something has already failed.
- *
- * Exported for its co-located test and for nothing else: the door itself is the only
- * caller, and `bridge/index.ts` deliberately publishes neither this nor the registry
- * behind it. A surface that could reach a reading of a validator's error would be a
- * surface that could compose a second refusal sentence.
- */
-export function describeFailingPaths(error: unknown): string {
-  const issues = readGuardedProperty(error, "issues");
-  if (!Array.isArray(issues)) {
-    return "";
-  }
-  const paths = [
-    ...new Set(
-      issues
-        .map((issue: unknown) => {
-          const path = readGuardedProperty(issue, "path");
-          return Array.isArray(path) && path.length > 0
-            ? path.map((segment: unknown) => lossyStringify(segment)).join(".")
-            : undefined;
-        })
-        .filter((path): path is string => path !== undefined),
-    ),
-  ];
-  if (paths.length === 0) {
-    return "";
-  }
-  const named = paths.slice(0, NAMED_FAILING_PATH_CAP).join(", ");
-  return paths.length > NAMED_FAILING_PATH_CAP ? ` (at ${named}, and more)` : ` (at ${named})`;
 }

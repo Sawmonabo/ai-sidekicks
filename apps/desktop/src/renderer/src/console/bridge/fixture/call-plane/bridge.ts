@@ -46,6 +46,7 @@ import { createSettledCallFolds } from "./settled-call-folds.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./served-operations.js";
 import { refuseAbsentCapability } from "./refusal.js";
 import { playScenarioTransportOutages } from "./transport-outages.js";
+import { ShellConditionGate } from "../../daemon/shell-condition-gate.js";
 import { TransportReconnectSignal } from "../../transport/transport-reconnect.js";
 import { encodeCeremonyResolution } from "../../web-authn/index.js";
 import type {
@@ -245,6 +246,10 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // promises was exercised by nothing.
     paneViewHostScript: createScriptedPaneViewHost(),
     transportReconnect,
+    // The fixture's own gate, minted per bridge exactly as the live one is. A
+    // scenario that scripts a supervisor outage therefore closes record dispatches
+    // through the same door a live window does, rather than through a second rule.
+    shellCondition: new ShellConditionGate(),
     source: "fixture",
     scenarioEngine,
   };

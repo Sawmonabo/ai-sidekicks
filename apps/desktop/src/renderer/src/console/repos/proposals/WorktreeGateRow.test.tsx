@@ -24,6 +24,7 @@ import { WorktreeGateRow } from "./WorktreeGateRow.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { WorktreeStatusRecord } from "../mounts/worktree-model.js";
 import { worktreeRecord } from "../mounts/repo-mounts.test-support.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 
 const SUBJECT = {
   kind: "worktree",
@@ -105,6 +106,7 @@ function row(
         unpairedReason={UNPAIRED_REASON}
         bridge={gateRowBridgeAnswering(branchContext)}
         sessionStore={new SessionStore({ sessionId: ROOT.createdBySessionId })}
+        frameStore={quietShell()}
         nowMilliseconds={NOW}
         onRequestRead={() => undefined}
         onOpenDiff={() => undefined}

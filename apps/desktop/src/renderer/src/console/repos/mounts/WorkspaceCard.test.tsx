@@ -17,6 +17,7 @@ import { bindControlPosture } from "./mount-health.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 import { CANONICAL_ROOT, mount, workspaceRow as workspace } from "./repo-mounts.test-support.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
+import { quietShell } from "../../store/shell-condition.test-support.js";
 
 /** The posture a healthy, attached mount hands down, composed the way the card gets it. */
 const HEALTHY_MOUNT_BIND_CONTROLS = bindControlPosture(mount());
@@ -36,6 +37,7 @@ function renderRow(
       mountCanonicalRoot={CANONICAL_ROOT}
       bridge={fixtureBridgeWithGrowth(REPOS_SCENARIO, {})}
       sessionStore={new SessionStore({ sessionId: "session-repos" })}
+      frameStore={quietShell()}
       onSelectExecutionMode={() => undefined}
       onRequestRead={() => undefined}
       {...overrides}

@@ -153,36 +153,83 @@ export function describeSupportedProtocols(negotiation: ShellNegotiation): Shell
 }
 
 /**
- * What each blocked method does, in a person's words.
+ * The classes of work a supervisor outage closes, in a person's words.
  *
- * A TOTAL record over the tuple, so an added mutating registration is a compile error
- * here rather than a control that quietly disappears from the read-only line while
- * still being disabled on screen.
+ * BY CLASS AND NOT BY VERB, which is the whole repair. The roster this maps over is
+ * every record method the registry binds, and a sentence that enumerated all of them
+ * would read as a list of wire verbs nobody can act on — and would grow by one clause
+ * every time the console learns to call another method. Five classes is what a person
+ * actually needs to know is closed.
  */
-const MUTATING_METHOD_LABELS: Record<MutatingDaemonMethod, string> = {
-  "session.create": "starting a session",
-  "session.join": "joining a session",
-  "membership.update": "changing a membership",
-  "invite.create": "sending an invitation",
-  "invite.revoke": "revoking an invitation",
-  "driver.interruptRun": "interrupting a run",
-  "driver.applyIntervention": "steering, rewinding, and the other run controls",
-  "driver.respondToRequest": "answering a provider's question",
-  "driver.compactContext": "compacting a session's context",
-  "providerAccount.probe": "checking a provider account again",
+const MUTATION_CLASSES = [
+  "run controls",
+  "repo and workspace changes",
+  "session roster changes",
+  "account probes",
+  "ask answers",
+] as const;
+
+/** One class of closed work. Derived from the tuple, never restated. */
+type MutationClass = (typeof MUTATION_CLASSES)[number];
+
+/**
+ * Which class each blocked method belongs to.
+ *
+ * A TOTAL record over the roster, so a registration added to
+ * `store/shell/shell-mutation-block.ts` is a compile error here rather than a control
+ * that quietly disappears from the read-only line while still being disabled on
+ * screen. The compiler proves totality in both directions: a missing verb is a
+ * missing property and a stray one is an excess property.
+ */
+const MUTATING_METHOD_CLASSES: Record<MutatingDaemonMethod, MutationClass> = {
+  "run.queueCreate": "run controls",
+  "run.queueCancel": "run controls",
+  "run.pause": "run controls",
+  "run.resume": "run controls",
+  "run.intervene": "run controls",
+  "driver.interruptRun": "run controls",
+  "driver.compactContext": "run controls",
+  "driver.respondToRequest": "ask answers",
+  "repo.attach": "repo and workspace changes",
+  "repo.workspaceBind": "repo and workspace changes",
+  "repo.executionModeSelect": "repo and workspace changes",
+  "repo.executionRootPrepare": "repo and workspace changes",
+  "repo.ephemeralClonePrepare": "repo and workspace changes",
+  "repo.ephemeralCloneDispose": "repo and workspace changes",
+  "repo.worktreeRetire": "repo and workspace changes",
+  "session.create": "session roster changes",
+  "session.join": "session roster changes",
+  "membership.update": "session roster changes",
+  "invite.create": "session roster changes",
+  "invite.revoke": "session roster changes",
+  "providerAccount.probe": "account probes",
 };
 
 /**
- * The read-only line: exactly what stops, listed, and what keeps working.
+ * The read-only line: which classes of work stop, and what keeps working.
  *
- * Derived from the closed method tuple rather than written out, so the sentence and
- * the predicate that disables the controls cannot disagree — which is the whole
- * point of naming the set at all.
+ * Derived from the roster through the class map rather than written out, so the
+ * sentence and the predicate that disables the controls cannot disagree — which is
+ * the whole point of naming the set at all. The classes are listed in
+ * {@link MUTATION_CLASSES}' own order, so the line does not re-order itself when a
+ * verb is added, and each appears once however many verbs map to it.
+ *
+ * IT TAKES NO BLOCK CLASS AND IS THE SAME SENTENCE FOR ALL OF THEM, DELIBERATELY.
+ * What stops is the same set of work whether the supervisor is stopped, starting,
+ * reconnecting, offline, or refusing this build's protocol — so this says WHAT is
+ * closed, and the WHY lives one line up in the banner, which composes
+ * `codeForConnection` (the class, in mono) beside `connectionLineFor` (the cause,
+ * with the supervisor's own figures in it) and appends this. A per-class enumeration
+ * here would be five copies of one list differing only in a clause the banner is
+ * already rendering, and the copy that drifted would be the one nobody re-read.
  */
 export function readOnlyLine(): string {
-  const blocked = MUTATING_DAEMON_METHODS.map((method) => MUTATING_METHOD_LABELS[method]);
-  const listed = `${blocked.slice(0, -1).join(", ")}, and ${blocked[blocked.length - 1] ?? ""}`;
-  return `Read-only: ${listed} are unavailable. Reading, watching, and the provider catalogues stay live.`;
+  const closed = new Set<MutationClass>(
+    MUTATING_DAEMON_METHODS.map((method) => MUTATING_METHOD_CLASSES[method]),
+  );
+  const listed = MUTATION_CLASSES.filter((mutationClass) => closed.has(mutationClass));
+  const named = `${listed.slice(0, -1).join(", ")}, and ${listed[listed.length - 1] ?? ""}`;
+  return `Read-only: ${named} are unavailable. Reading, watching, and the provider catalogues stay live.`;
 }
 
 /**

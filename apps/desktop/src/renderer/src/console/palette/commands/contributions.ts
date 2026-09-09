@@ -60,6 +60,17 @@ export interface ConsoleCommand {
    * palette drops what it cannot wait for, and a speculative warm has nobody waiting.
    */
   readonly preload?: () => void;
+  /**
+   * Why this row cannot be run right now, or absent where it can be.
+   *
+   * A CONTRIBUTOR'S SENTENCE AND NEVER THE PALETTE'S. The palette has no idea why an
+   * act is closed; the family that owns the act does, so the reason travels on the row
+   * and is rendered verbatim beside it and again in the refusal a press earns. A row
+   * that carries one still LISTS — hiding it would answer "why is this gone" with
+   * silence, and the `when` clause is already the affordance for an act that does not
+   * exist in this scope, which is a different fact from one that exists and is closed.
+   */
+  readonly unavailable?: string;
 }
 
 /** One chord bound to one command, optionally scoped. */

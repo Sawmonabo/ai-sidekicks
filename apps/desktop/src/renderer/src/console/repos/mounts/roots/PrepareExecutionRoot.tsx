@@ -44,8 +44,14 @@ import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { InlineRefusal, Nothing, RefusalRecovery, WireFigure } from "../../../primitives/index.js";
-import { useSubjectScopedState, type SessionStore } from "../../../store/index.js";
-import type { WorkspaceControlPosture } from "../mount-health.js";
+import {
+  useShellBlockFor,
+  useSubjectScopedState,
+  type FrameStore,
+  type SessionStore,
+  type MutatingDaemonMethod,
+} from "../../../store/index.js";
+import { controlHoldSentence, type WorkspaceControlPosture } from "../mount-health.js";
 import { mountRefusalRecovery } from "../mount-refusal-copy.js";
 import { usePrepareController } from "./prepare-binding.js";
 import type { PrepareReading } from "./prepare-controller.js";
@@ -65,6 +71,14 @@ const CLONE_EXECUTION_MODE = "ephemeral clone" satisfies ExecutionMode;
 /** The one non-writable mode, which materialises no execution root at all. */
 const READ_ONLY_EXECUTION_MODE = "read-only" satisfies ExecutionMode;
 
+// The two record methods this control dispatches, one per arm of the clone/worktree
+// split, TYPED against the roster rather than spelled inline. `useShellBlockFor` takes
+// a `string` — it has to, since it answers `undefined` for every read method — so a
+// misspelled verb is not a compile error but a control that stays live through an
+// outage and says nothing.
+const ROOT_PREPARE_METHOD = "repo.executionRootPrepare" satisfies MutatingDaemonMethod;
+const CLONE_PREPARE_METHOD = "repo.ephemeralClonePrepare" satisfies MutatingDaemonMethod;
+
 export interface PrepareExecutionRootProps {
   readonly bridge: ConsoleBridge;
   readonly workspaceId: string;
@@ -75,6 +89,12 @@ export interface PrepareExecutionRootProps {
   readonly sessionStore: SessionStore;
   /** Whether this workspace's binding controls are live. Derived once by the card. */
   readonly posture: WorkspaceControlPosture;
+  /**
+   * The window's own shell condition, read here for the ONE method this control sends —
+   * which is `repo.ephemeralClonePrepare` on a clone and `repo.executionRootPrepare`
+   * otherwise, the same split the confirm dispatches on.
+   */
+  readonly frameStore: FrameStore;
   /** Read the section again, so a prepared root appears in the roots list. */
   readonly onPrepared: () => void;
 }
@@ -107,7 +127,14 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
   const { verdict } = standing;
   const formVerdict = prepareFormVerdict(form, standing);
   const { onPrepared } = props;
-  const heldBecause = props.posture.live ? undefined : props.posture.heldBecause;
+  // The mount's own posture and this window's runtime, folded in that order by the
+  // module that owns the precedence — so a detached row never reads as something to
+  // wait out, and a live row under a stopped supervisor says so instead of going quiet.
+  const shellBlock = useShellBlockFor(
+    props.frameStore,
+    isClone ? CLONE_PREPARE_METHOD : ROOT_PREPARE_METHOD,
+  );
+  const heldBecause = controlHoldSentence(props.posture, shellBlock);
 
   const nameBranch = useCallback(
     (branchName: string) => {

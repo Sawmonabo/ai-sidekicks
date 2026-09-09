@@ -90,6 +90,22 @@
 }
 
 /*
+ * A control the shell has closed. `aria-disabled` and not `disabled`, so the control
+ * keeps its place in the tab order and a reader is taken to it and told why — which
+ * means the closed LOOK has to be declared, because the browser paints nothing for the
+ * attribute the way it does for the property. The same treatment as the rule above it:
+ * one closed state, one appearance, whichever fact closed it.
+ */
+.meridian-repo-attach__confirm[aria-disabled="true"],
+.meridian-bind__confirm[aria-disabled="true"],
+.meridian-reattach__trigger[aria-disabled="true"],
+.meridian-root-disposal__trigger[aria-disabled="true"] {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: not-allowed;
+}
+
+/*
  * Focus is visible on every control these surfaces ship, in one rule rather than one
  * per class, so a control added later cannot arrive without it. The regions whose box
  * is declared elsewhere ring themselves there — `attach/attach.css` for the reattach
@@ -269,4 +285,21 @@
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-amber-text);
+}
+
+/*
+ * The sentence saying what is HOLDING a control, which is a different fact from the one
+ * above and takes a different colour for that reason. Amber says a person is needed
+ * here; a supervisor that is down, a mount that has finished its life, or a switch
+ * already on the wire is a condition this surface is reporting and not a thing to fix
+ * in it — so these read muted, matching `.meridian-prepare-root__held`, which is the
+ * treatment this family already gave the same fact.
+ */
+.meridian-repo-attach__held,
+.meridian-bind__held,
+.meridian-reattach__closed,
+.meridian-root-disposal__closed {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
 }

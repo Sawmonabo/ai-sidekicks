@@ -8,7 +8,12 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FrameStore, SHELL_DETAIL_DESTINATION, type ShellReport } from "../../store/index.js";
+import {
+  FrameStore,
+  MUTATING_DAEMON_METHODS,
+  SHELL_DETAIL_DESTINATION,
+  type ShellReport,
+} from "../../store/index.js";
 // A view family, reached only from a test: `frame/` may not import one, and the
 // layering gate excludes test files from its graph before any rule runs. This is the
 // one place the chip's destination and the rail's closed section set meet.
@@ -129,7 +134,7 @@ describe("ShellChrome — the outage banners", () => {
     expect(container.textContent).toContain("attempt 2 of 5");
   });
 
-  it("names every blocked act on the read-only line", () => {
+  it("names every blocked class on the read-only line, and no wire verb", () => {
     const { container } = render(
       <ShellChrome
         frameStore={storeReporting({
@@ -138,14 +143,20 @@ describe("ShellChrome — the outage banners", () => {
       />,
     );
     const text = container.textContent ?? "";
-    for (const act of [
-      "starting a session",
-      "joining a session",
-      "interrupting a run",
-      "answering a provider's question",
-      "compacting a session's context",
+    for (const closedClass of [
+      "run controls",
+      "repo and workspace changes",
+      "session roster changes",
+      "account probes",
+      "ask answers",
     ]) {
-      expect(text, act).toContain(act);
+      expect(text, closedClass).toContain(closedClass);
+    }
+    // BY CLASS AND NOT BY VERB. The roster is every record method the registry binds,
+    // so a line that enumerated them would read as a list of wire words — and would
+    // grow a clause every time the console learns to call another method.
+    for (const method of MUTATING_DAEMON_METHODS) {
+      expect(text, method).not.toContain(method);
     }
   });
 
