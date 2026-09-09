@@ -31,7 +31,11 @@ import { describe, expect, it } from "vitest";
 import { ProviderImportPanel } from "./ProviderImportPanel.js";
 import { SessionActs } from "./SessionActs.js";
 import { useProviderImport } from "./provider-import-model.js";
-import { openImportDisclosure, QUIET_PREFERENCES } from "./session-acts.test-support.js";
+import {
+  openImportDisclosure,
+  QUIET_PREFERENCES,
+  requireJoinDisclosure,
+} from "./session-acts.test-support.js";
 import { BRING_YOUR_HISTORY_SCENARIO } from "../../bridge/scenarios/bring-your-history.js";
 import { DrivenGrowthStream } from "../../bridge/growth-port/driven-growth-stream.test-support.js";
 import {
@@ -148,15 +152,6 @@ function submitControl(container: HTMLElement): HTMLButtonElement | undefined {
   return button instanceof HTMLButtonElement ? button : undefined;
 }
 
-/** The acts bar's disclosure switch, which is what a running import closes. */
-function joinDisclosure(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector<HTMLButtonElement>(".meridian-session-acts__secondary");
-  if (button === null) {
-    throw new Error("the acts bar rendered no join disclosure");
-  }
-  return button;
-}
-
 describe("an import whose panel goes away", () => {
   it("keeps reading, and comes back to the same import rather than a fresh one", async () => {
     const stream = new DrivenGrowthStream<GrowthImportProgress>();
@@ -266,7 +261,7 @@ describe("the disclosure switch while an import is being read", () => {
     });
 
     // Rule 9: the control stays on screen and says why it will not move.
-    expect(joinDisclosure(container).disabled).toBe(true);
+    expect(requireJoinDisclosure(container).disabled).toBe(true);
     expect(container.textContent).toContain(DISCLOSURE_SENTENCE_FRAGMENT);
   });
 
@@ -285,7 +280,7 @@ describe("the disclosure switch while an import is being read", () => {
     await openImportDisclosure(container);
     await settle();
 
-    expect(joinDisclosure(container).disabled).toBe(false);
+    expect(requireJoinDisclosure(container).disabled).toBe(false);
     expect(container.textContent).not.toContain(DISCLOSURE_SENTENCE_FRAGMENT);
   });
 });

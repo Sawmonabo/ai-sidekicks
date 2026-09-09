@@ -61,6 +61,7 @@ import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
 import { renderSettled } from "../console-harness.js";
+import { holdsSchemaForm, schemaFormIsAwaitingCompiler } from "../schema-form-arrival.js";
 
 import {
   createFixtureBridge,
@@ -322,7 +323,10 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  * beat the capture and sometimes did not. The third wait is that same hazard one layer
  * in, and it photographs rather than refuses: the form announces the window with
  * `aria-busy`, so a capture taken inside it pins a quieted, un-pressable submit against a
- * baseline of an armed one.
+ * baseline of an armed one. What that third wait reads is `holdsSchemaForm` and then
+ * `schemaFormIsAwaitingCompiler`, in that order and for the reason stated at the wait —
+ * both live in `../schema-form-arrival.ts`, because their subject is the seat rather
+ * than this family.
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
@@ -350,7 +354,13 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
     if (pendingKinds.length > 0) {
       throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
     }
-    if (region.querySelector("[aria-busy]") !== null) {
+    // The form FIRST, so the reading below is asked of a form that is on the page:
+    // a busy check alone is satisfied by a pane holding no form at all, which is what
+    // a renamed class would silently produce.
+    if (!holdsSchemaForm(region)) {
+      throw new Error("the waiting-human park has not mounted its schema form yet");
+    }
+    if (schemaFormIsAwaitingCompiler(region)) {
       throw new Error("the schema form's compiler has not arrived yet");
     }
   });

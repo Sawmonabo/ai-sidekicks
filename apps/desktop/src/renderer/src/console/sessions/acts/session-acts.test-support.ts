@@ -12,10 +12,17 @@
 // through the MOUNT the bar itself renders, in the one function both suites press
 // through: a per-spec poll would be the wait written three times, and the version that
 // raced would look identical to the two that did not.
+//
+// THE JOIN DISCLOSURE IS HERE FOR THE SAME REASON, and it arrived the other way round:
+// its wait was written INSIDE a spec, under a comment saying "one home for the wait
+// rather than a per-spec race", which is the sentence a hoist makes true and a
+// per-spec copy makes false. Its switch is read by a second suite too, which had its
+// own copy of the selector — so the accessor is here and the two readings cannot
+// disagree about which control the bar's join act is.
 
 import { act } from "@testing-library/react";
 
-import { providerImportPanelMount } from "./act-body-mounts.js";
+import { joinSessionFormMount, providerImportPanelMount } from "./act-body-mounts.js";
 import type { SessionPreferenceBinding } from "../rows/session-preferences.js";
 
 /**
@@ -61,5 +68,36 @@ export async function openImportDisclosure(container: HTMLElement): Promise<void
   await providerImportPanelMount.load();
   act(() => {
     item.click();
+  });
+}
+
+/**
+ * The acts bar's join switch, or a throw.
+ *
+ * A throw rather than a nullable: a suite that read `undefined` here and asserted on
+ * `?.disabled` would pass for a bar that rendered no join act at all.
+ */
+export function requireJoinDisclosure(container: HTMLElement): HTMLButtonElement {
+  const control = container.querySelector<HTMLButtonElement>(".meridian-session-acts__secondary");
+  if (control === null) {
+    throw new Error("the acts bar rendered no join disclosure");
+  }
+  return control;
+}
+
+/**
+ * Open the join form from that switch, the way somebody reaches it.
+ *
+ * The load runs BEFORE the press for `openImportDisclosure`'s reason, which is the
+ * board's and not this act's: `LoadedLazyBody.render` reads the settled body at render
+ * time, so a mount that begins after the load never suspends and the press commits the
+ * form itself. Waiting afterwards would assert against a frame the reserved region is
+ * still on.
+ */
+export async function openJoinDisclosure(container: HTMLElement): Promise<void> {
+  const control = requireJoinDisclosure(container);
+  await joinSessionFormMount.load();
+  act(() => {
+    control.click();
   });
 }
