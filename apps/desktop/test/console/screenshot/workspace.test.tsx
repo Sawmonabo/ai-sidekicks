@@ -13,13 +13,16 @@
 // guards against is the one that cannot be asserted: a rail with nothing on it is
 // a sidebar there is no way back from.
 //
-// AND THE TWO SUBJECTS SHARE A DATABASE, which is what the reset and the two guards
-// below are for. The collapse a person makes is DURABLE — it is written under this
+// AND THE TWO SUBJECTS SHARE A DATABASE, which is what the reset and the arm guards
+// are for. The collapse a person makes is DURABLE — it is written under this
 // session's partition and read back by the next mount — so the collapsed case here
 // used to arrive in the expanded case after it, and the tier minted a dark
 // "expanded" reference byte-identical to its own collapsed sibling. Each case now
 // starts from a deleted database and refuses to photograph a sidebar in the state
-// the other case's reference is named for.
+// the other case's reference is named for. The reading and the refusal live in
+// `sidebar-arm.ts` rather than here, because `ledger.test.tsx`'s flagship pair pins
+// a whole frame too and is exposed to the same restored arrangement without being
+// about the sidebar at all.
 //
 // The tier's fail-closed guard and its missing-reference probe are asserted once
 // for the whole tier by `frame.test.tsx`; `baseline-platform.ts` says why they are
@@ -42,6 +45,7 @@ import {
   skipOffBaselineHost,
   warnOnceOffBaselineHost,
 } from "./baseline-host.js";
+import { requireSidebarColumn, requireSidebarExpanded, sidebarIsCollapsed } from "./sidebar-arm.js";
 
 import {
   ConsoleRoot,
@@ -54,18 +58,6 @@ import {
   LEDGER_QUIET_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/ledger/ledger-quiet.js";
 import { captureSettled } from "./settled-capture.js";
-
-/** The sidebar's own column, which both of its arms render and neither omits. */
-const SIDEBAR_SELECTOR = ".meridian-sidebar";
-
-/**
- * The marker the collapsed arm puts on that column.
- *
- * Read off the column rather than inferred from which control is on screen: it is
- * what the stylesheet keys on, so it is the one reading that cannot be true while
- * the picture disagrees with it.
- */
-const SIDEBAR_COLLAPSED_CLASS = "meridian-sidebar--collapsed";
 
 /** What one opened workspace hands back: the mount, and what a capture is taken of. */
 interface WorkspaceMount {
@@ -105,35 +97,8 @@ async function openWorkspace(): Promise<WorkspaceMount> {
   await walkScenarioToFrozenTick(LEDGER_QUIET_SCENARIO.beats.at(-1)?.atMs ?? 0);
   // Asked for its own sake: the frame alone mounts on a route whose sidebar never
   // arrived, and a capture of that is a picture of a deck this file is not pinning.
-  requireCapturedElement(container, SIDEBAR_SELECTOR);
+  requireSidebarColumn(container);
   return { container, frame };
-}
-
-/** Which arm the sidebar rendered, as the column itself reports it. */
-function sidebarIsCollapsed(container: HTMLElement): boolean {
-  return requireCapturedElement(container, SIDEBAR_SELECTOR).classList.contains(
-    SIDEBAR_COLLAPSED_CLASS,
-  );
-}
-
-/**
- * Refuse a capture of a sidebar that is not in the state its reference is named for.
- *
- * A throw rather than the assert-then-return-early shape, on this file's own
- * doctrine: a case that photographed the wrong arm and reported a pass is exactly
- * what put a collapsed sidebar under the dark expanded reference. The collapsed
- * case needs no mirror of this before its click — the collapse control exists only
- * on the expanded arm, so a mount that arrived collapsed is refused by
- * `collapseSidebar` for having no control to press.
- */
-function requireSidebarExpanded(container: HTMLElement): void {
-  if (sidebarIsCollapsed(container)) {
-    throw new Error(
-      "the sidebar rendered its collapsed arm, so this capture would put a collapsed sidebar under " +
-        "a reference named for the expanded one — an earlier case's arrangement was restored into " +
-        "this mount",
-    );
-  }
 }
 
 /** Collapse the sidebar the way a person does: the control on the column itself. */

@@ -4,13 +4,27 @@
 // this tier, and the ledger is what makes that sentence worth anything — the frame
 // beside it is chrome around an empty surface until a session is open in it. So
 // this file captures the whole console window with the FLAGSHIP session loaded, in
-// both schemes, plus the one composition no loaded session can reach.
+// both schemes, and the ledger's own region for the one state no loaded session can
+// reach.
 //
-// WHY THE WHOLE FRAME AND NOT THE LEDGER ALONE. The claim being pinned is a
-// COMPOSITION: the rail, the cast bar, the deck, the chapters, and the attribution
-// hues all have to be true at once and in the right relationship to each other. A
-// shot cropped to the ledger's own box would still be green the day the rail
-// overlapped it.
+// WHY THE FLAGSHIP PAIR IS THE WHOLE FRAME AND NOT THE LEDGER ALONE. The claim
+// those two pin is a COMPOSITION: the rail, the cast bar, the deck, the chapters,
+// and the attribution hues all have to be true at once and in the right
+// relationship to each other. A shot cropped to the ledger's own box would still be
+// green the day the rail overlapped it. Being whole frames is also what makes the
+// sidebar's own hazard theirs: `workspace.test.tsx`'s header states it — a collapse
+// is durable, so a restored arrangement moves a frame neither of these references
+// was minted with — which is why both take `requireSidebarExpanded` before they are
+// photographed, out of the same module that file reads it from.
+//
+// AND WHY THE QUIET ARM IS THE LEDGER'S OWN REGION AND NOT THE FRAME. Its claim is
+// the opposite one: the copy and the shape of an absence, which is a claim about a
+// surface rather than about a composition. Captured whole, it pinned a frame with an
+// empty ledger in it — which is exactly the frame `workspace.test.tsx` pins for its
+// expanded sidebar, over this same scenario and this same route, and the two
+// references were byte-identical. So the quiet arm captures the element the session
+// route mounts the ledger into, and the sidebar-arm hazard above is moot for it:
+// there is no sidebar in the image to be in the wrong arm.
 //
 // WHY THE FLAGSHIP AND NOT THE THREE-LANE LEDGER. The tier's sentence names the
 // FLAGSHIP frame, and this capture used to pin `ledger.ts` instead — a fine frame,
@@ -60,6 +74,7 @@ import {
   skipOffBaselineHost,
   warnOnceOffBaselineHost,
 } from "./baseline-host.js";
+import { requireSidebarExpanded } from "./sidebar-arm.js";
 
 import {
   ConsoleRoot,
@@ -81,8 +96,16 @@ import { captureSettled } from "./settled-capture.js";
 /** What one opened fixture session hands back: the mount, and what to capture. */
 interface LedgerMount {
   readonly container: HTMLElement;
-  /** The whole console window — the composition this file pins. */
+  /** The whole console window — the composition the flagship pair pins. */
   readonly frame: Element;
+  /**
+   * The ledger's own region — what the quiet arm pins.
+   *
+   * The SAME element the mount wait above observes, rather than a second selector
+   * for the same box: a capture element resolved independently of the wait could
+   * name a surface the wait never guaranteed had arrived, and the two would drift.
+   */
+  readonly ledgerBody: Element;
 }
 
 /**
@@ -108,7 +131,11 @@ async function openLedgerSession(scenarioId: string, sessionId: string): Promise
 
   await awaitSessionRouteMounted(container);
 
-  return { container, frame: requireCapturedElement(container, ".meridian-frame") };
+  return {
+    container,
+    frame: requireCapturedElement(container, ".meridian-frame"),
+    ledgerBody: requireCapturedElement(container, SESSION_ROUTE_BODY_SELECTOR),
+  };
 }
 
 beforeEach(async () => {
@@ -140,6 +167,10 @@ describe("screenshot — the console under the flagship scenario", () => {
         FLAGSHIP_SCENARIO_ID,
         FLAGSHIP_SCENARIO.sessionId,
       );
+      // This capture is a whole frame, so the sidebar is in it — the header says why
+      // that makes the durable-collapse hazard this file's as much as the workspace
+      // file's, even though neither of these references is about the sidebar.
+      requireSidebarExpanded(container);
 
       const deliveredBeatCount = await walkScenarioToFrozenTick(
         FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0,
@@ -171,7 +202,7 @@ describe("screenshot — the ledger's empty state", () => {
     // scheme decides.
     skipOffBaselineHost(context);
     await emulateSystemScheme("light");
-    const { container, frame } = await openLedgerSession(
+    const { ledgerBody } = await openLedgerSession(
       LEDGER_QUIET_SCENARIO_ID,
       LEDGER_QUIET_SCENARIO.sessionId,
     );
@@ -195,10 +226,15 @@ describe("screenshot — the ledger's empty state", () => {
     // capture: the empty state is reachable only because this scenario's script is
     // empty, so a row here would mean the fixture picker had handed over the wrong
     // session and the "empty state" reference was a picture of a loaded one.
-    expect(container.querySelectorAll(".meridian-ledger-row")).toHaveLength(0);
-    expect(container.textContent).toContain("Nothing has happened in this session yet.");
+    //
+    // Asked of the CAPTURED element rather than of the whole mount, which is what the
+    // scoping changed about them: a sentence read off the window is a sentence that
+    // may be anywhere in it, and the claim this reference makes is that it is in the
+    // box being photographed.
+    expect(ledgerBody.querySelectorAll(".meridian-ledger-row")).toHaveLength(0);
+    expect(ledgerBody.textContent).toContain("Nothing has happened in this session yet.");
 
-    await captureSettled(frame, "ledger-quiet-light");
+    await captureSettled(ledgerBody, "ledger-quiet-light");
   });
 });
 
