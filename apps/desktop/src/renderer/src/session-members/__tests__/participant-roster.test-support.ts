@@ -1,11 +1,11 @@
 // The fixtures and the mock bridge the ParticipantRoster suites share.
 //
-// Split out when the single suite passed the package's file ceiling: one file was
-// carrying a hundred lines of scaffolding, seven lifecycle cases, four failure cases,
-// and a source-text tripwire, which is four jobs. What moved here is the part none of
-// those jobs owns — the branded-id fixtures, the presence snapshots they compose, the
-// deferred the out-of-order guard needs, and the install / remove pair every case runs
-// its bridge through. The shape is `runtime-node-attach/__tests__`' own
+// Its own module because scaffolding is not a claim: one file was carrying a hundred
+// lines of it beside seven lifecycle cases, four failure cases, and a source-text
+// tripwire, which is four jobs and four seams rather than one file over a line count.
+// What lives here is the part none of those jobs owns — the branded-id fixtures, the
+// presence snapshots they compose, the deferred the out-of-order guard needs, and the
+// install / remove pair every case runs its bridge through. The shape is `runtime-node-attach/__tests__`' own
 // `attach-flow.test-support.ts`: an install and a matching remove, so no suite writes
 // the teardown by hand and two suites cannot disagree about what teardown means.
 //

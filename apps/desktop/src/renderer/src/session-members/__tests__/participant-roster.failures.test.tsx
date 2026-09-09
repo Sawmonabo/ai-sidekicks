@@ -1,7 +1,8 @@
 // Plan-002 Phase 6 T6.3 — how ParticipantRoster surfaces a refused presence read.
 //
-// The failure half of the suite next door, split out when the single file passed the
-// package's ceiling. Four cases and one claim between them: a read or a subscribe that
+// The failure half of the suite next door, and its own program because it is its own
+// claim — the seam, not a line count. Four cases and one claim between them: a read or
+// a subscribe that
 // refuses reaches the participant as the `role="alert"` envelope and never as a view
 // stranded in `loading` — including the case where the refusal arrives FIRST and the
 // read it raced resolves afterwards, which is the one a per-branch reading misses.

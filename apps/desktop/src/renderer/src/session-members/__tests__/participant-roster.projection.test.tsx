@@ -2,12 +2,13 @@
 // bridge, read out of its own source text.
 //
 // A DIFFERENT KIND OF CLAIM from the cases next door, and that is why it is its own
-// program. `participant-roster.test.tsx` renders the component and asserts what a
-// participant sees; this asserts something about the module's TEXT, needs no DOM, and
-// carries the ambient `ImportMeta` augmentation the raw read depends on — which is
-// module-scoped, so keeping it here is what stops it leaking into a suite that renders.
-// The split came when the single file passed the package's ceiling; the fixtures and the
-// mock bridge live in `participant-roster.test-support.ts` and neither is needed here.
+// program — the seam, not a line count. `participant-roster.test.tsx` renders the
+// component and asserts what a participant sees, `participant-roster.failures.test.tsx`
+// asserts how a refused read reaches them, and this asserts something about the module's
+// TEXT: it needs no DOM, mounts nothing, and carries the ambient `ImportMeta`
+// augmentation the raw read depends on — which is module-scoped, so keeping it here is
+// what stops it leaking into a suite that renders. The fixtures and the mock bridge are
+// a fourth job and live in `participant-roster.test-support.ts`; neither is needed here.
 //
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`; the
 // renderer test tsconfig adds `vitest/globals` to `types`.
@@ -50,15 +51,25 @@ describe("ParticipantRoster — bridge projection", () => {
   // test typegraph's `types: []`/no-`@types/node` posture) and asserts no
   // import statement targets the banned packages.
   //
-  // THIS IS THE SOLE OPERATIONAL ENFORCEMENT of the daemon/control-plane import
-  // ban for renderer source: `apps/desktop/eslint.config.mjs` bans `electron` /
-  // `node:*` / `main`/`preload` escapes, but the `@ai-sidekicks/runtime-daemon`
-  // / `@ai-sidekicks/control-plane` ban is deferred to the Plan-023 Tier 8
-  // remainder (those would be inert today). Until that lands, this regex tripwire
-  // is the only thing that turns CI red on a direct import — so it must catch
-  // EVERY realistic direct-import shape, not just the bare-exact form.
+  // THIS IS NOT THE ENFORCEMENT, AND IT NEVER FIRES FIRST. The claim this file
+  // used to carry — that the workspace-package ban is deferred and this tripwire
+  // is all there is — is false: `apps/desktop/eslint.config.mjs` bans
+  // `@ai-sidekicks/runtime-daemon` and `@ai-sidekicks/control-plane` at `error`
+  // for renderer source today, beside `electron` / `node:*` / the `main`/`preload`
+  // escapes, and the package's own `lint` script runs that config over `src/` in
+  // CI ahead of this suite. That ban is also TRANSITIVE where this read cannot be:
+  // a view refactored to reach the package through a local renderer helper passes
+  // every source-text scan, and the helper's own import is what ESLint fails on.
+  // `runtime-node-attach/__tests__/renderer-import-boundary.test.ts` drives that
+  // real rule through the ESLint API with positive controls.
   //
-  // The four regexes below cover (identical set to invite-accept-view.test.tsx):
+  // WHAT THIS FILE ADDS is one module's DIRECT-import surface, read as text and
+  // asserted per shape — a second, narrower reading that names which shape matched
+  // when it fires. Being narrower is the reason it must still catch every
+  // realistic direct-import form rather than the bare-exact one.
+  //
+  // The four regexes below cover (the same shapes as invite-accept-view.test.tsx,
+  // which carries its own copy of this table and no negative control):
   //   1. `bannedBareImport` — `from "@ai-sidekicks/<pkg>"` AND any subpath
   //      (`from "@ai-sidekicks/<pkg>/internal"`) — the optional `(?:/…)?` group
   //      is what closes the subpath-evasion gap a trailing-quote-only anchor left.
@@ -84,15 +95,37 @@ describe("ParticipantRoster — bridge projection", () => {
     /import\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
   const bannedDynamicImport =
     /import\s*\(\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-  // `[patternName, pattern]` tuples drive the `it.each` below. Naming each
-  // pattern means a future regression reports WHICH shape matched (the case
-  // title interpolates the name) instead of a bare `expected true to be false`
-  // that forces a manual bisect across the four regexes.
-  const bannedDirectImportPatterns: ReadonlyArray<readonly [string, RegExp]> = [
-    ["bannedBareImport", bannedBareImport],
-    ["bannedRelativeImport", bannedRelativeImport],
-    ["bannedSideEffectImport", bannedSideEffectImport],
-    ["bannedDynamicImport", bannedDynamicImport],
+  // `[patternName, pattern, violatingImportSample]` tuples drive both `it.each`
+  // blocks below. Naming each pattern means a future regression reports WHICH
+  // shape matched (the case title interpolates the name) instead of a bare
+  // `expected true to be false` that forces a manual bisect across the four
+  // regexes — and carrying a synthetic VIOLATION beside each one is what makes
+  // the clean result mean something: four patterns that matched nothing and four
+  // patterns that cannot match are the same green. This is the shape the deleted
+  // `runtime-node-attach` view suites carried, and it caught exactly the class it
+  // is here for: without it, deleting the `packages/…` alternation from
+  // `bannedSideEffectImport` leaves every case in this file passing.
+  const bannedDirectImportPatterns: ReadonlyArray<readonly [string, RegExp, string]> = [
+    [
+      "bannedBareImport",
+      bannedBareImport,
+      'import { Daemon } from "@ai-sidekicks/runtime-daemon";',
+    ],
+    [
+      "bannedRelativeImport",
+      bannedRelativeImport,
+      'import { Router } from "../../../../packages/control-plane/src/router.js";',
+    ],
+    [
+      "bannedSideEffectImport",
+      bannedSideEffectImport,
+      'import "../../../../packages/control-plane/src/register.js";',
+    ],
+    [
+      "bannedDynamicImport",
+      bannedDynamicImport,
+      'const daemon = await import("@ai-sidekicks/runtime-daemon");',
+    ],
   ];
 
   // Glob-key-drift guard, hoisted to run ONCE before the `it.each`: if the
@@ -103,6 +136,14 @@ describe("ParticipantRoster — bridge projection", () => {
   if (typeof participantRosterSource !== "string") {
     throw new Error("participant-roster.tsx source was not loaded by import.meta.glob");
   }
+
+  // Negative control: a tripwire that has never fired positive proves nothing.
+  it.each(bannedDirectImportPatterns)(
+    "%s matches a synthetic violating import (negative control)",
+    (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
+      expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
+    },
+  );
 
   it.each(bannedDirectImportPatterns)(
     "participant-roster.tsx source matches no %s direct daemon/control-plane import",

@@ -35,9 +35,9 @@
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`/
 // `vi`/`afterEach`; the renderer test tsconfig adds `vitest/globals` to `types`.
 //
-// SPLIT ON ITS SEAMS. This file carried the scaffolding, the lifecycle cases, the
-// failure cases, and a source-text tripwire in one program, past the package's file
-// ceiling — four jobs, and three of them left. The scaffolding is
+// SPLIT ON ITS SEAMS, WHICH IS THE ONLY REASON A FILE IS SPLIT. This file carried the
+// scaffolding, the lifecycle cases, the failure cases, and a source-text tripwire in
+// one program — four jobs, and three of them left. The scaffolding is
 // `participant-roster.test-support.ts`, the refusal surfacing is
 // `participant-roster.failures.test.tsx`, and the CP-002-5 read is
 // `participant-roster.projection.test.tsx`, which asserts about this view's TEXT rather
