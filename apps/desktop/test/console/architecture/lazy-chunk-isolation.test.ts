@@ -17,11 +17,12 @@
 // AND THE SAME DEFECT LANDED A THIRD TIME, from a family door rather than a console-root
 // registration, which is why this file holds a third claim beside the table. `ledger/index.ts`
 // imported ONE component — the gap-fill banner it mounts above the session workspace — through
-// `pane/replay/index.ts`, which put the replay engine and everything the engine reads on every
-// launch beside it. Not a new rule: a door is an edge to every module it re-exports from, and
-// this is the shape the first paragraph describes. The table's closure below quantifies over
-// console-root registrations, and the ledger's loader sits on the family door instead, so that
-// claim is stated on its own and names the one legitimate overlap its directory has.
+// `ledger/pane/replay/index.ts`, which put the replay engine and everything the engine reads
+// on every launch beside it. Not a new rule: a door is an edge to every module it re-exports
+// from, and this is the shape the first paragraph describes. The table's closure below
+// quantifies over console-root registrations, and the ledger's loader sits on the family door
+// instead, so that claim is stated on its own and names the one legitimate overlap its
+// directory has.
 //
 // WHY THE GATES BESIDE IT DID NOT REPORT IT.
 // `stylesheet-chunk-root-ownership.test.ts` asks whether any module a sheet's owning
@@ -135,7 +136,7 @@ const LEDGER_FAMILY_DOOR = "ledger/index.ts";
  * them is what makes a THIRD module a failure. The comparison is equality, so a module
  * that stops being reached without leaving this list fails too.
  *
- * It held five before the root stopped reaching `pane/replay/index.ts` for that one
+ * It held five before the root stopped reaching `ledger/pane/replay/index.ts` for that one
  * component — the barrel, the reveal derivation and the replay engine beside these two —
  * and the list UNDERSTATES what that edge cost, because a prefix filter cannot see what
  * the engine went on to reach: `ledger/structure/` and `ledger/cards/` left the entry
@@ -292,8 +293,8 @@ describe("the ledger's timeline pane", () => {
       `${directory} is behind a loader apart from the two modules the family root mounts ` +
         "above the session workspace. Anything else on this list arrived through a barrel: " +
         "a door is an edge to every module it re-exports from, so importing one component " +
-        "through `pane/replay/index.ts` put the replay engine — and everything the engine " +
-        "reads — on every launch's initial graph.",
+        "through `ledger/pane/replay/index.ts` put the replay engine — and everything the " +
+        "engine reads — on every launch's initial graph.",
     ).toStrictEqual(LEDGER_EAGER_PANE_MODULES);
   });
 

@@ -88,13 +88,13 @@ export type RunAttributionRole = "this-run" | "another-run";
  *
  * WHAT IT IS NOT. It is not a second filter over the contract's attributing list.
  * `TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS` names exactly the two spellings a row uses
- * to name its own run, and `timeline/row.ts` says so where it declares them —
- * `parentRunId` is absent there deliberately, not accidentally — so every key that
- * list carries is decided `this-run` here and the intersection below removes nothing
- * at today's contract. It is kept, and kept honest: it is the fail-closed arm for a
- * contract that grows an attributing key this file has not reviewed, DECLARED AND
- * DORMANT, and the test pins the dormancy by checking each listed key's decision
- * rather than leaving "removes nothing" as a claim.
+ * to name its own run, and `packages/contracts/src/timeline/row.ts` says so where it
+ * declares them — `parentRunId` is absent there deliberately, not accidentally — so
+ * every key that list carries is decided `this-run` here and the intersection below
+ * removes nothing at today's contract. It is kept, and kept honest: it is the
+ * fail-closed arm for a contract that grows an attributing key this file has not
+ * reviewed, DECLARED AND DORMANT, and the test pins the dormancy by checking each
+ * listed key's decision rather than leaving "removes nothing" as a claim.
  */
 export const RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER: Readonly<
   Record<RunNamingPayloadMember, RunAttributionRole>

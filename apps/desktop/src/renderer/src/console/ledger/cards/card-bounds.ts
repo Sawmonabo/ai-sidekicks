@@ -3,7 +3,7 @@
 // THE CEILINGS ARE NOT HERE, and the reason is a gate rather than a preference:
 // `test/console/architecture/cap-constant-home.test.ts` names `core/constants/` the
 // one DIRECTORY a bound may be DECLARED in — its trailing separator is load-bearing,
-// so the flat `core/constants.ts` this home was split out of is not part of it — and
+// so the flat core/constants.ts this home was split out of is not part of it — and
 // fails a view family that declares one of its own, so the seven this module held —
 // the two cache byte caps, the highlight and worker thresholds, the footnote
 // registry's cap, the tool summary's, and the ANSI span cap — are declared there and
