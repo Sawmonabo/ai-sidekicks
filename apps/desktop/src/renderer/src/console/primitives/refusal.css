@@ -23,14 +23,13 @@
   line-height: 1.55;
 }
 
-/* The code is the one red thing in a refusal: it is what the operator quotes. */
-.meridian-refusal .meridian-figure--wire {
-  color: var(--meridian-red-text);
-}
-
-.meridian-refusal .meridian-glyph {
-  flex: none;
-  color: var(--meridian-red-mark);
+/* The code is the one red thing in a refusal: it is what the operator quotes, and the
+   mark beside it carries the same hue. Both are asked for through the primitives' own
+   doors: this sheet does not declare `.meridian-figure--wire` or `.meridian-glyph`,
+   which belong to `figures/figure.css` and `figures/glyph.css`. */
+.meridian-refusal {
+  --meridian-figure-wire-color: var(--meridian-red-text);
+  --meridian-glyph-color: var(--meridian-red-mark);
 }
 
 /* inline: nothing changed. It sits beside the control, and the control stays. */
@@ -39,7 +38,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--meridian-space-2);
-  margin-block-start: var(--meridian-space-2);
+  /* A refusal that follows prose needs the leading; one that follows a control on the
+     same line does not. The container zeroes it through this door rather than
+     redeclaring `--inline` in its own sheet. */
+  margin-block-start: var(--meridian-refusal-inline-margin-block-start, var(--meridian-space-2));
   font-size: var(--meridian-text-sm);
 }
 
@@ -123,6 +125,9 @@
   border-radius: var(--meridian-radius-sm);
   background: transparent;
   color: var(--meridian-text-muted);
+  /* The dismiss glyph is chrome, not the refusal's own red mark, so this control
+     takes the surrounding red back off the glyph door for its own subtree. */
+  --meridian-glyph-color: currentcolor;
   cursor: pointer;
   transition:
     background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
@@ -132,11 +137,6 @@
 .meridian-refusal__dismiss:hover {
   background: var(--meridian-surface);
   color: var(--meridian-text);
-}
-
-/* The dismiss glyph is chrome, not the refusal's own red mark. */
-.meridian-refusal__dismiss .meridian-glyph {
-  color: currentcolor;
 }
 
 /*
@@ -174,4 +174,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
+}
+
+.meridian-refusal :focus-visible,
+.meridian-refusal__dismiss:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }

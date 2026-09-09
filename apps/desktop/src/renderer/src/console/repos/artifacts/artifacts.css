@@ -210,3 +210,8 @@
   max-block-size: 12rem;
   overflow-y: auto;
 }
+
+.meridian-artifacts :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

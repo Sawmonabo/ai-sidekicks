@@ -29,11 +29,22 @@ export interface WireFigureProps {
   readonly value: string;
   /** The exact wire value, when `value` is a formatted reading of it. */
   readonly title?: string;
+  /**
+   * Truncate at the measure inside a row that cannot hold the whole value.
+   *
+   * The door a composing surface uses instead of declaring `.meridian-figure--wire`
+   * in its own stylesheet: one class has one owning sheet, and a value long enough to
+   * need this is exactly the value whose `title` must still carry it whole.
+   */
+  readonly truncate?: boolean;
 }
 
 export function WireFigure(props: WireFigureProps): React.JSX.Element {
+  const className = props.truncate
+    ? "meridian-figure meridian-figure--wire meridian-figure--truncate"
+    : "meridian-figure meridian-figure--wire";
   return (
-    <span className="meridian-figure meridian-figure--wire" title={props.title}>
+    <span className={className} title={props.title}>
       {formatWireString(props.value)}
     </span>
   );

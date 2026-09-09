@@ -100,7 +100,12 @@ import { resolvedPaneBody, resolvedSurfaceBody } from "./pane-body-resolution.js
 import { COMPOSED_CONSOLE_PROJECTORS } from "./projector-composition.js";
 // The seat's own readings, from the module that also mounts it for the accessibility
 // tier: one answer to "is this form ready", per `AGENTS.md` §Shared code.
-import { holdsSchemaForm, schemaFormIsAwaitingCompiler } from "./schema-form.js";
+import {
+  SCHEMA_FORM_VERDICT_DEADLINE_MS,
+  holdsSchemaForm,
+  resolveSchemaFormChunks,
+  schemaFormIsAwaitingCompiler,
+} from "./schema-form.js";
 
 /**
  * A registry carrying exactly this family's two claims.
@@ -329,8 +334,19 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
  * `schemaFormIsAwaitingCompiler`, in that order and for the reason stated at the wait —
  * both live in `./schema-form.tsx`, which mounts the same seat for the accessibility
  * tier, because their subject is the seat rather than this family.
+ *
+ * AND BOTH CHUNKS ARE RESOLVED BEFORE THE MOUNT, under the seat's own deadline. The two
+ * later steps are dynamic imports, and the wait below is a poll with a ceiling; a wait
+ * that started the imports by mounting and then polled at the library's one-second
+ * default lost to a COLD compiler load on the macOS runner and refused the capture under
+ * the third message, for a form that armed a moment later. `resolveSchemaFormChunks`
+ * puts both chunks in the module cache first, so the mount's own loads settle in
+ * microtasks, and the ceiling is `SCHEMA_FORM_VERDICT_DEADLINE_MS` — the seat's, taken
+ * from where it is declared rather than restated — so the hang this wait still guards
+ * against is refused on the same clock the seat's own mount refuses it on.
  */
 export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface> {
+  await resolveSchemaFormChunks();
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   const WorkflowRunPaneBody = await paneBodyComponent("workflow-run");
   const { container } = await renderSettled(
@@ -348,22 +364,25 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
     </SidekicksBridgeProvider>,
   );
   const region = requirePaneNamed(container, "Workflow run");
-  await waitFor(() => {
-    if (region.querySelector(".meridian-park") === null) {
-      throw new Error("the run read has not landed yet");
-    }
-    const pendingKinds = pendingPaneKindsIn(region);
-    if (pendingKinds.length > 0) {
-      throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
-    }
-    // The form FIRST and its state second, for the reason stated where they are declared.
-    if (!holdsSchemaForm(region)) {
-      throw new Error("the waiting-human park has not mounted its schema form yet");
-    }
-    if (schemaFormIsAwaitingCompiler(region)) {
-      throw new Error("the schema form's compiler has not arrived yet");
-    }
-  });
+  await waitFor(
+    () => {
+      if (region.querySelector(".meridian-park") === null) {
+        throw new Error("the run read has not landed yet");
+      }
+      const pendingKinds = pendingPaneKindsIn(region);
+      if (pendingKinds.length > 0) {
+        throw new Error(`a pane body is still arriving (${pendingKinds.join(", ")})`);
+      }
+      // The form FIRST and its state second, for the reason stated where they are declared.
+      if (!holdsSchemaForm(region)) {
+        throw new Error("the waiting-human park has not mounted its schema form yet");
+      }
+      if (schemaFormIsAwaitingCompiler(region)) {
+        throw new Error("the schema form's compiler has not arrived yet");
+      }
+    },
+    { timeout: SCHEMA_FORM_VERDICT_DEADLINE_MS },
+  );
   return { element: region, bridge };
 }
 

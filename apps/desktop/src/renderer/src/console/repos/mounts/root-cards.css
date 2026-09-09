@@ -100,3 +100,8 @@
 .meridian-root-card__detail-list {
   padding-block-start: var(--meridian-space-2);
 }
+
+.meridian-root-card :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

@@ -105,8 +105,8 @@
   color: var(--meridian-red-text);
 }
 
-.meridian-nothing--error .meridian-glyph {
-  color: var(--meridian-red-mark);
+.meridian-nothing--error {
+  --meridian-glyph-color: var(--meridian-red-mark);
 }
 
 .meridian-nothing__message {
@@ -184,4 +184,9 @@
   box-sizing: border-box;
   padding: var(--meridian-space-5) var(--meridian-space-4);
   border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-nothing :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }

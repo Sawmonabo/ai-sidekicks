@@ -141,8 +141,7 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-agent-card__disclosure-summary:focus-visible,
-.meridian-linkage__refusals-summary:focus-visible {
+.meridian-agent-card__disclosure-summary:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
@@ -216,8 +215,7 @@
 .meridian-switch__apply:focus-visible,
 .meridian-peer__action:focus-visible,
 .meridian-linkage__open:focus-visible,
-.meridian-attach__definition-button:focus-visible,
-.meridian-axis-field__trigger:focus-visible {
+.meridian-attach__definition-button:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
@@ -249,4 +247,22 @@
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
+}
+
+/* The refusal list's own scroll ceiling, here rather than in `run-console/`: this
+   sheet carries the bare-list treatment the class shares with four siblings, and a
+   box split across two sheets is the split load order decides. */
+.meridian-linkage__refusal-list {
+  max-height: 22rem;
+  overflow-y: auto;
+  margin-block-start: var(--meridian-space-2);
+}
+
+/* Same reason, read the other way: the definition button wears the family's action
+   chrome above, so its own box is stated beside that chrome and not in `attach/`. */
+.meridian-attach__definition-button {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
 }

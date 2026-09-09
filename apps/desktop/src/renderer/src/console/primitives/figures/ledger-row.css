@@ -98,9 +98,11 @@
   white-space: nowrap;
 }
 
-.meridian-ledger-row__gutter .meridian-figure--wire {
-  color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-xs);
+/* The gutter's figures are the row's quietest reading, so it asks the figure for its
+   faint face through the figure's own door rather than declaring the figure here. */
+.meridian-ledger-row__gutter {
+  --meridian-figure-wire-color: var(--meridian-text-faint);
+  --meridian-figure-wire-size: var(--meridian-text-xs);
 }
 
 .meridian-ledger-row__body {
@@ -120,9 +122,9 @@
   margin-block-end: var(--meridian-space-1);
 }
 
-.meridian-ledger-row__kind .meridian-figure--wire {
-  color: var(--meridian-text-faint);
-  font-size: var(--meridian-text-xs);
+.meridian-ledger-row__kind {
+  --meridian-figure-wire-color: var(--meridian-text-faint);
+  --meridian-figure-wire-size: var(--meridian-text-xs);
 }
 
 .meridian-ledger-row__superseded-mark {
@@ -189,4 +191,9 @@
 .meridian-ledger-row:hover .meridian-ledger-row__revealed,
 .meridian-ledger-row:focus-within .meridian-ledger-row__revealed {
   opacity: 1;
+}
+
+.meridian-ledger-row :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
 }

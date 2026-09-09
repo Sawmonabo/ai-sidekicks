@@ -21,22 +21,24 @@
 // place this family departs from the rule the other loader-backed panes follow, and
 // the departure is measured rather than cautious.
 //
-// `pane/runs.css` declares `.meridian-run-row__failure`, and so does
-// `workflows/runs/run-list.css` — two families, two different components, one class
-// name. While both sheets are on the document the later one decides how the WORKFLOWS
-// run list draws a failed run's line, and which is later is a property of the import
-// graph rather than of either sheet. Moving these sheets onto the chunk root would take
-// this one off the document for any session that never opens a runs pane, which is the
-// whole point of the boundary — and it would silently change a surface belonging to
-// another family, with nothing in the diff naming either sheet.
+// `pane/runs.css` used to declare `.meridian-run-row__failure`, which
+// `workflows/runs/run-list.css` also declares — two families, two different components,
+// one class name — so while both sheets were on the document the later one decided how
+// the WORKFLOWS run list drew a failed run's line, and which was later was a property of
+// the import graph rather than of either sheet. THE COLLISION IS SETTLED, and so is the
+// borrowed prefix behind it: all seventeen `meridian-run-row__*` names this pane spelled
+// are `meridian-runs__*` now, prefixed for `.meridian-runs`, the block this sheet's own
+// file declares — two of them as `__detail-section` and `__detail-section-title`, because
+// the flat names were already this sheet's own for the pane's top-level sections. Deferring these sheets onto the chunk root can no longer change a
+// surface another family owns, so what remains is an ordinary bundle measurement rather
+// than a cascade one.
 //
-// The `.meridian-run-controls` half of that coupling is GONE: the workflows run pane's
-// block carries its family's prefix now, so this sheet's `flex-direction: column` styles
-// this family's controls and nothing else. What is left is the run-row pair, and it is
-// enough to hold the sheets here — the fix is the same fix, a rename with the committed
-// references regenerated on the baseline host, and it belongs to a change that does that
-// rather than to one that moves bundle boundaries. `apps/desktop/AGENTS.md` §Module
-// shape is the rule that keeps a NEW one from landing unnoticed.
+// The `.meridian-run-controls` half of that coupling went the same way earlier: the
+// workflows run pane's block carries its family's prefix, so this sheet's
+// `flex-direction: column` styles this family's controls and nothing else. NOTHING is
+// left of the coupling, so what holds these sheets here is the bundle measurement alone.
+// `apps/desktop/AGENTS.md` §Module shape is the rule that keeps a NEW one from landing
+// unnoticed.
 
 import { type ConsolePaneRegistry } from "../seats/index.js";
 

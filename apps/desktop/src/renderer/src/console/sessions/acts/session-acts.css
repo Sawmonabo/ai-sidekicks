@@ -127,8 +127,7 @@
 }
 
 .meridian-session-join__submit:disabled,
-.meridian-session-import__submit:disabled,
-.meridian-sessions__start:disabled {
+.meridian-session-import__submit:disabled {
   color: var(--meridian-text-muted);
   cursor: not-allowed;
 }
