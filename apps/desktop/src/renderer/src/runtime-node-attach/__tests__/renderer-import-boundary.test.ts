@@ -21,7 +21,7 @@
 // from disk by `ESLint` itself.
 //
 // What this suite asserts is the rule's TEETH, on synthetic sources, per the
-// `router-no-sql.test.ts` precedent (`packages/control-plane/src/sessions/__tests__/`):
+// `router-sql-import-ban.test.ts` precedent (`packages/control-plane/src/sessions/__tests__/`):
 // without a positive control a green suite is ambiguous between "the rule has
 // teeth" and "the rule silently matched nothing".
 //
@@ -150,7 +150,7 @@ function restrictedImportMessages(results: readonly ESLint.LintResult[]): string
  * the point: the renderer project's other seven suites render React components
  * and pay none of this, so re-budgeting them on this file's evidence would buy
  * silence rather than confidence. Exactly two suites in the workspace drive
- * ESLint programmatically — this one and the `router-no-sql.test.ts` precedent
+ * ESLint programmatically — this one and the `router-sql-import-ban.test.ts` precedent
  * named in the header, which pays the same warm-up but sits under its own
  * package's 15000ms budget and so never surfaced it. `apps/desktop` declares no
  * `testTimeout` at all, which is why the exposure landed here first.
@@ -264,8 +264,8 @@ describe("renderer import boundary", () => {
     // One file class in the shipped config IS matched by two
     // `no-restricted-imports` objects — console and shell source, which the
     // console block re-states the renderer ban for by SPREADING the two hoisted
-    // arrays, and whose spread `daemon-reply-chokepoint.test.ts` asserts is still
-    // there. No file is matched by two blocks that DISAGREE, though, so the
+    // arrays, and whose spread is what keeps both bans live for those files.
+    // No file is matched by two blocks that DISAGREE, though, so the
     // semantics stay unobservable from the config alone. This case makes them
     // observable by appending one STRICTLY NARROWER block through
     // `overrideConfig` (ESLint appends it to the end of the config array) and

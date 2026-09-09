@@ -29,10 +29,9 @@
 // first read is scheduled, which is after every subclass field has been initialised.
 //
 // WHAT THIS IS NOT. It is not a reading in its own right: it holds no `ConsoleBridge`
-// and knows no method name, so `test/console/architecture/read-triggers.test.ts` does
-// not count it as one. What that gate DOES do is follow a subclass's `extends` chain
-// into this module, so a controller inherits the scheduler and the trigger contract it
-// used to declare by hand and stays a subject of the rule.
+// and knows no method name, so the reading rule in `apps/desktop/AGENTS.md` §Chokepoints
+// does not count it as one. What a subclass inherits from here is the scheduler and the
+// trigger contract it used to declare by hand, which keeps it a subject of that rule.
 
 import type { ConsoleClock, RejectionFallback, Unsubscribe } from "../../core/index.js";
 import { ActController } from "./act-controller.js";

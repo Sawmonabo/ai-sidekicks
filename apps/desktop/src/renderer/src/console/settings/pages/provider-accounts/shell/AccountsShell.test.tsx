@@ -169,9 +169,9 @@ describe("AccountsShell", () => {
   it("draws the daemon's own refusal where the read could not be put", async () => {
     const bridge = fixtureBridge();
     // The daemon namespace is REBUILT rather than spread. Spreading it takes the
-    // namespace whole, which is one of the five reaches
-    // `test/console/architecture/daemon-reply-chokepoint.test.ts` forbids outside the
-    // bridge family — and it forbids it here for the reason it exists: a namespace
+    // namespace whole, which is one of the five reaches `apps/desktop/AGENTS.md`
+    // forbids outside the bridge family — and review forbids it here for the reason
+    // the rule exists: a namespace
     // taken as a value is how a surface reaches the raw door without naming it. The
     // stream member is stepped through, which is the shape that is not a reach.
     const refusing: ConsoleBridge = {

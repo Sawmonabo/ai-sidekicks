@@ -21,15 +21,18 @@
 // correlation / subscription / scratch-path tokens that no row and no event
 // stores stay on `crypto.randomUUID()` and say so at their call site.
 //
-// That split is enforced mechanically by
-// `src/ids/__tests__/daemon-id-factory-tripwire.test.ts`, whose
-// `finds no randomUUID mention beyond the allow-listed occurrences`
-// sweeps the daemon's sources and pairs every `randomUUID` line against an
-// allow-list of exact `(path, line text)` exemptions. It is a test and not a
-// `no-restricted-syntax` entry because flat config replaces a rule's options
-// at the last matching object and `packages/runtime-daemon/src/**` already
-// carries one for a different guard — that test's own header explains the
-// mechanics, and this module is not a second place to keep them.
+// That split is enforced mechanically by eslint.config.mjs, which denies
+// `.randomUUID` on any object (`no-restricted-properties`) and the
+// `randomUUID` named import from `node:crypto` (`no-restricted-imports`)
+// across `packages/runtime-daemon/src/**`, with a four-file exemption block
+// naming the ephemeral-token call sites and the reason each earns. Neither
+// rule is configured for this scope anywhere else in that file, which is what
+// keeps them clear of the `no-restricted-syntax` guard already there — flat
+// config replaces a rule's options at the last matching object.
+//
+// The honest limit of a lint rule is granularity: it exempts a FILE, so a
+// second mint added inside one of those four is caught in review rather than
+// by the gate. The exemption set is kept to four for exactly that reason.
 //
 // Why no dependency
 // -----------------

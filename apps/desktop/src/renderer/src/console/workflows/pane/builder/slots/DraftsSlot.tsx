@@ -13,7 +13,7 @@
 // a restart would put a person's unsent words in an origin-scoped database outside
 // every erasure selector the corpus defines. The window-lifetime store is what this
 // mount carries; a body that wanted durability would have to acquire it itself,
-// which is the move the architecture tier is watching for.
+// which is the move a reviewer is watching for.
 //
 // GEOMETRY IS NOT A DRAFT, EITHER. The canvas's node positions are client-local too
 // but they are coordinates rather than prose, so they go to the durable UI-state

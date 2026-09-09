@@ -6,9 +6,8 @@
 // no evidence at all, which is the arm an author is most likely to catch and move
 // past. The throwing cases below are therefore about what SURVIVES the throw.
 //
-// The kinds are walked from `TRIPWIRE_KINDS` rather than retyped, because the
-// architecture tier's vacuity guard walks that same tuple: a test that named the
-// four kinds itself could keep passing over a tuple that had lost one.
+// The kinds are walked from `TRIPWIRE_KINDS` rather than retyped: a test that named
+// the kinds itself could keep passing over a tuple that had lost one.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TRIPWIRE_REPORT_CAP } from "./constants/tripwire-caps.js";

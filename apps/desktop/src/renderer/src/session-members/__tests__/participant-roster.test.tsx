@@ -21,8 +21,9 @@
 //     composes `presence.read` (decoded snapshot) with `presence.subscribe`
 //     (opaque change-signal that triggers a re-read) — the Option-C design in
 //     participant-roster.tsx's header.
-//   • Spec-023 §Trust Stance (bridge-projection / CP-002-5) is asserted by
-//     `participant-roster.projection.test.tsx`, which reads this view's source text.
+//   • Spec-023 §Trust Stance (bridge-projection / CP-002-5) is enforced by
+//     `apps/desktop/eslint.config.mjs`, which bans the runtime-daemon and
+//     control-plane packages from renderer source at `error`.
 //
 // Mirrors SessionBootstrap.test.tsx idioms: the `installMockBridge`
 // install/teardown shape, the `afterEach` reset, and the RTL
@@ -30,20 +31,17 @@
 // DUPLICATED from that suite per the T6.3 standing directive — this view's bridge
 // surface is `{ daemon: { call, subscribe } }` (read + subscribe), wider than
 // SessionBootstrap's call-only surface, so a shared helper would not fit anyway. It
-// lives in `participant-roster.test-support.ts`, which the three suites here share.
+// lives in `participant-roster.test-support.ts`, which the two suites here share.
 //
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`/
 // `vi`/`afterEach`; the renderer test tsconfig adds `vitest/globals` to `types`.
 //
 // SPLIT ON ITS SEAMS, WHICH IS THE ONLY REASON A FILE IS SPLIT. This file carried the
-// scaffolding, the lifecycle cases, the failure cases, and a source-text tripwire in
-// one program — four jobs, and three of them left. The scaffolding is
-// `participant-roster.test-support.ts`, the refusal surfacing is
-// `participant-roster.failures.test.tsx`, and the CP-002-5 read is
-// `participant-roster.projection.test.tsx`, which asserts about this view's TEXT rather
-// than about what it renders and needs no DOM at all. What stays here is the view's own
-// lifecycle: what it renders, what it reads, what it subscribes to, and what it
-// releases.
+// scaffolding, the lifecycle cases and the failure cases in one program — three jobs,
+// and two of them left. The scaffolding is `participant-roster.test-support.ts` and
+// the refusal surfacing is `participant-roster.failures.test.tsx`. What stays here is
+// the view's own lifecycle: what it renders, what it reads, what it subscribes to, and
+// what it releases.
 
 import { render, screen, waitFor } from "@testing-library/react";
 

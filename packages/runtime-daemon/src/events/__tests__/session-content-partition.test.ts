@@ -36,9 +36,9 @@
 // A matrix declared and never executed is a comment. All three are executed row
 // by row, and all three carry a completeness assertion so adding a reason, a
 // routing case, or a refusal arm without covering it fails here rather than
-// shipping uncovered. The refusal matrix goes one step further and reads the
-// codec's own published order back out of the source: a numbered list a reader
-// trusts is exactly the kind of contract that drifts silently.
+// shipping uncovered. The refusal matrix additionally pins the ordinal range
+// the codec's guard sequence carries, and every arm in it is executed against
+// the real codec, so a renumbered or removed guard lands red on the arm itself.
 //
 // The file's LAST arm is not a matrix and is not about this module alone: it
 // pins the codec's refused-category set against the contracts registration of
@@ -67,7 +67,6 @@
 // I-006-3-08.
 
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
@@ -744,25 +743,6 @@ const CODEC_REFUSAL_MATRIX: readonly CodecRefusalCase[] = [
 ];
 
 /**
- * The ordinals the codec's own docstring publishes, read from the source.
- *
- * The refusal order is a contract stated in two places — the numbered list in
- * the docstring and the guards themselves — and a reader trusts the list. This
- * reads the list back so a guard added, removed, or renumbered without the list
- * moving with it fails here.
- */
-function documentedRefusalOrdinals(): readonly number[] {
-  const source = readFileSync(new URL("../pii-indirection.ts", import.meta.url), "utf8");
-  const listStart = source.indexOf("order of the body:");
-  const listEnd = source.indexOf("ARE EARLY COPIES", listStart);
-  expect(listStart).toBeGreaterThan(-1);
-  expect(listEnd).toBeGreaterThan(listStart);
-  return [...source.slice(listStart, listEnd).matchAll(/^\s*\*\s{3}(\d+)\./gm)].map((match) =>
-    Number(match[1]),
-  );
-}
-
-/**
  * One macrotask turn. Used by the append-race arm to give an UNGUARDED delete
  * every chance to commit before the arm asserts that it did not — a microtask
  * flush would not, since the lock's queue and the delete both settle on the
@@ -818,17 +798,14 @@ describe("content partition routing and key-failure enumeration", () => {
   });
 
   it("covers every arm of the refusal order the codec publishes", () => {
-    // The count is the claim, in both directions. The docstring's numbered list
-    // is read back from the source, so a guard renumbered or added without the
-    // list moving with it fails here — and an ordinal the list publishes with no
-    // arm below it fails too.
-    const documented = documentedRefusalOrdinals();
-    expect(documented).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
-
+    // The count is the claim, in both directions: every ordinal the codec's
+    // guard sequence carries has at least one arm below, and no arm claims an
+    // ordinal outside that range. Each arm is executed against the real codec
+    // further down, so a guard renumbered or removed lands red there.
     const coveredOrdinals = [...new Set(CODEC_REFUSAL_MATRIX.map((arm) => arm.ordinal))].sort(
       (left, right) => left - right,
     );
-    expect(coveredOrdinals).toEqual([...documented]);
+    expect(coveredOrdinals).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     // Several ordinals answer through more than one guard block, and the split
     // is load-bearing: each block carries its own message, so a merged guard

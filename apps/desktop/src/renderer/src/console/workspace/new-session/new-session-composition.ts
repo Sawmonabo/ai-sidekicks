@@ -281,8 +281,8 @@ export function useNewSessionComposition(props: NewSessionControlProps): NewSess
 
   // The commit-time read, named once and stable forever, so the settlement effect below
   // calls a function rather than reaching into a ref. Reading `.current` inside an
-  // effect that also announces is the shape `announce-latch-census.ts` reads as a
-  // second copy of the announce-once latch, and this composition holds no such latch —
+  // effect that also announces is the shape a reader takes for a second copy of the
+  // announce-once latch, and this composition holds no such latch —
   // the sentence is said once because a settlement lands once, not because a ref
   // remembers what was said. Naming the read here keeps that true where it is read.
   const settleCreatedSession = useCallback((createdSessionId: string) => {

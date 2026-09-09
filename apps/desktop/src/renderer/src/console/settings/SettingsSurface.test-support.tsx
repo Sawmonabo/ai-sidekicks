@@ -60,8 +60,6 @@ async function loadShippedSurfaceRender(): Promise<ConsoleSurfaceDescriptor["ren
  * first case times out, the render it abandoned keeps its effects, and every case after
  * it fails against a document the aborted one left behind — a dozen failures reported as
  * a dozen defects, none of them real, green standalone and red in the suite.
- * `test/console/architecture/act-settling.test.ts` records the same finding about its own
- * parse and takes the same remedy.
  *
  * So the fetch is memoised in a holder, and a suite that renders the shipped arm awaits
  * it once in `beforeAll`, where the budget belongs to a hook rather than to an assertion.

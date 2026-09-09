@@ -7,13 +7,13 @@
 //
 // A BASE CLASS AND NOT A COMPOSED COLLABORATOR, on `store/act/act-controller-base.ts`'s
 // precedent and for a reason that is mechanical rather than stylistic.
-// `test/console/architecture/read-triggers.test.ts` defines a READING as one class that
-// publishes what a surface reads off it AND holds the daemon connection, and it requires
-// that same class to carry the scheduler and the two members a trigger set wires — the
-// defect it exists to catch is a reading nobody can ask again. Composed, this schedule
+// `apps/desktop/AGENTS.md` §Chokepoints defines a READING as one class that publishes
+// what a surface reads off it AND holds the daemon connection, and it requires that same
+// class to carry the scheduler and the two members a trigger set wires — the defect it
+// exists to catch is a reading nobody can ask again. Composed, this schedule
 // would have taken the bridge, the scheduler and the trigger contract out of the class a
-// surface actually holds, and the artifact pane would have left that gate's subject set
-// while behaving identically. Inheritance is what the gate follows, so the split costs
+// surface actually holds, and the artifact pane would have left that rule's subject set
+// while behaving identically. Inheritance is what a reader follows, so the split costs
 // the pane none of its refreshability and the subclass still owns every question about
 // what a reading means.
 //

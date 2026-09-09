@@ -14,9 +14,8 @@
 // IT LIVES IN `persistence/` AND PERSISTS NOTHING, which is the point rather than a
 // contradiction: this directory owns what the console does about durability, and
 // what it does about drafts is refuse. A `Map` and a disclosure, no adapter, no
-// import at all — the file imports nothing, and
-// `test/console/architecture/draft-non-persistence.test.ts` asserts that it never
-// starts, because acquiring an adapter here is the first move of persisting a
+// import at all — the file imports nothing, and it must never start, because acquiring
+// an adapter here is the first move of persisting a
 // draft. A durable copy would need the encrypted, PII-mapped storage `Spec-022`
 // specifies for participant-authored content, which the renderer does not have; an
 // IndexedDB copy would put a person's prose in an unencrypted origin-scoped

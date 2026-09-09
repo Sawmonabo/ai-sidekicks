@@ -28,7 +28,7 @@
 //
 // EVERY SESSION STORE OPENS WITH THE WINDOW'S OWN FOLD — {@link COMPOSED_CONSOLE_PROJECTORS}
 // and never a registrar this file picked — so a partition a column reads is the one a
-// window would have projected. `architecture/surface-fold-chokepoint.test.ts` is the gate.
+// window would have projected.
 //
 // AND EVERY MOUNT SETTLES ITS OWN READS. `renderSettled` flushes promises and moves no
 // clock; each composition here arms a `RefreshScheduler` on the fixture's frozen one, so

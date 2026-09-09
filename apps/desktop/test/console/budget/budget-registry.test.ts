@@ -21,8 +21,9 @@
 // `budget-document.test.ts`'s, whether the report names every un-measured row is
 // `budget-report.test.ts`'s, and whether the comparison bites is
 // `budget-evaluation.test.ts`'s. Whether the file a row NAMES actually drives the
-// row's subject is a question over a file rather than over the registry, and it
-// is `measured-by.test.ts`'s.
+// row's subject is a question over a file rather than over the registry, and no
+// gate asks it: a row's `measuredBy` is checked by the reviewer of the diff that
+// writes it.
 
 import { describe, expect, it } from "vitest";
 
@@ -189,8 +190,8 @@ describe("console budget registry", () => {
     ).toStrictEqual([...EXPECTED_ENFORCED_BUDGET_IDS].sort());
     for (const budget of registry.enforcedBudgets()) {
       expect(budget.measuredBy, `${budget.id}: measuredBy`).not.toBeNull();
-      // The symbol is what makes the path checkable at all: `measured-by.test.ts`
-      // reads the named file and refuses a row whose harness never holds it.
+      // The symbol is what makes the path checkable at all — by a reader, who
+      // can open the named harness and look for it.
       expect(budget.subjectSymbol, `${budget.id}: subjectSymbol`).not.toBeNull();
       expect(budget.notMeasurableReason, `${budget.id}: notMeasurableReason`).toBeNull();
     }

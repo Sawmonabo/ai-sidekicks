@@ -24,9 +24,9 @@
  * live under `scripts/budget/` today. A walk keyed on `/\.tsx?$/` therefore
  * quantifies over less than its own sentence claims, and the failure is silent by
  * construction: the module it skipped is absent from the set, so no claim about
- * that set can report it. `electron-spawn-chokepoint.test.ts` is where that bit —
- * a `.mts` helper reaching `spawn` and never appearing among the spawners — and
- * this is the one home both walks now take it from.
+ * that set can report it — a `.mts` helper reaching `spawn` and never appearing among
+ * the spawners is exactly that failure, and this is the one home both walks now take
+ * the extension set from.
  *
  * `.d.ts` is subtracted by {@link isSourceModulePath} rather than here: it IS a
  * TypeScript module file name, and what disqualifies it is that it declares

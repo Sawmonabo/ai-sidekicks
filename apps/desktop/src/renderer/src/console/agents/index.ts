@@ -43,8 +43,8 @@
 // The admitting rule is the collision census, not the directory: a sheet may cross a
 // chunk boundary only when no other family declares a class it declares, because load
 // order decides equal-specificity conflicts and deferring such a sheet restyles the
-// other family (`runs/index.ts` records that happening). None of these eight does, per
-// `test/console/architecture/stylesheet-selector-owners.test.ts`.
+// other family (`runs/index.ts` records that happening). None of these eight does,
+// checked against the tree.
 
 // --- WHAT LEAVES THIS FAMILY -------------------------------------------
 //

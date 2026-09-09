@@ -34,10 +34,9 @@
 // `settings/browser-settings-page-body.ts`. A sheet two chunks render against is named
 // at each of them and lands once, whichever chunk arrives first; naming it at only one
 // would leave the other painting undressed until the first happened to arrive, which is
-// the failure `undressedEagerReaderOffences` reports and
-// `test/console/architecture/stylesheet-chunk-root-ownership.test.ts` fails in both
-// directions — a sheet deferred past a reader the initial graph carries, and a sheet
-// held at a door no static reader can use.
+// the failure `apps/desktop/AGENTS.md` §Module shape names in both directions — a sheet
+// deferred past a reader the initial graph carries, and a sheet held at a door no static
+// reader can use.
 //
 // `settings/settings.css` IS THE ONE SHEET NOT HERE, because it dresses that page alone:
 // its rows, its partition table and its switches have no reader in this chunk, so it

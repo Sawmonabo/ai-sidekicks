@@ -416,13 +416,11 @@ jobs:
       # `pnpm test` and in no required check, so every `src/main/**` and
       # `build/**` unit — protocol containment, navigation policy, window
       # hardening, startup ordering, load recovery — was unguarded on merge.
-      # That cost is now paid by a checker rather than by a convention:
-      # `apps/desktop/test/console/architecture/ci-tier-coverage.test.ts` reads
-      # this file, resolves the real project set through `createVitest`, and
-      # fails when a project is named by no job `ci-gate` requires or is missing
-      # from the package's aggregate `test` script. A new project still joins the
-      # enumeration below in the PR that introduces it — that test is what makes
-      # forgetting it a red check instead of a silent gap.
+      # `apps/desktop/AGENTS.md` §Config single-sourcing is where that cost is
+      # now paid: a new Vitest project lands with all five of its wirings or
+      # none, and a project wired into neither this step nor the package's
+      # aggregate `test` script is a review rejection. A new project joins the
+      # enumeration below in the PR that introduces it.
       - name: Test (Node 22 tier — excluding control-plane and desktop)
         run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
@@ -442,8 +440,8 @@ jobs:
 
       # The desktop package, alone on the runner, in the order the three build
       # flavours allow. This mirrors `apps/desktop/package.json`'s aggregate
-      # `test` script group for group, and `ci-tier-coverage.test.ts` fails if
-      # the two drift apart.
+      # `test` script group for group, and `apps/desktop/AGENTS.md` §Config
+      # single-sourcing is what keeps the two from drifting apart.
       #
       # The ORDER is load-bearing rather than stylistic. `build`, `build:smoke`,
       # and `build:fixtures` all write `apps/desktop/out/**` and differ in the
@@ -474,7 +472,7 @@ jobs:
         run: |
           set -euo pipefail
           cache_flag='${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}'
-          pnpm turbo run test:renderer test:main-unit test:console-unit test:console-architecture test:console-assets --filter=@ai-sidekicks/desktop ${cache_flag}
+          pnpm turbo run test:renderer test:main-unit test:console-unit test:console-assets --filter=@ai-sidekicks/desktop ${cache_flag}
           pnpm turbo run test:console-browser test:console-accessibility --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
           pnpm turbo run test:console-bundle --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
           pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
