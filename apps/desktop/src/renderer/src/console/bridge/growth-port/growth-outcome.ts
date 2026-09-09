@@ -53,7 +53,7 @@ export const CALL_REJECTED_REFUSAL_CODE = "call-rejected" as const;
  *     and it must not borrow that code: `wire-unregistered` says this build does not
  *     carry the wire, which for a served operation is false, and a surface told it
  *     would name the wrong document as owing. Fixture-only, and spelled once in
- *     `scripted-reply.ts` because `fixture-bridge.ts` raises the same word for the
+ *     `scripted-reply.ts` because `fixture/call-plane/bridge.ts` raises the same word for the
  *     same absence on the call arm.
  *   • `call-rejected` — the call was made and its promise REJECTED rather than
  *     answering. No port in this build does that on purpose: every operation resolves
@@ -72,7 +72,7 @@ export const CALL_REJECTED_REFUSAL_CODE = "call-rejected" as const;
  *     its cap of delayed replies, so this one was never parked at all.
  *
  * The last two are spread in from `scripted-reply.ts`, which is where the seam that
- * produces them lives and where `fixture-bridge.ts` reads the same two from. They
+ * produces them lives and where `fixture/call-plane/bridge.ts` reads the same two from. They
  * exist as codes at all because of the rule they enforce: a fixture must NEVER map an
  * abandoned or over-cap scripted reply to an absent value. Both of those are a reply
  * that did not arrive, and an absent value renders as "there is none" — a claim about

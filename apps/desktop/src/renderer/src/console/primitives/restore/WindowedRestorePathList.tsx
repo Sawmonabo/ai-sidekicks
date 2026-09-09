@@ -1,8 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useRef } from "react";
 
-import { WindowedListRow } from "../WindowedListRow.js";
-import { useWindowedRovingIndex } from "../windowed-row-index.js";
+import { WindowedListRow, useWindowedRovingIndex } from "../windowing/index.js";
 
 import { RestorePathCell } from "./RestorePathCell.js";
 import {

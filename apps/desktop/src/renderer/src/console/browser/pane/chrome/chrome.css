@@ -84,7 +84,7 @@
    into it: `--unnamed` is a frame that arrived carrying no name, and this is no frame
    at all — the page-list read pending, refused, or ended. The sentence is the
    console's own rather than a wire value, so it leaves the mono the base rule sets,
-   and it takes the dotted treatment `../../../primitives/nothing.css` gives
+   and it takes the dotted treatment `../../../primitives/absence/nothing.css` gives
    `not-checked` for the same reason that file gives: a dotted boundary says the
    question is still open rather than answered. */
 .meridian-browser-tabs__context--unreported {

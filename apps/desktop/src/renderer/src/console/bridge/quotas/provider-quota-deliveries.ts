@@ -57,7 +57,7 @@ export type ProviderLoginCompletion = Extract<
 
 import {
   PROVIDER_QUOTA_REFUSAL_ORIGIN,
-  unreadableDeliveryRefusal,
+  unreadableProviderQuotaDeliveryRefusal,
 } from "./provider-quota-refusals.js";
 import { ProviderQuotaNotificationHold } from "./provider-quota-notification-hold.js";
 import { UnreadableDeliveryLedger, type UnreadableDeliveryReading } from "../readings/index.js";
@@ -93,7 +93,7 @@ export class ProviderQuotaDeliveries {
   readonly #fold: ProviderQuotaFold;
   readonly #sink: ProviderQuotaDeliverySink;
   readonly #hold = new ProviderQuotaNotificationHold();
-  readonly #unreadable = new UnreadableDeliveryLedger(unreadableDeliveryRefusal);
+  readonly #unreadable = new UnreadableDeliveryLedger(unreadableProviderQuotaDeliveryRefusal);
   #hasReportedHighWaterDrop = false;
   #newestLoginCompletion: ProviderLoginCompletion | undefined = undefined;
 

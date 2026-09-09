@@ -1,18 +1,19 @@
 // The primitives door.
 //
 // Every console surface imports its primitives from here, and every sheet is
-// imported exactly once — here — so a surface can never render a primitive that
-// arrived without its CSS, and the bundler sees one edge per sheet rather than one
-// per component.
+// imported exactly once — here, or at the door of the sub-module that owns it — so a
+// surface can never render a primitive that arrived without its CSS, and the bundler
+// sees one edge per sheet rather than one per component.
 //
 // ONE SHEET PER PRIMITIVE, and the rule `apps/desktop/AGENTS.md` sets is about the
-// door rather than about the count: "a family's CSS is imported from that family's
-// barrel and from nowhere else". The single sheet these were split out of had
-// reached 720 lines over a dozen unrelated primitives — two jobs by that file's own
-// standard several times over — and a stylesheet nobody can hold in their head is
-// where a second treatment for one thing gets added without anybody noticing. The
-// order below is the cascade's: `shared.css` first because the focus ring and the
-// hidden region qualify everything after it, then one sheet per primitive.
+// OWNER rather than about the count: a sheet enters through the barrel of the
+// directory that owns it, and a directory carrying a door owns itself. The single
+// sheet these were split out of had reached 720 lines over a dozen unrelated
+// primitives — two jobs by that file's own standard several times over — and a
+// stylesheet nobody can hold in their head is where a second treatment for one thing
+// gets added without anybody noticing. The order below is the cascade's:
+// `shared.css` first because the focus ring and the hidden region qualify everything
+// after it.
 //
 // `wire-figures.js` is re-exported through the same door on purpose: the formatting
 // rule (`Spec-023 §Console Design (Meridian)` §The eight rules) is that a figure is
@@ -24,21 +25,54 @@
 // `ChordHint` renders, so a caller that wants the STRING form of a chord and a
 // caller that wants keycaps are reading one table. It lives in this family rather
 // than in `palette/` so a primitive never imports upward.
+//
+// THE FAMILY IS SUB-MODULES AND THIS DOOR REACHES PAST THEM. `absence/`, `announce/`,
+// `chord/`, `figures/`, `overlay/`, `posture/`, `reading/`, `refusal/`, `restore/`,
+// and `windowing/` each hold one concern. Five of them carry an inner door publishing
+// exactly what a SIBLING takes; `announce/`, `chord/`, `overlay/`, `posture/`, and
+// `restore/` carry none, because no sibling reads in — `chord/` is read only from
+// `SurfaceAbsence.tsx` here at the root, which is not a sibling, so that file takes the
+// declaring modules directly. This door re-exports from the module that DECLARES each
+// symbol and never through an inner one: `console-no-barrel-chain` fails the second
+// shape, and following a name to its home would otherwise take two hops. The root keeps
+// what belongs to no group — the error boundary, the confirming dialog, the airspace
+// registration the overlays share, the resize-observer chokepoint, the latest-value ref,
+// the accent fill any control may wear, and the absent-surface frame that pairs with
+// that error boundary, the two shells `frame/` mounts around a surface with nothing to
+// show or no way to draw it.
+//
+// AND A DOOR TAKES ITS OWN SHEETS WITH IT. Ownership keys on the directory carrying a
+// barrel rather than on depth, so each inner door that has sheets imports them, and
+// this file keeps `shared.css`, the sheets of the components beside it, and
+// `chord/chord.css`, `posture/posture.css`, and `restore/restore.css`, whose
+// directories carry no door. `refusal.css` and `partial-read.css` sit at this root
+// rather than inside `refusal/` and `reading/` for the half of the rule that is about
+// REACHABILITY: the shapes they dress leave through THIS door from their declaring
+// modules, so owned by an inner barrel each sheet's only entry was one sibling's value
+// import — `reading/ReadingNotice.tsx`'s line into `refusal/` for the first, and
+// `announce/reading-announcement.ts`'s line into `reading/` for the second, an edge
+// that reads the incomplete-reading VOCABULARY and has nothing to do with the notice
+// box the sheet dresses. The entry moved with the sheet in both cases, which is the
+// remedy the rule names. `partial-read.css` is imported directly after `refusal.css`
+// and not elsewhere in this block: the two share `.meridian-refusal--inline`, and while
+// the cascade there is settled by specificity rather than by order — the partial-read
+// rule is `.meridian-partial-read .meridian-refusal--inline` — the adjacency also keeps
+// the document order the sibling edge used to produce. Measured rather than assumed: holding all sixteen here
+// reported eleven misowned sheets in
+// `test/console/architecture/stylesheet-edges.test.ts`. No sheet moved onto a chunk
+// root and no class name changed, so no capture in the screenshot tier moves — the only
+// cascade this rearranges is inside this family, and every class two of its sheets
+// declare is settled by specificity, by disjoint properties, or by an identical
+// declaration in both, never by which sheet loaded last.
 
 import "./shared.css";
 import "./accent-fill.css";
-import "./glyph.css";
-import "./figure.css";
-import "./chip.css";
-import "./choice-list.css";
-import "./chord.css";
-import "./nothing.css";
-import "./refusal.css";
-import "./ledger-row.css";
-import "./partial-read.css";
+import "./chord/chord.css";
 import "./surface-absence.css";
 import "./surface-failure.css";
 import "./confirmation-dialog.css";
+import "./refusal.css";
+import "./partial-read.css";
 import "./posture/posture.css";
 import "./restore/restore.css";
 
@@ -47,10 +81,10 @@ import "./restore/restore.css";
 // spelled at each of them.
 export { ACCENT_FILL_CLASS } from "./accent-fill.js";
 
-export type { GlyphName } from "./Glyph.js";
-export { Glyph } from "./Glyph.js";
+export type { GlyphName } from "./figures/Glyph.js";
+export { Glyph } from "./figures/Glyph.js";
 
-export { ChordHint } from "./ChordHint.js";
+export { ChordHint } from "./chord/ChordHint.js";
 
 // The console's ONE `ResizeObserver` construction site, through the door for the
 // reason the announcer is: two view families arm a size source — the browser
@@ -71,7 +105,7 @@ export { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 // resolution of `$mod`, and the same splitter the printer uses, because tinykeys'
 // grammar makes `$mod++` a real chord that `chord.split("+")` reads wrongly. Every
 // one of those was a second copy here before it was a door line.
-export type { ChordModifierToken, ChordPlatform } from "./chord-format.js";
+export type { ChordModifierToken, ChordPlatform } from "./chord/chord-format.js";
 export {
   CHORD_MODIFIER_TOKENS,
   // The literal, not the binding. `PaletteOverlay.tsx` is the only module that hands
@@ -85,32 +119,32 @@ export {
   decodeChordKeyToken,
   formatChordForPlatform,
   splitChordTokens,
-} from "./chord-format.js";
+} from "./chord/chord-format.js";
 
 // The surface-scale absence wrapper. In this family rather than in `frame/` because
 // it is a presentational shell with no family of its own — a centred measure, a body
 // slot, and one hint — and because both of its producers now sit BELOW the frame:
-// `frame/RouteSurface.tsx` reaches down to it like any other consumer, and
-// `seats/absorbed-surfaces.ts` could not have reached up at all.
+// `frame/composition/RouteSurface.tsx` reaches down to it like any other consumer, and
+// `seats/surface/absorbed-surfaces.ts` could not have reached up at all.
 export { SurfaceAbsence } from "./SurfaceAbsence.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
 // because the whole point of the primitive is that there is a single pair of
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
-export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
+export { LiveAnnouncerProvider, useAnnounce } from "./announce/LiveAnnouncerProvider.js";
 
 // The announcer itself, because `LiveAnnouncerProvider`'s `announcer` prop is part of
 // that component's public shape: a caller that supplies one — the frame does not, a
 // surface's own tier does — has to be able to build one, and reaching past the barrel
 // for the class while taking the provider through it would be one seam entered two ways.
-export { LiveAnnouncer } from "./live-announcer.js";
+export { LiveAnnouncer } from "./announce/live-announcer.js";
 
 // The one way a surface says its read landed. Through this door beside the announcer
 // itself, because the two are one seam: a family that reached for `useAnnounce`
 // directly to say a settlement would be re-writing the once-per-sentence rule, and
 // the rule is the whole reason this hook exists rather than a bare call.
-export { useSettlementAnnouncement } from "./settlement-announcement.js";
+export { useSettlementAnnouncement } from "./announce/settlement-announcement.js";
 
 // The latest-committed-value ref every long-lived callback in the tree reads through.
 // On this door because its readers are VIEW families — the approvals pane's palette
@@ -120,7 +154,7 @@ export { useSettlementAnnouncement } from "./settlement-announcement.js";
 // which is the one place React says a ref must not be written.
 export { useLatestRef } from "./latest-ref.js";
 
-export { Nothing } from "./Nothing.js";
+export { Nothing } from "./absence/Nothing.js";
 
 // The confirming dialog, and the tone its confirming act wears. Through the door
 // because two view families were composing the same eight Base UI parts and neither
@@ -141,7 +175,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ReadingStateKind,
   RefusalScope,
-} from "./partial-read.js";
+} from "./reading/partial-read.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   READING_STATE_KINDS,
@@ -155,34 +189,31 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   uncheckedCoverageReading,
   unreadableDeliveryReading,
-} from "./partial-read.js";
+} from "./reading/partial-read.js";
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   PartialReadProps,
-} from "./PartialRead.js";
-export { PartialRead } from "./PartialRead.js";
+} from "./reading/PartialRead.js";
+export { PartialRead } from "./reading/PartialRead.js";
 
 // The reading's sentence, said out loud. Through the door because it is the ONLY
 // route a surface has to the announcer for this case: a family that wrote its own
 // "announce once" latch would be the second latch, and one that made its own region
 // would be the second speaker `LiveAnnouncerProvider` forbids.
 //
-// THE WORKFLOWS FAMILY IS NOT ON THIS CLAIM, and its absence is a finding rather than
-// an omission. That family's two rendering sites are the one place a reader was
-// expected and neither can be one: its scope picker announces nothing at all by
-// design, and its browser's continuation refusal is already spoken through the
-// family's own settlement adapter, so binding here would say that refusal twice.
-// The two latches are also not the same latch — this one dedups on the SENTENCE SET,
-// which is right for an incomplete-reading notice and wrong for a settlement, where
-// two sessions holding the same number of rows say the same words and the second
-// would go unspoken. A caller-supplied dedup key would make one primitive serve both
-// and retire that adapter; it is not minted here, because a parameter with no caller
-// is a policy question moved out of the primitive that currently answers it and into
-// every call site. The family that would spend it owns that call.
+// THE WORKFLOWS FAMILY READS THE SECOND NAME BELOW, and that is what retired the
+// adapter it had written instead. The two arities are not the same comparison — the
+// reading one dedups on the SENTENCE SET, which is right for an incomplete-reading
+// notice and wrong for a settlement, where two sessions holding the same number of rows
+// say the same words and the second would go unspoken — so the primitive took a
+// caller-supplied dedup key and the family's own ref-and-effect copy is gone. Its scope
+// picker is still on no claim here and announces nothing at all by design, and its
+// browser's continuation refusal is spoken once, through that second name.
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   useReadingAnnouncement,
-} from "./reading-announcement.js";
+  useReadSettlementAnnouncement,
+} from "./announce/reading-announcement.js";
 
 // A window's own cap, which is a different fact from a read's completeness — see the
 // module header for why the two vocabularies sit beside each other rather than one
@@ -194,7 +225,7 @@ export type {
   WindowAbsenceKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsenceNotice,
-} from "./window-absence.js";
+} from "./absence/window-absence.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WINDOW_ABSENCE_KINDS,
@@ -202,37 +233,37 @@ export {
   windowAbsenceNotice,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   windowAbsenceNotices,
-} from "./window-absence.js";
+} from "./absence/window-absence.js";
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsencesProps,
-} from "./WindowAbsences.js";
+} from "./absence/WindowAbsences.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsences,
-} from "./WindowAbsences.js";
+} from "./absence/WindowAbsences.js";
 
-// No marker: `InlineRefusal` has its consumers — `seats/ConsolePaneChrome.tsx`, whose
+// No marker: `InlineRefusal` has its consumers — `seats/pane/ConsolePaneChrome.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
 // address, and the composer, sidebar, runs, approvals, inspector, settings,
 // collaboration, sessions, and agents surfaces, which render a row-scoped refusal
 // through it — so a surviving tag would fail the run under
 // `--treat-tag-hints-as-errors`.
-export { InlineRefusal } from "./InlineRefusal.js";
-export { RefusalBanner } from "./RefusalBanner.js";
-export { RefusalCard } from "./RefusalCard.js";
+export { InlineRefusal } from "./refusal/InlineRefusal.js";
+export { RefusalBanner } from "./refusal/RefusalBanner.js";
+export { RefusalCard } from "./refusal/RefusalCard.js";
 // The join between a refusal and the console's own next move for it. On this door
 // because the composer, the runs pane, and the approvals pane all render daemon
 // refusals whose codes the remedy table answers for, and three surfaces looking a
 // code up themselves is three chances to answer one code differently.
-export { RemediedRefusal } from "./RemediedRefusal.js";
+export { RemediedRefusal } from "./refusal/RemediedRefusal.js";
 // The shell every family's own recovery table renders through, and the shape those
 // tables produce. On this door for the same reason `RemediedRefusal` is: more than one
 // family answers a code with a next move, and a shell written per family is a rendering
 // one of them can change without the other noticing — which is what happened, under two
 // class names whose declarations were identical property for property.
-export { RefusalRecovery } from "./RefusalRecovery.js";
-export type { RefusalRecoveryCopy } from "./refusal-contract.js";
+export { RefusalRecovery } from "./refusal/RefusalRecovery.js";
+export type { RefusalRecoveryCopy } from "./refusal/refusal-contract.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -244,12 +275,12 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ChipProps,
   ChipTone,
-} from "./Chip.js";
+} from "./figures/Chip.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   CHIP_TONES,
   Chip,
-} from "./Chip.js";
+} from "./figures/Chip.js";
 
 // The windowed row and the keyboard that reaches it. Through the door because the
 // two ARIA members are one claim every windowed list in the console makes the same
@@ -258,7 +289,7 @@ export {
 //
 // THREE SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
 // lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
-// `repos/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
+// `primitives/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
 // and the one type a delegating row's renderer hands its child: the row's own props
 // type is inferred from the element, the two ARIA marker names are written by the row
 // rather than by its caller, and the index arithmetic is what the hook returns. The
@@ -289,47 +320,47 @@ export {
 // of the tree and never was — `seats/` has since landed reservations naming this task
 // whose symbols this family does not import, and those stand exactly as the tag rule
 // says they do, until the commit whose import deletes them.
-export { WindowedListRow } from "./WindowedListRow.js";
-export type { WindowedRowTargetProps } from "./WindowedListRow.js";
-export { useWindowedRovingIndex } from "./windowed-row-index.js";
+export { WindowedListRow } from "./windowing/WindowedListRow.js";
+export type { WindowedRowTargetProps } from "./windowing/WindowedListRow.js";
+export { useWindowedRovingIndex } from "./windowing/windowed-row-index.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   LedgerRowProps,
-} from "./LedgerRow.js";
-export { LedgerRow } from "./LedgerRow.js";
+} from "./figures/LedgerRow.js";
+export { LedgerRow } from "./figures/LedgerRow.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   DerivedFigureProps,
-} from "./DerivedFigure.js";
+} from "./figures/DerivedFigure.js";
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   WireFigureProps,
-} from "./WireFigure.js";
+} from "./figures/WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
 // Neither name carries a marker any more: `WireFigure` is rendered by
-// `frame/ContextPicker.tsx` and the `WireChoiceList` beside it, and `DerivedFigure`
+// `frame/composition/ContextPicker.tsx` and the `WireChoiceList` beside it, and `DerivedFigure`
 // by the runs, approvals, and inspector panes, so a surviving tag would be the half
 // of the marker an importing change owed and did not pay — which
 // `--treat-tag-hints-as-errors` reports.
-export { DerivedFigure } from "./DerivedFigure.js";
-export { WireFigure } from "./WireFigure.js";
+export { DerivedFigure } from "./figures/DerivedFigure.js";
+export { WireFigure } from "./figures/WireFigure.js";
 
 // The one row every surface that offers wire identifiers to choose between renders.
 // A primitive rather than a frame component because its input is a list of wire
 // strings and its only dependency is the figure above: the frame is not the lowest
 // family that owns that, and a view family cannot import the frame's door at all.
-export { WireChoiceList } from "./WireChoiceList.js";
+export { WireChoiceList } from "./figures/WireChoiceList.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   ByteUnitLabel,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   FormattedByteQuantity,
-} from "./wire-figures.js";
+} from "./figures/wire-figures.js";
 export {
   formatByteQuantity,
   formatClockTime,
@@ -345,7 +376,7 @@ export {
   formatWireDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   formatWireString,
-} from "./wire-figures.js";
+} from "./figures/wire-figures.js";
 
 // The stamped execution boundary, and the disclosure of what a rewind did to the
 // working tree. Both are in this family for the same reason and it is the layering

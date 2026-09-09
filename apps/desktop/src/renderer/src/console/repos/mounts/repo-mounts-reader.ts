@@ -4,7 +4,7 @@
 // happen on subscribe, on window focus, on reconnect, and on the terminal events the
 // owning spec names", under "No interval polling" — so every read this family performs
 // is routed through the
-// console's one `RefreshScheduler` (`console/store/scheduling.ts`). Nothing here
+// console's one `RefreshScheduler` (`console/store/read/refresh-scheduler.ts`). Nothing here
 // arms a timer of its own; the scheduler coalesces a burst of reasons into one read
 // and serializes reads so two never overlap. All FOUR of that rule's reasons are wired:
 // `subscribe` by this class's own `start`, and the other three by
@@ -29,7 +29,7 @@
 // cannot be drawn from the list alone.
 //
 // WHY THIS STATE IS NOT IN THE SESSION STORE, though the store is now OBSERVED for two
-// of the three refresh reasons. `console/store/entities.ts` partitions by a closed
+// of the three refresh reasons. `console/store/entities/entities.ts` partitions by a closed
 // entity-kind set with no repo mount, and a mount read is not an event projection at
 // all — it is a synchronous probe whose `checkedAt` is the point of it — so holding it
 // beside the store denormalises nothing. When a `repo-mount` entity kind exists, this

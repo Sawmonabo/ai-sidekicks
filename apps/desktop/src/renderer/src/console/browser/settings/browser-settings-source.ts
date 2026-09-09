@@ -23,8 +23,8 @@
 // answer after the read that followed it and put the cleared partition back on screen,
 // with a byte figure, under a control that had just reported success. The console has
 // one answer to both halves of that and this module uses it rather than a counter of
-// its own: `store/scheduling.ts`'s `RefreshScheduler` decides WHEN a read runs and
-// collapses a burst into one, and `store/generation-latch.ts` decides which answer may
+// its own: `store/read/refresh-scheduler.ts`'s `RefreshScheduler` decides WHEN a read runs and
+// collapses a burst into one, and `store/read/generation-latch.ts` decides which answer may
 // install. Neither is re-implemented here — `apps/desktop/AGENTS.md` puts every
 // refresh through that one scheduler, and `subject-state-chokepoint.test.ts` fails a
 // second latch.

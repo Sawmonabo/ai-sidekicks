@@ -10,7 +10,7 @@
 // Two settings sections are holes another plan fills: the provider-account
 // registry and the MCP server inventory. Each is a PAGE this repository builds the
 // chrome for and a BODY it does not author at all, so the arrangement is the seat
-// contract `seats/owner-slot.ts` declares — who owns the body, what the
+// contract `seats/slots/owner-slot.ts` declares — who owns the body, what the
 // mount owes it, and where the shell dies.
 //
 // WHY THE RENDERER IS HERE AND THE SLOTS ARE NOT
@@ -23,7 +23,7 @@
 
 //
 // The reservation copy names the FEATURE and never the governance work — a slot
-// contract is developer-facing (`seats/owner-slot.ts` says so in terms),
+// contract is developer-facing (`seats/slots/owner-slot.ts` says so in terms),
 // and the repository's standing rule keeps governance identifiers out of what a
 // participant reads.
 

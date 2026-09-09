@@ -14,7 +14,7 @@ import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/con
 import { parseInstant } from "../../core/index.js";
 import { projectMembershipCreated } from "../../collaboration/members/membership-projector.js";
 import { PRESENCE_STATE_RENDER_ORDER } from "../../collaboration/members/presence-model.js";
-import { createFixtureBridge } from "../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../fixture/call-plane/bridge.js";
 import { readConsoleSessionEvent } from "../daemon/session-event-payload.js";
 import { SESSION_EVENT_STREAM } from "../daemon/session-event-streams.js";
 import { COLLABORATION_SENT_INVITES } from "./collaboration/replies.js";

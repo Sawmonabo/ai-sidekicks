@@ -98,7 +98,7 @@ describe("the sidekick editor's seat — once a body has arrived", () => {
 
 describe("the sidekick editor's seat — what its contract may not do", () => {
   it("reaches no screen", () => {
-    // The contract is developer-facing in terms (`seats/owner-slot.ts`),
+    // The contract is developer-facing in terms (`seats/slots/owner-slot.ts`),
     // and every member of it names governance work, which a participant never reads.
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
     const { container } = render(
@@ -129,7 +129,7 @@ describe("the sidekick editor's seat — what its contract may not do", () => {
 
   it("answers all three of the questions a seat exists to answer", () => {
     // A seat that cannot say who owns the body, what the mount owes it, and where
-    // the shell dies has not decided what it is (`seats/owner-slot.ts`).
+    // the shell dies has not decided what it is (`seats/slots/owner-slot.ts`).
     // The owner is read by SUBJECT rather than by length: these are runtime strings in
     // a shipped module and this repository keeps governance identifiers in comments, so
     // a length check would pass over the very phrasing the rule asks for. That the

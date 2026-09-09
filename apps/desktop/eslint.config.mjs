@@ -279,7 +279,7 @@ export default [
   //
   // WHY THE IMPORT AND NOT THE CALL. A `.parse(` / `.safeParse(` selector was the
   // other candidate and is measurably worse in both directions. `.parse(` is not a
-  // zod name: `console/palette/when-clause-parser.ts` calls `.parse()` on its own
+  // zod name: `console/palette/when-clause/when-clause-parser.ts` calls `.parse()` on its own
   // parser and the two exempt time suites call `Date.parse`, so the selector's
   // first three findings in this tree would be false — a ban whose false alarms
   // outnumber its findings is a ban somebody turns off. And `.safeParse(` needs no

@@ -23,7 +23,7 @@
 // this root and the destination's are two independent first paints of one family's
 // chrome, and one of them relying on the other having run is a coupling with no name.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import "../workflows.css";
 

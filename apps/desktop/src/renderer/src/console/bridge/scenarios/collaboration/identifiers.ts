@@ -18,8 +18,8 @@
 // `as const` table whose members are references to other constants, which is what
 // this table was while it lived beside its one reader.
 
-import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
-import type { MembershipRole, ParticipantId } from "@ai-sidekicks/contracts";
+import { MAIN_CHANNEL_NAME, ParticipantIdSchema, SessionIdSchema } from "@ai-sidekicks/contracts";
+import type { MembershipRole, ParticipantId, SessionId } from "@ai-sidekicks/contracts";
 
 import type { CollaborationRuntimeNodeScript } from "./runtime-nodes.js";
 import type { GrowthInviteAttempt } from "../../growth-values/index.js";
@@ -30,10 +30,13 @@ import type { GrowthInviteAttempt } from "../../growth-values/index.js";
 //
 // The participants are branded at their declaration because the ROSTER read types
 // its `participantId` as one, while an event payload types every member `unknown`;
-// one assertion per constant is what keeps the machine script's rows free of them.
-// The assertion is a claim, and the bridge seam's test discharges it by parsing
-// every shipped frame with the registered `RuntimeNodeRosterResponseSchema`.
-export const SESSION_ID = "019b7904-8ce0-75e5-8510-ada11a5a33a5";
+// one brand per constant is what keeps the machine script's rows free of casts.
+// MINTED THROUGH `ParticipantIdSchema` RATHER THAN `as`-CAST: a cast asserts the
+// brand and checks nothing, so a malformed id surfaced at the first `.strict()`
+// reply that carried it and named the reply rather than the value. The parse fails
+// this module instead, and the bridge seam's test still checks the frames it
+// composes against the registered `RuntimeNodeRosterResponseSchema`.
+export const SESSION_ID: SessionId = SessionIdSchema.parse("019b7904-8ce0-75e5-8510-ada11a5a33a5");
 /**
  * The instant this room's frozen clock starts at — the scenario's own zero.
  *
@@ -45,10 +48,16 @@ export const SESSION_ID = "019b7904-8ce0-75e5-8510-ada11a5a33a5";
  * symptom would be a schedule every read considered either due or never due.
  */
 export const SESSION_STARTED_AT_ISO = "2026-01-01T10:05:00.000Z";
-export const PARTICIPANT_YOU = "019b7904-8ce0-79a4-8110-cca0117a0330" as ParticipantId;
-export const PARTICIPANT_PRIYA = "019b7904-8ce0-79a4-8120-cca0117a0340" as ParticipantId;
-export const PARTICIPANT_TOMAS = "019b7904-8ce0-79a4-8130-cca0117a0350" as ParticipantId;
-const PARTICIPANT_NOAH = "019b7904-8ce0-79a4-8140-cca0117a0355" as ParticipantId;
+export const PARTICIPANT_YOU: ParticipantId = ParticipantIdSchema.parse(
+  "019b7904-8ce0-79a4-8110-cca0117a0330",
+);
+export const PARTICIPANT_PRIYA: ParticipantId = ParticipantIdSchema.parse(
+  "019b7904-8ce0-79a4-8120-cca0117a0340",
+);
+export const PARTICIPANT_TOMAS: ParticipantId = ParticipantIdSchema.parse(
+  "019b7904-8ce0-79a4-8130-cca0117a0350",
+);
+const PARTICIPANT_NOAH = ParticipantIdSchema.parse("019b7904-8ce0-79a4-8140-cca0117a0355");
 // The opener's own. Minted here beside the other three rather than in the growth
 // script that used to hold it: `session.create` answers with a membership for the
 // person who opened the session, so the opener's row is a row like any other and a

@@ -4,7 +4,7 @@
 // daemon could emit and the replies a call is answered with — and this fixture owns
 // the workflow STATE those replies carry. The two are different kinds of thing: a
 // beat is held to `packages/contracts`' strict layer by `scenarios/wire-truth.ts`,
-// while these shapes are declared by `bridge/workflow-projection.ts` because the
+// while these shapes are declared by `bridge/wire-shapes/workflow-projection.ts` because the
 // corpus registers no workflow types at all. Keeping them in one file put a wire the
 // contract owns and a wire the growth slate owes side by side under one header.
 //

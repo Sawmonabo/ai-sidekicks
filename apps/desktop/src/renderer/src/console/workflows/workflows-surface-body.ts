@@ -28,7 +28,7 @@
 // `channel-progress/channel-progress.css` dress the pinned region the door registers on
 // the flagship pane, which paints before any chunk of this family exists.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import "./workflows.css";
 import "./definitions/definitions-browser.css";

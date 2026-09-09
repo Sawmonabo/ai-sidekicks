@@ -10,13 +10,13 @@
 // window focus, and no reconnect stayed on the neutral arm for as long as the sidebar
 // stayed open, which is exactly the situation a person leaves a session in.
 //
-// ONE TIMER FOR THE LIST, AND IT IS THE CONSOLE'S — `store/deadline-wake.ts`, which is
+// ONE TIMER FOR THE LIST, AND IT IS THE CONSOLE'S — `store/subject-scoped/deadline-wake.ts`, which is
 // where the arming rule lives for every surface that renders against a deadline rather
 // than against an age. A timer per card would arm one per clone for a threshold that is
 // the same sentence on each; a deadline already behind now needs no wake-up, because the
 // instant the list is rendering against is already past it; and firing publishes an
 // instant rather than reading anything, so this is not a refresh and does not belong to
-// `store/scheduling.ts`. The hook also holds the part this module's own copy got wrong:
+// `store/read/refresh-scheduler.ts`. The hook also holds the part this module's own copy got wrong:
 // a disposal scheduled more than about 24.8 days out overflows a platform timer, which
 // fires on the next tick rather than late — publishing that far-future instant at once
 // and rendering every clone past its deadline, permanently, with nothing left to re-arm.
@@ -56,7 +56,7 @@ function cloneExpiryDeadlines(records: readonly EphemeralCloneStatusRecord[]): r
  * The instant the clone list renders against, woken once at each outstanding deadline.
  *
  * The clock comes from the bridge rather than from a parameter, on
- * `frame/ui-state-lifecycle.ts`'s reason: `consoleClockFor` is the one answer to which
+ * `frame/bindings/ui-state-lifecycle.ts`'s reason: `consoleClockFor` is the one answer to which
  * clock a window runs on, and a surface threading its own would be a second time base
  * beside the scenario's. It is memoised because the real arm mints a fresh `RealClock`
  * per call, and a new object every render would re-arm the timer every render.

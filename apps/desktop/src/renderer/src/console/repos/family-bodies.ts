@@ -62,7 +62,7 @@ export const REPOS_FAMILY_OWNER = "repos";
  * There is deliberately no singleton-reaching convenience form left to fall back to,
  * because a default that reintroduces the defect is the defect.
  *
- * TWO SECTIONS AND NOT ONE, because `seats/sidebar-sections.ts` names both as this
+ * TWO SECTIONS AND NOT ONE, because `seats/slots/sidebar-sections.ts` names both as this
  * family's: "repos and artifacts are the repos family's". The second is the
  * attachment carrier — the ingest trio's one production entry point, and the only
  * surface in this console through which a participant hands the session a file.

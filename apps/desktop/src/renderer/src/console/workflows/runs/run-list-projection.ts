@@ -65,7 +65,7 @@
 // members of a used interface.
 //
 // THE SHAPES ARE NEXT DOOR AND THE VOCABULARY IS ON THE SUBSTRATE. `run-list-rows.ts`
-// derives the run and phase rows from `bridge/workflow-projection.ts`, which is where
+// derives the run and phase rows from `bridge/wire-shapes/workflow-projection.ts`, which is where
 // the statuses and park reasons are declared; this module holds the reading — bands,
 // order, and the counts a header shows — and declares exactly one closed set of its
 // own, the attention band, because a band is a reading of a status rather than a
@@ -111,7 +111,7 @@ export type WorkflowRunAttentionBand = (typeof WORKFLOW_RUN_ATTENTION_BANDS)[num
  * The band each run status reads as, before its parks are looked at.
  *
  * TOTAL over the substrate's status set, and that totality is this module's own
- * compile-time control: a seventh status added to `bridge/workflow-projection.ts`
+ * compile-time control: a seventh status added to `bridge/wire-shapes/workflow-projection.ts`
  * fails here until this table places it, where the `pending || running ? … : …`
  * expression it replaces would have banded it `settled` in silence and hidden a live
  * run under the finished ones.
@@ -252,7 +252,7 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
  * caller memoizes the INSTANCE against its input and every read after that is free.
  *
  * It holds no subscription, no timer, and no store. A run list that refreshed itself
- * would be a second scheduler beside `store/scheduling.ts`; this projects what it is
+ * would be a second scheduler beside `store/read/refresh-scheduler.ts`; this projects what it is
  * given and nothing more.
  */
 export class RunListProjection {

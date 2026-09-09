@@ -1,7 +1,7 @@
 // The session stream's decoder: one delivered wire envelope in, one console event
 // out, or a refusal.
 //
-// `store/entities.ts` says where this belongs: `ConsoleSessionEvent` is a
+// `store/entities/entities.ts` says where this belongs: `ConsoleSessionEvent` is a
 // renderer-local projection contract rather than a wire type, and "the bridge
 // adapter narrows a payload into this shape at the boundary, so exactly one module
 // knows the wire and everything above it reads this". This module is that boundary

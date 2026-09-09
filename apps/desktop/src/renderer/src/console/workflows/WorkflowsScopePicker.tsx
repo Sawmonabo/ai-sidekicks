@@ -49,7 +49,7 @@
 // Both take the definitions browser's shape for its own continuation: the rows held
 // are still true, the notice is about what is missing, and both are on screen at once.
 //
-// NOTHING IS ANNOUNCED HERE. `frame/ContextPicker.tsx` performs this same read and
+// NOTHING IS ANNOUNCED HERE. `frame/composition/ContextPicker.tsx` performs this same read and
 // announces nothing, and the reason carries over: the three absences above ARE the
 // rendering of this settlement, and a live region repeating them would say twice what
 // the surface already says once. The settlement this destination does announce is the
@@ -71,7 +71,7 @@ const SCOPE_QUESTION = "Which session's workflows should this show?";
  * What the directory read is OF, mid-sentence, for the notice that qualifies the list.
  *
  * Written once because the wait's sentence is composed from it by
- * `primitives/partial-read.ts` and a second phrasing here would be the console saying
+ * `primitives/reading/partial-read.ts` and a second phrasing here would be the console saying
  * the same absence two ways on one surface.
  */
 const DIRECTORY_SUBJECT = "the sessions on this node";

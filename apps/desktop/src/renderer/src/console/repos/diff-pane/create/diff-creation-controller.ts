@@ -7,7 +7,7 @@
 // that stopped at the mint would hold an id it cannot open.
 //
 // THE SUBJECT RESOLUTION IS THE PREREQUISITE AND NOT A STEP INSIDE THE ACT, which is
-// `store/act-reading.ts`'s own seam: the wire is keyed by a run or by a workspace, and
+// `store/act/act-reading.ts`'s own seam: the wire is keyed by a run or by a workspace, and
 // which key this pane's address resolves to is a question that fails for reasons that
 // are not failures of the create — an execution root this session does not hold, a root
 // nothing ran in. Folded into the act, those would have been reported as "the diff was

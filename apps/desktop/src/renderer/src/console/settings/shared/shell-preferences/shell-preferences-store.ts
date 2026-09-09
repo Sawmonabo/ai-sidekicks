@@ -16,7 +16,7 @@
 // Both arms are implemented; only the first is reachable today, which is why the
 // second is driven by a stub port in this module's own test.
 
-import { Emitter, type Unsubscribe } from "../../../core/index.js";
+import { Emitter, withoutKey, type Unsubscribe } from "../../../core/index.js";
 import {
   GenerationLatch,
   NO_TRIGGERING_EVENT_KINDS,
@@ -40,7 +40,6 @@ import {
   PREFERENCE_WRITE_FAILED,
   SHELL_PREFERENCE_REFUSAL_ORIGIN,
   appliedReading,
-  withoutKey,
   type ShellConfigReadOutcome,
   type ShellPreferenceKey,
   type ShellPreferenceSnapshot,

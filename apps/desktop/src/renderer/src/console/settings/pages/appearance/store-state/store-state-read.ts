@@ -9,16 +9,16 @@
 // newer one, and the block rendered a byte count and a pressure chip taken before the
 // thing that changed. Nothing on screen said which reading it was showing.
 //
-// SO EVERY TRIGGER GOES THROUGH `store/scheduling.ts` AND NOTHING ELSE.
+// SO EVERY TRIGGER GOES THROUGH `store/read/refresh-scheduler.ts` AND NOTHING ELSE.
 // `apps/desktop/AGENTS.md` §Chokepoints: "every refresh goes through
-// `console/store/scheduling.ts`". That scheduler coalesces a burst of reasons into one
+// `console/store/read/refresh-scheduler.ts`". That scheduler coalesces a burst of reasons into one
 // read and SERIALIZES what it fires, so a reason raised while a read is outstanding
 // becomes the NEXT read rather than a parallel one — which is what makes the overlap
 // above unrepresentable rather than merely unlikely. No sequence number appears below,
 // because the ordering is a consequence of routing through the chokepoint and a
 // counter here would be a second answer to a question the substrate already answers.
 //
-// AND THE SETTLEMENT IS MEASURED AGAINST `store/generation-latch.ts`. Serialization
+// AND THE SETTLEMENT IS MEASURED AGAINST `store/read/generation-latch.ts`. Serialization
 // bounds what this reading can race against ITSELF; it says nothing about a reading
 // whose store was replaced or whose page unmounted while a call was outstanding.
 // Nothing behind `health()` is cancellable — it takes no signal, and the adapter has
@@ -77,7 +77,7 @@ export interface StoreStateReadOptions {
  * One window's store-health reading, kept current by the two triggers it has.
  *
  * A {@link ReadTriggerTarget} so the wiring is the console's shared one: which
- * moments re-read is `store/read-triggers.ts`'s answer, what a burst costs is the
+ * moments re-read is `store/read/read-triggers.ts`'s answer, what a burst costs is the
  * scheduler's, and what this class owns is the call and the settlement.
  */
 export class StoreStateRead implements ReadTriggerTarget {

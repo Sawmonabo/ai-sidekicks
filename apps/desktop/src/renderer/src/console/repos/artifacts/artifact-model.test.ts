@@ -68,7 +68,7 @@ describe("artifact-model and artifact-copy — the closed sets", () => {
   });
 
   it("negative control: no vocabulary is declared a second time in this family", () => {
-    // The whole finding: five sets existed here AND on `growth-values/artifacts.ts`,
+    // The whole finding: five sets existed here AND on `bridge/growth-values/artifacts.ts`,
     // member for member, each under a comment claiming to be the one home. The
     // module namespace is what a second declaration would show up in, and it fails
     // on the code this replaced, where all five were exported from here.

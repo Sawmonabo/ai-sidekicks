@@ -1,6 +1,6 @@
 // How loud the stall badge gets, and the two cases where it gets no louder.
 //
-// The thresholds are the design's and live in `core/constants.ts`; what is asserted
+// The thresholds are the design's and live in `core/constants/runs-caps.ts`; what is asserted
 // here is that they are read from there rather than restated, that both boundaries are
 // inclusive on the escalating side, and that an interval nobody could compute produces
 // no tier rather than the quietest one.

@@ -17,7 +17,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { withDaemonSubscribe } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { withDaemonSubscribe } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 import { type SidebarSectionContext } from "../../seats/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";

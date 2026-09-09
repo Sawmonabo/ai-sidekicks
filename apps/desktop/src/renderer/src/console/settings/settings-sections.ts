@@ -20,7 +20,7 @@
  *
  * The twelve the design enumerates, in its order, plus `sidekicks` and `daemon`. The
  * rail a person reads is this tuple, and the union is derived from it for the reason
- * `seats/surface-registry.ts` gives about its own slots: a union written beside a
+ * `seats/surface/surface-registry.ts` gives about its own slots: a union written beside a
  * hand-repeated array is two closed sets that agree until one of them is widened.
  *
  * `sidekicks` and `daemon` are the two ids that are this console's own rather than

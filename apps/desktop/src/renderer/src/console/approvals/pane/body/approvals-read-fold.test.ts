@@ -1,21 +1,18 @@
-// The folds over this pane's reads, and the one that decides what leaves the pane.
+// The folds over this pane's reads: what each section renders from, and how far each
+// read got.
 //
-// Two claims, and the second is the sharp one. `partitionRecords` answers empty for
-// every phase that has not answered, which is safe only while its callers render the
-// phase beside it — the cases below pin that emptiness as a NON-answer so a later
-// caller cannot read it as one. And `bannerClassRefusalAmong` is what makes a
-// vanished session reach the frame from whichever of this pane's three reads noticed
-// it first, rather than from the one that happens to be inspected.
+// One sharp claim. `partitionRecords` answers empty for every phase that has not
+// answered, which is safe only while its callers render the phase beside it — the
+// cases below pin that emptiness as a NON-answer so a later caller cannot read it as
+// one. WHICH refusal leaves the pane is no longer decided here: that selection is
+// `store/shell/refusal-escalation.ts`' `preferredBannerClassRefusalAmong`, and its cases
+// live beside it.
 
 import { describe, expect, it } from "vitest";
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { type ApprovalRecord } from "../../../bridge/index.js";
-import {
-  bannerClassRefusalAmong,
-  partitionRecords,
-  refusalOfPhase,
-} from "./approvals-read-fold.js";
+import { partitionRecords, refusalOfPhase } from "./approvals-read-fold.js";
 
 /** A record in the state named, in the shape the console holds. */
 function record(approvalRequestId: string, state: ApprovalRecord["state"]): ApprovalRecord {
@@ -31,13 +28,6 @@ function record(approvalRequestId: string, state: ApprovalRecord["state"]): Appr
     updatedAt: "2026-01-01T13:30:00.900Z",
   };
 }
-
-/** The daemon's answer when the session named by a call is gone. */
-const SESSION_GONE: ConsoleRefusal = refuse(
-  "growth-port",
-  "session.not_found",
-  "No session with that id is open on this node.",
-);
 
 /** A refusal whose blast radius is the surface that raised it. */
 const READ_REFUSED: ConsoleRefusal = refuse(
@@ -71,41 +61,9 @@ describe("partitionRecords — one answered read, split in two", () => {
   });
 });
 
-describe("bannerClassRefusalAmong — one handover for one vanished session", () => {
-  it("selects a banner-class refusal from a later read, not only the first", () => {
-    // The finding: the request list answered and the independent rules read came back
-    // saying the session was gone, so the session-wide failure stayed inside one
-    // section and the rest of the workspace went on looking live.
-    expect(
-      bannerClassRefusalAmong([
-        refusalOfPhase({ status: "answered", rows: [], unreadableCount: 0 }),
-        SESSION_GONE,
-      ]),
-    ).toBe(SESSION_GONE);
-    // And from the third candidate, which is the capability read: a refusal there is
-    // as much a fact about the session as one on either projection read.
-    expect(bannerClassRefusalAmong([undefined, undefined, SESSION_GONE])).toBe(SESSION_GONE);
-  });
-
-  it("prefers the earlier candidate when two reads report the same loss", () => {
-    // One fact, one handover. The frame keys a banner on origin AND code, so two
-    // reads that noticed the same loss under two origins would otherwise raise two
-    // banners saying the same sentence.
-    const alsoGone = refuse("approvals", "session.not_found", "The session is gone.");
-    expect(bannerClassRefusalAmong([SESSION_GONE, alsoGone])).toBe(SESSION_GONE);
-  });
-
-  it("negative control: an ordinary refusal stays the surface's own business", () => {
-    // Without this the selector would pass while escalating everything, which would
-    // put one pane's read failure across the whole workspace.
-    expect(bannerClassRefusalAmong([READ_REFUSED, undefined])).toBeUndefined();
-    expect(bannerClassRefusalAmong([undefined, undefined, undefined])).toBeUndefined();
-  });
-});
-
 describe("refusalOfPhase", () => {
   it("answers only for the phase that carries a reason", () => {
-    expect(refusalOfPhase({ status: "refused", refusal: SESSION_GONE })).toBe(SESSION_GONE);
+    expect(refusalOfPhase({ status: "refused", refusal: READ_REFUSED })).toBe(READ_REFUSED);
     expect(refusalOfPhase({ status: "not-checked" })).toBeUndefined();
     expect(refusalOfPhase({ status: "loading" })).toBeUndefined();
     expect(refusalOfPhase({ status: "answered", rows: [], unreadableCount: 0 })).toBeUndefined();

@@ -187,7 +187,7 @@ describe("the signal a call hands the door", () => {
   });
 
   it("takes a round's signal, off the parameter and off the local it was opened into", () => {
-    // The other two shapes `store/read-cancellation.ts` produces. A performer is
+    // The other two shapes `store/read/read-cancellation.ts` produces. A performer is
     // handed the round; a reader that owns the line opens one on its own scope.
     const [handed] = plantedSites([
       "class QuotaReadout {",

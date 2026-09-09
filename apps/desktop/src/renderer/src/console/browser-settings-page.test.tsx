@@ -29,7 +29,7 @@ import { settle } from "./core/settle.test-support.js";
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "./bridge/fixture/fixture-bridge.test-support.js";
+} from "./bridge/fixture/call-plane/bridge.test-support.js";
 import { LiveAnnouncerProvider } from "./primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "./store/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
@@ -44,7 +44,7 @@ import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./seats/inde
 // The pending marker's reader by its own leaf specifier, on `sidekicks-settings-page`'s
 // reason: the seats door publishes the ATTRIBUTE, which a producer needs, and not this
 // reader, whose consumers outside that directory are tests.
-import { pendingPaneBodiesIn } from "./seats/pending-pane-body.js";
+import { pendingPaneBodiesIn } from "./seats/pane/pending-pane-body.js";
 
 afterEach(() => {
   cleanup();

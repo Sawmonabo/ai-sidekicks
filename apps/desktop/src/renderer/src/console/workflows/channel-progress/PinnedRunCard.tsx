@@ -19,7 +19,7 @@ export interface PinnedRunCardProps {
   /**
    * Open the run's own pane, where the card was given a way to.
    *
-   * Absent draws no button rather than a disabled one — `seats/pane-controls.ts`'
+   * Absent draws no button rather than a disabled one — `seats/pane/pane-controls.ts`'
    * absent-not-disabled rule, which this card is downstream of: the eligibility was
    * decided by the module that composed this callback, and nothing here re-derives it.
    */

@@ -40,7 +40,7 @@
 //
 // AND THE REGISTER IS THE CONSOLE'S, NOT A COUNTER OF THIS FILE'S OWN. The three
 // questions this class asks — may I dispatch, is this settlement still mine, give the
-// key back — are exactly `store/generation-latch.ts`'s, and the place copies of a guard
+// key back — are exactly `store/read/generation-latch.ts`'s, and the place copies of a guard
 // drift is the predicate. It takes ONE key, because the rule is one act at a time
 // across every control: `claim` refuses the second press rather than superseding it,
 // `isCurrent` answers supersession and disposal in one question because `dispose`

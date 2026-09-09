@@ -8,7 +8,7 @@
 // and the retained figure beside it would be stamped with the later completion, so
 // the stamp said the stale figure was the fresh one. Nothing on screen reported it.
 //
-// SO THE READ GOES THROUGH `store/scheduling.ts` AND NOTHING ELSE. That scheduler is
+// SO THE READ GOES THROUGH `store/read/refresh-scheduler.ts` AND NOTHING ELSE. That scheduler is
 // the console's one refresh chokepoint — trailing debounce with an absolute deadline
 // so a stream of reasons still gets a read, and SERIALIZED, so a reason raised while
 // a read is in flight becomes the NEXT read rather than a parallel one. Two replies
@@ -16,12 +16,21 @@
 // property is a consequence of routing through the chokepoint, and a counter here
 // would be a second answer to a question the substrate already answers.
 //
-// AND THE SETTLEMENT IS MEASURED AGAINST `store/generation-latch.ts`. Serialization
+// AND THE SETTLEMENT IS MEASURED AGAINST `store/read/generation-latch.ts`. Serialization
 // bounds what this reading can race against ITSELF; it says nothing about a reading
 // whose session moved or whose page unmounted while a call was outstanding. Nothing
 // behind the bridge is cancellable, so a superseded reply is IGNORED rather than
 // stopped — which is exactly what the latch expresses, and it is where the retained
 // figure's instant is read, so the stamp belongs to the read that published.
+//
+// BOTH OF THOSE ARRIVE THROUGH `store/read/scheduled-reading.ts`, which is the whole of
+// what this module no longer writes: the emitter, the scheduler with its `onError`
+// arm, the latch, the disposal flag, and the `snapshot`/`subscribe`/`requestRead`/
+// `dispose` skeleton were hand-written here and in fifteen other readings, with the
+// revisioned publisher below character-for-character identical in three unrelated
+// families. What stays is what is this page's: the question it asks, the refusal it
+// spells when the port does not answer, the stamp on the figure it was served, and
+// the fold that revises the snapshot.
 //
 // ONE READING PER SESSION, MINTED IN THE RENDER THAT FIRST SEES IT. The subject
 // primitive addresses during the render rather than in an effect, so the pass that
@@ -31,16 +40,13 @@
 import { useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { Emitter, type ConsoleClock, type Unsubscribe } from "../../../core/index.js";
+import type { ConsoleClock } from "../../../core/index.js";
 import { consoleRefusalFrom } from "../../../seats/index.js";
 import {
-  GenerationLatch,
   NO_TRIGGERING_EVENT_KINDS,
-  RefreshScheduler,
+  ScheduledReading,
   useSubjectScopedResource,
   useWindowReadTriggers,
-  type ReadTriggerTarget,
-  type RefreshReason,
   type SubjectScopedDisposal,
 } from "../../../store/index.js";
 import type {
@@ -51,9 +57,6 @@ import type {
 
 /** Names a read that produced no outcome at all, where the thrown value named none. */
 const COST_RECEIPT_ORIGIN = "cost-receipt";
-
-/** The one key a receipt read is taken under. One question, so one key. */
-const RECEIPT_READ_KEY = "receipt-read";
 
 /** Everything the cost page renders from, in one value. */
 export interface CostReceiptReadSnapshot {
@@ -94,12 +97,12 @@ export interface CostReceiptReadOptions {
 /**
  * One session's cost receipt, kept current by the three window triggers.
  *
- * A class with private fields rather than a pair of `useState` cells, per
- * `apps/desktop/AGENTS.md`: it owns a scheduler, a single-flight round, and the rule
- * that decides which settlement installs. {@link useCostReceiptRead} is the React
- * binding and holds nothing.
+ * A {@link ScheduledReading}, which is where the scheduler, the single-flight round,
+ * the held snapshot and the disposal live; what this class adds is the call, the
+ * refusal it spells, and the rule that decides which settlement installs.
+ * {@link useCostReceiptRead} is the React binding and holds nothing.
  */
-export class CostReceiptRead implements ReadTriggerTarget {
+export class CostReceiptRead extends ScheduledReading<CostReceiptReadSnapshot> {
   /**
    * No timeline event refreshes this read, and the empty set states it.
    *
@@ -112,61 +115,26 @@ export class CostReceiptRead implements ReadTriggerTarget {
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string | undefined;
   readonly #clock: ConsoleClock;
-  readonly #changes = new Emitter<void>("cost receipt read change");
-  readonly #rounds = new GenerationLatch();
-  readonly #scheduler: RefreshScheduler;
-  #snapshot: CostReceiptReadSnapshot = NOTHING_READ;
-  #isDisposed = false;
 
   public constructor(options: CostReceiptReadOptions) {
+    super({
+      clock: options.clock,
+      initialSnapshot: NOTHING_READ,
+      describeChange: "cost receipt read change",
+    });
     this.#bridge = options.bridge;
     this.#sessionId = options.sessionId;
     this.#clock = options.clock;
-    this.#scheduler = new RefreshScheduler({
-      clock: options.clock,
-      perform: async () => {
-        await this.#read();
-      },
-      // The read body turns a rejection into the `unreadable` arm itself and never
-      // rejects, so this covers a defect in the publish rather than anything about
-      // the wire. It must exist: without it the scheduler re-throws, and a re-throw
-      // inside a timer callback reaches no `catch` a surface could render.
-      onError: () => undefined,
-    });
-  }
-
-  public snapshot(): CostReceiptReadSnapshot {
-    return this.#snapshot;
-  }
-
-  public subscribe(sink: () => void): Unsubscribe {
-    return this.#changes.subscribe(sink);
-  }
-
-  /** Whether this reading has been disposed. The re-mint reading its holder takes. */
-  public get isDisposed(): boolean {
-    return this.#isDisposed;
   }
 
   /**
-   * Ask for a read.
+   * A page addressed with no session asks the accountant nothing.
    *
-   * Every trigger arrives here and none of them calls the port: what a burst of
-   * reasons costs is the scheduler's decision, and a page that asked directly is the
-   * page that had two reads outstanding at once.
+   * On the guard rather than at each trigger, so the three window reasons and any
+   * later one are all answered by the same sentence.
    */
-  public requestRead(reason: RefreshReason): void {
-    if (this.#isDisposed || this.#sessionId === undefined) {
-      return;
-    }
-    this.#scheduler.request(reason);
-  }
-
-  /** Terminal. A reply landing after this publishes nothing. */
-  public dispose(): void {
-    this.#isDisposed = true;
-    this.#scheduler.dispose();
-    this.#rounds.supersedeAll();
+  protected override isReadable(): boolean {
+    return this.#sessionId !== undefined;
   }
 
   /**
@@ -177,12 +145,12 @@ export class CostReceiptRead implements ReadTriggerTarget {
    * arriving after this reading's session moved, or after the page unmounted, finds
    * no key naming its serial and installs nothing.
    */
-  async #read(): Promise<void> {
+  protected override async performRead(): Promise<void> {
     const sessionId = this.#sessionId;
     if (sessionId === undefined) {
       return;
     }
-    const round = this.#rounds.currentClaim(this, RECEIPT_READ_KEY);
+    const round = this.currentReadRound();
     try {
       const outcome = await this.#bridge.growth.orchestrationCostReceiptRead({ sessionId });
       round.settle(() => {
@@ -194,7 +162,7 @@ export class CostReceiptRead implements ReadTriggerTarget {
       // Without it the page renders "Reading this session's receipt" for the life of
       // the window, reporting a read that failed as one still in flight.
       round.settle(() => {
-        this.#publish({
+        this.#publishChanges({
           reading: {
             kind: "unreadable",
             refusal: consoleRefusalFrom(rejection, COST_RECEIPT_ORIGIN),
@@ -214,10 +182,10 @@ export class CostReceiptRead implements ReadTriggerTarget {
   #publishAnswer(outcome: CostReceiptOutcome): void {
     const reading: CostReceiptReading = { kind: "answered", outcome };
     if (outcome.status !== "served") {
-      this.#publish({ reading });
+      this.#publishChanges({ reading });
       return;
     }
-    this.#publish({
+    this.#publishChanges({
       reading,
       retained: {
         receipt: outcome.value,
@@ -227,14 +195,15 @@ export class CostReceiptRead implements ReadTriggerTarget {
   }
 
   /**
-   * Fold one transition in and hand out a new identity.
+   * Fold one transition in and revise the snapshot.
    *
-   * The snapshot is HELD rather than composed per read, because `useSyncExternalStore`
-   * compares identity: a getter returning a fresh object every call renders forever.
+   * The FOLD is this page's and the holding is the base's: whether a transition
+   * revises a counter is a property of this snapshot type, and a reading that holds a
+   * bare value has no counter to revise.
    */
-  #publish(changes: Partial<Omit<CostReceiptReadSnapshot, "revision">>): void {
-    this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
-    this.#changes.emit();
+  #publishChanges(changes: Partial<Omit<CostReceiptReadSnapshot, "revision">>): void {
+    const current = this.snapshot();
+    this.publish({ ...current, ...changes, revision: current.revision + 1 });
   }
 }
 

@@ -57,7 +57,7 @@ import {
 // reaches these four through this module, which is the surface it has always read
 // them from. Nothing else re-exports through here — every other consumer in this
 // family imports the module that owns the symbol, and the identifier CEILING is not
-// among them at all: it is a bound, so its home is `core/constants.ts` and the test
+// among them at all: it is a bound, so its home is `core/constants/persistence-caps.ts` and the test
 // reads it from the door it already reads `isConsoleRefusal` through.
 export {
   PERSISTENCE_REFUSAL_CODES,

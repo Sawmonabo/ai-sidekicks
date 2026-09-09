@@ -28,7 +28,7 @@ import {
 // The LEAF for this one name: `ConsoleSurfaceSlot` is deliberately off the seats door,
 // which that door's own header states — no production module reaches it through one, and
 // the barrel census fails a line like that.
-import { type ConsoleSurfaceSlot } from "../../../src/renderer/src/console/seats/surface-registry.js";
+import { type ConsoleSurfaceSlot } from "../../../src/renderer/src/console/seats/surface/surface-registry.js";
 
 /**
  * The body the deck holds for a kind, with its module already loaded.

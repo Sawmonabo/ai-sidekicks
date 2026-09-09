@@ -13,9 +13,8 @@
 // command the console ships no chord for restores to none, and the row says that in
 // the same words the per-row control uses, through `describeShippedChord`.
 //
-// ITS OWN MODULE because the page it came out of was within a few lines of the
-// package's 400-line rule, and because this is one subject: what a bulk act will do,
-// stated before it is done.
+// ITS OWN MODULE because this is one subject: what a bulk act will do, stated
+// before it is done — a seam the page it came out of already carried.
 
 import type { ReactNode } from "react";
 

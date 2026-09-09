@@ -27,7 +27,7 @@ import { SESSION_EVENT_STREAM } from "../../bridge/index.js";
 import {
   createFixture,
   subscribeThroughBridge,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { ChannelSettlementOrder } from "./channel-settlement-order.js";
 import { acts, confirmArchive, press, rowNames } from "./channel-rows.test-support.js";
 import {

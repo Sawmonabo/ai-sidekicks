@@ -27,9 +27,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { airspaceRegistryFor, type AirspaceRegistry } from "../../core/index.js";
 import { BrowserPane } from "./BrowserPane.js";
 import {
+  browserPaneContext,
   DEFAULT_TEST_PANE_ID,
   liveBrowserBridge,
-  paneContext,
   paneViewHostRefusing,
   recordingBrowserBridge,
   releaseQueuedPaneFrames,
@@ -88,7 +88,7 @@ describe("browser pane geometry — who watches this window's overlays move", ()
     // forbids — and it is what the binding armed at mint time, before the host had
     // been consulted at all.
     registerOverlay();
-    const built = paneContext(liveBrowserBridge());
+    const built = browserPaneContext(liveBrowserBridge());
     await act(async () => {
       render(<BrowserPane {...built.context} />);
     });
@@ -101,7 +101,7 @@ describe("browser pane geometry — who watches this window's overlays move", ()
     // that watches nothing ever, which is the same overlay-yield defect from the
     // other side: a native view painted over a dialog that slid across it.
     registerOverlay();
-    const built = paneContext(recordingBrowserBridge(() => undefined));
+    const built = browserPaneContext(recordingBrowserBridge(() => undefined));
     await act(async () => {
       render(<BrowserPane {...built.context} />);
     });
@@ -111,7 +111,7 @@ describe("browser pane geometry — who watches this window's overlays move", ()
 
   it("retires the observation when the host says the pane is gone", async () => {
     registerOverlay();
-    const built = paneContext(paneViewHostRefusing(PANE_GONE));
+    const built = browserPaneContext(paneViewHostRefusing(PANE_GONE));
     await act(async () => {
       render(<BrowserPane {...built.context} />);
     });
@@ -130,8 +130,8 @@ describe("browser pane geometry — who watches this window's overlays move", ()
   it("costs one observation per pane, and none once both panes are gone", async () => {
     registerOverlay();
     const bridge = recordingBrowserBridge(() => undefined);
-    const first = paneContext(bridge, DEFAULT_TEST_PANE_ID);
-    const second = paneContext(bridge, SECOND_TEST_PANE_ID);
+    const first = browserPaneContext(bridge, DEFAULT_TEST_PANE_ID);
+    const second = browserPaneContext(bridge, SECOND_TEST_PANE_ID);
     let firstPane: ReturnType<typeof render> | undefined;
     let secondPane: ReturnType<typeof render> | undefined;
     await act(async () => {

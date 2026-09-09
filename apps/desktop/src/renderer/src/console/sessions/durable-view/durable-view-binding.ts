@@ -10,7 +10,7 @@
 //
 // THE DEFECT THIS EXISTS FOR
 //
-// `frame/ui-state-lifecycle.ts` REPLACES this window's store: its effect closes the
+// `frame/bindings/ui-state-lifecycle.ts` REPLACES this window's store: its effect closes the
 // store it held and the next pass mints a fresh one, which is how a bridge or
 // scenario change reaches storage. Both durable bindings on the sessions
 // destination were built by a `useState` initializer — which runs once per mounted

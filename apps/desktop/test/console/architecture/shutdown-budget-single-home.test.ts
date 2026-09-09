@@ -3,7 +3,7 @@
 // The restart confirmation told a person the daemon is given up to ten seconds to
 // finish writing. The quit path raced `PtyHost.shutdown()` against five. Both figures
 // were named, rationale-carrying declarations — `DAEMON_SHUTDOWN_FLUSH_BUDGET_MS` in
-// `console/core/constants.ts` and `HARD_QUIT_CAP_MS` in `src/main/sidecar-lifecycle.ts`
+// the console's cap home and `HARD_QUIT_CAP_MS` in `src/main/sidecar-lifecycle.ts`
 // — and neither could see the other, because main imports nothing from the renderer and
 // the renderer imports nothing from main. So the disagreement was structurally
 // unobservable from either side, and what it produced was not a wrong number on a screen
@@ -43,6 +43,9 @@ import { readModuleSyntax } from "./barrel-syntax.js";
 
 /** The one module allowed to declare the budget, and the name it declares it under. */
 const BUDGET_HOME = "src/shared/shutdown-budget.ts";
+
+/** The console's cap home, whose modules the census below has to reach. */
+const CONSOLE_CAP_HOME = "src/renderer/src/console/core/constants/";
 const BUDGET_BINDING = "DAEMON_SHUTDOWN_FLUSH_BUDGET_MS";
 
 /**
@@ -181,7 +184,10 @@ describe("the daemon shutdown budget — one declaration, both processes", () =>
     const paths = modules.map((module) => module.displayPath);
     expect(paths).toContain("src/main/sidecar-lifecycle.ts");
     expect(paths).toContain(BUDGET_HOME);
-    expect(paths).toContain("src/renderer/src/console/core/constants.ts");
+    // And the console's cap home, which is a DIRECTORY of one module per concern: the
+    // census below has to reach every one of them, because the second declaration this
+    // gate exists for would be written wherever a hand thought a duration belonged.
+    expect(paths.filter((path) => path.startsWith(CONSOLE_CAP_HOME)).length).toBeGreaterThan(1);
   });
 
   it("is declared in exactly one module", () => {

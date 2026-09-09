@@ -13,7 +13,7 @@
 //     type is only useful if it survives that round trip intact. The strip's writer
 //     and its two readers are one seam, and this drives all three ends of it.
 //   • THE CASCADE. The drop marker and the selected-tab mark are both one declaration
-//     in `pane/pane.css`, and a rule whose selector matches nothing computes to the
+//     in `browser/pane/pane.css`, and a rule whose selector matches nothing computes to the
 //     same value as a rule that was never written. No unit tier can tell those apart,
 //     and the selected-tab rule was in exactly that state — keyed on an `aria-current`
 //     the item never carries, because the attribute belongs on the face inside it.

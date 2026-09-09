@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../fixture/call-plane/bridge.js";
 import { type ConsoleScenario } from "../scenario-runtime/scenario.js";
 import {
   RUN_QUEUE_EVENT_STREAM,

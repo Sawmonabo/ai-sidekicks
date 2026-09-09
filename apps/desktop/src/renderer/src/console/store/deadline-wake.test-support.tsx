@@ -1,15 +1,20 @@
 // The clock and the surface every deadline-wake suite drives, in one place.
 //
-// Two suites read this module — the timer-and-dependency claims in
-// `deadline-wake.test.tsx` and the late-wake-up catch-up in
-// `deadline-wake.catch-up.test.tsx` — and a second copy of either the counting clock
-// or the render harness would be two harnesses that could disagree about what
-// "armed" means while both stayed green.
+// AT THE FAMILY ROOT AND NOT BESIDE `subject-scoped/deadline-wake.ts`, for
+// `session-event.test-support.ts`'s reason: a third suite outside this family — the
+// collaboration presence wake-up — drives the same clock and the same harness.
+//
+// Three suites read this module — the timer-and-dependency claims in
+// `store/subject-scoped/deadline-wake.test.tsx`, the late-wake-up catch-up in
+// `store/subject-scoped/deadline-wake.catch-up.test.tsx`, and the presence wake-up in
+// `collaboration/members/presence-model.wake.test.tsx`, the one outside this family —
+// and a second copy of either the counting clock or the render harness would be two
+// harnesses that could disagree about what "armed" means while both stayed green.
 
 import { render } from "@testing-library/react";
 
 import { ManualClock, type ConsoleClock, type ScheduledHandle } from "../core/index.js";
-import { useDeadlineWake } from "./deadline-wake.js";
+import { useDeadlineWake } from "./subject-scoped/deadline-wake.js";
 
 /**
  * The real clock, instrumented — not a stand-in for it.

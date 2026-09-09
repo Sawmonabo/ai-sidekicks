@@ -10,7 +10,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createFixtureBridge, growthUnavailable } from "../../../bridge/index.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
-import { politeText } from "../../../primitives/live-region.test-support.js";
+import { politeText } from "../../../primitives/announce/live-region.test-support.js";
 import { settingsPageContextWith } from "../../settings-page-mount.test-support.js";
 import { CostReceiptPage, registerCostReceiptPage } from "./CostReceiptPage.js";
 import type { CostReceipt, CostReceiptOutcome } from "./cost-receipt-model.js";

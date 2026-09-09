@@ -1,12 +1,15 @@
 // The census the barrel gate next door runs: what a console door publishes, where
 // each name is declared, and which of those specifiers nothing but a test reaches.
 //
-// A MODEL BESIDE ITS GATE, not a shared helper. It has one consumer —
+// A MODEL BESIDE ITS GATE, not a shared helper. Its RULE has one consumer —
 // `barrel-census.test.ts` — and it lives here because the gate reads the real console
 // while its controls read corpora written by hand to fail, and a rule that cannot be
 // handed a corpus is a rule only its own tree can exercise. The module set arrives as
 // a parameter for exactly that reason; the walk that produces the real one stays in
-// the gate, where `source-walk-chokepoint.test.ts` can see it.
+// the gate, where `source-walk-chokepoint.test.ts` can see it. Its READING of who
+// consumes what is published as `productionReadersByIdentity`, because the sibling
+// gate over declaration-site claims asks the same question of the same edges and a
+// second resolver for it would be a second answer.
 //
 // THE RULE, and `barrel-syntax.ts` beside it is the READING. Nothing here touches a
 // syntax tree: it is handed the door specifiers, the reaches, and the claim on each
@@ -176,15 +179,41 @@ export function censusFindings(modules: readonly CensusModule[]): readonly Censu
   return findingsIn(readModuleSyntax(modules));
 }
 
-function findingsIn(syntax: readonly ModuleSyntax[]): readonly CensusFinding[] {
-  const specifiers = specifiersOf(syntax);
+/** Every production reader of every symbol the set declares, keyed by declaring identity. */
+export function productionReadersByIdentity(
+  modules: readonly CensusModule[],
+): ReadonlyMap<string, readonly string[]> {
+  const { readersByIdentity } = scanEdges(readModuleSyntax(modules));
+  return new Map(
+    [...readersByIdentity].map(([identity, readers]) => [identity, [...readers].sort()]),
+  );
+}
+
+/** What one pass over the module set's edges answers, for both gates that ask. */
+interface EdgeScan {
+  /** Every door line, grouped by the barrel that publishes it. */
+  readonly specifiersByModule: ReadonlyMap<string, readonly BarrelSpecifier[]>;
+  /** Which production modules read each declaring identity, by any route. */
+  readonly readersByIdentity: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Every `barrel#name` a production module imports THROUGH that barrel. */
+  readonly productionDoorReads: ReadonlySet<string>;
+  /** Which test modules import each `barrel#name` through that barrel. */
+  readonly testImportersBySpecifier: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+/**
+ * One pass over every edge, because the retiring event for a declaration marker and the
+ * one for a door specifier are the same edges read with different questions, and a
+ * second loop would be a second chance to disagree about what counts as a reader.
+ */
+function scanEdges(syntax: readonly ModuleSyntax[]): EdgeScan {
   const specifiersByModule = new Map<string, BarrelSpecifier[]>();
-  for (const entry of specifiers) {
+  for (const entry of specifiersOf(syntax)) {
     const forModule = specifiersByModule.get(entry.barrelPath) ?? [];
     forModule.push(entry);
     specifiersByModule.set(entry.barrelPath, forModule);
   }
-  const productionIdentities = new Set<string>();
+  const readersByIdentity = new Map<string, Set<string>>();
   const productionDoorReads = new Set<string>();
   const testImportersBySpecifier = new Map<string, Set<string>>();
   for (const edge of importEdges(syntax)) {
@@ -204,15 +233,24 @@ function findingsIn(syntax: readonly ModuleSyntax[]): readonly CensusFinding[] {
           testImportersBySpecifier.set(key, importers);
         }
       } else if (!edge.forwarded) {
-        productionIdentities.add(declaringIdentity(edge.targetPath, name, specifiersByModule));
+        const identity = declaringIdentity(edge.targetPath, name, specifiersByModule);
+        const readers = readersByIdentity.get(identity) ?? new Set<string>();
+        readers.add(edge.importerPath);
+        readersByIdentity.set(identity, readers);
         if (isConsoleBarrel(edge.targetPath)) {
           productionDoorReads.add(`${edge.targetPath}#${name}`);
         }
       }
     }
   }
+  return { specifiersByModule, readersByIdentity, productionDoorReads, testImportersBySpecifier };
+}
+
+function findingsIn(syntax: readonly ModuleSyntax[]): readonly CensusFinding[] {
+  const { specifiersByModule, readersByIdentity, productionDoorReads, testImportersBySpecifier } =
+    scanEdges(syntax);
   const findings: CensusFinding[] = [];
-  for (const entry of specifiers) {
+  for (const entry of [...specifiersByModule.values()].flat()) {
     const specifierKey = `${entry.barrelPath}#${entry.exportedName}`;
     const identity = declaringIdentity(entry.barrelPath, entry.exportedName, specifiersByModule);
     // The two failures, and they are opposite. An unclaimed specifier fails when NO
@@ -233,7 +271,7 @@ function findingsIn(syntax: readonly ModuleSyntax[]): readonly CensusFinding[] {
     // counting the reference either way, failed the run on the unretirable tag.
     const failing = entry.claimed
       ? productionDoorReads.has(specifierKey)
-      : !productionIdentities.has(identity);
+      : !readersByIdentity.has(identity);
     if (failing) {
       findings.push({
         reason: entry.claimed ? "claim-outlived-its-consumer" : "unclaimed",

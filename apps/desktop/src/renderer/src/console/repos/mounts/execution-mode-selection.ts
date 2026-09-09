@@ -23,7 +23,7 @@
 // picker because another row is waiting would refuse a press for a reason that is not
 // about it.
 //
-// THE REGISTER IS `store/generation-latch.ts`, NOT A SECOND COPY OF IT. This class had
+// THE REGISTER IS `store/read/generation-latch.ts`, NOT A SECOND COPY OF IT. This class had
 // grown its own: a map of in-flight requests, a monotonic request id, a liveness flag,
 // an identity check before every settle, and a guarded give-back — which is, line for
 // line, what that latch already is, and it is the sixth family that had written one.

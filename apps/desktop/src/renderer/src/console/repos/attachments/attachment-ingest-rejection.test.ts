@@ -149,7 +149,7 @@ describe("ingest client — the drive promise settles rather than escaping", () 
    * The two host methods that report a rejection nothing handled.
    *
    * Read off the runner rather than by pulling `@types/node` into the renderer
-   * program, which deliberately excludes it. `store/hooks.caller-membership-role.test.tsx`
+   * program, which deliberately excludes it. `store/session/caller-membership-role.test.tsx`
    * makes the same witness for the same reason, and the two cannot become one module:
    * the renderer program's `rootDir` is `apps/desktop/src`, so a co-located console test
    * importing a helper from `test/console/` is TS6059 — the shared home

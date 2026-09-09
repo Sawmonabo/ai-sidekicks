@@ -32,7 +32,7 @@ import type {
   GrowthUnavailable,
 } from "../../bridge/index.js";
 import { growthUnavailable } from "../../bridge/index.js";
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import type { ConsoleClock } from "../../core/index.js";
 import { manualGate } from "../held-calls.test-support.js";

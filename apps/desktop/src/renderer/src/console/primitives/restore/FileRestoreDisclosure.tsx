@@ -1,11 +1,7 @@
 import { useId } from "react";
 import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
-import { Chip } from "../Chip.js";
-import type { ChipTone } from "../Chip.js";
-import { DerivedFigure } from "../DerivedFigure.js";
-import { Glyph } from "../Glyph.js";
-import { WireFigure } from "../WireFigure.js";
-import { formatCount } from "../wire-figures.js";
+import { Chip, DerivedFigure, Glyph, WireFigure, formatCount } from "../figures/index.js";
+import type { ChipTone } from "../figures/index.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
 import { RestoreEnumerationLists } from "./RestoreEnumerationLists.js";
 import { restoreEnumerations } from "./restore-enumerations.js";

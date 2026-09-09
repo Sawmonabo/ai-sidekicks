@@ -16,7 +16,7 @@
 //
 // THE FILTER IS A SUBSTRING MATCH OVER THE WIRE-VERBATIM PATH, and deliberately
 // nothing cleverer. A fuzzy matcher exists in the console already
-// (`palette/subsequence-score.ts`) and belongs to the palette's ranked-result
+// (`palette/commands/subsequence-score.ts`) and belongs to the palette's ranked-result
 // problem; a file list is a dozen to a hundred exact strings a person is scanning
 // rather than recalling, and a subsequence match over them surfaces paths whose
 // letters merely appear in order, which reads as the filter being broken.

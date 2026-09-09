@@ -9,7 +9,7 @@
 // that reads exactly like a real regression.
 //
 // WHAT WENT WRONG WITHOUT IT. `Intl.DateTimeFormat` with no `timeZone` resolves the
-// host's, and `primitives/wire-figures.ts` supplies none — so a surface carrying a
+// host's, and `primitives/figures/wire-figures.ts` supplies none — so a surface carrying a
 // formatted time captured the machine's offset rather than the console's state, and
 // two references of the same surface differed by the hour digits alone. That is not a
 // flake: it is a reference that records where it was minted.
@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { formatClockTime } from "../../../src/renderer/src/console/primitives/wire-figures.js";
+import { formatClockTime } from "../../../src/renderer/src/console/primitives/figures/wire-figures.js";
 
 /** An instant with a distinct hour in every zone this could plausibly run in. */
 const FIXED_INSTANT = "2026-09-05T23:41:07.000Z";

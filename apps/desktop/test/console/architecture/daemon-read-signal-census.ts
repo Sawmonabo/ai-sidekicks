@@ -13,7 +13,7 @@
 // durable write whose reply schema happens to carry one of those words classified as a
 // read and was then required to carry an abort signal that would abandon it, and a read
 // named with a fourth verb classified as a record and was excused from carrying one.
-// It was also a SECOND OPINION — `store/shell-mutation-block.ts` says which methods
+// It was also a SECOND OPINION — `store/shell/shell-mutation-block.ts` says which methods
 // this console writes with too — and two answers to that question could disagree with
 // nothing reporting it.
 //

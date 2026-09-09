@@ -30,7 +30,7 @@ import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 import {
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { FrameStore, type ShellConnection } from "../../store/index.js";
 import type { ProviderReadinessModel } from "./provider-readiness.js";
 import {

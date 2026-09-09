@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { APPROVAL_FLOW_EVENT_KINDS } from "./approval-flow-projection.js";
 import { APPROVALS_SCENARIO } from "../scenarios/approvals.js";
-import { RUN_LIFECYCLE_EVENT_KINDS } from "../../frame/run-lifecycle-projector.js";
+import { RUN_LIFECYCLE_EVENT_KINDS } from "../../frame/run-projection/run-lifecycle-projector.js";
 import { SidebarSectionRegistry } from "../../seats/index.js";
 import { ConsoleEntityProjectorRegistry } from "../../store/index.js";
 import { registerComposerFamily } from "../../../shell/index.js";

@@ -13,7 +13,7 @@
 //
 // `@public` on each line below, added by Plan-023 T-023p-1C-1. That task is the
 // first consumer this barrel has ever had — the console mounts `NodeRoster` through
-// `console/seats/absorbed-surfaces.ts`, in the agent console and on the runtime-nodes
+// `console/seats/surface/absorbed-surfaces.ts`, in the agent console and on the runtime-nodes
 // settings page — and making the file reachable is exactly what exposed the
 // other three views to the dead-code gate, which had nothing to report while
 // nobody imported the barrel at all. The three are not dead: they are the rest of

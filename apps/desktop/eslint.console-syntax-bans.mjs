@@ -4,8 +4,8 @@
 // export below into its own array, so there is still exactly one place a reviewer reads
 // to know what the console may not write. It lives here because the bans and their
 // derivations had grown past the point where the import boundary above them was still
-// findable in the same file — the package's own rule is that a file over about 400 lines
-// is doing two jobs, and the import boundary and the syntax bans are two.
+// findable in the same file — the package's own rule is that a file holds one concept and
+// splits on the seam between two, and the import boundary and the syntax bans are two.
 //
 // Everything the block needs to say about itself is said in the block. Nothing else in
 // the package imports this module.
@@ -118,7 +118,7 @@ export const consoleSyntaxBans = [
     ],
     ignores: [
       "src/renderer/src/console/core/instant.test.ts",
-      "src/renderer/src/console/primitives/wire-figures.time.test.ts",
+      "src/renderer/src/console/primitives/figures/wire-figures.time.test.ts",
     ],
     rules: {
       "no-restricted-syntax": [
@@ -155,7 +155,7 @@ export const consoleSyntaxBans = [
           // The NAMED form, INVERTED. This arm used to key on the argument's NAME being
           // stamp-shaped — `…At` or `…Iso` — and justified itself with "the corpus spells
           // every wire instant that way". The console's own figure chokepoint refutes it:
-          // `formatClockTime(iso: string)` in `primitives/wire-figures.ts` carries a wire
+          // `formatClockTime(iso: string)` in `primitives/figures/wire-figures.ts` carries a wire
           // stamp under a lower-case name, and `new Date(iso)` there passed the check.
           // A premise a live call site in the same tree contradicts is not a convention.
           //

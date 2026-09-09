@@ -59,14 +59,6 @@ import {
   createDrivenSeam,
   seamServing,
 } from "./node-roster.test-support.js";
-import {
-  BANNED_DIRECT_IMPORT_PATTERNS,
-  runtimeNodeSourceNamed,
-} from "./runtime-node-source.test-support.js";
-
-// CP-003-3 source-text read. The raw glob and the banned-import pattern table
-// live once, in `runtime-node-source.test-support.ts` — every suite in this
-// directory had a verbatim copy of both.
 
 // The drift tripwire, asserted rather than merely annotated. `toEqualTypeOf` is
 // invariant, so widening `RuntimeNodeRosterResponse` or loosening a fixture
@@ -249,39 +241,5 @@ describe("NodeRoster", () => {
       expect(errorSection.textContent).toContain("NotImplementedAtTier1Error");
       expect(seam.readRoster).not.toHaveBeenCalled();
     });
-  });
-
-  describe("bridge-projection", () => {
-    // Spec-023 §Trust Stance + Plan-003 CP-003-3, and BL-131 exit criterion (b)
-    // ("assert bridge-only data access (no `node:*`/`electron` imports)"). The
-    // `@ai-sidekicks/runtime-daemon` / `@ai-sidekicks/control-plane` arm has no lint
-    // rule today (deferred to the Plan-023 Tier 8 remainder), so for that arm this
-    // tripwire is the sole operational enforcement.
-    //
-    // The pattern table is `runtime-node-source.test-support.ts`'s. What stays here
-    // is WHICH modules the claim is about, and it is BOTH of this view's: the
-    // rendering and `node-roster-reads.ts`, where the wire calls actually live. A
-    // scan of the `.tsx` alone would have been blind to exactly the module that
-    // talks to the control plane.
-    const nodeRosterSources = ["../NodeRoster.tsx", "../node-roster-reads.ts"].map(
-      runtimeNodeSourceNamed,
-    );
-
-    // Negative control: a tripwire that has never fired positive proves nothing.
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "%s matches a synthetic violating import (negative control)",
-      (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
-        expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
-      },
-    );
-
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "the roster's own modules match no %s",
-      (_bannedImportPatternName, bannedImportPattern) => {
-        for (const source of nodeRosterSources) {
-          expect(bannedImportPattern.test(source)).toBe(false);
-        }
-      },
-    );
   });
 });

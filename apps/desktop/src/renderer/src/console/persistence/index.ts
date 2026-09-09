@@ -31,7 +31,7 @@ export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.j
 // parse that admitted a whitespace-, NUL-, or path-bearing id would accept what the
 // durable path refuses — one value, two boundaries, disagreeing. The alternative was
 // a second grammar in `seats/`, which is how two sources of truth start. The LENGTH
-// half of that grammar is a bound and lives in `core/constants.ts` with the console's
+// half of that grammar is a bound and lives in `core/constants/persistence-caps.ts` with the console's
 // other bounds; both boundaries read it from there, so this door publishes the shape
 // test and not the number.
 export { isSingleNameIdentifierShaped } from "./identifier-grammar.js";

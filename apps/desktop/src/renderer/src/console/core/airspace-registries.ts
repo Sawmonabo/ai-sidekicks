@@ -14,7 +14,7 @@
 // is the key both sides can name and the key that means what the rule means.
 //
 // A class with a private table and not a bare module-level `WeakMap`, on this
-// package's rule and on `store/generation-latch.ts`'s precedent for the identical
+// package's rule and on `store/read/generation-latch.ts`'s precedent for the identical
 // role: state a module owns in the open is state any later line in the module can
 // reach around the one accessor that keeps its mint-once discipline.
 

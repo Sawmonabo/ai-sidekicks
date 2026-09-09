@@ -85,7 +85,7 @@ export class ArtifactPaneReader extends ArtifactReadSchedule {
    * outstanding becomes the NEXT read rather than a parallel one.
    *
    * THE REASON IS `participant-request`, WHICH THE SET NOW NAMES. `RefreshReason`
-   * (`store/scheduling.ts`) is a closed SIX-member set — subscribe, window-focus,
+   * (`store/read/refresh-scheduler.ts`) is a closed SIX-member set — subscribe, window-focus,
    * reconnect, terminal-event, gap-repull, participant-request — and the last of
    * those is exactly this press. This call used to request `subscribe`, because at
    * the time the set had five members and none of them was true: `subscribe` was the

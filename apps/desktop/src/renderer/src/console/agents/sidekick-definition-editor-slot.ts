@@ -15,7 +15,7 @@
 // execution posture. That vocabulary is this family's, and the surface that happens to
 // mount the editor today is one of several that eventually will. A seat declared at
 // the mount point would have to be re-declared at the second one, and two declarations
-// of one contract is exactly what `seats/owner-slot.ts` exists to prevent.
+// of one contract is exactly what `seats/slots/owner-slot.ts` exists to prevent.
 
 import type { OwnerSlotProps } from "../seats/index.js";
 

@@ -39,7 +39,7 @@
 // would be releasing a control nobody in this session ever pressed. So a holder
 // whose subject moves calls `supersede`, and the round in flight stops being able
 // to publish anything at all. Nothing is cancelled — nothing behind the bridge is
-// cancellable — the reply simply installs nowhere. `store/generation-latch.ts` is
+// cancellable — the reply simply installs nowhere. `store/read/generation-latch.ts` is
 // the console's one mechanism for that and is used here rather than re-counted.
 //
 // WHERE THE PARSE IS NOT
@@ -54,7 +54,13 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import {
+  Emitter,
+  refuse,
+  withoutKey,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../core/index.js";
 import { GenerationLatch, type MutatingDaemonMethod } from "../store/index.js";
 import {
   type ConsoleDaemonMethod,
@@ -74,7 +80,7 @@ export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
  * One method a collaboration mutation may name.
  *
  * DERIVED FROM THE AUTHORITATIVE SET AND DECLARED NOWHERE. The read-versus-mutation
- * line is `store/shell-mutation-block.ts`' to draw — that tuple is what a supervisor's
+ * line is `store/shell/shell-mutation-block.ts`' to draw — that tuple is what a supervisor's
  * condition closes, and it is held to the daemon's own `mutating: true` registrations
  * by a gate — so this family derives from its exported type rather than repeating
  * method literals. Written as a literal union here instead, the two declarations could
@@ -221,7 +227,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
    * hold it for this coordinator's whole life — which refuses every later act on the
    * key the moment anything else claims one. That is a property of the latch rather
    * than of anything on screen, so it is counted here in the shape
-   * `seats/push-driven-read.ts` counts its reads: an instrument on the object that
+   * `seats/read/push-driven-read.ts` counts its reads: an instrument on the object that
    * owns the fact, never a second copy of it.
    */
   public get heldRoundCount(): number {
@@ -281,7 +287,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     // `finally` and nowhere else — so reading `isCurrent` and publishing outside it
     // held `MUTATION_ROUND_KEY` under this coordinator for the coordinator's whole
     // life. That is benign only while nothing else claims on this latch, and it is
-    // exactly the reader-holds-a-key failure `store/generation-latch.ts` names. Going
+    // exactly the reader-holds-a-key failure `store/read/generation-latch.ts` names. Going
     // through `settle` installs and releases in one act, and answers whether the
     // install happened, so the superseded arm needs no second predicate.
     if (reply.status === "refused") {
@@ -375,22 +381,6 @@ export function useWireMutation<TRequest, TResponse>(
   );
   const read = useCallback(() => coordinator.snapshot(), [coordinator]);
   return useSyncExternalStore(subscribe, read, read);
-}
-
-function withoutKey(
-  refusalByKey: Readonly<Record<string, ConsoleRefusal>>,
-  key: string,
-): Readonly<Record<string, ConsoleRefusal>> {
-  if (!Object.hasOwn(refusalByKey, key)) {
-    return refusalByKey;
-  }
-  const remaining: Record<string, ConsoleRefusal> = {};
-  for (const [heldKey, refusal] of Object.entries(refusalByKey)) {
-    if (heldKey !== key) {
-      remaining[heldKey] = refusal;
-    }
-  }
-  return remaining;
 }
 
 /**

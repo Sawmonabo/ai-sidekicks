@@ -13,7 +13,7 @@ import type { InviteRevokeResponse } from "@ai-sidekicks/contracts";
 import {
   fixtureBridgeWithGrowth,
   withDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { ConsoleBridge, InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
 import type { FrameStore } from "../../store/index.js";
 import { quietShell } from "../shell-condition.test-support.js";

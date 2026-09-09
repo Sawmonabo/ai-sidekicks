@@ -4,7 +4,7 @@
 // WHY THIS EXISTS AT ALL. The pane used to mount both controls as hand-composed
 // refusals saying the operation was "not on the bridge yet". That sentence was false:
 // `bridge/growth-operations/workflows.ts` carries `workflowRunCancel` and
-// `workflowRunResume`, and `bridge/growth-port.ts` composes the refusal a build whose
+// `workflowRunResume`, and `bridge/growth-port/growth-port.ts` composes the refusal a build whose
 // bridge cannot serve one deserves — naming the wire and who owes it. A mount site
 // that composes its own refusal bypasses the port and asserts a wire fact nobody
 // checked; the honest shape is that the press REACHES the port and renders whatever

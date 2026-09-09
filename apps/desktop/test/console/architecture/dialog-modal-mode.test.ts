@@ -42,7 +42,7 @@ const DIALOG_ROOT_TAG = "Dialog.Root";
 /** The one mode `Spec-023 §Console Libraries` adopts. */
 const REQUIRED_MODAL_MODE = "trap-focus";
 
-/** The budget this file states rather than inherits; `source-walk-chokepoint.ts`'s figure. */
+/** The budget this file states rather than inherits; `source-walk-chokepoint.test.ts`'s figure. */
 const CONSOLE_PARSE_ALLOWANCE_MS = 30_000;
 
 vi.setConfig({ testTimeout: CONSOLE_PARSE_ALLOWANCE_MS, hookTimeout: CONSOLE_PARSE_ALLOWANCE_MS });

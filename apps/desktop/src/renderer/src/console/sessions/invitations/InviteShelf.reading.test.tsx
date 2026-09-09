@@ -108,7 +108,7 @@ describe("what the shelf shows", () => {
     expect(text).toContain("wire-unregistered");
     expect(container.querySelectorAll(".meridian-invite-shelf__row")).toHaveLength(1);
     // The console's own sentence for a refusal that arrived BESIDE an answer, from
-    // `primitives/partial-read.ts` rather than from a copy this file would own: the
+    // `primitives/reading/partial-read.ts` rather than from a copy this file would own: the
     // rows are shown and the claim that they are all of it is withdrawn.
     expect(text).toContain("what is shown here is not the whole of it");
   });

@@ -2,7 +2,7 @@
 // does NOT do to the ledger beside it.
 //
 // `invite.revoke` is a write this console puts THROUGH the daemon rather than one
-// that terminates in it, and `store/shell-mutation-block.ts` is where the console
+// that terminates in it, and `store/shell/shell-mutation-block.ts` is where the console
 // registers that it is a write at all. This suite is the consequence of that
 // registration reaching the screen: the control closes while the runtime is not
 // serving, it says why, and the rows above it — an answer this window already has —
@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import {
   withDaemonCall,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import type { FrameStore } from "../../store/index.js";
 import { connectedShell, stopShell, stoppedShell } from "../shell-condition.test-support.js";
 import { SentInvites } from "./SentInvites.js";

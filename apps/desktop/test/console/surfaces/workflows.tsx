@@ -73,13 +73,13 @@ import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/s
 import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
 // The context comes off its own module: it was hoisted out of the board to break the
 // cycle a loader-backed surface's reserved frame would otherwise close.
-import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface-context.js";
+import { type ConsoleSurfaceContext } from "../../../src/renderer/src/console/seats/surface/surface-context.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 // The leaf and not the seats door, on `settled-capture.ts`'s reasoning: the reader has no
 // production caller, so the door does not publish it.
-import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pending-pane-body.js";
+import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pane/pending-pane-body.js";
 import {
   FrameStore,
   SessionStore,
@@ -253,7 +253,7 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  * Every workflows mount here renders under the bridge provider, as the shell mounts
  * every body: a pane body reads its bridge off its context, but a slot body standing
  * in a seat is handed only the owner's mount and reaches the bridge through the
- * provider (`pane/run/slots/HumanFormSubmitChannel.tsx`), so a capture mounted bare would
+ * provider (`workflows/pane/run/slots/HumanFormSubmitChannel.tsx`), so a capture mounted bare would
  * throw where the running console does not.
  *
  * Through the rail's own surface seat, with a session in scope — which is how a

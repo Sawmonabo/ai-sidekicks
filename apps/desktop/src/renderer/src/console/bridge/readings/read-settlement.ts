@@ -158,7 +158,7 @@ export interface SettledGrowthRead<TState> {
  * TWO PROJECTIONS AND NOT ONE, because a read has two moments and they are answered
  * by different things. `unsettled` is what is true before an answer exists — which is
  * `unasked` or `reading` depending on whether there was a question to put, a rule
- * `store/subject-read-start.ts` already owns — and `settled` is the caller's reading
+ * `store/read/subject-read-start.ts` already owns — and `settled` is the caller's reading
  * of the port's own outcome. Handed as one object rather than as two positional
  * callbacks so a call site cannot silently pass them in the wrong order.
  */
@@ -201,7 +201,7 @@ export interface SettledGrowthReadProjection<TOutcome, TState> {
  * constant, so a reading with no staleness of its own is unchanged by its presence.
  *
  * It is a REVISION rather than a generation, and the word is the claim: a generation
- * in this console is `store/generation-latch.ts`, which decides whether a settlement
+ * in this console is `store/read/generation-latch.ts`, which decides whether a settlement
  * may install. This decides nothing about an answer that has arrived — it says only
  * that the question is worth putting again.
  *

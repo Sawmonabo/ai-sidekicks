@@ -81,7 +81,7 @@ import {
   type SchemaLeafEntry,
   type SchemaListDescriptor,
 } from "../plan/schema-fields.js";
-import { asAnswerRecord, type SchemaFormAnswer } from "./schema-answer-paths.js";
+import { asAnswerRecord, type SchemaFormAnswer } from "./schema-answer-shape.js";
 import { isSameMemberPath, type SchemaMemberPath } from "../../../bridge/index.js";
 
 /**

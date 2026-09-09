@@ -28,7 +28,7 @@ import type {
   PresenceReadResponseParticipant,
 } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge } from "../../fixture/fixture-bridge.js";
+import { createFixtureBridge } from "../../fixture/call-plane/bridge.js";
 import { PRESENCE_EVENT_STREAM } from "../../daemon/session-event-streams.js";
 import type { ConsoleBridge } from "../../console-bridge.js";
 import { COLLABORATION_SCENARIO } from "../collaboration.js";

@@ -178,7 +178,7 @@ export function RunsSection(context: SidebarSectionContext): React.JSX.Element {
                     className="meridian-sidebar-runs__open"
                     onClick={() => {
                       // The session's runs pane, not an inspector over this row. No
-                      // pane kind is a view of one run — `seats/pane-address.ts`
+                      // pane kind is a view of one run — `seats/pane/pane-address.ts`
                       // settles which entity kinds each kind admits, and the
                       // inspector's are the five sidebar-card kinds the spec
                       // enumerates — so a row opens the surface that holds every run

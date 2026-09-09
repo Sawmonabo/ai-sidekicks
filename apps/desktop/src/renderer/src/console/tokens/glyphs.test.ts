@@ -3,7 +3,7 @@
 // The three rules are stated in `glyphs.ts` as prose. Since the faces became
 // compiled components, rules 1 and 2 are properties of a rendered `<svg>` rather
 // than of a string in this module, and they are checked next door in
-// `primitives/glyph-faces.test.ts`, which renders every face and reads the
+// `primitives/figures/glyph-faces.test.ts`, which renders every face and reads the
 // geometry back off it. What is left here is rule 3, and it has two halves:
 //
 //   • The set is CLOSED and each name appears once. `GlyphName` is now the

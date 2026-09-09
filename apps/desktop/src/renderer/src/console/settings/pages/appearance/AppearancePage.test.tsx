@@ -7,7 +7,7 @@
 // unmounted tree in the next.
 //
 // SETTLING IT MEANS ADVANCING A CLOCK, and that is why the mount is inside the bridge
-// provider. The store block's read is scheduled through `store/scheduling.ts` — one
+// provider. The store block's read is scheduled through `store/read/refresh-scheduler.ts` — one
 // debounced, serialized read per burst of triggers, so a mount and a focus cannot put
 // two quota estimates in flight — and a scheduler arms a timeout on the WINDOW's
 // clock, which is the fixture engine's frozen one. The page still reads no wire: the
@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../../bridge/index.js";
-import { unscriptedScenario } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { unscriptedScenario } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { consoleCommands } from "../../../palette/index.js";
 import { SCHEME_ATTRIBUTE } from "../../../tokens/index.js";
 import { SettingsPageRegistry } from "../../settings-page-registry.js";

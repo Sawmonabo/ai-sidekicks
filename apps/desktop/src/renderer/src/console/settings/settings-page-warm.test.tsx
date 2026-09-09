@@ -1,6 +1,6 @@
 // The settings mount arms one walk over its own board, and releases it with itself.
 //
-// The claim here is the LIFETIME rather than the walking, which `seats/lazy-body-warm.test.ts`
+// The claim here is the LIFETIME rather than the walking, which `seats/lazy-body/lazy-body-warm.test.ts`
 // already holds, and rather than the wiring, which `SettingsSurface.page-warm.test.tsx`
 // holds through the surface. What can go wrong in a binding is a walk that starts again on
 // every render, one still re-arming against a board whose surface has unmounted — the leak
@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
 // suites belongs to the module beside it and not on the family's production door.
-import { ManualIdleWarmScheduler } from "../seats/idle-warm.test-support.js";
+import { ManualIdleWarmScheduler } from "../seats/lazy-body/idle-warm.test-support.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "./settings-page-registry.js";
 import { useSettingsPageIdleWarm } from "./settings-page-warm.js";
 

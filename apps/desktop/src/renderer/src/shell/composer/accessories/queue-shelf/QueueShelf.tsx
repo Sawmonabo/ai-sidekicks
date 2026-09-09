@@ -28,7 +28,7 @@
 // phase and the read's own refusal reach this surface and are said.
 //
 // BOTH READINGS GO TO ONE PRIMITIVE, AND THE SHELF WRITES NO COPY. `PartialRead`
-// (`primitives/PartialRead.tsx`) takes the SET of readings a surface holds and says a
+// (`primitives/reading/PartialRead.tsx`) takes the SET of readings a surface holds and says a
 // sentence for every one that did not serve, so the two causes are two notices rather
 // than one merged sentence that would have to drop a refusal, and the shelf cannot
 // mount a notice for its snapshot while quietly leaving its tail unreported. What

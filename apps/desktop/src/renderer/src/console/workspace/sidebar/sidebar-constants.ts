@@ -1,6 +1,6 @@
 // The sidebar's named constants — the ones that are not bounds.
 //
-// The width range moved to `console/core/constants.ts`: a ceiling declared in a view
+// The width range moved to `console/core/constants/workspace-caps.ts`: a ceiling declared in a view
 // family is one nobody audits, which is what `apps/desktop/AGENTS.md` §Config
 // single-sourcing states and `cap-constant-home.test.ts` enforces. What is left is a
 // STEP and two persistence keys, neither of which is a bound.

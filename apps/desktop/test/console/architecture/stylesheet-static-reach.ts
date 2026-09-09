@@ -8,14 +8,22 @@
 // sheet: it is a fact about the module GRAPH, which is why it is computed here rather
 // than asserted in a header.
 //
-// EMITTED STATIC EDGES ONLY, WHICH IS THE BUNDLER'S OWN RULE. A module reachable both
-// statically and dynamically is assigned to the static chunk, so the reach set is the
-// closure over the `import`/`export … from` declarations that survive type erasure, and
-// it stops at every `import()`. There is no conservative direction to lean in here: the
-// offence is reported when the walk finds NO user, so a reach set that is too WIDE
-// silently admits the eager-CSS regression this gate exists to reject, and one that is
-// too narrow fails a sheet that is placed correctly. The set has to be exact, which is
-// why `moduleStaticImportSpecifiers` reads the parser's own type-only flags.
+// EMITTED STATIC EDGES ONLY FOR THAT QUESTION, WHICH IS THE BUNDLER'S OWN RULE. A module
+// reachable both statically and dynamically is assigned to the static chunk, so
+// `reachableFrom` is the closure over the `import`/`export … from` declarations that
+// survive type erasure, and it stops at every `import()`. There is no conservative
+// direction to lean in there: the offence is reported when the walk finds NO user, so a
+// reach set that is too WIDE silently admits the eager-CSS regression that gate exists to
+// reject, and one that is too narrow fails a sheet that is placed correctly. The set has
+// to be exact, which is why `moduleStaticImportSpecifiers` reads the parser's own
+// type-only flags.
+//
+// AND A SECOND REACH SET FOR A SECOND QUESTION. `loadableFrom` takes the `import()` edges
+// as well, because "can this sheet ever reach the document" is not the eager question
+// asked twice: a sheet whose only importer sits behind a loader is placed CORRECTLY by
+// the rule above and is still an orphan if nothing on the graph ever loads that chunk.
+// The two sets are named apart and cached apart rather than parameterised into one,
+// because a caller that reaches for the wrong one gets a wrong answer in silence.
 //
 // USE IS READ AS A TOKEN MATCH, deliberately coarse. A class name reaches its component
 // as a string — composed, conditional, spread through a variant helper — so there is no
@@ -35,7 +43,7 @@ import { posix } from "node:path";
 import type { StylesheetTree } from "./stylesheet-edge-graph.js";
 import { resolveStylesheet } from "./stylesheet-edge-graph.js";
 import { declaredClassNames } from "./stylesheet-selectors.js";
-import { moduleStaticImportSpecifiers } from "./stylesheet-specifiers.js";
+import { dynamicImportSpecifiers, moduleStaticImportSpecifiers } from "./stylesheet-specifiers.js";
 
 /** Test-file paths, which are part of no bundle and must not join a reach set. */
 function isTestModule(modulePath: string): boolean {
@@ -61,8 +69,10 @@ export class StylesheetReachIndex {
   readonly #tree: StylesheetTree;
   readonly #modulePaths: ReadonlySet<string>;
   readonly #specifiers = new Map<string, readonly string[]>();
+  readonly #dynamicSpecifiers = new Map<string, readonly string[]>();
   readonly #tokens = new Map<string, ReadonlySet<string>>();
   readonly #reachFrom = new Map<string, ReadonlySet<string>>();
+  readonly #loadableFrom = new Map<string, ReadonlySet<string>>();
 
   public constructor(tree: StylesheetTree) {
     this.#tree = tree;
@@ -81,7 +91,36 @@ export class StylesheetReachIndex {
    * needs no such list: whatever else reaches that door, the door reaches these modules.
    */
   public reachableFrom(entry: string): ReadonlySet<string> {
-    const cached = this.#reachFrom.get(entry);
+    return this.#closureFrom(entry, this.#reachFrom, (modulePath) =>
+      this.#specifiersOf(modulePath),
+    );
+  }
+
+  /**
+   * Every module `entry` can reach AT ALL — the static closure and every chunk behind it.
+   *
+   * THE OTHER QUESTION, AND DELIBERATELY NOT A WIDENING OF THE ONE ABOVE. That set is
+   * what the bundler puts in one chunk, and a claim about eager CSS is wrong the instant
+   * it counts a loader's edge. This set is what the document can ever hold: a sheet no
+   * member of it imports is rules that reach no window in any state the application can
+   * be driven into, which is a different defect and needs the `import()` edges the other
+   * set exists to stop at. Both are kept, under two names and two caches, because the
+   * failure a caller gets from the wrong one is silent in both directions.
+   */
+  public loadableFrom(entry: string): ReadonlySet<string> {
+    return this.#closureFrom(entry, this.#loadableFrom, (modulePath) => [
+      ...this.#specifiersOf(modulePath),
+      ...this.#dynamicSpecifiersOf(modulePath),
+    ]);
+  }
+
+  /** The walk both reach sets are, memoised into whichever cache the caller owns. */
+  #closureFrom(
+    entry: string,
+    cache: Map<string, ReadonlySet<string>>,
+    specifiersOf: (modulePath: string) => readonly string[],
+  ): ReadonlySet<string> {
+    const cached = cache.get(entry);
     if (cached !== undefined) {
       return cached;
     }
@@ -93,14 +132,14 @@ export class StylesheetReachIndex {
         continue;
       }
       reached.add(modulePath);
-      for (const specifier of this.#specifiersOf(modulePath)) {
+      for (const specifier of specifiersOf(modulePath)) {
         const resolved = this.#resolveModule(modulePath, specifier);
         if (resolved !== undefined) {
           pending.push(resolved);
         }
       }
     }
-    this.#reachFrom.set(entry, reached);
+    cache.set(entry, reached);
     return reached;
   }
 
@@ -153,6 +192,16 @@ export class StylesheetReachIndex {
     }
     const read = moduleStaticImportSpecifiers(modulePath, this.#tree.read(modulePath));
     this.#specifiers.set(modulePath, read);
+    return read;
+  }
+
+  #dynamicSpecifiersOf(modulePath: string): readonly string[] {
+    const cached = this.#dynamicSpecifiers.get(modulePath);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const read = dynamicImportSpecifiers(modulePath, this.#tree.read(modulePath));
+    this.#dynamicSpecifiers.set(modulePath, read);
     return read;
   }
 

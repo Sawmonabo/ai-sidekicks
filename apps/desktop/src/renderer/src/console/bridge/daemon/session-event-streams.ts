@@ -4,8 +4,8 @@
 // `daemon.subscribe(name, handler)` names either a registered STREAM or a single
 // event type, and the two answer differently — a stream delivers a projection of
 // many kinds, an event type delivers only its own. Both sides of that seam read this
-// module: `frame/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
-// and `fixture/fixture-subscriptions.ts` has to route by the same table to answer the
+// module: `frame/session/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
+// and `fixture/call-plane/subscriptions.ts` has to route by the same table to answer the
 // way the daemon would. Two copies of the rule would let the producer and the
 // consumer drift while every test still passed — which is exactly what happened
 // before this table existed: the fixture recognised one stream name and delivered
@@ -114,7 +114,7 @@ export interface NarrowedSessionEventStream {
  * It carries kinds like a narrowed stream and delivers none of them: what reaches a
  * subscriber is that the room moved, and the reading comes from the room's own read.
  * A separate scope rather than a narrowed stream with a flag, because the two answer a
- * subscriber differently at the delivery seam — `fixture-subscriptions.ts` routes on
+ * subscriber differently at the delivery seam — `fixture/call-plane/subscriptions.ts` routes on
  * exactly this discriminant — and a flag on the narrowed row would have to be read by
  * everything that handles one.
  *

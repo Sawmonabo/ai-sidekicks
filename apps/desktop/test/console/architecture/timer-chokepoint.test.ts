@@ -16,7 +16,7 @@
 // WHAT THE ALLOW-LIST HOLDS, AND WHY IT IS ONE ENTRY. `core/clock.ts` is the seam
 // itself — it is where a platform timer is armed, and it mints its own handles so
 // cancellation is idempotent across the two independent handle spaces the platform
-// keeps. `store/deadline-wake.ts` arms the console's other timer, the wall-clock
+// keeps. `store/subject-scoped/deadline-wake.ts` arms the console's other timer, the wall-clock
 // wake-up a deadline row needs, and it takes NO entry here: it arms through
 // `ConsoleClock.scheduleTimeout` like every other consumer, which is the whole point.
 // An allow-list entry for it would be an exemption nothing needs, and a stale
@@ -163,7 +163,7 @@ describe("timer chokepoint — one seam arms every console timer", () => {
     // It arms through the seam, which is why it is not on the allow-list. If that
     // ever stopped being true this assertion is what would say so, rather than an
     // allow-list entry quietly appearing beside the seam's.
-    const wake = moduleNamed(modules, "console/store/deadline-wake.ts");
+    const wake = moduleNamed(modules, "console/store/subject-scoped/deadline-wake.ts");
     expect(timerArmingSignatures(readConsoleSourceModule(wake))).toStrictEqual([]);
     expect(readConsoleSourceModule(wake)).toContain("clock.scheduleTimeout(");
   });

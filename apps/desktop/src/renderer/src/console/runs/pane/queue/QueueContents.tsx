@@ -120,7 +120,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
  *
  * What stood here was this file's own notice component — its own box, its own two
  * sentences, and a name that shadowed the primitive it duplicated. The count-to-state
- * step is the model's (`primitives/partial-read.ts`), the sentence is the model's, and
+ * step is the model's (`primitives/reading/partial-read.ts`), the sentence is the model's, and
  * a count of zero answers `served`, which renders nothing: the surface no longer has
  * to ask whether it is partial before deciding whether to mount the notice.
  */

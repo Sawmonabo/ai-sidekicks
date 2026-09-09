@@ -37,6 +37,7 @@ import { join, posix } from "node:path";
 import {
   CONSOLE_DIRECTORY,
   CONSOLE_SOURCE_ROOTS,
+  DESKTOP_SOURCE_ROOT,
   consoleSourceModules,
   consoleStylesheets,
   toPosixSeparators,
@@ -99,7 +100,7 @@ export function isOwningBarrel(modulePath: string): boolean {
  * A DOOR, ON THE SAME REASONING AS A BARREL. What a stylesheet edge needs is a module
  * that is the single way into the code the sheet paints, and a chunk root is exactly
  * that — the loader's `import()` is the only static reference to it, so a sheet it
- * imports arrives on that chunk and on no other. `seats/lazy-body.ts` makes this the
+ * imports arrives on that chunk and on no other. `seats/lazy-body/lazy-body.ts` makes this the
  * console's registration form for a body that is not on the flagship first paint, and
  * such a body is the entry to its own directory in the same way a barrel is.
  *
@@ -470,9 +471,46 @@ export const CONSOLE_STYLESHEET_TREE: StylesheetTree = {
  * the walk stops at the root of a subtree it does not hold and reports the empty set —
  * which reads as a clean boundary and is the absence of a measurement.
  */
-export const RENDERER_STYLESHEET_TREE: StylesheetTree = (() => {
-  const modules = consoleSourceModules({ roots: CONSOLE_SOURCE_ROOTS });
-  const stylesheets = consoleStylesheets({ roots: CONSOLE_SOURCE_ROOTS });
+export const RENDERER_STYLESHEET_TREE: StylesheetTree = displayPathTree(
+  CONSOLE_SOURCE_ROOTS,
+  "renderer",
+);
+
+/**
+ * The whole package's shipped source, from the renderer's own entry module down.
+ *
+ * THE THIRD ROOT SET, AND MINTED HERE FOR THE REASON THE SECOND ONE IS: the walk, the
+ * resolver, and the reach index are the shared ones, and the day a claim builds its own
+ * tree is the day one gate's idea of what counts as a module stops matching the others'.
+ *
+ * WHY A CLAIM WOULD WANT IT. `RENDERER_STYLESHEET_TREE` starts at the two console roots,
+ * and the question "does this sheet reach the document at all" starts one directory
+ * ABOVE them, at `src/renderer/src/main.tsx` — the module that mounts the tree. Rooted
+ * inside the console, that walk would have to be handed the set of doors the renderer
+ * enters the console by, and a list of entries is the thing this whole file exists to
+ * avoid depending on. `DESKTOP_SOURCE_ROOT` reaches the entry, and reaches `src/main/`
+ * and `src/preload/` with it: harmless here, because the walk STARTS at the renderer
+ * entry and the renderer imports neither (`eslint.config.mjs` forbids the edge, and a
+ * violation of it is another gate's finding rather than a miscount here), and because
+ * neither process tree holds a stylesheet for this claim to quantify over.
+ */
+export const DESKTOP_STYLESHEET_TREE: StylesheetTree = displayPathTree(
+  [DESKTOP_SOURCE_ROOT],
+  "desktop",
+);
+
+/**
+ * A tree keyed by DISPLAY path, over whatever roots it is given.
+ *
+ * Hoisted on the second mixed-root tree rather than written twice: what the two share is
+ * the whole body — the walk, the display-path key, and the absolute path each key reads
+ * through — and the only thing that differs is the roots and the word a missing key is
+ * reported with. `what` exists so that failure still names which tree was asked, which is
+ * the one fact a caller cannot recover from the key it passed.
+ */
+function displayPathTree(roots: readonly string[], what: string): StylesheetTree {
+  const modules = consoleSourceModules({ roots });
+  const stylesheets = consoleStylesheets({ roots });
   const absolutePathByTreePath = new Map(
     [...modules, ...stylesheets].map((module) => [module.displayPath, module.absolutePath]),
   );
@@ -482,9 +520,9 @@ export const RENDERER_STYLESHEET_TREE: StylesheetTree = (() => {
     read: (treeRelativePath) => {
       const absolutePath = absolutePathByTreePath.get(treeRelativePath);
       if (absolutePath === undefined) {
-        throw new Error(`the renderer tree holds no ${treeRelativePath}`);
+        throw new Error(`the ${what} tree holds no ${treeRelativePath}`);
       }
       return readFileSync(absolutePath, "utf8");
     },
   };
-})();
+}

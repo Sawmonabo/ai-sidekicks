@@ -89,7 +89,7 @@ export function growthScriptedReplyUnavailable(
  *
  * What happened is a property of the SCENARIO, so the sentence names the call the
  * script is missing and the remedy is to drive the surface from a scenario that
- * scripts it — the same words `fixture-bridge.ts` reaches for on the call arm.
+ * scripts it — the same words `fixture/call-plane/bridge.ts` reaches for on the call arm.
  */
 export function growthUnscriptedReply(
   operationId: GrowthOperationId,

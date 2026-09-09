@@ -27,7 +27,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { MUTATING_DAEMON_METHODS } from "../../../src/renderer/src/console/store/shell-mutation-block.js";
+import { MUTATING_DAEMON_METHODS } from "../../../src/renderer/src/console/store/shell/shell-mutation-block.js";
 import type { DaemonCallSite } from "./daemon-call-sites.js";
 import {
   classifyDaemonCallSite,
@@ -74,7 +74,7 @@ describe("read cancellation — every door call declares which kind it is", () =
   });
 
   it("classifies every method the shell block closes as a record", () => {
-    // THE TWO ANSWERS, HELD TOGETHER. `store/shell-mutation-block.ts` names the writes a
+    // THE TWO ANSWERS, HELD TOGETHER. `store/shell/shell-mutation-block.ts` names the writes a
     // supervisor outage closes and this partition names every write at the door; a
     // method the first calls a write and the second calls a reading would be one console
     // disabling a control while another gate demanded the abort signal that abandons it.

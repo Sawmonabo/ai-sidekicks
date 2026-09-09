@@ -22,10 +22,10 @@
 
 import "./frame.css";
 
-export { ConsoleRoot } from "./ConsoleRoot.js";
+export { ConsoleRoot } from "./composition/ConsoleRoot.js";
 
 // The two calls a composition root makes. The element id they install under is not
 // beside them: nothing above this family names it, and the tiers that assert the
-// sheet landed exactly once read it from `token-installation.ts` — the module that
+// sheet landed exactly once read it from `frame/bindings/token-installation.ts` — the module that
 // both declares it and puts it in the document.
-export { applyConsoleScheme, installMeridianTokens } from "./token-installation.js";
+export { applyConsoleScheme, installMeridianTokens } from "./bindings/token-installation.js";

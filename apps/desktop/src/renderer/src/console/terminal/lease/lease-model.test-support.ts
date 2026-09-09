@@ -46,7 +46,7 @@ export function leaseEventWithPayload(
   return {
     // The console's one admitted-event builder, plus the member it does not take: the
     // actor a lease move is attributed to. Spread over it rather than spelled again, on
-    // `store/failure-modes.test-support.ts`'s precedent — the copy that stood here
+    // `store/session/failure-modes.test-support.ts`'s precedent — the copy that stood here
     // derived `occurredAt` as `16:40:0<sequence % 10>`, so the eleventh transition in a
     // ledger that holds thirty-two carried the instant the first one did, which the
     // ledger RENDERS.

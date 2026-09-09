@@ -20,7 +20,7 @@
 // the debt means.
 //
 // EVERY FIGURE THROUGH `formatCount`, the console's one reading of a quantity
-// (`primitives/wire-figures.ts`). A `String(count)` here would be this family deciding
+// (`primitives/figures/wire-figures.ts`). A `String(count)` here would be this family deciding
 // how a number looks, in a locale it does not know.
 
 import { formatCount } from "../../primitives/index.js";

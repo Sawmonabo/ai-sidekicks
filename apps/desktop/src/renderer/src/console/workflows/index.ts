@@ -72,7 +72,7 @@
 //
 // WHY THIS BARREL BUILDS AN ELEMENT RATHER THAN BEING A `.tsx`. It owns a TABLE — kind,
 // owner, and the specifier each body arrives behind — plus the one `createElement` the
-// pinned region's seat takes, which is the same reason `seats/absorbed-surfaces.ts`
+// pinned region's seat takes, which is the same reason `seats/surface/absorbed-surfaces.ts`
 // builds its mounts with `createElement`. Written as a component file it would be a
 // `.tsx` holding no component at all.
 
@@ -118,7 +118,7 @@ const WORKFLOWS_OWNER = "workflows";
  * Both pane kinds this family claims.
  *
  * NO TEAR-OFF ANSWER TRAVELS WITH THEM, deliberately: whether a kind may be torn off
- * into an auxiliary window is `seats/pane-kinds.ts`'s `isDetachablePaneKind`, derived
+ * into an auxiliary window is `seats/pane/pane-kinds.ts`'s `isDetachablePaneKind`, derived
  * from the window model's own closed set. `Spec-023 §Console Design (Meridian)` ships
  * exactly two auxiliary windows, `timeline` and `agent-console`, and neither of these
  * is one — but a boolean stated here would be asked of each descriptor independently,

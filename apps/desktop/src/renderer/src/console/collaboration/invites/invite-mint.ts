@@ -67,7 +67,7 @@ const INVITE_MINT_ORIGIN = "create-invite";
  * Names the shell's own refusal, when it is the shell that ends the act.
  *
  * The subsystem that refused, and it is not this form: a block is the supervisor's
- * condition read through `store/shell-mutation-block.ts`, so a refusal wearing
+ * condition read through `store/shell/shell-mutation-block.ts`, so a refusal wearing
  * `create-invite` would attribute the window's outage to the invitation surface.
  */
 const SHELL_ORIGIN = "shell";

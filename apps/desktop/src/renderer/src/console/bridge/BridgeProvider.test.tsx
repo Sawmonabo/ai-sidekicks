@@ -14,7 +14,7 @@
 //
 // `ConsoleRoot` states the same rule one family up — "one store per window,
 // created once; `useRef` rather than `useMemo`, because a memo may be discarded
-// and recomputed and store identity is correctness" — and `frame/session-lifecycle.ts`
+// and recomputed and store identity is correctness" — and `frame/session/session-lifecycle.ts`
 // is where the re-mint arm this file's last case drives comes from.
 
 import { render } from "@testing-library/react";
@@ -23,7 +23,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, useBridgeResolution } from "./BridgeProvider.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture/fixture-bridge.js";
+import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "./scenario-runtime/scenario-selection.js";
 import { FIRST_RUN_SCENARIO_ID } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO, FLAGSHIP_SCENARIO_ID } from "./scenarios/flagship.js";
@@ -151,7 +151,7 @@ describe("SidekicksBridgeProvider — the resolved bridge's lifetime", () => {
   it("re-mints after a double mount, so the console never holds a torn-down engine", () => {
     // React's StrictMode mounts, tears down, and mounts again. The teardown
     // disposes this provider's engine, so the second mount has to notice and
-    // build a fresh one — the same re-mint arm `frame/session-lifecycle.ts`
+    // build a fresh one — the same re-mint arm `frame/session/session-lifecycle.ts`
     // carries for the registry and binder it owns.
     const observed: ConsoleBridge[] = [];
     const tree: ReactNode = (

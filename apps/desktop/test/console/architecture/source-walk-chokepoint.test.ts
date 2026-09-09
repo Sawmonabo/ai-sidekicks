@@ -5,7 +5,7 @@
 // that set is a directory walk with an opinion about what counts as source. Written
 // per gate, those opinions drift silently: before this chokepoint there were three
 // copies plus the shared helper, and they already disagreed — two excluded
-// `.test-support.*` and one did not, so `bridge/fixture/fixture-bridge.test-support.ts` was
+// `.test-support.*` and one did not, so `bridge/fixture/call-plane/bridge.test-support.ts` was
 // inside one gate's universe and outside another's, with nothing anywhere reporting
 // the difference. A gate that scans a smaller tree than its sentence claims is not a
 // weaker gate; it is a gate that reports clean for the wrong reason.
@@ -45,6 +45,7 @@ import {
   consoleStylesheets,
   moduleNamed,
   readConsoleSourceModule,
+  toPosixSeparators,
 } from "../console-source-modules.js";
 import {
   directoryWalkImports,
@@ -98,7 +99,7 @@ const MODULES_THAT_MAY_WALK: readonly string[] = [
 /** Every module in the console's test tier, models and harnesses included. */
 function testTierModules(): readonly TestTierModuleText[] {
   return consoleSourceModules({ roots: [TEST_TIER_DIRECTORY], tests: true }).map((module) => ({
-    relativePath: module.relativePath.split("\\").join("/"),
+    relativePath: toPosixSeparators(module.relativePath),
     source: readConsoleSourceModule(module),
   }));
 }
@@ -319,10 +320,10 @@ describe("source-walk chokepoint — the walk answers what its options say", () 
     expect(production.length).toBeGreaterThan(20);
     expect(withTests.length).toBeGreaterThan(production.length);
     expect(production.map((module) => module.displayPath)).not.toContain(
-      "console/bridge/fixture/fixture-bridge.test-support.ts",
+      "console/bridge/fixture/call-plane/bridge.test-support.ts",
     );
     expect(withTests.map((module) => module.displayPath)).toContain(
-      "console/bridge/fixture/fixture-bridge.test-support.ts",
+      "console/bridge/fixture/call-plane/bridge.test-support.ts",
     );
     // The divergence that made the two hand-rolled walks disagree, asserted as one
     // answer: `.test-support.*` and `.test.*` are the same class to this walk, so no
@@ -385,7 +386,7 @@ describe("the shared walk — answers files, never a directory with a file's nam
     // Vitest names a screenshot tier's committed reference directory after its spec,
     // so this entry is what a walk deciding by extension would admit as a module.
     const entries = readdirSync(screenshotTier, { recursive: true, encoding: "utf8" }).map(
-      (entry) => entry.split("\\").join("/"),
+      (entry) => toPosixSeparators(entry),
     );
     const directoryNamedLikeASpec = entries.find((entry) =>
       entry.endsWith("__screenshots__/frame.test.tsx"),

@@ -80,7 +80,7 @@ const SEAM_DECLARING_MODULES: readonly string[] = [
   "console/bridge/growth-operations/sessions.ts",
   "console/bridge/growth-signatures/sessions.ts",
   "console/bridge/growth-values/artifacts.ts",
-  "console/bridge/fixture/fixture-served-operations.ts",
+  "console/bridge/fixture/call-plane/served-operations.ts",
   "console/bridge/scenarios/onboarding.ts",
 ];
 

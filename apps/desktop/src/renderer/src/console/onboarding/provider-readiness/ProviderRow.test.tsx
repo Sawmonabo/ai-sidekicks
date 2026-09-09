@@ -1,7 +1,7 @@
 // The row's account disclosure and the way out of a remedy it cannot perform.
 //
 // THE DISCLOSURE CASES ARE ABOUT THE CHOKEPOINT AND NOT ABOUT THE COPY.
-// `apps/desktop/AGENTS.md` §Chokepoints makes `primitives/wire-figures.ts` the only
+// `apps/desktop/AGENTS.md` §Chokepoints makes `primitives/figures/wire-figures.ts` the only
 // module that formats a wire value, and `WireFigure` is how a surface reaches it — so
 // what these assert is that a label the registry sent arrives on screen through that
 // path, whole, with nothing the console composed inside the same element. Two shapes

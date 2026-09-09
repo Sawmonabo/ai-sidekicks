@@ -47,7 +47,7 @@ describe("the browser ingest meter", () => {
   });
 
   it("prints the pair a person reads through the console's one byte formatter", () => {
-    // Scaled by 1024 in `primitives/wire-figures.ts` and nowhere else, so the
+    // Scaled by 1024 in `primitives/figures/wire-figures.ts` and nowhere else, so the
     // sentence and the bar are two renderings of one reading rather than two
     // readings — the drift this component was extracted to prevent.
     //

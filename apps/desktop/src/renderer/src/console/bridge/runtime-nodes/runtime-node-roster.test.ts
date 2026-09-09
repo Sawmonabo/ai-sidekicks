@@ -16,7 +16,7 @@
 //     it is `.strict()`, so an invented member fails here too.
 //
 // What this seam ANSWERS with is not here: the fixture arm is
-// `fixture/fixture-runtime-node-roster.ts` and its suite is beside it, and the live
+// `fixture/settings/runtime-node-roster.ts` and its suite is beside it, and the live
 // arms are `runtime-node-roster-transport.ts` and its suite beside that.
 
 import { describe, expect, it } from "vitest";

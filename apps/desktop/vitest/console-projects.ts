@@ -1,11 +1,26 @@
 // The console's own test tiers, as Vitest projects.
 //
-// `Spec-023 §Console Test Tiers` names nine; seven are declared here and the two that
-// need a real Electron window ride `playwright.config.ts`. They live beside
-// `vitest.config.ts` rather than inside it because that file was past the package's
-// ceiling with them, and because the console tiers are one subject: they share the
-// fixture define, the source-condition resolution, and the browser-mode options, and a
-// reader comparing two of them reads them next to each other.
+// `Spec-023 §Console Test Tiers` names NINE — unit, browser, end-to-end, screenshot,
+// accessibility, endurance, architecture, assets, bundle — and all nine are declared
+// below. The list here holds TEN projects: the tenth, `console-bench`, is this
+// package's own micro-benchmark ledger and is not a spec tier, which is why its own
+// block says so and why it is one of the two exemptions `ci-tier-coverage.test.ts`
+// carries. Neither figure is held by a gate — no test asserts a tier count — so both
+// are stated here, beside the array a reader can count, and nowhere else.
+//
+// AND NONE OF THEM RIDES A `playwright.config.ts`, which does not exist in this
+// repository. The two tiers that need a real Electron window — `console-e2e` and
+// `console-endurance` — are Vitest projects in a NODE environment, because the test
+// file is the DRIVER and the code under test runs in another process; they reach that
+// process through `test/console/electron-harness.ts`, which holds the package's single
+// `_electron` launch. Playwright is a LIBRARY on both halves: browser mode drives it
+// for the three page tiers, the harness drives it for the two window ones, and no
+// tier is configured by a Playwright runner config.
+//
+// They live beside `vitest.config.ts` rather than inside it because that file was past
+// the package's ceiling with them, and because the console tiers are one subject: they
+// share the fixture define, the source-condition resolution, and the browser-mode
+// options, and a reader comparing two of them reads them next to each other.
 
 import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
 
@@ -157,7 +172,7 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     // The define is here for the architecture tier's reason, reached the same way:
     // this tier imports the generator, and a token module that reaches its own
     // family door for a value — the enumeration row ceiling, whose home is
-    // `core/constants.ts` — pulls `core/index.ts` in with it, and that door
+    // `core/constants/palette-caps.ts` — pulls `core/index.ts` in with it, and that door
     // re-exports `core/tripwires.ts`, which reads this identifier at MODULE scope.
     // Without it the whole file aborts at import with a bare `ReferenceError`
     // naming something that is not a variable in any process. `false`, because the
@@ -276,6 +291,18 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
 ];
+
+/**
+ * Every `include` glob the console tiers declare, in tier order.
+ *
+ * DERIVED FROM THE TIERS THEMSELVES rather than restated, because the reader is a gate
+ * asserting that its own walk covers what the runner makes an ENTRY
+ * (`test/console/architecture/no-directory-source-globs.test.ts`), and a hand-listed
+ * copy of these globs would agree with this file exactly until a tier moved.
+ */
+export const CONSOLE_TIER_INCLUDE_GLOBS: readonly string[] = CONSOLE_TIERS.flatMap(
+  (tier) => tier.test?.include ?? [],
+);
 
 /**
  * The same tiers, each resolving `~icons/*`.

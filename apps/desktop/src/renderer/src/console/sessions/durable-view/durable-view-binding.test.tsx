@@ -1,6 +1,6 @@
 // A durable binding whose store was replaced, and what may still reach the old one.
 //
-// The defect is silent from every direction. `frame/ui-state-lifecycle.ts` closes
+// The defect is silent from every direction. `frame/bindings/ui-state-lifecycle.ts` closes
 // this window's store and mints a fresh one whenever the bridge changes, and a
 // binding built by a `useState` initializer stays attached to the closed store for
 // the rest of the mount — so the previous scenario's value stays on screen, every

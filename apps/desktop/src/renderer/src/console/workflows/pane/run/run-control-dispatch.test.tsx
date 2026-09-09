@@ -3,7 +3,7 @@
 // THE DEFECT THIS SUITE IS THE INSTRUMENT FOR: both controls were mounted as
 // hand-composed refusals saying the operation was "not on the bridge yet", while
 // `bridge/growth-operations/workflows.ts` carried `workflowRunCancel` and
-// `workflowRunResume` and `bridge/growth-port.ts` composed its own refusal for a build
+// `workflowRunResume` and `bridge/growth-port/growth-port.ts` composed its own refusal for a build
 // that cannot serve them. So the first group asserts the press ARRIVES, and the second
 // asserts the refusal is the PORT's — origin, code and structured members — which is
 // exactly what the pre-fix shape could not produce: it never called anything, and its

@@ -1,8 +1,8 @@
 /*
  * One execution-root card: a worktree row, or an ephemeral-clone row.
  *
- * SPLIT OUT OF `mounts.css` WHEN THAT SHEET PASSED THE PACKAGE'S ~400-LINE RULE, along
- * its own `execution-root cards` banner and verbatim — a move, not a restyle. It is a
+ * SPLIT OUT OF `mounts.css` ON THE SEAM ITS OWN BANNER ALREADY DREW, taking that
+ * `execution-root cards` banner with it and moving verbatim — a move, not a restyle. It is a
  * SIBLING of `mounts.css` rather than a resident of `roots/`, because ownership follows
  * the components: these rules dress `mounts/WorktreeCard.tsx` and
  * `mounts/EphemeralCloneCard.tsx`, both of which live in this directory. `roots/` holds

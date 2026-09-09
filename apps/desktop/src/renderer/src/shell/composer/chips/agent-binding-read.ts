@@ -121,7 +121,7 @@ export interface AgentBindingReading {
  * the reading on React's double-mount and then re-commits the value it just disposed —
  * the memo's dependencies have not moved, so nothing re-mints it — leaving the chip on
  * a reading that refuses every `requestRead` for the life of the window: the corpse
- * `store/subject-scoped-resource.ts` takes a terminal disposal in order to recognise.
+ * `store/subject-scoped/subject-scoped-resource.ts` takes a terminal disposal in order to recognise.
  * StrictMode is a deferred opt-in rather than a never (`main.tsx` records it), and a
  * discarded concurrent pass reaches the same state by a second door. The holder
  * additionally closes a reading a pass React threw away opened, which the memo could

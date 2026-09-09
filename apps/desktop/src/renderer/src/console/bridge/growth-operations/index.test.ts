@@ -1,7 +1,7 @@
 // Does the ledger's workflow block say what the owning contract says?
 //
 // The rest of the ledger is audited structurally — `failure-modes.test.ts` maps
-// every slate row to its entries in both directions, and `fixture-growth-port.test.ts`
+// every slate row to its entries in both directions, and `fixture/growth/growth-port.test.ts`
 // calls every operation and checks which answer. Neither reads what an entry CLAIMS,
 // and for most rows there is nothing to read: a browser or terminal operation names
 // no wire method because none is registered anywhere to name.

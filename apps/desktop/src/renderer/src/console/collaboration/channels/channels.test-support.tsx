@@ -25,7 +25,7 @@ import {
   growthRefusing,
   growthServing,
   unscriptedScenario,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import {
   type ConsoleBridge,
   type GrowthChannelAudience,

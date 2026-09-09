@@ -2,7 +2,7 @@
 //
 // A door because two siblings read from here — `growth-signatures/approvals.ts` takes
 // the four narrowed row types the approval plane's operations answer with, and
-// `fixture/fixture-growth-port.ts` takes the two readers that produce them — and the
+// `fixture/growth/growth-port.ts` takes the two readers that produce them — and the
 // package's door rule keys on exactly that: a sub-module directory whose modules no
 // sibling takes from carries no door, and one that a sibling reads from carries one.
 // `bridge/queue/`, `bridge/quotas/` and `bridge/driver-capabilities/` are the other

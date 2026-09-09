@@ -21,7 +21,7 @@
 // only listing anywhere is `bridge-shape.ts`'s namespace table, which is keyed by
 // `keyof SidekicksBridge` and therefore cannot go stale.
 //
-// WHAT THIS FILE DOES NOT COVER. `FAILURE-MATRIX.test.ts` already drives the growth
+// WHAT THIS FILE DOES NOT COVER. `failure-modes.test.ts` next door already drives the growth
 // ledger's internal coherence — every slate row covered, no orphaned row id, every
 // entry `fixture-only` while its row is unregistered, one port method per operation
 // entry. Repeating those here would be two tests failing for one cause. What is
@@ -40,7 +40,7 @@ import {
   type BridgeShape,
 } from "./bridge-shape.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { createFixtureBridge } from "./fixture/fixture-bridge.js";
+import { createFixtureBridge } from "./fixture/call-plane/bridge.js";
 import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { GROWTH_PREREQUISITES } from "./growth-port/growth-prerequisites.js";
 import { growthSlateRow } from "./growth-port/growth-slate.js";

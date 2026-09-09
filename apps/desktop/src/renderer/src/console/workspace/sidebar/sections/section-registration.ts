@@ -1,6 +1,6 @@
 // Where this family's sidebar sections are filled, and nothing else.
 //
-// ONE BODY, NOT EIGHT. `seats/sidebar-sections.ts` carries all eight sections the
+// ONE BODY, NOT EIGHT. `seats/slots/sidebar-sections.ts` carries all eight sections the
 // spec names and splits them across three families: `channels`, `agents`, and
 // `members` are the collaboration family's, `repos` and `artifacts` the repos
 // family's, and `goal`, `runs`, and `approvals` this one's. Each registers its

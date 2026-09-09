@@ -2,7 +2,7 @@
 // reserve — plus, on the one code that carries one, the list the daemon itself sent.
 //
 // THE SHELL IS THE PRIMITIVE'S AND THE DATA HALF IS THIS FAMILY'S.
-// `primitives/RefusalRecovery.tsx` renders the region every family's recovery lands in
+// `primitives/refusal/RefusalRecovery.tsx` renders the region every family's recovery lands in
 // — the move, then the exclusive cases — because those inputs name nothing about an
 // artifact, and this family had written that shell a second time under a class name
 // whose declarations matched the mounts family's property for property. What is left

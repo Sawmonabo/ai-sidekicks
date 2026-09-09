@@ -6,7 +6,7 @@
 // place a failure message comes from. It holds nothing a single suite uses — the
 // participant id, the instant, the off-contract value, the served reply, and the
 // retry-bound reader stay beside their one reader, which is the line
-// `fixture-bridge.test-support.ts` next door draws for the same reason.
+// `fixture/call-plane/bridge.test-support.ts` next door draws for the same reason.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
@@ -19,7 +19,7 @@ import { FLAGSHIP_SCENARIO } from "../scenarios/flagship.js";
  *
  * The cast is the seam in the scenario manifest, not a shortcut taken here: a
  * scenario declares `sessionId` as a plain `string` because it is authored data,
- * and the request schema brands it. `fixture-bridge.relay.test.ts` widens the same
+ * and the request schema brands it. `fixture/call-plane/bridge.relay.test.ts` widens the same
  * value the same way for the same reason. The value still has to satisfy the
  * branded SCHEMA at run time — every case in both suites sends it through the
  * request parse — so a cast to a malformed id fails the assertion rather than

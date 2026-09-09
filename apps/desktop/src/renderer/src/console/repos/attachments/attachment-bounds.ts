@@ -10,7 +10,7 @@
 // WHY THE READING LIVES HERE AND NOT ON THE PANE THAT FIRST READ IT. The shape and
 // the shipped default were declared in `repos/artifact-pane/artifact-pane-reading.ts`,
 // which is one surface's reading module, while the values inside it are this family's:
-// the allow-list is `attachment-policy.ts`'s and the byte bound is `core/constants.ts`'s
+// the allow-list is `attachment-policy.ts`'s and the byte bound is `core/constants/attachment-caps.ts`'s
 // `ATTACHMENT_BYTE_CAP_DEFAULT`. Two surfaces now say what will be accepted — the
 // artifact pane's disclosure and the attach affordance itself — so the shape moved DOWN
 // to the module both of them already depend on rather than sideways into a second copy.

@@ -184,7 +184,7 @@
 /*
  * The shared half of this region is NOT declared here. The move and its exclusive cases
  * are dressed by `primitives/refusal.css`'s `.meridian-refusal-recovery`, because the
- * component that wears them is `primitives/RefusalRecovery.tsx` and the mounts family
+ * component that wears them is `primitives/refusal/RefusalRecovery.tsx` and the mounts family
  * had the same block under a second prefix. What stays is the half only this family
  * has: the list of manifests a blocked delete named, which the shell renders as its
  * children inside that same region.

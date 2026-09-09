@@ -31,7 +31,7 @@
 
 import { act } from "@testing-library/react";
 
-import { REFRESH_DEBOUNCE_MS } from "./constants.js";
+import { REFRESH_DEBOUNCE_MS } from "./constants/refresh-caps.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.test-support.js";
 
 /**

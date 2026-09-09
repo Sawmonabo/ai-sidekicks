@@ -38,7 +38,7 @@
 // against the key cleared a draft typed on the SECOND visit because the first
 // visit's send had cleared the first visit's text; and a refusal written on the
 // first visit read as current again. The visit is the composer's mirror of the
-// holder's own addressing epoch — `store/subject-scoped-state.ts` states the same
+// holder's own addressing epoch — `store/subject-scoped/subject-scoped-state.ts` states the same
 // fact for the value it holds, "a surface routed away and back is at the same pair
 // on two different visits, and only the addressing tells them apart" — so the latch
 // key, the attempt register, and the settlement identity all carry it and all three

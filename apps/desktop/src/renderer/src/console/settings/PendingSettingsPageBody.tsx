@@ -6,7 +6,7 @@
 // so what is missing is the body alone and the honest reservation for it is the empty
 // region the body will fill.
 //
-// NOT ONE OF THE FIVE KINDS OF NOTHING. `seats/PendingPaneBody.tsx` states the reasoning
+// NOT ONE OF THE FIVE KINDS OF NOTHING. `seats/pane/PendingPaneBody.tsx` states the reasoning
 // and it holds here unchanged: rule 8's five absences are claims about the ENTITY, and
 // none of them is true of a module that has not landed. `not loaded` would say the page's
 // read had not come back, which is a different sentence and a false one — the page has not

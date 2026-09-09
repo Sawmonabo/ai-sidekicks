@@ -23,7 +23,7 @@
 // folds it with the palette's own state, which is the one seam the two are allowed to
 // meet at. Cleared on close AND on unmount, in one cleanup: a render React discards
 // mid-ceremony must not leave a window inert with nothing on screen to close. That
-// wiring is `store/modal-surface-lifetime.ts` now — hoisted when the onboarding
+// wiring is `store/shell/modal-surface-lifetime.ts` now — hoisted when the onboarding
 // walkthrough became the second window-scoped overlay to owe it.
 //
 // AND IT IS A DIALOG WITH A NAME, through the primitive that owns both halves. The

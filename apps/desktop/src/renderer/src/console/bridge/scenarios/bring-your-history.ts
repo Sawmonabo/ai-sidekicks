@@ -23,7 +23,7 @@
 //
 // AND THE IMPORT'S PROGRESS IS PACED BY THE PORT, NOT BY THIS FILE. See
 // `PROVIDER_SESSION_IMPORT_PROGRESS_FRAMES` below: the frames and their ticks are
-// declared here as data, and `bridge/fixture/fixture-growth-port.ts` releases them
+// declared here as data, and `bridge/fixture/growth/growth-port.ts` releases them
 // against the frozen clock. A script cannot do it — `resultFor` is handed the request
 // and nothing else, so it has no clock to schedule against.
 //
@@ -76,7 +76,7 @@ export interface ScenarioImportProgressFrame {
  * the three renders into the terminal one, and the running states and the mid-import
  * cancellation this scenario exists to make reachable would be reachable from
  * nowhere. The frames are declared once, here, with the tick each falls due at, and
- * `fixture-growth-port.ts` paces the drain below against the frozen clock from these
+ * `fixture/growth/growth-port.ts` paces the drain below against the frozen clock from these
  * same ticks.
  *
  * A frozen list rather than a generator held in module scope, because a scenario is

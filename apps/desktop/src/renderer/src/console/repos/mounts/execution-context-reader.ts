@@ -135,7 +135,7 @@ export class WorkspaceExecutionContextReader implements ReadTriggerTarget, Sessi
    * Whether this reader's triggers are armed on `sessionStore`.
    *
    * `RepoMountsReader.isReadingFor`'s name and its reason, and the member
-   * `store/session-store-rebind.ts` types: the seam keys on the workspace, which names
+   * `store/session/session-store-rebind.ts` types: the seam keys on the workspace, which names
    * its session and so cannot separate two projections of one — and a store rebuilt
    * across a reconnect is exactly that.
    */

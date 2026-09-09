@@ -36,7 +36,7 @@
 // `workflow.*` method, so both controls travel the growth port instead:
 // `bridge/growth-operations/workflows.ts` carries `workflowRunCancel` and
 // `workflowRunResume` on the `workflow-run-control` slate row, and
-// `bridge/growth-port.ts` composes the `wire-unregistered` refusal for a build whose
+// `bridge/growth-port/growth-port.ts` composes the `wire-unregistered` refusal for a build whose
 // bridge cannot serve them. That refusal is the PORT's and is never composed here: a
 // mount site that built its own would be asserting a wire fact it had not checked,
 // and the port's own builder is unreachable from outside `bridge/` by construction.

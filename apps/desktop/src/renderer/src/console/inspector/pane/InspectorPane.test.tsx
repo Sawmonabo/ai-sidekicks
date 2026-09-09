@@ -10,13 +10,13 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { createFixture } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { ConsolePaneRegistry } from "../../seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.
-import { isDetachablePaneKind } from "../../seats/pane-kinds.js";
+import { isDetachablePaneKind } from "../../seats/pane/pane-kinds.js";
 import { type PaneContextOf } from "../../seats/index.js";
-import { paneContext } from "../../seats/pane-context.test-support.js";
+import { paneContext } from "../../seats/pane/pane-context.test-support.js";
 import { registerInspectorPane } from "../index.js";
 import { InspectorPane } from "./InspectorPane.js";
 

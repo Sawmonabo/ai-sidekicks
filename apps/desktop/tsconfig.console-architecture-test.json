@@ -7,7 +7,7 @@
   // `scenario-wire-truth.test.ts` imports it instead — it has to, because the rule
   // it asserts is a shipped predicate and a test that reimplemented it would be
   // checking its own copy — and importing the scenario manifest pulls the console's
-  // module graph into the program. Part of that graph is `store/hooks.ts`, which
+  // module graph into the program. Part of that graph is `store/shell/location-hash.ts`, which
   // reaches `window`, so under the Node-context config the tier fails with five
   // TS2304s about a global it never mentions.
   //

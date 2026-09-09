@@ -17,7 +17,7 @@
 // beside `PreferenceToggleRow.tsx`, which is the family's home for exactly this: a
 // directory under `pages/` that registers no page reads as a page to anyone counting
 // the registrars, and this one never was one. {@link consoleShellPreferences}
-// is the one holder, on the precedent `palette/keybinding-override-store.ts` states in
+// is the one holder, on the precedent `palette/keybindings/keybinding-override-store.ts` states in
 // its own words: module scope IS window scope here, because an auxiliary window is
 // its own renderer process and no channel joins two windows' module graphs.
 
@@ -116,7 +116,7 @@ class ShellPreferenceStoreHolder {
  * This window's shell preferences.
  *
  * Module scope IS window scope here, for the reason
- * `palette/keybinding-override-store.ts` gives about the overrides it holds the same
+ * `palette/keybindings/keybinding-override-store.ts` gives about the overrides it holds the same
  * way: an auxiliary window is its own renderer process, so no channel joins two
  * windows' module graphs — and a choice held for this window then outlives the page
  * that was open when it was made, which is what the row's own note promises.

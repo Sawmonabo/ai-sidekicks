@@ -8,7 +8,7 @@
 // `apps/desktop/AGENTS.md` gives: the directory carrying the chunk owns it, and a sheet
 // on the family door is the pane's rules on every session's first document.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import { createElement } from "react";
 

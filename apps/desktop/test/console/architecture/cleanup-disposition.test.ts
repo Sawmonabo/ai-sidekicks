@@ -14,7 +14,7 @@
 // outcome, and `closeAfterBody` takes the close alone, so a body that fails
 // while the close also fails is one object literal. The race that PRODUCES
 // those outcomes is `bounded-cleanup.test.ts`; these two files were one until
-// it passed 400 lines carrying both subjects, and their modules split on the
+// the seam between both subjects was drawn, and their modules split on the
 // same seam when the race grew the profile removal.
 
 import { readFileSync } from "node:fs";

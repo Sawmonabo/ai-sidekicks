@@ -6,7 +6,7 @@
 // about what a valid frame looks like.
 
 import { createElement, useEffect } from "react";
-import { createFixture } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { createFixture } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../core/macrotask-boundary.test-support.js";
 import { withRecordedStreamLifecycle } from "../../bridge/daemon/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";

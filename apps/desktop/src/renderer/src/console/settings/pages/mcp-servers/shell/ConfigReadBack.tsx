@@ -32,7 +32,7 @@ import type { GrowthMcpInventoryEntry } from "../../../../bridge/index.js";
  * its arguments to stay inspectable.
  *
  * The three groups render through camelCase helpers rather than second components, on
- * the `primitives/Nothing.tsx` precedent: a `.tsx` module declares one component, and
+ * the `primitives/absence/Nothing.tsx` precedent: a `.tsx` module declares one component, and
  * a list body its only caller owns has no identity outside it.
  */
 export function ConfigReadBack(props: {

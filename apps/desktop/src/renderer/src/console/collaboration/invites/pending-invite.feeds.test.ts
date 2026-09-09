@@ -20,7 +20,7 @@ import {
   type ConsoleBridge,
   type GrowthPendingInviteState,
 } from "../../bridge/index.js";
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture/fixture-bridge.test-support.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture/call-plane/bridge.test-support.js";
 import { PendingInviteAdapter } from "./pending-invite.js";
 import {
   FIRST_REFERENCE,

@@ -4,8 +4,8 @@
 // SPLIT OFF `growth-slate.ts` ON `growth-entry.ts`'S OWN SEAM. That module states the
 // rule this one applies: a row's CONTENT is its table's and a row's SHAPE is a
 // type-only module's, because a type-only module has no reason to change when a row
-// lands. The ledger is prose — four sentences per row, fifty-eight rows — and it had
-// grown past the size the structure rules set while carrying this vocabulary as well.
+// lands. The ledger is prose — four sentences per row, fifty-eight rows — and carrying
+// this vocabulary beside it put two concepts in one module.
 //
 // THE UNION IS HERE AND THE ROWS ARE NEXT DOOR, WHICH THE COMPILER STILL PAIRS.
 // `GROWTH_SLATE_ROWS_BY_ID` is a mapped type over this union, so a member added here

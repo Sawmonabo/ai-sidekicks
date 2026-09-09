@@ -15,7 +15,7 @@ import { type ApprovalsReader } from "./approvals-reader.js";
 import {
   createFixture,
   type RecordedDaemonCall,
-} from "../../bridge/fixture/fixture-bridge.test-support.js";
+} from "../../bridge/fixture/call-plane/bridge.test-support.js";
 
 export const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 export const SECOND_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";

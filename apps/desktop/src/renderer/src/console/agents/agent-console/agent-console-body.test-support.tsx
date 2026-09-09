@@ -12,7 +12,7 @@
 import { render } from "@testing-library/react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-projection/run-lifecycle-projector.js";
 import { SessionStore } from "../../store/index.js";
 import { PROJECTION_SESSION_ID } from "./agent-console.test-support.js";
 import { AgentConsoleBody } from "./AgentConsoleBody.js";

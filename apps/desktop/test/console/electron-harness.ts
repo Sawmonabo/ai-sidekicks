@@ -10,7 +10,7 @@
 // `@playwright/test` is already a devDependency and it exports `_electron`, which
 // is the only part of it these tiers need: a way to attach to a real Electron
 // process and drive its window. The RUNNER is a separate question, and the answer
-// is Vitest — the console already registers seven tiers there with disjoint globs,
+// is Vitest — the console's other tiers already run there with disjoint globs,
 // and a second runner would mean a second config, a second reporter, a second set
 // of CI invocations, and two places to look when a tier is red. One runner, two
 // more projects.

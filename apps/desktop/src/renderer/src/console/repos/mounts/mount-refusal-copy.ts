@@ -84,7 +84,7 @@ export type MountRefusalCode = (typeof MOUNT_REFUSAL_CODES)[number];
  * renderer maps it without asking whether it is there.
  *
  * DERIVED FROM THE SHAPE THE SHELL RENDERS rather than restating its two members:
- * `primitives/RefusalRecovery.tsx` is what puts one of these on screen, and a table
+ * `primitives/refusal/RefusalRecovery.tsx` is what puts one of these on screen, and a table
  * whose entry type merely happened to be assignable would stay assignable right up to
  * the rename that made it stop.
  */

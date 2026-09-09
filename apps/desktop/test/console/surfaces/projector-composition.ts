@@ -31,7 +31,7 @@
 // the six boards built here and dropped are the price of reading the seventh, and no
 // tier's window is touched by importing this file.
 //
-// A CONSTANT RATHER THAN A FACTORY, on `frame/run-lifecycle-projector.ts`'s precedent
+// A CONSTANT RATHER THAN A FACTORY, on `frame/run-projection/run-lifecycle-projector.ts`'s precedent
 // for the table it exports: the snapshot is frozen at the registry's own edge, so
 // every mount in a tier folds with one table and no mount can be handed a different
 // one. Composing per call would also re-run every family's registrar once per surface,

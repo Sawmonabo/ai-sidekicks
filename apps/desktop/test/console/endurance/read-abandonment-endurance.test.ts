@@ -9,8 +9,8 @@
 //
 // WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW
 //
-// The subject is `seats/push-driven-read.ts` over `store/scheduling.ts` over
-// `store/read-cancellation.ts` and the daemon call door — a model, a scheduler, a
+// The subject is `seats/read/push-driven-read.ts` over `store/read/refresh-scheduler.ts` over
+// `store/read/read-cancellation.ts` and the daemon call door — a model, a scheduler, a
 // read line, and a parse. None of it touches the DOM, and `diff-endurance.test.ts`
 // beside this file is the same separation cashed the same way: the claims are
 // checkable in milliseconds, deterministically, on any runner, with no bundle to
@@ -47,11 +47,11 @@ import { describe, expect, it } from "vitest";
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
 import { callDaemon } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply.js";
-import { bridgeAnswering } from "../../../src/renderer/src/console/bridge/fixture/fixture-bridge.test-support.js";
+import { bridgeAnswering } from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { SESSION_ID } from "../../../src/renderer/src/console/bridge/daemon/daemon-reply.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../../src/renderer/src/console/core/index.js";
 import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
-import { PushDrivenRead } from "../../../src/renderer/src/console/seats/push-driven-read.js";
+import { PushDrivenRead } from "../../../src/renderer/src/console/seats/read/push-driven-read.js";
 
 /**
  * How many open / read / close cycles one claim is measured over.

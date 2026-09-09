@@ -18,7 +18,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.js";
-import { withDaemonCall } from "../../../bridge/fixture/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import type { ConsoleScenario } from "../../../bridge/scenario-runtime/scenario.js";
 import {

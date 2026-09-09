@@ -16,13 +16,13 @@
 // wire, which `Plan-023 §Console growth slate` makes a review rejection.
 //
 // So the read is a SEAM the caller supplies, defaulting to the one honest answer
-// available today: nothing was read. `frame/session-lifecycle.ts` reaches the same
+// available today: nothing was read. `frame/session/session-lifecycle.ts` reaches the same
 // shape for the same reason — its `READS_NOTHING_YET` resolves `undefined` rather
 // than an empty projection, because "we did not ask" and "there is none" are
 // different facts and an empty array asserts the second.
 //
 // THE SHAPES HERE ARE RENDERER-LOCAL PROJECTION CONTRACTS, not wire types — the
-// posture `store/entities.ts` sets for `ConsoleSessionEvent`, and for its reason:
+// posture `store/entities/entities.ts` sets for `ConsoleSessionEvent`, and for its reason:
 // the payload arriving from any reader is `unknown` until the contracts package
 // registers the real schema, so exactly one module narrows it and everything above
 // reads the narrowed value. The narrowing is FAIL-CLOSED: an item carrying a

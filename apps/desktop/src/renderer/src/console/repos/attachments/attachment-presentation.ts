@@ -33,7 +33,7 @@ import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 // `Spec-014 §Bounds (normative defaults; operator-tunable)` registers on the wire. A
 // view-family module holding them would make this file a configuration authority its
 // neighbours had to import to learn a number the daemon owns, so they sit in
-// `core/constants.ts` with their rationales and their wire sources, and the two this
+// `core/constants/attachment-caps.ts` with their rationales and their wire sources, and the two this
 // file's own arithmetic spends are imported above like any other consumer's.
 
 /** What a cause means, and what a participant can do about it. */

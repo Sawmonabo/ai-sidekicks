@@ -29,8 +29,8 @@
 
 import { createElement } from "react";
 
-import { LoadedLazyBody } from "../lazy-body.js";
-import { PENDING_PANE_BODY_ATTRIBUTE } from "../pending-pane-body.js";
+import { LoadedLazyBody } from "../lazy-body/lazy-body.js";
+import { PENDING_PANE_BODY_ATTRIBUTE } from "../pane/pending-pane-body.js";
 import type { SchemaFormAnswerProps } from "./containers/SchemaFormAnswer.js";
 import type { SchemaFormPreviewProps } from "./containers/SchemaFormPreview.js";
 

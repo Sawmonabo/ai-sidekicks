@@ -61,15 +61,15 @@ import {
  * The roots this gate reads — `console/` and `shell/` — are the shared walk's own
  * default, so they are named there rather than here. This file used to carry its own
  * `readdirSync` with its own exclusion list, which admitted `.test-support.*` where
- * the shared walk excludes it: one gate scanned `fixture-bridge.test-support.ts` and
+ * the shared walk excludes it: one gate scanned `bridge/fixture/call-plane/bridge.test-support.ts` and
  * the timer gate beside it did not, and nothing reported the difference.
  */
 const CONSOLE_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules();
 
 /** The two modules that hold the rule, written as paths so a move is reviewable. */
 const CHOKEPOINT_MODULES: readonly string[] = [
-  "console/store/subject-scoped-state.ts",
-  "console/store/generation-latch.ts",
+  "console/store/subject-scoped/subject-scoped-state.ts",
+  "console/store/read/generation-latch.ts",
 ];
 
 /**
@@ -80,12 +80,18 @@ const CHOKEPOINT_MODULES: readonly string[] = [
  * a question the subject-keyed holder has no view of. Admission is conditional on
  * IMPORTING a chokepoint, asserted below, so a second implementation cannot be
  * admitted by adding its path here.
+ *
+ * Two of these are SUB-MODULE doors inside the store family rather than family
+ * doors, and they are admitted on the same terms and by the same assertion: they
+ * publish the chokepoints' own names to the one sibling directory that reads them.
  */
 const CHOKEPOINT_DOORS: readonly string[] = [
   "console/seats/index.ts",
   "console/seats/session-subject.ts",
   "console/store/index.ts",
-  "console/store/subject-scoped-resource.ts",
+  "console/store/read/index.ts",
+  "console/store/subject-scoped/index.ts",
+  "console/store/subject-scoped/subject-scoped-resource.ts",
 ];
 
 /**
@@ -281,8 +287,8 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
     // — and seeding runs during a render React may throw away, so the pass that
     // opened one is not necessarily a pass anything will ever clean up after.
     for (const module of [
-      "console/frame/session-lifecycle.ts",
-      "console/frame/ui-state-lifecycle.ts",
+      "console/frame/session/session-lifecycle.ts",
+      "console/frame/bindings/ui-state-lifecycle.ts",
     ]) {
       const source = readModule(module);
       expect(source, `${module} no longer holds its resource through the holder`).toContain(

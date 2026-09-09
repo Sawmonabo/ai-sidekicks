@@ -153,7 +153,7 @@ const BASE64_GROUP_BYTES = 3;
  * How wide UTF-8's widest code point is, in bytes.
  *
  * A FACTOR AND NOT A CEILING, which is why it sits beside the two base64 facts above
- * rather than in `core/constants.ts` with the console's bounds. Nothing is checked
+ * rather than in `core/constants/` with the console's bounds. Nothing is checked
  * against it — it is multiplied by, to turn a character cap into the byte length that
  * certainly holds it — and `cap-constant-home.test.ts` draws exactly that line between
  * a bound and a measurement. It was named `UTF8_MAX_…` after the encoding's own word

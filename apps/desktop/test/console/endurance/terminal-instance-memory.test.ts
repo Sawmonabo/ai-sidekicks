@@ -105,7 +105,7 @@ import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scen
 import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
-} from "../../../src/renderer/src/console/core/constants.js";
+} from "../../../src/renderer/src/console/core/constants/terminal-caps.js";
 import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/emulator/renderer-pool.js";
 import {
   ConsoleBudgetRegistry,
@@ -153,7 +153,7 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): ConsoleBudget {
 
 describe("the terminal-instance memory budget row", () => {
   // The ceiling, the unit, and the row's `n/a`-versus-`enforced` consistency are the
-  // budget tier's to hold (`test/console/budget/budgets.test.ts`) and are deliberately
+  // budget tier's to hold (`test/console/budget/budget-registry.test.ts`) and are deliberately
   // not restated here. What only THIS file can say is that it is the harness the row
   // names — so a reading that moves away, or a row flipped back to ungated while this
   // gate keeps running and passing, fails here.

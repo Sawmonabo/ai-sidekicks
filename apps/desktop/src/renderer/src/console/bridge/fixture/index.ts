@@ -9,7 +9,7 @@
 // scenario's frames report, the attention projection, and a scripted settlement. They
 // are named
 // rather than counted, because a plane the fixture learns to answer adds one here in
-// a diff that never reads this header. `fixture-refusal.ts` is separate from the
+// a diff that never reads this header. `call-plane/refusal.ts` is separate from the
 // bridge on purpose and must not be folded back in: both doors raise it and the
 // bridge composes them, so a vocabulary declared in the bridge would close an import
 // cycle. The scripted pane view host is here on the same reading: what it decides is
@@ -18,7 +18,7 @@
 //
 // ONE EDGE INTO THIS DIRECTORY STAYS DEEP, and this is where it says so.
 // `console-bridge.ts` names `ScriptedPaneViewHost` on the contract and reaches it by
-// its own specifier: a door is an edge to every module it re-exports, `fixture-bridge.ts`
+// its own specifier: a door is an edge to every module it re-exports, `call-plane/bridge.ts`
 // imports that contract, and taking this door from the contract would close the cycle
 // `no-circular` fails. The deep specifier is the remedy for that one edge, never a
 // shim and never a wider door.
@@ -27,20 +27,29 @@
 // scenario is written in and the engine that plays one, and `scenarios/` holds the
 // instances. This directory holds only the side that answers.
 //
+// AND IT IS GROUPED BY THE PLANE THAT ANSWERS, one sub-directory each, each module
+// beside its own tests — read the tree for the groups rather than a roster here, on
+// the rule the header above already keeps. NONE of them carries an `index.ts`, and
+// that is measured rather than stylistic: the two the import graph would earn doors
+// for read each other, and a door on either closes a cycle `no-circular` fails, since
+// the served set reads the plane modules that read the port's own answer builders.
+// Every cross-group edge is therefore a deep specifier, which is the remedy
+// `apps/desktop/AGENTS.md` §Module shape records for exactly this shape.
+//
 // A SUB-MODULE DOOR, NOT A SECOND FAMILY DOOR — `growth-values/index.ts` states the
 // rule. `bridge/index.ts` publishes `createFixtureBridge` from the module that
 // DECLARES it, because `console-no-barrel-chain` fails a forward through here.
 //
 // AND ONE NAME IS HELD OFF THIS DOOR ON PURPOSE. `scenarios/workflow-fixture-replies.ts`
-// takes `workflowSubjectNotFound` by its own specifier, `../fixture/fixture-workflow-scope.js`,
+// takes `workflowSubjectNotFound` by its own specifier, `../fixture/workflows/workflow-scope.js`,
 // because reading it through here would close a real cycle: this door reaches
-// `fixture-growth-port.ts`, which reads `fixture-workflow-reads.ts`, which reads
+// `growth/growth-port.ts`, which reads `workflows/workflow-reads.ts`, which reads
 // `scenarios/workflows.ts`, which is composed from that very module. The deep edge is
 // the remedy, exactly as `scenario-runtime/index.ts` records for its own; a wider door
 // would turn `no-circular` red rather than tidy anything.
 
-export { createFixtureBridge } from "./fixture-bridge.js";
+export { createFixtureBridge } from "./call-plane/bridge.js";
 
-export { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-served-operations.js";
+export { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./call-plane/served-operations.js";
 
-export { BASE_STATE_CURSOR } from "./fixture-session-snapshot.js";
+export { BASE_STATE_CURSOR } from "./collaboration/session-snapshot.js";

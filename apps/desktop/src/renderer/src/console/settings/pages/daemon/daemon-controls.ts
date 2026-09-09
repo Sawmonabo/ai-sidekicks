@@ -178,7 +178,7 @@ export interface DaemonControlDispatch {
  * halves. The rendered `inFlight` is what disables the confirmation, but a second
  * press landing in the same frame reads the flag from the render that produced its
  * handler and finds the surface idle — so the key is what actually refuses it, taken
- * synchronously before the call goes out. `store/generation-latch.ts` owns that
+ * synchronously before the call goes out. `store/read/generation-latch.ts` owns that
  * register for the console; a boolean here would be the copy that drifts.
  *
  * The latch is mount-scoped and superseded by its own unmount, so a reply arriving

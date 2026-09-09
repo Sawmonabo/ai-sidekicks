@@ -15,7 +15,7 @@ import {
   settle as settleReactWork,
 } from "../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
-import { politeText } from "../primitives/live-region.test-support.js";
+import { politeText } from "../primitives/announce/live-region.test-support.js";
 import { SidekicksBridgeProvider } from "../bridge/index.js";
 import { SessionAttentionBinding } from "./SessionAttentionBinding.js";
 import { SessionsSurface } from "./SessionsSurface.js";

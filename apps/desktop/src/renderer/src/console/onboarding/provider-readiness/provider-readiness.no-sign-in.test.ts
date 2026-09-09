@@ -27,7 +27,7 @@ import { describe, expect, it } from "vitest";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
-import { withRecordedGrowth } from "../../bridge/fixture/fixture-bridge.growth.test-support.js";
+import { withRecordedGrowth } from "../../bridge/fixture/call-plane/bridge.growth.test-support.js";
 import { ONBOARDING_SCENARIO } from "../../bridge/scenarios/onboarding.js";
 import {
   PROBE_CALL,

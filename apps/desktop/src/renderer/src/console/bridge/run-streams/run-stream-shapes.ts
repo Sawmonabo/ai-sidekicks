@@ -5,9 +5,8 @@
 // they return, the envelope-against-payload session cross-check none of them may
 // skip, the single parse every composed candidate leaves through, and the two
 // refusal constructors that name the beat a reader has to go and find. The two were
-// one file until it passed this package's size ceiling, and the seam they split on
-// is that one changes when an ARM changes and this one changes when the shape of a
-// refusal does.
+// one file until the seam they split on was drawn: one changes when an ARM changes
+// and this one changes when the shape of a refusal does.
 //
 // The two types live HERE rather than beside the arms because the dependency runs
 // one way: every helper below returns a `RunStreamProjection`, so declaring them in

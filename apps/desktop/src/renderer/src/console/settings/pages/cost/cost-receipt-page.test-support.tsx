@@ -116,7 +116,7 @@ export function bridgeServing(receipt: CostReceipt): ConsoleBridge {
  * Let the scheduler's window elapse and the read that follows it settle.
  *
  * The page's read is armed on the fixture's FROZEN clock, because every console read
- * goes through `store/scheduling.ts` — so a case that only drained React's queue
+ * goes through `store/read/refresh-scheduler.ts` — so a case that only drained React's queue
  * would advance nothing and then report the absence of a read it never gave the
  * scheduler a chance to perform. The bridge is a parameter because the clock is the
  * bridge's: there is one frozen clock per scenario and a case driving two would

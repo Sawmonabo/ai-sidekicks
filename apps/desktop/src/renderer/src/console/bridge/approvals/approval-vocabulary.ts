@@ -14,7 +14,7 @@
 // `ApprovalState`, no `ApprovalCategory`, no `RememberedScope`, and no
 // `InvalidationTrigger` — the surface's whole wire column reads FIXTURE for that
 // reason. So these are renderer-local projection contracts on the same terms
-// `store/entities.ts` states for `ConsoleSessionEvent`: the console narrows an
+// `store/entities/entities.ts` states for `ConsoleSessionEvent`: the console narrows an
 // `unknown` reply at one boundary, and the day the contract package registers the
 // real unions this module is deleted rather than reconciled.
 //

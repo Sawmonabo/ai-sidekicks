@@ -3,7 +3,7 @@
 // THE CENSUS BESIDE THE CLAIMS, on this tier's own `barrel-census.ts` /
 // `source-walk-census.ts` shape: `read-triggers.test.ts` states the rule, pins the
 // readings that exist, and plants the controls; this module is the reading. The two
-// split when the file carrying both passed 400 lines.
+// split on the seam between stating a rule and reading the tree it quantifies over.
 //
 // EVERY NAME HERE IS BOUND TO THE MODULE IT CAME FROM, and none is matched as text. A
 // class declaring a field typed by a LOCAL `ConsoleBridge`, or constructing a local
@@ -15,7 +15,7 @@
 //
 // AND A CLASS IS READ TOGETHER WITH WHAT IT EXTENDS. The three repos controllers each
 // declared the scheduler construction, the snapshot, and both trigger members until
-// those six pass-throughs were hoisted onto `store/act-controller-base.ts`; read as
+// those six pass-throughs were hoisted onto `store/act/act-controller-base.ts`; read as
 // bare declarations afterwards, all three would have silently left the gate's subject
 // set while behaving identically. So the walk follows the `extends` chain, bounded at
 // four hops — each link resolved as a BINDING through the same import list, and through
@@ -35,7 +35,7 @@ const READING_MEMBER_NAMES: ReadonlySet<string> = new Set(["snapshot", "readout"
 /**
  * What constructing a scheduler LOOKS like, in the two shapes this console has.
  *
- * A reading either holds a `RefreshScheduler` itself or composes `store/act-controller.ts`,
+ * A reading either holds a `RefreshScheduler` itself or composes `store/act/act-controller.ts`,
  * which holds one for it — the primitive the repos family's three controllers were
  * collapsed into. What this gate is about is that a reading is REFRESHABLE, and one
  * that delegates its scheduler is refreshable in exactly the sense the rule means: it
@@ -63,9 +63,9 @@ const BRIDGE_MODULES: ReadonlySet<string> = new Set([
 
 const SCHEDULER_MODULES: ReadonlySet<string> = new Set([
   "console/store/index",
-  "console/store/scheduling",
-  "console/store/act-controller",
-  "console/store/act-controller-base",
+  "console/store/read/refresh-scheduler",
+  "console/store/act/act-controller",
+  "console/store/act/act-controller-base",
 ]);
 
 /** How far the `extends` walk and the door hop will chase one name before giving up. */

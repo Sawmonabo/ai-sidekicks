@@ -13,7 +13,7 @@
 // Parked in any one of those families it would be a helper a sibling may not import —
 // `console-view-family-isolation` fails that edge — so a second family reaching for it
 // would either copy it or reach around the rule. Here it is a `bridge/` module like
-// `fixture/fixture-bridge.test-support.ts` and `readings/scheduled-read.test-support.ts`,
+// `fixture/call-plane/bridge.test-support.ts` and `readings/scheduled-read.test-support.ts`,
 // which every family above `bridge/` already takes by its own specifier.
 //
 // ONE HOME FOR BOTH HALVES, because the two are one act done wrong in two ways. An

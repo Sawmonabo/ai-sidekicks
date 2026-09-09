@@ -13,7 +13,7 @@ import { growthUnavailable, type GrowthPort } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port/growth-port.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { LiveAnnouncer } from "../../primitives/live-announcer.js";
+import { LiveAnnouncer } from "../../primitives/announce/live-announcer.js";
 import type { WorkflowDefinitionRow } from "../definitions/definition-rows.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import { browserUnderAnnouncer, renderBrowser } from "./WorkflowsBrowser.test-support.js";

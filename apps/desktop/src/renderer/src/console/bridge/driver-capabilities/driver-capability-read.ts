@@ -50,7 +50,7 @@
 // control until the window was closed and reopened, and a report that was true when
 // it landed went on gating controls after a driver was installed, upgraded, or
 // removed. So the entry is retained per bridge — one read still serves every family
-// — and refresh goes through `store/scheduling.ts`'s `RefreshScheduler`, on exactly
+// — and refresh goes through `store/read/refresh-scheduler.ts`'s `RefreshScheduler`, on exactly
 // the reasons `Spec-023 §Rules every console surface obeys` names: subscribe, window
 // focus, and reconnect. There is no interval and no retry loop; a refusal is simply
 // re-asked at the next reason, like every other read in this console.

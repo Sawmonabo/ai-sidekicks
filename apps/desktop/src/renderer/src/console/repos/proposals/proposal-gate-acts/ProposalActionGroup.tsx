@@ -157,7 +157,7 @@ export function ProposalActionGroup(props: {
  * approval unrepeatable.
  *
  * WHICH IS THE CONSOLE'S OWN SUBJECT RULE, TAKEN RATHER THAN WRITTEN AGAIN.
- * `store/subject-scoped-state.ts` seeds during the render that first sees a new key,
+ * `store/subject-scoped/subject-scoped-state.ts` seeds during the render that first sees a new key,
  * so no committed frame carries the previous offer's confirmation — an effect would
  * clear it one commit later, and that commit is a frame in which the confirm button
  * for the new offer is on screen and pressable. It also drops a write captured under

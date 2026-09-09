@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 import {
   createFixture,
   subscribeThroughBridge,
-} from "../../../src/renderer/src/console/bridge/fixture/fixture-bridge.test-support.js";
+} from "../../../src/renderer/src/console/bridge/fixture/call-plane/bridge.test-support.js";
 import { CONSOLE_SCENARIOS } from "../../../src/renderer/src/console/bridge/scenarios/index.js";
 import { SESSION_EVENT_STREAM } from "../../../src/renderer/src/console/bridge/daemon/session-event-streams.js";
 import { readConsoleSessionEvent } from "../../../src/renderer/src/console/bridge/daemon/session-event-payload.js";

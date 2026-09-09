@@ -19,17 +19,19 @@
 // reachable, labelled, and focus-visible with no code, and holding no state beside the
 // store for a fact the platform already keeps.
 //
-// THE SETTLEMENT IS ANNOUNCED ONCE, PER GATE. The sentence comes off the reading, so it
-// changes when the arm changes and at no other time, and the component remembers the
-// last one it spoke — a re-render, a parent's re-read that lands on the same arm, and a
-// disclosure toggle all announce nothing. `polite`, always: a gate settling is not a
-// room-wide refusal, which is the only thing `frame/banner-announcements.ts` reserves
-// the interrupting lane for.
-
-import { useEffect, useRef } from "react";
+// THE SETTLEMENT IS ANNOUNCED ONCE, PER GATE, THROUGH THE PRIMITIVE THAT OWNS THAT
+// RULE. The sentence comes off the reading, so it changes when the arm changes and at
+// no other time, and the latch remembers the last one it spoke — a re-render, a
+// parent's re-read that lands on the same arm, and a disclosure toggle all announce
+// nothing. This module wrote its own ref, its own comparison and its own effect for
+// that until `primitives/announce/reading-announcement.ts` was found to hold the same one; the
+// place two copies of a latch drift is the comparison, and a drifted comparison is a
+// sentence a person hears twice with every test still green. `polite`, always, which is
+// what that primitive speaks: a gate settling is not a room-wide refusal, the only
+// thing `frame/composition/banner-announcements.ts` reserves the interrupting lane for.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { RefusalCard, useAnnounce } from "../../primitives/index.js";
+import { RefusalCard, useSettlementAnnouncement } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import type { ProposalState } from "./prepared-proposal.js";
 import { ProposalGate } from "./ProposalGate.js";
@@ -52,7 +54,7 @@ export function ProposalGateDisclosure(props: ProposalGateDisclosureProps): Reac
     props.subject,
     props.sessionStore,
   );
-  useAnnounceOnce(reading.settlement);
+  useSettlementAnnouncement(reading.settlement);
   return (
     <details className="meridian-root-gate">
       <summary className="meridian-root-gate__summary">
@@ -134,23 +136,4 @@ function armSummaryLine(state: ProposalGateState): string {
     case "refused":
       return "refused";
   }
-}
-
-/**
- * Say a sentence the first time it is true, and not again.
- *
- * A ref rather than state: announcing is a side effect and remembering what was said
- * must not itself cause a render, or the surface would re-render once per announcement
- * for a value nothing draws.
- */
-function useAnnounceOnce(sentence: string | undefined): void {
-  const announce = useAnnounce();
-  const lastSpoken = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (sentence === undefined || sentence === lastSpoken.current) {
-      return;
-    }
-    lastSpoken.current = sentence;
-    announce(sentence, "polite");
-  }, [announce, sentence]);
 }

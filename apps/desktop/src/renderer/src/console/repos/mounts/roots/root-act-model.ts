@@ -33,7 +33,7 @@
 // branch that has one, which the daemon meets as an implicit collision.
 //
 // TYPE-ONLY, SO THIS MODULE IS STILL PURE. The reading's four states are declared in
-// `store/act-reading.ts` and named here as a type; nothing below reaches a controller,
+// `store/act/act-reading.ts` and named here as a type; nothing below reaches a controller,
 // a bridge, or a lifetime.
 
 import { WORKTREE_GIT_REF_MAX_LEN, type WorktreeReuseCheckResponse } from "@ai-sidekicks/contracts";

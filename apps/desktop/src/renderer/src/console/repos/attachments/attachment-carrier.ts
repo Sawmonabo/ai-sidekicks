@@ -24,7 +24,7 @@
 // the next outstanding deadline rather than repeating, it is cancelled by the next
 // progress, settlement, abandonment, or disposal, and it READS NOTHING — it re-stamps
 // the entries the ledger already published, so it is not a refresh and does not belong
-// to `store/scheduling.ts`. There is still no interval here, and there can be none.
+// to `store/read/refresh-scheduler.ts`. There is still no interval here, and there can be none.
 //
 // THE LOCAL ID IS THE CARRIER'S, NOT THE FILE'S. Two files chosen in one picker can
 // carry one name, and the ledger is keyed by local id — so a carrier that keyed on

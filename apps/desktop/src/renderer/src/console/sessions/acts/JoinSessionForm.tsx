@@ -22,7 +22,7 @@
 // or left the sessions destination would yank them into a workspace they are no
 // longer asking for. Nothing behind the bridge is cancellable, so the call is not
 // stopped — the CONTINUATION is retired, through the mount-scoped generation latch
-// `store/generation-latch.ts` owns. The act's own settlement still installs (it is
+// `store/read/generation-latch.ts` owns. The act's own settlement still installs (it is
 // held on the bridge and survives the mount); only the navigation is dropped.
 //
 // AND IT IS NEVER RETIRED BY A SECOND PRESS. The claim is taken with `claim`, which
@@ -71,7 +71,7 @@ export function JoinSessionForm(props: JoinSessionFormProps): React.JSX.Element 
   // console's one rule for state addressed by a subject: a `useState` initializer
   // closing over the bridge stays bound to the one the window closed when the bridge
   // or the scenario moved, and the form would then put its next join through a
-  // transport nothing is listening on. `store/subject-scoped-state.ts` is the one
+  // transport nothing is listening on. `store/subject-scoped/subject-scoped-state.ts` is the one
   // holder for that, so this act is re-minted during the render that first sees a new
   // bridge and never one commit later.
   const join = useSubjectScopedState(
