@@ -1,8 +1,8 @@
 // Which console surface each growth-slate row is waited on BY — the ledger's other half.
 //
 // SPLIT OFF `growth-slate.ts` BY CONSUMER, WHICH IS NOT A SPLIT BY SIZE. The rule that
-// data tables are never split for size is untouched here: what separates these sixty
-// sentences from the sixty beside them is who reads them. `wire` is read at run time —
+// data tables are never split for size is untouched here: what separates these
+// sixty-two sentences from the sixty-two beside them is who reads them. `wire` is read at run time —
 // `growth-refusals.ts` composes the sentence a person sees out of it — and
 // `owningDocument` travels on every growth refusal's ledger. Nothing in a running
 // console has ever read `consumingSurface`: it is written for a reader of

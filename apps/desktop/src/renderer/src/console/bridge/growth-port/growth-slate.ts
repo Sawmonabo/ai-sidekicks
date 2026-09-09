@@ -24,7 +24,7 @@
 // person sees when an operation refuses, `owningDocument` travels on that refusal's
 // ledger, and `wireRegistered` is the gate two ledger cards read. Which surface waits
 // on a row is read by no shipped module at all, and this table is on the initial
-// import graph — so those sixty sentences are next door, where the bundler leaves them
+// import graph — so those sixty-two sentences are next door, where the bundler leaves them
 // off the document every session downloads.
 
 import type { GrowthSlateRow, GrowthSlateRowId } from "./growth-slate-row.js";
