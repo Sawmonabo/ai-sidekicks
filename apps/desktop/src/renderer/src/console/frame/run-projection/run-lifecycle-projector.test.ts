@@ -20,6 +20,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SCENARIOS } from "../../bridge/scenarios/index.js";
+import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 import type { ConsoleScenario } from "../../bridge/scenario-runtime/scenario.js";
 import { SessionStore, type ConsoleSessionEvent, type SessionSnapshot } from "../../store/index.js";
 import {
@@ -211,9 +212,6 @@ describe("the flagship scenario's run, folded", () => {
     expect(run?.attributedTo).toBe(queued.actorId);
   });
 });
-
-/** The session every synthetic beat below is delivered on. */
-const SYNTHETIC_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
 
 /**
  * One synthetic run beat, so a case can drive a payload no scenario scripts.

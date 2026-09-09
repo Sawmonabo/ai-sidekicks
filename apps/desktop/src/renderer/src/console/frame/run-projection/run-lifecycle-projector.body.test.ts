@@ -31,9 +31,7 @@ import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import type { ConsoleEntity } from "../../store/entities/entities.js";
 import { stampedExecutionPostureOf } from "../../bridge/daemon/entity-body-reads.js";
 import { RUN_LIFECYCLE_PROJECTORS, projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
-
-/** The session every synthetic event below is attributed to. */
-const SYNTHETIC_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
+import { SYNTHETIC_SESSION_ID } from "./run-lifecycle-projector.test-support.js";
 
 /**
  * A posture in the contract's own shape, annotated so the compiler holds the
