@@ -290,7 +290,7 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
 /**
  * The height a bounded enumeration scrolls past, in rem.
  *
- * The row ceiling is a BOUND and lives in `core/constants.ts` with the console's
+ * The row ceiling is a BOUND and lives in `core/constants/palette-caps.ts` with the console's
  * other bounds; the row height is a consequence of the type and space scales and
  * lives here. This is their product, computed where the two meet, so a stylesheet
  * writes `max-height: var(--meridian-enumeration-max-height)` and never multiplies.

@@ -19,11 +19,11 @@
 //
 // SO IT IS A SCHEDULED READ LIKE EVERY OTHER ONE. It declares
 // `ReadTriggerTarget` and takes the window's three triggers through
-// `store/read-triggers.ts` — mount, focus, reconnect — and neither of the
+// `store/read/read-triggers.ts` — mount, focus, reconnect — and neither of the
 // session-scoped two: this asks who the CALLER is, and no event in a session's own
-// timeline answers that. Every trigger reaches `store/scheduling.ts`, so the burst a
+// timeline answers that. Every trigger reaches `store/read/refresh-scheduler.ts`, so the burst a
 // returning window produces costs one call, and every reply is measured against
-// `store/generation-latch.ts`, so two answers landing out of order install in the
+// `store/read/generation-latch.ts`, so two answers landing out of order install in the
 // order they were TAKEN rather than the order they arrived.
 //
 // AND THE WINDOW'S TRIGGERS ARE THE SAME ONES THE SET BEHIND IT TAKES, which is what

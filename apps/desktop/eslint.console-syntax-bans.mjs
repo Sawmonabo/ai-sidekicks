@@ -155,7 +155,7 @@ export const consoleSyntaxBans = [
           // The NAMED form, INVERTED. This arm used to key on the argument's NAME being
           // stamp-shaped — `…At` or `…Iso` — and justified itself with "the corpus spells
           // every wire instant that way". The console's own figure chokepoint refutes it:
-          // `formatClockTime(iso: string)` in `primitives/wire-figures.ts` carries a wire
+          // `formatClockTime(iso: string)` in `primitives/figures/wire-figures.ts` carries a wire
           // stamp under a lower-case name, and `new Date(iso)` there passed the check.
           // A premise a live call site in the same tree contradicts is not a convention.
           //

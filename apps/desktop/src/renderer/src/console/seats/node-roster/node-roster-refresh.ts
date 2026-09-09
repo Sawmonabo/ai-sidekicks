@@ -7,7 +7,7 @@
 //
 // THE ROSTER'S REFRESH WAS THE ONE THAT DID NOT GO THROUGH THE CHOKEPOINT.
 // `apps/desktop/AGENTS.md` §Chokepoints: "every refresh goes through
-// `console/store/scheduling.ts`". The absorbed roster re-read straight off the push —
+// `console/store/read/refresh-scheduler.ts`". The absorbed roster re-read straight off the push —
 // one `runtimenode.roster` per delivered `runtime_node.*` frame, and a node
 // registering, declaring a capability and coming online inside one advance cost three
 // reads of an answer that only the last of them was going to render. So the pushes,
@@ -25,7 +25,7 @@
 // ONE PER `(seam, session)`, AND ITS LIFETIME IS THE SUBSCRIPTION'S. A coordinator is
 // minted when a roster subscribes for a session and disposed when the last one
 // releases, so a scheduler can never stay armed behind a surface nobody is rendering —
-// the terminal-`dispose()` discipline `store/scheduling.ts` states, applied at the
+// the terminal-`dispose()` discipline `store/read/refresh-scheduler.ts` states, applied at the
 // only boundary this seam has.
 
 import type { ConsoleClock } from "../../core/index.js";

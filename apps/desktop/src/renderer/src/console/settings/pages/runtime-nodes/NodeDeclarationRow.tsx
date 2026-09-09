@@ -10,7 +10,7 @@
 //
 // BOTH ARRIVE THROUGH A SHIPPED COMPONENT RATHER THAN A LOCAL RENDER. `CapabilityDeclaration`
 // and `MixedVersionStatus` are Plan-003's, shipped and unmounted since Tier 1, and the
-// console absorbs them by import through `seats/absorbed-surfaces.ts` exactly as it
+// console absorbs them by import through `seats/surface/absorbed-surfaces.ts` exactly as it
 // absorbs the roster itself. Formatting a capability value here would be a second
 // implementation of a formatter that already handles the values `JSON.stringify`
 // refuses — and deriving a floor verdict here is what that component's own header

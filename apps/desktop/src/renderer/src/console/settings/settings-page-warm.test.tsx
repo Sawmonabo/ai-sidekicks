@@ -1,6 +1,6 @@
 // The settings mount arms one walk over its own board, and releases it with itself.
 //
-// The claim here is the LIFETIME rather than the walking, which `seats/lazy-body-warm.test.ts`
+// The claim here is the LIFETIME rather than the walking, which `seats/lazy-body/lazy-body-warm.test.ts`
 // already holds, and rather than the wiring, which `SettingsSurface.page-warm.test.tsx`
 // holds through the surface. What can go wrong in a binding is a walk that starts again on
 // every render, one still re-arming against a board whose surface has unmounted — the leak

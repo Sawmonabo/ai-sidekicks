@@ -11,7 +11,7 @@
 // is itself an ENTRY, because the `console-unit` include glob claims it. So one
 // source-text suite made every module under `console/` reachable from an entry, and the
 // gate that reports orphans went silent for the whole family tree. `repos/` had the same
-// hole from `repos/tripwire-sites.test.ts`, and two of the legacy renderer families had it
+// hole from `test/console/architecture/repos-tripwire-sites.test.ts`, and two of the legacy renderer families had it
 // too, measured the same way — a `.ts` orphan planted under `runtime-node-attach/` and a
 // `.tsx` one under `session-members/` were each reported by nothing. All three were
 // settled rather than exempted: two suites narrowed to the single file each read by key,

@@ -12,7 +12,7 @@
 // otherwise have used it.
 //
 // WHAT IS NOT HERE. How a chord is PRINTED and SPOKEN lives in
-// `primitives/chord-format.ts`. A keycap is a renderer's concern and primitives
+// `primitives/chord/chord-format.ts`. A keycap is a renderer's concern and primitives
 // are below palette in the console's import graph, so keeping the tables here
 // forced `ChordHint` to reach up into this family for its vocabulary. The one
 // symbol that has to be shared is imported below, and it is shared rather than

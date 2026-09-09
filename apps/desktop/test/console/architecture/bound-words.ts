@@ -24,7 +24,7 @@
 //
 //   `CAP`, `THRESHOLD`, `LIMIT`, `MAX` — the four the suffix census shipped with,
 //   carried over verbatim. `CAP` is witnessed sixteen times in
-//   `console/core/constants.ts`.
+//   `console/core/constants/`.
 //
 //   `MAXIMUM` — a separate entry and not a prefix of `MAX`, because the match is by
 //   token: `MAXIMUM_LIVE_DRAFT_COUNT` splits to `MAXIMUM`, which `MAX` does not

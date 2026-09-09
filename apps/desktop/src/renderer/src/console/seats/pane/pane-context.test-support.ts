@@ -14,7 +14,7 @@
 // get it: that binding is what turned every hand-written copy into a silent fork.
 //
 // THE ADDRESS IS THE PARAMETER, and the bindings are the rest. That split is the
-// address union's own: `seats/pane-address.ts` makes a session-scoped kind carry no
+// address union's own: `seats/pane/pane-address.ts` makes a session-scoped kind carry no
 // `entity` member, an entity-keyed kind require one, and an entity-optional kind
 // admit either — three shapes a caller states and a helper cannot guess. Passing the
 // address through as written keeps that refusal at the call site: an `inspector`
@@ -24,7 +24,7 @@
 // AND IT LIVES IN `seats/` because the suites that mount a pane are in VIEW families
 // — runs, approvals, inspector, browser, terminal — and a sibling may not import a
 // sibling. `console-view-family-isolation` says where a contract those siblings
-// share belongs, and this is the contract `seats/pane-registry.ts` declares: a
+// share belongs, and this is the contract `seats/pane/pane-registry.ts` declares: a
 // builder for `ConsolePaneContext` beside the type it builds.
 
 import { type ConsoleBridge } from "../../bridge/index.js";

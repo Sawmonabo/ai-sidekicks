@@ -11,7 +11,7 @@
 // too many cost a person two sessions and gave them one.
 //
 // SO THE ACT TAKES A KEY, AND THE KEY IS THE CONSOLE'S ONE REGISTER.
-// `store/generation-latch.ts` owns it. A boolean here would be the copy that drifts,
+// `store/read/generation-latch.ts` owns it. A boolean here would be the copy that drifts,
 // and — the reason the register exists at all — a rendered boolean cannot refuse the
 // second press in the first press's own frame: the handler reads the flag from the
 // render that produced it, so both presses find the surface idle. `claim` decides and
@@ -31,7 +31,7 @@
 // AND WHERE NOTHING IS DISPATCHED, NOTHING IS HELD. Under the fixture the probe's
 // guard renders an absence and puts no call, so there is no act to single-flight and
 // no settlement will ever arrive; a slot taken there would never come back. The
-// caller passes `seats/absorbed-surfaces.ts`' own predicate rather than re-deriving
+// caller passes `seats/surface/absorbed-surfaces.ts`' own predicate rather than re-deriving
 // it, and this hook is a no-op that always admits.
 
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -42,7 +42,7 @@ import { useGenerationLatch, type GenerationClaim } from "../../store/index.js";
  * The one act this destination has in flight per bridge: creating a session.
  *
  * A key inside the bridge's own key space rather than an identity, per
- * `store/generation-latch.ts`: one window creates one session at a time.
+ * `store/read/generation-latch.ts`: one window creates one session at a time.
  */
 const SESSION_CREATE_KEY = "session-create";
 
@@ -70,7 +70,7 @@ export interface SessionStartFlight {
  * Hold one session-create slot for the life of a mount.
  *
  * `putsTheCall` is the caller's answer to whether the mount it drives dispatches
- * anything in this window — `seats/absorbed-surfaces.ts` owns that condition — and a
+ * anything in this window — `seats/surface/absorbed-surfaces.ts` owns that condition — and a
  * `false` makes every press admissible and holds nothing, because a slot released by
  * a settlement that will never arrive is a control that dies on its first press.
  */

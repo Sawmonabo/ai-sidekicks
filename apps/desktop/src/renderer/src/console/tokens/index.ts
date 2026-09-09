@@ -23,7 +23,7 @@
 // and the family would stop being readable by the tooling that validates it. The
 // one part of the token story that DOES touch a document — installing the
 // generated sheet and setting the scheme attribute — lives in
-// `frame/token-installation.ts`, where mounting already happens.
+// `frame/bindings/token-installation.ts`, where mounting already happens.
 
 // WHAT THE DOOR DOES NOT PUBLISH. A token nothing above this family renders with
 // is not a door symbol, whatever its module: `CONSOLE_SCHEMES` is the closed pair
@@ -56,7 +56,7 @@ export type { GlyphName } from "./glyphs.js";
 // The icon scale — all four steps, because all four are SPENT by surfaces that render
 // a glyph at a named density and have no business knowing which module holds the
 // faces. The default is here with the other three now that `seats/ConsolePaneChrome`
-// draws a pane's kind mark at it; it had been withheld while `primitives/Glyph.tsx`
+// draws a pane's kind mark at it; it had been withheld while `primitives/figures/Glyph.tsx`
 // was its only reader, and a door that publishes three steps of a four-step scale
 // makes the fourth look like a private detail rather than the standalone size.
 //

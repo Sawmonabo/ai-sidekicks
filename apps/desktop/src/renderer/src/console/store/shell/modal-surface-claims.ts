@@ -28,7 +28,7 @@
 //
 // IT PUBLISHES THROUGH A CALLBACK AND HOLDS NO STORE. The register is what the store
 // owns rather than the other way round, so this module names no store type and there
-// is no edge back from `store/frame-store.ts`'s dependents into it. The comparison
+// is no edge back from `store/shell/frame-store.ts`'s dependents into it. The comparison
 // that keeps an unchanged value from re-rendering the window stays where the cell is.
 
 /**

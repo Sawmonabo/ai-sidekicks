@@ -93,7 +93,7 @@ export interface SessionStartSettlement {
  */
 export function settleSessionStart(settlement: SessionStartSettlement): void {
   const { bridge, sessionStoreRegistry, openSession, sessionId } = settlement;
-  // The disposed check is the remount window `frame/session-lifecycle.ts` names:
+  // The disposed check is the remount window `frame/session/session-lifecycle.ts` names:
   // `open` is the one registry call that raises rather than returning a refusal, and
   // a settlement landing after this window's registry was replaced must not take the
   // rest of the act with it. Nothing is lost by skipping it — a disposed registry

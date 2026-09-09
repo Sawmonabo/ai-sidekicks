@@ -18,7 +18,7 @@
 // answers with its root on the same reply. Both are settlements a person reads, and a
 // dialog that closed on the press would report the refusal as a success.
 //
-// EVERYTHING ELSE IS `store/act-controller-base.ts`'S, on the attach controller's note:
+// EVERYTHING ELSE IS `store/act/act-controller-base.ts`'S, on the attach controller's note:
 // the scheduler, the triggers, the arms, the single-flight guard, the disposed latch,
 // and the six members a surface reads them by were written three times in this
 // directory and are now written once.

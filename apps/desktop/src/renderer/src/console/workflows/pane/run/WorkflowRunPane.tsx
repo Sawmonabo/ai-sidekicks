@@ -26,7 +26,7 @@
 // window are the DECK's acts, they reach the chrome through the host context the deck
 // provides, and the honest rendering of a control whose act nobody can perform is to
 // leave it out rather than draw it disabled. Neither kind in this family is
-// detachable either — `seats/pane-kinds.ts` derives that from the window model's own
+// detachable either — `seats/pane/pane-kinds.ts` derives that from the window model's own
 // closed set — so no handler is threaded here on any arm.
 //
 // THREE ABSENCES, AND THEY ARE THREE BECAUSE THE NEXT MOVE DIFFERS FOR EACH.
@@ -78,7 +78,7 @@
 // `workflow-definition` addressed here had its id carried into the run read and
 // whatever came back — the port's refusal, or a snapshot — was shown under an address
 // that never named a run. `ConsolePaneAddress` is a kind-scoped union now
-// (`seats/pane-address.ts`), which makes that address unconstructible by code in this
+// (`seats/pane/pane-address.ts`), which makes that address unconstructible by code in this
 // process; the guard below is the FAIL-CLOSED PROJECTION of that type and does not go
 // away with it, because a pane address is also PARSED — out of a persisted layout an
 // older build wrote, and out of a route — and a parsed value is data rather than a

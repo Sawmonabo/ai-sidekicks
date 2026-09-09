@@ -143,7 +143,7 @@ export interface BridgeUnderTest {
  * Replace one bridge's `daemon.call` with an arm this suite decides the answer for.
  *
  * A spread over a REAL bridge, which is the console's established shape for driving
- * one namespace member (`palette/bridge-commands.test.tsx`). That the rest is real is
+ * one namespace member (`palette/commands/bridge-commands.test.tsx`). That the rest is real is
  * the point: a surface reaches the wire through `bridge.sidekicks.daemon.call` and
  * nothing else, so a case passing against a hand-built object would not have proved
  * it reached a bridge at all.

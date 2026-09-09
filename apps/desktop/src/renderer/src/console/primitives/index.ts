@@ -110,8 +110,8 @@ export {
 // The surface-scale absence wrapper. In this family rather than in `frame/` because
 // it is a presentational shell with no family of its own — a centred measure, a body
 // slot, and one hint — and because both of its producers now sit BELOW the frame:
-// `frame/RouteSurface.tsx` reaches down to it like any other consumer, and
-// `seats/absorbed-surfaces.ts` could not have reached up at all.
+// `frame/composition/RouteSurface.tsx` reaches down to it like any other consumer, and
+// `seats/surface/absorbed-surfaces.ts` could not have reached up at all.
 export { SurfaceAbsence } from "./SurfaceAbsence.js";
 
 // The console's ONE live announcer. Through this door rather than deep-imported,
@@ -229,7 +229,7 @@ export {
   WindowAbsences,
 } from "./absence/WindowAbsences.js";
 
-// No marker: `InlineRefusal` has its consumers — `seats/ConsolePaneChrome.tsx`, whose
+// No marker: `InlineRefusal` has its consumers — `seats/pane/ConsolePaneChrome.tsx`, whose
 // kind-narrowing adapter renders it where a pane body was mounted at another kind's
 // address, and the composer, sidebar, runs, approvals, inspector, settings,
 // collaboration, sessions, and agents surfaces, which render a row-scoped refusal
@@ -275,7 +275,7 @@ export {
 //
 // THREE SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
 // lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
-// `repos/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
+// `primitives/restore/WindowedRestorePathList.tsx` — and both compose the row, the hook,
 // and the one type a delegating row's renderer hands its child: the row's own props
 // type is inferred from the element, the two ARIA marker names are written by the row
 // rather than by its caller, and the index arithmetic is what the hook returns. The
@@ -328,7 +328,7 @@ export type {
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
 // Neither name carries a marker any more: `WireFigure` is rendered by
-// `frame/ContextPicker.tsx` and the `WireChoiceList` beside it, and `DerivedFigure`
+// `frame/composition/ContextPicker.tsx` and the `WireChoiceList` beside it, and `DerivedFigure`
 // by the runs, approvals, and inspector panes, so a surviving tag would be the half
 // of the marker an importing change owed and did not pay — which
 // `--treat-tag-hints-as-errors` reports.

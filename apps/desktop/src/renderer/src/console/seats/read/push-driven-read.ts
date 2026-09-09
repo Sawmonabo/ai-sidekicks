@@ -14,7 +14,7 @@
 //   2. **The signal is opaque.** A push carries no state. It is answered with a
 //      fresh read, so the surface holds no second copy of the publisher's model and
 //      cannot drift from it.
-//   3. **One read per burst.** Every refresh goes through `store/scheduling.ts`'s
+//   3. **One read per burst.** Every refresh goes through `store/read/refresh-scheduler.ts`'s
 //      `RefreshScheduler`, the console's refresh chokepoint — trailing debounce with
 //      an absolute deadline, so a continuous stream still gets a read.
 //   4. **No stale reply wins.** The scheduler serializes: a read requested while one

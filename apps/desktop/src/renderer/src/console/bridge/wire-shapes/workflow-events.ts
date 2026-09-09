@@ -19,7 +19,7 @@
 //
 // A KIND SET IS SAFE TO ARM EARLY AND A PAYLOAD SHAPE IS NOT. What this module
 // declares is a set of strings compared against the `kind` of frames the session store
-// already holds — `store/refresh-triggers.ts` types the declared set as
+// already holds — `store/read/refresh-triggers.ts` types the declared set as
 // `ReadonlySet<string>` for exactly this reason, since a projected frame's kind is
 // whatever the wire sent. A kind no daemon emits therefore never matches and the
 // reading simply refreshes on its other triggers; the day the registration lands it

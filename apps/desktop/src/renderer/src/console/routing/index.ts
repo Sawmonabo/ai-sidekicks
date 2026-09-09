@@ -2,7 +2,7 @@
 //
 // Routing sits BELOW both `store/` and `frame/` in the console's family DAG, and
 // that placement is the point rather than an arrangement. It used to live in
-// `frame/`, which meant `store/frame-store.ts` imported `frame/routes.js` while
+// `frame/`, which meant `store/shell/frame-store.ts` imported `frame/routes.js` while
 // three `frame/` modules imported `FrameStore` back — a family-level cycle that
 // happened to work because bundlers tolerate it, and that any later family could
 // have closed into a real one.

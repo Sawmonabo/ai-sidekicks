@@ -24,11 +24,11 @@
 // no other time, and the latch remembers the last one it spoke — a re-render, a
 // parent's re-read that lands on the same arm, and a disclosure toggle all announce
 // nothing. This module wrote its own ref, its own comparison and its own effect for
-// that until `primitives/reading-announcement.ts` was found to hold the same one; the
+// that until `primitives/announce/reading-announcement.ts` was found to hold the same one; the
 // place two copies of a latch drift is the comparison, and a drifted comparison is a
 // sentence a person hears twice with every test still green. `polite`, always, which is
 // what that primitive speaks: a gate settling is not a room-wide refusal, the only
-// thing `frame/banner-announcements.ts` reserves the interrupting lane for.
+// thing `frame/composition/banner-announcements.ts` reserves the interrupting lane for.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { RefusalCard, useSettlementAnnouncement } from "../../primitives/index.js";

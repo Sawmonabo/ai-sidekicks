@@ -2,7 +2,7 @@
 // deliberately does NOT do to the rows beside them.
 //
 // `membership.update` is a write this console puts THROUGH the daemon rather than one
-// that terminates in it, and `store/shell-mutation-block.ts` is where the console
+// that terminates in it, and `store/shell/shell-mutation-block.ts` is where the console
 // registers that it is a write at all. This suite is the consequence of that
 // registration reaching the screen: every row's controls close while the runtime is
 // not serving, the cause is said once above everything under the heading, and the

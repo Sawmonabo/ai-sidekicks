@@ -84,7 +84,7 @@ export interface SidebarSectionContext {
    * This window's own store, for the one question a section cannot answer from the
    * session's: whether a mutating call can leave the machine at all.
    *
-   * `store/shell-state.ts` says why the value lives where it does — "a view family
+   * `store/shell/shell-state.ts` says why the value lives where it does — "a view family
    * reads it to disable a control it is about to offer" — and this is the seat that
    * makes that reachable from a section, which holds a SESSION store and a bridge and
    * neither of those knows the supervisor's condition. Handed down rather than

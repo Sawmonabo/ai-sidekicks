@@ -11,7 +11,7 @@
 // The tests below are written against the property that failure violated — one
 // decoding, reachable from both renderings — rather than against the one string that
 // was wrong. Its other half, that the palette's CONFLICT comparator decodes by the
-// same function, is asserted in `palette/chord-decoding.test.ts`, which is where
+// same function, is asserted in `palette/keybindings/chord-decoding.test.ts`, which is where
 // the comparator lives.
 
 import { describe, expect, it } from "vitest";

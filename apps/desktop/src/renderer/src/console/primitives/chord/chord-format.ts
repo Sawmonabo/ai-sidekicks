@@ -2,7 +2,7 @@
 //
 // WHY THIS LIVES IN `primitives/` AND NOT IN `palette/`
 //
-// It was in `palette/keybindings.ts`, beside the table that installs bindings,
+// It was in `palette/keybindings/keybindings.ts`, beside the table that installs bindings,
 // and that placement inverted the console's import DAG: `ChordHint` is a
 // primitive, primitives are below palette, and the primitive was reaching UP into
 // palette for its vocabulary. The two concerns are genuinely separate — one
@@ -10,7 +10,7 @@
 // like on a keycap — and only the second is what a renderer needs. Rendering is
 // the leafier half, so it moved down rather than the table moving up.
 //
-// `palette/keybindings.ts` still imports one symbol from here,
+// `palette/keybindings/keybindings.ts` still imports one symbol from here,
 // `decodeChordKeyToken`, because its conflict comparator and this file's printer
 // have to agree that `k`, `K`, and `KeyK` are one keystroke. That is the correct
 // direction (palette → primitives) and it is deliberate that the SHARED half is

@@ -163,7 +163,7 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
   // The scope is a settlement like the two reads below it, and it is announced through
   // the same latch: keyed on the session id's own identity, so a move to a different
   // session speaks and a re-render of the same one is silent. Polite, never assertive
-  // — `frame/banner-announcements.ts` reserves the loud lane for a refusal that changed
+  // — `frame/composition/banner-announcements.ts` reserves the loud lane for a refusal that changed
   // what the whole room can do, and this is a surface describing its own subject.
   useReadSettlementAnnouncement(
     sessionId,

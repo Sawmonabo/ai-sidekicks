@@ -1,6 +1,6 @@
 // The window arms both walks after its first frame, and releases them with itself.
 //
-// The claim is the LIFETIME rather than the walking, which `seats/lazy-body-warm.test.ts`
+// The claim is the LIFETIME rather than the walking, which `seats/lazy-body/lazy-body-warm.test.ts`
 // already holds. What can go wrong here is a walk that never starts (an effect that
 // closed over a stale board), a walk that starts twice (a frame that re-rendered and
 // rebuilt the pair), and — the one that leaves no trace until an auxiliary window closes

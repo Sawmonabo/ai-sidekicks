@@ -318,7 +318,7 @@ function subjectSurviving(
  * Build the view and let it read.
  *
  * Constructed in a memo and STARTED in an effect, the split
- * `frame/session-lifecycle.ts` states one level up: building it owns nothing — no
+ * `frame/session/session-lifecycle.ts` states one level up: building it owns nothing — no
  * timer, no subscription, no call in flight — and the read is the side effect that
  * must not happen during render, so a memo React discards costs a discarded object
  * and no request.
@@ -349,7 +349,7 @@ export function useSidekickRegistryView(bridge: ConsoleBridge): {
  * Say what this read settled on, through the console's one settlement announcer.
  *
  * COMPOSES A SENTENCE AND GUARDS NOTHING. The repetition rule belongs to
- * `primitives/settlement-announcement.ts` and is keyed on the SENTENCE, which is
+ * `primitives/announce/settlement-announcement.ts` and is keyed on the SENTENCE, which is
  * the only key that is correct here: a flag held once for the life of the mount
  * silences everything after the first settlement, so the refusal that follows a
  * re-read — the delete this page performs, then fails to re-list — was never

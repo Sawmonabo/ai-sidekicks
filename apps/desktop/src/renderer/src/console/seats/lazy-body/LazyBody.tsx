@@ -10,7 +10,7 @@
 // THE CONTEXT IS SPREAD AS PROPS, which is the shape both boards' contracts already
 // have. A descriptor's `render` is `(context) => ReactNode`, and that is a function
 // component's signature when the props ARE the context —
-// `frame/pane-harness-instances.ts` already mounts a registered body that way. So a body
+// `frame/pane-harness/pane-harness-instances.ts` already mounts a registered body that way. So a body
 // module's `Body` export is an ordinary component and the loader form introduces no
 // second calling convention. The context is therefore constrained to an object: a spread
 // is only meaningful over one, and both boards' contexts are records already.

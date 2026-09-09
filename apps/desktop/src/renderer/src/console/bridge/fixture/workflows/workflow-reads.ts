@@ -1,6 +1,6 @@
 // What the fixture answers a WORKFLOW read with, and what it refuses to invent.
 //
-// Lifted out of `growth/growth-port.ts` beside `fixture/workflow-scope.ts`, on the
+// Lifted out of `growth/growth-port.ts` beside `bridge/fixture/workflows/workflow-scope.ts`, on the
 // precedent that port set for `fixture/collaboration/session-directory.ts` and
 // `growth/scripted-answer.ts`: the four handlers here and the reasoning that governs
 // them are one unit with one subject, and holding them in the port took it past the
@@ -48,7 +48,7 @@
 // session's workflow data displayed under another session's name, and a parked run
 // returned for a run that is not it — a fixture teaching a surface that the daemon
 // does not scope its answers. The scope check lives beside the port in
-// `fixture/workflow-scope.ts`, which reads it out of the replies themselves.
+// `bridge/fixture/workflows/workflow-scope.ts`, which reads it out of the replies themselves.
 //
 // A scenario answering a snapshot read PER REQUEST needs no such holding, and gets
 // none: `ScenarioReply`'s `resultFor` arm is handed the request, so it picks its own

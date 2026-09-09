@@ -26,7 +26,7 @@
 //     2026-09-04). The `console-unit` tier runs under Node, not under Electron's
 //     V8, so a `Temporal`-based parser would fail the tier that gates every console
 //     PR even where Electron's Chromium carried the API. That is the same
-//     runtime-range finding `primitives/wire-figures.ts` records for
+//     runtime-range finding `primitives/figures/wire-figures.ts` records for
 //     `Intl.DurationFormat`, and it has the same consequence: a guarded two-path
 //     implementation would read one way in CI and another in production, which is
 //     the single outcome a chokepoint exists to prevent.
@@ -90,7 +90,7 @@ const RFC_3339_DATE_TIME =
  * reader can check. One base literal carries the encoding and the rest are arithmetic
  * over it, so a wrong factor is a wrong multiplier and never a wrong magnitude.
  *
- * NOT IN `core/constants.ts`, which holds the console's CAPS — a bound somebody chose,
+ * NOT IN `core/constants/`, which holds the console's CAPS — a bound somebody chose,
  * each with a rationale for the number. These are not chosen: they are what the units
  * are, and they belong beside the reading that makes the millisecond the unit.
  */

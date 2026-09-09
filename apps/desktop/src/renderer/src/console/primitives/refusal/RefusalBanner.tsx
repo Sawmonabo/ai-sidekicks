@@ -39,7 +39,7 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
       className="meridian-refusal meridian-refusal--banner"
       // Not a live region. The banner is inserted already carrying its text, which
       // most screen readers never announce, and the frame announces every raise
-      // through the one `LiveAnnouncer` (`frame/banner-announcements.ts`). A
+      // through the one `LiveAnnouncer` (`frame/composition/banner-announcements.ts`). A
       // `role="status"` here would be a second, unreliable read of the same
       // sentence; the banner stays in the tree as a plain group carrying the code.
       role="group"

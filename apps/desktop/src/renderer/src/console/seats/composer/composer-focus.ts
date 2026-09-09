@@ -1,6 +1,6 @@
 // Asking the composer for the caret, from a surface that is not the composer.
 //
-// `seats/composer-seat.ts` is the contract for what the workspace HANDS the composer
+// `seats/composer/composer-seat.ts` is the contract for what the workspace HANDS the composer
 // on every render. This is the other direction, and it needed its own seam: a surface
 // that tells a person "send a message to an agent and its run appears here" is telling
 // them to do something it cannot help them start, and every remedy inside the console

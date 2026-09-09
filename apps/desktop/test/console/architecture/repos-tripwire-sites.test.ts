@@ -10,7 +10,7 @@
 // THE RULE IS THE CONSOLE-ROOTED PATH, and it is chosen rather than merely picked. A
 // site is read by a person who has a firing in the diagnostic band and wants the file;
 // the console-rooted form is what every architecture gate in this tree already prints
-// (`console/primitives/Chip.tsx`), so a site string and a gate finding name one module
+// (`console/primitives/figures/Chip.tsx`), so a site string and a gate finding name one module
 // the same way. The family-rooted form saves eight characters and makes the reader
 // supply the root from memory.
 //
@@ -39,7 +39,7 @@
 //
 // BOTH EXTENSIONS, because the rule below admits both. The family-scoped glob read `.ts`
 // alone while `CONSOLE_ROOTED_PATH` matched `\.tsx?$`, so a site declared in a component
-// — nothing forbids one, and `console/primitives/Chip.tsx` is the doc's own example of
+// — nothing forbids one, and `console/primitives/figures/Chip.tsx` is the doc's own example of
 // the console-rooted form — was covered by none of the three cases and the suite stayed
 // green. Today's four sites are all in `.ts` modules, so the hole was in the claim rather
 // than in the tree; the planted control below carries a `.tsx` carrier so it cannot come

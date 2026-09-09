@@ -13,10 +13,10 @@
 // AND THE DISPOSAL IS DECLARED ONCE, for every subject-scoped resource in the console
 // that ends the ordinary way and not only for the ones this hook binds. SEVEN modules
 // each carried their own `SubjectScopedDisposal` constant — the three repos act
-// controllers behind this hook, plus `roots/disposal-controller.ts`,
-// `mounts/repo-mounts-binding.ts`, `mounts/execution-context-binding.ts`,
-// `proposals/proposal-gate-binding.ts`, `artifact-pane/use-artifact-reading.ts` and
-// `attachments/attachment-carrier.ts` — naming the same two methods on classes that
+// controllers behind this hook, plus `repos/mounts/roots/disposal-controller.ts`,
+// `repos/mounts/repo-mounts-binding.ts`, `repos/mounts/execution-context-binding.ts`,
+// `repos/proposals/proposal-gate-binding.ts`, `repos/artifact-pane/use-artifact-reading.ts` and
+// `repos/attachments/attachment-carrier.ts` — naming the same two methods on classes that
 // spelled them identically. Counting them is what makes this sentence checkable: what
 // is left in the tree is `frame/` and `browser/`, whose constants call NAMED closers
 // or take the `release` arm, which is a different shape and not a copy of this one.

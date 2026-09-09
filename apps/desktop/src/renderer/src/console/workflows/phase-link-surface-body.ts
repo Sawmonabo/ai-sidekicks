@@ -14,7 +14,7 @@
 // follower of a phase link for rules nothing on this chunk can render against, and would
 // put this family's chrome into the cascade at a moment decided by a bundle boundary.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import { createElement } from "react";
 

@@ -58,7 +58,7 @@ export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
  * nowhere. `knip`'s `ignoreExportsUsedInFile` makes an export whose only reader is its
  * own file invisible to the dead-code gate, so the four sat on unread surface with no
  * gate able to say so. Each literal is written at the single site that mints it now,
- * `satisfies`-checked against the union below for `palette/keybindings.ts`'s stated
+ * `satisfies`-checked against the union below for `palette/keybindings/keybindings.ts`'s stated
  * reason: without the check the closed vocabulary binds nothing, and dropping a member
  * from it would break no code at all.
  */

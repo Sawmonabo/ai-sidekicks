@@ -46,7 +46,7 @@
 // AND WHY THE TRIGGER CONTRACT IS ASSERTED BESIDE THE SCHEDULER. A scheduler nobody
 // can reach is the same defect wearing a better name, so a reading must also DECLARE
 // the two members a trigger set needs — `triggeringEventKinds` and `requestRead` —
-// which is what makes it wireable by `store/read-triggers.ts` rather than by four
+// which is what makes it wireable by `store/read/read-triggers.ts` rather than by four
 // hand-rolled copies of the same effects. TypeScript's `implements` proves the shape
 // where a class writes the clause; this proves the clause is there to write.
 //
@@ -59,7 +59,7 @@
 //
 // THE CONTRACT AND NOT THE WIRING, which is why the three repos readings satisfy this
 // gate without mounting a hook. A reading minted per subject inside a resource seam
-// cannot call one, so `store/refresh-triggers.ts` wires the same policy imperatively
+// cannot call one, so `store/read/refresh-triggers.ts` wires the same policy imperatively
 // — and it wires it by reading these same two members off the reading. Two wirings
 // are honest; two vocabularies would not be, and what this gate holds is the
 // vocabulary.

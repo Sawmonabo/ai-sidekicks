@@ -23,7 +23,7 @@
 //
 // AND THE CREATE IS THE FOURTH, WHICH IT ONCE WAS NOT. The three moves share one
 // receipt shape and one registered payload — `{sessionId, channelId}`, the shape
-// `collaboration/beats.ts`'s own `channel.archived` beat carries — so one derivation
+// `bridge/scenarios/collaboration/beats.ts`'s own `channel.archived` beat carries — so one derivation
 // serves all three, and a create was left out because its own payload is a different
 // shape. What that cost was the whole act: a served create returned its receipt, the
 // form reported success and reset, and the channel appeared in no directory anywhere,
@@ -163,7 +163,7 @@ export class FixtureChannelLifecycle {
       // participant count reach a reader from `channel.list`, never from the creation
       // event, and an unnamed channel OMITS the member rather than carrying it
       // undefined, because `name?` is an absent member on this wire and never a
-      // present empty one. Both are `collaboration/beats.ts`'s own statement about the
+      // present empty one. Both are `bridge/scenarios/collaboration/beats.ts`'s own statement about the
       // beat it writes by hand.
       this.#appendFrame(CHANNEL_CREATED_EVENT_KIND, {
         channelId: outcome.value.channelId,
@@ -209,7 +209,7 @@ export class FixtureChannelLifecycle {
     if (outcome.status === "served") {
       // The payload carries the session and the channel the envelope is about and
       // invents nothing else, because the census registers no payload variant for
-      // these three kinds — the same restraint `collaboration/beats.ts` states for the
+      // these three kinds — the same restraint `bridge/scenarios/collaboration/beats.ts` states for the
       // archival beat it writes by hand.
       this.#appendFrame(move.eventKind, {
         sessionId: this.#engine.scenario.sessionId,
@@ -224,7 +224,7 @@ export class FixtureChannelLifecycle {
    *
    * The identifier line is here rather than in each caller, so the four acts number
    * their frames from one counter and none of them can reuse a position — which
-   * `store/sequence-reconciler.ts` would drop as a duplicate. The actor is the
+   * `store/session/sequence-reconciler.ts` would drop as a duplicate. The actor is the
    * scenario's own viewer where it declares one and absent otherwise, which the
    * envelope composer renders as the system arm rather than as a participant this
    * fixture chose. The PAYLOAD is the caller's, because the four kinds do not share

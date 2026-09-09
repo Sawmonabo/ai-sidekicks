@@ -14,7 +14,7 @@
 // differ only in whether the module was requested again. So every case here counts calls,
 // and the mount case counts them too rather than resting on what appeared.
 //
-// AND THE MOUNT CASE IS SHAPED LIKE THE FRAME. `frame/RouteSurface.tsx` calls
+// AND THE MOUNT CASE IS SHAPED LIKE THE FRAME. `frame/composition/RouteSurface.tsx` calls
 // `descriptor.render(context)` inside its own render body, and that is load-bearing here:
 // the boundary re-renders its own children on a retry, so a child that were a
 // pre-built ELEMENT would be remounted holding whatever component it was created with.

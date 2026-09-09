@@ -9,7 +9,7 @@
 //
 // IT FORMATS NOTHING ITSELF. A `figure` part is a byte-for-byte string the shell sent
 // and goes through `WireFigure` untouched; a `count` part is a quantity and goes
-// through `formatCount`, which is `primitives/wire-figures.ts`' own `Intl` reading and
+// through `formatCount`, which is `primitives/figures/wire-figures.ts`' own `Intl` reading and
 // the only formatter this console has. The exact number rides the element's `title`,
 // which is rule 4's "no formatted figure hides the number the daemon sent" met where a
 // locale's grouping would otherwise be the only thing on screen.

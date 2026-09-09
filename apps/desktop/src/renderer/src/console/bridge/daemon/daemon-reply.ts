@@ -159,7 +159,7 @@ export interface DaemonCallOptions {
  * EXPORTED FOR THE COMPOSED READ, which has `await` boundaries this door cannot see.
  * A read that calls the door, folds the answer, and calls it again has to stop
  * between its own calls, and it already stops this way on the first one:
- * `seats/push-driven-read.ts`'s `servedValueOrRaise` raises exactly this refusal the
+ * `seats/read/push-driven-read.ts`'s `servedValueOrRaise` raises exactly this refusal the
  * moment the door answers with it. A caller settling its later boundaries under a
  * code of its own would give one settlement two names, so it raises this one instead.
  */

@@ -11,8 +11,8 @@
 // AND IT IS NOT A POLL. `Spec-023 §Rules every console surface obeys` puts reads on
 // subscribe, on window focus, on reconnect, and on the terminal events the owning spec
 // names, through one coalescing scheduler — and forbids an interval outright. This
-// module is that policy applied to one run: `store/refresh-triggers.ts` observes the
-// three outside reasons, `store/scheduling.ts` coalesces them, and what comes out is a
+// module is that policy applied to one run: `store/read/refresh-triggers.ts` observes the
+// three outside reasons, `store/read/refresh-scheduler.ts` coalesces them, and what comes out is a
 // ROUND NUMBER the snapshot read is keyed on. No timer is armed here beyond the
 // scheduler's own coalescing window, and a session where nothing happens costs
 // nothing.

@@ -1,6 +1,6 @@
 // The one thing in the console that subscribes to the bridge.
 //
-// `store/hooks.ts` states the rule this module realises: "No component subscribes
+// `store/session/session-hooks.ts` states the rule this module realises: "No component subscribes
 // to the bridge. Components subscribe to a STORE, and exactly one thing subscribes
 // to the bridge — the apply chokepoint." Until this class there was no such thing.
 // `SessionStoreRegistry.enqueue` had no caller anywhere in the tree and nothing
@@ -64,7 +64,7 @@
 //
 // So the observation moved DOWN, onto the door every daemon subscription in the window
 // goes through (`bridge/transport/observed-subscription.ts`, reported into by
-// `bridge/daemon/daemon-streams.ts` and `seats/wire-access.ts` as well as by the open
+// `bridge/daemon/daemon-streams.ts` and `seats/read/wire-access.ts` as well as by the open
 // below). This class reports nothing and subscribes once, for its whole life, to a
 // signal other openers move: the node's provider-account tail coming back is a
 // returning edge, and it is one a window with no bindable session can still observe.

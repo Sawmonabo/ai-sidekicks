@@ -223,7 +223,7 @@ export interface ConsoleScenario {
    * The fact `viewingParticipantId` is useless without. An identity read answers
    * WHICH entry of the roster this window is; every role-gated control then resolves
    * the role by looking that id up in the session's participant projection
-   * (`store/selectors.ts`'s `membershipRoleOf`) — so a scenario that states a viewer
+   * (`store/session/selectors.ts`'s `membershipRoleOf`) — so a scenario that states a viewer
    * and no roles serves a successful identity read into a roster that holds nothing,
    * and every owner- and collaborator-gated control renders closed for a reason
    * nothing checked. That is indistinguishable, on screen, from a member who simply

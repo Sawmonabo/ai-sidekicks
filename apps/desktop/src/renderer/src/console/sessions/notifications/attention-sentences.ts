@@ -50,7 +50,7 @@ export function uncheckedSessionsSentence(refusedCount: number): string {
 /**
  * What the console says aloud about a read that was not the whole of it.
  *
- * The SENTENCES the panel is already showing, read off `primitives/partial-read.ts`
+ * The SENTENCES the panel is already showing, read off `primitives/reading/partial-read.ts`
  * rather than composed again here — which is the whole point of that module: this
  * family wrote its own copy, and a second wording of one number is a disagreement
  * nobody can see from either half. The figure travels with its sentence because "3"

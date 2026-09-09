@@ -8,7 +8,7 @@
 // after the fact, and would have no way to ask for the consent the dirty case needs.
 //
 // THE CHECK IS KEYED ON WHAT WAS TYPED AND IS RE-RUN WHEN IT CHANGES, which is why the
-// branch name is the prerequisite QUESTION `store/act-controller.ts` is scoped to: it
+// branch name is the prerequisite QUESTION `store/act/act-controller.ts` is scoped to: it
 // does not exist until someone types one, a different one abandons the answer in
 // flight, and an emptied field withdraws it rather than leaving a verdict on screen
 // attached to a branch nobody named.

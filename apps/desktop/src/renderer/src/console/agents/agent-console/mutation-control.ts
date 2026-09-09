@@ -23,7 +23,7 @@
 // the roster read's own push signal, exactly as it did before.
 //
 // THE LATCH AND THE ROUND ARE ONE OBJECT, and it is the console's own:
-// `store/generation-latch.ts`. Refusing a second press and discarding a superseded
+// `store/read/generation-latch.ts`. Refusing a second press and discarding a superseded
 // reply are the same question asked at two moments — may this act proceed, and may
 // this settlement install — so one claim answers both. A holder whose subject can
 // move out from under it (the session a grant is about, the projection a reply was
@@ -34,7 +34,7 @@
 // the predicate, and a drifted predicate is a stale value on screen that every test
 // still passes.
 //
-// The refusal translation is `seats/push-driven-read.ts`'s
+// The refusal translation is `seats/read/push-driven-read.ts`'s
 // `consoleRefusalFrom`, which is the family's one converter: a daemon refusal
 // travels through verbatim and anything else becomes a refusal naming the caller.
 // The origin is a constructor argument because this object does not know which

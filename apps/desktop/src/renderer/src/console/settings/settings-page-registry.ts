@@ -17,7 +17,7 @@
 // WHY THE MATCHER IS BORROWED AND NOT WRITTEN
 //
 // "One matcher, `matchSettingsEntries`, is shared with the palette so a term ranks
-// identically in both places." `palette/subsequence-score.ts` IS that matcher, and
+// identically in both places." `palette/commands/subsequence-score.ts` IS that matcher, and
 // its own family door says in terms that settings search reaches for it directly
 // rather than through the palette barrel. What lives here is the ENTRY INDEX — what
 // text a settings entry offers the scorer — and nothing about scoring itself.
@@ -158,7 +158,7 @@ interface SettingsPageRegistrationBase {
  * What a page hands {@link SettingsPageRegistrar.register}, in one of exactly two forms.
  *
  * THE DECK'S AND THE FRAME'S OWN UNION, applied to a rail section, decided by the same
- * product fact and normalised by the same `LoadedLazyBody`. `seats/pane-registry.ts`
+ * product fact and normalised by the same `LoadedLazyBody`. `seats/pane/pane-registry.ts`
  * states the reasoning; what makes it apply here is that a settings page is not painted
  * before a person acts — settings is a destination somebody navigates to, and a section
  * inside it is a second act after that.
@@ -201,7 +201,7 @@ export interface SettingsPageRegistrar {
 }
 
 export class SettingsPageRegistry implements SettingsPageRegistrar {
-  // `"owner-scoped"`, for `seats/surface-registry.ts`'s reason: a hot reload re-runs
+  // `"owner-scoped"`, for `seats/surface/surface-registry.ts`'s reason: a hot reload re-runs
   // the owning lane's module and must replace, while two lanes on one section is a
   // conflict rather than a swap decided by module import order.
   readonly #descriptorsBySection = new KeyedRegistry<SettingsSectionId, SettingsPageDescriptor>({
@@ -275,7 +275,7 @@ export class SettingsPageRegistry implements SettingsPageRegistrar {
    *
    * TWO PRODUCTION CALLERS, which are the two the boards in `seats/` have. The shared
    * section-opening callback calls it before it navigates, so the rail's row and a search
-   * hit warm the same page through one line — `frame/rail-navigation.ts` warms a
+   * hit warm the same page through one line — `frame/composition/rail-navigation.ts` warms a
    * destination at that same moment and for that same reason — and an idle walk covers
    * the board before either of them reaches it.
    *

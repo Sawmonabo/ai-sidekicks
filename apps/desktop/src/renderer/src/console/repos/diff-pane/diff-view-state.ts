@@ -32,7 +32,7 @@
 // IS the subject, and the key within it is `undefined`: one model is one subject
 // entire, with nothing inside it to name.
 //
-// AND THE RULE IS THE CONSOLE'S ONE COPY OF IT. `store/subject-scoped-state.ts`
+// AND THE RULE IS THE CONSOLE'S ONE COPY OF IT. `store/subject-scoped/subject-scoped-state.ts`
 // holds what a subject-scoped value may do — seeded during the render that first
 // sees a new subject, so no committed frame carries the previous one's; and
 // written only by a publisher captured under the subject still on screen, so a

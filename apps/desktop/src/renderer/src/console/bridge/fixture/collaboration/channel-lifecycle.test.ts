@@ -10,7 +10,7 @@
 // directory at all, because the scripted `channel.list` reply carries no row for it.
 //
 // THE SEQUENCE IS THE OTHER HALF, and it is the half a fixture gets wrong quietly.
-// `store/sequence-reconciler.ts` refuses a position at or below its cursor as a
+// `store/session/sequence-reconciler.ts` refuses a position at or below its cursor as a
 // duplicate and records every skipped position as a gap, so a frame numbered above the
 // whole script turns every later beat into a duplicate the store drops, and one that
 // reused a scripted number collides outright. Both are invisible in a green suite that

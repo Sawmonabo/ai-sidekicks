@@ -96,7 +96,7 @@ type SettledDefinitionDetail =
  * What the pane knows about its definition at one moment.
  *
  * Four states and no others; the two unsettled ones come from the shared shape in
- * `store/subject-read-start.ts`, which is the rule every growth read on this seam
+ * `store/read/subject-read-start.ts`, which is the rule every growth read on this seam
  * holds to.
  */
 export type WorkflowDefinitionDetailState = SubjectRead<SettledDefinitionDetail>;

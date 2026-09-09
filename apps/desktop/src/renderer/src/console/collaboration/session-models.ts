@@ -234,7 +234,7 @@ function buildSessionModels(
  *
  * `undefined` for exactly one frame — the one between the render that first names a
  * session and the effect that leases its models — and a section renders that frame as
- * the `not-loaded` kind of nothing, which is what `frame/session-lifecycle.ts` does
+ * the `not-loaded` kind of nothing, which is what `frame/session/session-lifecycle.ts` does
  * with the same gap for the same reason. Acquiring during render to close it is the
  * defect, not the fix: React may abandon a render pass, and an abandoned pass would
  * leave a started subscription with no cleanup to release it.

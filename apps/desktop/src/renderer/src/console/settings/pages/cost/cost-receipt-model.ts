@@ -21,7 +21,7 @@
 //
 // WHY THE FORMATTER IS AN ADAPTER AND NOT AN IMPLEMENTATION
 //
-// `apps/desktop/AGENTS.md` makes `console/primitives/wire-figures.ts` the only
+// `apps/desktop/AGENTS.md` makes `console/primitives/figures/wire-figures.ts` the only
 // module that formats a wire value, and `formatMoney` is its money formatter —
 // minor-unit aware, sub-unit aware, and already tested against six currencies. What
 // it does not know is that this wire counts in CENTS. So the only thing added here

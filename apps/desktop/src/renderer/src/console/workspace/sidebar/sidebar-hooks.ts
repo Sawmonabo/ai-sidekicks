@@ -1,6 +1,6 @@
 // React's view of the sidebar: one subscription, one lifecycle, and nothing else.
 //
-// The pattern is `store/hooks.ts`'s and is followed rather than re-derived — a
+// The pattern is `store/session/session-hooks.ts`'s and is followed rather than re-derived — a
 // component subscribes through `useSyncExternalStore` and never reaches into the
 // state it is reading. What differs is only the source: `SidebarModel` is the
 // sidebar's own state rather than a wire projection, so it has its own emitter

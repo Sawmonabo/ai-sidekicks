@@ -7,7 +7,7 @@
 // waits for an idle callback on top of it.
 //
 // THE WALK IS THE MOUNT'S, NOT THE WINDOW'S, and that is the whole difference from
-// `frame/lazy-body-warm-binding.ts`. The two boards in `seats/` are the window's and are
+// `frame/bindings/lazy-body-warm-binding.ts`. The two boards in `seats/` are the window's and are
 // composed once for it; the page board is composed per settings mount, so its walk is
 // built here, cancelled when this surface unmounts, and never outlives the registry it
 // reads. A second settings window warms its own board and inherits nothing.
@@ -44,7 +44,7 @@ export function useSettingsPageIdleWarm(
   pages: SettingsPageRegistry,
   scheduler: IdleWarmScheduler = idleWarmScheduler(),
 ): void {
-  // PINNED, for `frame/lazy-body-warm-binding.ts`'s measured reason: the default argument
+  // PINNED, for `frame/bindings/lazy-body-warm-binding.ts`'s measured reason: the default argument
   // constructs a scheduler on every render, so naming the parameter in the dependency list
   // would re-run the effect on every pass and start a fresh walk each time.
   const [warmScheduler] = useState(() => scheduler);

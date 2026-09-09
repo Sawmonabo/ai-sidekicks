@@ -37,7 +37,7 @@ import type { OwnerSlotProps } from "../seats/index.js";
  * What this mount is handed: the seat's own pair, plus what this family adds to it.
  *
  * `contract` and `body` are `OwnerSlotProps`' and are not restated — a mount that
- * spelled them again would be a second declaration of the shape `seats/owner-slot.ts`
+ * spelled them again would be a second declaration of the shape `seats/slots/owner-slot.ts`
  * exists to declare once, and it would go on compiling the day that one moved.
  */
 export interface WorkflowSlotMountProps<TMount extends object> extends OwnerSlotProps<

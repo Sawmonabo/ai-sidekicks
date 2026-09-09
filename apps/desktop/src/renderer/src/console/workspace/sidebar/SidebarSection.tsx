@@ -34,7 +34,7 @@ import { type SidebarModel } from "./sidebar-model.js";
 
 /**
  * What each section is called. Total over the closed set, so an id added to
- * `seats/sidebar-sections.ts` fails to compile here until it is named — which is
+ * `seats/slots/sidebar-sections.ts` fails to compile here until it is named — which is
  * how `goal` and `approvals` arrived rather than rendering as blank rows.
  *
  * The order is the seat's order and not this table's: the sidebar iterates

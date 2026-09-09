@@ -18,7 +18,7 @@
 // `artifact-allowlist-and-abort` ("effective allow-list read; ingest abort", owned
 // by Spec-014) precisely because they do not. Minting a `ConsoleArtifact` shape
 // here with the members a card would like would be the console inventing wire
-// members, which `store/entities.ts` names as the lane-4 change Phase 1C forbids.
+// members, which `store/entities/entities.ts` names as the lane-4 change Phase 1C forbids.
 //
 // So each arm carries the identity its body fetches WITH, and the fetch goes
 // through `bridge/growth-port/growth-port.ts`, which refuses by name until the wire lands. The
@@ -140,7 +140,7 @@ export interface ArtifactEntityRef extends ConsoleEntityRef {
  *
  * Carries an entity reference because `artifact` is already one of the console's
  * own entity kinds — the store partitions artifacts, and a second identity
- * vocabulary for the same rows would be the denormalised copy `store/entities.ts`
+ * vocabulary for the same rows would be the denormalised copy `store/entities/entities.ts`
  * refuses. It carries the ARTIFACT-partitioned reference specifically, for the
  * reason on that type.
  */

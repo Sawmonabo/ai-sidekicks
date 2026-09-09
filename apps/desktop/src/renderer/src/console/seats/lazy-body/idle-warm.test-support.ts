@@ -1,7 +1,7 @@
 // A warm scheduler a case drives by hand, for the two suites that drive one.
 //
 // HOISTED ON THE SECOND USE, which is the package's rule: `lazy-body-warm.test.ts`
-// drives the walk directly and `frame/lazy-body-warm-binding.test.tsx` drives it through
+// drives the walk directly and `frame/bindings/lazy-body-warm-binding.test.tsx` drives it through
 // the effect that arms it, and both need the same thing — a scheduler that arms nothing
 // on its own so the case decides when an idle callback happens.
 //

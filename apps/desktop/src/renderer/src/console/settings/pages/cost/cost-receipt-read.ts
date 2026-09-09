@@ -8,7 +8,7 @@
 // and the retained figure beside it would be stamped with the later completion, so
 // the stamp said the stale figure was the fresh one. Nothing on screen reported it.
 //
-// SO THE READ GOES THROUGH `store/scheduling.ts` AND NOTHING ELSE. That scheduler is
+// SO THE READ GOES THROUGH `store/read/refresh-scheduler.ts` AND NOTHING ELSE. That scheduler is
 // the console's one refresh chokepoint — trailing debounce with an absolute deadline
 // so a stream of reasons still gets a read, and SERIALIZED, so a reason raised while
 // a read is in flight becomes the NEXT read rather than a parallel one. Two replies
@@ -16,14 +16,14 @@
 // property is a consequence of routing through the chokepoint, and a counter here
 // would be a second answer to a question the substrate already answers.
 //
-// AND THE SETTLEMENT IS MEASURED AGAINST `store/generation-latch.ts`. Serialization
+// AND THE SETTLEMENT IS MEASURED AGAINST `store/read/generation-latch.ts`. Serialization
 // bounds what this reading can race against ITSELF; it says nothing about a reading
 // whose session moved or whose page unmounted while a call was outstanding. Nothing
 // behind the bridge is cancellable, so a superseded reply is IGNORED rather than
 // stopped — which is exactly what the latch expresses, and it is where the retained
 // figure's instant is read, so the stamp belongs to the read that published.
 //
-// BOTH OF THOSE ARRIVE THROUGH `store/scheduled-reading.ts`, which is the whole of
+// BOTH OF THOSE ARRIVE THROUGH `store/read/scheduled-reading.ts`, which is the whole of
 // what this module no longer writes: the emitter, the scheduler with its `onError`
 // arm, the latch, the disposal flag, and the `snapshot`/`subscribe`/`requestRead`/
 // `dispose` skeleton were hand-written here and in fifteen other readings, with the

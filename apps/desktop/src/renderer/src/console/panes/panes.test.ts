@@ -23,7 +23,7 @@
 //
 // `node:fs` is banned in renderer programs (`Spec-023 §Trust Stance`), so the
 // source arrives inlined at transform time through Vite's raw glob — the form
-// `runtime-node-attach/__tests__/runtime-node-source.test-support.ts` established
+// `test/console/architecture/runtime-node-attach-sites.test.ts` established
 // for CP-003-3's source-text reads, and where that directory's glob now lives.
 
 import { describe, expect, it } from "vitest";
@@ -307,7 +307,7 @@ describe("pane seat board — composing it today", () => {
     // it lands, and the closed set has no member left to name once all six have
     // landed.
     // On a board with every kind claimed the composition's own registrations are
-    // the probe, which is the arm `seats/pane-probe.test-support.test.ts` proves.
+    // the probe, which is the arm `seats/pane/pane-probe.test-support.test.ts` proves.
     const registry = new ConsolePaneRegistry();
 
     registerConsolePanes(registry);

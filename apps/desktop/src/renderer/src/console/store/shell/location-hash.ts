@@ -2,7 +2,7 @@
 //
 // ITS OWN MODULE AND NOT A FRAME-STORE HOOK, because it subscribes to no store at
 // all: it reads the browser's own `hashchange` event. It sits in `shell/` because
-// the frame is what binds it — `frame/hash-route-binding.ts` is the reader that
+// the frame is what binds it — `frame/bindings/hash-route-binding.ts` is the reader that
 // turns a hash into the route the shell renders — and a subscription with no store
 // filed among the frame store's selectors would read as one of them.
 

@@ -8,7 +8,7 @@
 // layering gate counts type edges (`tsPreCompilationDeps`) precisely so a cycle cannot
 // hide inside an `import type` that erases at runtime. Hoisting the shared symbol into a
 // module below both is what that gate's own message prescribes, and the same move
-// `palette/contributions.ts` makes for the command shape.
+// `palette/commands/contributions.ts` makes for the command shape.
 //
 // It imports nothing from this family, which is the property that makes it a floor
 // rather than one more node in the graph.

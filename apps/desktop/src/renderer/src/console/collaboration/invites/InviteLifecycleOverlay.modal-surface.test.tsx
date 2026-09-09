@@ -8,8 +8,8 @@
 // the structural half to the shell, and a card that never says it is up leaves the rail
 // and the whole route surface walkable underneath it with nothing looking wrong.
 //
-// The register's own arithmetic is `store/modal-surface-claims.test.ts` and the hook's
-// wiring is `store/modal-surface-lifetime.test.tsx`. What is asserted here is the one
+// The register's own arithmetic is `store/shell/modal-surface-claims.test.ts` and the hook's
+// wiring is `store/shell/modal-surface-lifetime.test.tsx`. What is asserted here is the one
 // thing neither can see: that THIS body, handed the act through the window overlay
 // seat, arms the guard on the card and gives it back on every ending the card has.
 

@@ -8,7 +8,7 @@
 // search" (`Spec-023 §Console Design (Meridian)` §Layout grammar) means in code.
 //
 // A door forwards only what its own family owns. How a chord is PRINTED is
-// `primitives/chord-format.ts`, and a caller that wants it imports it from
+// `primitives/chord/chord-format.ts`, and a caller that wants it imports it from
 // `primitives/index.js` — re-exporting it here would make this family look like the
 // owner of a table it consumes, and the next reader would put the next chord
 // concern in the wrong place.
@@ -123,7 +123,7 @@ export type { WhenClauseContext } from "./when-clause/when-clause.js";
 
 // The open chord is NOT forwarded, and it is no longer this family's to forward. The
 // overlay BINDS it and two surfaces PRINT it, one of them a primitive, so the literal
-// sits in `primitives/chord-format.ts` beside the printer and this family imports it
+// sits in `primitives/chord/chord-format.ts` beside the printer and this family imports it
 // down like every other caller.
 export { PaletteOverlay } from "./overlay/PaletteOverlay.js";
 

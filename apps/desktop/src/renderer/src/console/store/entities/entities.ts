@@ -48,7 +48,7 @@ export const CONSOLE_ENTITY_KINDS = [
   "browser-page",
   // `Spec-023 §Console Design (Meridian)` §The surface set routes five entity kinds
   // to the `inspector` pane — repo, workspace, worktree, invite, member — and these
-  // are the two the console could not NAME. `seats/pane-address.ts` derives the
+  // are the two the console could not NAME. `seats/pane/pane-address.ts` derives the
   // inspector's scope from this vocabulary, so their absence made a repo card and an
   // invite card unrepresentable at the address layer and made the runtime scope table
   // reject them as kind mismatches, which would have forced the repos and

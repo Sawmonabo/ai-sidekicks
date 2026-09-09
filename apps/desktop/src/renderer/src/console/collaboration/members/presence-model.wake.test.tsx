@@ -2,7 +2,7 @@
 //
 // `ageBoundariesOf` arms a chain of single-shot timers through `useDeadlineWake`, and
 // the property that matters is not which instant it publishes — that is
-// `store/deadline-wake.catch-up.test.tsx`'s — but HOW OFTEN. A band enumerated once a
+// `store/subject-scoped/deadline-wake.catch-up.test.tsx`'s — but HOW OFTEN. A band enumerated once a
 // second per participant made a session of twenty people wake about twenty times a
 // second on a console nobody was touching, each wake re-rendering every row and
 // building an `Intl.RelativeTimeFormat` for each of them. That is an interval poll

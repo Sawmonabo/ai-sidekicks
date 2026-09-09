@@ -1,10 +1,10 @@
 // The composer family's named bounds.
 //
-// `console/core/constants.ts` holds the substrate's domains and says in its own
-// header that "each view family adds its own module beside its subtree rather than
-// widening this one, so a bound always sits next to the code that spends it". This
-// is that module for the composer, and it exists for the same reason the substrate's
-// does: a number that appears inline is a decision nobody wrote down.
+// The console keeps its own caps at its floor, one module per concern, in
+// `console/core/constants/` — `apps/desktop/AGENTS.md` §Config single-sourcing. The
+// shell is not a console family and has no module there, so this is that module for
+// the composer, and it exists for the same reason the console's do: a number that
+// appears inline is a decision nobody wrote down.
 //
 // Each bound below is spent by exactly one module today. They live here rather than
 // in those modules because the next zone to want one would otherwise copy it, and two

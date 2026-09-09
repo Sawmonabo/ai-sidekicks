@@ -18,7 +18,7 @@
 //
 // KEYED ON THE BRIDGE, AND THAT IS WHAT MAKES IT SAFE RATHER THAN TIDY. The durable
 // half of the rule — the persisted switch and the pin map — lives in a `UiStateStore`
-// that `frame/ui-state-lifecycle.ts` mints once per bridge and REPLACES when the
+// that `frame/bindings/ui-state-lifecycle.ts` mints once per bridge and REPLACES when the
 // bridge or the scenario moves. A record that outlived that replacement would answer
 // a first send by writing into a database nothing reads. Keyed on the bridge, the
 // whole record goes when the bridge does: the markers, the settlements, and the

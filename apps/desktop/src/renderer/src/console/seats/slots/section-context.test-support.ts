@@ -8,7 +8,7 @@
 // has to state and which it may inherit.
 //
 // IT LIVES IN `seats/` for the pane seat's reason. `SidebarSectionContext` is
-// declared in `seats/sidebar-sections.ts`, the sections that consume it are in VIEW
+// declared in `seats/slots/sidebar-sections.ts`, the sections that consume it are in VIEW
 // families, and `console-view-family-isolation` forbids a sibling importing a
 // sibling — so a builder for it belongs beside the type it builds and nowhere else.
 //

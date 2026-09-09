@@ -1,7 +1,7 @@
 // Which participant this window is — the one composition of that question.
 //
 // WHY THE SEAT AND NOT `store/`. The read is the growth port's
-// `callerParticipantRead`, which lives in `bridge/`; `store/hooks.ts` sits BELOW that
+// `callerParticipantRead`, which lives in `bridge/`; `store/session/caller-membership-role.ts` sits BELOW that
 // family on the console's DAG and may not reach up for it, which is why it declares
 // `CallerParticipantReader` as an injected function and states that a composition root
 // must adapt the port's outcome into that shape. Three composition roots then wrote

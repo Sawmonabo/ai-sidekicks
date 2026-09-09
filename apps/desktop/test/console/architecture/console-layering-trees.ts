@@ -84,7 +84,7 @@ export const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
  * prove only that the rule fires, not that it leaves the legal shape alone.
  *
  * A THIRD edge carries what used to be the rule's one named exemption. While the
- * surface registry lived in `frame/`, `frame/surface-registry.ts` was subtracted from
+ * surface registry lived in `frame/`, `seats/surface/surface-registry.ts` was subtracted from
  * this rule's targets by name — a view family needs it and cannot import the frame's
  * door — so a deep specifier to it was reported as nothing. The module now lives in
  * `seats/`, the family whose contracts it is one of; the subtraction is gone, and a

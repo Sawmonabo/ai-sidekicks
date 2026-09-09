@@ -229,7 +229,7 @@ function createWindowSessionPlumbing(
     //
     // A SNAPSHOT OF THE REGISTRY, not the frame's own constant. The constant was a
     // table closed at build time by one family, so every other partition
-    // `store/entities.ts` declares had no possible producer — and the families that
+    // `store/entities/entities.ts` declares had no possible producer — and the families that
     // own those surfaces would have had to read the wire a second time to fill them.
     // Taking the snapshot HERE also fixes the composition order: families register
     // at module scope, before any window renders, and a store opens with whatever

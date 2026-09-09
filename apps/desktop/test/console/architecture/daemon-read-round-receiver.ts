@@ -17,7 +17,7 @@
 //
 // SO THE RECEIVER IS RESOLVED, and what it must resolve to is a declaration this parse
 // can see PRODUCE a read scope. One rule at three positions, which are the three
-// `store/read-cancellation.ts` is consumed through:
+// `store/read/read-cancellation.ts` is consumed through:
 //
 //   - A CLASS'S OWN FIELD — `readonly #readLine = new ReadScope()` — read off `this`
 //     inside that class, which is what every class-held read line writes.
@@ -109,7 +109,7 @@ import { specifierNamesModule } from "./daemon-module-resolution.js";
 /** The scope's own factory, which is the call one round is opened by. */
 const ROUND_FACTORY = "openRound";
 
-/** The store's read-scope class, under the name `store/read-cancellation.ts` exports it. */
+/** The store's read-scope class, under the name `store/read/read-cancellation.ts` exports it. */
 const READ_SCOPE_CLASS = "ReadScope";
 
 /** The store's read-scope door, under the name that same module exports it. */

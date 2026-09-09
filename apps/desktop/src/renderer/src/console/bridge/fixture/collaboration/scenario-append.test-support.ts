@@ -37,7 +37,7 @@ const APPENDED_FRAME_INSTANT_ISO = "2026-01-01T10:06:00.000Z";
  * THE NUMBERING IS THE PART THAT IS EASY TO GET QUIETLY WRONG, which is why two suites
  * share one composer rather than each appending by hand. `scenario-engine.ts` releases
  * the CONTIGUOUS due prefix of the beats array, so an appended frame has to sit last in
- * tick order as well as last in the array; and `store/sequence-reconciler.ts` drops a
+ * tick order as well as last in the array; and `store/session/sequence-reconciler.ts` drops a
  * repeated position as a duplicate and records a skipped one as a gap, so the positions
  * have to continue the script's own line rather than restart it.
  *

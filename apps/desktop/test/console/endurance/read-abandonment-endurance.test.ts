@@ -9,8 +9,8 @@
 //
 // WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW
 //
-// The subject is `seats/push-driven-read.ts` over `store/scheduling.ts` over
-// `store/read-cancellation.ts` and the daemon call door — a model, a scheduler, a
+// The subject is `seats/read/push-driven-read.ts` over `store/read/refresh-scheduler.ts` over
+// `store/read/read-cancellation.ts` and the daemon call door — a model, a scheduler, a
 // read line, and a parse. None of it touches the DOM, and `diff-endurance.test.ts`
 // beside this file is the same separation cashed the same way: the claims are
 // checkable in milliseconds, deterministically, on any runner, with no bundle to

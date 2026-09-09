@@ -3,7 +3,7 @@
 // THE READ IS THE TRUTH AND THE PUSH IS ONLY A SIGNAL. `presence.read` returns
 // `{participantId, state, lastSeen}` per participant; `presence.subscribe` delivers
 // a change notification whose payload this module never opens. That is the whole
-// discipline, and it lives in `seats/push-driven-read.ts` because the channel directory
+// discipline, and it lives in `seats/read/push-driven-read.ts` because the channel directory
 // needs it identically — subscribe first, answer the signal with a fresh read, one
 // read per burst through the refresh chokepoint, never a second copy of the
 // publisher's state, and never a flicker back to the loading shape.

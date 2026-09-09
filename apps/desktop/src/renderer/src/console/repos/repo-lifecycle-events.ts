@@ -8,7 +8,7 @@
 // directories is the pair that drifts.
 //
 // The mechanism — window focus, the store's repair edge, and a named frame, each routed
-// to a `RefreshScheduler` — is `store/refresh-triggers.ts`'s, and it is shared with
+// to a `RefreshScheduler` — is `store/read/refresh-triggers.ts`'s, and it is shared with
 // every other surface that performs its own reads. What is THIS family's is which
 // frames count as "the terminal events the owning spec names" for a repository, and
 // that is the whole of this module.

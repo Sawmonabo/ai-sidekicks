@@ -31,8 +31,8 @@
 // while the person was reading, the asset bundle a tool wrote — each one's `artifact.*`
 // beat reached the shelf's fold and was dropped, because the ledger the fold checks
 // membership against had never heard of the id. So the ledger is re-read when one of
-// those beats arrives, through `seats/push-driven-read.ts` and therefore through
-// `store/scheduling.ts`'s one refresh scheduler: a burst of four produced objects in
+// those beats arrives, through `seats/read/push-driven-read.ts` and therefore through
+// `store/read/refresh-scheduler.ts`'s one refresh scheduler: a burst of four produced objects in
 // one transition costs one re-read, and nothing here arms a timer of its own.
 //
 // THE SIGNAL IS THE FOLD'S OWN KIND SET, and that is deliberate rather than

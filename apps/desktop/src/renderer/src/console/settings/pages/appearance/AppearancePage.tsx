@@ -9,7 +9,7 @@
 // THE PAGE OWNS NEITHER THE APPLY NOR THE WRITE, AND THAT IS DELIBERATE
 //
 // Applying a scheme is one attribute on the document root and one durable write,
-// and the frame already does both in one place (`frame/ConsoleRoot.tsx`): the
+// and the frame already does both in one place (`frame/composition/ConsoleRoot.tsx`): the
 // attribute drives the generated sheet's own cascade, and the write goes through
 // the persistence chokepoint's `scheme` value class so the choice survives a
 // reload. The palette already exposes that act as three registered commands, which
@@ -133,7 +133,7 @@ function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
  * console does not recognise.
  *
  * The absent attribute is `"system"` — that is the frame's own encoding, stated in
- * `frame/token-installation.ts`, and reading it any other way would make this page
+ * `frame/bindings/token-installation.ts`, and reading it any other way would make this page
  * disagree with the module that wrote it. An unrecognised VALUE is neither a
  * preference nor the system choice, so it answers `undefined` and the page says so
  * rather than lighting up an option nobody chose.

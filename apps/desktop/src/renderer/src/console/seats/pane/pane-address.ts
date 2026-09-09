@@ -19,7 +19,7 @@
 // untyped — a persisted layout snapshot read back off disk, and a route a person
 // can type into the address bar. A union written beside a hand-kept table is two
 // closed sets that agree until someone widens one, which is the failure
-// `pane-kinds.ts` and `store/entities.ts` each state about their own sets.
+// `pane-kinds.ts` and `store/entities/entities.ts` each state about their own sets.
 //
 // THE SECOND HALF IS A SIBLING MODULE and not a second declaration. This file is
 // the rows and everything the compiler derives from them; the parse beside it is
@@ -90,7 +90,7 @@ import { type PaneKind } from "./pane-kinds.js";
  *
  * Derived rather than imported because `store/index.ts` publishes the REFERENCE
  * and not the kind vocabulary, and derived rather than restated because a second
- * union beside `CONSOLE_ENTITY_KINDS` is the drift `store/entities.ts` names.
+ * union beside `CONSOLE_ENTITY_KINDS` is the drift `store/entities/entities.ts` names.
  */
 type ConsoleEntityKind = ConsoleEntityRef["kind"];
 

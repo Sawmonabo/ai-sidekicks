@@ -30,7 +30,7 @@
 // decision only the renderer holding the pane can make.
 //
 // ONE CHORD GRAMMAR, RESOLVED FOR THE RIGHT PLATFORM. The mirror is parsed by
-// `palette/keybinding-chord.ts` — the console's single chord parser — and the
+// `palette/keybindings/keybinding-chord.ts` — the console's single chord parser — and the
 // keystroke is MATCHED against the result through that module's `chordMatchesEvent`,
 // which is the console's one wrapper over tinykeys' own `matchKeybindingPress`. So a
 // mirror and the keybinding table cannot disagree about whether `$mod+k`,
@@ -120,7 +120,7 @@ export type ChordReplayOutcome =
  * An authored chord with `$mod` resolved for the platform the keystroke was raised on.
  *
  * Resolved here rather than left to the parser, which resolves it against the host at
- * import time — `primitives/chord-format.ts` says the same about the printer, for the
+ * import time — `primitives/chord/chord-format.ts` says the same about the printer, for the
  * same reason. The platform is an input, so a test can drive all three.
  */
 function resolvePlatformModifier(chord: string, platform: ChordPlatform): string {
@@ -160,7 +160,7 @@ export interface KeyboardHandbackOptions {
   readonly readInstalledChords: () => readonly string[] | undefined;
   /**
    * The platform the keystrokes this instance decides were raised on. A parameter
-   * rather than a reading, for `primitives/chord-format.ts`' reason — every renderer
+   * rather than a reading, for `primitives/chord/chord-format.ts`' reason — every renderer
    * there takes the platform in so a fixture can pin it — and because this decision has
    * to come out the same in a test, in the renderer, and in the main process that
    * consults the mirror.

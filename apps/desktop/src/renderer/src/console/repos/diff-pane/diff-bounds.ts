@@ -3,7 +3,7 @@
 // Row heights, an overscan count, an expansion unit, and a pre-measurement
 // viewport height — the five numbers the diff renderer, the pane, and the inline
 // card compute WITH. Nothing is checked against any of them, which is what keeps
-// them here: `console/core/constants.ts` is the one home for a CEILING, and the
+// them here: `console/core/constants/diff-caps.ts` is the one home for a CEILING, and the
 // diff surfaces' five ceilings sit there and are imported through `core/index.ts`.
 // `test/console/architecture/cap-constant-home.test.ts` draws that line and
 // enforces it.

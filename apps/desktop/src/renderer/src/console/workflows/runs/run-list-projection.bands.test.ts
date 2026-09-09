@@ -17,7 +17,7 @@ describe("the band a run status lands in", () => {
    * The expected band per status, as a TOTAL record.
    *
    * `Record<WorkflowRunState, …>` and not a list of the interesting cases: the type
-   * is the control. A status added to `bridge/workflow-projection.ts` fails to
+   * is the control. A status added to `bridge/wire-shapes/workflow-projection.ts` fails to
    * compile here — and in the projection's own table — rather than quietly reaching
    * neither.
    */

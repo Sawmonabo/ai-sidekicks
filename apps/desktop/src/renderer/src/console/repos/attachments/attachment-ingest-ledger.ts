@@ -51,7 +51,7 @@ import {
  *
  * IT IS THE CONSOLE'S ONE GENERATION REGISTER RATHER THAN A COUNTER OF THIS FILE'S
  * OWN. The hand-rolled `Map<string, number>` this replaces was a second implementation
- * of `store/generation-latch.ts` — and one whose size nothing bounded or reported,
+ * of `store/read/generation-latch.ts` — and one whose size nothing bounded or reported,
  * where the register frees a key on the supersede and answers `heldKeyCount` for what
  * it still holds.
  */

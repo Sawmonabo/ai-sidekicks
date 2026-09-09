@@ -43,7 +43,7 @@ describe("the shape a remedied refusal takes", () => {
   });
 
   it("draws the CARD for a banner-rendered code, never a banner inside a pane", () => {
-    // The escalation is `store/refusal-escalation.ts`'s job. A pane drawing the
+    // The escalation is `store/shell/refusal-escalation.ts`'s job. A pane drawing the
     // frame's banner would put a whole-room notice inside one pane, and this
     // component is pure and holds no frame store to hand it to.
     const shape = renderRefusal(<RemediedRefusal refusal={GONE_SESSION} />);

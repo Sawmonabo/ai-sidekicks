@@ -68,7 +68,7 @@ export function useWorkspaceExecutionContext(
   // id)`, and a projection replaced under that same address retires the triggers this
   // reader armed — so the disclosure would go on reading a store nothing else reads
   // and would miss every reconnect and lifecycle frame after the swap. The rule is
-  // `store/session-store-rebind.ts`'s and is applied here rather than restated.
+  // `store/session/session-store-rebind.ts`'s and is applied here rather than restated.
   useSessionStoreRebind(held, sessionStore, open);
   const { value: reader } = held;
   useEffect(() => {

@@ -1,8 +1,8 @@
 // A SCHEDULED READING: the third composed read shape, owned once.
 //
 // The console owns `ReadTriggerTarget`, `RefreshScheduler`, `GenerationLatch` and
-// `Emitter`, and it owns two COMPOSED read seats — `seats/growth-read.ts`
-// (ask-once-per-subject) and `seats/push-driven-read.ts` (a read whose answer moves).
+// `Emitter`, and it owns two COMPOSED read seats — `seats/read/growth-read.ts`
+// (ask-once-per-subject) and `seats/read/push-driven-read.ts` (a read whose answer moves).
 // It owned no seat for the shape most of the tree actually has: a scheduled read
 // PUBLISHED TO SUBSCRIBERS. So sixteen classes across eight view families and the
 // bridge each wrote the same skeleton — the emitter, the scheduler with its `onError`
@@ -25,7 +25,7 @@
 // and `browser/settings/browser-settings-source.ts` (the three whose publishers are
 // character-identical), plus `repos/artifact-pane/artifact-read-schedule.ts` (already
 // abstract, and the only one with a per-read `start()` that also drives an imperative
-// trigger set), `settings/pages/notifications/caller-participant-read.ts` and
+// trigger set), `settings/pages/notifications/scheduled-caller-participant-read.ts` and
 // `settings/pages/appearance/store-state/store-state-read.ts` (the two that hold a
 // bare reading rather than a revisioned snapshot, and the one that reads no bridge at
 // all). WHERE EACH VARIATION LANDS:
@@ -117,7 +117,7 @@ export abstract class ScheduledReading<TSnapshot> implements ReadTriggerTarget {
   /**
    * The session-event kinds whose arrival owes this reading a fresh read.
    *
-   * ABSTRACT AND NOT DEFAULTED, because `store/read-triggers.ts` states that which
+   * ABSTRACT AND NOT DEFAULTED, because `store/read/read-triggers.ts` states that which
    * events change an answer is a property of the QUESTION and never of the surface
    * that mounts it. A base supplying `NO_TRIGGERING_EVENT_KINDS` would be answering it
    * for readings that have not been asked — and an empty set is a real answer that a

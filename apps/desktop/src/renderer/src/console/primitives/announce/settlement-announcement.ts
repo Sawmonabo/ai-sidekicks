@@ -34,7 +34,7 @@
 // incomplete — so this module hands the latch `undefined` and the set arity hands it an
 // empty array, and only the second forgets what it said.
 //
-// WHY IT IS NOT `frame/banner-announcements.ts`. That module diffs a LIST by id and
+// WHY IT IS NOT `frame/composition/banner-announcements.ts`. That module diffs a LIST by id and
 // speaks into the assertive lane, because a refusal banner says the whole room's
 // capabilities moved. This one holds a single string and speaks politely, because a
 // surface finishing its own read is news for the person reading that surface and

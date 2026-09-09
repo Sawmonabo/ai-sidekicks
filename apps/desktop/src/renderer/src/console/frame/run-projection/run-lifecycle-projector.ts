@@ -10,7 +10,7 @@
 //
 // Two constraints meet, and only one home satisfies both. It reads WIRE member
 // names off an event payload, which `store/` deliberately does not do —
-// `store/entities.ts` frames `ConsoleSessionEvent` as a renderer-local projection
+// `store/entities/entities.ts` frames `ConsoleSessionEvent` as a renderer-local projection
 // contract precisely so the store family holds no wire knowledge, the same reason
 // `session-event-binder.ts` states for living here. And it is REGISTERED by the
 // composition root, which puts it at or below `frame/` in the family DAG: a view
@@ -203,7 +203,7 @@ const RUN_LIFECYCLE_PROJECTOR_OWNER = "frame";
  *
  * Registration rather than a constant handed to the store plumbing is the whole
  * change: with a constant, `approval`, `workflow-run`, `browser-page`, `artifact`
- * and every other partition `store/entities.ts` declares could be projected by
+ * and every other partition `store/entities/entities.ts` declares could be projected by
  * nobody, because the table was closed one family below the families that own those
  * surfaces.
  */

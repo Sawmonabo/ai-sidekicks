@@ -33,7 +33,7 @@
 // agent console — and what arrives here is the registrar, through that family's door.
 // `console/panes/` holds composition files and nothing else: this board and its test,
 // one reserved line per family. The chrome a pane wears is not here either — it is
-// `seats/ConsolePaneChrome.tsx`, because the deck that provides its host controls is
+// `seats/pane/ConsolePaneChrome.tsx`, because the deck that provides its host controls is
 // itself a view family. A `panes/<kind>/` subdirectory would make this directory a
 // seventh view family with a seat board inside it, and every reach from the body into
 // its own family would become a cross-family import; `console-panes-hold-no-body`
@@ -55,14 +55,14 @@
 // file may name them all.
 //
 // AND NOTHING ELSE LIVES HERE EITHER. The frame every pane wears is
-// `seats/ConsolePaneChrome.tsx` and its sheet is imported by the seats door, which
+// `seats/pane/ConsolePaneChrome.tsx` and its sheet is imported by the seats door, which
 // is where every console family imports its own. This directory is this file and its
 // suite; `console-panes-hold-no-body` holds the first half of that and the barrel
 // census the second.
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `seats/pane-registry.ts` or `seats/pane-kinds.ts`. The
+// A family never edits `seats/pane/pane-registry.ts` or `seats/pane/pane-kinds.ts`. The
 // pane-kind set is closed by `Spec-023 §Console Design (Meridian)` and widening it
 // is a spec amendment, not a console change; the registry is a shared spine, and a
 // six-way concurrent edit to one is a guaranteed conflict — or worse, a merge that

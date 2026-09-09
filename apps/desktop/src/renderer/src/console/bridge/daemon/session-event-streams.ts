@@ -4,7 +4,7 @@
 // `daemon.subscribe(name, handler)` names either a registered STREAM or a single
 // event type, and the two answer differently — a stream delivers a projection of
 // many kinds, an event type delivers only its own. Both sides of that seam read this
-// module: `frame/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
+// module: `frame/session/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
 // and `fixture/call-plane/subscriptions.ts` has to route by the same table to answer the
 // way the daemon would. Two copies of the rule would let the producer and the
 // consumer drift while every test still passed — which is exactly what happened

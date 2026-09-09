@@ -12,7 +12,7 @@
 // entire binding surface on the initial import graph of every window — is a cost paid
 // by sessions that will never open this one.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 // THE SEVEN CONSOLE SHEETS ENTER HERE TOO, in the same order and for the reason
 // `agent-console-pane-body.ts` states: this root and that one are two independent first

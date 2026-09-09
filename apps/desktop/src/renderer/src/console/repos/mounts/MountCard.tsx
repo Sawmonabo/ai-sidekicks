@@ -257,7 +257,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       <div className="meridian-mount-card__roots">
         {props.worktreeRefusal === undefined ? null : (
           // THE RECOVERY RIDES THE CARD RATHER THAN SITTING BESIDE IT, because
-          // `primitives/refusal-contract.ts` reserves `action` for exactly this and a
+          // `primitives/refusal/refusal-contract.ts` reserves `action` for exactly this and a
           // sentence rendered next to a refusal reads as a second, unrelated fact. A
           // code this family has no recovery for supplies `undefined` and the card
           // renders the daemon's own code and detail alone, which is the honest floor.

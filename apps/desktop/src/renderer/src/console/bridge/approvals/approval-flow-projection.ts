@@ -1,7 +1,7 @@
 // The `approval` partition's projector: approval-flow events folded into approval
 // entities.
 //
-// WHY IT EXISTS. `store/entities.ts` has declared an `approval` partition since it
+// WHY IT EXISTS. `store/entities/entities.ts` has declared an `approval` partition since it
 // was written and no family projected into it, so `session.subscribe` carried every
 // `approval.*` beat into the timeline and none of them reached the partition a pane
 // reads. The members that live on the EVENT and on no read went nowhere at all —

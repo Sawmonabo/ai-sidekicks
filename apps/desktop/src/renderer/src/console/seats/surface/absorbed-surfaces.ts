@@ -63,7 +63,7 @@
 // question was not put, which is exactly what happened.
 //
 // THE NODE ROSTER IS NOT ONE OF THEM, AND ITS GUARD IS GONE RATHER THAN RELAXED.
-// That view now takes an optional read seam and `seats/node-roster-seam.ts` builds one
+// That view now takes an optional read seam and `seats/node-roster/node-roster-seam.ts` builds one
 // from the bridge the console has already resolved, so it asks whichever bridge this
 // window is running on: the control plane under the preload, the scenario's own roster
 // frames under the fixture. There is no longer a window in which it could reach past the

@@ -1,6 +1,6 @@
 // One decoder, two readers: the printer and the conflict comparator.
 //
-// `primitives/chord-format.ts` decodes `KeyK` to `K` so a keycap prints the letter.
+// `primitives/chord/chord-format.ts` decodes `KeyK` to `K` so a keycap prints the letter.
 // The binding table decodes the same token for a different reason: `$mod+k` and
 // `$mod+KeyK` are two spellings of ONE keystroke, so installing both is a conflict
 // and not two bindings that happen to fight at runtime.

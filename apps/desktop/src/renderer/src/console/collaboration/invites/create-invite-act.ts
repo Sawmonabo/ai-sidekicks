@@ -70,7 +70,7 @@ import {
  * The wire method the send control calls, through the daemon gateway.
  *
  * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
- * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
+ * `store/shell/shell-mutation-block.ts` is the console's registration of what a supervisor's
  * condition closes, so an invitation mint that ever left that tuple stops compiling
  * here rather than quietly going back to being dispatchable through a stopped shell.
  * The literal type survives it, which is what `callDaemon` needs to type the request

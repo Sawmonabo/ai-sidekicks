@@ -22,7 +22,7 @@
 // AND THE COMPONENT COMES FROM THE MODULE THAT DECLARES IT, not from `./index.ts` beside
 // it. A directory's own door is for what a SIBLING directory takes; a module inside
 // reading it would make the directory reach itself, which is the self-edge
-// `seats/surface-registry.ts` was repaired for.
+// `seats/surface/surface-registry.ts` was repaired for.
 
 import { render } from "@testing-library/react";
 

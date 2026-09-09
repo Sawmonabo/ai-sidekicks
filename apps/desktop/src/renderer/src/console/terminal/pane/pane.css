@@ -18,7 +18,7 @@
  * its surface, and its boundary are that sheet's; what is left here is the padding
  * this family wants inside it and the column the lease line and the host sit in.
  *
- * `box-sizing` is stated here for the reason `primitives/chip.css` states it on every
+ * `box-sizing` is stated here for the reason `primitives/figures/chip.css` states it on every
  * primitive that pairs a fixed size with a boundary: the generated base sheet sets no
  * global `border-box` reset, so a padded box that also has to fill its slot sizes its
  * CONTENT to the slot and adds the padding outside it. In a fixed-height deck slot the

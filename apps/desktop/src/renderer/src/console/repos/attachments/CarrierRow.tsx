@@ -14,7 +14,7 @@
 // pointer. So the grip is the drag handle AND the arrow-key target, and its accessible
 // name says both.
 //
-// THE SIZE LINE IS THE BOUND STATED AHEAD OF THE REFUSAL. `core/constants.ts` gives the
+// THE SIZE LINE IS THE BOUND STATED AHEAD OF THE REFUSAL. `core/constants/attachment-caps.ts` gives the
 // reason the console carries these figures at all: to explain a bound before a
 // participant spends an upload earning it. The declared length here is the payload's
 // own `Blob` size rather than a caller's claim, and when it is past the bound the row

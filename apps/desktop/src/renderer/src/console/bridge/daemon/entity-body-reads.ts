@@ -14,7 +14,7 @@
 // So the reads sit where the canonical shapes may be imported. That is not a
 // relocation of convenience: `store/` is BELOW `bridge/` on the console DAG, so a
 // store module cannot reach one of these narrowings by import at all, and the seam
-// that carries one downward is a parameter. `store/hooks.ts` already takes its
+// that carries one downward is a parameter. `store/session/caller-membership-role.ts` already takes its
 // caller-identity read that way.
 //
 // BOTH RETURN PRIMITIVES OR STORED REFERENCES, never a value built per call, so they
@@ -85,7 +85,7 @@ export function stampedExecutionPostureOf(
  * Takes the ROSTER ENTRY rather than the state and an id, which is what makes it the
  * same shape as the posture read beside it and what keeps this family from naming a
  * store state at all. A hook that holds the state picks the entry with the store's
- * own `selectEntity` and hands it here; `MembershipRoleReader` in `store/hooks.ts`
+ * own `selectEntity` and hands it here; `MembershipRoleReader` in `store/session/caller-membership-role.ts`
  * declares exactly this signature for that injection.
  */
 export function membershipRoleOf(

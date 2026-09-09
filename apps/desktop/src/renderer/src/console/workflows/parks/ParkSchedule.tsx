@@ -3,7 +3,7 @@
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `ParkBadge.tsx`, which is the package's
 // one-component-per-`.tsx` rule: a module holding three components is a module whose
 // name answers for one of them, and the other two are reached only by reading the
-// file. `primitives/ReadingNotice.tsx` is the precedent — a deep relative import from
+// file. `primitives/reading/ReadingNotice.tsx` is the precedent — a deep relative import from
 // its host, and no door line, because nothing outside this family composes it.
 //
 // THE UNSCHEDULED REMEDIES TRAVEL WITH IT. That table has exactly one reader and it is

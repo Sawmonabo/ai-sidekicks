@@ -61,7 +61,7 @@ import {
  * The roots this gate reads — `console/` and `shell/` — are the shared walk's own
  * default, so they are named there rather than here. This file used to carry its own
  * `readdirSync` with its own exclusion list, which admitted `.test-support.*` where
- * the shared walk excludes it: one gate scanned `fixture/call-plane/bridge.test-support.ts` and
+ * the shared walk excludes it: one gate scanned `bridge/fixture/call-plane/bridge.test-support.ts` and
  * the timer gate beside it did not, and nothing reported the difference.
  */
 const CONSOLE_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules();

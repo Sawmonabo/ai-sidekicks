@@ -7,13 +7,13 @@
 // being offered "Claim the shell", had no way to release it, and watched the
 // emulator stay read-only. The fold was right and its input was a placeholder.
 //
-// THE READ IS THE PORT'S. `bridge/growth-operations.ts`'s `callerParticipantRead` is
+// THE READ IS THE PORT'S. `bridge/growth-operations/identity.ts`'s `callerParticipantRead` is
 // the console's one answer to "which entry in this session's roster is this window",
 // and the row deliberately carries no role — the roster already holds every member's
 // role, and a second copy on this reply would be two sources of truth for it. This
 // module takes the identifier and nothing else.
 //
-// WHY THIS IS NOT `store/hooks.ts`'s `useCallerMembershipRole`. That hook answers a
+// WHY THIS IS NOT `store/session/caller-membership-role.ts`'s `useCallerMembershipRole`. That hook answers a
 // ROLE: it chains the same read to a roster lookup, and it takes the read as an
 // injected function because `store/` sits BELOW `bridge/` on the console's DAG and
 // may not reach a port at all. The terminal pane is a view family and may, so the

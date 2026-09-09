@@ -9,7 +9,7 @@
 //
 // WHAT MAKES THIS ONE ENTRY AND NOT A CONTROL. The composer is a sibling view family,
 // so this cannot be a component the browser hands it. It is a descriptor registered
-// into `seats/composer-attach-menu.ts`, and the composer renders whatever rows it
+// into `seats/composer/composer-attach-menu.ts`, and the composer renders whatever rows it
 // finds — which is the same shape the pane registry and the surface registry take.
 //
 // AND IT IS DELIBERATELY NOT ON THE FAMILY DOOR. Publishing it there would offer an

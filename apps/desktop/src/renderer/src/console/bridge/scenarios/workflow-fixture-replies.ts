@@ -9,7 +9,7 @@
 //
 // Every read is a scripted reply. A served growth operation answers through
 // `answerFromScriptedReply(engine, "<call>", …)`, which is the one seam
-// `bridge/scripted-reply.ts` owns, so a workflow read gets the script, the frozen
+// `bridge/scenario-runtime/scripted-reply.ts` owns, so a workflow read gets the script, the frozen
 // clock's loading window, and the two non-arrival refusals a real read has. The
 // engine matches a reply on the call name alone, so there is one reply per call and a
 // second for the same call is a wire-truth defect precisely because it could never be

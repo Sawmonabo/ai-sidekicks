@@ -271,7 +271,7 @@ describe("console families — the pane board a composition writes into", () => 
     // there is no kind a landed board leaves unclaimed to spell. The kind is
     // derived from what this composition left free instead, and where it left
     // nothing free the composition's own registrations ARE the probe — the arm
-    // `seats/pane-probe.test-support.test.ts` proves. Either way this file names no
+    // `seats/pane/pane-probe.test-support.test.ts` proves. Either way this file names no
     // family, no kind, and no seat, so every branch carries it unchanged.
     const boards = ownedRegistries();
 

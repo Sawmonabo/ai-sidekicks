@@ -21,7 +21,7 @@
 // button that asked. That is the property an operator actually depends on, so it is the
 // one asserted rather than a difference in copy that does not exist.
 //
-// Under the fixture the mutations are deliberately unserved (`fixture/growth/growth-port.ts`
+// Under the fixture the mutations are deliberately unserved (`bridge/fixture/growth/growth-port.ts`
 // serves the four workflow READS and no writes), so the refusal a press earns here is
 // the wire-unregistered one. That is the point rather than a limitation: it is what a
 // release build renders today, and it is reached by asking.

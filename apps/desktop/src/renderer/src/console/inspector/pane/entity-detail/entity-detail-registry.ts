@@ -1,7 +1,7 @@
 // Which detail renders which entity kind. Total over the closed set, by type.
 //
 // `Record<ConsoleEntityKind, …>` rather than a lookup with a fallback: the entity
-// kinds are declared once in `store/entities.ts`, and one added there
+// kinds are declared once in `store/entities/entities.ts`, and one added there
 // should fail to compile HERE — where somebody has to decide what its record says —
 // rather than reach a deck that renders it as a blank pane. There is no default
 // arm for the same reason: a default is a body that claims to know a kind nobody

@@ -12,7 +12,7 @@
 // Two subjects, two lifetimes, two sets of controls. One seat serving both would
 // have to take a union subject, and the body filling it would open with a branch on
 // which half it was handed — which is two bodies sharing a function name rather
-// than one body. `seats/owner-slot.ts` exists to stop one DECLARATION
+// than one body. `seats/slots/owner-slot.ts` exists to stop one DECLARATION
 // being written twice; it does not ask two different bodies to share one.
 //
 // WHAT THIS FILE MAY NEVER GROW

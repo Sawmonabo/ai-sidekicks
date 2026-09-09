@@ -1,6 +1,6 @@
 // What the artifact pane says once, politely, when a read or an act settles.
 //
-// A MODULE OF ITS OWN ON `frame/banner-announcements.ts`'s PRECEDENT: an announcement
+// A MODULE OF ITS OWN ON `frame/composition/banner-announcements.ts`'s PRECEDENT: an announcement
 // is a sentence a person hears rather than anything the pane draws, and the rule that
 // each is said once and never on a re-render is the announcer's. Kept in the component
 // the sentences sat between a hook and a render body, which is where prose goes to

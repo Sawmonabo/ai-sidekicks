@@ -37,7 +37,7 @@
 // different reason. The two causes are separate facts — a lost stream is this window's,
 // a reconnecting or stopped supervisor is the shell's — and the shell's is the stronger
 // one, so it is the sentence a control carries when both stand. Neither cause is
-// derived here: `store/shell-state.ts` owns the one that is the shell's, which is what
+// derived here: `store/shell/shell-state.ts` owns the one that is the shell's, which is what
 // keeps this destination's disabled controls and the palette's read-only line from
 // naming two different reasons for one state.
 //
@@ -145,7 +145,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // whether it is allowed would be a second source of truth for the store's fact.
   const degradation = sessionListDegradation(openSessions.degradedCause);
   // Whether this window may write to the local runtime at all, from the shell state
-  // the frame publishes. `store/shell-state.ts` owns the derivation and every reader
+  // the frame publishes. `store/shell/shell-state.ts` owns the derivation and every reader
   // shares it — the palette's read-only line and every control disabled here name one
   // cause, because a destination that decided for itself would be a second answer to a
   // question the store already answers.

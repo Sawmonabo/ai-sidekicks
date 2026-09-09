@@ -3,7 +3,7 @@
 // What this file holds is what the SEAT adds and not what it composes. Whether an
 // identity read is asked once per subject is `growth-read.test.tsx`'s, and whether a
 // settled identity is looked up in the store it was read against is
-// `store/hooks.caller-membership-role.test.tsx`'s. What is only true here is that the
+// `store/session/caller-membership-role.test.tsx`'s. What is only true here is that the
 // adapter three view families used to write out — port outcome in, identifier or
 // refusal out — is wired to the real port on both arms, and that the identity-only hook
 // answers without a roster, which is why it exists beside the chained one.

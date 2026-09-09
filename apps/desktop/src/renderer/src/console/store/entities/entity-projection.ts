@@ -1,6 +1,6 @@
 // Running one event's registered projector, all-or-nothing.
 //
-// A projector is required to be pure and total (`store/entities.ts`), and one that
+// A projector is required to be pure and total (`store/entities/entities.ts`), and one that
 // rejects a malformed payload is a defect in the view family that registered it.
 // This module is the boundary that keeps that defect local: it costs the event its
 // entity contribution and nothing else — never the batch, never the process, and

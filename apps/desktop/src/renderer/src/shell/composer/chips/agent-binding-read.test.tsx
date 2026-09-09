@@ -33,7 +33,7 @@ const SCENARIO_ACCOUNT_LABEL = "Claude — team";
  * The shipped fixture with the roster operation answered.
  *
  * A spread over a REAL bridge and not a hand-built object, which is the shape
- * `fixture/call-plane/bridge.test-support.ts` states for driving one namespace: the account
+ * `bridge/fixture/call-plane/bridge.test-support.ts` states for driving one namespace: the account
  * read, the clock, and the scenario stay the fixture's, so what these cases prove is
  * a join across two live seams rather than across two literals.
  */

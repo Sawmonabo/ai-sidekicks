@@ -13,7 +13,7 @@
 // had diverged — the palette's decoded `KeyK` to `K` and these did not, so every
 // hint for a `code`-form binding printed the literal string `KeyK` on a keycap.
 //
-// The vocabulary used to live in `palette/keybindings.ts`, which made this
+// The vocabulary used to live in `palette/keybindings/keybindings.ts`, which made this
 // primitive import UP into a family above it. It moved down here instead of the
 // import being tolerated: a keycap is a renderer's concern, and the console's
 // import graph is the thing that keeps a family reusable.

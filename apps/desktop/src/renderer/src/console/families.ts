@@ -24,7 +24,7 @@
 //
 // WHAT A FAMILY DOES NOT DO
 //
-// A family never edits `seats/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
+// A family never edits `seats/surface/surface-registry.ts`, `bridge/scenario-runtime/scenario-manifest.ts`,
 // `bridge/growth-port/growth-slate.ts`, or `vitest.config.ts`. Those are shared spines: a
 // concurrent edit to any of them from every one of those branches at once is a
 // guaranteed conflict, and worse, a merge that resolves cleanly while silently
@@ -82,8 +82,8 @@ import { registerWorkflowSurfaces } from "./workflows/index.js";
  * as they compose their own surfaces and panes.
  *
  * The sidebar board and the inline-card board are the fourth and fifth, and they are
- * here BEFORE a family fills either — which is the point. `seats/sidebar-sections.ts`
- * is filled by three families and `seats/inline-card-seats.ts` by two, and both ship a
+ * here BEFORE a family fills either — which is the point. `seats/slots/sidebar-sections.ts`
+ * is filled by three families and `seats/slots/inline-card-seats.ts` by two, and both ship a
  * module-scope registrar that writes straight into the process-wide board. A family
  * reaching for one of those bypasses this composition entirely: an independent
  * composition would then mutate the running console, two compositions would leak into
@@ -127,7 +127,7 @@ export function registerConsoleFamilies(
 ): void {
   // NO SHIPPED TIER-1 FAMILY CLAIMS A SLOT OF ITS OWN ANY MORE. Three of them are
   // absorbed by the console surfaces that mount them, through the helpers
-  // `seats/absorbed-surfaces.ts` publishes, so they reach the screen inside a
+  // `seats/surface/absorbed-surfaces.ts` publishes, so they reach the screen inside a
   // console-authored surface rather than beside one. The fourth — the shipped
   // participant roster — was the last slot claimant, and it is retired rather than
   // re-homed: it rendered presence a second time in one application, and the

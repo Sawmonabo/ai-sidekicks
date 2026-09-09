@@ -2,7 +2,7 @@
 //
 // One of the workflow fixture's four data modules; `workflow-fixture-ids.ts` carries
 // the framing all four share. This is the table that is NOT declared by
-// `bridge/workflow-projection.ts`: an attached agent is a session fact carried on a
+// `bridge/wire-shapes/workflow-projection.ts`: an attached agent is a session fact carried on a
 // `packages/contracts` beat, so it sits beside neither the definitions nor the runs
 // even though a workflow's phases are what dispatch to it.
 

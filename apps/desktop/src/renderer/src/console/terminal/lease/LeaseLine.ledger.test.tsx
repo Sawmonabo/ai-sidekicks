@@ -146,7 +146,7 @@ describe("the transition ledger — one click away, every reason its own line", 
   });
 
   it("hands over both readings when the fold was cut AND could not read a delivery", async () => {
-    // Two incompletenesses, two notices. `primitives/partial-read.ts` admits no call
+    // Two incompletenesses, two notices. `primitives/reading/partial-read.ts` admits no call
     // shape that shows one reading and hides the other, and a merged sentence would
     // have to drop one of the two facts a person acts on differently.
     const { container } = renderLease(

@@ -6,7 +6,7 @@
 // the four act arms, and the single-flight guard — is `act-controller.ts`'s, and this
 // class is how a controller composes that one without writing the wiring again.
 //
-// A BASE CLASS AND NOT SIX FORWARDING MEMBERS PER CONTROLLER. `store/act-controller.ts`
+// A BASE CLASS AND NOT SIX FORWARDING MEMBERS PER CONTROLLER. `store/act/act-controller.ts`
 // already ended three copies of the machine; what survived it was three copies of the
 // pass-through — `snapshot`, `isDisposed`, `subscribe`, `requestRead`, `clearAct`, and
 // `dispose`, each one line of body and each one written three times. `apps/desktop/AGENTS.md`

@@ -5,7 +5,7 @@
 // answered, which is safe only while its callers render the phase beside it — the
 // cases below pin that emptiness as a NON-answer so a later caller cannot read it as
 // one. WHICH refusal leaves the pane is no longer decided here: that selection is
-// `store/refusal-escalation.ts`' `preferredBannerClassRefusalAmong`, and its cases
+// `store/shell/refusal-escalation.ts`' `preferredBannerClassRefusalAmong`, and its cases
 // live beside it.
 
 import { describe, expect, it } from "vitest";

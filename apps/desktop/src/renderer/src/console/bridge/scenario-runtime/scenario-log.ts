@@ -16,7 +16,7 @@
 // the only statement of what was delivered and at which position.
 //
 // ONE SEQUENCE LINE, AND APPENDING SHIFTS THE REST. A session's sequence is monotonic
-// and dense: `store/sequence-reconciler.ts` refuses anything at or below its cursor as a
+// and dense: `store/session/sequence-reconciler.ts` refuses anything at or below its cursor as a
 // duplicate and records everything skipped as a gap, so a fixture that numbered appended
 // frames above the whole script would make every later scripted beat a duplicate the
 // store drops, and one that reused a scripted number would collide outright. What a

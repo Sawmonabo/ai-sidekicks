@@ -63,7 +63,7 @@ export interface DraftStoreOptions {
    * Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded.
    *
    * Required, and supplied by the caller rather than defaulted here: the bound's
-   * home is `core/constants.ts` and this module imports nothing at all, so a
+   * home is `core/constants/persistence-caps.ts` and this module imports nothing at all, so a
    * default in this file would be the console's second home for one number.
    *
    * At least one, checked at construction. Zero makes every write evict its own

@@ -12,7 +12,7 @@
 // by this same participant in a second window — stood wrong on screen for the life of
 // the window with nothing saying it was old. The preference set is the PARTICIPANT's
 // rather than a session's, so it takes the window's three triggers through
-// `store/read-triggers.ts` and neither of the session-scoped two: no session's repair
+// `store/read/read-triggers.ts` and neither of the session-scoped two: no session's repair
 // and no session's timeline bear on a record that is global to a person.
 //
 // AND EVERY ONE OF THOSE READS IS `attention-preference-read.ts`'. This hook holds no

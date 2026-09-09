@@ -26,7 +26,7 @@
 // move" is shown a feed that looks exhaustive and is not, with nothing saying which
 // are missing or from which end. The producer already computed the figure the notice
 // needs; this renders it through the console's ONE incomplete-reading vocabulary
-// rather than a sentence of its own, which is the drift `primitives/partial-read.ts`
+// rather than a sentence of its own, which is the drift `primitives/reading/partial-read.ts`
 // exists to end.
 //
 // NEITHER IS A LEDGER THE FOLD COULD NOT READ THE WHOLE OF. A transition this build

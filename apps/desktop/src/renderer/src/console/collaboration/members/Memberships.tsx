@@ -32,7 +32,7 @@
 // missed one event in the stream lost every membership control it had, permanently,
 // on a flag only a completed re-pull clears. So the two facts are now rendered
 // separately: a degraded projection says the rows are LAST-KNOWN and leaves the
-// controls alone, and the shell's own condition — `store/shell-mutation-block.ts`, the
+// controls alone, and the shell's own condition — `store/shell/shell-mutation-block.ts`, the
 // console's one answer to "may I send this" — is what closes them. Where the shell has
 // said nothing, nothing closes: silence is not an outage, and the daemon's refusal is
 // the answer a person is entitled to rather than a control that was never offered.
@@ -66,7 +66,7 @@
 // while a session view happened to be on screen, and a first-time recipient following
 // a link into a fresh window saw nothing. `Plan-023` T-023r-6-3 puts that lifecycle at
 // the window instead, and it is hosted there now
-// (`../invites/InviteLifecycleOverlay.tsx`, seated through `seats/window-overlay-seat.ts`).
+// (`../invites/InviteLifecycleOverlay.tsx`, seated through `seats/slots/window-overlay-seat.ts`).
 // This section renders the sent-invite ledger and nothing about arrivals: two notices
 // for one invitation would be two places to answer it, and the second one would be
 // wherever the reader happened not to be looking.
@@ -91,7 +91,7 @@ import { MembershipLedger } from "./MembershipLedger.js";
  * The wire method every one of the four controls calls, through the daemon gateway.
  *
  * The `satisfies` IS the binding, on `onboarding/provider-readiness/`'s precedent:
- * `store/shell-mutation-block.ts` is the console's registration of what a supervisor's
+ * `store/shell/shell-mutation-block.ts` is the console's registration of what a supervisor's
  * condition closes, so a membership change that ever left that tuple stops compiling here rather
  * than quietly going back to being dispatchable through a stopped shell. The literal
  * type survives it, which is what `callDaemon` needs to type the request and the

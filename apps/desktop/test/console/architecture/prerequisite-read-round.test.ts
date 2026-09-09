@@ -4,7 +4,7 @@
 // TWO CLAIMS, ONE SUBJECT. `console/repos/repo-reads.ts` opens by saying that its reads
 // take an abort signal and its acts deliberately do not, and that the requirement is
 // what makes "a read here cannot be made outside a round" structural rather than a
-// convention a call site follows. `store/act-controller-base.ts` says the same thing one
+// convention a call site follows. `store/act/act-controller-base.ts` says the same thing one
 // layer up, about the prerequisite question every act controller reads before it acts.
 // Both sentences were false when they were written: two wrappers took no signal, and the
 // controller that reads through them dropped the round its own scheduler handed it.
@@ -38,7 +38,7 @@
 // forwarded one under another name, is invisible here. The runtime counterparts exist
 // and are where those would be caught: `repos/repo-reads.signal.test.ts` drives both
 // wrappers through the real door with an abandoned round, and
-// `store/act-controller.read-round.test.ts` drives the machine's own disposal.
+// `store/act/act-controller.read-round.test.ts` drives the machine's own disposal.
 //
 // Test files are excluded by the shared source walk, which is load-bearing here: this
 // file writes every forbidden form below as a planted control.

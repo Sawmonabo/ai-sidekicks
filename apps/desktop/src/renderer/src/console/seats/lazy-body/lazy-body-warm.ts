@@ -11,7 +11,7 @@
 //
 // AT MOST ONCE PER WALK. The walk is not a refresh and has no schedule — it is a
 // one-shot that ends when the board is warm — so it is deliberately not on
-// `store/scheduling.ts`, which owns REFRESHES and their absolute deadline. A second
+// `store/read/refresh-scheduler.ts`, which owns REFRESHES and their absolute deadline. A second
 // start on one instance is a no-op rather than a second walk, because the two callers
 // that could plausibly both fire (a frame that mounts twice under StrictMode) must not
 // double-schedule.

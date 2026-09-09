@@ -102,7 +102,7 @@ export function BoundTerminalPane(props: BoundTerminalPaneProps): React.JSX.Elem
   // surface that wants an answer.
   const callerRole = useCallerMembershipRoleFor(bridge, sessionStore);
 
-  // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
+  // Derivation under `useMemo`, which is where `store/session/session-hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
   // identity changes.
   //

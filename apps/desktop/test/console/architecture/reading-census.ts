@@ -15,7 +15,7 @@
 //
 // AND A CLASS IS READ TOGETHER WITH WHAT IT EXTENDS. The three repos controllers each
 // declared the scheduler construction, the snapshot, and both trigger members until
-// those six pass-throughs were hoisted onto `store/act-controller-base.ts`; read as
+// those six pass-throughs were hoisted onto `store/act/act-controller-base.ts`; read as
 // bare declarations afterwards, all three would have silently left the gate's subject
 // set while behaving identically. So the walk follows the `extends` chain, bounded at
 // four hops — each link resolved as a BINDING through the same import list, and through
@@ -35,7 +35,7 @@ const READING_MEMBER_NAMES: ReadonlySet<string> = new Set(["snapshot", "readout"
 /**
  * What constructing a scheduler LOOKS like, in the two shapes this console has.
  *
- * A reading either holds a `RefreshScheduler` itself or composes `store/act-controller.ts`,
+ * A reading either holds a `RefreshScheduler` itself or composes `store/act/act-controller.ts`,
  * which holds one for it — the primitive the repos family's three controllers were
  * collapsed into. What this gate is about is that a reading is REFRESHABLE, and one
  * that delegates its scheduler is refreshable in exactly the sense the rule means: it

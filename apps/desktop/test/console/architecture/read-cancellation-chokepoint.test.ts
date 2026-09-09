@@ -1,7 +1,7 @@
 // A read is stoppable, a mutation is not, and the scheduler cannot produce either
 // wrong — asserted against the source rather than against a reviewer's memory.
 //
-// THREE CLAIMS, ONE SUBJECT. `store/read-cancellation.ts` is where a read stops. The
+// THREE CLAIMS, ONE SUBJECT. `store/read/read-cancellation.ts` is where a read stops. The
 // claims below are that it is the ONLY place one can be stopped from, that the
 // scheduler pairs every read it fires with the round that stops it rather than
 // leaving that to its caller, and that no run control anywhere reaches the mechanism.

@@ -29,7 +29,7 @@
 // first and third visit of a set that was replaced and then restored, so the round
 // trip renders the first visit's answer as the third's, and the `isAttached` flag
 // that was carrying the rest of the correctness is a per-effect-run fact rather than
-// a property of the addressing. `store/subject-scoped-state.ts` owns both, once.
+// a property of the addressing. `store/subject-scoped/subject-scoped-state.ts` owns both, once.
 //
 // WHAT IT OFFERS, AND WHAT IT CANNOT. **Not now** is a local hide: `InviteState`
 // on the wire is exactly `pending | accepted | revoked | expired` and its contract

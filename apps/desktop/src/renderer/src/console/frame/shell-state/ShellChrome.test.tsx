@@ -68,7 +68,7 @@ describe("ShellChrome — the supervisor chip", () => {
 
   it("lands on a section the settings rail actually lists", () => {
     // The coupling the DAG cannot express as an import: `frame/` may not reach a view
-    // family, so the destination is declared in `store/shell-state.ts` and the rail's
+    // family, so the destination is declared in `store/shell/shell-state.ts` and the rail's
     // closed enumeration lives in `settings/`. A rename on either side fails here
     // rather than shipping a chip that opens a page nothing answers for.
     expect([...SETTINGS_SECTION_IDS]).toContain(SHELL_DETAIL_DESTINATION.section);

@@ -11,7 +11,7 @@
 // whole-room notice inside one pane. The remedy's `banner` rendering therefore
 // draws the CARD here — the refusal still reaches the surface that produced it —
 // and the escalation is a separate, explicit act by a surface that holds a frame
-// store (`store/refusal-escalation.ts`). Splitting it that way is what keeps this a
+// store (`store/shell/refusal-escalation.ts`). Splitting it that way is what keeps this a
 // pure component and keeps the escalation somewhere a reader can find it.
 //
 // A CODE WITH NO REMEDY RENDERS EXACTLY AS IT DOES WITHOUT THIS COMPONENT: inline,

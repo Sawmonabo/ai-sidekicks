@@ -11,7 +11,7 @@
 // window holding no channel for an invitation that has not arrived yet — and nothing
 // on screen can say so, because an invitation nobody sent and one nobody could deliver
 // look identical from here. So each feed's field is cleared when its drain ends, and
-// the reading above asks again on the triggers `store/read-triggers.ts` names.
+// the reading above asks again on the triggers `store/read/read-triggers.ts` names.
 //
 // WHY THE OUTCOME FEED OPENS FIRST. The answer channel has to exist before the first
 // invitation can be confirmed on screen; opening them the other way round leaves a
@@ -103,7 +103,7 @@ export class PendingInviteFeeds {
   /**
    * Ask the pending feed to re-deliver everything main is still holding.
    *
-   * THE ONE RECOVERY THE FEED SUPPORTS, and `core/constants.ts` states it beside the
+   * THE ONE RECOVERY THE FEED SUPPORTS, and `core/constants/invite-caps.ts` states it beside the
    * bound that needs it: main holds each reference until an act releases it, and
    * re-opening the pending feed re-delivers every one still held. So a frame the
    * reading above declined to queue at the bound is not lost — it is simply not on
@@ -168,7 +168,7 @@ export class PendingInviteFeeds {
    * WITHOUT THIS THE BANNER IS PERMANENT. `#refusal` is written and never cleared, so
    * one throw on one feed leaves the reading above drawing "this channel is down" for
    * the life of the adapter — including after the repair triggers
-   * `store/read-triggers.ts` names have re-opened the very feed that failed. The
+   * `store/read/read-triggers.ts` names have re-opened the very feed that failed. The
    * refusal is a claim about a channel, and a channel that is back makes the claim
    * false; a surface that keeps it is telling a person about an outage that has ended.
    *

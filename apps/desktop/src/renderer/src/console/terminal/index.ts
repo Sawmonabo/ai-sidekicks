@@ -47,7 +47,7 @@
 // would close a cycle: this module imports the pane, and the pane imports these.
 //
 // Its BOUNDS are not among them. The scrollback, the WebGL ceiling, and the ledger
-// cap live in `console/core/constants.ts`, which `apps/desktop/AGENTS.md` §Config
+// cap live in `console/core/constants/terminal-caps.ts`, which `apps/desktop/AGENTS.md` §Config
 // single-sourcing makes the console's one home for a cap — a family module holding
 // its own put the console's cap inventory in three places.
 

@@ -10,7 +10,7 @@
 // They live in `bridge/` because the subject is what crosses the seam: the engine's
 // lifecycle and the port-and-ledger pair that `Plan-023 §Console growth slate` is
 // audited against. The store that receives the delivered events asserts its own
-// admission rules in `store/failure-modes.test.ts` — the split follows the seam.
+// admission rules in `store/session/failure-modes.test.ts` — the split follows the seam.
 //
 // Where a mode has a "the code should have refused" shape, the assertion is on the
 // REFUSAL — its dropped-tick count, its tripwire, its `unavailable` status and the

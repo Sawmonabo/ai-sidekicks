@@ -5,7 +5,7 @@
 // asks is honoured, which is a different job with a different rule: every merge
 // replaces the identity of exactly the partition it touched and leaves every other
 // partition's identity alone, because that identity is what a row selector's
-// `Object.is` bail depends on (`store/entities.ts`, the entity-keyed rule).
+// `Object.is` bail depends on (`store/entities/entities.ts`, the entity-keyed rule).
 //
 // Both functions are total on well-formed input and deliberately NOT defensive
 // against a kind outside the closed set: a projector naming a kind that does not

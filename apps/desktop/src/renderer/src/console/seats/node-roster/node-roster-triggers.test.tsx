@@ -7,7 +7,7 @@
 // any of the four moments free to be wrong.
 //
 // Every case asserts the SCHEDULED shape rather than an immediate raise: a reason lands
-// in `store/scheduling.ts` and the frozen clock is advanced past the coalescing window
+// in `store/read/refresh-scheduler.ts` and the frozen clock is advanced past the coalescing window
 // on purpose, so a trigger that re-read straight off its signal — the burst this seam
 // was built to stop costing three reads — fails here rather than passing quietly.
 
@@ -140,7 +140,7 @@ describe("the moments the absorbed roster is asked to read again", () => {
   });
 
   it("negative control: a burst of focuses inside one window costs one signal", async () => {
-    // What routing every reason through `store/scheduling.ts` buys, asserted rather
+    // What routing every reason through `store/read/refresh-scheduler.ts` buys, asserted rather
     // than assumed: without the scheduler each raiser re-read on its own, and a node
     // registering, declaring a capability and coming online inside one advance cost
     // three reads of an answer only the last of them was going to render.

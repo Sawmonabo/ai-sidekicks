@@ -11,7 +11,7 @@
 // AND THE EMPTY ARM CARRIES THE ACT IT NAMES. Telling a person to send a message and
 // then leaving them to find the line themselves is the failure mode an empty state
 // has: the sentence is right and the surface is inert. The control puts the caret in
-// the composer through `seats/composer-focus.ts` — an ASK and not a handle, so this
+// the composer through `seats/composer/composer-focus.ts` — an ASK and not a handle, so this
 // family names no part of the composer's own tree — and it is offered on exactly the
 // arm whose sentence names the act. The two absence arms above it offer nothing,
 // because neither says a run could be started right now.

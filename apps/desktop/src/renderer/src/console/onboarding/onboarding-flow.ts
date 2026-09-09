@@ -28,7 +28,7 @@
 // the walkthrough opens and again after each act that could have changed it — a step
 // recorded, a choice made, a node finished — and every other reason to re-read arrives
 // through `requestRead`, which is `RefreshScheduler`'s to coalesce. There is no timer
-// anywhere in this family, and no second scheduler: `store/scheduling.ts` owns the one
+// anywhere in this family, and no second scheduler: `store/read/refresh-scheduler.ts` owns the one
 // this flow constructs. The walkthrough hands this flow to the WINDOW trigger set,
 // which is the pair a node-scoped reading takes: the arrival, and the window
 // regaining focus. A repaired connection and a timeline event are a SESSION's

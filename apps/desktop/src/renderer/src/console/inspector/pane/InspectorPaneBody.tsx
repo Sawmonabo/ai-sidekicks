@@ -24,7 +24,7 @@ export function InspectorPaneBody(props: {
 }): React.JSX.Element {
   const { context } = props;
   // There is no arm for a missing entity, and that is the seat's doing rather than an
-  // omission: `seats/pane-address.ts` makes the inspector's address REQUIRE one, so an
+  // omission: `seats/pane/pane-address.ts` makes the inspector's address REQUIRE one, so an
   // address with none is refused as `pane-entity-required` at the two untyped
   // boundaries — a restored layout row and a typed route — and never reaches a body.
   if (context.sessionStore === undefined) {

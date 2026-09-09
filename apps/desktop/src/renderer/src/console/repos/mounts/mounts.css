@@ -303,8 +303,8 @@
 
 /*
  * NOT DECLARED HERE ANY MORE. The region under a mount refusal is dressed by
- * `primitives/refusal.css`'s `.meridian-refusal-recovery`, because the component that
- * wears it is `primitives/RefusalRecovery.tsx` and the artifact family had the same
+ * `primitives/refusal/refusal.css`'s `.meridian-refusal-recovery`, because the component that
+ * wears it is `primitives/refusal/RefusalRecovery.tsx` and the artifact family had the same
  * block under a second prefix — identical property for property, so a change to the
  * region's leading landed on one surface and not the other. Named here rather than
  * silently absent, so a reader looking for the mount recovery's rules is told where

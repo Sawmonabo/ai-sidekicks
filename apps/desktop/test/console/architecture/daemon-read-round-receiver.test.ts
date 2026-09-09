@@ -30,7 +30,7 @@ const READ_SCOPE_CLASS_IMPORT = 'import { ReadScope } from "../store/index.js";'
 
 describe("what a round was opened off", () => {
   it("takes a round opened off each read scope the console declares", () => {
-    // THE WHOLE ACCEPTED SET, which is the three shapes `store/read-cancellation.ts`
+    // THE WHOLE ACCEPTED SET, which is the three shapes `store/read/read-cancellation.ts`
     // is consumed through. A class-held read line opens its round off the field it
     // MINTS the scope on; a holder that keeps its scope in a nullable field mints into
     // a local first, so the round is opened off a name the checker has already
@@ -74,7 +74,7 @@ describe("what a round was opened off", () => {
   });
 
   it("takes a scope imported from the module that declares it, not only the door", () => {
-    // THE STORE HAS TWO HOMES AND BOTH ARE ADMITTED. `store/read-cancellation.ts`
+    // THE STORE HAS TWO HOMES AND BOTH ARE ADMITTED. `store/read/read-cancellation.ts`
     // declares the two exports and `store/index.ts` re-exports them, and which one a
     // consumer writes is a question about where it sits: the two modules inside `store/`
     // import the declaring module directly — a family door reached from inside its own

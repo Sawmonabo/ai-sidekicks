@@ -299,7 +299,7 @@ function mountPageBody(body: SettingsPageBody, context: SettingsPageContext): HT
  * mount that settled twice and passed would be a mount that raced.
  *
  * AND THE FROZEN CLOCK IS MOVED, not just the microtask queue. Every read this console
- * performs goes through `store/scheduling.ts`'s one `RefreshScheduler`, armed on the
+ * performs goes through `store/read/refresh-scheduler.ts`'s one `RefreshScheduler`, armed on the
  * bridge's frozen clock — so a mount that only drained promises would hand a case a page
  * that had never been given the chance to ask, and the case would read the "still
  * reading" arm as the answer. `settleScheduledRead` is the console's one home for that

@@ -121,7 +121,7 @@ export interface FrameStoreState {
    * store with the main one (I-023-12) — has its own bridge and therefore its own
    * report.
    *
-   * `store/shell-state.ts` owns the vocabulary and the two derivations every reader
+   * `store/shell/shell-state.ts` owns the vocabulary and the two derivations every reader
    * shares; this store owns the one copy. It is here rather than in the frame family
    * because its readers span the DAG in both directions — the palette below the
    * frame, the settings pages and the sessions list above it — and a value declared

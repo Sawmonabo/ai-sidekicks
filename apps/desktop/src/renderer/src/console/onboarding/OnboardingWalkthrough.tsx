@@ -109,7 +109,7 @@ export interface OnboardingWalkthroughProps {
    * A prop because it is the BRIDGE's and this component holds models rather than a
    * bridge — the same reason the models themselves arrive built. Both readings here are
    * node-scoped, so reconnect is the one edge that says their answer may have moved,
-   * and `store/read-triggers.ts` takes it as a required argument for that reason.
+   * and `store/read/read-triggers.ts` takes it as a required argument for that reason.
    */
   readonly transportReconnect: TransportReconnectObservable;
   /** Open the account registry, scoped to a provider where a row named one. */

@@ -335,7 +335,7 @@ describe("the registered payload members the body carries", () => {
 });
 
 describe("a stamped posture, from the payload to the surface that reads it", () => {
-  // The leg no fold case can cover on its own. `store/selectors.ts` reads
+  // The leg no fold case can cover on its own. `store/session/selectors.ts` reads
   // `executionPosture` off a run entity's body, and until this projector carried
   // the member the console had no producer for it anywhere — the selector was
   // correct and unreachable. Every half here is the shipped one: the registered

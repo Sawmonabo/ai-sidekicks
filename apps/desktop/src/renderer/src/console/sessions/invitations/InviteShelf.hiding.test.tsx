@@ -212,7 +212,7 @@ describe("an answer that belongs to the session set it was asked of", () => {
 
   it("reads again on the round trip back to a set it has already been on", async () => {
     // The case a stamp comparison cannot see, and the reason this component now goes
-    // through `store/subject-scoped-state.ts` rather than holding its own: on the
+    // through `store/subject-scoped/subject-scoped-state.ts` rather than holding its own: on the
     // third visit the reader IS the reader from the first, so `stamped.reader === read`
     // calls the first visit's answer current and the shelf renders invitations it has
     // not asked about since it left. The holder addresses per VISIT, so returning to a

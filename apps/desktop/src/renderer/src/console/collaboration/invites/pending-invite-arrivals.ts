@@ -21,7 +21,7 @@
 // neither: main mints nothing for it and therefore replays nothing, so each refused
 // arrival is its own prompt and there is no handle a duplicate could be recognised by.
 //
-// THE BOUND DEFERS RATHER THAN DROPS. `core/constants.ts` states the recovery beside
+// THE BOUND DEFERS RATHER THAN DROPS. `core/constants/invite-caps.ts` states the recovery beside
 // the bound it belongs to: main holds each reference until an act releases it, and
 // re-opening the pending feed re-delivers every one still held. So an arrival past
 // the bound is recorded as deferred instead of forgotten, and the owner asks for that
@@ -67,7 +67,7 @@
 // A reference main has let go is never re-delivered, so its place is never claimed and
 // nothing here can learn that it never will be. What the promotion gates on is
 // therefore the DEBT — set by a fresh deferral, cleared by the replay request — and a
-// place whose replay has already been asked for decides nothing. `core/constants.ts`
+// place whose replay has already been asked for decides nothing. `core/constants/invite-caps.ts`
 // bounds the register for the other half of the same fact.
 
 import type { GrowthPendingInviteRefused, GrowthPendingInviteState } from "../../bridge/index.js";
@@ -109,7 +109,7 @@ export class PendingInviteArrivals {
    * time and each has to re-enter where it arrived. Keyed on {@link arrivalIdentity},
    * which is what the replay re-delivers a frame under, so the lookup that keeps a
    * place is the same match that recognises a duplicate. Bounded, and past the bound
-   * a deferral keeps no place — `core/constants.ts` states what that costs.
+   * a deferral keeps no place — `core/constants/invite-caps.ts` states what that costs.
    */
   readonly #deferredPlaces = new Map<string, number>();
   /**
@@ -309,7 +309,7 @@ export class PendingInviteArrivals {
    *
    * PAST THE REGISTER'S BOUND THE PLACE IS DECLINED AND THE DEBT IS NOT. The arrival
    * is still recovered; what it loses is only its priority over the refusals retained
-   * beside it, and `core/constants.ts` states why that is the half worth giving up.
+   * beside it, and `core/constants/invite-caps.ts` states why that is the half worth giving up.
    */
   #recordDeferredArrival(identity: string | undefined, sequence: number): boolean {
     if (identity !== undefined && this.#deferredPlaces.size < PENDING_INVITE_DEFERRED_PLACE_MAX) {

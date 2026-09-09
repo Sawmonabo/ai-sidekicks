@@ -190,7 +190,7 @@ describe("useSessionStoreRegistry — the board a family projects its own events
   }
 
   it("folds an event kind a family claimed, in a store the window opened", () => {
-    // The whole point of the seam. `store/entities.ts` declares an `approval`
+    // The whole point of the seam. `store/entities/entities.ts` declares an `approval`
     // partition and every other family's besides, and under the frame's constant
     // table not one of them had a possible producer: a family could only fill its own
     // partition by reading the wire a second time, beside the store rather than in

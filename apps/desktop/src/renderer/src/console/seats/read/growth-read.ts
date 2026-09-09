@@ -22,7 +22,7 @@
 // It asks ONCE per subject. There is no interval, no retry, and no refresh trigger:
 // every operation reachable through this hook is a wire the console does not have
 // yet, so a repeat re-asks a question with a standing answer and burns the idle-CPU
-// budget doing it. `store/scheduling.ts` is where a re-read goes when the wire lands
+// budget doing it. `store/read/refresh-scheduler.ts` is where a re-read goes when the wire lands
 // and there is something to re-read.
 //
 // It also does not WRITE into what it holds. A surface whose own mutation settles

@@ -39,7 +39,7 @@ export interface ConsoleCommand {
    * deliberately — the dialog must not stay open waiting on a command that opens
    * another surface — so a `run` that rejects reaches no surface at all and becomes
    * an unhandled rejection. A command that can fail catches its own failure and
-   * renders it (`palette/bridge-commands.ts` is the worked example).
+   * renders it (`palette/commands/bridge-commands.ts` is the worked example).
    */
   readonly run: () => void | Promise<void>;
   /**

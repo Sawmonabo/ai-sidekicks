@@ -32,7 +32,7 @@ export interface ShelfReading {
   /**
    * What the fan-out could not answer, in the console's own completeness vocabulary.
    *
-   * `primitives/partial-read.ts` owns both the shape and the sentence, so the shelf
+   * `primitives/reading/partial-read.ts` owns both the shape and the sentence, so the shelf
    * decides the one thing that is its own — the SCOPE, which follows from how many
    * sessions answered — and writes none of the words. The scope is settled here,
    * where the outcomes are counted, and never re-derived in a render body: two views

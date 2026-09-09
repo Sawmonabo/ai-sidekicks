@@ -3,7 +3,7 @@
 // A door earns two tests and no more: that it FORWARDS — the guarantee it names is
 // the one the holder makes, not a second one spelled here — and that its vocabulary
 // is the session's. Anything else asserted here would be a second copy of
-// `store/subject-scoped-state.test.tsx`, which is the drift this door exists to
+// `store/subject-scoped/subject-scoped-state.test.tsx`, which is the drift this door exists to
 // prevent.
 //
 // The bridges are real fixture bridges rather than shaped objects: the door's whole

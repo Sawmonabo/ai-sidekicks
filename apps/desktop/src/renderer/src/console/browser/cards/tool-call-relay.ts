@@ -28,7 +28,7 @@
 // arms carry the same bounded list the served arm was carrying.
 //
 // WHICH IS WHY THE REFUSED ARM CARRIES ONE TOO, and why its SCOPE is read off that
-// list rather than fixed. `primitives/partial-read.ts` closes the refusal scope at
+// list rather than fixed. `primitives/reading/partial-read.ts` closes the refusal scope at
 // two, and the difference between them is exactly this question: a refusal that IS
 // the whole answer, and a refusal that arrived BESIDE one. An iterator that throws
 // having relayed nothing is the first; one that throws after relaying six

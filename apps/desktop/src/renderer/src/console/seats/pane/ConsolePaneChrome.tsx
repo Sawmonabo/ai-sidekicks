@@ -53,7 +53,7 @@
 // was standing in for.
 //
 // AND BETWEEN THE HEAD AND THE BODY THERE IS ONE PINNED REGION, filled through
-// `seats/pinned-pane-regions.ts` rather than by a prop. A pane can carry a block above
+// `seats/pane/pinned-pane-regions.ts` rather than by a prop. A pane can carry a block above
 // its body that belongs to a family that does not own the pane — channel-scoped
 // workflow progress on a channel-scoped timeline is the first — and a sibling import
 // is what the layering rules refuse. An unfilled region draws no element at all, so a

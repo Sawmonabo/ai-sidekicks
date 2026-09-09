@@ -93,7 +93,7 @@ export {
 //
 // The act and the act-taking hook are published beside the store-bound one because the
 // third caller cannot use that one: the window overlay seat hands its body acts and
-// never a store, and `seats/window-overlay-seat.ts` types that prop from here.
+// never a store, and `seats/slots/window-overlay-seat.ts` types that prop from here.
 export {
   modalSurfaceClaimFor,
   useModalSurfaceClaim,

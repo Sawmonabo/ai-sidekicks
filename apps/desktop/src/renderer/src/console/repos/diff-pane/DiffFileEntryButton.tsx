@@ -13,7 +13,7 @@ export type DiffFileEntryButtonProps = {
  *
  * ONE TAB STOP FOR THE WHOLE LIST, and the row is what says so. The roving `tabIndex`
  * and the target marker arrive together from the row primitive's renderer form
- * (`primitives/windowed-row-markers.ts` declares the marker) and are spread onto this
+ * (`primitives/windowing/windowed-row-markers.ts` declares the marker) and are spread onto this
  * button and onto nothing else — which is what makes the marked element and the
  * focusable element the same element. Computing the index here from an `isTabbable`
  * prop left the row marking ITSELF as the focus target while the stop sat on this

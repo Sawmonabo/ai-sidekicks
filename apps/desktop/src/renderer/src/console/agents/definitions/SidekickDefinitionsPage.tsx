@@ -14,7 +14,7 @@
 //
 // ONE READ, AND A RE-READ ONLY WHERE SOMETHING MOVED. The list is read on mount and
 // again after a delete the daemon applied, which is the one moment this page knows
-// the registry changed. Nothing polls, and `store/scheduling.ts` is where a refresh
+// the registry changed. Nothing polls, and `store/read/refresh-scheduler.ts` is where a refresh
 // cadence would land if one were ever wanted. The `not-loaded` absence is entered
 // once and never re-entered: a re-read that blanked the list would take rows off the
 // screen to show a spinner for data the page is already holding.

@@ -6,10 +6,11 @@
 // The block is here; `BudgetMeter.tsx` beside it is the surface that renders it, and
 // `bound-figures.ts` is how a figure is spelled.
 //
-// WHY IT LIVES IN THE FAMILY AND NOT AT THE DAG FLOOR. `core/constants.ts` says it in
-// its own header — "each view family adds its own module beside its subtree rather
-// than widening this one, so a bound always sits next to the code that spends it" —
-// and this is that module. What sat in `core/` was not a set of ceilings: it was a
+// WHY IT LIVES IN THE FAMILY AND NOT AT THE DAG FLOOR. The CAPS are at the floor —
+// `core/constants/browser-caps.ts` holds this family's, which is what
+// `apps/desktop/AGENTS.md` §Config single-sourcing requires and what
+// `test/console/architecture/cap-constant-home.test.ts` enforces. This module is not
+// that. What sat in `core/` beside the caps was not a set of ceilings: it was a
 // bound TAXONOMY, a unit tuple, a byte-qualifier dispatch table, two constructor
 // functions, and a twenty-row table of prose derivations, none of which anything
 // outside this family reads, and one of which — the qualifier map — encodes which

@@ -18,7 +18,7 @@
 // repo one, which is what `ReadTriggerTarget` means by making the set a property of the
 // QUESTION rather than of the surface.
 //
-// EVERYTHING ELSE IS `store/act-controller-base.ts`'S. The scheduler, the trigger
+// EVERYTHING ELSE IS `store/act/act-controller-base.ts`'S. The scheduler, the trigger
 // wiring, the four read arms, the four act arms, the single-flight guard, the disposed
 // latch, and the six members a surface reads them by were written here, in
 // `bind/bind-controller.ts`, and in `roots/prepare-controller.ts` three times over;

@@ -178,7 +178,7 @@ export class SessionStoreRegistry {
    * ROUTED HERE RATHER THAN REACHED FOR, and that is the whole reason the method
    * exists. `degradation.ts` states that `markDegraded` has writers outside the
    * chokepoint — a read that failed, a subscription that never opened — and the one
-   * object that observes the second of those, `frame/session-event-binder.ts`, holds
+   * object that observes the second of those, `frame/session/session-event-binder.ts`, holds
    * no store and must not start: "this class never touches a store, holds no store
    * reference, and has no way to write one" is the property that keeps the chokepoint
    * structural. So the cause travels the same way an event and a refresh reason do,

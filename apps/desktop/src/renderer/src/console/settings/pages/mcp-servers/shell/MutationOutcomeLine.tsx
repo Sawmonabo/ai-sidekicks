@@ -66,7 +66,7 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
 /**
  * The per-leg outcomes, one row each.
  *
- * A camelCase helper rather than a second component, on the `primitives/Nothing.tsx`
+ * A camelCase helper rather than a second component, on the `primitives/absence/Nothing.tsx`
  * precedent: a `.tsx` module declares one component, and this list body has no
  * identity outside its one caller.
  *

@@ -17,7 +17,7 @@
 // SETTLED BY ITS ROUND, NOT MERELY BY LIVENESS. A register alone answers "is one
 // pending"; a continuation coming back from its await also has to answer "is the
 // pending one MINE", because a reply for a round the latch has moved past describes
-// bytes a later act has already superseded. That is `store/generation-latch.ts`'s
+// bytes a later act has already superseded. That is `store/read/generation-latch.ts`'s
 // whole subject, so this class takes ONE key from it rather than hand-rolling a
 // serial of its own: `claim` refuses the second press, `isCurrent` answers
 // supersession and disposal in one question, and `release` frees nothing once the

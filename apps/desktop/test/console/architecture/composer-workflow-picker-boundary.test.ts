@@ -8,7 +8,7 @@
 //
 // THE DEFECT THIS WAS WRITTEN AGAINST. The rail imported `WorkflowStartMenu` from the
 // workflows door, and the door re-exported it from `start/WorkflowStartMenu.js` and
-// imported `start/workflow-start-menu.css` beside it. `families.ts` imports that door
+// imported `workflows/start/workflow-start-menu.css` beside it. `families.ts` imports that door
 // eagerly to register the family's surfaces, so BOTH paths were static: the picker, the
 // definition directory it reads through, the start act it dispatches, and the family's
 // menu sheet all sat in the entry chunk of every session, including every session whose

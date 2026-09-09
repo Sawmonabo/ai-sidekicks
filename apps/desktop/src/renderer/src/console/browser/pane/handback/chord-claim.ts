@@ -17,7 +17,7 @@
 //
 // AND ONE CHORD VOCABULARY. The modifier token set, the resolution of `$mod`, and the
 // splitter that separates a press into its modifiers and its key all come from
-// `primitives/chord-format.ts` — the console's chord printer, which needs those same
+// `primitives/chord/chord-format.ts` — the console's chord printer, which needs those same
 // three facts to render a chord for a platform that is not the host. All three were
 // copies in this family, one of them with a comment admitting it, and the splitter copy
 // was a `chord.split("+")` that answers differently from the parser on exactly the
@@ -100,7 +100,7 @@ export function carriesApplicationModifier(descriptor: ChordDescriptor): boolean
  *
  * This is a PRESENCE test and not a chord parser — it resolves no key and decides no
  * optional modifier, and the console's one chord parser stays
- * `palette/keybinding-chord.ts`.
+ * `palette/keybindings/keybinding-chord.ts`.
  */
 // Consumed by growth slate row `browser-pane-namespace`
 export const CLAIMABLE_MODIFIER_TOKENS: readonly ChordModifierToken[] =

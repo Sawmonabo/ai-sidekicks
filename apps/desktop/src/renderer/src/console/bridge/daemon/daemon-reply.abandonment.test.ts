@@ -50,7 +50,7 @@ const RUN_ID = "019b79ee-0280-7f00-8110-a11ce0000002" as RunId;
  * scope instead would put a second module inside every assertion and make a failure
  * ambiguous between the two. The scope's own behaviour — that it aborts on unmount,
  * on re-address, and on supersession — is asserted where it lives, in
- * `store/read-cancellation.test.ts` and its hook suite beside it.
+ * `store/read/read-cancellation.test.ts` and its hook suite beside it.
  */
 function readLine(): AbortController {
   return new AbortController();
