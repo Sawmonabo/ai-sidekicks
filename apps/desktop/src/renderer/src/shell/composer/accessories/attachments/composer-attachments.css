@@ -92,6 +92,18 @@
   outline-offset: 1px;
 }
 
+/* What to do next about a refused upload, and what the cancel control actually does.
+   Full text colour for `run-interventions.css`'s reason: the remedy is the one line on
+   a refused row that names an act, and muting it beside the code and the cause loses
+   it. It is a line of its own rather than a tooltip, because a tooltip is unreachable
+   by touch, unreachable by keyboard, and announced by no assistive technology this
+   console can name. */
+.meridian-composer-attachment__remedy {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
 .meridian-composer-attachment__progress {
   inline-size: calc(var(--meridian-space-5) * 2);
   block-size: var(--meridian-space-1);

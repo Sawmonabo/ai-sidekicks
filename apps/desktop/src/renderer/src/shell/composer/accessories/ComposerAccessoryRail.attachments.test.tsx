@@ -64,6 +64,29 @@ describe("the composer's attachment strip", () => {
     // The running count against the bound, which is a figure and never a gate.
     expect(strip?.textContent).toContain("of 10 attached");
   });
+
+  it("carries its name on an element that can hold one", async () => {
+    // The strip was a `div` with an `aria-label`, and a `div` is `generic`: naming a
+    // generic element names nothing, so the label reached no assistive technology at
+    // all. A landmark takes it — and the strip is one, a standing region beside the
+    // message line rather than decoration inside it. (The accessibility tier cannot
+    // stand in for this case: `aria-prohibited-attr` is outside the WCAG A/AA tag set
+    // that tier runs, measured 2026-09-09 against a planted `div aria-label`.)
+    const container = mountRail([]);
+    const region = railRegion(container);
+    const event = eventCarrying(
+      "drop",
+      "dataTransfer",
+      fileTransferOf([new File(["payload"], "notes.md", { type: "text/plain" })]),
+    );
+    await act(async () => {
+      region.dispatchEvent(event);
+    });
+    const strip = container.querySelector(".meridian-composer-attachments");
+
+    expect(strip?.tagName).toBe("SECTION");
+    expect(strip?.getAttribute("aria-label")).toBe("Attachments on this message");
+  });
 });
 
 describe("the `+` menu's family rows", () => {
@@ -120,5 +143,113 @@ describe("the `+` menu's family rows", () => {
     });
     expect(screen.getByText(/no focused pane/)).toBeTruthy();
     expect(container.querySelector(".meridian-composer-attachments")).toBeNull();
+  });
+});
+
+describe("the `+` menu closes when a person is done with it", () => {
+  /** Whether the panel is on screen, which is what "open" means for this menu. */
+  function isPanelOpen(container: HTMLElement): boolean {
+    return container.querySelector(".meridian-plus-menu__panel") !== null;
+  }
+
+  it("closes once a family row has actually attached something", async () => {
+    // The picker closed on a choice and this row did not, so the menu stayed open
+    // over the strip that was reporting what it had just attached. The attach IS the
+    // act; what happens next is above the message.
+    registerRow("test.attach", {
+      status: "attached",
+      attachment: { artifactId: "artifact-9", mediaType: "image/png", byteLength: 2048 },
+    });
+    const container = mountRail([]);
+    openPlusMenu(container);
+    expect(isPanelOpen(container)).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Attach page"));
+    });
+
+    expect(isPanelOpen(container)).toBe(false);
+  });
+
+  it("negative control: a row that refused leaves the menu open on its answer", async () => {
+    // The refusal renders inside the menu, so closing on one would take the answer
+    // off screen in the same act that produced it.
+    registerRow("test.attach", {
+      status: "refused",
+      refusal: {
+        origin: "test-family",
+        code: "no-focused-pane",
+        detail: "There is no focused pane to attach a page from.",
+      },
+    });
+    const container = mountRail([]);
+    openPlusMenu(container);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Attach page"));
+    });
+
+    expect(isPanelOpen(container)).toBe(true);
+    expect(screen.getByText(/no focused pane/)).toBeTruthy();
+  });
+
+  it("dismisses on a pointer press outside it", () => {
+    // Escape was the only way out, so a person who pressed `+`, changed their mind,
+    // and clicked back into the message line left the panel open over what they had
+    // gone back to. `pointerdown` and not `click`: a press that starts outside and
+    // releases inside fires no document click at all.
+    const container = mountRail([]);
+    openPlusMenu(container);
+    expect(isPanelOpen(container)).toBe(true);
+
+    act(() => {
+      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+
+    expect(isPanelOpen(container)).toBe(false);
+  });
+
+  it("dismisses when focus leaves the panel", () => {
+    const container = mountRail([]);
+    openPlusMenu(container);
+
+    act(() => {
+      document.body.dispatchEvent(new Event("focusin", { bubbles: true }));
+    });
+
+    expect(isPanelOpen(container)).toBe(false);
+  });
+
+  it("negative control: a press inside the panel leaves it open", () => {
+    // Without this the two cases above would pass over a menu that closed on any
+    // press anywhere, which would shut itself the moment a person reached for the
+    // picker inside it.
+    const container = mountRail([]);
+    openPlusMenu(container);
+    const panel = container.querySelector(".meridian-plus-menu__panel");
+    expect(panel).not.toBeNull();
+
+    act(() => {
+      panel?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      panel?.dispatchEvent(new Event("focusin", { bubbles: true }));
+    });
+
+    expect(isPanelOpen(container)).toBe(true);
+  });
+
+  it("names the panel it opens, and points at it only while it exists", () => {
+    // `aria-label` on a `div` names nothing — axe's `aria-prohibited-attr` — and an
+    // `aria-controls` naming an id in no document is an invalid value rather than a
+    // helpful hint, which is why the association is spelled only while open.
+    const container = mountRail([]);
+    const trigger = container.querySelector(".meridian-plus-menu__trigger");
+    expect(trigger?.getAttribute("aria-controls")).toBeNull();
+
+    openPlusMenu(container);
+    const panel = container.querySelector(".meridian-plus-menu__panel");
+
+    expect(panel?.getAttribute("role")).toBe("group");
+    expect(trigger?.getAttribute("aria-controls")).toBe(panel?.getAttribute("id"));
+    expect(panel?.getAttribute("id")).not.toBeNull();
   });
 });

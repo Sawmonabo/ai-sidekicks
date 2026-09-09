@@ -174,8 +174,16 @@
   border-radius: var(--meridian-radius-sm);
 }
 
+/* THE PICKER MATCHES ITS SIBLINGS, and its selector differs for one structural
+   reason. The other four are the focusable element; the picker's control is a `label`
+   wrapping a visually-hidden `<input type="file">`, so the label itself never takes
+   focus and a bare `:focus-visible` on it would match nothing and remove the ring
+   entirely. `:has(:focus-visible)` asks the same question the others ask — is the
+   focus here, and did it arrive by keyboard — of the element that actually holds it.
+   `:focus-within` asked a different one: it lit on a POINTER press, so this one
+   control drew a keyboard ring for a click while the four beside it did not. */
 .meridian-compaction__action:focus-visible,
-.meridian-composer-picker__control:focus-within,
+.meridian-composer-picker__control:has(:focus-visible),
 .meridian-attach-menu__action:focus-visible,
 .meridian-queue-shelf__cancel:focus-visible,
 .meridian-plus-menu__trigger:focus-visible {

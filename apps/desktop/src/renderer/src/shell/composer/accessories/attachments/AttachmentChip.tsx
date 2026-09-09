@@ -51,11 +51,16 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         <WireFigure value={chip.sizeText} title={chip.sizeTitle} />
         <Chip label={chip.state} mono tone={chip.tone} />
         {chip.progressFraction === undefined ? null : (
+          // NAMED FOR WHAT IT MEASURES AND FOR WHICH FILE. It was named `Uploaded
+          // ${sizeText}` — the DECLARED total, which is what has not been uploaded
+          // yet — so a carrier of several announced as several bars each claiming a
+          // number that was never a progress figure at all. `value` and `max` carry
+          // the amount, as a fraction of the declaration; the name says whose.
           <progress
             className="meridian-composer-attachment__progress"
             max={1}
             value={chip.progressFraction}
-            aria-label={`Uploaded ${chip.sizeText}`}
+            aria-label={`Upload progress for ${chip.name}`}
           />
         )}
         {chip.isStalled ? (
@@ -74,7 +79,6 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
           <button
             type="button"
             className="meridian-composer-attachment__act"
-            title={chip.refusal?.disposition}
             onClick={() => {
               props.onRetry(chip.localId);
             }}
@@ -86,7 +90,6 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
           <button
             type="button"
             className="meridian-composer-attachment__act"
-            title={chip.abandonCopy}
             onClick={() => {
               props.onAbandon(chip.localId);
             }}
@@ -96,8 +99,25 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         ) : null}
       </span>
       {chip.refusal === undefined ? null : (
-        <InlineRefusal code={chip.refusal.code} detail={chip.refusal.detail} />
+        <>
+          <InlineRefusal code={chip.refusal.code} detail={chip.refusal.detail} />
+          {/* WHAT TO DO NEXT, AS TEXT. Rule 4's third clause travelled on the retry
+              control's `title` and the cancel control's — a tooltip a touch user never
+              sees, a keyboard user reaches only by hovering with a pointer they are
+              not using, and a screen-reader user meets only where the platform is
+              configured to announce one. The remedy is the one line on a refused row
+              that names an act; it renders like the run-interventions remedy does. */}
+          {chip.refusal.disposition === undefined ? null : (
+            <p className="meridian-composer-attachment__remedy">{chip.refusal.disposition}</p>
+          )}
+        </>
       )}
+      {/* And the consequence of the control that is still offered. It says what
+          abandoning DOES — client-side, with the daemon's reaper claiming the spool —
+          rather than promising a reclaim nothing performs. */}
+      {chip.offersAbandon ? (
+        <p className="meridian-composer-attachment__remedy">{chip.abandonCopy}</p>
+      ) : null}
     </li>
   );
 }

@@ -22,8 +22,10 @@ import {
   mountApprovalsPane,
   mountComposerChannelAddressed,
   mountComposerChannelDefault,
+  mountComposerPlusMenuOpen,
   mountComposerProviderBoundRunning,
   mountComposerProviderBoundWaiting,
+  mountComposerWithAttachments,
   mountRunsPane,
   type MountedFamilySurface,
 } from "../surfaces/composer.js";
@@ -46,6 +48,12 @@ const AUDITED_SURFACES: readonly {
   { label: "the composer addressed at a channel", mount: mountComposerChannelAddressed },
   { label: "the composer addressed at a working run", mount: mountComposerProviderBoundRunning },
   { label: "the composer addressed at a waiting run", mount: mountComposerProviderBoundWaiting },
+  // Two zones the four addresses above never put on screen. The attachment strip is
+  // absent while a message carries nothing, and the `+` menu unmounts its panel
+  // rather than hiding it — so the strip's own label, each chip's progress bar, the
+  // refusal a chip renders, and the whole panel were reachable by no tier at all.
+  { label: "the composer carrying attachments", mount: mountComposerWithAttachments },
+  { label: "the composer with the `+` menu open", mount: mountComposerPlusMenuOpen },
   { label: "the runs pane", mount: mountRunsPane },
   { label: "the approvals pane", mount: mountApprovalsPane },
 ];

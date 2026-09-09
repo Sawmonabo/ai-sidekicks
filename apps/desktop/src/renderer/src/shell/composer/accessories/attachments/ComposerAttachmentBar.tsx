@@ -58,7 +58,12 @@ export function ComposerAttachmentBar(props: ComposerAttachmentBarProps): React.
   const fill = attachmentCarrierFill(attachedCount);
   const reference = sendAttachmentReference(entries, familyAttachments);
   return (
-    <div
+    // A `section` and not a `div`, on `QueueShelf`'s precedent and for the reason axe
+    // states outright: `aria-label` on a generic element names nothing, so the label
+    // this strip carried reached no assistive technology at all. A landmark takes the
+    // name — and the strip IS one, a standing region beside the message line rather
+    // than a run of decoration inside it.
+    <section
       className={
         props.isDraggingFiles
           ? "meridian-composer-attachments meridian-composer-attachments--drag"
@@ -100,6 +105,6 @@ export function ComposerAttachmentBar(props: ComposerAttachmentBarProps): React.
           {ATTACHMENT_DELIVERY_HELD_COPY}
         </p>
       )}
-    </div>
+    </section>
   );
 }
