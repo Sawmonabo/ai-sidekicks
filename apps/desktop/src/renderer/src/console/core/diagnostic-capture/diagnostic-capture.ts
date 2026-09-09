@@ -262,5 +262,12 @@ export class DiagnosticCapture {
 /**
  * The console's capture. One per renderer process, on `consoleTripwires`' reasoning:
  * an auxiliary window is its own renderer process and therefore its own capture.
+ *
+ * The instance is declared here and installed nowhere yet: the forwarder that carries
+ * a batch to the daemon's band is the shell's, and the task that owns this module owns
+ * that wiring. Declared now rather than with its installer because the marker and the
+ * bounds above are the half that has to exist before anything can be forwarded.
+ *
+ * @consumedBy T-023p-1C-8
  */
 export const consoleDiagnosticCapture: DiagnosticCapture = new DiagnosticCapture();
