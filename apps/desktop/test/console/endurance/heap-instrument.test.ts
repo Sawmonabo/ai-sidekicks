@@ -19,17 +19,35 @@
 
 import { describe, expect, it } from "vitest";
 
-import { withLaunchedConsole, type ConsoleApplication } from "../electron-harness.js";
+import {
+  withLaunchedConsole,
+  type ConsoleApplication,
+  type LaunchConsoleOptions,
+} from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
 import { ENDURANCE_LAUNCH_OPTIONS } from "./console-workload.js";
 import {
   expectPreciseHeapInstrument,
-  PRECISION_PROBE_ELEMENT_COUNT,
   PRECISION_PROBE_NOMINAL_BYTES,
   RendererHeapProbe,
 } from "./heap-instrument.js";
 
 const bundleIsBuilt = fixtureBundleExists();
+
+/**
+ * This tier's launch with the one switch the precondition is about taken off it.
+ *
+ * Spread from the tier's own options rather than composed fresh, so the coarse
+ * launch differs from every other launch in this tier in exactly one respect and the
+ * refusal below cannot be explained by a second difference. It is a whole second
+ * Electron, which is what makes it a control rather than a recital: the alternative
+ * was to assert this function's arithmetic over readings recorded in a comment, and a
+ * comment cannot go stale in a way anything fails on.
+ */
+const COARSE_LAUNCH_OPTIONS: LaunchConsoleOptions = {
+  ...ENDURANCE_LAUNCH_OPTIONS,
+  isPreciseHeapReadingRequired: false,
+};
 
 /**
  * Where the planted allocation is held while the case reads around it.
@@ -45,26 +63,36 @@ const PLANTED_ALLOCATION_GLOBAL = "__sidekicksHeapInstrumentPlantedAllocation";
 /**
  * How much of the planted figure a reading must move to count as having measured it.
  *
- * Half, and it is the same fraction and the same reason as the precision probe's own
- * lower bound: the collector runs between the two readings, so an exact match would
- * make ordinary V8 housekeeping decide the verdict, while a threshold this far above
- * noise cannot be met by anything but the plant.
+ * Half, and DELIBERATELY looser than the precision probe's own window, because the
+ * two assertions are about different things. That one is a claim about the
+ * instrument and is drawn tight around a size known at its call site; this one is a
+ * claim about the READER around it — three settled readings taken a forced
+ * collection apart, with a whole console between them — and asks only whether the
+ * plant was seen at all and given back. A threshold this far above noise cannot be
+ * met by anything but the plant, and tightening it would make the console's own
+ * allocation between two readings decide a verdict that is not about the console.
  */
 const MEASURED_FRACTION_OF_PLANT = PRECISION_PROBE_NOMINAL_BYTES / 2;
 
-/** Allocate the plant and hold it reachable from the renderer's global object. */
-function plantRetainedHeapBytes(consoleApplication: ConsoleApplication): Promise<void> {
+/**
+ * Allocate the plant, hold it reachable from the renderer's global object, and
+ * answer the character the flattening read saw.
+ *
+ * The code comes back rather than staying in the renderer because the flattening is
+ * what MAKES the plant four megabytes: a repeat answers a rope of concatenation
+ * cells weighing a few hundred bytes, and a plant left in that form would fail the
+ * arm below for a reason that has nothing to do with the reader it is testing. A
+ * value the caller asserts on is a flattening that cannot be silently dropped.
+ */
+function plantRetainedHeapBytes(consoleApplication: ConsoleApplication): Promise<number> {
   return consoleApplication.window.evaluate(
-    ([globalName, elementCount]: [string, number]) => {
-      // The precision probe's own shape: a packed-double backing store allocated once,
-      // so what the reading moves by is the array and not a copying loop's garbage.
-      const retained = new Array<number>(elementCount);
-      for (let element = 0; element < elementCount; element += 1) {
-        retained[element] = element + 0.5;
-      }
+    ([globalName, characterCount]: [string, number]) => {
+      // The precision probe's own shape: one flat one-byte string, a byte a character.
+      const retained = "x".repeat(characterCount);
       (globalThis as unknown as Record<string, unknown>)[globalName] = retained;
+      return retained.charCodeAt(characterCount - 1);
     },
-    [PLANTED_ALLOCATION_GLOBAL, PRECISION_PROBE_ELEMENT_COUNT] as [string, number],
+    [PLANTED_ALLOCATION_GLOBAL, PRECISION_PROBE_NOMINAL_BYTES] as [string, number],
   );
 }
 
@@ -82,10 +110,13 @@ describe.skipIf(!bundleIsBuilt)("endurance — the reading every gated figure is
       try {
         // The precondition first, exactly where the tier's own cases put it — and
         // exactly as they leave it: four megabytes allocated, proved, and dropped.
-        await expectPreciseHeapInstrument(consoleApplication);
+        await expectPreciseHeapInstrument(consoleApplication, heapProbe);
 
         const baselineBytes = await heapProbe.readSettledBytes();
-        await plantRetainedHeapBytes(consoleApplication);
+        expect(
+          await plantRetainedHeapBytes(consoleApplication),
+          "the plant was not flattened, so what is held on the global is a rope of a few hundred bytes rather than the four megabytes the arms below are about",
+        ).toBe("x".charCodeAt(0));
         const plantedBytes = await heapProbe.readSettledBytes();
         await releaseRetainedHeapBytes(consoleApplication);
         const releasedBytes = await heapProbe.readSettledBytes();
@@ -113,6 +144,33 @@ describe.skipIf(!bundleIsBuilt)("endurance — the reading every gated figure is
       } finally {
         // Detached before the wrapper closes the window: detaching a DevTools session
         // from a closed application raises over whatever the body was failing on.
+        await heapProbe.detach();
+      }
+    });
+  });
+
+  it("refuses the reading a launch without the precise instrument serves", async () => {
+    // THE NEGATIVE CONTROL FOR THE PRECONDITION ITSELF. Every other case in this tier
+    // calls `expectPreciseHeapInstrument` and passes, which establishes that it
+    // ACCEPTS a precise instrument and nothing at all about whether it would accept a
+    // coarse one — and a precondition that accepts both is a line of code, not a gate.
+    // So the same probe is run against the same console launched without the switch,
+    // and the assertion is that it REFUSES.
+    //
+    // A whole second Electron for one assertion, and it is the cheap option: the
+    // alternative is arithmetic over readings pasted into a comment, which proves the
+    // arithmetic and not the instrument, and which goes on passing after Blink changes
+    // what the default form reports. Measured on this build, the coarse launch answers
+    // both reads from one cached value and the difference is exactly 0 B — the floor
+    // is what that trips, and the message names the instrument rather than the number.
+    await withLaunchedConsole(COARSE_LAUNCH_OPTIONS, async (consoleApplication) => {
+      const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+      try {
+        await expect(
+          expectPreciseHeapInstrument(consoleApplication, heapProbe),
+          "the precondition accepted a launch that never asked for the precise instrument, so it is asserting nothing on the launches that do",
+        ).rejects.toThrow(/quantized, cached MemoryInfo rather than the precise one/);
+      } finally {
         await heapProbe.detach();
       }
     });

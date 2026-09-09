@@ -207,7 +207,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
         // Every figure below is a DIFFERENCE of two heap readings, which the default
         // quantized instrument cannot carry — so the instrument is proved before the
         // arithmetic that rests on it.
-        await expectPreciseHeapInstrument(consoleApplication);
+        await expectPreciseHeapInstrument(consoleApplication, heapProbe);
 
         const baselineHeapBytes = await heapProbe.readSettledBytes();
 

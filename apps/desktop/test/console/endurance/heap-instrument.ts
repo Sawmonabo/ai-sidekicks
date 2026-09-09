@@ -29,51 +29,103 @@ import type { ConsoleApplication } from "../electron-harness.js";
 import { SETTLE_ROUNDS } from "../heap-sampling.js";
 
 /**
- * How many doubles the precision probe holds.
+ * What the precision probe weighs, and the length of the string that weighs it.
  *
- * A plain array assigned doubles is V8's packed-double backing store — eight bytes
- * an element, allocated once on the JS heap, with none of the copying a `push` loop
- * leaves behind. Half a million of them is four megabytes, which is the figure the
- * window below is drawn around.
+ * ONE NUMBER FOR BOTH, and that is the reason the shape is a flat one-byte string
+ * rather than an array of anything: a byte a character makes the payload's size and
+ * its length the same figure, so this module owns no per-element width it would then
+ * have to keep true in two places. The probe repeats a single character this many
+ * times and the read that flattens the value allocates one sequential one-byte
+ * string of exactly this length — a single heap object whose size is known at the
+ * call site, and one that depends on no elements kind, so nothing about it can
+ * transition.
  *
- * Exported beside the nominal it produces so the control that proves the collection
- * happened plants an allocation of the same shape and the same size, rather than
- * re-deriving one from a bytes-per-double this module would then own in two places.
+ * WHY NOT THE DOUBLE ARRAY THIS USED TO BE. `new Array(500_000)` is far above V8's
+ * fast-elements preallocation limit, so it is created in dictionary mode and the
+ * sequential double stores drive it through a representation change: what ends up
+ * retained is a four-megabyte double-elements backing store, and the store it
+ * replaced is the same size again, unreachable and COUNTED until a collection runs.
+ * Measured on this build across fourteen windows the shape read 4,000,040 B where a
+ * collection had already run and −38,965,632 B where one landed inside the window;
+ * on the ubuntu runner it read 8,022,500 B, past the old ceiling of 8,000,000 —
+ * both backing stores counted at once. The window was asserting V8's elements
+ * representation and the collector's timing, which are the two things this
+ * precondition is not about.
+ *
+ * Exported because the control that proves the collection happened plants an
+ * allocation of the same shape and the same size, and a second figure written into
+ * that file would be a second answer to how big "big enough to see" is.
  */
-export const PRECISION_PROBE_ELEMENT_COUNT: number = 500_000;
+export const PRECISION_PROBE_NOMINAL_BYTES: number = 4_000_000;
 
 /**
- * What the precision probe weighs, and the size a case planting its own retained
- * allocation against this instrument should reach for.
+ * The character the probe's string is made of.
  *
- * Exported because the control that proves the collection happened has to plant a
- * figure of a known size, and a second nominal written into that file would be a
- * second answer to how big "big enough to see" is.
+ * Named because it crosses into the renderer as an argument and comes back as a
+ * character code the assertion checks: the flattening read has to be OBSERVED to
+ * have read the payload, and a code compared against a literal spelled twice is a
+ * comparison of this file with itself.
  */
-export const PRECISION_PROBE_NOMINAL_BYTES: number = PRECISION_PROBE_ELEMENT_COUNT * 8;
+const PRECISION_PROBE_FILL_CHARACTER = "x";
+
+/**
+ * What V8 spends AROUND the payload, and the only slack the window below carries.
+ *
+ * The retained value is the payload plus a sequential-string header, and the
+ * doubling the repeat performs leaves a handful of concatenation cells the
+ * flattening read degenerates rather than frees. Measured across fourteen collected
+ * windows on this build the whole of that overhead was 560 B — the same figure
+ * every time — so this allowance is not a tolerance the reading needs. It is room
+ * for a platform whose header width or large-object alignment differs from this
+ * one's, and it is stated rather than absorbed so a reader can see how much of the
+ * window is measurement and how much is margin.
+ *
+ * Sixty-four kibibytes: two orders of magnitude above the measured overhead, and
+ * far below what it has to keep out. The shape this probe replaced overshot by a
+ * whole second backing store — four megabytes — and the default instrument moves by
+ * nothing at all.
+ */
+const PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES = 65_536;
 
 /**
  * The window the probe's own growth has to land in.
  *
- * Both ends are the assertion, and each end rules out one way the default
- * instrument fails. BELOW: a reading served from Blink's long-interval cache does
- * not move at all, so the second read equals the first and the delta is zero.
- * ABOVE: a reading quantized onto Blink's bucket grid is one of a coarse set of
- * sizes whose smallest step is far larger than this probe, so it either does not
- * move or jumps a whole bucket — and a jump lands well past the ceiling.
+ * FLOOR: the payload itself. Four million one-byte characters weigh four million
+ * bytes on the heap and cannot weigh less, so this end is arithmetic rather than a
+ * tolerance — and it is the end that rules out the default instrument, which is
+ * quantized and served from a long-interval cache and recites one value for both
+ * reads. Measured with the flag dropped from this tier's launch: growth of exactly
+ * 0 B across twelve windows (macOS, Electron 44). That figure is not cited as
+ * evidence here — `heap-instrument.test.ts` launches without the flag and asserts
+ * this function REFUSES, so the claim is run rather than recorded.
  *
- * A window and not a floor, because a floor alone passes a quantized instrument
- * that happened to step a bucket, which is the failure this precondition exists
- * for. The ends are loose against the nominal figure so ordinary collector
- * activity between the two reads cannot decide the verdict.
- *
- * Measured rather than assumed: with the flag dropped from this tier's launch, the
- * same probe moved the reading by exactly 0 B (macOS, Electron 44, 2026-09-05) —
- * the cached form, reciting one value for both reads.
+ * CEILING: the payload plus the overhead allowance. A floor alone passes any
+ * instrument that moved by at least this much for any reason — a quantized one that
+ * stepped its grid, or the replaced shape carrying a second backing store — so the
+ * ceiling is what turns "the reading moved" into "the reading measured this".
  */
-const PRECISION_PROBE_MIN_OBSERVED_BYTES = PRECISION_PROBE_NOMINAL_BYTES / 2;
+const PRECISION_PROBE_MIN_OBSERVED_BYTES = PRECISION_PROBE_NOMINAL_BYTES;
 
-const PRECISION_PROBE_MAX_OBSERVED_BYTES = PRECISION_PROBE_NOMINAL_BYTES * 2;
+const PRECISION_PROBE_MAX_OBSERVED_BYTES =
+  PRECISION_PROBE_NOMINAL_BYTES + PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES;
+
+/**
+ * How many windows the probe takes, and why the largest of them is the reading.
+ *
+ * A collection that lands BETWEEN the two reads can only lower their difference: it
+ * reclaims bytes that were already there and adds none. So a window a collection
+ * landed in is not a measurement of this allocation, and the largest of several
+ * windows is the one least contaminated by one. Nothing about that weakens the
+ * ceiling — it is applied to the largest, which is the strictest place to apply it —
+ * and it cannot rescue the default instrument, whose every window is 0.
+ *
+ * Three, because each window is taken behind its own forced collection and that
+ * makes a contaminated window rare rather than routine. Measured on this build:
+ * fourteen COLLECTED windows read 4,000,560 B every time, where fourteen
+ * uncollected windows on the same launch read 4,000,560 B ten times, 4,001,852 B
+ * and 3,993,316 B — below the payload — once each, and −40,452,864 B once.
+ */
+const PRECISION_PROBE_WINDOW_COUNT = 3;
 
 /**
  * How many settling samples the minimum below is taken over.
@@ -110,48 +162,80 @@ const HEAP_INSTRUMENT_UNAVAILABLE =
  * fail loudly: it would report differences that are rounding, and the slope band
  * would swallow them.
  *
- * So the flag is not trusted. A known allocation is made between two reads and the
- * growth has to track it, which is a claim about the instrument rather than about
- * the console — and it is asserted by the cases that spend the instrument, not
- * inside the reader, so it costs one round trip per tier case rather than one per
- * sample.
+ * So the flag is not trusted. An allocation of a size known at this call site is
+ * made between two reads and the growth has to land in a window drawn around that
+ * size, which is a claim about the instrument rather than about the console — and it
+ * is asserted by the cases that spend the instrument, not inside the reader, so it
+ * costs a few round trips per tier case rather than one per sample.
  *
- * IT LEAVES ITS OWN FOUR MEGABYTES BEHIND, unreachable and uncollected. Every caller
+ * EACH WINDOW IS TAKEN BEHIND A FORCED COLLECTION, which is the correction rather
+ * than a precaution. An uncollected window reports whatever the collector reclaimed
+ * inside it beside what this allocation added, so its difference is the console's
+ * garbage as much as the probe's — measured at −40,452,864 B on a window a major
+ * collection landed in. That is why the reader this tier gates on is the argument
+ * rather than a session opened here: the precondition is proved with the same
+ * collector the readings it guards are taken behind.
+ *
+ * IT LEAVES ONE PAYLOAD BEHIND — four megabytes, unreachable and uncollected. One
+ * and not one per window, because each window's collection reclaims the previous
+ * window's string; only the last is still there when this returns. Every caller
  * therefore takes its next reading through {@link RendererHeapProbe}, which collects
  * before it reads; a sampler-only reading taken here would carry the proof into the
  * figure the proof exists to make trustworthy.
  */
 export async function expectPreciseHeapInstrument(
   consoleApplication: ConsoleApplication,
+  heapProbe: RendererHeapProbe,
 ): Promise<void> {
-  const probe = await consoleApplication.window.evaluate((elementCount: number) => {
-    const readHeapBytes = (): number | null => {
-      const memory = (
-        performance as Performance & { readonly memory?: { readonly usedJSHeapSize: number } }
-      ).memory;
-      return memory === undefined ? null : memory.usedJSHeapSize;
-    };
-    const beforeBytes = readHeapBytes();
-    const retained = new Array<number>(elementCount);
-    for (let element = 0; element < elementCount; element += 1) {
-      retained[element] = element + 0.5;
-    }
-    const afterBytes = readHeapBytes();
-    // Read AFTER the second sample so the array is still reachable across it — a
-    // probe V8 may collect before the reading it is the subject of proves nothing.
-    return { beforeBytes, afterBytes, retainedCount: retained.length };
-  }, PRECISION_PROBE_ELEMENT_COUNT);
+  const observedBytesPerWindow: number[] = [];
+  for (let windowIndex = 0; windowIndex < PRECISION_PROBE_WINDOW_COUNT; windowIndex += 1) {
+    await heapProbe.collectGarbage();
+    const probe = await consoleApplication.window.evaluate(
+      ([characterCount, fillCharacter]: [number, string]) => {
+        const readHeapBytes = (): number | null => {
+          const memory = (
+            performance as Performance & { readonly memory?: { readonly usedJSHeapSize: number } }
+          ).memory;
+          return memory === undefined ? null : memory.usedJSHeapSize;
+        };
+        const beforeBytes = readHeapBytes();
+        const retained = fillCharacter.repeat(characterCount);
+        // The repeat builds by doubling and answers a rope of concatenation cells
+        // weighing a few hundred bytes; THIS read is what flattens it into the one
+        // sequential string the window is measuring. It is taken for that reason and
+        // not as a check, and its result is returned so the flattening cannot be
+        // elided as a read nothing consumes.
+        const lastCharacterCode = retained.charCodeAt(characterCount - 1);
+        const afterBytes = readHeapBytes();
+        // Read AFTER the second sample so the string is still reachable across it — an
+        // allocation V8 may collect before the reading it is the subject of proves nothing.
+        return { beforeBytes, afterBytes, retainedLength: retained.length, lastCharacterCode };
+      },
+      [PRECISION_PROBE_NOMINAL_BYTES, PRECISION_PROBE_FILL_CHARACTER] as [number, string],
+    );
 
-  expect(probe.beforeBytes, HEAP_INSTRUMENT_UNAVAILABLE).not.toBeNull();
-  expect(probe.retainedCount).toBe(PRECISION_PROBE_ELEMENT_COUNT);
-  const observedBytes = Number(probe.afterBytes) - Number(probe.beforeBytes);
+    expect(probe.beforeBytes, HEAP_INSTRUMENT_UNAVAILABLE).not.toBeNull();
+    expect(probe.retainedLength).toBe(PRECISION_PROBE_NOMINAL_BYTES);
+    expect(probe.lastCharacterCode).toBe(PRECISION_PROBE_FILL_CHARACTER.charCodeAt(0));
+    observedBytesPerWindow.push(Number(probe.afterBytes) - Number(probe.beforeBytes));
+  }
+
+  const observedBytes = Math.max(...observedBytesPerWindow);
+  const observedWindows = observedBytesPerWindow.map((bytes) => String(bytes)).join(", ");
   expect(
     observedBytes,
     `a ${String(PRECISION_PROBE_NOMINAL_BYTES)} B allocation moved the renderer's heap reading by ` +
-      `${String(observedBytes)} B, which is not a measurement of it — this launch is reading ` +
-      "Blink's default quantized, cached MemoryInfo rather than the precise one",
+      `${String(observedBytes)} B at most (${observedWindows}), which is less than the allocation ` +
+      "weighs — this launch is reading Blink's default quantized, cached MemoryInfo rather than " +
+      "the precise one",
   ).toBeGreaterThanOrEqual(PRECISION_PROBE_MIN_OBSERVED_BYTES);
-  expect(observedBytes).toBeLessThanOrEqual(PRECISION_PROBE_MAX_OBSERVED_BYTES);
+  expect(
+    observedBytes,
+    `a ${String(PRECISION_PROBE_NOMINAL_BYTES)} B allocation moved the renderer's heap reading by ` +
+      `${String(observedBytes)} B at most (${observedWindows}), which is more than the allocation ` +
+      "weighs — the reading is carrying something other than this probe's own string, so a " +
+      "difference taken with it is not a measurement of what was allocated between two reads",
+  ).toBeLessThanOrEqual(PRECISION_PROBE_MAX_OBSERVED_BYTES);
 }
 
 /**
@@ -160,7 +244,7 @@ export async function expectPreciseHeapInstrument(
  * MODULE-PRIVATE, and that is the fix rather than a tidying: a sampler forces no
  * collection, so what it answers depends on whether V8 happened to run one — and
  * every reading this tier gates on is taken a few round trips after a precondition
- * that leaves four megabytes of unreachable array behind. Exported, it was reached
+ * that leaves four megabytes of unreachable string behind. Exported, it was reached
  * directly by the two cases that could least afford it. The only caller now is
  * {@link RendererHeapProbe}, which collects first, so there is no call shape left
  * that takes an uncollected reading.
@@ -241,15 +325,22 @@ export class RendererHeapProbe {
   }
 
   /**
-   * Collect, let finalisation run, and read the settled heap.
+   * Collect, and let pending finalisation run.
    *
    * The loop is this process's own — it collects over a DevTools session rather than
    * through a resolved collector — but the ROUND COUNT is `heap-sampling.ts`'s, which
    * is the console's declared home for the settling discipline. A local copy of the
    * number would go on collecting four times after that one was raised, and the row
    * would read a floor the in-process tier no longer reaches with nothing failing.
+   *
+   * PUBLIC because the tier's PRECONDITION needs exactly this collection and must not
+   * have a second one: {@link expectPreciseHeapInstrument} measures a difference of
+   * two heap readings taken either side of one allocation, and over an uncollected
+   * heap that difference reports whatever the collector reclaimed inside the window
+   * as well. Handing it this method rather than a session of its own is what makes
+   * the precondition and the readings it guards the same instrument.
    */
-  public async readSettledBytes(): Promise<number> {
+  public async collectGarbage(): Promise<void> {
     for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
       await this.#cdpSession.send("HeapProfiler.collectGarbage");
       await this.#consoleApplication.window.evaluate(
@@ -259,6 +350,11 @@ export class RendererHeapProbe {
           }),
       );
     }
+  }
+
+  /** Collect, let finalisation run, and read the settled heap. */
+  public async readSettledBytes(): Promise<number> {
+    await this.collectGarbage();
     return readSettledHeapBytes(this.#consoleApplication);
   }
 

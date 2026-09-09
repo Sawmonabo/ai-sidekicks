@@ -210,7 +210,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
           // A launch reading Blink's default quantized, cached MemoryInfo reports
           // those as rounding, and the slope band swallows them, so the instrument
           // is proved before the arithmetic rather than assumed from a launch flag.
-          await expectPreciseHeapInstrument(consoleApplication);
+          await expectPreciseHeapInstrument(consoleApplication, heapProbe);
 
           // The warm-up cycle. Its whole purpose is to move the emulator chunk and every
           // other one-time page cost to the LEFT of the baseline, so the first instance's
