@@ -1,11 +1,26 @@
 // The console's own test tiers, as Vitest projects.
 //
-// `Spec-023 §Console Test Tiers` names nine; seven are declared here and the two that
-// need a real Electron window ride `playwright.config.ts`. They live beside
-// `vitest.config.ts` rather than inside it because that file was past the package's
-// ceiling with them, and because the console tiers are one subject: they share the
-// fixture define, the source-condition resolution, and the browser-mode options, and a
-// reader comparing two of them reads them next to each other.
+// `Spec-023 §Console Test Tiers` names NINE — unit, browser, end-to-end, screenshot,
+// accessibility, endurance, architecture, assets, bundle — and all nine are declared
+// below. The list here holds TEN projects: the tenth, `console-bench`, is this
+// package's own micro-benchmark ledger and is not a spec tier, which is why its own
+// block says so and why it is one of the two exemptions `ci-tier-coverage.test.ts`
+// carries. Neither figure is held by a gate — no test asserts a tier count — so both
+// are stated here, beside the array a reader can count, and nowhere else.
+//
+// AND NONE OF THEM RIDES A `playwright.config.ts`, which does not exist in this
+// repository. The two tiers that need a real Electron window — `console-e2e` and
+// `console-endurance` — are Vitest projects in a NODE environment, because the test
+// file is the DRIVER and the code under test runs in another process; they reach that
+// process through `test/console/electron-harness.ts`, which holds the package's single
+// `_electron` launch. Playwright is a LIBRARY on both halves: browser mode drives it
+// for the three page tiers, the harness drives it for the two window ones, and no
+// tier is configured by a Playwright runner config.
+//
+// They live beside `vitest.config.ts` rather than inside it because that file was past
+// the package's ceiling with them, and because the console tiers are one subject: they
+// share the fixture define, the source-condition resolution, and the browser-mode
+// options, and a reader comparing two of them reads them next to each other.
 
 import type { TestProjectConfiguration, TestProjectInlineConfiguration } from "vitest/config";
 
