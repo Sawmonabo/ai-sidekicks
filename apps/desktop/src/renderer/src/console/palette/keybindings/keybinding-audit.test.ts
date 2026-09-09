@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import { auditKeybindings, reservedChordReason } from "./keybinding-audit.js";
+import { AUXILIARY_MENU_CHORDS } from "../../../../../shared/auxiliary-menu-chords.js";
 
 describe("reserved chords", () => {
   it("names the reason a host takes a chord", () => {
@@ -16,6 +17,35 @@ describe("reserved chords", () => {
     // chord reserved, which would render the whole keyboard unavailable.
     expect(reservedChordReason("$mod+KeyK", "darwin")).toBeUndefined();
     expect(reservedChordReason("$mod+Space", "linux")).toBeUndefined();
+  });
+
+  it("reports every menu accelerator as reserved, whichever spelling it is asked in", () => {
+    // Electron consumes a menu accelerator BEFORE the renderer's key-binding table sees
+    // the keystroke, so a chord the menu owns is a chord no binding can ever run — and
+    // nothing else reports it: the binding installs, the keyboard page lists it as
+    // live, `conflictsIn` sees no second binding, and the command simply never fires.
+    //
+    // BOTH SPELLINGS, because the chords are written in `tinykeys` grammar where
+    // `$mod+Shift+t` and `$mod+Shift+KeyT` are one keystroke and two strings. A
+    // `toLowerCase()` comparison passes the first of these and fails the second, and
+    // the second is the spelling the bindings use — which is the direction that
+    // matters. Swept over EVERY accelerator rather than a sample, so a route added to
+    // the menu is covered on the day it lands.
+    for (const chord of Object.values(AUXILIARY_MENU_CHORDS)) {
+      expect(reservedChordReason(chord, "darwin")).toBeDefined();
+      expect(
+        reservedChordReason(
+          chord.replace(/Key([A-Z])$/, (_match, letter: string) => letter.toLowerCase()),
+          "darwin",
+        ),
+      ).toBeDefined();
+    }
+  });
+
+  it("is swept over a menu that actually declares accelerators", () => {
+    // The tripwire: without it the sweep above passes vacuously the day the menu's
+    // chord record is emptied or the import resolves to something else.
+    expect(Object.values(AUXILIARY_MENU_CHORDS).length).toBeGreaterThan(0);
   });
 });
 
