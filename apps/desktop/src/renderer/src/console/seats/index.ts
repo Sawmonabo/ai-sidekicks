@@ -460,10 +460,8 @@ export { useGrowthReadOnMount } from "./read/growth-read.js";
 // the identity chained to the session roster for one that gates a control on the
 // caller's role, and the served-or-refused narrowing for a reader holding its own
 // outcome.
-// IN `identity/` AND NOT BESIDE THE OTHER SEATS. This family's root sits exactly on
-// the directory ceiling the console-wide shape gate holds, so the module that ends the
-// duplication cannot also be the module that turns this directory into a pile. The
-// seam is the subject rather than the count: `terminal/lease/viewer-identity.ts` still
+// IN `identity/` AND NOT BESIDE THE OTHER SEATS. The seam is the subject rather than
+// a count of what the root will hold: `terminal/lease/viewer-identity.ts` still
 // holds its own effect for the same question and folds in here, which is what makes
 // this a directory rather than one module parked in a new folder.
 // NO SUB-MODULE DOOR — `bridge/readings/index.ts` states the rule and this door obeys

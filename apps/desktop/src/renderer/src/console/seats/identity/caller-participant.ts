@@ -10,10 +10,8 @@
 // unavoidable where they stood. `seats/` is the lowest family that sits above
 // `bridge/`, so it is where the adapter stops being three answers to one question.
 //
-// AND IN `identity/` RATHER THAN THE FAMILY ROOT. That root holds exactly as many
-// modules as the console-wide directory-shape gate permits one directory to hold, so
-// the module that ends this duplication cannot also be the module that turns a family
-// into a pile. The seam is the subject and not the count: `terminal/lease/`'s
+// AND IN `identity/` RATHER THAN THE FAMILY ROOT. The seam is the subject, not a
+// count of what the root will hold: `terminal/lease/`'s
 // `viewer-identity.ts` still hand-rolls a holder for this same question and folds in
 // here, which is what makes this a directory rather than one file in a new folder.
 // It publishes no door of its own — `bridge/readings/index.ts` records the rule, and
