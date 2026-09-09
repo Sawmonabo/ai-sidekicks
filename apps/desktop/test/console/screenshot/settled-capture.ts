@@ -4,11 +4,11 @@
 // WHY A CAPTURE CAN BE WRONG WITHOUT BEING RED. A loader-backed pane body arrives as
 // its own chunk, so between the pane mounting and its module landing the pane is its
 // own chrome and nothing else. That frame is correct — it is what keeps the deferred
-// body off the initial import graph — and it is a catastrophic thing to photograph: a
-// reference minted from it records a pane that had not finished loading, and every
-// later run is then compared against a picture of a half-built surface. Nothing about
-// that is red. The image is stable, the comparison passes, and the surface the tier
-// claims to pin is not the surface anyone sees.
+// body off the initial import graph — and it is a catastrophic thing to photograph: the
+// image records a pane that had not finished loading, and the person who opens the
+// directory to look at the console is looking at a half-built surface. Nothing about
+// that is red. The capture succeeds, the file is written, and the surface in it is not
+// the surface anyone sees.
 //
 // SO THE REFUSAL IS STRUCTURAL RATHER THAN A WAIT. There is no timer to tune and no
 // "settled" heuristic to get wrong: `PendingPaneBody` stamps a marker while its module
@@ -20,11 +20,10 @@
 // the tester window was photographed to the window's bottom edge and then in the page's
 // own background colour for every row beneath it, because a Playwright element
 // screenshot is a CLIP in page coordinates and nothing paints an iframe's overflow.
-// Every committed
-// reference over 900 px carried that: real content to row 899, then pure white to the
-// bottom, in the dark scheme too. A regression anywhere below the first window was
-// green, and a dimension change was the only thing the tier could see there — which is
-// the same false green the pending-body refusal exists to forbid, arriving by a
+// Every image
+// over 900 px carried that: real content to row 899, then pure white to the bottom, in
+// the dark scheme too — a picture of a surface unreadable past its first window, which
+// is the same false green the pending-body refusal exists to forbid, arriving by a
 // different route. `capture-viewport.ts` states the mechanism and the rule; this file
 // opens the window, re-runs the refusal on the resized tree, and puts it back.
 //
@@ -37,8 +36,8 @@
 // `tall-capture.test.ts` drives both.
 //
 // EVERY CAPTURE, AND NOT MOST. The capture files call this instead of
-// `toMatchScreenshot`, so a reference cannot be minted around either check by an author
-// who did not know they existed.
+// `toMatchScreenshot`, so an image cannot be written around either check by an author
+// who did not know they existed. `apps/desktop/eslint.config.mjs` holds that rule.
 
 import { expect } from "vitest";
 import { page } from "vitest/browser";
@@ -101,20 +100,20 @@ class TesterWindowDriver implements CaptureWindowDriver {
  * fires would be to mint a real half-loaded capture, which is the thing it exists to
  * prevent.
  *
- * The message names the KINDS and the reference, because a failure that says "something
+ * The message names the KINDS and the capture, because a failure that says "something
  * was pending" is a second debugging session and one that says `workflow-run` is a fix.
  */
 export function assertNoPendingPaneBodies(
   pendingKinds: readonly string[],
-  referenceName: string,
+  captureName: string,
 ): void {
   if (pendingKinds.length === 0) {
     return;
   }
   throw new Error(
-    `Refusing to capture ${referenceName}: ${String(pendingKinds.length)} pane body/bodies ` +
+    `Refusing to capture ${captureName}: ${String(pendingKinds.length)} pane body/bodies ` +
       `had not loaded (${pendingKinds.join(", ")}). Await the body in the mount helper ` +
-      `before capturing, or the reference records a pane that was still arriving.`,
+      `before capturing, or the image records a pane that was still arriving.`,
   );
 }
 
@@ -169,14 +168,14 @@ export class CaptureWindow {
    *
    * The `grows-with-its-window` arm PUTS THE WINDOW BACK before returning rather than
    * capturing at whatever size the loop reached. Both windows leave the same overhang
-   * unpainted, so the larger one buys nothing and costs a reference minted at a size
-   * no other capture in the tier uses.
+   * unpainted, so the larger one buys nothing and costs an image taken at a size no
+   * other capture in the tier uses.
    */
-  public async holdWhole(element: Element, referenceName: string): Promise<void> {
+  public async holdWhole(element: Element, captureName: string): Promise<void> {
     const overhangsPx: number[] = [];
     for (let pass = 0; pass <= CAPTURE_SIZING_PASSES; pass += 1) {
       const required = requiredViewportFor(element);
-      const step = captureWindowStep(this.#applied, required, overhangsPx, referenceName);
+      const step = captureWindowStep(this.#applied, required, overhangsPx, captureName);
       if (step.kind === "fits") {
         return;
       }
@@ -186,7 +185,7 @@ export class CaptureWindow {
       }
       if (pass === CAPTURE_SIZING_PASSES) {
         throw new Error(
-          `Refusing to capture ${referenceName}: the window was opened ` +
+          `Refusing to capture ${captureName}: the window was opened ` +
             `${String(CAPTURE_SIZING_PASSES)} times and the surface still needs ` +
             `${String(required.height)}px in a ${String(this.#applied.height)}px one. It is ` +
             `closing the gap rather than fitting or tracking the window, and a capture ` +
@@ -244,8 +243,8 @@ export class CaptureWindow {
    * resize rather than after the settle that follows it. Written afterwards — which is
    * how this shipped — a settle that rejects leaves the window open, the flag false,
    * and `restore` returning early, so every later capture in the run is taken in a
-   * console the previous one enlarged and every reference after it pins a surface laid
-   * out at a size no reference was minted under. A flag raised too early costs one
+   * console the previous one enlarged and every image after it holds a surface laid
+   * out at a size no other capture in the tier uses. A flag raised too early costs one
    * redundant resize of a window that may never have moved; a flag raised too late
    * costs the rest of the run, and a resize that throws part-way has no defined size
    * either, so the early write covers that arm as well.
@@ -259,35 +258,42 @@ export class CaptureWindow {
 }
 
 /**
- * Capture one element against its committed reference, once it is whole.
+ * Write one element's capture into `__screenshots__`, once it is whole.
  *
  * The order is load-bearing three times over. The refusal runs BEFORE anything else, so
- * a tree that is still loading fails without minting or overwriting a reference — in
- * `--update` mode that is the difference between a run that refuses and a run that
- * quietly commits a picture of a fallback. The window opens BEFORE the capture, so the
- * surface is painted whole rather than clipped at the window's edge. And the refusal
- * runs AGAIN on the resized tree, because a taller window is a different layout: it can
- * bring a deferred body into view, and a check that only ever held on the pre-resize
- * tree would be a check of a surface that was not the one photographed.
+ * a tree that is still loading fails without writing an image at all, rather than
+ * quietly overwriting yesterday's good picture with one of a fallback. The window opens
+ * BEFORE the capture, so the surface is painted whole rather than clipped at the
+ * window's edge. And the refusal runs AGAIN on the resized tree, because a taller window
+ * is a different layout: it can bring a deferred body into view, and a check that only
+ * ever held on the pre-resize tree would be a check of a surface that was not the one
+ * photographed.
  *
- * The restore is in `finally` so a refusal, a mismatch, or a failed comparison all leave
- * the window where the next spec expects it.
+ * The restore is in `finally` so a refusal or a failed capture both leave the window
+ * where the next spec expects it.
+ *
+ * THE MATCHER IS THE WRITER AND NOT A GATE. The tier runs in the `all` snapshot-update
+ * mode, in which `toMatchScreenshot` writes the image and passes whether or not one was
+ * already there — `vitest/console-projects.ts` pins that mode, so a bare
+ * `vitest run --project=console-screenshot` behaves as the package script does. What
+ * survives of the matcher is its stability retry, which is worth keeping: an image taken
+ * while the page is still painting is a bad picture for a person too.
  *
  * AND THE STABILITY WAIT IS SIZED TO WHAT THE WINDOW ENDED UP HOLDING, which is why it
  * is passed here and not configured on the project: the matcher's per-call options win
  * over the project's under its own merge, and a capture's size is not known until
  * `holdWhole` has run. `capture-viewport.ts` states the rule and owns the number.
  */
-export async function captureSettled(element: Element, referenceName: string): Promise<void> {
-  assertNoPendingPaneBodies(pendingPaneKindsIn(element), referenceName);
+export async function captureSettled(element: Element, captureName: string): Promise<void> {
+  assertNoPendingPaneBodies(pendingPaneKindsIn(element), captureName);
   const captureWindow = new CaptureWindow({
     width: window.innerWidth,
     height: window.innerHeight,
   });
   try {
-    await captureWindow.holdWhole(element, referenceName);
-    assertNoPendingPaneBodies(pendingPaneKindsIn(element), referenceName);
-    await expect(element).toMatchScreenshot(referenceName, {
+    await captureWindow.holdWhole(element, captureName);
+    assertNoPendingPaneBodies(pendingPaneKindsIn(element), captureName);
+    await expect(element).toMatchScreenshot(captureName, {
       timeout: stabilityWaitMsFor(captureWindow.heldViewportRatio),
     });
   } finally {

@@ -7,13 +7,9 @@
 // was `n/a`, so nothing had ever had to decide what "the pinned runner class"
 // means in a running process.
 //
-// The shape is `test/console/screenshot/baseline-platform.ts`' and deliberately
-// not a second invention: one module owns the pin, exposes a boolean and a
-// one-sentence reason, and every file in the tier makes the same decision from it.
-// It cannot be that module — that one resolves `server.platform` from
-// `vitest/browser`, which a Node-environment tier does not have, and it answers a
-// different question (which platform's committed images are comparable, not which
-// machine's timings are).
+// The shape is deliberately not a second invention: one module owns the pin,
+// exposes a boolean and a one-sentence reason, and every file in the tier makes
+// the same decision from it.
 //
 // WHAT A ROW DOES OFF THE PINNED CLASS, AND WHY IT IS NOT A SKIP
 //

@@ -156,9 +156,9 @@ describe("the screenshot tier's pending-body refusal", () => {
     }).toThrowError(/workflow-run/u);
   });
 
-  // The reference name is in the message because a tier that pins fourteen references
+  // The capture name is in the message because a tier that pins fourteen captures
   // reports a failure with no other way to say which one was being taken.
-  it("names the reference it refused", () => {
+  it("names the capture it refused", () => {
     expect(() => {
       assertNoPendingPaneBodies(["diff"], "repos-diff-pane-dark");
     }).toThrowError(/repos-diff-pane-dark/u);
@@ -215,7 +215,7 @@ describe("the tester window a capture opens", () => {
   // The planted control. Both cases above are satisfied by a `restore` that resizes
   // unconditionally, which is the lazy way to make them pass and which would put the
   // window back for every capture that never touched it — one resize and one settle
-  // charged to each of the tier's references. A capture that fits moves nothing.
+  // charged to each of the tier's captures. A capture that fits moves nothing.
   it("leaves the window alone when the capture never moved it", async () => {
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver();

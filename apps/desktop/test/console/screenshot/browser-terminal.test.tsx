@@ -1,9 +1,8 @@
 // The screenshot tier: the browser-terminal family's three surfaces, per scheme.
 //
-// `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes and what an opted-in local run shows you — and
-// `baseline-platform.ts` owns which host may compare at all and says why on both
-// channels, so nothing about either is restated here.
+// `settled-capture.ts` owns the mechanism this file rides: every capture is written
+// into the gitignored `__screenshots__/` and compared against nothing, so this file
+// gates on whether each surface can be captured at all.
 //
 // WHAT IS PINNED, AND WHY THESE THREE. The family ships two pane bodies and the card
 // the browser's captures land as, and each is a different composition rather than a
@@ -17,16 +16,14 @@
 //   • a stored capture card, the object 12.6 says a capture "lands as", collapsed to
 //     name, kind, and size with the preview one click away;
 //   • the terminal pane on a DEGRADED lease, which is the frame `bridge/scenarios/
-//     terminal.ts` says a baseline should pin — its own header: the script ends on
+//     terminal.ts` says a capture should hold — its own header: the script ends on
 //     the host going silent under a lease that had just been taken, which "carries
 //     everything the held frame carried plus the reading that took the keyboard
 //     away", while a script ending on a free lease "would pin the emptiest frame the
 //     surface has".
 //
-// Three surfaces and two schemes is six references, and every one of them is minted
-// on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
-// A run on any host that did not declare that runner skips unless it opts in, and an
-// opted-in run is advisory in the small, measured way `frame.test.tsx` records.
+// Three surfaces and two schemes is six captures, written afresh on whichever host
+// runs the tier.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -37,26 +34,25 @@ import {
   mountTerminalPane,
   type MountedFamilySurface,
 } from "../surfaces/browser-terminal.js";
-import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 import { captureSettled } from "./settled-capture.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
- * The surfaces this tier pins, each with the reference name it is committed under.
+ * The surfaces this tier captures, each with the name its image is written under.
  *
  * A table rather than three near-identical suites: the cases differ only in which
  * surface is mounted, and three copies of the same six lines is three places for the
- * scheme emulation or the skip guard to be forgotten in one of them.
+ * scheme emulation to be forgotten in one of them.
  */
 const PINNED_SURFACES: readonly {
-  readonly referenceName: string;
+  readonly captureName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { referenceName: "browser-pane-chrome", mount: mountBrowserPane },
-  { referenceName: "browser-capture-card", mount: mountBrowserCaptureCard },
-  { referenceName: "terminal-pane-degraded-lease", mount: mountTerminalPane },
+  { captureName: "browser-pane-chrome", mount: mountBrowserPane },
+  { captureName: "browser-capture-card", mount: mountBrowserCaptureCard },
+  { captureName: "terminal-pane-degraded-lease", mount: mountTerminalPane },
 ];
 
 beforeEach(() => {
@@ -71,19 +67,16 @@ afterEach(async () => {
 });
 
 describe("screenshot — the browser and terminal surfaces", () => {
-  warnOnceOffBaselineHost();
-
   for (const surface of PINNED_SURFACES) {
     for (const scheme of CONSOLE_SCHEMES) {
-      it(`renders ${surface.referenceName} in the ${scheme} scheme`, async (context) => {
-        skipOffBaselineHost(context);
+      it(`renders ${surface.captureName} in the ${scheme} scheme`, async () => {
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
         // what a default install actually resolves.
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
 
-        await captureSettled(mounted.element, `${surface.referenceName}-${scheme}`);
+        await captureSettled(mounted.element, `${surface.captureName}-${scheme}`);
       });
     }
   }

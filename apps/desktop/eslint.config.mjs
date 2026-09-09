@@ -312,12 +312,36 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
 ];
 
 /**
- * Taking a screenshot anywhere but through the settled capture.
+ * A text snapshot in a package whose Vitest runs resolve `UPDATE_SNAPSHOT=all`.
+ *
+ * `vitest/screenshot-pins.ts` sets that variable so the screenshot tier writes its
+ * capture aids instead of gating on them, and the variable is process-wide because
+ * Vitest offers no per-project snapshot mode. Under it a text snapshot does not fail
+ * on a change — it rewrites itself and passes, which is the one shape of green that
+ * means nothing. There is no such matcher in this package today; this is what keeps
+ * it that way. Assert the value instead.
+ *
+ * SCOPE: the renderer union and the `test/**` union, which between them cover every
+ * directory that holds a Vitest project's files today. `src/main/**`, `build/**`, and
+ * `scripts/**` co-located tests are outside it — a rule is only as strong as the file
+ * set it matches, and that set is stated here rather than discovered in the config.
+ */
+const TEXT_SNAPSHOT_MATCHER_REACH = {
+  selector:
+    "MemberExpression[property.name=/^toMatch(Inline|File)?Snapshot$/], MemberExpression[computed=true][property.value=/^toMatch(Inline|File)?Snapshot$/]",
+  message:
+    "`apps/desktop/AGENTS.md` §Tests: this package's Vitest runs resolve `UPDATE_SNAPSHOT=all` so the screenshot tier writes capture aids rather than gating on them, and under that mode a text snapshot rewrites itself instead of failing. Assert the value.",
+};
+
+/**
+ * Writing a capture anywhere but through the settled capture.
  *
  * A capture taken straight after a mount photographs the reserved region a loader-backed
- * body has not filled yet — an image that is stable, green, and a picture of a pane that
- * had not finished loading. `captureSettled` refuses a tree still carrying the pending
- * marker, which is why every capture goes through it.
+ * body has not filled yet — a picture of a pane that had not finished loading, which is
+ * exactly what a person opening `__screenshots__/` must not be shown. `captureSettled`
+ * refuses a tree still carrying the pending marker, which is why every written capture
+ * goes through it. A never-saved `page.screenshot({ save: false })` read is a
+ * MEASUREMENT rather than a capture and is outside this rule, which names the matcher.
  */
 const SCREENSHOT_MATCHER_REACH = {
   // The computed arm is the same reach with the matcher named as a string —
@@ -380,6 +404,12 @@ const RENDERER_SYNTAX_BANS = [
   DIRECTORY_SOURCE_GLOB,
   MODULE_LEVEL_LET,
   STYLESHEET_THROUGH_OWNER,
+  // Carried by the renderer union rather than by a test-file block of its own, because
+  // flat config REPLACES a rule's options at the last matching entry: a separate block
+  // matching `**/*.test.tsx` would sit after these and lift every other selector for
+  // exactly the files that already carry them. Riding the union puts the ban on the
+  // renderer's co-located tests, which is where a snapshot would actually be written.
+  TEXT_SNAPSHOT_MATCHER_REACH,
   // Renderer-wide rather than console-scoped, because the hazard is the renderer's and
   // not the console's: a surface that reads the bridge off the global with no existence
   // check throws inside a render under a preload that failed to install. Four legacy
@@ -399,6 +429,7 @@ const CONSOLE_SYNTAX_BANS = [
 const TEST_SYNTAX_BANS = [
   EXPORT_DEFAULT_DECLARATION,
   SCREENSHOT_MATCHER_REACH,
+  TEXT_SNAPSHOT_MATCHER_REACH,
   ...CHILD_PROCESS_DYNAMIC_REACH,
 ];
 
@@ -780,10 +811,10 @@ export default [
     rules: { "no-restricted-syntax": ["error", ...CONSOLE_TIER_SYNTAX_BANS] },
   },
   {
-    // The capture door itself, and the one probe that asserts the matcher REJECTS —
-    // which is a test of the matcher rather than a capture, and cannot be written
-    // without naming it.
-    files: ["test/console/screenshot/settled-capture.ts", "test/console/screenshot/frame.test.tsx"],
+    // The capture door itself, and nothing else. The tier compares nothing since
+    // 2026-09-09, so the probe that used to assert the matcher REJECTS is gone with
+    // the comparison it probed, and this exemption is one file wide.
+    files: ["test/console/screenshot/settled-capture.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",

@@ -95,11 +95,10 @@ export const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
  * already defined". A fresh object per project is what keeps them independent.
  *
  * `screenshotFailures` is OFF deliberately. Vitest writes a failure capture into
- * `__screenshots__` beside the test file — the same directory `toMatchScreenshot`
- * keeps its committed baselines in — so leaving it on makes that directory mean two
- * different things and puts throwaway PNGs of red tests next to references a review
- * is supposed to read. The screenshot tier still writes its own actual/diff pair on
- * a mismatch, which is the capture that is worth having.
+ * `__screenshots__` beside the test file — the same directory the screenshot tier
+ * writes its own capture aids into — so leaving it on makes that directory mean two
+ * different things and puts throwaway PNGs of red tests next to the pictures a
+ * person opened the directory to look at.
  */
 export function browserModeOptions(providerOptions?: PlaywrightProviderOptions): {
   enabled: true;

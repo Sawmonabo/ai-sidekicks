@@ -30,13 +30,20 @@ import {
   BROWSER_MODE_OPTIMIZE_DEPS,
   WORKSPACE_SOURCE_CONDITIONS,
 } from "./browser-mode.js";
-import { BROWSER_VISIBLE_ENV_PREFIX } from "../test/console/screenshot/baseline-platform.js";
 import {
+  pinScreenshotTierUpdateMode,
   SCREENSHOT_TIER_MATCH_OPTIONS,
   SCREENSHOT_TIER_PROVIDER_OPTIONS,
   SCREENSHOT_TIER_TIMEOUT_MS,
 } from "./screenshot-pins.js";
 import { iconCompilationPlugin } from "./icon-compilation.js";
+
+// ALWAYS WRITE, NEVER COMPARE. Called while this module is evaluated, which is while
+// Vitest resolves its configuration and before any project's snapshot mode is decided,
+// so a bare `vitest run --project=console-screenshot` behaves as the package script
+// does. `screenshot-pins.ts` says why it is an environment variable and what pays for
+// its reach.
+pinScreenshotTierUpdateMode();
 
 /** Every console tier that runs under Vitest, in tier order, before the shared plugins. */
 const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
@@ -76,32 +83,17 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Tier: screenshot (component half). The Electron-window half rides
-    // Playwright and lands with T-023p-1C-8; this project pins the frame and
-    // the primitive gallery per component and per scheme.
+    // Tier: screenshot (component half). A LOCAL CAPTURE AID since 2026-09-09:
+    // it writes every surface's picture into the gitignored `__screenshots__/`
+    // and compares against nothing, so it gates no branch and runs in no CI job.
+    // The Electron-window half rides Playwright and lands with T-023p-1C-8.
     define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
-    // Browser mode runs the tests inside a page, and a page sees only what Vite
-    // hands it: an unprefixed environment variable reaches `process.env` on the
-    // server and NOTHING on the client, so the tier's baseline guard
-    // (`test/console/screenshot/baseline-platform.ts`) could not read a variable
-    // named the way a developer types it. This second prefix is exactly as wide as
-    // the two variables that guard reads and no wider — Vite's own warning about
-    // `envPrefix` is that a loose one publishes the machine's environment into the
-    // bundle, and `SIDEKICKS_` alone would carry every daemon setting with it.
-    envPrefix: ["VITE_", BROWSER_VISIBLE_ENV_PREFIX],
     test: {
       name: "console-screenshot",
       include: ["test/console/screenshot/**/*.test.{ts,tsx}"],
       globals: true,
-      // The capture conditions that live in the PAGE rather than in the context.
-      // `SCREENSHOT_TIER_PROVIDER_OPTIONS` below pins everything Playwright can be
-      // told; the monospace face is a property of the document, so it is pinned
-      // per test here instead. A setup file rather than a per-suite hook because
-      // the tier grows a file per family, and a condition each new file has to
-      // remember is a condition the next family renders without.
-      setupFiles: ["./test/console/screenshot/capture-faces.setup.ts"],
       // DERIVED from the wait a capture at the window ceiling is given, never
       // written down — `screenshot-pins.ts` owns the arithmetic and says why the
       // inherited browser-mode default stopped being large enough the moment

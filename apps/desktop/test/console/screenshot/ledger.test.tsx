@@ -13,8 +13,8 @@
 // relationship to each other. A shot cropped to the ledger's own box would still be
 // green the day the rail overlapped it. Being whole frames is also what makes the
 // sidebar's own hazard theirs: `workspace.test.tsx`'s header states it — a collapse
-// is durable, so a restored arrangement moves a frame neither of these references
-// was minted with — which is why both take `requireSidebarExpanded` before they are
+// is durable, so a restored arrangement moves a frame neither of these captures
+// was taken with — which is why both take `requireSidebarExpanded` before they are
 // photographed, out of the same module that file reads it from.
 //
 // AND WHY THE QUIET ARM IS THE LEDGER'S OWN REGION AND NOT THE FRAME. Its claim is
@@ -22,7 +22,7 @@
 // surface rather than about a composition. Captured whole, it pinned a frame with an
 // empty ledger in it — which is exactly the frame `workspace.test.tsx` pins for its
 // expanded sidebar, over this same scenario and this same route, and the two
-// references were byte-identical. So the quiet arm captures the element the session
+// captures were byte-identical. So the quiet arm captures the element the session
 // route mounts the ledger into, and the sidebar-arm hazard above is moot for it:
 // there is no sidebar in the image to be in the wrong arm.
 //
@@ -42,8 +42,8 @@
 // state nobody can look at is an empty state nobody designed.
 //
 // WHY THE CAPTURE IS PRECEDED BY ASSERTIONS. A screenshot of an empty ledger is a
-// perfectly stable image, so it mints a perfectly stable reference and compares
-// green forever. The three claims below the mount — the window is playing the
+// perfectly stable image, and a capture aid that photographs one says nothing about
+// whether the surface arrived. The three claims below the mount — the window is playing the
 // scenario this file names, every beat reached it, and rows are on screen — are
 // what stop this file pinning a picture of nothing. The quiet arm asserts the
 // mirror image, for the same reason in the other direction: no beat reached it, and
@@ -51,12 +51,9 @@
 // claim a mount alone cannot make, since a window whose first read has not landed
 // draws loading shells and says nothing at all.
 //
-// The host pin, the skip, and the reason it prints are `baseline-host.ts`' — one
-// reading of this run for the whole tier, over the rule `baseline-platform.ts` holds,
-// and a RUNNER rather than a platform for the reason that module's own doc block
-// gives. This file asks that guard rather than reading the environment for itself;
-// the verdict is not restated here. The tier's fail-closed guard is asserted once, in
-// `frame.test.tsx`, and deliberately not repeated here.
+// `settled-capture.ts` owns the mechanism this file rides: every capture is written
+// into the gitignored `__screenshots__/` and compared against nothing, so this file
+// gates on whether each surface can be captured at all.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,11 +66,7 @@ import {
   SESSION_ROUTE_MOUNT_DEADLINE_MS,
 } from "../console-harness.js";
 import { requireScenarioControl, walkScenarioToFrozenTick } from "../scenario-clock.js";
-import {
-  requireCapturedElement,
-  skipOffBaselineHost,
-  warnOnceOffBaselineHost,
-} from "./baseline-host.js";
+import { requireCapturedElement } from "./captured-element.js";
 import { requireSidebarExpanded } from "./sidebar-arm.js";
 
 import {
@@ -154,14 +147,8 @@ afterEach(async () => {
 });
 
 describe("screenshot — the console under the flagship scenario", () => {
-  // Said once at collection, on the one channel the terminal reporter forwards.
-  // Without it a skipped run reports a count and nothing else, which a reader
-  // cannot tell from a tier that was quietly switched off.
-  warnOnceOffBaselineHost();
-
   for (const scheme of CONSOLE_SCHEMES) {
-    it(`renders the ${scheme} scheme at the script's last beat`, async (context) => {
-      skipOffBaselineHost(context);
+    it(`renders the ${scheme} scheme at the script's last beat`, async () => {
       await emulateSystemScheme(scheme);
       const { container, frame } = await openLedgerSession(
         FLAGSHIP_SCENARIO_ID,
@@ -169,7 +156,7 @@ describe("screenshot — the console under the flagship scenario", () => {
       );
       // This capture is a whole frame, so the sidebar is in it — the header says why
       // that makes the durable-collapse hazard this file's as much as the workspace
-      // file's, even though neither of these references is about the sidebar.
+      // file's, even though neither of these captures is about the sidebar.
       requireSidebarExpanded(container);
 
       const deliveredBeatCount = await walkScenarioToFrozenTick(
@@ -178,7 +165,7 @@ describe("screenshot — the console under the flagship scenario", () => {
       expect(
         deliveredBeatCount,
         "the whole script has to be in before the tick is frozen: a capture taken mid-script pins " +
-          "a session that is still arriving, and the reference it mints moves with the loop above",
+          "a session that is still arriving, and the capture it writes moves with the loop above",
       ).toBe(FLAGSHIP_SCENARIO.beats.length);
 
       // Rows on screen, not merely events in a store. The projection, the window
@@ -195,12 +182,11 @@ describe("screenshot — the console under the flagship scenario", () => {
 });
 
 describe("screenshot — the ledger's empty state", () => {
-  it("renders a session that has a roster and no log", async (context) => {
+  it("renders a session that has a roster and no log", async () => {
     // One scheme rather than two, on `frame.test.tsx`'s reasoning for the palette:
     // both palettes are already pinned by the pair above, and what this capture
     // exists for is the copy and the shape of the absence, neither of which the
     // scheme decides.
-    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { ledgerBody } = await openLedgerSession(
       LEDGER_QUIET_SCENARIO_ID,
@@ -211,7 +197,7 @@ describe("screenshot — the ledger's empty state", () => {
     // is here for is the OTHER thing a walk does: the window's own first read is
     // armed on this frozen clock, and an unwalked mount photographs twelve loading
     // shells — a session whose emptiness the console has not been told yet, which is
-    // a different picture and a different claim from the one this reference is named
+    // a different picture and a different claim from the one this capture is named
     // for.
     const deliveredBeatCount = await walkScenarioToFrozenTick(
       LEDGER_QUIET_SCENARIO.beats.at(-1)?.atMs ?? 0,
@@ -225,11 +211,11 @@ describe("screenshot — the ledger's empty state", () => {
     // The negative control for the pair above, and the positive one for this
     // capture: the empty state is reachable only because this scenario's script is
     // empty, so a row here would mean the fixture picker had handed over the wrong
-    // session and the "empty state" reference was a picture of a loaded one.
+    // session and the "empty state" capture was a picture of a loaded one.
     //
     // Asked of the CAPTURED element rather than of the whole mount, which is what the
     // scoping changed about them: a sentence read off the window is a sentence that
-    // may be anywhere in it, and the claim this reference makes is that it is in the
+    // may be anywhere in it, and the claim this capture makes is that it is in the
     // box being photographed.
     expect(ledgerBody.querySelectorAll(".meridian-ledger-row")).toHaveLength(0);
     expect(ledgerBody.textContent).toContain("Nothing has happened in this session yet.");
@@ -249,9 +235,6 @@ describe("the ledger mount wait", () => {
   // the real `awaitSessionRouteMounted` against a route that mounts none and
   // asserts the refusal, which is the one path the three captures never take.
   //
-  // Deliberately NOT platform-skipped: what it pins is the wait, and the wait does
-  // not vary by platform. The three captures skip off the baseline platform
-  // because their references do.
   //
   // The clock is faked rather than waited out, and only `Date` is faked: the wait
   // reads the clock and settles turns on real macrotasks, so faking the timers as

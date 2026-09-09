@@ -1,10 +1,8 @@
 // The screenshot tier: the workflows family's three surfaces, per scheme.
 //
-// `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes, which runner's renderings the committed references are, and
-// who may compare against one. `baseline-platform.ts` holds the pin and the predicate
-// and `baseline-host.ts` this run's reading of them, so nothing about either is
-// restated here.
+// `settled-capture.ts` owns the mechanism this file rides: every capture is written
+// into the gitignored `__screenshots__/` and compared against nothing, so this file
+// gates on whether each surface can be captured at all.
 //
 // WHAT IS PINNED, AND WHY THESE THREE. The family ships one destination surface and
 // two panes, and each one captured here is a different composition rather than
@@ -14,11 +12,10 @@
 //     session it is reading from and then stands three scope groups in the daemon's
 //     own resolution order, with exactly one row marked as the one a run would pick
 //     — a claim about what is DRAWN, which an image holds whole and a DOM assertion
-//     reads one attribute of. The reference keeps the name it was minted under: a
-//     renamed reference is a new file beside an orphaned baseline, and the surface
-//     under it is the same surface with its subject resolved.
+//     reads one attribute of. The capture keeps the name it was first written under,
+//     because the surface under it is the same surface with its subject resolved.
 //   • the run pane on the scenario's parked run, which is the frame that fixture's
-//     own header says a baseline should pin: two park kinds at once, one with an
+//     own header says a capture should hold: two park kinds at once, one with an
 //     armed resume and one waiting on a person, beside the reserved slot shells the
 //     bodies another plan owns will replace.
 //   • the builder pane on a definition, which is its one arm that renders a body. What
@@ -28,10 +25,8 @@
 //     slot shells under that — three claims about one frame, and whether the refusal
 //     reads as the action's own is a question answered by looking.
 //
-// Three surfaces and two schemes is six references, and every one of them is minted
-// on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
-// A host that did not declare that runner skips unless it opts in by name; an opted-in
-// developer Mac is advisory in the measured way `frame.test.tsx` records.
+// Three surfaces and two schemes is six captures, written afresh on whichever host
+// runs the tier.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -42,7 +37,6 @@ import {
   mountWorkflowsDestination,
   type MountedFamilySurface,
 } from "../surfaces/workflows.js";
-import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 import { captureSettled } from "./settled-capture.js";
 import { awaitPhaseGraphSettled } from "../phase-graph-settled.js";
 
@@ -50,19 +44,19 @@ import { installMeridianTokens } from "../../../src/renderer/src/console/frame/i
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
- * The surfaces this tier pins, each with the reference name it is committed under.
+ * The surfaces this tier captures, each with the name its image is written under.
  *
  * A table rather than two near-identical suites: the cases differ only in which
  * surface is mounted, and a copy of the same six lines is a second place for the
  * scheme emulation or the skip guard to be forgotten.
  */
 const PINNED_SURFACES: readonly {
-  readonly referenceName: string;
+  readonly captureName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
 }[] = [
-  { referenceName: "workflow-definitions-browser", mount: mountWorkflowsDestination },
-  { referenceName: "workflow-parked-run", mount: mountWorkflowParkedRunPane },
-  { referenceName: "workflow-builder-definition", mount: mountWorkflowBuilderPane },
+  { captureName: "workflow-definitions-browser", mount: mountWorkflowsDestination },
+  { captureName: "workflow-parked-run", mount: mountWorkflowParkedRunPane },
+  { captureName: "workflow-builder-definition", mount: mountWorkflowBuilderPane },
 ];
 
 beforeEach(() => {
@@ -77,12 +71,9 @@ afterEach(async () => {
 });
 
 describe("screenshot — the workflows surfaces", () => {
-  warnOnceOffBaselineHost();
-
   for (const surface of PINNED_SURFACES) {
     for (const scheme of CONSOLE_SCHEMES) {
-      it(`renders ${surface.referenceName} in the ${scheme} scheme`, async (context) => {
-        skipOffBaselineHost(context);
+      it(`renders ${surface.captureName} in the ${scheme} scheme`, async () => {
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
         // what a default install actually resolves.
@@ -94,7 +85,7 @@ describe("screenshot — the workflows surfaces", () => {
         // module beside this one carries what a capture taken without it pinned.
         await awaitPhaseGraphSettled(mounted.element);
 
-        await captureSettled(mounted.element, `${surface.referenceName}-${scheme}`);
+        await captureSettled(mounted.element, `${surface.captureName}-${scheme}`);
       });
     }
   }
