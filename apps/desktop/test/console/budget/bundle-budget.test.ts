@@ -53,18 +53,35 @@ const rendererOutputDirectory: string =
  */
 const COMPRESSION_ASSERTION_FLOOR_BYTES = 1024;
 
+/** The font row, read once — the ceiling the controls below drive and its own figures. */
+const fontsBudget: ConsoleBudget = registry.requireBudget(RENDERER_FONTS_BUDGET_ID);
+
 /**
- * The smallest `woff2` split either IBM Plex variable package publishes at the
- * pinned versions — `IBM Plex Mono Var-Roman-Latin3.woff2`, 13 300 B.
+ * The size the `renderer-initial-fonts` ceiling was derived to refuse ONE MORE font
+ * file at — the smallest `woff2` split either IBM Plex variable package publishes at
+ * the pinned versions — read off the row itself.
  *
- * The size the `renderer-initial-fonts` ceiling was derived to refuse ONE MORE file
- * at, so the control below plants exactly it: any real additional file is this large
- * or larger, and a control planted at a comfortable size proves only that some
- * larger number is over. Stated here rather than read out of `node_modules`, because
- * the budget tier weighs the BUILD's output and a tier that reaches into a package
- * layout to write its own control acquires a second subject.
+ * The control below plants exactly it: any real additional file is this large or
+ * larger, and a control planted at a comfortable size proves only that some larger
+ * number is over. Read from the registry rather than restated here, because the row
+ * already states the figure in its own derivation and a threshold written twice in a
+ * test that also loads the file is the second home `apps/desktop/AGENTS.md` §Config
+ * single-sourcing rejects. It is not read out of `node_modules` either: the budget
+ * tier weighs the BUILD's output, and a tier that reaches into a package layout to
+ * write its own control acquires a second subject.
  */
-const SMALLEST_PUBLISHED_SPLIT_BYTES = 13_300;
+const smallestPublishedSplitBytes: number = refusalControlBytesOf(fontsBudget);
+
+/** @throws rather than planting a zero-byte control that every ceiling admits. */
+function refusalControlBytesOf(budget: ConsoleBudget): number {
+  if (budget.refusalControlBytes === null) {
+    throw new Error(
+      `\`${budget.id}\` states no \`refusalControlBytes\`, so the negative control below has ` +
+        "no size to plant. The figure the ceiling was derived to refuse lives on the row.",
+    );
+  }
+  return budget.refusalControlBytes;
+}
 
 function measureOrFailLoudly(): RendererBundleMeasurement {
   try {
@@ -194,7 +211,7 @@ describe("renderer initial-graph budgets", () => {
     const report = formatRendererBundleReport(measurement, gateReadings, registry);
     console.log(report);
     expect(report).toContain(registry.requireBudget(RENDERER_BUNDLE_BUDGET_ID).label);
-    expect(report).toContain(registry.requireBudget(RENDERER_FONTS_BUDGET_ID).label);
+    expect(report).toContain(fontsBudget.label);
   });
 });
 
@@ -283,7 +300,6 @@ describe("the two rows bound disjoint bytes", () => {
     // refusal without driving the figure. The bytes are zeros: this gate weighs
     // files and parses none, so the only property the plant needs is its length,
     // and a real face would make the control depend on which one.
-    const fontsBudget = registry.requireBudget(RENDERER_FONTS_BUDGET_ID);
     const additionalFacePath = "assets/additional-face-planted.woff2";
     const emittedFaces = new Map(
       fontAssets.map((asset) => [
@@ -298,7 +314,7 @@ describe("the two rows bound disjoint bytes", () => {
     );
     writeFileSync(
       path.join(directory, ...additionalFacePath.split("/")),
-      Buffer.alloc(SMALLEST_PUBLISHED_SPLIT_BYTES),
+      Buffer.alloc(smallestPublishedSplitBytes),
     );
     const planted = new RendererBundleMeasurer(directory).measure();
     expect(planted.fonts.assetCount).toBe(fontAssets.length + 1);
