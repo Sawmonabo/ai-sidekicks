@@ -13,6 +13,8 @@
 // Vitest 4 `globals: true` (renderer project) supplies `describe`/`it`/`expect`; the
 // renderer test tsconfig adds `vitest/globals` to `types`.
 
+import { BANNED_DIRECT_IMPORT_PATTERNS } from "./renderer-import-ban.test-support.js";
+
 // --------------------------------------------------------------------------
 // CP-002-5 source-text read — Vite `import.meta.glob` raw form.
 // --------------------------------------------------------------------------
@@ -51,82 +53,26 @@ describe("ParticipantRoster — bridge projection", () => {
   // test typegraph's `types: []`/no-`@types/node` posture) and asserts no
   // import statement targets the banned packages.
   //
-  // THIS IS NOT THE ENFORCEMENT, AND IT NEVER FIRES FIRST. The claim this file
-  // used to carry — that the workspace-package ban is deferred and this tripwire
-  // is all there is — is false: `apps/desktop/eslint.config.mjs` bans
-  // `@ai-sidekicks/runtime-daemon` and `@ai-sidekicks/control-plane` at `error`
-  // for renderer source today, beside `electron` / `node:*` / the `main`/`preload`
-  // escapes, and the package's own `lint` script runs that config over `src/` in
-  // CI ahead of this suite. That ban is also TRANSITIVE where this read cannot be:
-  // a view refactored to reach the package through a local renderer helper passes
-  // every source-text scan, and the helper's own import is what ESLint fails on.
-  // `runtime-node-attach/__tests__/renderer-import-boundary.test.ts` drives that
-  // real rule through the ESLint API with positive controls.
+  // THIS IS NOT THE ENFORCEMENT, AND IT NEVER FIRES FIRST. The claim this file used to
+  // carry — that the workspace-package ban is deferred to a Tier-8 remainder and this
+  // tripwire is all there is — is false: `apps/desktop/eslint.config.mjs` bans
+  // `@ai-sidekicks/runtime-daemon` and `@ai-sidekicks/control-plane`, and their
+  // subpaths, at `error` for renderer source today, beside the `electron` / `node:*` /
+  // `main` / `preload` escapes, and the package's `lint` script runs that config over
+  // `src/` in CI ahead of this suite. That ban is also TRANSITIVE where this read cannot
+  // be: a view refactored to reach the package through a local renderer helper passes
+  // every source-text scan, and the helper's own import is what ESLint fails on. What
+  // this file ADDS is one module's DIRECT-import surface, read as text and reported per
+  // shape — narrower, which is why it still has to catch every realistic form.
   //
-  // WHAT THIS FILE ADDS is one module's DIRECT-import surface, read as text and
-  // asserted per shape — a second, narrower reading that names which shape matched
-  // when it fires. Being narrower is the reason it must still catch every
-  // realistic direct-import form rather than the bare-exact one.
-  //
-  // The four regexes below cover (the same shapes as invite-accept-view.test.tsx,
-  // which carries its own copy of this table and no negative control):
-  //   1. `bannedBareImport` — `from "@ai-sidekicks/<pkg>"` AND any subpath
-  //      (`from "@ai-sidekicks/<pkg>/internal"`) — the optional `(?:/…)?` group
-  //      is what closes the subpath-evasion gap a trailing-quote-only anchor left.
-  //   2. `bannedRelativeImport` — `from "…/packages/<pkg>/…"` (exact or subpath).
-  //   3. `bannedSideEffectImport` — a `from`-less side-effect import
-  //      (`import "@ai-sidekicks/<pkg>"` or its relative form). A REAL gap for
-  //      control-plane, which (unlike runtime-daemon's native bindings) pulls
-  //      nothing that would crash on a bare side-effect import.
-  //   4. `bannedDynamicImport` — `import("@ai-sidekicks/<pkg>")` (or relative).
-  // where `<pkg>` is `runtime-daemon | control-plane`.
-  //
-  // All four anchor on the IMPORT SURFACE (`from "…"` / `import "…"` /
-  // `import("…")`), NOT bare words: participant-roster.tsx mentions "the local
-  // daemon" / "daemon → client" in PROSE comments, which a naive substring on
-  // the package nickname would false-positive. The set is verified empirically
-  // in the implementer's report: all violation shapes match; allowed imports
-  // (`react`, `@testing-library/react`, type-only `@ai-sidekicks/contracts`) and
-  // prose do not.
-  const bannedBareImport =
-    /from\s*["'`]@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?["'`]/;
-  const bannedRelativeImport = /from\s*["'`][^"'`]*packages\/(?:runtime-daemon|control-plane)\//;
-  const bannedSideEffectImport =
-    /import\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-  const bannedDynamicImport =
-    /import\s*\(\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-  // `[patternName, pattern, violatingImportSample]` tuples drive both `it.each`
-  // blocks below. Naming each pattern means a future regression reports WHICH
-  // shape matched (the case title interpolates the name) instead of a bare
-  // `expected true to be false` that forces a manual bisect across the four
-  // regexes — and carrying a synthetic VIOLATION beside each one is what makes
-  // the clean result mean something: four patterns that matched nothing and four
-  // patterns that cannot match are the same green. This is the shape the deleted
-  // `runtime-node-attach` view suites carried, and it caught exactly the class it
-  // is here for: without it, deleting the `packages/…` alternation from
-  // `bannedSideEffectImport` leaves every case in this file passing.
-  const bannedDirectImportPatterns: ReadonlyArray<readonly [string, RegExp, string]> = [
-    [
-      "bannedBareImport",
-      bannedBareImport,
-      'import { Daemon } from "@ai-sidekicks/runtime-daemon";',
-    ],
-    [
-      "bannedRelativeImport",
-      bannedRelativeImport,
-      'import { Router } from "../../../../packages/control-plane/src/router.js";',
-    ],
-    [
-      "bannedSideEffectImport",
-      bannedSideEffectImport,
-      'import "../../../../packages/control-plane/src/register.js";',
-    ],
-    [
-      "bannedDynamicImport",
-      bannedDynamicImport,
-      'const daemon = await import("@ai-sidekicks/runtime-daemon");',
-    ],
-  ];
+  // THE SHAPES COME FROM ONE HOME. `BANNED_DIRECT_IMPORT_PATTERNS` in
+  // `renderer-import-ban.test-support.ts` holds the four regexes, their names, and a
+  // synthetic violation apiece. Both this suite and `invite-accept-view.test.tsx`
+  // carried a private copy of that set and neither carried a foil, which is two ways
+  // for the same tripwire to go quietly wide; that module's header says which shapes
+  // they are and why each is anchored on the import surface rather than on the package
+  // nickname — participant-roster.tsx mentions "the local daemon" and "daemon → client"
+  // in prose, and a substring match would report the explanation as the defect.
 
   // Glob-key-drift guard, hoisted to run ONCE before the `it.each`: if the
   // `import.meta.glob` key ever drifts, this throws loudly here rather than
@@ -137,15 +83,18 @@ describe("ParticipantRoster — bridge projection", () => {
     throw new Error("participant-roster.tsx source was not loaded by import.meta.glob");
   }
 
-  // Negative control: a tripwire that has never fired positive proves nothing.
-  it.each(bannedDirectImportPatterns)(
+  // Negative control: four patterns that matched nothing and four patterns that CANNOT
+  // match are the same green, so each is driven against a line that is a violation of
+  // it. Without this, deleting the `packages/…` alternation from
+  // `bannedSideEffectImport` leaves every case below passing.
+  it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
     "%s matches a synthetic violating import (negative control)",
     (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
       expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
     },
   );
 
-  it.each(bannedDirectImportPatterns)(
+  it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
     "participant-roster.tsx source matches no %s direct daemon/control-plane import",
     (_bannedImportPatternName, bannedImportPattern) => {
       expect(bannedImportPattern.test(participantRosterSource)).toBe(false);

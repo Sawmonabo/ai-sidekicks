@@ -48,6 +48,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { InviteAcceptView } from "../invite-accept-view.js";
+import { BANNED_DIRECT_IMPORT_PATTERNS } from "./renderer-import-ban.test-support.js";
 
 // --------------------------------------------------------------------------
 // CP-002-5 source-text read — Vite `import.meta.glob` raw form.
@@ -302,51 +303,16 @@ describe("InviteAcceptView", () => {
     // test typegraph's `types: []`/no-`@types/node` posture) and asserts no
     // import statement targets the banned packages.
     //
-    // THIS IS THE SOLE OPERATIONAL ENFORCEMENT of the daemon/control-plane import
-    // ban for renderer source: `apps/desktop/eslint.config.mjs` bans `electron` /
-    // `node:*` / `main`/`preload` escapes, but the `@ai-sidekicks/runtime-daemon`
-    // / `@ai-sidekicks/control-plane` ban is deferred to the Plan-023 Tier 8
-    // remainder (those would be inert today). Until that lands, this regex tripwire
-    // is the only thing that turns CI red on a direct import — so it must catch
-    // EVERY realistic direct-import shape, not just the bare-exact form.
-    //
-    // The four regexes below cover:
-    //   1. `bannedBareImport` — `from "@ai-sidekicks/<pkg>"` AND any subpath
-    //      (`from "@ai-sidekicks/<pkg>/internal"`) — the optional `(?:/…)?` group
-    //      is what closes the subpath-evasion gap a trailing-quote-only anchor left.
-    //   2. `bannedRelativeImport` — `from "…/packages/<pkg>/…"` (exact or subpath).
-    //   3. `bannedSideEffectImport` — a `from`-less side-effect import
-    //      (`import "@ai-sidekicks/<pkg>"` or its relative form). A REAL gap for
-    //      control-plane, which (unlike runtime-daemon's native bindings) pulls
-    //      nothing that would crash on a bare side-effect import.
-    //   4. `bannedDynamicImport` — `import("@ai-sidekicks/<pkg>")` (or relative).
-    // where `<pkg>` is `runtime-daemon | control-plane`.
-    //
-    // All four anchor on the IMPORT SURFACE (`from "…"` / `import "…"` /
-    // `import("…")`), NOT bare words: these views legitimately mention
-    // "control-plane" and "the local daemon" in PROSE comments
-    // (invite-accept-view.tsx lines 13, 63), so a naive substring on the package
-    // nickname would false-positive. The set is verified empirically in the
-    // implementer's report: all violation shapes match; allowed imports (`react`,
-    // `@testing-library/react`, type-only `@ai-sidekicks/contracts`) and prose do
-    // not.
-    const bannedBareImport =
-      /from\s*["'`]@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?["'`]/;
-    const bannedRelativeImport = /from\s*["'`][^"'`]*packages\/(?:runtime-daemon|control-plane)\//;
-    const bannedSideEffectImport =
-      /import\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-    const bannedDynamicImport =
-      /import\s*\(\s*["'`](?:@ai-sidekicks\/(?:runtime-daemon|control-plane)(?:\/[^"'`]*)?|[^"'`]*packages\/(?:runtime-daemon|control-plane)\/[^"'`]*)["'`]/;
-    // `[patternName, pattern]` tuples drive the `it.each` below. Naming each
-    // pattern means a future regression reports WHICH shape matched (the case
-    // title interpolates the name) instead of a bare `expected true to be false`
-    // that forces a manual bisect across the four regexes.
-    const bannedDirectImportPatterns: ReadonlyArray<readonly [string, RegExp]> = [
-      ["bannedBareImport", bannedBareImport],
-      ["bannedRelativeImport", bannedRelativeImport],
-      ["bannedSideEffectImport", bannedSideEffectImport],
-      ["bannedDynamicImport", bannedDynamicImport],
-    ];
+    // THE SHAPES COME FROM ONE HOME. `BANNED_DIRECT_IMPORT_PATTERNS` in
+    // `renderer-import-ban.test-support.ts` holds the four regexes, their names,
+    // and a synthetic violation apiece; this file used to carry a private copy of
+    // the first two of those and `participant-roster.projection.test.tsx` carried
+    // another, which is the drift `apps/desktop/AGENTS.md` §Shared code names.
+    // That module's header says which shapes they are and why each is anchored on
+    // the import surface rather than on the package nickname — both these views
+    // mention "control-plane" and "the local daemon" in prose (invite-accept-view.tsx
+    // lines 13, 63), and a substring match would report the explanation as the
+    // defect.
 
     // Glob-key-drift guard, hoisted to run ONCE before the `it.each`: if the
     // `import.meta.glob` key ever drifts, this throws loudly here rather than
@@ -357,7 +323,18 @@ describe("InviteAcceptView", () => {
       throw new Error("invite-accept-view.tsx source was not loaded by import.meta.glob");
     }
 
-    it.each(bannedDirectImportPatterns)(
+    // Negative control: four patterns that matched nothing and four patterns that
+    // CANNOT match are the same green, so each is driven against a line that is a
+    // violation of it. Without this, deleting the `packages/…` alternation from
+    // `bannedSideEffectImport` leaves every case below passing.
+    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
+      "%s matches a synthetic violating import (negative control)",
+      (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
+        expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
+      },
+    );
+
+    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
       "invite-accept-view.tsx source matches no %s direct daemon/control-plane import",
       (_bannedImportPatternName, bannedImportPattern) => {
         expect(bannedImportPattern.test(inviteAcceptSource)).toBe(false);
