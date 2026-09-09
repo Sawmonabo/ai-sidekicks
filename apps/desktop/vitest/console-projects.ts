@@ -247,7 +247,8 @@ const CONSOLE_TIERS: readonly TestProjectInlineConfiguration[] = [
     },
   },
   {
-    // Not one of the nine tiers: the micro-benchmark ledger. Separated so a
+    // Not one of the eight tiers `Spec-023 §Console Test Tiers` registers: the
+    // micro-benchmark ledger. Separated so a
     // benchmark's timing noise can never fail a gate — it records, and a
     // human reads the ledger.
     // The fixture flag is FALSE here, as it is for every non-fixture project: an arm

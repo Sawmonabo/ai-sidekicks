@@ -254,7 +254,8 @@
       "cache": false
     },
     "test:console-bench": {
-      // Not one of the nine tiers and deliberately not on the `test` aggregate:
+      // Not one of the eight tiers `Spec-023 §Console Test Tiers` registers, and
+      // deliberately not on the `test` aggregate:
       // it records timings into a ledger a person reads. A benchmark that can
       // fail a gate is a gate that fails on someone else's noisy laptop.
       "inputs": ["test/console/bench/**", "vitest.config.*"],
