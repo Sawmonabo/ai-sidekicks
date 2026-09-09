@@ -13,6 +13,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import { ACTIVATE_LABEL } from "./SchemaActivationControl.js";
 import { SchemaForm } from "./SchemaForm.js";
+import { resolveSchemaValidatorCompiler } from "./use-schema-form.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { useSchemaForm } from "./use-schema-form.js";
 
@@ -56,8 +57,13 @@ export function SchemaFormHost(props: { readonly inputSchema: unknown }): React.
  * every case in this directory is about a verdict or about a control that carries one.
  * What happens INSIDE that window is `use-schema-form.compiler.test.tsx`'s subject and is
  * reached through its own unsettled mount.
+ *
+ * AND THE WAIT IS THE CHUNK'S OWN, taken from the mount beside this one rather than
+ * restated: a settle alone crosses one macrotask and races the first `import()` in a
+ * file's registry, which `use-schema-form.test-support.tsx` states in full.
  */
 export async function renderForm(inputSchema: unknown): Promise<HTMLElement> {
+  await resolveSchemaValidatorCompiler();
   const { container } = render(<SchemaFormHost inputSchema={inputSchema} />);
   await settle();
   return container;

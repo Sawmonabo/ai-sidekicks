@@ -18,13 +18,25 @@
 // waits, and the window itself has its own mount and its own suite
 // (`use-schema-form.compiler.test.tsx`), which is the one place a case may read the form
 // before the compiler lands.
+//
+// AND WHAT IT WAITS FOR IS THE CHUNK ITSELF, never a turn count. `settle` crosses one
+// macrotask, which is enough for the promise chain a resolved module hands back and is NOT
+// enough for the dynamic import that resolves it — so a settle alone RACES the first
+// `import()` in a file's isolated module registry, and the first case in that file reads a
+// form whose verdict had not landed while every later case passes on the warmed module.
+// Measured: `use-schema-form.opening.test.tsx`'s first case, alone and in a 36-file batch.
+// `resolveSchemaValidatorCompiler` below is the resolve-the-thing answer every other
+// loader-backed mount in this tree already takes (`test/console/surfaces/
+// pane-body-resolution.ts`, `runs/pane/controls/file-restore-mount.test-support.ts`), and
+// it is warmed BEFORE the mount so what a case then reads is what a person who has already
+// opened one form sees.
 
 import { act, render } from "@testing-library/react";
 
 import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { useSchemaForm, type SchemaFormState } from "./use-schema-form.js";
-import type { SchemaMemberPath } from "../../../bridge/index.js";
+import { loadSchemaValidatorCompiler, type SchemaMemberPath } from "../../../bridge/index.js";
 
 /** One mounted form: its latest state, the schema it is showing, and its ending. */
 export interface MountedSchemaForm {
@@ -64,8 +76,30 @@ export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
   };
 }
 
+/**
+ * Resolve the schema compiler's chunk, so a form mounted after this opens in ONE step.
+ *
+ * THE ONE PLACE ANYTHING IN THIS TREE WAITS FOR THAT CHUNK, and it lives here rather than
+ * in whichever support was written first: three mounts across two families need it — this
+ * hook's, the form host's beside it, and the workflows human-form slot's — and three copies
+ * of one await is exactly the shape where two wait and the third races. `apps/desktop/
+ * AGENTS.md` §Tests states the rule and §Shared code says where the copy goes: the lowest
+ * module that owns the concern, which is the hook's own mount.
+ *
+ * Awaiting the loader rather than the module map: the loader memoises nothing itself, but
+ * the registry behind it does, so a caller arriving after the module has landed awaits a
+ * settled promise and costs nothing.
+ */
+export async function resolveSchemaValidatorCompiler(): Promise<void> {
+  await loadSchemaValidatorCompiler();
+}
+
 /** Mount the hook, let its compiler land, and hand back a live handle on its state. */
 export async function mountForm(inputSchema: unknown): Promise<() => SchemaFormState> {
+  // Warmed BEFORE the mount, so the hook's own load resolves off the registry and the
+  // settle below carries its state write. Warmed after, the settle would be racing the
+  // fetch it is supposed to be waiting for.
+  await resolveSchemaValidatorCompiler();
   const mounted = mountFormUnsettled(inputSchema);
   await settle();
   return mounted.form;

@@ -30,6 +30,11 @@ import { WORKFLOWS_SCENARIO } from "../../../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../core/index.js";
 import { schemaFormAnswerMount } from "../../../../seats/index.js";
+// The seat's own wait for the schema compiler's chunk, by its own specifier: a fixture
+// helper has no door to leave through — `barrel-census` fails a door line no production
+// module reads — which is why `console-cross-family-deep-import` subtracts a
+// `.test-support` module on its source side. The alternative is a fourth copy of one await.
+import { resolveSchemaValidatorCompiler } from "../../../../seats/schema-form/containers/use-schema-form.test-support.js";
 import { settle } from "../../../../core/settle.test-support.js";
 import { humanFormPhaseFor } from "../human-form-selection.js";
 import { HumanFormSlot } from "./HumanFormSlot.js";
@@ -239,15 +244,19 @@ export interface HumanFormSlotMounting {
  * switch a switch: a fresh bridge would re-address every subject-scoped holder in the
  * tree and reset the form for a reason that has nothing to do with the phase.
  *
- * AND IT SETTLES, because the form opens in two steps. `loadSchemaFormBody` above resolves
- * the seat's own chunk; the schema COMPILER is a second one, fetched by the form's own
- * hook when it mounts, and the one act this shell offers is closed until it lands — so a
- * case that pressed submit straight after `render` would press a control the form has
- * deliberately not armed yet.
+ * AND IT RESOLVES BOTH CHUNKS, because the form opens in two steps. `loadSchemaFormBody`
+ * above resolves the seat's own chunk; the schema COMPILER is a second one, fetched by the
+ * form's own hook when it mounts, and the one act this shell offers is closed until it
+ * lands — so a case that pressed submit straight after `render` would press a control the
+ * form has deliberately not armed yet. A settle does not cover the second: it crosses one
+ * macrotask, and a dynamic import that has not yet resolved needs more than one, so the
+ * first mount in a file races that file's first `import()`. Each chunk is therefore waited
+ * for by name, through the module that owns it.
  */
 export async function renderSwitchableSlot(
   mounting: HumanFormSlotMounting,
 ): Promise<SwitchableSlot> {
+  await resolveSchemaValidatorCompiler();
   const held = mounting.bridge ?? createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
   // Spread on the arm that carries one rather than passed as an explicit `undefined`,
   // which `exactOptionalPropertyTypes` refuses on an optional prop.
