@@ -141,7 +141,7 @@
 }
 
 /* The failed run's category and its provider detail, as a strip of figures at the
-   row's own density. This is the one of the fifteen that COLLIDED: the workflows sheet
+   row's own density. This is the one of the seventeen that COLLIDED: the workflows sheet
    spells its own failure line the same way and paints a red prose paragraph instead, so
    which of the two a session saw last decided how a failed run read in both families. */
 .meridian-runs__failure {
