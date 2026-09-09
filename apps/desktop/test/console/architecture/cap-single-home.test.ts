@@ -48,7 +48,7 @@ import {
   moduleNamed,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
-import { parseSourceText } from "../typescript-source.js";
+import { boundNamesOf, parseSourceText } from "../typescript-source.js";
 import { BOUND_NAME_WORDS } from "./bound-words.js";
 
 /**
@@ -83,19 +83,6 @@ function isBoundName(name: string): boolean {
     /^[A-Z][A-Z0-9_]*$/u.test(name) &&
     name.split("_").some((token) => BOUND_NAME_WORDS.includes(token))
   );
-}
-
-/** Every name one variable declaration binds, destructuring patterns included. */
-function boundNamesOf(name: ts.BindingName, into: string[]): void {
-  if (ts.isIdentifier(name)) {
-    into.push(name.text);
-    return;
-  }
-  for (const element of name.elements) {
-    if (ts.isBindingElement(element)) {
-      boundNamesOf(element.name, into);
-    }
-  }
 }
 
 /**

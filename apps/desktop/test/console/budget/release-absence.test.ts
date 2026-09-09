@@ -75,6 +75,7 @@ import {
   consoleSourceModules,
   consoleStylesheets,
   readConsoleSourceModule,
+  toPosixSeparators,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
@@ -235,7 +236,7 @@ const SCENARIO_CORPUS_MARKERS: readonly string[] = scenarioCorpusMarkers();
  */
 function ownerSlotShellStylesheets(): readonly ConsoleSourceModule[] {
   return consoleStylesheets({ roots: [CONSOLE_DIRECTORY] }).filter((stylesheet) => {
-    const path = stylesheet.relativePath.split("\\").join("/");
+    const path = toPosixSeparators(stylesheet.relativePath);
     return path.startsWith("settings/pages/") && path.includes("/shell/");
   });
 }

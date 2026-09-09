@@ -50,7 +50,12 @@ import { join } from "node:path";
 import ts from "typescript";
 
 import { CONSOLE_DIRECTORY, ConsoleSourceTree } from "../console-source-modules.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import {
+  forEachDescendant,
+  literalTextOf,
+  parseSourceText,
+  type SourceModuleText,
+} from "../typescript-source.js";
 
 /** The family this gate reads, as the walk's own root. */
 const REPOS_DIRECTORY = join(CONSOLE_DIRECTORY, "repos");
@@ -72,25 +77,11 @@ const CONSOLE_ROOTED_PATH = /^console\/repos\/[\w./-]+\.tsx?$/;
 /** What names a tripwire site, whatever kind of declaration carries it. */
 const SITE_DECLARATION_NAME = /_SITE$/;
 
-/** One module as this gate reads it: a name for a failure, and the text. */
-interface SourceModuleText {
-  readonly displayPath: string;
-  readonly source: string;
-}
-
 /** One declared site, with the module that declares it. */
 interface DeclaredSite {
   readonly displayPath: string;
   readonly name: string;
   readonly value: string;
-}
-
-/** A string whose value is fixed at the declaration — quoted or a bare template. */
-function literalTextOf(node: ts.Node): string | undefined {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-    return node.text;
-  }
-  return undefined;
 }
 
 /** The site one declaration carries, or `undefined` where it carries none. */

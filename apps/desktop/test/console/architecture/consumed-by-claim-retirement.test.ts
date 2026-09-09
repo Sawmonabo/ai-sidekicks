@@ -44,6 +44,7 @@ import {
   DESKTOP_PACKAGE_ROOT,
   consoleSourceModules,
   readConsoleSourceModule,
+  toPosixSeparators,
 } from "../console-source-modules.js";
 import { parseSourceText } from "../typescript-source.js";
 import { productionReadersByIdentity } from "./barrel-census.js";
@@ -209,7 +210,7 @@ function findingLines(findings: readonly ClaimFinding[]): readonly string[] {
 /** The console and the tiers that read it, keyed as the shared consumer reading keys them. */
 function consoleCensusModules(): readonly CensusModule[] {
   return consoleSourceModules({ roots: CENSUS_ROOTS, tests: true }).map((module) => ({
-    path: relative(DESKTOP_PACKAGE_ROOT, module.absolutePath).split("\\").join("/"),
+    path: toPosixSeparators(relative(DESKTOP_PACKAGE_ROOT, module.absolutePath)),
     source: readConsoleSourceModule(module),
     isTest:
       module.directory === TEST_CONSOLE_ROOT ||

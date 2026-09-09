@@ -29,6 +29,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   consoleSourceModules,
   readConsoleSourceModule,
+  toPosixSeparators,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import {
@@ -150,7 +151,7 @@ describe("contracts-schema chokepoint — a schema value stops at the bridge", (
 function consoleCensusModules(): readonly CensusModule[] {
   return consoleSourceModules({ roots: [RENDERER_SOURCE_ROOT], tests: true }).map(
     (module: ConsoleSourceModule) => ({
-      path: relative(DESKTOP_PACKAGE_ROOT, module.absolutePath).split("\\").join("/"),
+      path: toPosixSeparators(relative(DESKTOP_PACKAGE_ROOT, module.absolutePath)),
       source: readConsoleSourceModule(module),
       isTest: /\.test(-support)?\.tsx?$/u.test(module.absolutePath),
     }),

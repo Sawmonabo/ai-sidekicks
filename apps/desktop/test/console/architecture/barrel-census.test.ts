@@ -53,6 +53,7 @@ import {
   DESKTOP_PACKAGE_ROOT,
   consoleSourceModules,
   readConsoleSourceModule,
+  toPosixSeparators,
 } from "../console-source-modules.js";
 import { findingLines, isConsoleBarrel, readCensus, type CensusReading } from "./barrel-census.js";
 import type { CensusModule } from "./barrel-syntax.js";
@@ -76,7 +77,7 @@ const CONSOLE_PREFIX = "src/renderer/src/console";
 const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT];
 
 function toKey(absolutePath: string): string {
-  return relative(DESKTOP_PACKAGE_ROOT, absolutePath).split("\\").join("/");
+  return toPosixSeparators(relative(DESKTOP_PACKAGE_ROOT, absolutePath));
 }
 
 /** The console and the tiers that read it, as the census reads them. */

@@ -63,7 +63,12 @@ import ts from "typescript";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConsoleSourceTree, DESKTOP_SOURCE_ROOT } from "../console-source-modules.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import {
+  forEachDescendant,
+  literalTextOf,
+  parseSourceText,
+  type SourceModuleText,
+} from "../typescript-source.js";
 
 /**
  * The family this gate reads, as the walk's own root.
@@ -120,12 +125,6 @@ const BANNED_WORKSPACE_PACKAGES: readonly string[] = [
 /** A relative escape into either banned package's own source, whatever the depth. */
 const BANNED_PACKAGE_PATH = /(^|\/)packages\/(runtime-daemon|control-plane)\//;
 
-/** One module as this gate reads it: a name for a failure, and the text. */
-interface SourceModuleText {
-  readonly displayPath: string;
-  readonly source: string;
-}
-
 /** One module specifier, with the module that names it. */
 interface NamedSpecifier {
   readonly displayPath: string;
@@ -147,17 +146,6 @@ function isBannedSpecifier(specifier: string): boolean {
     BANNED_WORKSPACE_PACKAGES.some((banned) => namesPackage(specifier, banned)) ||
     BANNED_PACKAGE_PATH.test(specifier)
   );
-}
-
-/** A string whose value is fixed at the specifier — quoted or a bare template. */
-function literalTextOf(node: ts.Node | undefined): string | undefined {
-  if (node === undefined) {
-    return undefined;
-  }
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-    return node.text;
-  }
-  return undefined;
 }
 
 /** Whether `node` is a dynamic `import(…)` call rather than an ordinary one. */

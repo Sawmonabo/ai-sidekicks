@@ -65,7 +65,12 @@ import {
   DESKTOP_PROSE_ROOTS,
   toPosixSeparators,
 } from "../console-source-modules.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import {
+  forEachDescendant,
+  literalTextOf,
+  parseSourceText,
+  type SourceModuleText,
+} from "../typescript-source.js";
 
 /**
  * The budget this file states rather than inherits.
@@ -99,25 +104,11 @@ const WALKED_ROOT_NAMES: readonly string[] = DESKTOP_PROSE_ROOTS.map((root) =>
   toPosixSeparators(relative(DESKTOP_PACKAGE_ROOT, root)),
 );
 
-/** One module as this gate reads it: a name for a failure, and the text. */
-interface SourceModuleText {
-  readonly displayPath: string;
-  readonly source: string;
-}
-
 /** One `import.meta.glob` call, as the tree records it. */
 interface SourceGlobCall {
   readonly displayPath: string;
   /** Every pattern the call names, or an empty list where the parse could not read one. */
   readonly patterns: readonly string[];
-}
-
-/** A string whose value is fixed at the call — quoted or a bare template. */
-function literalTextOf(node: ts.Node): string | undefined {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-    return node.text;
-  }
-  return undefined;
 }
 
 /** Whether `node` is the `import.meta.glob` member, and not some other `.glob`. */

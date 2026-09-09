@@ -40,7 +40,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import ts from "typescript";
 
 import { ConsoleSourceTree } from "../console-source-modules.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import { forEachDescendant, parseSourceText, type SourceModuleText } from "../typescript-source.js";
 
 /**
  * The reading this file pays for once, and the budget it is measured against.
@@ -73,18 +73,6 @@ const CEREMONY_ADAPTER = "console/sign-in/ceremony-adapter.ts";
  * nothing would satisfy every case in this file by quantifying over an empty set.
  */
 const CONSOLE_MODULE_FLOOR = 100;
-
-/**
- * One module as this gate reads it: a name for a failure, and the text.
- *
- * The structural half of `ConsoleModuleText`, which satisfies it — stated here so a
- * planted control can be written as the two fields a reading actually consumes rather
- * than as a synthetic walk entry carrying two absolute paths that name nothing.
- */
-interface SourceModuleText {
-  readonly displayPath: string;
-  readonly source: string;
-}
 
 /** One ceremony call, as the tree records it. */
 interface CeremonyCall {

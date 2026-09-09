@@ -40,7 +40,11 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import { TYPESCRIPT_MODULE_EXTENSIONS } from "../console-source-classification.js";
-import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
+import {
+  consoleSourceModules,
+  readConsoleSourceModule,
+  toPosixSeparators,
+} from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 import { moduleSpecifiersIn } from "./source-walk-census.js";
 
@@ -225,7 +229,7 @@ function launchBodyModulePaths(
 function launchBodySources(): readonly { readonly path: string; readonly text: string }[] {
   const tierModules = consoleSourceModules({ roots: [CONSOLE_TEST_DIRECTORY], tests: true }).map(
     (module) => ({
-      path: module.relativePath.split("\\").join("/"),
+      path: toPosixSeparators(module.relativePath),
       text: readConsoleSourceModule(module),
     }),
   );

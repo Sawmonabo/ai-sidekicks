@@ -39,7 +39,11 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
+import {
+  consoleSourceModules,
+  readConsoleSourceModule,
+  toPosixSeparators,
+} from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -157,7 +161,7 @@ export function storeOpenings(source: string, fileName: string): readonly StoreO
 /** Every module under `test/console/surfaces/`, with its text, through the tier's walk. */
 function surfaceModuleSources(): readonly { readonly path: string; readonly text: string }[] {
   return consoleSourceModules({ roots: [SURFACES_DIRECTORY], tests: true }).map((module) => ({
-    path: `surfaces/${module.relativePath.split("\\").join("/")}`,
+    path: `surfaces/${toPosixSeparators(module.relativePath)}`,
     text: readConsoleSourceModule(module),
   }));
 }

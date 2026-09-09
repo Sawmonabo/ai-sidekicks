@@ -47,7 +47,7 @@ import {
   consoleSourceModules,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
-import { parseSourceText } from "../typescript-source.js";
+import { boundNamesOf, parseSourceText } from "../typescript-source.js";
 
 /**
  * The word that makes an identifier this gate's business.
@@ -57,19 +57,6 @@ import { parseSourceText } from "../typescript-source.js";
  * false positive for a token rule to exclude here.
  */
 const REFUSAL_WORD = "refusal";
-
-/** Every name one variable declaration binds, destructuring patterns included. */
-function boundNamesOf(name: ts.BindingName, into: string[]): void {
-  if (ts.isIdentifier(name)) {
-    into.push(name.text);
-    return;
-  }
-  for (const element of name.elements) {
-    if (ts.isBindingElement(element)) {
-      boundNamesOf(element.name, into);
-    }
-  }
-}
 
 /**
  * Every refusal-named VALUE `source` declares at its top level, in declaration order.

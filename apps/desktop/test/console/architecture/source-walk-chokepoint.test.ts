@@ -45,6 +45,7 @@ import {
   consoleStylesheets,
   moduleNamed,
   readConsoleSourceModule,
+  toPosixSeparators,
 } from "../console-source-modules.js";
 import {
   directoryWalkImports,
@@ -98,7 +99,7 @@ const MODULES_THAT_MAY_WALK: readonly string[] = [
 /** Every module in the console's test tier, models and harnesses included. */
 function testTierModules(): readonly TestTierModuleText[] {
   return consoleSourceModules({ roots: [TEST_TIER_DIRECTORY], tests: true }).map((module) => ({
-    relativePath: module.relativePath.split("\\").join("/"),
+    relativePath: toPosixSeparators(module.relativePath),
     source: readConsoleSourceModule(module),
   }));
 }
@@ -385,7 +386,7 @@ describe("the shared walk — answers files, never a directory with a file's nam
     // Vitest names a screenshot tier's committed reference directory after its spec,
     // so this entry is what a walk deciding by extension would admit as a module.
     const entries = readdirSync(screenshotTier, { recursive: true, encoding: "utf8" }).map(
-      (entry) => entry.split("\\").join("/"),
+      (entry) => toPosixSeparators(entry),
     );
     const directoryNamedLikeASpec = entries.find((entry) =>
       entry.endsWith("__screenshots__/frame.test.tsx"),
