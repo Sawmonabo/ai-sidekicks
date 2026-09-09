@@ -23,8 +23,8 @@ export { ForwardingConsoleClock } from "./forwarding-clock.js";
 //
 // ONE HOME MEANS ONE HOME, AND A DIRECTORY IS A HOME. The home used to say a view
 // family adds its own module beside its subtree, and four families took that licence
-// — `agents/constants.ts`, `collaboration/constants.ts`, `sessions/bounds.ts`,
-// `settings/constants.ts` — so a cap audit's answer depended on which of five places
+// — agents/constants.ts, collaboration/constants.ts, sessions/bounds.ts,
+// settings/constants.ts — so a cap audit's answer depended on which of five places
 // it looked in, and a bound was spelled `constants` in three of them and `bounds` in
 // the fourth. Every bound lives in `core/constants/` now, and
 // `test/console/architecture/cap-single-home.test.ts` fails the build if a second home

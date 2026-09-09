@@ -111,7 +111,7 @@ const AUXILIARY_WINDOW_GEOMETRY: Record<AuxiliaryRouteName, LockedWindowOptions>
 //
 // `SessionIdSchema` is the contracts package's own branded schema and is used
 // verbatim. `AgentId` has no canonical brand yet — its home is Plan-016's
-// unshipped `packages/contracts/src/orchestration.ts`, and minting a second
+// unshipped packages/contracts/src/orchestration.ts, and minting a second
 // branded schema here would be the duplicate source of truth that contracts
 // file's existing branded-id doctrine forbids — so the agent id is UUID-shape
 // validated at the seam, the same treatment `provider-driver.ts` gives its own

@@ -61,7 +61,7 @@ describe("console boundary rules", () => {
       //
       // Proved fail-first by removing the `pathNot` from
       // `renderer-reaches-console-through-doors`: the harness line joins the list and
-      // this case fails naming `session-bootstrap/seeded.test-support.ts`.
+      // this case fails naming session-bootstrap/seeded.test-support.ts.
       const outside = join("src", "renderer", "src", "session-bootstrap", "SessionBootstrap.ts");
       const harness = join("src", "renderer", "src", "session-bootstrap", "seeded.test-support.ts");
       const through = join("src", "renderer", "src", "session-members", "SessionMembers.ts");

@@ -120,3 +120,57 @@ export function boundNamesOf(name: ts.BindingName, into: string[]): void {
     }
   }
 }
+
+/**
+ * Every comment in `sourceFile`, in source order, as ranges into `source`.
+ *
+ * THE PARSE-ADJACENT READING THIS MODULE'S HEADER RESERVES A HOME FOR, and the
+ * question it answers is not the one three gates next door already ask. They ask which
+ * comments lead ONE position — `getLeadingCommentRanges` at a declaration's full start,
+ * `getTrailingCommentRanges` at a specifier's end — because their subject is which
+ * declaration a block documents. A gate whose subject is what a comment SAYS has no
+ * position to ask about: a stale claim is as likely to sit inside a function body,
+ * above a closing brace, or at the end of the file as it is to lead an export.
+ *
+ * READ AT THE LEAVES, which is what makes the answer complete rather than nearly so. A
+ * comment lives in the leading trivia of exactly one token, and the leaf tokens tile
+ * the file — so reading leading ranges at every leaf reaches every comment, the
+ * end-of-file token's trailing header included, and no position a walk over NODES would
+ * step past. `forEachDescendant` is the wrong instrument here for that reason and not
+ * for cost: it visits nodes, and a comment before a `}` leads no node.
+ *
+ * KEYED ON THE RANGE'S OWN START, because the leaves do not quite partition the file:
+ * an empty `SyntaxList` is childless and therefore a leaf under any structural test,
+ * and it shares its full start with the token that follows it — so a module whose
+ * header sits above no statement at all yields that header twice. Measured, not
+ * guarded against in the abstract: the first run of the gate next door reported every
+ * such claim in duplicate.
+ *
+ * NOT THE SCANNER, deliberately. `ts.createScanner` driven over raw text answers the
+ * same question in one pass and gets it wrong in two places this package writes: a
+ * regular expression whose body carries `//` scans as a comment, and the tail of a
+ * template with a substitution is re-scanned only on request. The parser has already
+ * resolved both, so reading its tokens costs one walk and cannot disagree with the
+ * compiler about what is code.
+ */
+export function commentRangesIn(
+  sourceFile: ts.SourceFile,
+  source: string,
+): readonly ts.CommentRange[] {
+  const rangesByStart = new Map<number, ts.CommentRange>();
+  const visitLeaves = (node: ts.Node): void => {
+    for (const child of node.getChildren(sourceFile)) {
+      if (child.getChildCount(sourceFile) > 0) {
+        visitLeaves(child);
+        continue;
+      }
+      for (const range of ts.getLeadingCommentRanges(source, child.getFullStart()) ?? []) {
+        if (!rangesByStart.has(range.pos)) {
+          rangesByStart.set(range.pos, range);
+        }
+      }
+    }
+  };
+  visitLeaves(sourceFile);
+  return [...rangesByStart.values()];
+}

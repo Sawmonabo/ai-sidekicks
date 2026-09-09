@@ -43,7 +43,7 @@ import type { StylesheetEdgeGraph, StylesheetTree } from "./stylesheet-edge-grap
  *
  * A literal because it is one: `electron.vite.config.ts` gives the renderer build the
  * single input `src/renderer/index.html`, whose one `<script type="module">` names
- * `./src/main.tsx`. The suite asserts the tree holds the path rather than trusting the
+ * ./src/main.tsx. The suite asserts the tree holds the path rather than trusting the
  * string, so a rename fails loudly here instead of quietly reporting every sheet in the
  * package as unreachable.
  */

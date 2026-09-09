@@ -8,7 +8,7 @@
 // `constants` and one said `bounds`.
 //
 // WHICH IS WHY THIS SCANS EVERY MODULE AND NOT EVERY `constants.ts`. A rule scoped to
-// a filename is a rule a filename evades, and `sessions/bounds.ts` is the proof that
+// a filename is a rule a filename evades, and sessions/bounds.ts is the proof that
 // one already had. The subject is every console source module except the one home,
 // and what it looks for is the EXPORTED NAME: a bound announces itself in its
 // identifier, and `bound-words.ts` is how this tree spells one.
@@ -59,7 +59,7 @@ import { BOUND_NAME_WORDS } from "./bound-words.js";
  * per concern under `console/core/constants/` — what this rule forbids is a SECOND
  * home, and a home is where a bound lives rather than how many files it takes.
  *
- * The trailing separator is load-bearing: without it `console/core/constants.ts` — the
+ * The trailing separator is load-bearing: without it console/core/constants.ts — the
  * single file the home was split out of — and any `constants-extra.ts` beside it would
  * read as part of the home, which is exactly the second home this scans for.
  */

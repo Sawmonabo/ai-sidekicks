@@ -476,7 +476,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     id: "health-diagnostics-reads",
     wire: "the five `health.*` reads — the machine's status projection, one run's classified failure detail, one run's stall reading, the operator's recovery request, and the diagnostic redaction policy — with the request and reply shapes each carries. The health SUBSCRIPTION is a separate row and a separate wire: this page is forbidden to consume one",
     owningDocument:
-      "Spec-020 §Required Behavior (the health, failure-classification, stuck-run, recovery, and redaction-policy surfaces); api-payload-contracts.md §Plan-020 — Observability And Failure Recovery and §Health Method-Name Registry (the five method strings and their request/reply shapes, registered there and in no code package — `packages/contracts/src/health/health.ts` is named as their eventual home and does not exist)",
+      "Spec-020 §Required Behavior (the health, failure-classification, stuck-run, recovery, and redaction-policy surfaces); api-payload-contracts.md §Plan-020 — Observability And Failure Recovery and §Health Method-Name Registry (the five method strings and their request/reply shapes, registered there and in no code package — packages/contracts/src/health/health.ts is named as their eventual home and does not exist)",
     consumingSurface: "diagnostics settings page",
     wireRegistered: false,
   },

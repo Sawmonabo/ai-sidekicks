@@ -2,7 +2,7 @@
 //
 // WHAT THE FINDING WAS, measured 2026-09-08. `pnpm --filter @ai-sidekicks/desktop
 // structure:dead-code` reported nothing at all for a wholly unreachable module planted
-// at `console/core/knip-negative-control.ts` — rc 0, no `Unused files` line — while the
+// at console/core/knip-negative-control.ts — rc 0, no `Unused files` line — while the
 // same plant under `scripts/budget/` was reported at rc 1. The cause is one suite:
 // `console/sign-in/ceremony-adapter.test.ts` read the tree with
 // `import.meta.glob("../**/*.{ts,tsx}", { query: "?raw", eager: true })`. Vite's plugin
@@ -267,7 +267,7 @@ describe("no module under `src/` globs a directory of its own", () => {
       },
       {
         // The ARRAY form, one literal and one constant. Filtering the unreadable element
-        // out reduced this to `./one.ts` — one pattern, no `*` — and cleared a call whose
+        // out reduced this to ./one.ts — one pattern, no `*` — and cleared a call whose
         // other half reaches a set nobody enumerated.
         displayPath: "src/renderer/src/console/ledger/ledger-mixed.test.ts",
         source:

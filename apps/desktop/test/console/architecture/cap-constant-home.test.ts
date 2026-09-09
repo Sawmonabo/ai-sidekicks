@@ -4,7 +4,7 @@
 // home: budgets and their unit factors in `budgets.json`, caps in
 // `console/core/constants/` with a rationale each", and its pre-PR self-audit
 // repeats it. Until this file nothing checked it, and two view families had already
-// grown their own: `terminal/constants.ts` held the scrollback, WebGL, and ledger
+// grown their own: terminal/constants.ts held the scrollback, WebGL, and ledger
 // caps, and `browser/bounds/BudgetMeter.tsx` embedded twenty runtime ceilings in the
 // component that displays them. Both were written against a sentence in
 // the cap home that licensed exactly that — which is the shape a rule takes
@@ -90,9 +90,9 @@ const VIEW_FAMILY_RULE = "console-view-family-isolation";
  * not how many files it takes. The home is one module per concern under
  * `core/constants/`.
  *
- * THE TRAILING SEPARATOR IS LOAD-BEARING. Without it `core/constants.ts` — the single
+ * THE TRAILING SEPARATOR IS LOAD-BEARING. Without it core/constants.ts — the single
  * 1 051-line file this directory was split out of — reads as part of the home again,
- * and so does any `core/constants-extra.ts` a later hand writes beside it. A prefix
+ * and so does any core/constants-extra.ts a later hand writes beside it. A prefix
  * that admits a sibling is a home with a back door.
  */
 const CAP_HOME_DIRECTORY = "core/constants/";
@@ -145,7 +145,7 @@ function isCapName(identifier: string): boolean {
  * placement it would accept was `core/`, two layers below every reader, which the
  * layering rule and the cap home's own charter both argue against. Reading the
  * declaration lets the table sit with its readers and still catches what the gate was
- * built for: `terminal/constants.ts`'s pool cap and the settings page's fold threshold
+ * built for: terminal/constants.ts's pool cap and the settings page's fold threshold
  * were both module-scope declarations.
  *
  * A destructuring pattern binds several names and none of them is a declaration in
@@ -323,7 +323,7 @@ describe("cap-constant-home — a bound is declared in one home", () => {
   it("negative control: the home is the directory, and a near miss is outside it", () => {
     // What the pin claims now that the home is a directory, and the two shapes that
     // would quietly undo it. A second cap module written BESIDE the home rather than
-    // inside it is the first — `core/constants.ts` is that shape exactly, being the
+    // inside it is the first — core/constants.ts is that shape exactly, being the
     // file this home replaced — and a view family that named its own directory
     // `constants/` is the second.
     expect(isCapHomeModule("core/constants/terminal-caps.ts")).toBe(true);

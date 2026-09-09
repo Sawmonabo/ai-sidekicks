@@ -10,7 +10,7 @@
 // WHAT COUNTS AS SOURCE, decided once and in TWO PLACES that answer different
 // halves. A FILE — asked of the directory entry, not inferred from the name,
 // because Vitest names a screenshot tier's committed reference directory after
-// its spec (`__screenshots__/frame.test.tsx` is a directory) and a walk deciding
+// its spec (__screenshots__/frame.test.tsx is a directory) and a walk deciding
 // by extension handed that back as a module and threw on the read — is this
 // module's half, because only the walk holds the entry. What the NAME says is
 // `console-source-classification.ts`'s: which extensions are TypeScript modules,
@@ -116,6 +116,28 @@ export const DESKTOP_SOURCE_ROOT: string = join(DESKTOP_PACKAGE_ROOT, "src");
 export const DESKTOP_PROSE_ROOTS: readonly string[] = [
   DESKTOP_SOURCE_ROOT,
   join(DESKTOP_PACKAGE_ROOT, "test"),
+];
+
+/**
+ * Every tree in the package a person types into, in scan order.
+ *
+ * {@link DESKTOP_PROSE_ROOTS} PLUS THE TWO EXECUTABLE TREES, and the pair is not a
+ * widening of it: that list is the subject of a gate about how a DECLARATION is
+ * documented, and adding roots to it would change what that gate quantifies over. This
+ * one is the subject of a gate about what a comment or a literal SAYS, and a claim
+ * naming a module that has moved is as wrong inside `scripts/budget/measure-bundle.mts`
+ * as it is inside a console family — more so, since nothing under `build/` or
+ * `scripts/` is reached by any other source-text tripwire in this tier, so a stale
+ * claim there has never had anything reporting it.
+ *
+ * `apps/desktop/AGENTS.md` §Executables is what makes the two trees reachable by this
+ * walk at all: every file under them is a `.ts` or an `.mts`, which is exactly the set
+ * `console-source-classification.ts` admits.
+ */
+export const DESKTOP_AUTHORED_ROOTS: readonly string[] = [
+  ...DESKTOP_PROSE_ROOTS,
+  join(DESKTOP_PACKAGE_ROOT, "build"),
+  join(DESKTOP_PACKAGE_ROOT, "scripts"),
 ];
 
 /** One source module, named by the root it was found under. */

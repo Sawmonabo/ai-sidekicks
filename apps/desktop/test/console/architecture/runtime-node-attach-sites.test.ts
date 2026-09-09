@@ -2,7 +2,7 @@
 // cross-process module on any import surface.
 //
 // WHY IT IS HERE AND NOT BESIDE THE FAMILY. The claim lived in
-// `runtime-node-attach/__tests__/runtime-node-source.test-support.ts`, which read the
+// runtime-node-attach/__tests__/runtime-node-source.test-support.ts, which read the
 // tree through `import.meta.glob("../*.{ts,tsx}", { query: "?raw" })` and handed four
 // view suites a pattern table and a keyed lookup. A directory glob in a renderer suite
 // is not a read: Vite resolves the pattern at transform time into one static specifier

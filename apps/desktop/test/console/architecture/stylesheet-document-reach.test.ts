@@ -12,7 +12,7 @@
 //
 // WHAT IT CATCHES THAT NOTHING ELSE DOES. A sheet owned correctly by a barrel that
 // nothing imports is four green claims and no rules on screen. The live instance was
-// `primitives/reading/partial-read.css`: owned by `primitives/reading/index.ts`, whose
+// primitives/reading/partial-read.css: owned by `primitives/reading/index.ts`, whose
 // only importer is `primitives/announce/reading-announcement.ts` — a module that reads
 // the incomplete-reading VOCABULARY and has nothing to do with the notice box the sheet
 // dresses — so the box was styled by an edge that would survive exactly as long as that

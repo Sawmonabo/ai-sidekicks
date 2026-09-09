@@ -2,7 +2,7 @@
 // Renderer initial-bundle budget — Plan-023 Phase 1C (T-023p-1C-1).
 //
 // Sums the renderer's initial import graph, read from Vite's own
-// `.vite/manifest.json` (`renderer.build.manifest: true` in
+// .vite/manifest.json (`renderer.build.manifest: true` in
 // electron.vite.config.ts): every entry chunk plus its transitive STATIC
 // imports, stylesheets, and assets. A `dynamicImports` edge is never crossed,
 // so lazy chunks stay out of the sum — which is what the budget excludes. The

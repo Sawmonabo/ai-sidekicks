@@ -8,7 +8,7 @@
 // module is itself a knip entry, because the `console-unit` include glob claims it. One
 // suite therefore made every module under `console/` reachable, and the dead-code gate
 // went silent for the whole tree: a wholly unreachable module planted at
-// `console/core/knip-negative-control.ts` was reported by nothing, at rc 0, while the
+// console/core/knip-negative-control.ts was reported by nothing, at rc 0, while the
 // same plant under `scripts/budget/` was reported at rc 1. Measured both ways, 2026-09-08.
 //
 // The remedy is the one `source-parse-home.test.ts` next door already states: a gate

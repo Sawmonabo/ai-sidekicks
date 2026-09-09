@@ -65,7 +65,7 @@ export interface InitialGraphCensus {
   readonly modulesByOwner: ReadonlyMap<string, readonly string[]>;
 }
 
-/** An emitted asset named without its content hash: `assets/index-CkKsISpn.css` → `index.css`. */
+/** An emitted asset named without its content hash: assets/index-CkKsISpn.css → `index.css`. */
 function stableChunkName(relativePath: string): string {
   return path.posix.basename(relativePath).replace(CHUNK_CONTENT_HASH, "$1");
 }

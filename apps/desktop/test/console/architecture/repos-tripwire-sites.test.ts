@@ -121,6 +121,19 @@ function misplacedSites(sites: readonly DeclaredSite[]): readonly string[] {
 const tree = new ConsoleSourceTree({ roots: [REPOS_DIRECTORY] });
 const readSites = (): readonly DeclaredSite[] => declaredSites(tree.reading.texts);
 
+/**
+ * The planted module path this file writes inside a TEMPLATE literal, declared once.
+ *
+ * A `*_FOILS` export because `path-claim-resolution.test.ts` holds every backticked path
+ * token in the package to naming a file, and this corpus writes one on purpose: the
+ * template form is exactly the declaration shape the regular expression that gate's
+ * subject replaced could not read, so the plant has to carry it verbatim.
+ */
+export const REPOS_TRIPWIRE_SITE_FOILS: readonly string[] = ["console/repos/mounts/five.ts"];
+
+/** The one path of that set, named for the corpus entry that plants it. */
+const PLANTED_TEMPLATE_SITE = "console/repos/mounts/five.ts";
+
 describe("the repos family — every tripwire site is a console-rooted module path", () => {
   beforeAll(() => {
     tree.read();
@@ -167,7 +180,7 @@ describe("the repos family — every tripwire site is a console-rooted module pa
         // The two declaration forms the regular expression could not read. Both are
         // well-formed and both name their own module, so neither is reported — which
         // is the point: they are SEEN, and seen to be correct.
-        displayPath: "console/repos/mounts/five.ts",
+        displayPath: PLANTED_TEMPLATE_SITE,
         source: [
           "let D_SITE = `console/repos/mounts/five.ts`;",
           'class Mount { static readonly E_SITE = "console/repos/mounts/five.ts"; }',

@@ -11,8 +11,8 @@
 // tears a renderer down by disposing its render layers, removing its canvas from
 // the DOM, and dropping the terminal's atlas-cache entry — and by doing nothing
 // else. The package requests no `WEBGL_lose_context` extension and calls
-// `loseContext()` nowhere, in the shipped `lib/addon-webgl.mjs` as well as in
-// `src/WebglRenderer.ts` (xterm.js issue #6068). A disposed addon's WebGL2 context
+// `loseContext()` nowhere, in the shipped `@xterm/addon-webgl/lib/addon-webgl.mjs` as well as in
+// `@xterm/addon-webgl/src/WebglRenderer.ts` (xterm.js issue #6068). A disposed addon's WebGL2 context
 // therefore outlives it, until the detached canvas is collected — while Chromium
 // enforces its own ceiling at CREATION time by dropping the OLDEST live context,
 // which a burst of open-and-close churn reaches long before a collection runs.

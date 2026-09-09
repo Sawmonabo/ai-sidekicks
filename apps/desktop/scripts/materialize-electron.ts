@@ -12,7 +12,7 @@
 // WHY IT EXISTS
 // -------------
 // Electron 44 publishes NO `scripts` field — and the change is 42.0's, which 44
-// merely inherits: `docs/breaking-changes.md` §Breaking API Changes (42.0)
+// merely inherits: Electron's docs/breaking-changes.md §Breaking API Changes (42.0)
 // records both that `electron` "no longer downloads itself via `postinstall`
 // script" and that `ELECTRON_SKIP_BINARY_DOWNLOAD` "is no longer supported, as
 // its primary purpose was to prevent the `postinstall` script from running".
