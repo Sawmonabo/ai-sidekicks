@@ -251,6 +251,17 @@ describe("assets — the generated token sheet", () => {
     );
   });
 
+  it("emits ONE settle easing, and it is the sampled spring", () => {
+    // `Spec-023 §Console Design (Meridian)` rule 5 asks for chrome that settles and
+    // never bounces, implemented by an own spring sampler emitting `linear()`. Two
+    // easings — a hand-written cubic beside the sampled spring — meant every one of
+    // the stylesheets reading `--meridian-ease-settle` got the cubic while the spring
+    // the rule asks for was emitted under a name no sheet read.
+    const css = generateMeridianCss();
+    expect(css).toContain(`${tokenVariableName("ease-settle")}: linear(`);
+    expect(css).not.toContain(tokenVariableName("ease-spring"));
+  });
+
   it("declares no font feature anywhere in the sheet", () => {
     // `font-feature-settings` INHERITS, so a declaration on `body` reaches every
     // descendant — which put the slashed zero rule 4 reserves as the mark of a wire

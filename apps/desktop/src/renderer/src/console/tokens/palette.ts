@@ -258,25 +258,6 @@ export function participantHueAngle(step: number): number {
 }
 
 /**
- * Motion durations, in milliseconds. `Spec-023 §Console Design (Meridian)`
- * rule 5: settles, never bounces — 120-180 ms ease-out for chrome, 240 ms for an
- * attribution thread drawing itself.
- */
-export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
-  "motion-quick": 120,
-  "motion-settle": 180,
-  "motion-thread": 240,
-};
-
-/**
- * The one easing curve chrome uses. A settle has no overshoot, so the curve's
- * control points stay inside the unit square — a spring sampler emitting
- * `linear()` is the escape hatch for the few surfaces that need one, and it is
- * not on the render path.
- */
-export const MOTION_EASE_SETTLE = "cubic-bezier(0.22, 0.61, 0.36, 1)";
-
-/**
  * Spacing scale, in rem, on a 4 px base at the 16 px root. Named rather than
  * numeric so a density-budget change is one edit here.
  */

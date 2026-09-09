@@ -20,12 +20,32 @@
 // family: the assets tier reads it from Node to check the generated sheet against
 // the palette it came from, so a module here that names `Document` or `Window`
 // puts types into a program that has neither. Every function below is therefore
-// pure — it takes numbers and returns strings — except `runViewTransition`, which
-// takes its host as a STRUCTURAL parameter declaring the one method it calls. The
-// caller passes a real `Document`; this module never reaches a global to find one,
+// pure — it takes numbers and returns strings — and this module reaches no global,
 // which is also why its own tests need no DOM.
+//
+// WHAT THIS MODULE PUBLISHES IS WHAT THE SHEET SPENDS, AND NOTHING ELSE. The scale
+// and the spring both left `palette.ts`, which answers "what colour is this?" and
+// had been answering "how long does this take?" beside it. What did NOT come with
+// them is a reduced-motion allowance vocabulary and a View Transitions wrapper that
+// this branch shipped with no caller: nothing in the console starts a view
+// transition, and reduced motion is collapsed by the generated sheet's own media
+// block rather than read in TypeScript by anybody. They are deleted rather than
+// tagged, and they come back with the surface that needs them — which is also when
+// their shape can be decided against a real caller instead of a guess.
 
-import { MOTION_DURATIONS_MS, MOTION_EASE_SETTLE } from "./palette.js";
+/**
+ * Motion durations, in milliseconds. Rule 5: settles, never bounces — 120-180 ms
+ * for chrome, 240 ms for an attribution thread drawing itself.
+ *
+ * Here rather than in `palette.ts`, which answers "what colour is this?": a
+ * duration is not a colour, and a motion scale living one file away from the
+ * sampler that eases it left this module's own first line false.
+ */
+export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
+  "motion-quick": 120,
+  "motion-settle": 180,
+  "motion-thread": 240,
+};
 
 /**
  * How many points a sampled easing is emitted with.
@@ -37,7 +57,7 @@ import { MOTION_DURATIONS_MS, MOTION_EASE_SETTLE } from "./palette.js";
  * over the durations rule 5 admits, which is well below a pixel on the 2 px rise
  * that is the console's largest chrome displacement.
  */
-export const SPRING_SAMPLE_COUNT = 16;
+const SPRING_SAMPLE_COUNT = 16;
 
 /** Decimal places each sampled value is emitted with. */
 const SPRING_SAMPLE_PRECISION = 4;
@@ -45,10 +65,12 @@ const SPRING_SAMPLE_PRECISION = 4;
 /**
  * A spring, in the terms a designer states one in.
  *
- * `damping` at or above the critical value is what makes a settle a settle:
- * rule 5 admits zero overshoot in chrome, and an under-damped spring overshoots
- * by construction. `isSettling` below is the check, and it is exported so a
- * caller can assert its own constants rather than trusting a comment.
+ * `damping` at or above the critical value is what makes a settle a settle: rule
+ * 5 admits zero overshoot in chrome, and an under-damped spring overshoots by
+ * construction. That property is asserted where it can be OBSERVED — on the
+ * sampled easing, whose values never exceed 1 for these constants and do exceed
+ * it for an under-damped negative control — rather than on a predicate over the
+ * constants, which would only restate the arithmetic below it.
  */
 export interface SpringDescriptor {
   /** Stiffness, in the usual mass-spring-damper sense. Higher arrives sooner. */
@@ -65,68 +87,14 @@ export interface SpringDescriptor {
  *
  * Critical damping for these constants is `2 * sqrt(stiffness * mass)` = 40, and
  * the value is stated as that number rather than derived at module scope so the
- * descriptor stays a plain readable record — `isSettling` proves the relationship
- * holds, and `motion.test.ts` runs it.
+ * descriptor stays a plain readable record — `motion.test.ts` samples it and holds
+ * the emitted curve to the overshoot rule.
  */
 export const CHROME_SETTLE_SPRING: SpringDescriptor = {
   stiffness: 400,
   damping: 40,
   mass: 1,
 };
-
-/** The damping coefficient at which a spring stops overshooting. */
-export function criticalDamping(spring: SpringDescriptor): number {
-  return 2 * Math.sqrt(spring.stiffness * spring.mass);
-}
-
-/**
- * Does this spring settle without overshoot?
- *
- * Rule 5's "zero overshoot in chrome" is a property of the constants, not of the
- * duration they are played over, so it is checkable before anything renders.
- */
-export function isSettling(spring: SpringDescriptor): boolean {
-  return spring.damping >= criticalDamping(spring);
-}
-
-/**
- * The spring's normalized displacement at a normalized time.
- *
- * Returns progress from 0 at rest to 1 at target — the shape an easing wants,
- * which is the complement of the classical displacement-from-target solution.
- * Both damping regimes are solved in closed form rather than integrated: an
- * integrator would need a step size, and a step size is a second accuracy knob
- * for a curve that has an exact answer.
- */
-export function springProgressAt(spring: SpringDescriptor, normalizedTime: number): number {
-  const angularFrequency = Math.sqrt(spring.stiffness / spring.mass);
-  const dampingRatio = spring.damping / criticalDamping(spring);
-  const scaledTime = angularFrequency * normalizedTime;
-
-  if (dampingRatio < 1) {
-    const dampedFrequency = Math.sqrt(1 - dampingRatio * dampingRatio);
-    const envelope = Math.exp(-dampingRatio * scaledTime);
-    const oscillation =
-      Math.cos(dampedFrequency * scaledTime) +
-      (dampingRatio / dampedFrequency) * Math.sin(dampedFrequency * scaledTime);
-    return 1 - envelope * oscillation;
-  }
-
-  if (dampingRatio === 1) {
-    return 1 - Math.exp(-scaledTime) * (1 + scaledTime);
-  }
-
-  // Over-damped: two real roots, no oscillation term at all.
-  const excess = Math.sqrt(dampingRatio * dampingRatio - 1);
-  const slowRoot = -dampingRatio + excess;
-  const fastRoot = -dampingRatio - excess;
-  const slowWeight = fastRoot / (fastRoot - slowRoot);
-  const fastWeight = -slowRoot / (fastRoot - slowRoot);
-  return (
-    1 -
-    (slowWeight * Math.exp(slowRoot * scaledTime) + fastWeight * Math.exp(fastRoot * scaledTime))
-  );
-}
 
 /**
  * Sample a spring into a CSS `linear()` easing.
@@ -165,122 +133,49 @@ export function sampleSpringEasing(
 }
 
 /**
- * What a surface is allowed to animate right now.
+ * The spring's normalized displacement at a normalized time.
  *
- * Rule 5 collapses motion to opacity under `prefers-reduced-motion`, and that is
- * a THREE-value answer rather than an on/off one, because "collapse to opacity"
- * is not "do nothing": a row that appears still needs to appear, it just may not
- * travel to get there. Naming the middle arm is what keeps a surface from reading
- * the reduced-motion signal as permission to skip the transition entirely.
- */
-export type MotionAllowance = "full" | "opacity-only";
-
-/** Resolve the allowance from a resolved reduced-motion preference. */
-export function motionAllowanceFor(prefersReducedMotion: boolean): MotionAllowance {
-  return prefersReducedMotion ? "opacity-only" : "full";
-}
-
-/**
- * The duration a transition should run for, in milliseconds, under an allowance.
+ * Returns progress from 0 at rest to 1 at target — the shape an easing wants,
+ * which is the complement of the classical displacement-from-target solution.
+ * Both damping regimes are solved in closed form rather than integrated: an
+ * integrator would need a step size, and a step size is a second accuracy knob
+ * for a curve that has an exact answer.
  *
- * Under `opacity-only` the answer is the QUICK step and not zero. Rule 5 asks for
- * opacity, and an opacity change at zero duration is a cut — which is a harsher
- * visual event than the fade it replaced, and the reason the reduced-motion media
- * query exists is that abrupt change is what some people are reacting to. The
- * generated sheet's own reduced-motion block clamps declared durations for the
- * rules that travel; this is the answer for code composing a duration itself.
+ * Private, and `sampleSpringEasing` is the whole public surface: the emitted
+ * string is what any caller can spend, and a test that reached the closed form
+ * directly would be checking the sampler against the very function it samples.
  */
-export function transitionDurationMs(
-  step: keyof typeof MOTION_DURATIONS_MS,
-  allowance: MotionAllowance,
-): number {
-  return declaredDurationMs(allowance === "full" ? step : "motion-quick");
-}
+function springProgressAt(spring: SpringDescriptor, normalizedTime: number): number {
+  const angularFrequency = Math.sqrt(spring.stiffness / spring.mass);
+  const dampingRatio = spring.damping / criticalDamping(spring);
+  const scaledTime = angularFrequency * normalizedTime;
 
-/**
- * Read one declared duration, refusing a name the palette does not carry.
- *
- * The scale is an open `Record<string, number>` rather than a closed union, so
- * the index signature admits every string and the compiler's own index check is
- * the only thing standing between a typo and `NaN` milliseconds reaching a
- * stylesheet. The refusal is the useful half.
- */
-function declaredDurationMs(step: keyof typeof MOTION_DURATIONS_MS): number {
-  const declared = MOTION_DURATIONS_MS[step];
-  if (declared === undefined) {
-    throw new RangeError(`No motion duration is declared for "${step}".`);
+  if (dampingRatio < 1) {
+    const dampedFrequency = Math.sqrt(1 - dampingRatio * dampingRatio);
+    const envelope = Math.exp(-dampingRatio * scaledTime);
+    const oscillation =
+      Math.cos(dampedFrequency * scaledTime) +
+      (dampingRatio / dampedFrequency) * Math.sin(dampedFrequency * scaledTime);
+    return 1 - envelope * oscillation;
   }
-  return declared;
-}
 
-/**
- * The easing a transition should run with under an allowance.
- *
- * `full` takes the sampled spring; `opacity-only` takes the palette's own cubic
- * settle. That is deliberate and not an oversight: a spring's value is that it
- * models travel, and under `opacity-only` nothing travels, so the extra string is
- * bytes the style engine parses for a curve nobody can see.
- */
-export function transitionEasing(allowance: MotionAllowance): string {
-  return allowance === "full" ? sampleSpringEasing(CHROME_SETTLE_SPRING) : MOTION_EASE_SETTLE;
-}
-
-/**
- * The one method this module calls on a document, declared structurally so the
- * family stays free of DOM types. A real `Document` satisfies it; so does a test
- * double, without either one importing the other's shape.
- */
-export interface ViewTransitionHost {
-  readonly startViewTransition?: (callback: () => void) => unknown;
-}
-
-/**
- * Run a DOM mutation inside a View Transition where the platform has one and the
- * operator has not asked for less motion.
- *
- * Three properties this deliberately has:
- *
- *   1. **The mutation always runs.** Every arm — no platform support, reduced
- *      motion, a host that throws — still calls `mutate`, exactly once. A
- *      transition is a way of showing a change, so a transition that fails must
- *      never be a change that did not happen.
- *   2. **Reduced motion skips the transition rather than shortening it.** A view
- *      transition cross-fades snapshots of the whole document; there is no
- *      opacity-only form of it to collapse to, so `opacity-only` takes the plain
- *      call.
- *   3. **It returns whether the transition was taken**, so a caller can assert
- *      the branch rather than infer it from a screenshot.
- */
-export function runViewTransition(
-  host: ViewTransitionHost,
-  allowance: MotionAllowance,
-  mutate: () => void,
-): boolean {
-  // Exactly once, whichever arm is taken. The platform invokes the callback in a
-  // later update phase, so a host that hands it back and THEN throws would
-  // otherwise have the mutation applied twice — and a mutation applied twice is a
-  // worse failure than one not animated, because it is the one nothing reports.
-  let hasMutated = false;
-  const mutateOnce = (): void => {
-    if (hasMutated) {
-      return;
-    }
-    hasMutated = true;
-    mutate();
-  };
-
-  if (allowance !== "full" || typeof host.startViewTransition !== "function") {
-    mutateOnce();
-    return false;
+  if (dampingRatio === 1) {
+    return 1 - Math.exp(-scaledTime) * (1 + scaledTime);
   }
-  try {
-    host.startViewTransition(mutateOnce);
-    return true;
-  } catch {
-    // The platform declared the method and then refused the call — a document
-    // that is not visible, or one already tearing down. The change is what
-    // matters, so it is made without the transition rather than lost with it.
-    mutateOnce();
-    return false;
-  }
+
+  // Over-damped: two real roots, no oscillation term at all.
+  const excess = Math.sqrt(dampingRatio * dampingRatio - 1);
+  const slowRoot = -dampingRatio + excess;
+  const fastRoot = -dampingRatio - excess;
+  const slowWeight = fastRoot / (fastRoot - slowRoot);
+  const fastWeight = -slowRoot / (fastRoot - slowRoot);
+  return (
+    1 -
+    (slowWeight * Math.exp(slowRoot * scaledTime) + fastWeight * Math.exp(fastRoot * scaledTime))
+  );
+}
+
+/** The damping coefficient at which a spring stops overshooting. */
+function criticalDamping(spring: SpringDescriptor): number {
+  return 2 * Math.sqrt(spring.stiffness * spring.mass);
 }

@@ -34,12 +34,10 @@
 // pins the single scheme it stands for.
 
 import { formatOklch } from "./color.js";
-import { CHROME_SETTLE_SPRING, sampleSpringEasing } from "./motion.js";
+import { CHROME_SETTLE_SPRING, MOTION_DURATIONS_MS, sampleSpringEasing } from "./motion.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  MOTION_DURATIONS_MS,
-  MOTION_EASE_SETTLE,
   RADIUS_SCALE_REM,
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
@@ -119,15 +117,14 @@ function invariantBlock(): string {
   for (const [tokenName, durationMs] of Object.entries(MOTION_DURATIONS_MS)) {
     lines.push(declaration(tokenName, `${durationMs}ms`));
   }
-  lines.push(declaration("ease-settle", MOTION_EASE_SETTLE));
-  // The spring, sampled ONCE — here, while the sheet is being built — into the
-  // `linear()` easing `Spec-023 §Console Libraries`' motion row asks for. Emitting
-  // it as a token is what keeps the spring off the render path: a family that wants
-  // the settle writes `var(--meridian-ease-spring)` and the compositor runs it, and
-  // nothing computes a spring while anything is on screen. `ease-settle` above stays
-  // beside it as the cheaper cubic for surfaces whose travel does not warrant the
-  // longer string.
-  lines.push(declaration("ease-spring", sampleSpringEasing(CHROME_SETTLE_SPRING)));
+  // ONE settle easing, and it is the spring `Spec-023 §Console Libraries`' motion row
+  // asks for — sampled ONCE, here, while the sheet is being built, so nothing
+  // computes a spring while anything is on screen and the compositor runs the
+  // emitted `linear()` under the platform's own timing. It is emitted under the name
+  // every stylesheet already reads: a second token holding the sampled curve left
+  // the hand-written cubic answering `var(--meridian-ease-settle)` everywhere while
+  // the spring the rule asks for was declared under a name no sheet spent.
+  lines.push(declaration("ease-settle", sampleSpringEasing(CHROME_SETTLE_SPRING)));
 
   return lines.join("\n");
 }
@@ -152,8 +149,9 @@ export function generateMeridianCss(): string {
     " * test whose failure mode is a forgotten regeneration command.",
     " *",
     " * Sources of truth: `console/tokens/palette.ts` for the colour ramps and the",
-    " * spacing, radius, and motion scales, and `console/tokens/typography.ts` for the",
-    " * type scale, the line height, and the font stacks.",
+    " * spacing and radius scales, `console/tokens/motion.ts` for the motion scale and",
+    " * its easing, and `console/tokens/typography.ts` for the type scale, the line",
+    " * height, and the font stacks.",
     " *",
     " * The design language's colour, type, and spacing rules live in those two files'",
     " * comments; this file carries only their values.",
