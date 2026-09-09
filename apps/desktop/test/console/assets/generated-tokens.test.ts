@@ -201,6 +201,34 @@ describe("assets — the generated token sheet", () => {
     );
   });
 
+  it("emits ONE settle easing, and it is the sampled spring", () => {
+    // `Spec-023 §Console Design (Meridian)` rule 5 asks for chrome that settles and
+    // never bounces, implemented by an own spring sampler emitting `linear()`. Two
+    // easings — a hand-written cubic beside the sampled spring — meant every one of
+    // the stylesheets reading `--meridian-ease-settle` got the cubic while the spring
+    // the rule asks for was emitted under a name no sheet read.
+    //
+    // The sampler runs at BUILD time now — `tokens/motion.ts` carries what it
+    // answered and `tokens/motion.test.ts` re-derives that constant against it — so
+    // this case asserts the emitted SHAPE, which is the property a stylesheet reads,
+    // and the value's provenance is asserted where the two modules meet.
+    const css = generateMeridianCss();
+    expect(css).toContain(`${tokenVariableName("ease-settle")}: linear(`);
+    expect(css).not.toContain(tokenVariableName("ease-spring"));
+  });
+
+  it("declares no font feature anywhere in the sheet", () => {
+    // `font-feature-settings` INHERITS, so a declaration on `body` reaches every
+    // descendant — which put the slashed zero rule 4 reserves as the mark of a wire
+    // figure onto every participant name, repo path, and branch name in the console.
+    // The features ride the mono `@font-face` descriptors in
+    // `frame/bindings/typeface.ts` instead, where they are scoped to the face by
+    // construction rather than by a selector this sheet could never narrow again:
+    // CSS Fonts 4 gives the property precedence over the features `font-variant-*`
+    // computes, so once it is on the root no descendant can scope the feature at all.
+    expect(generateMeridianCss()).not.toContain("font-feature-settings");
+  });
+
   it("catches a planted difference, so the comparison is not vacuous", () => {
     const generated = generateMeridianCss();
     const tampered = generated.replace("oklch(", "oklcH(");

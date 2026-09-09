@@ -34,19 +34,16 @@
 // pins the single scheme it stands for.
 
 import { formatOklch } from "./color.js";
+import { CHROME_SETTLE_EASING, MOTION_DURATIONS_MS } from "./motion.js";
 import {
   ATTRIBUTION_EDGE_WIDTH_PX,
-  BODY_LINE_HEIGHT,
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  FONT_STACKS,
-  MOTION_DURATIONS_MS,
-  MOTION_EASE_SETTLE,
   RADIUS_SCALE_REM,
   REFLOW_MIN_WIDTH_PX,
   SPACE_SCALE_REM,
   TOKEN_ALIASES,
-  TYPE_SCALE_REM,
 } from "./palette.js";
+import { BODY_LINE_HEIGHT, FONT_STACKS, TYPE_SCALE_REM } from "./typography.js";
 import type { ConsoleScheme } from "./tokens.js";
 import {
   PARTICIPANT_HUES,
@@ -120,7 +117,17 @@ function invariantBlock(): string {
   for (const [tokenName, durationMs] of Object.entries(MOTION_DURATIONS_MS)) {
     lines.push(declaration(tokenName, `${durationMs}ms`));
   }
-  lines.push(declaration("ease-settle", MOTION_EASE_SETTLE));
+  // ONE settle easing, and it is the spring `Spec-023 §Console Libraries`' motion row
+  // asks for — sampled at BUILD time rather than here, because both of the sampler's
+  // inputs are constants and a pure function of constants is one: `motion.ts` carries
+  // the emitted `linear()` and `motion.test.ts` holds it to the sampler, which no
+  // longer ships. So nothing computes a spring while anything is on screen, and the
+  // compositor runs the emitted curve under the platform's own timing. It is emitted
+  // under the name every stylesheet already reads: a second token holding the sampled
+  // curve left the hand-written cubic answering `var(--meridian-ease-settle)`
+  // everywhere while the spring the rule asks for was declared under a name no sheet
+  // spent.
+  lines.push(declaration("ease-settle", CHROME_SETTLE_EASING));
 
   return lines.join("\n");
 }
@@ -130,6 +137,10 @@ function invariantBlock(): string {
  * including the trailing newline the assets tier compares.
  */
 export function generateMeridianCss(): string {
+  // The emitted banner deliberately names no governance document: this text is
+  // written into the live stylesheet, and a doc identifier belongs in source
+  // comments rather than in shipped output. The rules it alludes to are
+  // `Spec-023 §Console Design (Meridian)` rules 2-5 and 7.
   const header = [
     "/*",
     " * GENERATED AT RUNTIME — there is no committed copy of this sheet.",
@@ -140,9 +151,12 @@ export function generateMeridianCss(): string {
     " * palette, and the only defence against the two drifting would be a byte-diff",
     " * test whose failure mode is a forgotten regeneration command.",
     " *",
-    " * Source of truth: `console/tokens/palette.ts`.",
+    " * Sources of truth: `console/tokens/palette.ts` for the colour ramps and the",
+    " * spacing and radius scales, `console/tokens/motion.ts` for the motion scale and",
+    " * its easing, and `console/tokens/typography.ts` for the type scale, the line",
+    " * height, and the font stacks.",
     " *",
-    " * `Spec-023 §Console Design (Meridian)` rules 2-5 and 7 live in the palette's",
+    " * The design language's colour, type, and spacing rules live in those two files'",
     " * comments; this file carries only their values.",
     " */",
     "",
@@ -204,6 +218,11 @@ export function generateMeridianCss(): string {
     "  font-family: var(--meridian-font-sans);",
     "  font-size: var(--meridian-text-md);",
     `  line-height: ${BODY_LINE_HEIGHT};`,
+    // No `font-feature-settings` here, deliberately. Rule 4's slashed zero is the
+    // MONO signature, and this property inherits — declaring it on the root put the
+    // slash on every participant name, repo path, and branch in the console, and
+    // then prevented any descendant from scoping the feature back. It rides the mono
+    // `@font-face` descriptors in `frame/bindings/typeface.ts` instead.
     "  -webkit-font-smoothing: antialiased;",
     "}",
     "",

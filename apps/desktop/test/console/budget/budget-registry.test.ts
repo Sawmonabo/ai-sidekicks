@@ -45,15 +45,25 @@ const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
 ];
 
 /**
- * Bounds the test scaffolding applies to ITSELF, which no spec figure backs.
+ * Bounds no spec figure backs — the complement of the list above rather than one
+ * kind of thing.
  *
  * They share `budgets.json` because one value gets one home, and they are
  * `scope: "harness"` rather than merged into the list above because the claim
  * that list makes — the spec's table names these and nothing else — has to stay
  * countable. Before this they were TypeScript literals one directory away, the
  * only numbers in the tree gated by nothing.
+ *
+ * Five of them are the launch slices the scaffolding applies to ITSELF.
+ * `renderer-initial-fonts` is not: it bounds a shipped artifact, the
+ * self-hosted `woff2` faces on the renderer's initial graph, and it is here
+ * because the spec's table names no font row and a ninth `product` id would cost
+ * the countability that list exists for. Its unit is raw bytes rather than gzip
+ * for the reason `harnessBudgetDerivation` states — a `woff2` is a Brotli
+ * container, so a compressed figure over one measures nothing.
  */
 const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
+  "renderer-initial-fonts",
   "console-launch-readiness",
   "console-launch-frame-witness",
   "console-launch-cleanup",

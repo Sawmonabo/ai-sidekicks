@@ -35,6 +35,11 @@
 
 import { BOUNDED_ENUMERATION_MAX_ROWS } from "../core/index.js";
 import type { OklchColor } from "./color.js";
+// The enumeration row height is a product of both scales — the type scale and the
+// line height from the type system, the spacing scale from here — so this edge
+// exists and points one way. `typography.ts` is a leaf that imports nothing local,
+// so there is no cycle to resolve.
+import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
 
 /** A token whose value differs between the light and dark schemes. */
 export interface SchemePair {
@@ -251,68 +256,6 @@ export const PARTICIPANT_HUE_STEP_DEGREES: number = 360 / PARTICIPANT_HUE_STEPS;
 export function participantHueAngle(step: number): number {
   return (PARTICIPANT_HUE_ORIGIN_DEGREES + step * PARTICIPANT_HUE_STEP_DEGREES + 360) % 360;
 }
-
-/**
- * Motion durations, in milliseconds. `Spec-023 §Console Design (Meridian)`
- * rule 5: settles, never bounces — 120-180 ms ease-out for chrome, 240 ms for an
- * attribution thread drawing itself.
- */
-export const MOTION_DURATIONS_MS: Readonly<Record<string, number>> = {
-  "motion-quick": 120,
-  "motion-settle": 180,
-  "motion-thread": 240,
-};
-
-/**
- * The one easing curve chrome uses. A settle has no overshoot, so the curve's
- * control points stay inside the unit square — a spring sampler emitting
- * `linear()` is the escape hatch for the few surfaces that need one, and it is
- * not on the render path.
- */
-export const MOTION_EASE_SETTLE = "cubic-bezier(0.22, 0.61, 0.36, 1)";
-
-/**
- * The line height every body line box occupies, as a multiple of its own size.
- *
- * Named rather than written into the generator's `body` rule, because it is not
- * only a paint instruction: a row of any list is a line box plus its padding, so
- * the console's row rhythm is derived from this number and would silently stop
- * matching what the sheet paints if the two were written separately.
- */
-export const BODY_LINE_HEIGHT = 1.5;
-
-/**
- * Type scale, in rem. Rule 4 sets UI text in a humanist grotesque and every
- * wire-true figure in mono; the scale is shared so a figure and its label sit on
- * the same baseline.
- */
-export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
-  "text-xs": 0.6875,
-  "text-sm": 0.8125,
-  "text-md": 0.875,
-  "text-lg": 1,
-  "text-xl": 1.25,
-};
-
-/**
- * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces
- * (`Spec-023 §Console Libraries`, the motion/fonts/icons row); the console does
- * not yet self-host them, so each stack names the family first and falls through
- * to the platform UI face. Self-hosting is gated on one amendment: the foundry
- * packages are OFL-1.1, which sits outside the MIT / Apache-2.0 / BSD / ISC norm
- * ADR-020's Decision Log assumes for a DISTRIBUTED dependency (its 2026-09-01
- * axe-core row admits a never-distributed test dependency and says in terms that
- * a bundled outside-norm use needs its own entry), and at their npm pins those
- * packages ship static instances rather than the variable builds the Console
- * Libraries row describes. When that amendment lands, the faces arrive as one
- * `@font-face` block and these two constants do not move.
- */
-export const FONT_STACKS: Readonly<Record<string, string>> = {
-  "font-sans":
-    '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  "font-mono":
-    '"IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", monospace',
-};
 
 /**
  * Spacing scale, in rem, on a 4 px base at the 16 px root. Named rather than

@@ -14,6 +14,12 @@
 // rules cascade after the primitives' (whose barrel imports theirs first, being an
 // upstream import of these components).
 //
+// The self-hosted faces do NOT enter here. `@font-face` needs the bundler's
+// emitted asset URL, and a bare package specifier inside a stylesheet's `url()`
+// is a bundler convention no other tool resolves — so the faces are declared in
+// `bindings/typeface.ts` and installed beside the token sheet, where the specifier is a
+// real import the compiler and the dead-code gate both see. See that module.
+//
 // A barrel re-exports only its own family. The route vocabulary used to be
 // re-exported from here because it used to LIVE here; it now lives in
 // `console/routing/`, below this family, and consumers import it from there. A

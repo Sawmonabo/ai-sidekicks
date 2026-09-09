@@ -47,9 +47,13 @@ export {
 export {
   ATTRIBUTION_EDGE_WIDTH_PX,
   BOUNDED_ENUMERATION_HEIGHT_REM,
-  MOTION_DURATIONS_MS,
   PARTICIPANT_HUE_STEPS,
 } from "./palette.js";
+
+// From the module that DECLARES it: the motion scale moved to `motion.ts` with the
+// sampler that eases it, and a door line pointing at its old home would be the
+// second reading of one value this door exists to prevent.
+export { MOTION_DURATIONS_MS } from "./motion.js";
 
 export { formatOklch } from "./color.js";
 

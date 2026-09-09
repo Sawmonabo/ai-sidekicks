@@ -184,6 +184,31 @@ describe("registry validation (negative controls)", () => {
     expect(loaded.harnessBudgets()).toHaveLength(1);
   });
 
+  it("accepts a row that carries the figure its ceiling was derived to refuse", () => {
+    const entry = { ...validEntry, refusalControlBytes: 13_300 };
+    expect(
+      loadFixture("refusal-control", { ...validDocument, budgets: [entry] })().budgets[0]
+        ?.refusalControlBytes,
+    ).toBe(13_300);
+  });
+
+  it("leaves the refusal control null on a row that states none", () => {
+    // The field is optional because most ceilings are not chosen against one
+    // particular next file; a row that states nothing must not read as zero.
+    expect(loadFixture("no-refusal-control", validDocument)().budgets[0]?.refusalControlBytes).toBe(
+      null,
+    );
+  });
+
+  it("rejects a refusal control that is not a positive number", () => {
+    // A control planted at zero bytes passes every ceiling, so a row that fat-
+    // fingers the figure must refuse rather than hand a harness a vacuous plant.
+    const entry = { ...validEntry, refusalControlBytes: 0 };
+    expect(loadFixture("bad-refusal-control", { ...validDocument, budgets: [entry] })).toThrow(
+      /refusalControlBytes/,
+    );
+  });
+
   it("rejects a row with no scope at all", () => {
     const { scope: _omitted, ...withoutScope } = validEntry;
     expect(loadFixture("no-scope", { ...validDocument, budgets: [withoutScope] })).toThrow(/scope/);

@@ -40,11 +40,14 @@ const BUDGET_STATUS_VALUES: readonly ConsoleBudgetStatus[] = Object.freeze(["enf
  *
  * `product` rows are `Spec-023 §Console Design (Meridian)` §Budgets' own, and
  * their set is closed: the spec table names them all and nothing else may join.
- * `harness` rows are bounds the test scaffolding applies to itself, with no spec
- * figure behind them. They share this file rather than getting one of their own
- * because a budget with a second home is a budget that will disagree with
- * itself — and they are discriminated rather than merged so the completeness
- * claim over the spec table stays checkable by counting.
+ * `harness` rows are the complement — a bound with NO spec figure behind it,
+ * whether the scaffolding applies it to itself (the five launch slices) or a
+ * harness applies it to a shipped artifact the spec's table does not bound in
+ * that unit (`renderer-initial-fonts`, raw bytes beside a gzip row). They share
+ * this file rather than getting one of their own because a budget with a second
+ * home is a budget that will disagree with itself — and they are discriminated
+ * rather than merged so the completeness claim over the spec table stays
+ * checkable by counting, which is the property a ninth `product` id would cost.
  */
 type ConsoleBudgetScope = "product" | "harness";
 
@@ -87,6 +90,18 @@ export interface ConsoleBudget {
   readonly subjectSymbol: string | null;
   /** Why it is not measurable yet; non-null exactly when `status` is `"n/a"`. */
   readonly notMeasurableReason: string | null;
+  /**
+   * The size, in bytes, of the smallest additional subject this row's ceiling was
+   * derived to REFUSE; `null` for a row whose figure was not chosen against one.
+   *
+   * A ceiling picked for a refusal property carries the figure that property is
+   * about, and the harness that plants a control needs exactly that number — plant
+   * anything larger and the control proves only that some larger number is over.
+   * It lives on the row because the row's `notes` already state it in prose, and a
+   * threshold restated in a test beside a file the test already loads is the second
+   * home `apps/desktop/AGENTS.md` §Config single-sourcing rejects.
+   */
+  readonly refusalControlBytes: number | null;
   readonly notes: string;
   /** Non-numeric conditions the budget also carries; gated elsewhere. */
   readonly additionalCriteria: readonly string[];
@@ -139,6 +154,22 @@ function requireString(owner: Record<string, unknown>, field: string, where: str
 function optionalString(owner: Record<string, unknown>, field: string): string | null {
   const value = owner[field];
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+/** A positive figure where the field is present at all, refusing anything else. */
+function optionalPositiveNumber(
+  owner: Record<string, unknown>,
+  field: string,
+  where: string,
+): number | null {
+  const value = owner[field];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    refuse(`${where}: \`${field}\` must be a positive finite number where it is present.`);
+  }
+  return value;
 }
 
 function requireNumber(owner: Record<string, unknown>, field: string, where: string): number {
@@ -211,6 +242,7 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
     measuredBy,
     subjectSymbol,
     notMeasurableReason,
+    refusalControlBytes: optionalPositiveNumber(entry, "refusalControlBytes", where),
     notes: requireString(entry, "notes", where),
     additionalCriteria: Object.freeze(
       Array.isArray(additionalCriteria)

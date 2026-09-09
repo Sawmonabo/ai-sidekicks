@@ -31,6 +31,7 @@ import {
   type ConsoleScheme,
   type SchemePreference,
 } from "../../tokens/index.js";
+import { generateTypefaceCss } from "./typeface.js";
 
 /** The id the generated sheet is installed under. */
 export const MERIDIAN_STYLE_ELEMENT_ID = "meridian-tokens";
@@ -45,7 +46,13 @@ export function installMeridianTokens(targetDocument: Document): boolean {
   }
   const styleElement = targetDocument.createElement("style");
   styleElement.id = MERIDIAN_STYLE_ELEMENT_ID;
-  styleElement.textContent = generateMeridianCss();
+  // The faces lead the sheet. `@font-face` participates in no cascade — a face is
+  // matched by family and weight, never overridden — so the order buys nothing at
+  // paint time; it is here because a reader meeting `font-family: var(--meridian-
+  // font-sans)` a few lines down should have already met the bytes that name
+  // resolves to. Both halves are generated, so this is one string built once per
+  // window rather than a second install path.
+  styleElement.textContent = `${generateTypefaceCss()}\n\n${generateMeridianCss()}`;
   // Prepended rather than appended so component stylesheets, which reference these
   // custom properties, cascade after the definitions they read.
   targetDocument.head.prepend(styleElement);

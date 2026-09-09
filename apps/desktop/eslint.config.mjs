@@ -179,6 +179,43 @@ const RENDERER_RESTRICTED_PATTERNS = [
 ];
 
 /**
+ * The groups a console or shell module may not import: the renderer's, plus the two
+ * that keep wire parsing out of a surface.
+ *
+ * Hoisted because flat config replaces a rule's options at the LAST matching config
+ * object, so any narrower block below that names a console file would have to restate
+ * this whole union — and a union spread from one const cannot drift from the block it
+ * was copied out of. One block spends it today; the hoist stays because the hazard is
+ * the rule's, not that block's, and a second narrower block is one edit away.
+ */
+const CONSOLE_RESTRICTED_PATTERNS = [
+  ...RENDERER_RESTRICTED_PATTERNS,
+  {
+    // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one
+    // group: `no-restricted-imports` treats them as distinct, and a ban
+    // on the bare form alone would be one import away from useless.
+    group: ["zod", "zod/**"],
+    message:
+      "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
+  },
+  {
+    // The same claim as the `zod` group above, on the schemas the corpus
+    // has already built. It is a `patterns` entry rather than a `paths`
+    // one because that is where the rule's schema puts `importNamePattern`
+    // — measured against the installed engine, whose `paths` items admit
+    // only `importNames` — and an exhaustive `importNames` list would go
+    // stale the day the contracts package exports its next schema.
+    group: ["@ai-sidekicks/contracts"],
+    // Every schema the reply registry composes ends this way, and so does
+    // every other schema the package exports: the suffix is how this
+    // corpus spells a parser, not a guess about one.
+    importNamePattern: "Schema$",
+    message:
+      "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
+  },
+];
+
+/**
  * Reading the preload bridge off the window.
  *
  * `console/bridge/live-bridge.ts` is the one console module that may — `BridgeProvider`
@@ -540,32 +577,7 @@ export default [
         "error",
         {
           paths: RENDERER_RESTRICTED_PATHS,
-          patterns: [
-            ...RENDERER_RESTRICTED_PATTERNS,
-            {
-              // Bare specifier and every subpath (`zod/v4`, `zod/mini`) in one
-              // group: `no-restricted-imports` treats them as distinct, and a ban
-              // on the bare form alone would be one import away from useless.
-              group: ["zod", "zod/**"],
-              message:
-                "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a local validator.",
-            },
-            {
-              // The same claim as the `zod` group above, on the schemas the corpus
-              // has already built. It is a `patterns` entry rather than a `paths`
-              // one because that is where the rule's schema puts `importNamePattern`
-              // — measured against the installed engine, whose `paths` items admit
-              // only `importNames` — and an exhaustive `importNames` list would go
-              // stale the day the contracts package exports its next schema.
-              group: ["@ai-sidekicks/contracts"],
-              // Every schema the reply registry composes ends this way, and so does
-              // every other schema the package exports: the suffix is how this
-              // corpus spells a parser, not a guess about one.
-              importNamePattern: "Schema$",
-              message:
-                "Spec-023 §Console Design (Meridian): a console surface never parses a wire value itself, and a contracts schema is a parser. Reach the daemon through `callDaemon` from `console/bridge/`, which parses the reply against the method's registered schema and answers `served` or `refused`; a value that needs a shape needs a registry row, not a second reading of one. Types and non-schema values from this package are untouched.",
-            },
-          ],
+          patterns: CONSOLE_RESTRICTED_PATTERNS,
         },
       ],
     },

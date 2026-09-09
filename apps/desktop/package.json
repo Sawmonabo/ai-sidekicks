@@ -67,6 +67,8 @@
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@ibm/plex-mono-variable": "1.0.0",
+    "@ibm/plex-sans-variable": "0.2.0",
     "@iconify-json/tabler": "1.2.38",
     "@playwright/test": "1.62.1",
     "@svgr/core": "8.1.0",
