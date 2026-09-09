@@ -35,6 +35,7 @@
 //
 
 import { fixtureApprovalAnswers } from "./approval-answers.js";
+import { FixtureAttachmentIngest, fixtureAttachmentIngest } from "./attachment-ingest.js";
 import { BROWSER_PRODUCED_ARTIFACTS_CALL } from "../../scenarios/browser.js";
 import { deriveAttentionProjection } from "./attention-derivation.js";
 import type { FixtureInviteLedger } from "../invites/invite-ledger.js";
@@ -46,6 +47,7 @@ import { fixtureCollaborationReads } from "../collaboration/collaboration-reads.
 import type { FixtureChannelLifecycle } from "../collaboration/channel-lifecycle.js";
 import { fixtureOnboardingAnswers } from "../settings/onboarding-answers.js";
 import { fixtureProviderAccountWrites } from "../settings/provider-account-writes.js";
+import { fixtureRunRecordReads } from "./run-record-reads.js";
 import { answerFromScriptedReply, answerScriptOnly } from "./scripted-answer.js";
 import { fixtureShellAnswers } from "../shell/shell-answers.js";
 import { fixturePresenceAnswers } from "../shell/presence-answers.js";
@@ -93,6 +95,11 @@ export function createFixtureGrowthPort(
   channelLifecycle: FixtureChannelLifecycle,
   inviteLedger: FixtureInviteLedger,
 ): GrowthPort {
+  // The ingest spools, held for this port's life on the reason
+  // `invites/invite-answers.ts` states for its pending table: the three legs of one
+  // upload are three calls over one accumulating record, so a handler that minted its
+  // state per call could acknowledge no chunk and complete no stream.
+  const attachmentSpools = new FixtureAttachmentIngest();
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     // workflow, collaboration, onboarding and shell — spread from the modules that
     // implement them, so the served ids in `call-plane/served-operations.ts` and the
@@ -114,6 +121,10 @@ export function createFixtureGrowthPort(
     ...fixtureApprovalAnswers(engine),
     ...fixtureInviteAnswers(engine, inviteLedger),
     ...fixturePresenceAnswers(engine),
+    // The attachment ingest trio and its abort. Answered from the spool rather than
+    // from the script, which is what makes every ingest state a surface renders
+    // reachable by attaching a file instead of by authoring a reply.
+    ...fixtureAttachmentIngest(attachmentSpools),
     // The header's identity, from the same scripted reply the base state comes from.
     // REFUSED rather than answered emptily for a session this scenario is not
     // playing or has said nothing about: a summary carries a required state, so
@@ -360,6 +371,9 @@ export function createFixtureGrowthPort(
     // set. Two answer under any scenario and three refuse without a script; that
     // module's header carries the whole of why.
     ...fixtureDiagnosticsReads(engine),
+    // The two durable run records — the run's intervention history and the queue's
+    // run bindings.
+    ...fixtureRunRecordReads(engine),
     // provider accounts — the three verbs of the brokered sign-in handoff, all three
     // script-only. The registry READ they act on is not here at all: it is
     // `providerAccount.list` over the bound call door.

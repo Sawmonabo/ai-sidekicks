@@ -149,27 +149,47 @@ describe("provider switch — what each apply action submits", () => {
   });
 });
 
-describe("provider switch — the settlement rides the reply", () => {
+describe("provider switch — the answered round is reported, switch or no switch", () => {
   it("renders the settlement it was handed", () => {
     const { container } = render(
       <ProviderSwitch
         agent={ON_CLAUDE}
         catalog={LOADED}
         onApply={() => {}}
-        settlement={{
-          status: "applied",
-          continuity: "memo",
-          declaredLosses: ["context_truncated"],
+        round={{
+          settlement: {
+            status: "applied",
+            continuity: "memo",
+            declaredLosses: ["context_truncated"],
+          },
         }}
       />,
     );
     expect(container.textContent ?? "").toContain("switched");
   });
 
-  it("negative control: no settlement renders no settlement line", () => {
+  it("reports a round the daemon answered without naming a switch", () => {
+    // `switch` is absent on a pure rename or rebind, and a form that rendered only
+    // the member met that reply with a blank space where its own answer belongs —
+    // indistinguishable from a press that never reached the daemon at all.
+    const { container } = render(
+      <ProviderSwitch
+        agent={ON_CLAUDE}
+        catalog={LOADED}
+        onApply={() => {}}
+        round={{ settlement: undefined }}
+      />,
+    );
+
+    expect(container.querySelector(".meridian-switch__no-switch")).not.toBeNull();
+    expect(container.textContent ?? "").toContain("named no switch");
+  });
+
+  it("negative control: no round renders neither line", () => {
     const { container } = render(
       <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
     );
     expect(container.querySelector(".meridian-settlement")).toBeNull();
+    expect(container.querySelector(".meridian-switch__no-switch")).toBeNull();
   });
 });

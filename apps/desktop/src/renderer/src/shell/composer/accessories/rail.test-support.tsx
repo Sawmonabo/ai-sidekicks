@@ -11,6 +11,7 @@
 // suite builds, the goal-shaped scenarios only the quota suite needs, and every
 // assertion stay beside their reader.
 
+import { useRef } from "react";
 import { act, render } from "@testing-library/react";
 
 import {
@@ -142,6 +143,8 @@ export interface RailAddressing {
   readonly bridge?: ConsoleBridge;
   readonly entities?: readonly ConsoleEntity[];
   readonly focusedPane?: ConsolePaneAddress | undefined;
+  /** The focused pane as a handle, which is what a `+` menu row addresses. */
+  readonly focusedPaneId?: string | undefined;
   readonly sessionId?: string;
 }
 
@@ -169,16 +172,62 @@ export function mountRail(
   });
   sessionStore.applyBatch(events);
   const { container } = render(
-    <ComposerAccessoryRail
+    <RailHost
       sessionStore={sessionStore}
       bridge={addressing.bridge ?? createFixtureBridge({ scenario: RAIL_SCENARIO })}
+      // Built here rather than in the host's render body: a store minted per render
+      // would be a fresh one on every pass, which is the construction-in-a-render
+      // defect the package's own rule names.
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       frameStore={new FrameStore()}
-      route={DEFAULT_ROUTE}
       focusedPane={addressing.focusedPane}
+      focusedPaneId={addressing.focusedPaneId}
     />,
   );
   return container;
+}
+
+/**
+ * The rail inside the region the composer's host would own.
+ *
+ * A HOST AND NOT A BARE MOUNT, because one of the rail's inputs is that region: drop
+ * and paste are bound to the whole composer, and a harness that handed the rail a ref
+ * pointing at nothing would exercise a binding that never attached — green, and about
+ * nothing. The section wears the production class so a suite can find the region the
+ * same way a person's pointer does.
+ */
+function RailHost(props: {
+  readonly sessionStore: SessionStore;
+  readonly bridge: ConsoleBridge;
+  readonly draftStore: DraftStore;
+  readonly frameStore: FrameStore;
+  readonly focusedPane: ConsolePaneAddress | undefined;
+  readonly focusedPaneId: string | undefined;
+}): React.JSX.Element {
+  const regionRef = useRef<HTMLElement | null>(null);
+  return (
+    <section className="meridian-composer" ref={regionRef}>
+      <ComposerAccessoryRail
+        sessionStore={props.sessionStore}
+        bridge={props.bridge}
+        draftStore={props.draftStore}
+        frameStore={props.frameStore}
+        route={DEFAULT_ROUTE}
+        focusedPane={props.focusedPane}
+        focusedPaneId={props.focusedPaneId}
+        region={regionRef}
+      />
+    </section>
+  );
+}
+
+/** The composer region a mounted rail is bound to, for the drop-and-paste cases. */
+export function railRegion(container: HTMLElement): HTMLElement {
+  const region = container.querySelector("section.meridian-composer");
+  if (region === null) {
+    throw new Error("the rail harness mounted no composer region");
+  }
+  return region as HTMLElement;
 }
 
 /** Mount inside `act`, for the cases whose reads settle on the way in. */

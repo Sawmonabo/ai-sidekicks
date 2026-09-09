@@ -62,6 +62,9 @@ export async function callOperation(
   return call({ sessionId, ...PROBE_SUBJECTS[operationId] });
 }
 
+/** A stream handle no port has minted, so a leg naming it answers about a gap. */
+const PROBE_INGEST_ID = "ingest-no-such-stream";
+
 /**
  * The identifiers a probe has to carry beyond a session id, per operation.
  *
@@ -102,7 +105,53 @@ const PROBE_SUBJECTS: Partial<
     definitionId: PROBE_DEFINITION.id,
     versionNumber: PROBE_DEFINITION.latestVersionNumber,
   },
+  // The ingest plane is a PROTOCOL, so three of its four legs are addressed by a stream
+  // handle the previous leg minted. A sweep holds no such handle and cannot: it makes
+  // one call per operation. So each leg is probed with the members its request actually
+  // declares, and the two that name a stream name one this port has never opened —
+  // which is a question the daemon has an answer for, and it is the answer they give.
+  artifactIngestBegin: { fileName: "probe.md", declaredSizeBytes: 4 },
+  artifactIngestWriteChunk: { ingestId: PROBE_INGEST_ID, sequenceNumber: 0, chunk: "AAAA" },
+  artifactIngestComplete: { ingestId: PROBE_INGEST_ID },
+  artifactIngestAbort: { ingestId: PROBE_INGEST_ID },
 };
+
+/** How one probed operation settled, including the arm an outcome cannot express. */
+export type OperationSettlement =
+  | { readonly kind: "outcome"; readonly outcome: GrowthOutcome<unknown> }
+  | { readonly kind: "wire-refusal"; readonly code: string };
+
+/**
+ * Call one operation and report how it settled, a thrown wire envelope included.
+ *
+ * WHY THE THROWN ARM EXISTS AT ALL. A fixture answering for the daemon refuses the way
+ * the daemon does — by throwing the wire's own envelope — wherever a surface reads the
+ * daemon's code rather than the console's: `sessionRead` does it for the unresolvable
+ * resume cursor, and the ingest plane does it for every refusal `Spec-014` names,
+ * because the client's own normalizer keeps a typed envelope's code verbatim and
+ * paraphrasing it into a growth code would teach the surface a shape the live seam
+ * never sends. A sweep that only awaited outcomes would report that as an unhandled
+ * error, so the settlement is a union rather than a single arm.
+ *
+ * The code is read off the envelope rather than trusted from the throw: a rejection
+ * carrying no code is not a refusal and is re-thrown, which is what keeps a genuine
+ * defect in a handler from being read as the daemon saying no.
+ */
+export async function settleOperation(
+  port: GrowthPort,
+  operationId: GrowthOperationId,
+  sessionId: string = FLAGSHIP_SCENARIO.sessionId,
+): Promise<OperationSettlement> {
+  try {
+    return { kind: "outcome", outcome: await callOperation(port, operationId, sessionId) };
+  } catch (rejection: unknown) {
+    const code = (rejection as { readonly code?: unknown }).code;
+    if (typeof code !== "string") {
+      throw rejection;
+    }
+    return { kind: "wire-refusal", code };
+  }
+}
 
 /** The flagship scenario's fixture port, which is the port under test. */
 export function fixturePort(): GrowthPort {

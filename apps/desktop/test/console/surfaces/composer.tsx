@@ -43,6 +43,7 @@
 // then ASSERTED rather than assumed — see {@link requireNoReadInFlight} — because a
 // capture of a skeleton is a green case in both tiers.
 
+import { act, waitFor } from "@testing-library/react";
 import type { FunctionComponent, ReactElement } from "react";
 
 import { renderSettled } from "../console-harness.js";
@@ -57,6 +58,7 @@ import {
 import { settleScheduledRead } from "../../../src/renderer/src/console/bridge/readings/scheduled-read.test-support.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario-runtime/index.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core/index.js";
+import { crossMacrotaskBoundary } from "../../../src/renderer/src/console/core/macrotask-boundary.test-support.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
@@ -227,6 +229,132 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedFamily
     focusedPane: { kind: "agent-console", entity: { kind: "agent", id: composerAgentId() } },
   });
 }
+
+/**
+ * The composer carrying attachments — one settled, one the daemon refused.
+ *
+ * A SURFACE THE FOUR ADDRESSES ABOVE DO NOT REACH. The attachment strip is absent
+ * while a message carries nothing, so every audited composer so far was audited with
+ * that whole zone off screen — the strip's own label, each chip's progress bar, and
+ * the refusal a chip renders were reachable by no tier at all.
+ *
+ * BOTH OUTCOMES, because they draw different things: the settled one carries the
+ * derived truth and no controls, and the refused one carries a code, a reason, a
+ * remedy, and a retry. The fixture ingest plane decides which is which from the
+ * name — a payload it can place completes, and one it cannot refuses at completion,
+ * where the daemon has the bytes — so the two files below are the two arms and
+ * nothing here scripts a reply.
+ */
+export async function mountComposerWithAttachments(): Promise<MountedFamilySurface> {
+  const mounted = await mountComposerProviderBoundRunning();
+  await dropFilesOnComposer(mounted.element, [
+    new File(["a settled payload"], "notes.md", { type: "text/markdown" }),
+    new File(["a payload with no place"], "capture.bin", { type: "application/octet-stream" }),
+  ]);
+  // ASSERTED RATHER THAN ASSUMED, for `requireNoReadInFlight`'s reason one zone over:
+  // a drop that did not land leaves the plain composer, and a tier auditing that is a
+  // green case over a surface this mount claims to be about and is not.
+  requireStripCarrying(mounted.element, ["notes.md", "capture.bin"]);
+  return mounted;
+}
+
+/** Throw unless the attachment strip is up and naming every file that was dropped. */
+function requireStripCarrying(region: HTMLElement, names: readonly string[]): void {
+  const strip = region.querySelector(".meridian-composer-attachments");
+  if (strip === null) {
+    throw new Error("the drop reached no attachment strip");
+  }
+  const text = strip.textContent ?? "";
+  const missing = names.filter((name) => !text.includes(name));
+  if (missing.length > 0) {
+    throw new Error(`the strip names none of: ${missing.join(", ")}`);
+  }
+  // The refused arm is half of what this surface exists to audit, and a fixture that
+  // stopped refusing would leave it auditing two settled chips under this name.
+  if (strip.querySelector(".meridian-refusal") === null) {
+    throw new Error("the strip carries no refusal, so the refused arm is not on screen");
+  }
+}
+
+/**
+ * The composer with the `+` menu open, which is the only way its panel is on screen.
+ *
+ * The panel is UNMOUNTED while closed rather than hidden, so a tier that audited the
+ * composer without opening it audited a document the panel was not in.
+ */
+export async function mountComposerPlusMenuOpen(): Promise<MountedFamilySurface> {
+  const mounted = await mountComposerProviderBoundRunning();
+  const trigger = mounted.element.querySelector<HTMLElement>(".meridian-plus-menu__trigger");
+  if (trigger === null) {
+    throw new Error("the composer rendered no plus-menu trigger to open");
+  }
+  await act(async () => {
+    trigger.click();
+  });
+  if (mounted.element.querySelector(".meridian-plus-menu__panel") === null) {
+    throw new Error("the plus menu did not open");
+  }
+  return mounted;
+}
+
+/**
+ * Drop files on the composer the way a person does, and let the ingest settle.
+ *
+ * `DataTransfer` has no jsdom constructor, so the payload is the array-like shape the
+ * drop binding actually consumes — `types` to decide the drag carries files at all,
+ * and `files` for its length and `Array.from`. That is exactly as much `FileList` as
+ * this path ever sees, and a narrower stand-in chosen to make a mount work would be
+ * this file deciding what the binding reads.
+ */
+async function dropFilesOnComposer(region: HTMLElement, files: readonly File[]): Promise<void> {
+  const list: Record<number, File> & { length: number } = { length: files.length };
+  files.forEach((file, index) => {
+    list[index] = file;
+  });
+  const drop = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", {
+    value: { types: ["Files"], files: list as unknown as FileList, dropEffect: "none" },
+  });
+  await act(async () => {
+    region.dispatchEvent(drop);
+  });
+  // The trio is three round trips through the fixture's own spool, and each leg
+  // starts with a file read the browser settles on its own task — so no fixed number
+  // of settles is the right number on every host. Waited on the CONDITION instead: a
+  // chip still carrying its progress bar is an ingest still in flight, and the drop
+  // has landed only when every dropped name is on the strip and no bar remains.
+  await act(async () => {
+    await crossMacrotaskBoundary();
+  });
+  await waitFor(
+    () => {
+      const strip = region.querySelector(".meridian-composer-attachments");
+      if (strip === null) {
+        throw new Error("the drop has not reached the attachment strip yet");
+      }
+      const text = strip.textContent ?? "";
+      const missing = files.filter((file) => !text.includes(file.name));
+      if (missing.length > 0) {
+        throw new Error(
+          `the strip does not yet name: ${missing.map((file) => file.name).join(", ")}`,
+        );
+      }
+      if (strip.querySelector(".meridian-composer-attachment__progress") !== null) {
+        throw new Error("an ingest is still in flight");
+      }
+    },
+    { timeout: ATTACHMENT_INGEST_SETTLE_TIMEOUT_MS },
+  );
+}
+
+/**
+ * How long a dropped file may take to settle through the fixture spool.
+ *
+ * Bounded by the tier's patience rather than the product's — the three legs run on
+ * the browser's own file-read tasks, which a loaded runner stretches — and generous
+ * enough that only a spool that stopped answering reaches it.
+ */
+const ATTACHMENT_INGEST_SETTLE_TIMEOUT_MS = 5_000;
 
 /**
  * A store OPENED at one scenario's own beat range and fed every beat in it.

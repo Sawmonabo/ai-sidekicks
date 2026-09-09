@@ -24,7 +24,7 @@
 // person sees when an operation refuses, `owningDocument` travels on that refusal's
 // ledger, and `wireRegistered` is the gate two ledger cards read. Which surface waits
 // on a row is read by no shipped module at all, and this table is on the initial
-// import graph — so those sixty sentences are next door, where the bundler leaves them
+// import graph — so those sixty-two sentences are next door, where the bundler leaves them
 // off the document every session downloads.
 
 import type { GrowthSlateRow, GrowthSlateRowId } from "./growth-slate-row.js";
@@ -469,6 +469,20 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "the prompt and the input schema of a phase parked on a person, as two live-scoped members of the run read's phase projection. Registered nowhere: that projection carries the four park members and no form content at all, so a phase waiting on somebody is legible and unanswerable — and the definition body that holds a human phase's prompt and schema is addressed by the definition and a version NUMBER, which a run holding one opaque version id has neither half of, so composing the form from the definition is not merely a second read but an unaddressable one",
     owningDocument:
       "Spec-017 §Park surfacing on the read model (SA-44) (the live-scoped phase-state members this pair joins, and the one-response rule a separately-fetched prompt would break) + §Human phase — HumanPhaseConfig (SA-10, SA-11, SA-12) (the prompt and the JSON Schema a human phase asks with); Plan-017 (the shared-contracts and client-SDK registration these members would join)",
+    wireRegistered: false,
+  },
+  "intervention-history-read": {
+    id: "intervention-history-read",
+    wire: "a run-scoped read of the durable intervention rows — the `origin` discriminator, the `admitting_principal_id` required exactly on the participant arm, the admitted queue item's row-anchored linkage, and the decrypted directive body, with a body-unavailable answer where the authoring participant's key has been shredded",
+    owningDocument:
+      "Spec-004 §Required Behavior + §State And Data Implications (the durable columns and the resolution rule); Plan-004 (the read seam, which no method string, event payload, or code package carries)",
+    wireRegistered: false,
+  },
+  "queue-item-run-binding": {
+    id: "queue-item-run-binding",
+    wire: "the run each queued item is bound to — `queue_items.target_run_id`, which the registered `QueueItemSummary` carries no member for and its `.strict()` parse rejects",
+    owningDocument:
+      "Spec-004 §Required Behavior (the run-bound delivery redesign); `docs/architecture/contracts/api-payload-contracts.md` §Plan-004 (the summary shape that omits it)",
     wireRegistered: false,
   },
 };

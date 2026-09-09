@@ -1,8 +1,8 @@
 // Which console surface each growth-slate row is waited on BY — the ledger's other half.
 //
 // SPLIT OFF `growth-slate.ts` BY CONSUMER, WHICH IS NOT A SPLIT BY SIZE. The rule that
-// data tables are never split for size is untouched here: what separates these sixty
-// sentences from the sixty beside them is who reads them. `wire` is read at run time —
+// data tables are never split for size is untouched here: what separates these
+// sixty-two sentences from the sixty-two beside them is who reads them. `wire` is read at run time —
 // `growth-refusals.ts` composes the sentence a person sees out of it — and
 // `owningDocument` travels on every growth refusal's ledger. Nothing in a running
 // console has ever read `consumingSurface`: it is written for a reader of
@@ -47,8 +47,14 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "agent-provider-switch-terminal":
     "agent console (the switch settlement line), runs pane (the status row)",
   "gitflow-actions": "repos, diffs, and pull-request surfaces",
-  "artifact-ingest-and-crud": "artifact pane",
-  "artifact-allowlist-and-abort": "artifact pane",
+  // TWO SURFACES ON BOTH ROWS, WHICH IS WHAT THE COMPOSER'S AFFORDANCE ADDED. The
+  // artifact pane READS what was ingested; the composer's attachment strip is where a
+  // file becomes an ingest at all — drop, paste, or the `+` menu's picker — so the
+  // three-call trio and the abort are dispatched from the composer and their manifests
+  // are read in the pane. A row naming one of them would send a reader owed this wire
+  // to half the surfaces that stop working without it.
+  "artifact-ingest-and-crud": "composer attachment strip, artifact pane",
+  "artifact-allowlist-and-abort": "composer attachment strip, artifact pane",
   "worktree-setup-recipe": "repos surface",
   "workflow-event-registration": "workflow-run pane",
   "workflow-definition-scope": "workflow-builder pane",
@@ -101,4 +107,6 @@ export const GROWTH_SLATE_CONSUMING_SURFACES: Readonly<Record<GrowthSlateRowId, 
   "mcp-governance-plane": "MCP servers settings page",
   "node-self-declaration": "settings runtime-nodes page (the attach control)",
   "workflow-human-form-schema": "workflow-run pane (the human form a parked phase opens)",
+  "intervention-history-read": "runs pane intervention history",
+  "queue-item-run-binding": "runs pane queue list, composer queue shelf",
 };

@@ -37,26 +37,38 @@
 // A label is still rendered only when BOTH reads served: an account id absent from the
 // label rows has not been read, and the chip says nothing rather than showing a handle.
 //
-// AND THE FAILED SWITCH IS DELIBERATELY NOT HERE. It has two carriers and this
-// console can reach neither. The IMMEDIATE arm is `agent.configUpdate`'s response
-// disposition (`switch.status === "failed"`), and this composer issues no
-// `agent.configUpdate` — the axis popover is not built, which `TargetChip.tsx` says
-// and gives its reason for. The DEFERRED arm rides `agent.provider_switch_failed`,
-// an event type `packages/contracts`' `event.ts` does not register (Plan-016 T1.13),
-// and a console cannot fold an event the union does not carry. So the pending chip
-// stands until the daemon reports through a carrier that exists, the wire is named
-// on `Plan-023 §Console growth slate` under `agent-provider-switch-failure`, and
-// nothing here invents a third carrier to render it from.
+// AND THE FAILED SWITCH IS STILL NOT HERE, THOUGH ONE OF ITS TWO CARRIERS IS NOW
+// REACHABLE. The IMMEDIATE arm is `agent.configUpdate`'s response disposition
+// (`switch.status === "failed"`), and the composer DOES issue that mutation now — the
+// axis popover is built — but the reply is the latch's and reaches the chip on its
+// own prop rather than through this reading. A roster read cannot carry it: only the
+// client that issued the mutation ever sees that response, so folding it in here
+// would make a per-window fact look like a property of the roster. The DEFERRED arm
+// rides `agent.provider_switch_failed`, an event type `packages/contracts`'
+// `event.ts` does not register (Plan-016 T1.13), and a console cannot fold an event
+// the union does not carry — the wire is named on `Plan-023 §Console growth slate`
+// under `agent-provider-switch-failure`, and nothing here invents a carrier for it.
+//
+// WHAT THIS READING DOES OWE THE MUTATION IS A RE-READ. `pendingSwitch` is the
+// roster's word about a switch accepted and unapplied, and the daemon only starts
+// saying it once a mutation has been answered — a moment no event announces to the
+// client that issued one. So the reading takes the mutation's settled ROUND and re-reads
+// on it, which is what keeps the chip's pending clause moving on the daemon's answer
+// rather than on the local press. The round and not the reply's optional `switch`
+// member: that member is absent on a pure rename or rebind, and a reply carrying none
+// has still been answered about a binding that has still moved.
 
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   consoleClockFor,
   readRefusalOf,
   useProviderQuotas,
   type AgentPendingSwitch,
+  type AgentRosterEntry,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
+import type { AgentSwitchRound } from "../../../console/agents/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import {
   useReadTriggers,
@@ -103,6 +115,20 @@ export interface AgentBindingReading {
   readonly isProviderDefaultAccount: boolean;
   /** The switch accepted and not yet applied, wire-verbatim. */
   readonly pendingSwitch: AgentPendingSwitch | undefined;
+  /**
+   * The roster row itself, wire-verbatim, present exactly when the roster served and
+   * named this agent.
+   *
+   * A SURFACE COMPOSING A FORM OVER THIS BINDING NEEDS THE WHOLE ROW, and taking a
+   * second `agent.list` to get it would be two reads of one roster with nothing able to
+   * say which arrival order is right — the same reason the account label is joined off
+   * the window's one account-plane reading rather than off a registry read of this
+   * module's own. So the row rides the reading that already asked for it.
+   *
+   * `undefined` is three states and the reading says which through {@link phase}: not
+   * asked, in flight, refused, or served-and-this-session-holds-no-such-agent.
+   */
+  readonly agent: AgentRosterEntry | undefined;
   /** Why the binding could not be read. Carried, never swallowed. */
   readonly refusal: ConsoleRefusal | undefined;
 }
@@ -132,6 +158,19 @@ export function useAgentBindingReading(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
   agentId: string | undefined,
+  /**
+   * The newest `agent.configUpdate` ROUND this window received, if any.
+   *
+   * Read by IDENTITY and not by content: the latch publishes one record per settled
+   * round, so a new object is a new answer and the same object across renders is the
+   * same one. A caller with no latch omits it and gets the four standing reasons.
+   *
+   * THE ROUND AND NOT ITS `switch` MEMBER, which is what this effect used to key on.
+   * That member is optional on the reply — absent on a pure rename or rebind — so a
+   * reply that left it out never re-read the binding at all, and the chip went on
+   * showing the pre-switch axes until some unrelated trigger fired.
+   */
+  settledSwitch?: AgentSwitchRound | undefined,
 ): AgentBindingReading {
   // The window's one account-plane reading, watched rather than re-read. Watched
   // unconditionally, because a hook may not be called conditionally and because the
@@ -159,6 +198,19 @@ export function useAgentBindingReading(
   // an effect armed once per addressing, so a switch queued by a collaborator after
   // this composer mounted never reached the chip.
   useReadTriggers(reading, sessionStore, bridge.transportReconnect);
+  // The fifth reason, and the one the store cannot supply. A ROUND SETTLING is a
+  // participant's own act reaching its answer, so it is scheduled as
+  // `participant-request` — the same reason the catalog's reopen control uses, and
+  // the one the scheduler treats as asked-for rather than as a background repair. It
+  // fires on the round and never on the reply's optional `switch` member: a reply that
+  // carries none has still been answered, and the binding it answered about has still
+  // moved.
+  useEffect(() => {
+    if (settledSwitch === undefined) {
+      return;
+    }
+    reading.requestRead("participant-request");
+  }, [reading, settledSwitch]);
   const readout = useSyncExternalStore(
     (onReadoutChanged) => reading.subscribe(onReadoutChanged),
     () => reading.readout,
@@ -197,6 +249,9 @@ function joinAccountLabel(
     payingAccountLabel,
     isProviderDefaultAccount: roster.isProviderDefaultAccount,
     pendingSwitch: roster.pendingSwitch,
+    // Carried across untouched: the account plane's word joins onto the LABEL, and a
+    // row narrowed here would be a second projection of what the roster answered.
+    agent: roster.agent,
     refusal:
       roster.refusal ??
       (roster.payingAccountId !== undefined && payingAccountLabel === undefined

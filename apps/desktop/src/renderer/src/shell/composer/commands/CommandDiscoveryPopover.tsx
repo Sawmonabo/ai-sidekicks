@@ -8,6 +8,12 @@
 // for. Nothing here composes a provider command, completes one, or offers one the read
 // did not carry.
 //
+// THE LIST IS TWO LABELLED GROUPS AND NEVER ONE FLAT RUN. The console's own commands
+// are acts this window performs; the provider's are names it will not send. `CatalogGroup`
+// carries the heading and the `role="group"` that states the difference before a press;
+// what stays here is the partition, which preserves each row's position in the single
+// key sequence the cursor walks across both halves.
+//
 // THE ARGUMENT SLOT IS THE ONE COMPLETION THIS SURFACE RENDERS, and it is a slot: the
 // console's OWN commands may read arguments off their line, and the candidates for one
 // are that command's grammar rather than this surface's. So the seat composes the node
@@ -18,7 +24,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal, Nothing } from "../../../console/primitives/index.js";
 import type { CommandOutcome } from "../router/command-executor.js";
-import { CatalogRow } from "./CatalogRow.js";
+import { CatalogGroup, type CatalogGroupRow } from "./CatalogGroup.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { noDirectiveLineHandlers } from "./directive-line-handlers.js";
 import { type ComposerCommandSurface } from "./console-command-surface.js";
@@ -28,6 +34,7 @@ import {
   isDeclaredUnavailable,
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
+  type CommandCatalogEntry,
 } from "./provider-command-catalog.js";
 import { useProviderCommandEnumeration } from "./provider-command-holder.js";
 import { type ProviderCommandReadState } from "./provider-command-read.js";
@@ -53,6 +60,24 @@ const PROVIDER_ENTRY_NOT_RUNNABLE =
  */
 const PROVIDER_ENTRY_DISABLED =
   "The provider published this entry as disabled, so it is unavailable there as well as here. Nothing was run.";
+
+/**
+ * What the console's own half is called.
+ *
+ * It names the ACT rather than the source, because the difference a person needs
+ * before they press anything is whether pressing does something here.
+ */
+const CONSOLE_GROUP_LABEL = "This console's commands — these run here";
+
+/**
+ * What the provider's half is called, in the words the design gives it.
+ *
+ * "Discovery, not runnable" is the whole claim: the entries are the provider's own
+ * enumeration, carried so a person can read what the binding offers, and this console
+ * starts no turn from one. Stated on the group so it is read once, on entering the
+ * section, rather than inferred from which rows happen to carry a button.
+ */
+const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
 
 interface CommandDiscoveryPopoverProps {
   readonly prefix: string;
@@ -125,6 +150,14 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
   );
 
   const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
+  // THE TWO HALVES, EACH CARRYING ITS ROW'S POSITION IN THE FLAT SEQUENCE. The cursor,
+  // `aria-activedescendant`, and the Enter handler all count over `entries`, so the
+  // grouping may not renumber anything: a group that counted from zero would light one
+  // row and activate another. Composed once per render beside the list they describe —
+  // both are derived from `entries`, which is itself re-read on every render because
+  // the console's command registry fills after this child mounts.
+  const consoleRows = groupRowsOf(entries, "console");
+  const providerRows = groupRowsOf(entries, "provider");
 
   // The token at mount is the baseline, so a surface reopened after an earlier step
   // into the list does not steal focus the moment it appears.
@@ -208,18 +241,32 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
           aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
           onKeyDown={onListKeyDown}
         >
-          {entries.map((entry, index) => (
-            <CatalogRow
-              key={entry.key}
-              entry={entry}
-              rowElementId={rowId(listId, index)}
-              isActive={index === boundedIndex}
-              onSelect={() => {
-                setActiveIndex(index);
-              }}
+          {/* An EMPTY group is left out rather than drawn with a heading over
+              nothing: a labelled section with no rows asserts a category the filtered
+              catalog does not have. Nothing is filtered by being in a group — every
+              entry reaches exactly one of the two. */}
+          {consoleRows.length === 0 ? null : (
+            <CatalogGroup
+              rows={consoleRows}
+              labelText={CONSOLE_GROUP_LABEL}
+              labelElementId={`${listId}-group-console`}
+              activeFlatIndex={boundedIndex}
+              rowElementId={(flatIndex) => rowId(listId, flatIndex)}
+              onSelect={setActiveIndex}
               onRun={runConsoleCommand}
             />
-          ))}
+          )}
+          {providerRows.length === 0 ? null : (
+            <CatalogGroup
+              rows={providerRows}
+              labelText={PROVIDER_GROUP_LABEL}
+              labelElementId={`${listId}-group-provider`}
+              activeFlatIndex={boundedIndex}
+              rowElementId={(flatIndex) => rowId(listId, flatIndex)}
+              onSelect={setActiveIndex}
+              onRun={runConsoleCommand}
+            />
+          )}
         </ul>
       )}
       {isServedEmpty ? (
@@ -253,6 +300,27 @@ export function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): Re
  */
 function rowId(listId: string, index: number): string {
   return `${listId}-row-${String(index)}`;
+}
+
+/**
+ * One group's rows, each carrying the position it holds in the flat sequence.
+ *
+ * A filter would drop the positions, and a second pass counting inside the group
+ * would invent different ones — which is the defect the flat index exists to prevent.
+ * The order within a group is the catalog's own; only the partition is this
+ * function's.
+ */
+function groupRowsOf(
+  entries: readonly CommandCatalogEntry[],
+  source: CommandCatalogEntry["source"],
+): readonly CatalogGroupRow[] {
+  const rows: CatalogGroupRow[] = [];
+  entries.forEach((entry, flatIndex) => {
+    if (entry.source === source) {
+      rows.push({ entry, flatIndex });
+    }
+  });
+  return rows;
 }
 
 /**

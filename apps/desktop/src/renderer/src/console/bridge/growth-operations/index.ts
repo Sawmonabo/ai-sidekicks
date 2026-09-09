@@ -57,6 +57,7 @@ import { MCP_GROWTH_OPERATIONS } from "./mcp.js";
 import { PANE_GROWTH_OPERATIONS } from "./panes.js";
 import { PRESENCE_GROWTH_OPERATIONS } from "./presence.js";
 import { PROVIDER_ACCOUNT_GROWTH_OPERATIONS } from "./provider-accounts.js";
+import { RUN_RECORD_GROWTH_OPERATIONS } from "./run-records.js";
 import { SESSION_GROWTH_OPERATIONS } from "./sessions.js";
 import { SIDEKICK_GROWTH_OPERATIONS } from "./sidekicks.js";
 import { WORKFLOW_GROWTH_OPERATIONS } from "./workflows.js";
@@ -88,6 +89,7 @@ export const GROWTH_OPERATION_PLANES: readonly Readonly<
   CHANNEL_GROWTH_OPERATIONS,
   PRESENCE_GROWTH_OPERATIONS,
   INVITE_GROWTH_OPERATIONS,
+  RUN_RECORD_GROWTH_OPERATIONS,
 ];
 
 /**
@@ -113,4 +115,5 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...CHANNEL_GROWTH_OPERATIONS,
   ...PRESENCE_GROWTH_OPERATIONS,
   ...INVITE_GROWTH_OPERATIONS,
+  ...RUN_RECORD_GROWTH_OPERATIONS,
 };

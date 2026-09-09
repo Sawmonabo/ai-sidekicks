@@ -41,6 +41,7 @@ import {
   type RefreshReason,
 } from "../../store/index.js";
 import { QueueCancellations, type QueueCancellationState } from "./queue-cancellation.js";
+import { QueueRunBindings, type QueueRunBindingState } from "./queue-run-binding.js";
 import { SessionQueueSubscription, type QueueSubscriptionReading } from "./queue-subscription.js";
 import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
 
@@ -52,7 +53,7 @@ import { consoleClockFor, type ConsoleBridge } from "../console-bridge.js";
  * and the three cancel members are `queue-cancellation.ts`'s. A second declaration
  * would be two places to keep in step with the surfaces that render it.
  */
-export type QueueFeed = QueueCancellationState & QueueSubscriptionReading;
+export type QueueFeed = QueueCancellationState & QueueRunBindingState & QueueSubscriptionReading;
 
 /**
  * One session's live queue reading, and everyone watching it.
@@ -75,6 +76,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
   readonly #refresh: RefreshScheduler;
   readonly #subscription: SessionQueueSubscription;
   readonly #cancellations: QueueCancellations;
+  readonly #runBindings: QueueRunBindings;
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
   /**
@@ -100,6 +102,11 @@ export class SessionQueueReading implements ReadTriggerTarget {
       this.#publish();
     });
     this.#subscription = new SessionQueueSubscription(bridge, sessionId, () => {
+      this.#publish();
+    });
+    // The third collaborator, published through the same callback: a binding arriving
+    // never renders a frame the rows have not reached.
+    this.#runBindings = new QueueRunBindings(bridge, sessionId, () => {
       this.#publish();
     });
     this.#refresh = new RefreshScheduler({
@@ -135,6 +142,13 @@ export class SessionQueueReading implements ReadTriggerTarget {
    * one session still cost one call.
    */
   public requestRead(reason: RefreshReason): void {
+    // THE BINDING READ IS ASKED BEFORE THE SHORT-CIRCUIT, and asks nothing unless its
+    // last attempt refused. It is a separate question from the rows — one projection,
+    // one standing answer — so the subscription's own "a joiner needs no read" rule has
+    // nothing to say about it, and a reading whose binding read failed once would
+    // otherwise render every row unbound for its whole life with no trigger able to
+    // clear it.
+    this.#runBindings.open();
     if (reason === "subscribe" && this.#subscription.isOpen && this.#feed.phase !== "refused") {
       // THE OPEN IS THIS READING'S `subscribe` READ, so a surface arriving to an
       // already-open reading asks for nothing. Two reasons, and both matter: a joiner
@@ -164,6 +178,11 @@ export class SessionQueueReading implements ReadTriggerTarget {
     }
     this.#listeners.add(listener);
     this.#subscription.open();
+    // Asked once for the life of the reading unless it refuses: no stream announces a
+    // binding change and a binding is fixed when the item is queued, so a joiner meeting
+    // a served answer asks nothing — and a joiner meeting a refused one re-asks, which
+    // is what `requestRead` above does for every other trigger.
+    this.#runBindings.open();
     return () => {
       this.#listeners.delete(listener);
       if (this.#listeners.size === 0) {
@@ -179,7 +198,11 @@ export class SessionQueueReading implements ReadTriggerTarget {
   }
 
   #composeFeed(): QueueFeed {
-    return { ...this.#cancellations.state, ...this.#subscription.reading };
+    return {
+      ...this.#cancellations.state,
+      ...this.#runBindings.state,
+      ...this.#subscription.reading,
+    };
   }
 
   #publish(): void {

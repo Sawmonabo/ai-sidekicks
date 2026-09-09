@@ -1,37 +1,44 @@
-// The history keeps the attempts that failed, and says what it cannot see.
+// What THIS WINDOW dispatched: the attempts that failed, and the settlements that
+// carry more than the daemon's own row does.
 //
-// Two claims, and the second is the one that keeps this surface honest: a refused
-// control is a ROW rather than an omission, because interventions require durable
-// audit records even when they fail; and the surface states plainly that the
-// durable record — with the `origin` discriminator and the admitting principal —
-// is not something it can read, rather than inferring either.
+// The half of the history the durable read does not cover, and the split is the same
+// one the surface makes. A refused control is a ROW rather than an omission, because
+// interventions require durable audit records even when they fail; a degraded
+// settlement is never a success; and a rewind that touched the working tree discloses
+// its two path enumerations here and nowhere else. The daemon's own rows — the
+// `origin` discriminator, the admitting principal, the queue-item linkage, the
+// directive body, and what the surface renders when that read refuses — are
+// `InterventionHistory.durable.test.tsx`'s, and the one case below is this side's
+// negative control for them. Which row a failed COPY belongs to is the one action
+// these rows offer, and `InterventionHistory.copy.test.tsx` drives it.
 
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import type { RollbackCompositeRejectionGuard } from "@ai-sidekicks/contracts";
 
-import type { ConsoleBridge } from "../../../bridge/index.js";
-import { createFixture } from "../../../bridge/fixture/call-plane/bridge.test-support.js";
 import { refuse } from "../../../core/index.js";
 import { crossMacrotaskBoundary } from "../../../core/macrotask-boundary.test-support.js";
 import { resolveFileRestoreDisclosure } from "../controls/file-restore-mount.test-support.js";
-import { InterventionHistory } from "./InterventionHistory.js";
+import {
+  INTERVENTION_ID,
+  RESTORED_PATH,
+  renderHistory,
+  restoredRollbackRecord,
+} from "./intervention-history.test-support.js";
 import type { RunControlRecord } from "../controls/run-control-surface.js";
 import { OTHER_RUN_ID, RUN_ID } from "../runs-pane.test-support.js";
 
 // The working-tree half of a settled rollback arrives on its own chunk, so this file
 // warms it ONCE before anything renders — through the mount's own wait home, which is
 // where `apps/desktop/AGENTS.md` §Tests puts it. After this the mount renders the settled
-// body directly, so `renderHistory` below stays synchronous and every case reads the
+// body directly, so `renderHistory` stays synchronous and every case reads the
 // disclosure it means to. Asked for the whole file rather than in the three cases that
 // touch it: a warm memo costs a resolved promise, and a case added later that forgets
 // would assert an absence the fetch produced.
 beforeAll(async () => {
   await resolveFileRestoreDisclosure();
 });
-
-const INTERVENTION_ID = "d5f2c3e4-6071-4182-ac93-1e4f50617283";
 
 function refusedRecord(recordId: string, runId: string): RunControlRecord {
   return {
@@ -69,25 +76,25 @@ function degradedRollbackRecord(recordId: string): RunControlRecord {
   };
 }
 
-function renderHistory(
-  records: readonly RunControlRecord[],
-  bridge: ConsoleBridge = createFixture().bridge,
-): HTMLElement {
-  const { container } = render(
-    // A real fixture bridge rather than a stub: the list holds the path action a
-    // settled rollback's enumerations offer, and a hand-built object would let a
-    // change to that seam's shape pass here and fail in the window.
-    <InterventionHistory records={records} runId={RUN_ID} bridge={bridge} />,
-  );
-  return container;
-}
-
 describe("failed attempts are part of the record", () => {
   it("renders a refused control as a row carrying its code verbatim", () => {
     const container = renderHistory([refusedRecord("one", RUN_ID)]);
     expect(container.querySelectorAll(".meridian-interventions__row")).toHaveLength(1);
     expect(container.textContent).toContain("run.invalid_transition");
     expect(container.textContent).toContain("the run has already completed");
+  });
+
+  it("puts the rows under a name saying they are this window's, not the run's", () => {
+    // The history draws two lists and the same intervention can appear in both, from
+    // two sides. Unnamed, that reads as one intervention listed twice — so the caption
+    // is on screen, and the list takes it as its accessible name rather than carrying
+    // a second label of its own.
+    const container = renderHistory([refusedRecord("one", RUN_ID)]);
+    const caption = container.querySelector(".meridian-interventions__source-name");
+    expect(caption?.textContent).toContain("Sent from this window");
+    expect(
+      container.querySelector(".meridian-interventions__rows")?.getAttribute("aria-labelledby"),
+    ).toBe(caption?.id);
   });
 
   it("negative control: a row for another run is not this run's history", () => {
@@ -98,19 +105,17 @@ describe("failed attempts are part of the record", () => {
   });
 });
 
-describe("what the surface cannot read, it says", () => {
-  it("names the durable record rather than presenting an empty list as complete", () => {
-    const container = renderHistory([]);
-    expect(container.textContent).toContain("durable record");
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-  });
-
-  it("never renders an origin or an admitting principal, which no wire supplies", () => {
-    // The discriminator is resolved and never inferred, per this component's own
-    // header. The honest form of that here is that neither word appears at all.
+describe("the dispatched half infers nothing the durable read carries", () => {
+  it("never infers an origin the read did not carry", async () => {
+    // The discriminator is resolved by the daemon and never inferred. Under a refused
+    // read there is no arm to render, so neither word appears at all — which is the
+    // negative control for the durable suite, where both do.
     const container = renderHistory([refusedRecord("three", RUN_ID)]);
-    expect(container.textContent).not.toContain("participant arm");
+    await act(async () => {
+      await crossMacrotaskBoundary();
+    });
     expect(container.textContent).not.toContain("admitting principal");
+    expect(container.querySelector(".meridian-interventions__directive")).toBeNull();
   });
 });
 
@@ -152,44 +157,6 @@ describe("a degraded settlement is never a success", () => {
     expect(container.textContent).not.toContain("run.compaction_boundary_diverged");
   });
 });
-
-/** The path the single-record restore cases open and copy. */
-const RESTORED_PATH = "/Users/dev/code/one/.env.local";
-
-/**
- * A settled rollback that restored files, with both enumerations non-empty.
- *
- * The overwritten path is a parameter because the keying cases need two records whose
- * enumerations are distinguishable — a control is found by its accessible name, and
- * two rows offering the same path would leave the case unable to say which row it
- * pressed.
- */
-function restoredRollbackRecord(
-  recordId: string,
-  overwrittenPath: string = RESTORED_PATH,
-): RunControlRecord {
-  return {
-    recordId,
-    runId: RUN_ID,
-    control: "rollback",
-    outcome: {
-      kind: "settled",
-      control: "rollback",
-      response: {
-        interventionId: INTERVENTION_ID as never,
-        interventionType: "rollback",
-        state: "applied",
-        runVersion: 14,
-        result: {
-          disposition: "files-restored",
-          overwrittenIgnoredPaths: [overwrittenPath],
-          divergentGitlinks: ["/Users/dev/code/one/vendor/sdk"],
-        },
-      },
-    },
-  };
-}
-
 describe("a rewind that mutated the working tree is disclosed here", () => {
   it("renders both never-silent enumerations for a restore", () => {
     // The three dispositions that carry enumerations ride this list, so this is the
@@ -216,7 +183,7 @@ describe("a rewind that mutated the working tree is disclosed here", () => {
     expect(link).not.toBeNull();
     // The verb AND the path: the path alone says what the control is about and
     // never what activating it does.
-    expect(link?.getAttribute("aria-label")).toBe("Copy path /Users/dev/code/one/.env.local");
+    expect(link?.getAttribute("aria-label")).toBe(`Copy path ${RESTORED_PATH}`);
   });
 
   it("renders no working-tree section for a disposition that mutated no file", () => {
@@ -289,114 +256,5 @@ describe("the composite's guard prose comes from the typed guard", () => {
     expect(container.textContent).toContain(OPAQUE_REJECTION_CAUSE);
     expect(container.textContent).not.toContain("An earlier send is still pending on this run");
     expect(container.textContent).not.toContain("Cancel the queued items");
-  });
-});
-
-/** The two records the keying cases press, each offering its own path. */
-const FIRST_ROW_PATH = "/Users/dev/code/one/first.env";
-const SECOND_ROW_PATH = "/Users/dev/code/one/second.env";
-
-/**
- * The shipped fixture with its clipboard refusing, and nothing else replaced.
- *
- * Composed over the real bridge rather than hand-built for the reason `renderHistory`
- * states: the list reaches this seam through the path action, and a stub object would
- * let a change to that seam's shape pass here and fail in the window.
- */
-function bridgeRefusingClipboard(): ConsoleBridge {
-  const { bridge } = createFixture();
-  return {
-    ...bridge,
-    sidekicks: {
-      ...bridge.sidekicks,
-      native: {
-        ...bridge.sidekicks.native,
-        copyToClipboard: async (): Promise<void> => {
-          throw new Error("the clipboard is unavailable");
-        },
-      },
-    },
-  } as ConsoleBridge;
-}
-
-/** Open every enumeration, then press the control offering exactly this path. */
-async function copyPathThrough(container: HTMLElement, path: string): Promise<void> {
-  for (const detail of container.querySelectorAll("details")) {
-    detail.open = true;
-    fireEvent(detail, new Event("toggle"));
-  }
-  const control = container.querySelector<HTMLButtonElement>(`[aria-label="Copy path ${path}"]`);
-  if (control === null) {
-    throw new Error(`no path control offered ${path}, so there is nothing to press`);
-  }
-  await act(async () => {
-    fireEvent.click(control);
-    // A boundary and not a counted microtask: the rejection travels through the
-    // normalizer and a state publish, and a chain one link deeper would leave every
-    // case below asserting about a refusal that had not landed yet.
-    await crossMacrotaskBoundary();
-  });
-}
-
-/** Which rows are showing an inline refusal, by their position in the list. */
-function rowsShowingRefusal(container: HTMLElement): readonly number[] {
-  return [...container.querySelectorAll(".meridian-interventions__row")].flatMap((row, position) =>
-    row.querySelector(".meridian-refusal--inline") === null ? [] : [position],
-  );
-}
-
-describe("a copy refusal belongs to the row that raised it", () => {
-  it("shows the host's refusal under that row and under no other", async () => {
-    // The defect. One history-level refusal was handed to every row, so a single
-    // failed copy drew the same failure beneath every rollback's paths — telling a
-    // person that actions they never took had failed.
-    const container = renderHistory(
-      [
-        restoredRollbackRecord("one", FIRST_ROW_PATH),
-        restoredRollbackRecord("two", SECOND_ROW_PATH),
-      ],
-      bridgeRefusingClipboard(),
-    );
-    expect(container.querySelectorAll(".meridian-interventions__row")).toHaveLength(2);
-
-    await copyPathThrough(container, SECOND_ROW_PATH);
-
-    expect(rowsShowingRefusal(container)).toStrictEqual([1]);
-  });
-
-  it("moves with the next press rather than accumulating", async () => {
-    // The refusal is the answer to the LAST action, so pressing the other row's
-    // control moves it. A key that only ever added would leave the first row
-    // reporting a failure the daemon has been asked nothing about since.
-    const container = renderHistory(
-      [
-        restoredRollbackRecord("one", FIRST_ROW_PATH),
-        restoredRollbackRecord("two", SECOND_ROW_PATH),
-      ],
-      bridgeRefusingClipboard(),
-    );
-
-    await copyPathThrough(container, SECOND_ROW_PATH);
-    await copyPathThrough(container, FIRST_ROW_PATH);
-
-    expect(rowsShowingRefusal(container)).toStrictEqual([0]);
-  });
-
-  it("negative control: no row shows one before anything was pressed", async () => {
-    // Without this the cases above would be satisfied by a component that never
-    // rendered a refusal at all, which is a different bug with the same reading.
-    const container = renderHistory(
-      [
-        restoredRollbackRecord("one", FIRST_ROW_PATH),
-        restoredRollbackRecord("two", SECOND_ROW_PATH),
-      ],
-      bridgeRefusingClipboard(),
-    );
-
-    expect(rowsShowingRefusal(container)).toStrictEqual([]);
-
-    await copyPathThrough(container, FIRST_ROW_PATH);
-
-    expect(rowsShowingRefusal(container)).toStrictEqual([0]);
   });
 });
