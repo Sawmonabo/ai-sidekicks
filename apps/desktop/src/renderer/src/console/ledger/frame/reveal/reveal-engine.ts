@@ -46,6 +46,7 @@ import {
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_LITERAL_BACKTRACK_CAP,
   lossyStringify,
+  recordRevealDrain,
   type Unsubscribe,
 } from "../../../core/index.js";
 import { LedgerFrameCoordinator } from "../coordinator/frame-coordinator.js";
@@ -256,6 +257,21 @@ export class RevealEngine {
       });
     }
     this.#frameEmitter.emit({ state: this.state, lanes: this.lanes(), charactersRevealed: spent });
+    // Keyed by the coordinator's identity AND this engine's own frame-task key. The
+    // task key alone separates two engines on one coordinator and nothing else: the
+    // ordinal restarts at 1 in every coordinator, and there is one coordinator per
+    // FEED, so every feed's first engine claimed the same key and two feeds' drains
+    // folded into one series. The composed key is one series per engine per feed.
+    //
+    // Composed by the COORDINATOR rather than here, because the same string is what
+    // its `dispose` retires this series under, and two spellings of one key retire
+    // nothing while looking correct at both ends.
+    //
+    // Asked for inside the define's branch so a release build folds the call away
+    // with the recording it feeds.
+    if (__SIDEKICKS_CONSOLE_FIXTURES__) {
+      recordRevealDrain(this.#frameCoordinator.meterSeriesKeyFor(this.#frameTaskKey), spent);
+    }
     this.#armFrame();
   }
 

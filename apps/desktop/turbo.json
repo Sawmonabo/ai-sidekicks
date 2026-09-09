@@ -255,21 +255,35 @@
     },
     "test:console-bench": {
       // Not one of the eight tiers `Spec-023 §Console Test Tiers` registers, and
-      // deliberately not on the `test` aggregate:
-      // it records timings into a ledger a person reads. A benchmark that can
-      // fail a gate is a gate that fails on someone else's noisy laptop.
-      "inputs": ["test/console/bench/**", "vitest.config.*"],
+      // deliberately not on the `test` aggregate, because each run APPENDS its
+      // absolutes to `test/console/bench/ledger.json` — a curated record a person
+      // reads, which no test run should rewrite as a side effect. It does gate: CI
+      // runs it in its own step with the ledger pointed at the runner's temp
+      // directory, and both arms assert a RATIO with a wide margin rather than a
+      // millisecond count, so a noisy runner cannot fail it and the store's own
+      // `mergeUpsert` losing its partitioning can.
+      //
+      // `passThroughEnv` is what makes that redirection reach the runner: Turborepo
+      // 2's default `strict` env mode filters out every variable no task declares,
+      // so without this line CI would append to the checked-in ledger instead.
+      // Not `env`: the value is a path that differs per machine and says nothing
+      // about what the task computes, and this task is uncached anyway.
+      "inputs": ["src/renderer/src/console/**", "test/console/bench/**", "vitest.config.*"],
+      "passThroughEnv": ["CONSOLE_BENCH_LEDGER_PATH"],
       "outputs": [],
       "cache": false
     },
     // --- Scripts invoked by name (`scripts/**`) --------------------------------
     //
-    // The three tools `package.json` declares as scripts. Each gets a task with
-    // `inputs` for the same reason every tier above does: run by name from a
-    // terminal, from CI, or from a `turbo run` that names it, with one declared
-    // input set rather than three implicit ones. All three are `cache: false` —
-    // they report on a tree or a build that is present now, and a cached pass
-    // would report on one that is not.
+    // The two budget gates `package.json` declares as scripts — `budget:bundle` and
+    // `budget:heap`. Each gets a task with `inputs` for the same reason every tier
+    // above does: run by name from a terminal, from CI, or from a `turbo run` that
+    // names it, with one declared input set rather than two implicit ones. Both are
+    // `cache: false` — they report on a tree or a build that is present now, and a
+    // cached pass would report on one that is not. The `test` aggregate below is in
+    // this file rather than in this group: it is a chain of `turbo run` invocations
+    // and not a `scripts/**` executable, and its own block says why its order is
+    // load-bearing.
 
     "budget:bundle": {
       // Measures a BUILD, so it carries the same load-bearing edge the
@@ -287,9 +301,12 @@
       "cache": false
     },
     "budget:heap": {
-      // No build edge: the row is declared `n/a` until its subject exists (see the
-      // registry's reason field), so the gate's own source and the registry are the
-      // whole input set.
+      // No build edge, because this harness takes no reading at all. The
+      // `renderer-heap-at-rest` row is `enforced` and its `measuredBy` names the
+      // endurance tier, which launches the built console; `measure-heap.mts` reads
+      // the registry, reports where the reading lives, and refuses if the registry
+      // ever names it as the measurer. So the gate's own source and the registry are
+      // the whole input set, and `out/**` would be an input nothing here opens.
       "inputs": ["scripts/budget/**", "test/console/budget/budgets.json", "package.json"],
       "outputs": [],
       "cache": false

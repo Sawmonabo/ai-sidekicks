@@ -1,6 +1,6 @@
 // What the composition root WIRES, proved by driving the composed window.
 //
-// Four claims here, and none of them is visible from the modules underneath: each
+// Five claims here, and none of them is visible from the modules underneath: each
 // is a fact about how `ConsoleRoot` joins two pieces that are individually correct.
 //
 //   • **Regaining focus re-reads.** The scheduler names `window-focus` a refresh
@@ -15,6 +15,13 @@
 //   • **The window's database connection is closed with the window.** Nothing below
 //     the composition root knows when the console is finished, so nothing below it
 //     can be the one to close.
+//   • **The tripwire route is armed, on the window's own clock.** The registry and the
+//     capture are two `core/` singletons that know nothing about each other; only the
+//     composition root joins them, and an unarmed route is a console that detects every
+//     invariant breach and records none of them anywhere a person can read. The clock
+//     is the same claim one step on: the route is armed before a bridge exists, so only
+//     this file can say that the record a mounted window makes is stamped off the clock
+//     that window ended up running on.
 //
 // Every case drives the real `ConsoleRoot` against the fixture bridge the
 // `console-unit` project compiles in, so nothing here is a stand-in for the thing
@@ -29,6 +36,9 @@
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
+import { consoleDiagnosticCapture } from "../../core/diagnostic-capture/diagnostic-capture.js";
+import { consoleTripwires } from "../../core/tripwires.js";
+import type { ConsoleClock } from "../../core/index.js";
 import { SCHEME_PREFERENCE_KEY, type UiStateStore } from "../../persistence/index.js";
 import { SessionStoreRegistry } from "../../store/index.js";
 import { consoleCommands } from "../../palette/index.js";
@@ -225,6 +235,85 @@ describe("ConsoleRoot — the window's durable store is closed with the window",
     expect(afterUnmount.outcome).toBe("refused");
     if (afterUnmount.outcome === "refused") {
       expect(afterUnmount.refusal.code).toBe("adapter-unavailable");
+    }
+  });
+});
+
+describe("ConsoleRoot — every tripwire this process reports reaches the capture", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("carries a report into the diagnostic capture, armed by importing the root", () => {
+    // The route is armed at module scope, so importing `ConsoleRoot` is what arms it —
+    // no mount is needed and none is performed. What is asserted is the JOIN: a report
+    // made against the process registry arrives at the process capture.
+    consoleTripwires.setThrowOnReport(false);
+
+    const batches: string[] = [];
+    const detachForwarder = consoleDiagnosticCapture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    try {
+      consoleTripwires.report({
+        kind: "bridge-shape-drift",
+        site: "ConsoleRoot.test",
+        detail: "a report made to prove the route is armed",
+      });
+      consoleDiagnosticCapture.flush();
+
+      expect(
+        batches.join("\n"),
+        "a tripwire report reached no diagnostic record, so the composition root is not arming the route",
+      ).toContain("a report made to prove the route is armed");
+    } finally {
+      detachForwarder();
+      consoleTripwires.setThrowOnReport(true);
+      consoleTripwires.reset();
+    }
+  });
+
+  it("stamps the record with the clock the mounted window runs on, not wall time", async () => {
+    // The route is armed at module scope, before any bridge exists, so the clock it
+    // starts on is a real one. Under a fixture the window then runs on the scenario
+    // engine's FROZEN clock, and a record stamped off wall time lands hours from the
+    // frame it describes — unpinnable by a reference capture and disagreeing with
+    // every other timestamp the same window produced.
+    consoleTripwires.setThrowOnReport(false);
+
+    const batches: string[] = [];
+    const detachForwarder = consoleDiagnosticCapture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    try {
+      let scenarioClock: ConsoleClock | undefined;
+      await mountConsole({
+        observe: (context) => {
+          scenarioClock = context.bridge.scenarioEngine?.clock;
+        },
+      });
+      expect(
+        scenarioClock,
+        "the fixture bridge resolved with no scenario engine, so this case has no frozen clock to compare against",
+      ).toBeDefined();
+      if (scenarioClock === undefined) {
+        return;
+      }
+
+      const detail = "a report made to prove the route reads the window's clock";
+      consoleTripwires.report({ kind: "bridge-shape-drift", site: "ConsoleRoot.test", detail });
+      consoleDiagnosticCapture.flush();
+
+      const routed = batches
+        .flatMap((batch) => batch.split("\n"))
+        .map((line) => JSON.parse(line) as { readonly at: string; readonly detail: string })
+        .find((record) => record.detail.includes(detail));
+      expect(routed, "the tripwire report reached no diagnostic record").toBeDefined();
+      expect(routed?.at).toBe(new Date(scenarioClock.now()).toISOString());
+    } finally {
+      detachForwarder();
+      consoleTripwires.setThrowOnReport(true);
+      consoleTripwires.reset();
     }
   });
 });

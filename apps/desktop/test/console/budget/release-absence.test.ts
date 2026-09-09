@@ -48,11 +48,48 @@
 // package's own stylesheet rule rather than a build flag, and the sweep below is what
 // keeps the sheet from drifting back onto an ungated root.
 //
+// THE FOURTH SUBJECT: THE DEV-TIER PERF METERS (2026-09-09). Back to the door, and this
+// time the door is a set of string literals. `core/perf-meters/perf-meters.ts` makes
+// "COMPILED OUT OF RELEASE BY THE FIXTURE DEFINE" its central design claim — every
+// recording entry point is an `if (__SIDEKICKS_CONSOLE_FIXTURES__)` body and the kind
+// tuple has no production reader — and nothing checked it. The claim is checkable HERE
+// and would have been vacuous as a source-text tripwire: the module is reached from the
+// production entry through `core/index.ts`, so a literal it declares is genuinely in the
+// graph, and its absence from `out/renderer` is evidence of the fold rather than evidence
+// of nothing. Which of its kinds are meter-only is the one roster this file NAMES rather
+// than derives, and the block declaring it says why and what that costs.
+//
+// THE FIFTH SUBJECT: THE FIXTURE-ONLY GROWTH LEDGER (2026-09-09). The room a fourth time,
+// and the first one the bundle budget caught before this file did. `GROWTH_PREREQUISITES`
+// is built by CALLS to two row builders, and a call is something Rollup must assume did
+// work — so the whole ledger rode the release entry chunk even though its one non-test
+// consumer is compiled out. Annotating every row `/* @__PURE__ */` removed it, and the
+// module header now tells a later author that a row added without one is a row that
+// ships. That sentence is a claim about a reader's care until something checks it, and
+// the sweep below is what checks it against the artifact.
+// THE SIXTH SUBJECT: THE GROWTH LEDGER'S SENTENCES (2026-09-09). Not a fixture this
+// time, and that is what makes it a different failure. `GROWTH_OPERATIONS` is release
+// code — `growth-refusals.ts` reads a row's `slateRow` to attribute every refusal a
+// release build hands back — so no `define` gates it and no `moduleSideEffects`
+// declaration can drop it. What is NOT release code is the sentence describing each
+// operation: 145 of them, written for a reader of `Plan-023 §Console growth slate`,
+// read by nothing a running console evaluates, and until this sweep landed they were
+// carried on the row and therefore on the initial import graph. They now live in
+// `growth-operations/operation-summaries.ts`, which the release build drops whole
+// because no production module imports it — a property of that arrangement rather than
+// of a flag, and one a later diff undoes by putting a sentence back on a row, by
+// importing that module from a shipped surface, or by having such a surface render one.
+// Each of those is a real decision; none of them announces itself in a diff, and all
+// three land here.
+//
 // THE MARKERS ARE READ FROM THE CORPUS, never written here, so a scenario a later
 // family adds is swept the day it lands and no roster in this file goes stale. They are
 // read from the corpus's SOURCE rather than imported from it, because this project's lib
 // is Node's and a scenario module reaches the DOM — the same constraint the fixture-global
-// import below is already written around.
+// import below is already written around. The growth ledger is the one subject IMPORTED
+// rather than read: its modules reach types and a row constructor and nothing else, so
+// this project compiles them, and the summary table is the same one the ledger's own
+// check beside it drives.
 //
 // AND THAT READ IS WHY THE BUILT TREE IS WALKED NEXT DOOR. Reading the corpus means
 // reaching renderer SOURCE, and a module which does that may not also walk a directory
@@ -66,7 +103,13 @@ import ts from "typescript";
 
 import { describe, expect, it } from "vitest";
 
+import { GROWTH_PREREQUISITES } from "../../../src/renderer/src/console/bridge/growth-port/growth-prerequisites.js";
+import { GROWTH_OPERATION_SUMMARIES } from "../../../src/renderer/src/console/bridge/growth-operations/operation-summaries.js";
 import { FIXTURE_GLOBAL_NAMES } from "../../../src/renderer/src/console/core/fixture-globals.js";
+import {
+  PERF_METER_KINDS,
+  type PerfMeterKind,
+} from "../../../src/renderer/src/console/core/perf-meters/perf-meters.js";
 import { readBuiltTextOrFailLoudly, type BuiltFile } from "./built-renderer-tree.js";
 import {
   CONSOLE_DIRECTORY,
@@ -266,6 +309,107 @@ function ownerSlotShellClassRoots(): readonly string[] {
 const OWNER_SLOT_SHELL_CLASS_ROOTS: readonly string[] = ownerSlotShellClassRoots();
 
 /**
+ * The perf-meter kinds a release renderer must not carry, named rather than derived.
+ *
+ * NOT EVERY KIND IN THE TUPLE, and the exceptions are the whole design. `"reveal-drain"`
+ * is also a `ledger/frame/viewport/cycle/window-cap.ts` reason code and a
+ * `viewport-prune-cycle.ts` case label, and `"frame-time"` is written by surfaces that
+ * have nothing to do with the meters — real product strings a clean release build carries
+ * for their own reasons — so sweeping the tuple whole would fail on a correct bundle and
+ * be silenced rather than believed, which is exactly what the scenario-label subject
+ * above already paid for once. `"apply-latency"` and `"store-size"` are the meters' own
+ * words, so their absence from `out/renderer` is evidence of the fold.
+ *
+ * NAMED HERE, THOUGH THE NEIGHBOURING ROSTERS ARE DERIVED (2026-09-09). An earlier form
+ * subtracted the exceptions by reading every console module's SOURCE TEXT, and
+ * `apps/desktop/AGENTS.md` puts that shape out of bounds: a structural rule lives in one
+ * of the package's three configs or in that file, and no test reads source text. The
+ * neighbours above read a fixture CORPUS to learn what a fixture says, which is a
+ * different act from reading the tree to decide what a rule covers; this list was the
+ * second, so it is stated instead.
+ *
+ * WHAT THAT COSTS, IN ONE SENTENCE: a kind on this list that later gains a reader
+ * elsewhere in the console turns the sweep red on a correct build, and a new meter-only
+ * kind is swept only once someone adds it here — the first reports itself the day it
+ * happens and is answered by moving the kind off this list, and the second is what the
+ * `satisfies` clause and the control below exist to keep visible.
+ *
+ * `satisfies` rather than a bare array of strings: the tuple is IMPORTED, so a renamed or
+ * retired kind is a compile error here rather than a case that quietly matches nothing.
+ * That import is a leaf whose only import is its own bounds table, so it reaches neither
+ * the DOM nor a workspace package, and this tier's block in `vitest/console-projects.ts`
+ * names that exact property as the reason it substitutes the define.
+ */
+const RELEASE_ABSENT_METER_KINDS = [
+  "apply-latency",
+  "store-size",
+] as const satisfies readonly PerfMeterKind[];
+
+/**
+ * Every id the fixture-only growth ledger declares, as the markers to sweep for.
+ *
+ * ONE MARKER PER ROW, THOUGH THE FOLD MEASURES ALL-OR-NOTHING TODAY. Removing a single
+ * annotation brought the WHOLE table back — all twenty-five ids in the entry chunk, and
+ * the initial-bundle budget red beside them at 450,151 B — because one impure initializer
+ * makes the whole exported declaration something Rollup must keep. That behaviour is the
+ * bundler's treatment of this shape and not a contract: a bundler that dropped the
+ * annotated rows and retained only the unannotated call would leave a one-marker sweep
+ * green whenever the row it sampled was not the row that lost its annotation. Sweeping
+ * every row costs a substring scan each, states the claim the module header actually
+ * makes, and gives the failure a roster rather than a sample.
+ *
+ * THE ID RATHER THAN THE SUMMARY, which was the first choice and is wrong (measured
+ * 2026-09-09). The summary reads better in a failure, but the ledger's other half —
+ * `growth-slate.ts` — is on the initial import graph BY DESIGN: its `wire` sentence is
+ * what a person sees when an operation refuses. A prerequisite row and its slate row
+ * describe the SAME missing wire, so a summary phrased as a sub-phrase of that sentence
+ * is a string a correct release build carries, and one of the twenty-five already was.
+ * Subtracting the slate's prose would have papered over a relationship that recurs by
+ * construction. The id has no such twin: `GrowthPrerequisiteId` is a closed union
+ * declared for this table alone, the union is a TYPE and therefore erased, and the table
+ * is the string's only runtime home — measured absent from every file of a release build.
+ * A future collision still goes red on a clean build, and the answer is to rename the
+ * row, never to silence the case.
+ *
+ * IMPORTED RATHER THAN PARSED, for the meter tuple's reason: this table's own imports are
+ * type-only, so it reaches neither the DOM nor a workspace package, and a row renamed or
+ * retired is a compile error here rather than a case that matches nothing.
+ */
+const GROWTH_LEDGER_MARKERS: readonly string[] = Object.values(GROWTH_PREREQUISITES)
+  .map((entry) => entry.id)
+  .sort();
+
+/**
+ * Every sentence the growth ledger carries, read through the table itself.
+ *
+ * The one subject here obtained by IMPORT. A sentence is prose written for a reader of
+ * the plan, so the values are the markers with no derivation in between — and reading
+ * them through `GROWTH_OPERATION_SUMMARIES` is what keeps the set from going stale in
+ * the direction nothing else would report: a row a later family adds is swept the day it
+ * lands, because that table is annotated over the whole operation id union and would not
+ * compile without a sentence for it.
+ */
+const GROWTH_LEDGER_SENTENCES: readonly string[] = Object.values(GROWTH_OPERATION_SUMMARIES);
+
+/**
+ * Which sentences a built tree carries, and where.
+ *
+ * ONE PASS REPORTING EVERY LEAK rather than a case per sentence. The subject is a
+ * property of the arrangement — a sentence is back on a row, or a shipped module imports
+ * the table, or a surface renders one — and each of those puts the whole ledger back at
+ * once, so 145 red cases would say one thing 145 times. What a reader needs is which
+ * sentences and which chunk, which is what this returns.
+ */
+function ledgerSentenceCarriers(
+  sentences: readonly string[],
+  files: readonly BuiltFile[],
+): readonly string[] {
+  return sentences.flatMap((sentence) =>
+    carriersOf(sentence, files).map((relativePath) => `${relativePath}: ${sentence.slice(0, 60)}…`),
+  );
+}
+
+/**
  * Which built files carry a marker.
  *
  * A named function rather than a filter written twice, because the planted negative
@@ -346,6 +490,50 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
     ).toStrictEqual([]);
   });
 
+  it("positive control: every named meter kind is one the module still declares", () => {
+    // The list next door is written out rather than derived, so this is the control
+    // against it going stale: an emptied list makes the case below vacuous without
+    // failing it, and a kind the tuple no longer holds is a case that can never match.
+    // The `satisfies` clause makes the same claim at compile time; this one makes a
+    // `test` run report it without a `typecheck` beside it.
+    expect(RELEASE_ABSENT_METER_KINDS.length).toBeGreaterThan(0);
+    for (const kind of RELEASE_ABSENT_METER_KINDS) {
+      expect(PERF_METER_KINDS).toContain(kind);
+    }
+  });
+
+  it.each(RELEASE_ABSENT_METER_KINDS)("does not ship the perf-meter kind %s", (kind) => {
+    const carriers = carriersOf(kind, builtFiles);
+    expect(
+      carriers,
+      `"${kind}" reached the built tree, so a release renderer is carrying the dev-tier ` +
+        "perf meters. Either `out/renderer` currently holds a fixtures build — " +
+        "`pnpm build:fixtures` and `pnpm build` write the same directory — or a recording " +
+        "call site has left its `__SIDEKICKS_CONSOLE_FIXTURES__` guard, or `PERF_METER_KINDS` " +
+        "gained a production reader that keeps the tuple in the graph. The guard is the " +
+        "mechanism the module's own header claims; this is the outcome.",
+    ).toStrictEqual([]);
+  });
+
+  it("positive control: the ledger sweep has rows to look for", () => {
+    // Derived from the table, so a ledger that stopped declaring rows would make every
+    // case below vacuous without failing one of them.
+    expect(GROWTH_LEDGER_MARKERS.length).toBeGreaterThan(0);
+  });
+
+  it.each(GROWTH_LEDGER_MARKERS)("does not ship the growth-ledger row %s", (marker) => {
+    const carriers = carriersOf(marker, builtFiles);
+    expect(
+      carriers,
+      `"${marker}" reached the built tree, so a release renderer is carrying a row of ` +
+        "the fixture-only growth ledger. Either `out/renderer` currently holds a " +
+        "fixtures build — `pnpm build:fixtures` and `pnpm build` write the same " +
+        "directory — or this row lost its `@__PURE__` annotation in " +
+        "`console/bridge/growth-port/growth-prerequisites.ts`, which leaves its builder " +
+        "call an act Rollup must keep, arguments and all.",
+    ).toStrictEqual([]);
+  });
+
   it("negative control: the corpus sweep reports a carrier when one is planted", () => {
     // Every case above is an absence claim, and an absence claim is only worth what
     // its search is worth. This plants a file that DOES carry a scenario marker and
@@ -360,6 +548,47 @@ describe("release bundle — the fixture surface is absent, not merely unreachab
     ];
 
     expect(carriersOf(plantedMarker ?? "", plantedFiles)).toStrictEqual(["assets/planted.js"]);
+  });
+
+  it("positive control: the ledger sweep has sentences to look for", () => {
+    // The markers are read off the table rather than listed, so an empty table would
+    // make the case below vacuous without failing it. This is the assertion that catches
+    // a ledger that stopped carrying sentences rather than a build that stopped shipping
+    // them, and it is the one that fires if the table is ever narrowed.
+    expect(GROWTH_LEDGER_SENTENCES.length).toBeGreaterThan(0);
+  });
+
+  it("does not ship the growth ledger's sentences", () => {
+    expect(
+      ledgerSentenceCarriers(GROWTH_LEDGER_SENTENCES, builtFiles),
+      "a release renderer carries the growth ledger's operation sentences, which no " +
+        "running console reads. Either `out/renderer` currently holds a fixtures build " +
+        "— `pnpm build:fixtures` and `pnpm build` write the same directory — or a " +
+        "sentence has moved back onto the row `growth-refusals.ts` reads, or a shipped " +
+        "module began importing `operation-summaries.ts`, or a shipped surface began " +
+        "rendering one. The first three put the whole ledger back on the initial graph; " +
+        "the last is a decision to make deliberately, and to record beside the table.",
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the ledger sweep reports a carrier when one is planted", () => {
+    // The absence claim above is worth exactly what its search is worth, and this drives
+    // the same `carriersOf` through the same reading. A predicate that had stopped
+    // matching — an empty table, a read that returned no text — is reported here instead
+    // of being read as a clean release build.
+    const [plantedSentence] = GROWTH_LEDGER_SENTENCES;
+    expect(plantedSentence).toBeDefined();
+    const plantedFiles: readonly BuiltFile[] = [
+      { relativePath: "assets/clean.js", text: "export const nothingToSeeHere=1;" },
+      {
+        relativePath: "assets/planted.js",
+        text: `const row={summary:"${plantedSentence ?? ""}"};`,
+      },
+    ];
+
+    expect(ledgerSentenceCarriers([plantedSentence ?? ""], plantedFiles)).toStrictEqual([
+      `assets/planted.js: ${(plantedSentence ?? "").slice(0, 60)}…`,
+    ]);
   });
 
   it("negative control: a marker needs both fields co-declared on one literal", () => {

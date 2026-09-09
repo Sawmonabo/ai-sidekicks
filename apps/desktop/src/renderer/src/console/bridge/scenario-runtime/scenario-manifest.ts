@@ -1,8 +1,10 @@
 // The scenario manifest: the fixture's ledger of what it serves and what it owes.
 //
-// Three lists, and the reason there are three rather than one:
+// SIX MEMBERS — count `ConsoleScenarioManifest` below, which is the declaration — and
+// the reason there are six rather than one:
 //
 //   • `scenarios` — the scripted sessions the fixture can play.
+//   • `frozenTicks` — per scenario, the frames the capture tiers pin.
 //   • `growthOperations` — one row per eventual bridge operation, each naming the
 //     `Plan-023 §Console growth slate` row it serves and whether the fixture has a
 //     script for it. Operations are what a surface CALLS.
@@ -10,12 +12,22 @@
 //     declarations, event-type registrations, error namespaces, and one governing
 //     document that does not exist yet. These are what a slate row needs and a
 //     surface never calls, so they are ledgered here and never become port methods.
+//   • `slateRows` — the slate itself, which the two ledgers above are checked against.
+//   • `fixtureServedOperations` — which of those operations the fixture answers.
 //
-// I-023-13's test reads all three and asserts the two directions that matter: no
-// slate row is unmapped, and no ledger entry names a row that is not on the slate.
-// The second direction is the one that fires the day a wire lands — the row leaves
-// the slate, and the entry still claiming `fixture-only` fails the build, which is
-// precisely the reminder the console wants at that moment.
+// NOT ONE OF THE SIX IS DECLARED HERE. Every one is read from the module that owns it —
+// the seat board for the scenarios, `frozen-tick-registry.ts` for the ticks, the growth
+// port for the slate and its prerequisites, the fixture for what it serves — because
+// the manifest is the place they are ASSERTED against each other and never a second
+// home for any one of them. That assertion is `failure-modes.test.ts`' registry walk,
+// which reads every side off ONE manifest: a walk that read each shipped registry
+// directly would agree with itself no matter what a surface was actually handed.
+//
+// I-023-13's test reads them and asserts the two directions that matter: no slate row is
+// unmapped, and no ledger entry names a row that is not on the slate. The second
+// direction is the one that fires the day a wire lands — the row leaves the slate, and
+// the entry still claiming `fixture-only` fails the build, which is precisely the
+// reminder the console wants at that moment.
 
 import type {
   GrowthOperationEntry,
@@ -31,6 +43,7 @@ import {
   type GrowthSlateRowId,
 } from "../growth-port/index.js";
 import type { ConsoleScenario } from "./scenario.js";
+import { SCENARIO_FROZEN_TICKS, type ScenarioFrozenTick } from "./frozen-tick-registry.js";
 // The scenario list lives in `scenarios/index.ts`, which holds one reserved line
 // per view family. Seven families ship concurrently; an array they all edit here
 // would conflict six ways, and the conflict resolves cleanly while dropping a
@@ -54,6 +67,7 @@ export const FIXTURE_SERVED_GROWTH_OPERATIONS: readonly GrowthOperationId[] =
 
 export interface ConsoleScenarioManifest {
   readonly scenarios: readonly ConsoleScenario[];
+  readonly frozenTicks: Readonly<Record<string, readonly ScenarioFrozenTick[]>>;
   readonly growthOperations: readonly GrowthOperationEntry[];
   readonly prerequisites: readonly GrowthPrerequisiteEntry[];
   readonly slateRows: readonly GrowthSlateRow[];
@@ -86,6 +100,7 @@ export interface ConsoleScenarioManifest {
 export function consoleScenarioManifest(): ConsoleScenarioManifest {
   return {
     scenarios: CONSOLE_SCENARIOS,
+    frozenTicks: SCENARIO_FROZEN_TICKS,
     growthOperations: Object.values(GROWTH_OPERATIONS),
     prerequisites: Object.values(GROWTH_PREREQUISITES),
     slateRows: GROWTH_SLATE_ROWS,

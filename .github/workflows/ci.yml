@@ -478,6 +478,28 @@ jobs:
           pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
           pnpm turbo run test:console-e2e test:console-endurance --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
 
+      # The bench tier, in its own step and deliberately not in the aggregate `test`
+      # script's groups above.
+      #
+      # It is here because a benchmark nothing runs is a benchmark that rots: each arm
+      # drives a shipped console module — the store's own partition merge, the
+      # markdown segmenter — and one refactored out from under them would be a red
+      # only when someone thought to run this by hand. What it asserts
+      # is a RATIO with a wide margin — partitioning against a flat map, incremental
+      # block layout against a full re-parse — never an absolute millisecond count, so
+      # a slow or noisy runner does not fail it; only the structural claim going away
+      # does. That is what makes it gateable at all.
+      #
+      # `CONSOLE_BENCH_LEDGER_PATH` is why it is not in the aggregate script: each run
+      # appends its absolutes to `test/console/bench/ledger.json`, a curated record a
+      # person reads, and neither CI nor a developer's `pnpm test` should rewrite one
+      # as a side effect. The runner's own numbers go to the runner's temp directory
+      # and are read from this step's log.
+      - name: Test (desktop — benchmark tier, ratio floors only)
+        env:
+          CONSOLE_BENCH_LEDGER_PATH: ${{ runner.temp }}/console-bench-ledger.json
+        run: pnpm turbo run test:console-bench --filter=@ai-sidekicks/desktop ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
+
       # The desktop structure gates (Plan-023 Phase 1C): `knip` for dead code, then
       # `dependency-cruiser` for the import DAG. Both are scoped to `apps/desktop` — a desktop
       # PR never sweeps the daemon or the control plane — and both fail this job, which

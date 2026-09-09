@@ -57,6 +57,19 @@ export type GrowthPrerequisiteKind =
   | "governing-document"
   | "daemon-producer";
 
+/**
+ * One callable's row.
+ *
+ * THE SENTENCE DESCRIBING THE OPERATION IS NOT A MEMBER HERE. It is a separate
+ * declaration in `growth-operations/operation-summaries.ts`, one `Record` over the same
+ * closed id set, because the split is by CONSUMER — the rule `growth-slate-consumers.ts`
+ * states for the slate's own `consumingSurface`. A running console reads exactly one
+ * member of this row, `slateRow`, which attributes a refusal; the sentence is written
+ * for a reader of `Plan-023 §Console growth slate` and its only mechanical reader is the
+ * check beside that table. These rows are on the initial import graph because every
+ * refusal composes from them, so a sentence carried here was prose on the document every
+ * session downloads. That module states the whole reading.
+ */
 export interface GrowthOperationEntry {
   readonly id: GrowthOperationId;
   readonly slateRow: GrowthSlateRowId;
@@ -64,7 +77,6 @@ export interface GrowthOperationEntry {
   /** The wire method string, where the slate row already names one. */
   readonly expectedWireMethod: string | undefined;
   readonly liveStatus: GrowthLiveStatus;
-  readonly summary: string;
 }
 
 export interface GrowthPrerequisiteEntry {

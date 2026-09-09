@@ -41,6 +41,18 @@
 // of `bridge/`: it publishes to the bridge's own modules and is reached by deep,
 // intra-family specifiers, so `bridge/index.ts` remains the single door the rest of
 // the console comes through.
+//
+// AND THE SENTENCE DESCRIBING AN OPERATION IS NOT ON ITS ROW. It lives in
+// `operation-summaries.ts`: one `Record` over this same closed id union, in a module
+// this table does not import and no production module reaches. The rule is the one
+// `growth-slate-consumers.ts` states for the slate's own `consumingSurface` — the split
+// is by CONSUMER. A running console reads exactly one member of a row, `slateRow`,
+// which is what `growth-refusals.ts` attributes a refusal by, and it never reads a
+// sentence; those are written for a reader of `Plan-023 §Console growth slate`. This
+// table is reached from the bridge door on every launch, so a sentence carried on a row
+// was prose on the document every session downloads, and a module nothing imports takes
+// all 145 of them off it. That file states the measurement and the bundler property it
+// rests on.
 
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
 import { AGENT_GROWTH_OPERATIONS } from "./agents.js";
@@ -107,7 +119,6 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...AGENT_GROWTH_OPERATIONS,
   ...APPROVAL_GROWTH_OPERATIONS,
   ...SIDEKICK_GROWTH_OPERATIONS,
-  ...AGENT_GROWTH_OPERATIONS,
   ...LEDGER_GROWTH_OPERATIONS,
   ...DIAGNOSTICS_GROWTH_OPERATIONS,
   ...PROVIDER_ACCOUNT_GROWTH_OPERATIONS,
