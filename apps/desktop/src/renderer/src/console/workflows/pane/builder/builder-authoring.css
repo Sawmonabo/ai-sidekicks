@@ -30,7 +30,7 @@
 /*
  * The refusal's block-start margin is a `--inline` default for a refusal that follows
  * prose. Here it follows the act's own name on the same line, so it is zeroed — the
- * shape `primitives/reading/partial-read.css` already takes for the same reason.
+ * shape `primitives/partial-read.css` already takes for the same reason.
  */
 .meridian-workflow__authoring .meridian-refusal--inline {
   margin-block-start: 0;

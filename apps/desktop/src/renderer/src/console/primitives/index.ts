@@ -45,12 +45,19 @@
 // barrel rather than on depth, so each inner door that has sheets imports them, and
 // this file keeps `shared.css`, the sheets of the components beside it, and
 // `chord/chord.css`, `posture/posture.css`, and `restore/restore.css`, whose
-// directories carry no door. `refusal.css` sits at this root rather than inside
-// `refusal/` for the half of the rule that is about REACHABILITY: four of the five
-// shapes it dresses leave through this door from their declaring modules, so owned by
-// the inner barrel its only entry was `reading/ReadingNotice.tsx`'s one sibling line —
-// a sheet on the document because of an edge that has nothing to do with the banner or
-// the card. The entry moved with the sheet, which is the remedy the rule names. Measured rather than assumed: holding all sixteen here
+// directories carry no door. `refusal.css` and `partial-read.css` sit at this root
+// rather than inside `refusal/` and `reading/` for the half of the rule that is about
+// REACHABILITY: the shapes they dress leave through THIS door from their declaring
+// modules, so owned by an inner barrel each sheet's only entry was one sibling's value
+// import — `reading/ReadingNotice.tsx`'s line into `refusal/` for the first, and
+// `announce/reading-announcement.ts`'s line into `reading/` for the second, an edge
+// that reads the incomplete-reading VOCABULARY and has nothing to do with the notice
+// box the sheet dresses. The entry moved with the sheet in both cases, which is the
+// remedy the rule names. `partial-read.css` is imported directly after `refusal.css`
+// and not elsewhere in this block: the two share `.meridian-refusal--inline`, and while
+// the cascade there is settled by specificity rather than by order — the partial-read
+// rule is `.meridian-partial-read .meridian-refusal--inline` — the adjacency also keeps
+// the document order the sibling edge used to produce. Measured rather than assumed: holding all sixteen here
 // reported eleven misowned sheets in
 // `test/console/architecture/stylesheet-edges.test.ts`. No sheet moved onto a chunk
 // root and no class name changed, so no capture in the screenshot tier moves — the only
@@ -65,6 +72,7 @@ import "./surface-absence.css";
 import "./surface-failure.css";
 import "./confirmation-dialog.css";
 import "./refusal.css";
+import "./partial-read.css";
 import "./posture/posture.css";
 import "./restore/restore.css";
 
