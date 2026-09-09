@@ -43,7 +43,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { emulateSystemScheme, renderSettled } from "../console-harness.js";
+import { emulateSystemScheme } from "../console-harness.js";
 import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
@@ -51,6 +51,13 @@ import {
   mountWorkflowsDestination,
   type MountedFamilySurface,
 } from "../surfaces/workflows.js";
+// The seat mount, which resolves BOTH chunks a form needs and returns only once the
+// verdict has landed. The kit is not on the initial graph — its two composed surfaces
+// and its own sheet arrive together when a form first mounts — so mounting it is also
+// what puts that sheet on the page. The family sheet the entry's controls draw against
+// is already there: `../surfaces/workflows.js` above imports the family door for its
+// registrars.
+import { isSchemaFormSettled, mountSettledSchemaForm } from "../surfaces/schema-form.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
@@ -59,13 +66,6 @@ import {
 } from "./axe-run.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-// The seats door, for the schema form chunk's loader. The kit is not on the initial graph —
-// its two composed surfaces and its own sheet arrive together when a form first mounts —
-// so the cases below resolve that chunk and audit the component it publishes, which is
-// what puts the sheet on the page. The family sheet the entry's controls also draw
-// against is already there: `../surfaces/workflows.js` above imports the family door for
-// its registrars.
-import { schemaFormChunk } from "../../../src/renderer/src/console/seats/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
@@ -115,28 +115,28 @@ describe("accessibility — the workflows surfaces", () => {
   }
 
   it("has no axe violation on a human phase's form once list entries are added", async () => {
-    const { SchemaFormAnswer } = await schemaFormChunk.load();
-    const { container } = await renderSettled(
-      <SchemaFormAnswer
-        prompt="Who signs this release off?"
-        inputSchema={{
-          type: "object",
-          properties: {
-            reviewers: {
-              type: "array",
-              title: "Reviewers",
-              // A constraint on the ENTRY rather than on the collection, so the added
-              // entries carry findings of their own: the composition audited here is a
-              // repeated control with a name, a verdict, and the relationship between
-              // them, and a form with nothing wrong with it would audit none of that.
-              items: { type: "string", minLength: 3 },
-            },
+    const container = await mountSettledSchemaForm({
+      prompt: "Who signs this release off?",
+      inputSchema: {
+        type: "object",
+        properties: {
+          reviewers: {
+            type: "array",
+            title: "Reviewers",
+            // A constraint on the ENTRY rather than on the collection, so the added
+            // entries carry findings of their own: the composition audited here is a
+            // repeated control with a name, a verdict, and the relationship between
+            // them, and a form with nothing wrong with it would audit none of that.
+            items: { type: "string", minLength: 3 },
           },
-          required: ["reviewers"],
-        }}
-        onSubmit={() => undefined}
-      />,
-    );
+        },
+        required: ["reviewers"],
+      },
+    });
+    // The subject, stated before it is read, on the phase-graph line's reasoning above:
+    // a form still waiting for its compiler draws no finding at all, so an audit taken
+    // there covers a repeated control without the verdict this case is about.
+    expect(isSchemaFormSettled(container)).toBe(true);
     const addEntry = screen.getByRole("button", { name: "Add an entry to Reviewers" });
     fireEvent.click(addEntry);
     fireEvent.click(addEntry);
@@ -154,20 +154,19 @@ describe("accessibility — the workflows surfaces", () => {
     // reader who never moves focus out of the editor with no indication of the invalid
     // state and no route to the sentences. The mount is a component's for the reason the
     // list-entry case above is: no registered surface opens this arm.
-    const { SchemaFormAnswer } = await schemaFormChunk.load();
-    const { container } = await renderSettled(
-      <SchemaFormAnswer
-        prompt="Describe the rows this phase should publish."
-        inputSchema={{
-          type: "object",
-          // An array of objects is outside the drawn render set, so the mapper answers
-          // with the editor — and the schema still compiles, so there is a verdict.
-          properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
-          required: ["rows"],
-        }}
-        onSubmit={() => undefined}
-      />,
-    );
+    const container = await mountSettledSchemaForm({
+      prompt: "Describe the rows this phase should publish.",
+      inputSchema: {
+        type: "object",
+        // An array of objects is outside the drawn render set, so the mapper answers
+        // with the editor — and the schema still compiles, so there is a verdict.
+        properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
+        required: ["rows"],
+      },
+    });
+    // The subject, stated before it is read: the invalid state below is the schema's
+    // verdict on the empty document, and a form still compiling carries neither.
+    expect(isSchemaFormSettled(container)).toBe(true);
     const editor = container.querySelector(".meridian-schema-raw__editor");
 
     // Stated before it is measured: an audit of a valid document is an audit of a surface
