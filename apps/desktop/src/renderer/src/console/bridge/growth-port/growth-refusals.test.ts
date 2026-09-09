@@ -63,9 +63,13 @@ describe("the growth port's refusal builders", () => {
     // ledger's prose in a test would be the second authoring surface the slate exists
     // to prevent.
     //
-    // It is the case that would have failed had the sentences' move out of the row
-    // changed what the row carries. `slateRow` is the only member a refusal reads, and
-    // this holds every one of them to the sentence it composed before.
+    // Exactly two things are pinned: the frame's own text, and that the frame
+    // interpolates the wire of THIS row rather than some other row's — which the control
+    // below is what makes non-vacuous. Which slate row an operation names is NOT pinned
+    // here, and a loop over the table cannot pin it: both sides of the comparison read
+    // that one member, so a row mistyped in the ledger composes a sentence this accepts.
+    // Pinning it would take a second copy of the mapping, which is the authoring surface
+    // the ledger exists to avoid.
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
       const { wire } = growthSlateRow(GROWTH_OPERATIONS[operationId].slateRow);
 

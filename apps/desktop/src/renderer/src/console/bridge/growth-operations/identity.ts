@@ -58,22 +58,3 @@ export const IDENTITY_GROWTH_OPERATIONS: Readonly<
     "participant.presenceDetail",
   ),
 };
-
-/**
- * What each of this plane's operations is, in a sentence.
- *
- * A second declaration rather than a member of the row beside it — `index.ts` states
- * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
- * running console reads a sentence. The `Record` is over this plane's own id set, so a
- * row with no sentence and a sentence under an unknown id are both compile errors.
- */
-export const IDENTITY_GROWTH_OPERATION_SUMMARIES: Readonly<Record<IdentityOperationId, string>> = {
-  callerParticipantRead:
-    "read which of a session's participants this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
-  callbackToolRegistryRead:
-    "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
-  membershipRosterRead:
-    "read a membershipId beside each of a session's participants, so the membership controls are reachable on a session this window did not create",
-  participantPresenceDetailRead:
-    "read one participant's per-device presence fan-out, which is the detail the roster's density rule promises one hover away and which no registered reply carries today",
-};

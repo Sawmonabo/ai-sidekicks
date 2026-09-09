@@ -1,9 +1,10 @@
 // How one ledger row is built, shared by every plane module beside it.
 //
-// The row constructor and nothing else. It sits in its own module because twelve plane
-// modules call it and a helper declared in one of them would make the other ten
-// import a sibling for something none of them owns — the edge `growth-entry.ts`
-// already refuses for the row's TYPE, refused again here for its construction.
+// The row constructor and nothing else. It sits in its own module because eighteen
+// plane modules call it and a helper declared in one of them would make the other
+// seventeen import a sibling for something none of them owns — the edge
+// `growth-entry.ts` already refuses for the row's TYPE, refused again here for its
+// construction.
 //
 // `liveStatus` is not a parameter. Every operation in this ledger is fixture-only by
 // definition: a row that went live left the ledger for `daemon-reply-registry.ts` in
@@ -11,9 +12,9 @@
 // the default.
 //
 // THE SENTENCE DESCRIBING AN OPERATION IS NOT A PARAMETER EITHER, and that is a
-// different reason: it is not this row's member at all. Each plane declares its own
-// `<PLANE>_GROWTH_OPERATION_SUMMARIES` beside its table, keyed by the same closed id
-// set, because the split is by CONSUMER — `growth-operations/index.ts` states the
+// different reason: it is not this row's member at all. Every sentence lives in
+// `operation-summaries.ts`, one `Record` over the same closed id set, in a module no
+// production module imports — the split is by CONSUMER, and that file states the
 // reading. Passing one through here would put it back on the row this constructor
 // builds, which is the object the initial import graph carries.
 

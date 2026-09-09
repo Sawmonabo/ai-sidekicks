@@ -35,27 +35,3 @@ export const ARTIFACT_GROWTH_OPERATIONS: Readonly<
   artifactAllowlistRead: op("artifactAllowlistRead", "artifact-allowlist-and-abort", "method"),
   artifactIngestAbort: op("artifactIngestAbort", "artifact-allowlist-and-abort", "method"),
 };
-
-/**
- * What each of this plane's operations is, in a sentence.
- *
- * A second declaration rather than a member of the row beside it — `index.ts` states
- * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
- * running console reads a sentence. The `Record` is over this plane's own id set, so a
- * row with no sentence and a sentence under an unknown id are both compile errors.
- */
-export const ARTIFACT_GROWTH_OPERATION_SUMMARIES: Readonly<Record<ArtifactOperationId, string>> = {
-  artifactIngestBegin: "open an attachment ingest",
-  artifactIngestWriteChunk: "write one ingest chunk",
-  artifactIngestComplete: "close an ingest",
-  artifactList: "list a session's artifacts",
-  artifactRead:
-    "read one artifact — the pane's manifest read, which takes the envelope alone, and its payload fetch, which asks for the bytes and takes them beside the envelope with the encoding to read them by",
-  artifactDelete:
-    "delete an artifact and read back the receipt the call settles — where the payload's bytes went, and whether the destroyed relay key has foreclosed re-publish",
-  artifactVisibilityUpdate:
-    "re-classify one artifact as local-only or shared, and read back the class the daemon settled on with the instant it settled",
-  artifactAllowlistRead:
-    "read the effective attachment allow-list so the pane can say what it will accept before a file is chosen",
-  artifactIngestAbort: "abort an in-flight ingest",
-};

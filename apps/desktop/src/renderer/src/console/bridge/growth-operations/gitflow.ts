@@ -60,23 +60,3 @@ export const GITFLOW_GROWTH_OPERATIONS: Readonly<Record<GitflowOperationId, Grow
       "method",
     ),
   };
-
-/**
- * What each of this plane's operations is, in a sentence.
- *
- * A second declaration rather than a member of the row beside it — `index.ts` states
- * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
- * running console reads a sentence. The `Record` is over this plane's own id set, so a
- * row with no sentence and a sentence under an unknown id are both compile errors.
- */
-export const GITFLOW_GROWTH_OPERATION_SUMMARIES: Readonly<Record<GitflowOperationId, string>> = {
-  gitActionExecute: "run a git action from the repos and diffs surfaces",
-  gitflowBranchContextRead:
-    "read the base, head, upstream, and worktree association a writable run executes against, for the repos surface's branch-context summary",
-  gitflowDiffArtifactCreate:
-    "mint a diff artifact between two named states for one run or one workspace, so the diff pane and the inline diff card have a change set to render",
-  gitflowPrPrepare:
-    "prepare a reviewable pull-request proposal from the recorded branch context, before any remote mutation",
-  workspaceExecutionContextRead:
-    "read the normalized checkout root a turn-boundary snapshot operates on and whether the workspace is executing under a substituted fallback mode, for the workspace card's three-path disclosure and its fallback badge",
-};

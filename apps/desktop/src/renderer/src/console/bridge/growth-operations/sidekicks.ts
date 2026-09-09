@@ -56,24 +56,3 @@ export const SIDEKICK_GROWTH_OPERATIONS: Readonly<
     "sidekick.peerInvocationSet",
   ),
 };
-
-/**
- * What each of this plane's operations is, in a sentence.
- *
- * A second declaration rather than a member of the row beside it — `index.ts` states
- * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
- * running console reads a sentence. The `Record` is over this plane's own id set, so a
- * row with no sentence and a sentence under an unknown id are both compile errors.
- */
-export const SIDEKICK_GROWTH_OPERATION_SUMMARIES: Readonly<Record<SidekickOperationId, string>> = {
-  sidekickDefinitionList:
-    "list this node's saved sidekick definitions, unfiltered — the registry returns full records, so there is no separate read verb to pair with it",
-  sidekickDefinitionCreate:
-    "save a new definition, every axis but the name optional and an omitted axis stored as the inherit state rather than as today's default materialised",
-  sidekickDefinitionUpdate:
-    "patch a definition, an absent key leaving the stored value alone and an explicit null clearing it back to the inherit state",
-  sidekickDefinitionDelete:
-    "delete a definition, which never touches an agent attached from it because attach copies rather than references",
-  sidekickPeerInvocationSet:
-    "set the session-scoped peer-invocation grant, answering with the post-append projected value so a caller renders what the daemon recorded rather than what it asked for",
-};

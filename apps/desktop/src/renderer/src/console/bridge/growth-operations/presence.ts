@@ -37,20 +37,3 @@ export const PRESENCE_GROWTH_OPERATIONS: Readonly<
   presenceComposingSet: op("presenceComposingSet", "presence-activity-fields", "method"),
   presenceComposingClear: op("presenceComposingClear", "presence-activity-fields", "method"),
 };
-
-/**
- * What each of this plane's operations is, in a sentence.
- *
- * A second declaration rather than a member of the row beside it — `index.ts` states
- * the rule, which is `growth-slate-consumers.ts`'s: the split is by CONSUMER, and no
- * running console reads a sentence. The `Record` is over this plane's own id set, so a
- * row with no sentence and a sentence under an unknown id are both compile errors.
- */
-export const PRESENCE_GROWTH_OPERATION_SUMMARIES: Readonly<Record<PresenceOperationId, string>> = {
-  presenceActivityRead:
-    "read the session's live activity state — who is composing where, and which runs are working where — so the indicators beside a channel and a roster row have a producer at all",
-  presenceComposingSet:
-    "say that this participant is composing in one channel, so the indicator the console renders for everyone else has a sender on this machine too",
-  presenceComposingClear:
-    "say that this participant has stopped, so a reader's indicator ends on a signal rather than on the receiver's stale bound",
-};

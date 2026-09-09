@@ -1,28 +1,32 @@
-// The two halves of every growth-operation row, held against each other.
+// Does every growth operation's sentence actually say something?
 //
-// A row's `slateRow` and the sentence describing it live in two declarations now, so
-// that the half no running console reads stays off the initial import graph. The
-// compiler already pairs them — each plane's summary table is a `Record` over the same
-// closed id set its entry table is keyed by, and the composition is annotated over the
-// whole union — and what a compile error cannot say is what a reader of the plan needs:
-// that every operation's sentence is actually there and actually says something. So the
-// checks below read both halves and compare them, with a holed copy as the control that
-// they can fail.
+// The sentences live in `operation-summaries.ts` and the rows in `index.ts`, split by
+// CONSUMER so the half no running console reads stays off the initial import graph —
+// `growth-slate-consumers.test.ts` checks the slate's own `consumingSurface` under the
+// same rule, and this file is that rule applied to the operations ledger.
 //
-// THE SHAPE IS `growth-slate-consumers.test.ts`'S, for the split it is the same split
-// as. Read that file for the rule; this one applies it to the operations ledger.
+// WHAT THE COMPILER ALREADY HOLDS, AND IS NOT RESTATED BELOW. The sentences are one
+// object literal annotated `Readonly<Record<GrowthOperationId, string>>`, so a missing
+// operation, a key the union does not carry, and a duplicate key are all three compile
+// errors — the last one because a duplicate inside a single literal is an error where
+// the same key in two spread sources is a silent override. A runtime case for any of
+// them would assert against a program that cannot be built, and would go on passing
+// while saying nothing. What the annotation cannot say is that a sentence is a
+// SENTENCE: `string` admits `""`, and an operation added with an empty summary compiles
+// and describes nothing. That is the one property left, and it is the one checked here.
 
 import { describe, expect, it } from "vitest";
 
 import type { GrowthOperationId } from "../growth-port/growth-entry.js";
-import { GROWTH_OPERATIONS, growthOperationSummaries } from "./index.js";
+import { GROWTH_OPERATIONS } from "./index.js";
+import { GROWTH_OPERATION_SUMMARIES } from "./operation-summaries.js";
 
 /**
  * Which operation ids the summary table does not answer for, over any candidate table.
  *
- * Takes the table as an argument rather than reading the composition directly, so the
- * same reading answers for the real table and for the holed copy the control builds — a
- * check written against the import would have no failing input to offer.
+ * Takes the table as an argument rather than reading the import directly, so the same
+ * reading answers for the real table and for the holed copy the control builds — a check
+ * written against the import would have no failing input to offer.
  */
 function operationIdsWithNoSummary(
   summaries: Readonly<Partial<Record<GrowthOperationId, string>>>,
@@ -35,7 +39,7 @@ function operationIdsWithNoSummary(
 
 describe("the growth ledger's operation summaries", () => {
   it("answers for every operation in the table", () => {
-    expect(operationIdsWithNoSummary(growthOperationSummaries())).toEqual([]);
+    expect(operationIdsWithNoSummary(GROWTH_OPERATION_SUMMARIES)).toEqual([]);
   });
 
   it("negative control: an operation whose sentence is missing is reported", () => {
@@ -43,32 +47,9 @@ describe("the growth ledger's operation summaries", () => {
     if (firstOperationId === undefined) {
       throw new Error("The growth ledger is empty, so this control has nothing to hole.");
     }
-    const holed: Partial<Record<GrowthOperationId, string>> = { ...growthOperationSummaries() };
+    const holed: Partial<Record<GrowthOperationId, string>> = { ...GROWTH_OPERATION_SUMMARIES };
     delete holed[firstOperationId];
 
     expect(operationIdsWithNoSummary(holed)).toEqual([firstOperationId]);
-  });
-
-  it("names no sentence for an id the table does not carry", () => {
-    // The other direction, which the records' own key types also hold statically. Read
-    // at run time as well because the two halves are edited in different diffs: an
-    // operation deleted from a plane's entry table leaves its sentence behind, and a
-    // stale sentence describes a wire nothing asks for any more.
-    const operationIds = new Set<string>(Object.keys(GROWTH_OPERATIONS));
-    const unknownKeys = Object.keys(growthOperationSummaries()).filter(
-      (key) => !operationIds.has(key),
-    );
-
-    expect(unknownKeys).toEqual([]);
-  });
-
-  it("composes one sentence per operation, losing none to a duplicate key", () => {
-    // The planes' entry tables are asserted pairwise disjoint next door; this is the
-    // same claim for the half beside them, and it is the one a copied row breaks
-    // silently — a later spread overrides an earlier one with no compile error, so two
-    // planes claiming one id would leave the count short rather than fail.
-    expect(Object.keys(growthOperationSummaries()).length).toBe(
-      Object.keys(GROWTH_OPERATIONS).length,
-    );
   });
 });

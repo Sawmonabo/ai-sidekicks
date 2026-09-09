@@ -1,0 +1,294 @@
+// What each growth operation is, in a sentence — the ledger's off-graph half.
+//
+// One `Record` over the same closed id union `GROWTH_OPERATIONS` is keyed by, in a
+// module of its own, reached by nothing but the check beside it. The split is by
+// CONSUMER, which is the rule `growth-slate-consumers.ts` states for the slate's own
+// `consumingSurface`: a running console reads exactly one member of an operation row,
+// `slateRow`, which is what `growth-refusals.ts` attributes a refusal by, and it never
+// reads a sentence. These are written for a reader of `Plan-023 §Console growth slate`,
+// and the check beside this table is their only mechanical reader.
+//
+// A MODULE OF ITS OWN IS WHAT KEEPS THEM OFF THE GRAPH. The operation table is reached
+// from the bridge door on every launch, so a sentence carried on a row was prose on the
+// document every session downloads. No production module imports THIS one, so a release
+// build never reaches it and the bundler drops the module whole — module-level
+// unreachability, the property `growth-slate-consumers.ts` and `scenario-manifest.ts`
+// both rest on, rather than a per-declaration purity argument that the next initializer
+// to call something would quietly void. Measured as the sourcemap-attributed delta in
+// the release renderer's initial-graph entry chunk: SENTENCE_BYTES raw bytes of sentence
+// gone from the document a session downloads.
+//
+// AND ONE PROPERTY THE ENTRY TABLE LOST IS BACK HERE. `index.test.ts:23-29` records what
+// splitting that table across eighteen plane modules cost: a key declared in two planes
+// is a silent override by the later spread rather than the compile error a duplicate
+// inside one object literal used to be, so that file buys the property back by counting.
+// This half needs no such purchase. Every sentence is a key of ONE object literal
+// annotated `Readonly<Record<GrowthOperationId, string>>`, which makes a duplicate key,
+// a missing operation, and a key the union does not carry all three compile errors here.
+//
+// Ordered plane by plane in `index.ts`'s composition order, and within a plane in that
+// plane's own row order, so a row and its sentence are found the same way.
+
+import type { GrowthOperationId } from "../growth-port/growth-entry.js";
+
+/** Every operation's sentence, keyed by id. */
+export const GROWTH_OPERATION_SUMMARIES: Readonly<Record<GrowthOperationId, string>> = {
+  // panes.ts
+  browserNavigate: "navigate the embedded browser pane to a URL",
+  browserReload: "reload the embedded browser pane",
+  browserStopLoading: "stop an in-flight page load",
+  browserGoBack: "step back in the pane's history",
+  browserGoForward: "step forward in the pane's history",
+  browserSubscribeNavigation:
+    "navigation state for the pane's chrome (URL, title, loading, history depth)",
+  browserSubscribeToolCalls:
+    "daemon-to-desktop relay of agent browser tool calls awaiting execution",
+  browserRespondToToolCall: "return a browser tool call's result to the daemon",
+  browserSelect: "pin an owned page as the pane's selected tab, without showing it",
+  browserReorder: "move a page to an index in the list that excludes the moved page",
+  browserShow: "show one owned page in the pane",
+  browserHide: "hide whatever page the pane is showing",
+  browserCreate: "create a blank page the pane owns",
+  browserClose: "close one owned page",
+  browserDevtools: "open developer tools on one owned page",
+  browserSubscribePages:
+    "the pages this session owns and the browsing context's name, for the strip and the picker",
+  browserCapture: "screenshot the visible page into the session's artifacts",
+  browserProducedArtifacts:
+    "which of the session's artifacts came out of the browser, for the produced-object shelf",
+  browserPickElement: "arm hover-highlight so the next click composes an element reference",
+  browserOpenFile: "open a local file, subject to the daemon's mount-envelope containment check",
+  browserRevealPageFile:
+    "show a page's own local file in the file manager, resolving the path where the page is",
+  browserPaneAttach: "attach a view to this pane, optionally at a destination",
+  browserPaneDetach:
+    "detach the pane's view and tear it down; idempotent, because window teardown fires it too",
+  browserPublishChordMirror:
+    "publish the console's installed chords so the view's host can claim them from a page",
+  browserSubscribeAccelerators:
+    "claimed keystrokes handed back from a page for the renderer to replay",
+  browserPolicyRead:
+    "the two node-wide browser switches — the file boundary and the page-tool grant",
+  browserPolicyWrite: "flip one node-wide browser switch",
+  browserSiteDataList:
+    "the per-session site-data partitions this node holds, with the bytes each one stores",
+  browserSiteDataClear:
+    "clear one session's stored site data, after its browser panes have been closed",
+  terminalSubscribeOutput: "terminal output stream for a shared terminal session",
+  terminalWrite: "write participant keystrokes, subject to the write lease",
+  terminalResize: "report the pane's column and row count",
+  terminalAcquireWriteLease: "take the shared-terminal write lease",
+  terminalReleaseWriteLease: "give the write lease back",
+  terminalControlHolderRead:
+    "read which participant holds this session's one shared-terminal write lease, so the holder can be marked wherever presence renders rather than only inside the pane",
+  devServerProbe: "probe whether a local dev server is listening, for the browser pane's chip",
+  // sessions.ts
+  sessionRename: "rename a session",
+  sessionArchive: "archive a session",
+  sessionClose: "close a session",
+  sessionReactivate: "reactivate an archived session",
+  sessionRead:
+    "read one session's snapshot, so its store can reach a base state and project the stream bound to it",
+  sessionIdentityRead:
+    "read one session's display title and its wire-verbatim state, so a header names the session rather than only its identifier",
+  sessionList:
+    "list the sessions on this node, so a surface can offer more than the set this window happens to have open",
+  daemonStatusRead: "read the daemon's status for the settings daemon page",
+  daemonStop: "stop the daemon",
+  daemonRestart: "restart the daemon",
+  daemonNegotiationRead:
+    "read, through the bridge, the negotiated ack the shell holds — the protocol agreed with the local runtime, the versions that runtime supports, and the reason when the two do not meet",
+  daemonStart: "start a stopped daemon, which is a shell spawn rather than a call",
+  onboardingStateRead: "read first-run progress",
+  onboardingStepAdvance: "record a completed first-run step",
+  onboardingStepSkip: "record a skipped first-run step",
+  onboardingComplete: "finish first-run setup",
+  onboardingPresentChoice:
+    "put the relay choice in front of the participant from the main process, so the self-host admin token is typed where the renderer cannot read it and only an opaque handle comes back",
+  onboardingTelemetryPrompt:
+    "put the telemetry question in front of the participant as its own step, after the relay choice resolves and never bundled into it",
+  shellConfigRead: "read the shell-level preferences",
+  shellConfigWrite: "set one shell-level preference",
+  invitesList: "list pending invites",
+  healthSubscribe: "node health for the strip and the park banner",
+  sessionSearch: "search sessions from the palette and the all-sessions list",
+  sessionGoalUpdate:
+    "set the session's goal, which the daemon appends as `session.goal_updated` and every surface then reads off the log",
+  sessionGoalClear:
+    "clear the session's goal — the distinct operation, never an update carrying empty text",
+  providerSessionImportBegin: "start importing an existing provider session's history",
+  providerSessionImportSubscribe: "progress for a running provider-session import",
+  shellNotificationPermissionRead:
+    "whether this machine will display an OS notification, so the notification centre can say when it is the only surface and the notifications page can say what the machine has answered",
+  shellStatusSubscribe:
+    "the shell's own condition as one feed — the supervisor's step and attempt count, the handshake ack, the transport it reached the daemon over, and whether this host has a usable keystore",
+  // gitflow.ts
+  gitActionExecute: "run a git action from the repos and diffs surfaces",
+  gitflowBranchContextRead:
+    "read the base, head, upstream, and worktree association a writable run executes against, for the repos surface's branch-context summary",
+  gitflowDiffArtifactCreate:
+    "mint a diff artifact between two named states for one run or one workspace, so the diff pane and the inline diff card have a change set to render",
+  gitflowPrPrepare:
+    "prepare a reviewable pull-request proposal from the recorded branch context, before any remote mutation",
+  workspaceExecutionContextRead:
+    "read the normalized checkout root a turn-boundary snapshot operates on and whether the workspace is executing under a substituted fallback mode, for the workspace card's three-path disclosure and its fallback badge",
+  // artifacts.ts
+  artifactIngestBegin: "open an attachment ingest",
+  artifactIngestWriteChunk: "write one ingest chunk",
+  artifactIngestComplete: "close an ingest",
+  artifactList: "list a session's artifacts",
+  artifactRead:
+    "read one artifact — the pane's manifest read, which takes the envelope alone, and its payload fetch, which asks for the bytes and takes them beside the envelope with the encoding to read them by",
+  artifactDelete:
+    "delete an artifact and read back the receipt the call settles — where the payload's bytes went, and whether the destroyed relay key has foreclosed re-publish",
+  artifactVisibilityUpdate:
+    "re-classify one artifact as local-only or shared, and read back the class the daemon settled on with the instant it settled",
+  artifactAllowlistRead:
+    "read the effective attachment allow-list so the pane can say what it will accept before a file is chosen",
+  artifactIngestAbort: "abort an in-flight ingest",
+  // attention.ts
+  attentionProjectionRead:
+    "read a session's actionable and informational attention, run-scoped items and the session aggregate together, over the daemon JSON-RPC transport",
+  attentionPreferenceRead:
+    "read the participant's global notification preferences, over the control-plane transport",
+  attentionPreferenceUpdate:
+    "set one global notification preference, over the control-plane transport",
+  // workflows.ts
+  workflowDefinitionList:
+    "enumerate the workflow definitions visible here, resolved most-specific-first, so the builder can name one it does not already hold an id for",
+  workflowRunStart: "start a run against a pinned definition version",
+  workflowRunRead:
+    "read one run's header and its per-phase projection, park surface included, so the pane renders a parked run from this one call",
+  workflowRunCancel:
+    "cancel a run, the operator control that is the only named producer of the cancelled status",
+  workflowRunResume:
+    "resume a parked run, carrying the explicit version re-pin as a request member rather than an operation of its own",
+  workflowPhaseOutputRead:
+    "read one phase's durable outputs, which stay addressable after the run ends",
+  workflowGateResolve:
+    "resolve a phase-boundary gate and read back the appended chain row's anchor",
+  workflowHumanFormSubmit:
+    "submit a human phase's form under optimistic concurrency, so a stale submission is refused rather than silently overwriting",
+  workflowGateChainVerify:
+    "verify a run's gate-resolution hash chain and report the first divergent sequence",
+  workflowRunList:
+    "enumerate the workflow runs a session holds, so a person can see what is running and what is parked without already holding a run id",
+  workflowVersionChainRead:
+    "resolve the version chain one run's pinned version belongs to, so a resume can offer a re-pin target the operator chose rather than a version nobody read",
+  workflowDefinitionRead:
+    "open one definition — its scope identity, its latest version, and the phase sequence that version holds — so a browser row leads somewhere rather than to a pane with nothing in it",
+  workflowVersionRead:
+    "read one immutable version body with its content hash and schema marker, which is both what a detail pane shows and what an export serializes into the canonical file form",
+  workflowDefinitionCreate:
+    "submit a definition body — the one write all five authoring acts ride, whose target scope and not whose gesture is what the daemon's operator-scope authorization keys on",
+  // identity.ts
+  callerParticipantRead:
+    "read which of a session's participants this window is, so a members surface can address the sender and an approvals control can resolve the caller's own role rather than treating an unread one as read-only",
+  callbackToolRegistryRead:
+    "read the callback tools registered into a session, so the approvals pane can name what an agent may call rather than only what it has already been seen calling",
+  membershipRosterRead:
+    "read a membershipId beside each of a session's participants, so the membership controls are reachable on a session this window did not create",
+  participantPresenceDetailRead:
+    "read one participant's per-device presence fan-out, which is the detail the roster's density rule promises one hover away and which no registered reply carries today",
+  // agents.ts
+  agentList:
+    "read every agent attached to one session, with its effective provider binding and any switch the daemon has accepted and not yet applied — the roster a cast bar and an agent console both render",
+  agentAttach:
+    "put a configured sidekick into a session, by definition reference or inline, and echo back the configuration the attach resolved to — zero-residue on refusal, so nothing is pre-created and nothing is cleaned up",
+  agentConfigUpdate:
+    "move a running agent's provider axes, answering with the boundary the switch resolved to rather than with a settlement — the mutation and the application are two moments and only the immediate arm collapses them",
+  agentDetach:
+    "move an agent to `disabled`, reversible by re-attaching — never a delete, so its runs stay in the session's history",
+  orchestrationChildRunLinkRead:
+    "read one parent run's child-run links and the fold of the creates that were refused — a refusal is zero-residue, so this fold is the only path by which work that was asked for and denied is visible",
+  // approvals.ts
+  approvalProjectionRead:
+    "read a session's approval projection unfiltered, so the pane renders every record the daemon holds rather than a state the client chose",
+  approvalResolve:
+    "answer one approval request, approve or reject, optionally remembering the decision as a standing rule",
+  approvalRuleList:
+    "read a session's standing permissions with revoked rules included, because this list is the audit and a vanished rule reads as one never granted",
+  approvalRuleRevoke:
+    "revoke one standing permission, fired only by the confirming click of the two-step control",
+  // sidekicks.ts
+  sidekickDefinitionList:
+    "list this node's saved sidekick definitions, unfiltered — the registry returns full records, so there is no separate read verb to pair with it",
+  sidekickDefinitionCreate:
+    "save a new definition, every axis but the name optional and an omitted axis stored as the inherit state rather than as today's default materialised",
+  sidekickDefinitionUpdate:
+    "patch a definition, an absent key leaving the stored value alone and an explicit null clearing it back to the inherit state",
+  sidekickDefinitionDelete:
+    "delete a definition, which never touches an agent attached from it because attach copies rather than references",
+  sidekickPeerInvocationSet:
+    "set the session-scoped peer-invocation grant, answering with the post-append projected value so a caller renders what the daemon recorded rather than what it asked for",
+  // ledger.ts
+  hydratedEventRead:
+    "open one event's machine-authored body — the assistant and tool prose the taxonomy records the existence of and the event payload does not carry — so a ledger row renders what was said rather than only that something was",
+  orchestrationCostReceiptRead:
+    "read the committed-spend fold decomposed along its per-run, per-caused-by, and per-paying-account axes, each a partition of the same session figure rather than a second computation of it",
+  orchestrationBudgetRead:
+    "read the session's limits and the committed-spend figure admission compares against, served from the same accountant accessor the receipt is, so the two can never disagree",
+  timelineSubscribe:
+    "re-open a session's stream after a position the caller states, so a window that was told about entries it never received replays from the last place it kept instead of re-reading the whole log",
+  // diagnostics.ts
+  healthStatusRead:
+    "read this machine's execution health — one verdict over its named components, each carrying its own reading — over the daemon JSON-RPC transport",
+  healthFailureDetailRead:
+    "read one run's classified failure detail, so a provider that refused and a worktree that vanished do not read the same",
+  healthStuckRunInspect:
+    "read one run's stall reading — when it last progressed, what is blocking it, and the daemon's own suggestion",
+  healthRecoveryActionRequest:
+    "ask the daemon to retry, interrupt, or abandon one stuck run, and answer with the states it moved between",
+  healthRedactionPolicyRead:
+    "read the diagnostic redaction policy in force — the per-bucket retention, the outbound default, and whether an override is active",
+  // provider-accounts.ts
+  providerAccountLogin:
+    "ask the daemon to run the provider's own first-party sign-in against one account's credential home, and answer with where the operator completes it",
+  providerAccountLoginCancel:
+    "cancel a brokered sign-in that is still in flight, named by the attempt it started",
+  providerAccountRegister:
+    "register an account, optionally carrying the one write-only non-interactive token member that appears on no reply",
+  // mcp.ts
+  mcpList:
+    "read the unified server inventory — one row per scope-qualified binding, each carrying the daemon's own aggregate status, its live legs, its redacted configuration read-back, and its tool overrides",
+  mcpSetEnabled:
+    "enable or disable one binding, answering with the row as it now stands, where the change took effect, and what happened on each live leg",
+  mcpSetTrust:
+    "grant or revoke trust for one binding, which binds to that binding's current base-config hash",
+  // channels.ts
+  channelCreate:
+    "create one channel with its whole policy fixed at creation, so a session can hold a named room of one topic rather than one thread carrying every subject",
+  channelMute:
+    "suppress a channel's attention without suppressing its execution — a muted channel still admits runs, which is why this is a lifecycle state and not a per-reader preference",
+  channelUnmute:
+    "return a muted channel to the ordinary attention weight, the one lifecycle move that is reversible",
+  channelArchive:
+    "retire a channel terminally, so the directory can sink it below the live rows and stop offering it as somewhere to work",
+  channelRosterRead:
+    "read each channel's kind, its member pair where it has one, and the configuration whose audience says whether this session's agents read it — the three facts a directory needs to badge a row and to label a direct channel by the other human in it",
+  // presence.ts
+  presenceActivityRead:
+    "read the session's live activity state — who is composing where, and which runs are working where — so the indicators beside a channel and a roster row have a producer at all",
+  presenceComposingSet:
+    "say that this participant is composing in one channel, so the indicator the console renders for everyone else has a sender on this machine too",
+  presenceComposingClear:
+    "say that this participant has stopped, so a reader's indicator ends on a signal rather than on the receiver's stale bound",
+  // invites.ts
+  invitePendingSubscribe:
+    "receive the invitations waiting on this participant's confirmation, each as an opaque reference main can resolve and this renderer cannot",
+  inviteOutcomeSubscribe:
+    "receive how an attempt on one of those references ended — joined, or needing authentication, or refused — since acceptance runs in main and its reply is not where the answer lands",
+  inviteConfirmPending:
+    "confirm one pending invitation by its reference, which is the only act that accepts and happens only when a person asks for it",
+  inviteRetryPending:
+    "re-drive the preview of one outstanding deep link by the opaque attempt handle its unavailable state supplied, which names which link failed and can confirm nothing",
+  inviteDismissPending:
+    "put one pending invitation away and release its reference, sending no decline verb anywhere because declining is implicit",
+  controlPlaneHostRead:
+    "read the host this node's control plane answers on, so a freshly minted invitation can be shown as the link a person actually sends rather than as an identifier that opens nothing",
+  // run-records.ts
+  runRecordInterventionHistoryRead:
+    "read every durable intervention raised against one run — its origin discriminator, the admitting principal on the participant arm, the queue item it admitted, and the decrypted directive where the authoring participant's key still opens it",
+  runRecordQueueRunBindingRead:
+    "read the run each queued item in a session is bound to, the projection of `queue_items.target_run_id` that the registered `QueueItemSummary` carries no member for",
+};

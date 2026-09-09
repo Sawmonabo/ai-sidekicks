@@ -42,54 +42,37 @@
 // intra-family specifiers, so `bridge/index.ts` remains the single door the rest of
 // the console comes through.
 //
-// AND EACH PLANE DECLARES ITS ROWS TWICE OVER, SPLIT BY CONSUMER. A plane holds its
-// entry table and, beside it, `<PLANE>_GROWTH_OPERATION_SUMMARIES` — the sentence
-// describing each of its operations, keyed by the same closed id set. The rule is the
-// one `growth-slate-consumers.ts` states for the slate's own `consumingSurface`: a
-// running console reads exactly one member of a row, `slateRow`, which is what
-// `growth-refusals.ts` attributes a refusal by, and it never reads a sentence — those
-// are written for a reader of `Plan-023 §Console growth slate`, and the check beside
-// each table is their only mechanical reader. This table is reached from the bridge
-// door on every launch, so a sentence carried on a row was prose on the document every
-// session downloads; declared apart and referenced by nothing a release build
-// evaluates, the literals leave that document. Measured: 145 sentences, 15,395 raw
-// bytes off the release renderer's initial graph.
-//
-// WHICH IS WHY THE COMPOSITION BELOW IS A FUNCTION. `scenario-manifest.ts` records the
-// bundler property it turns on: a top-level initializer that CALLS anything is not
-// provably pure, so a composed `const` would be retained however few readers it has —
-// and retaining it would retain all eighteen literals it spreads. A function body is
-// evaluated only when it is called, and an unreferenced function declaration is
-// dropped whether or not its body is pure.
+// AND THE SENTENCE DESCRIBING AN OPERATION IS NOT ON ITS ROW. It lives in
+// `operation-summaries.ts`: one `Record` over this same closed id union, in a module
+// this table does not import and no production module reaches. The rule is the one
+// `growth-slate-consumers.ts` states for the slate's own `consumingSurface` — the split
+// is by CONSUMER. A running console reads exactly one member of a row, `slateRow`,
+// which is what `growth-refusals.ts` attributes a refusal by, and it never reads a
+// sentence; those are written for a reader of `Plan-023 §Console growth slate`. This
+// table is reached from the bridge door on every launch, so a sentence carried on a row
+// was prose on the document every session downloads, and a module nothing imports takes
+// all 145 of them off it. That file states the measurement and the bundler property it
+// rests on.
 
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-port/growth-entry.js";
-import { AGENT_GROWTH_OPERATIONS, AGENT_GROWTH_OPERATION_SUMMARIES } from "./agents.js";
-import { APPROVAL_GROWTH_OPERATIONS, APPROVAL_GROWTH_OPERATION_SUMMARIES } from "./approvals.js";
-import { ARTIFACT_GROWTH_OPERATIONS, ARTIFACT_GROWTH_OPERATION_SUMMARIES } from "./artifacts.js";
-import { ATTENTION_GROWTH_OPERATIONS, ATTENTION_GROWTH_OPERATION_SUMMARIES } from "./attention.js";
-import { CHANNEL_GROWTH_OPERATIONS, CHANNEL_GROWTH_OPERATION_SUMMARIES } from "./channels.js";
-import {
-  DIAGNOSTICS_GROWTH_OPERATIONS,
-  DIAGNOSTICS_GROWTH_OPERATION_SUMMARIES,
-} from "./diagnostics.js";
-import { GITFLOW_GROWTH_OPERATIONS, GITFLOW_GROWTH_OPERATION_SUMMARIES } from "./gitflow.js";
-import { IDENTITY_GROWTH_OPERATIONS, IDENTITY_GROWTH_OPERATION_SUMMARIES } from "./identity.js";
-import { INVITE_GROWTH_OPERATIONS, INVITE_GROWTH_OPERATION_SUMMARIES } from "./invites.js";
-import { LEDGER_GROWTH_OPERATIONS, LEDGER_GROWTH_OPERATION_SUMMARIES } from "./ledger.js";
-import { MCP_GROWTH_OPERATIONS, MCP_GROWTH_OPERATION_SUMMARIES } from "./mcp.js";
-import { PANE_GROWTH_OPERATIONS, PANE_GROWTH_OPERATION_SUMMARIES } from "./panes.js";
-import { PRESENCE_GROWTH_OPERATIONS, PRESENCE_GROWTH_OPERATION_SUMMARIES } from "./presence.js";
-import {
-  PROVIDER_ACCOUNT_GROWTH_OPERATIONS,
-  PROVIDER_ACCOUNT_GROWTH_OPERATION_SUMMARIES,
-} from "./provider-accounts.js";
-import {
-  RUN_RECORD_GROWTH_OPERATIONS,
-  RUN_RECORD_GROWTH_OPERATION_SUMMARIES,
-} from "./run-records.js";
-import { SESSION_GROWTH_OPERATIONS, SESSION_GROWTH_OPERATION_SUMMARIES } from "./sessions.js";
-import { SIDEKICK_GROWTH_OPERATIONS, SIDEKICK_GROWTH_OPERATION_SUMMARIES } from "./sidekicks.js";
-import { WORKFLOW_GROWTH_OPERATIONS, WORKFLOW_GROWTH_OPERATION_SUMMARIES } from "./workflows.js";
+import { AGENT_GROWTH_OPERATIONS } from "./agents.js";
+import { APPROVAL_GROWTH_OPERATIONS } from "./approvals.js";
+import { ARTIFACT_GROWTH_OPERATIONS } from "./artifacts.js";
+import { ATTENTION_GROWTH_OPERATIONS } from "./attention.js";
+import { CHANNEL_GROWTH_OPERATIONS } from "./channels.js";
+import { DIAGNOSTICS_GROWTH_OPERATIONS } from "./diagnostics.js";
+import { GITFLOW_GROWTH_OPERATIONS } from "./gitflow.js";
+import { IDENTITY_GROWTH_OPERATIONS } from "./identity.js";
+import { INVITE_GROWTH_OPERATIONS } from "./invites.js";
+import { LEDGER_GROWTH_OPERATIONS } from "./ledger.js";
+import { MCP_GROWTH_OPERATIONS } from "./mcp.js";
+import { PANE_GROWTH_OPERATIONS } from "./panes.js";
+import { PRESENCE_GROWTH_OPERATIONS } from "./presence.js";
+import { PROVIDER_ACCOUNT_GROWTH_OPERATIONS } from "./provider-accounts.js";
+import { RUN_RECORD_GROWTH_OPERATIONS } from "./run-records.js";
+import { SESSION_GROWTH_OPERATIONS } from "./sessions.js";
+import { SIDEKICK_GROWTH_OPERATIONS } from "./sidekicks.js";
+import { WORKFLOW_GROWTH_OPERATIONS } from "./workflows.js";
 
 /**
  * Every plane's rows, in the order the single table carried them.
@@ -136,7 +119,6 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...AGENT_GROWTH_OPERATIONS,
   ...APPROVAL_GROWTH_OPERATIONS,
   ...SIDEKICK_GROWTH_OPERATIONS,
-  ...AGENT_GROWTH_OPERATIONS,
   ...LEDGER_GROWTH_OPERATIONS,
   ...DIAGNOSTICS_GROWTH_OPERATIONS,
   ...PROVIDER_ACCOUNT_GROWTH_OPERATIONS,
@@ -146,38 +128,3 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
   ...INVITE_GROWTH_OPERATIONS,
   ...RUN_RECORD_GROWTH_OPERATIONS,
 };
-
-/**
- * Every operation's sentence, keyed by id.
- *
- * A FUNCTION AND NEVER A MODULE-LEVEL CONSTANT, for the bundler reason the header
- * states and `scenario-manifest.ts` records in full. Its readers are the check beside
- * this table and any later reader of the ledger written for a person; a release build
- * calls it from nowhere, which is what leaves all eighteen literals off the graph.
- *
- * Typed as an exhaustive record over the same id union `GROWTH_OPERATIONS` is, so an
- * operation whose plane gave it a row and no sentence is a compile error here — the
- * same pairing the table above gets, applied to the half that left the row.
- */
-export function growthOperationSummaries(): Readonly<Record<GrowthOperationId, string>> {
-  return {
-    ...PANE_GROWTH_OPERATION_SUMMARIES,
-    ...SESSION_GROWTH_OPERATION_SUMMARIES,
-    ...GITFLOW_GROWTH_OPERATION_SUMMARIES,
-    ...ARTIFACT_GROWTH_OPERATION_SUMMARIES,
-    ...ATTENTION_GROWTH_OPERATION_SUMMARIES,
-    ...WORKFLOW_GROWTH_OPERATION_SUMMARIES,
-    ...IDENTITY_GROWTH_OPERATION_SUMMARIES,
-    ...AGENT_GROWTH_OPERATION_SUMMARIES,
-    ...APPROVAL_GROWTH_OPERATION_SUMMARIES,
-    ...SIDEKICK_GROWTH_OPERATION_SUMMARIES,
-    ...LEDGER_GROWTH_OPERATION_SUMMARIES,
-    ...DIAGNOSTICS_GROWTH_OPERATION_SUMMARIES,
-    ...PROVIDER_ACCOUNT_GROWTH_OPERATION_SUMMARIES,
-    ...MCP_GROWTH_OPERATION_SUMMARIES,
-    ...CHANNEL_GROWTH_OPERATION_SUMMARIES,
-    ...PRESENCE_GROWTH_OPERATION_SUMMARIES,
-    ...INVITE_GROWTH_OPERATION_SUMMARIES,
-    ...RUN_RECORD_GROWTH_OPERATION_SUMMARIES,
-  };
-}
