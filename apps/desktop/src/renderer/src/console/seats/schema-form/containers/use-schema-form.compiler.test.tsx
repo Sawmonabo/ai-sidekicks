@@ -1,4 +1,5 @@
-// The window between a form opening and the thing that checks it arriving.
+// The window between a form opening and the thing that checks it arriving — and what is
+// true when it never does.
 //
 // The schema compiler is behind a loader — the bridge door is on the initial import graph
 // and the schema library is not something every launch may be charged for — so a form is on
@@ -7,6 +8,13 @@
 // schema could not be compiled, and no act. It is the one suite in this directory that
 // reads a form before it has finished opening; every other one mounts through the settled
 // helper, which is why they can go on asserting about reports.
+//
+// AND THE WINDOW HAS A SECOND EXIT, which is why the refusing half is here too. A chunk
+// fetch can fail — a damaged install, a partially updated one — and the window then never
+// closes on its own. Left unhandled that is the worst state this form can reach: the
+// controls stay on screen, the act stays shut, `aria-busy` stays true, and nothing says
+// why. The cases below pin the arm that closes it, and they live beside the waiting ones
+// because both are readings of the same load and the same substitution answers them.
 //
 // THE LOADER IS SUBSTITUTED RATHER THAN RACED. Every claim here is about ORDERING — what
 // is true before an answer, a schema that moves while a compile is outstanding, a mount
@@ -26,6 +34,7 @@ import { loadSchemaValidatorCompiler, type SchemaValidator } from "../../../brid
 import { mountFormUnsettled } from "./use-schema-form.test-support.js";
 import { settle } from "../../../core/settle.test-support.js";
 import { SchemaFormAnswer } from "./SchemaFormAnswer.js";
+import { unhandledRejectionsDuring } from "../../../core/unhandled-rejection.test-support.js";
 
 vi.mock(import("../../../bridge/index.js"), { spy: true });
 
@@ -65,45 +74,69 @@ const REFUSED_COMPILE: SchemaValidator = {
   detail: "This phase's schema could not be checked here, so only the JSON itself is checked.",
 };
 
+/** What a dynamic import raises when its chunk does not fetch. The bundler's own wording. */
+const CHUNK_FETCH_FAILURE = "Failed to fetch dynamically imported module: json-schema-check.js";
+
+/** One outstanding load, in the two ways a case may answer it. */
+interface HeldCompilerLoad {
+  /** Hand this load the compiler, which is a chunk that arrived. */
+  readonly land: () => void;
+  /** Reject this load, which is a chunk that did not fetch. */
+  readonly fail: () => void;
+}
+
 /**
  * The loader, held open until a case lets it answer.
  *
  * One compiler function shared by every load, so a case counting compiles is counting the
- * hook's calls rather than the substitution's.
+ * hook's calls rather than the substitution's. BOTH OUTCOMES ARE HELD BY ONE OBJECT: a
+ * chunk that landed and a chunk that did not are two answers to one load, and a second
+ * substitution beside this one would be two `mockImplementation`s over one door export —
+ * two answers to which of them a case installed.
  */
 interface HeldCompilerLoads {
   /** What every held load resolves to, recording the schemas it was asked about. */
   readonly compiledSchemas: unknown[];
   /** Let every load put so far answer. */
   readonly deliver: () => Promise<void>;
+  /** Let every load put so far FAIL, which is what a chunk that did not fetch does. */
+  readonly refuse: () => Promise<void>;
 }
 
 function holdCompilerLoads(answer?: SchemaValidator): HeldCompilerLoads {
   const compiledSchemas: unknown[] = [];
-  const waiting: (() => void)[] = [];
+  const waiting: HeldCompilerLoad[] = [];
   const compile = (inputSchema: unknown): SchemaValidator => {
     compiledSchemas.push(inputSchema);
     return answer ?? { status: "compiled", check: () => ({ status: "invalid", issues: [] }) };
   };
   vi.mocked(loadSchemaValidatorCompiler).mockImplementation(
     () =>
-      new Promise<(inputSchema: unknown) => SchemaValidator>((resolve) => {
-        waiting.push(() => {
-          resolve(compile);
+      new Promise<(inputSchema: unknown) => SchemaValidator>((resolve, reject) => {
+        waiting.push({
+          land: () => {
+            resolve(compile);
+          },
+          fail: () => {
+            reject(new Error(CHUNK_FETCH_FAILURE));
+          },
         });
       }),
   );
+  // The hook settles from a promise callback of its own, so the turn that callback runs on
+  // has to be let go of inside React's scope before a case reads the form back — which is
+  // exactly what the shared settle is. One body for both answers, because the waiting is
+  // the same waiting whichever way the load went.
+  const answerEveryHeldLoad = async (take: (held: HeldCompilerLoad) => void): Promise<void> => {
+    for (const held of waiting.splice(0)) {
+      take(held);
+    }
+    await settle();
+  };
   return {
     compiledSchemas,
-    deliver: async () => {
-      for (const answer of waiting.splice(0)) {
-        answer();
-      }
-      // The hook settles from a promise callback of its own, so the turn that callback
-      // runs on has to be let go of inside React's scope before a case reads the form
-      // back — which is exactly what the shared settle is.
-      await settle();
-    },
+    deliver: () => answerEveryHeldLoad((held) => held.land()),
+    refuse: () => answerEveryHeldLoad((held) => held.fail()),
   };
 }
 
@@ -281,5 +314,85 @@ describe("a schema that could not be compiled, once the compiler is here", () =>
     // And the act is open again: the form has a verdict about this schema — that it has
     // none — which is a different fact from not having asked yet.
     expect(screen.getByRole("button", { name: "Submit answer" })).toHaveProperty("disabled", false);
+  });
+});
+
+describe("a compiler chunk that never arrives", () => {
+  it("names the checker as what is missing, and never the schema", async () => {
+    const held = holdCompilerLoads();
+    const mounted = mountFormUnsettled(ONE_MEMBER_SCHEMA);
+
+    await held.refuse();
+
+    // Deliberately NOT `uncompilable`. That arm's stated reason is that the schema could
+    // not be compiled, and this schema is fine — nothing has read it. Borrowing the arm
+    // would tell a person their definition is wrong because their install is.
+    const { plan, validator } = mounted.form();
+    expect(validator.status).toBe("checker-unavailable");
+    expect(plan.shape === "raw" ? plan.fallback.cause : undefined).toBe("checker-unavailable");
+    expect(validator.status === "checker-unavailable" ? validator.detail : "").not.toBe("");
+    // No verdict, for the reason there is none while it is still arriving: a report
+    // describes bytes something looked at, and nothing looked.
+    expect(mounted.form().report).toBeUndefined();
+  });
+
+  it("opens the raw editor, says what is unchecked, and offers the act", async () => {
+    const held = holdCompilerLoads();
+    const { container } = render(
+      <SchemaFormAnswer
+        prompt="Anything?"
+        inputSchema={ONE_MEMBER_SCHEMA}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    // The window first, which is what makes every claim below a reading of the FAILURE
+    // rather than of a form that had merely not finished opening.
+    expect(container.querySelector(".meridian-schema-raw__editor")).toBeNull();
+    expect(screen.getByRole("button", { name: "Submit answer" })).toHaveProperty("disabled", true);
+
+    await held.refuse();
+
+    const uncheckable = container.querySelector(".meridian-schema-raw__uncheckable");
+    expect(container.querySelector(".meridian-schema-raw__editor")).not.toBeNull();
+    expect(uncheckable).not.toBeNull();
+    expect(uncheckable?.textContent ?? "").not.toBe("");
+    // Armed for the uncompilable arm's reason: this form has an answer about the schema —
+    // that nothing here will check it — which is not the same as not having asked yet.
+    expect(container.querySelector("form")?.getAttribute("aria-busy")).toBeNull();
+    expect(screen.getByRole("button", { name: "Submit answer" })).toHaveProperty("disabled", false);
+  });
+
+  it("consumes the rejection rather than leaving it to the runtime", async () => {
+    // The half no rendered assertion can reach. The load is started detached, so its
+    // rejection reports to no error boundary — a form that showed the arm above and still
+    // let the failure escape would look identical on screen.
+    const held = holdCompilerLoads();
+
+    const reported = await unhandledRejectionsDuring(async () => {
+      mountFormUnsettled(ONE_MEMBER_SCHEMA);
+      await held.refuse();
+    });
+
+    expect(reported).toStrictEqual([]);
+  });
+
+  it("shows nothing from a refusal for the schema it has already left", async () => {
+    const abandoned = holdCompilerLoads();
+    const mounted = mountFormUnsettled(ONE_MEMBER_SCHEMA);
+    // The second schema's load is put against a FRESH substitution, so the two are
+    // answerable apart — which is what lets this case refuse one and land the other.
+    const live = holdCompilerLoads();
+    mounted.showSchema(OTHER_MEMBER_SCHEMA);
+
+    await abandoned.refuse();
+
+    // Still waiting on the schema the person is looking at: a failure belonging to the
+    // one they left must not close its window.
+    expect(mounted.form().validator.status).toBe("compiling");
+
+    await live.deliver();
+
+    expect(mounted.form().validator.status).toBe("compiled");
   });
 });

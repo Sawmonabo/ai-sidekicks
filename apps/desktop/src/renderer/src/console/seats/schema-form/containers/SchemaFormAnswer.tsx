@@ -39,6 +39,14 @@
 // and the form carries `aria-busy`, which is the same fact stated where a reader who is
 // not looking at the button can meet it, and what a tier waits on rather than racing.
 //
+// AND IT IS THE ONLY STATE THAT CLOSES IT, WHICH IS WHY A CHUNK THAT NEVER ARRIVES DOES
+// NOT. `checker-unavailable` is a settlement rather than a wait: this window will not check
+// the answer, and that is as final as a schema which would not compile. Read as "still
+// arriving" it would hold the act shut for ever over a fetch nobody is going to retry, on
+// a form whose whole purpose is that a parked run can be answered — so the act is offered
+// there exactly as it is on the uncompilable arm, and what will not be checked is stated
+// on the editor beside it.
+//
 // A SCHEMA THE WIRE DID NOT CARRY IS NOT A SCHEMA OUTSIDE THE RENDER SET. The raw
 // editor exists for the second — it opens with the mapper's own sentence about which
 // member forced it — and the first is a different fact: an older daemon reported the

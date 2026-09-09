@@ -335,11 +335,18 @@ export type SchemaFormEntry =
 /**
  * Why a schema is answered in the raw editor instead of in drawn controls.
  *
- * `planSchemaForm` returns the first five and never the last: whether a schema COMPILES
- * into something an answer can be checked against is a question this module holds no
- * answer to, and the caller holding both readings composes it. The cause still lives
- * here, because a surface reads one vocabulary and a second enumeration beside this one
- * would be two closed sets describing one arm.
+ * `planSchemaForm` returns the first five and never the last two: whether a schema COMPILES
+ * into something an answer can be checked against — and whether the thing that would have
+ * compiled it arrived at all — are questions this module holds no answer to, and the caller
+ * holding both readings composes them. The causes still live here, because a surface reads
+ * one vocabulary and a second enumeration beside this one would be two closed sets
+ * describing one arm.
+ *
+ * `schema-uncheckable` AND `checker-unavailable` ARE DELIBERATELY NOT ONE CAUSE, and the
+ * difference is what a person is told. The first says a schema was read and refused, which
+ * points at the definition; the second says the compiler never reached this window, which
+ * points at the install and says nothing about a definition that may be perfectly good.
+ * Folding them would make the form blame an author for a chunk that did not fetch.
  *
  * `default-undrawable` IS ABOUT ANY DECLARED VALUE, not only a group's. It was named for
  * the group case because that was the case that found it, and the rule is the same one
@@ -360,6 +367,7 @@ export const SCHEMA_FALLBACK_CAUSES = [
   "default-undrawable",
   "constraint-undrawable",
   "schema-uncheckable",
+  "checker-unavailable",
 ] as const;
 
 /** One cause. Derived from the tuple for the reason every vocabulary here is. */

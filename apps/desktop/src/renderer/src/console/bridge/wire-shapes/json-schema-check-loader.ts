@@ -38,8 +38,14 @@
 // keys it lives.
 //
 // THE ONLY WAY THIS REJECTS is a chunk that did not load, which is a fact about the
-// install rather than about the schema — so it travels as a rejection to the caller's own
-// seam rather than as a sentence about a definition that is fine.
+// install rather than about the schema — so it travels as a rejection rather than as a
+// sentence about a definition that is fine. WHERE IT SETTLES is named, because a rejection
+// with no named consumer is one nobody attaches to: `seats/schema-form/containers/
+// use-schema-form.ts` takes it on the rejecting arm of the one `then` it puts here, inside
+// its own compile round, and turns it into that hook's `checker-unavailable` validator arm
+// — which opens the raw editor and arms the act. Nothing about the failure reaches a
+// person from HERE; what a fetch raises is about the transport, and the sentence somebody
+// reads is the arm's.
 
 import type { SchemaValidator } from "./json-schema-check.js";
 
