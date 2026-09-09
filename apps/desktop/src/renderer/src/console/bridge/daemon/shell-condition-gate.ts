@@ -67,8 +67,8 @@ export class ShellConditionGate {
    * sentence, and `store/shell/shell-mutation-block.ts` already owns that one.
    *
    * METHOD-FREE, DELIBERATELY. Which methods the condition closes is the door's own
-   * question and it answers it from `daemon-method-classification.ts`, the table the
-   * registry's own totality check covers. A gate that also applied a per-method rule
+   * question and it answers it from the registry's own `kind` column, which the same
+   * annotation that binds the schemas makes mandatory. A gate that also applied a rule
    * would put a second predicate on the dispatch path, and the two would then have to
    * agree about a set they both read from different families.
    */

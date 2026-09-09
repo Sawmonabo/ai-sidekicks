@@ -27,10 +27,10 @@ describe("the mutating method set", () => {
     // before the daemon carries a handler for it is unregistered, never read-only.
     // The authority is the corpus registration — every registered method's own
     // `query` / `mutation` cell — mirrored on the bridge side by
-    // `bridge/daemon/daemon-method-classification.ts`, which the call door refuses
-    // on. This literal is the render side's copy, because `store/` sits below
-    // `bridge/` on the console DAG and cannot import it; the two are held equal in
-    // both directions by that module's own suite.
+    // the `kind` column on `bridge/daemon/daemon-reply-registry.ts`'s own rows, which
+    // the call door refuses on. This literal is the render side's copy, because
+    // `store/` sits below `bridge/` on the console DAG and cannot import it; the two
+    // are held equal in both directions by that registry's own suite.
     //
     // `membership.update`, `invite.create` and `invite.revoke` are durable acts the
     // daemon PROXIES to the control plane. The reply registry's `CHANGES_A_RUN` table

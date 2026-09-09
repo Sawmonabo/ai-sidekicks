@@ -81,6 +81,29 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 /**
+ * What one call does on the far side.
+ *
+ * TWO ARMS AND NO THIRD. A method that reads and writes is a RECORD: the question this
+ * answers is whether the call may be dispatched through a supervisor that is not
+ * serving (`Spec-023 §Daemon Supervision Lifecycle` step 3 blocks mutating operations
+ * and keeps read-only subscriptions live), and a call that writes anything may not.
+ *
+ * HERE RATHER THAN AT THE REGISTRY, beside the method set it is a fact about: a
+ * method's kind is part of WHAT it is, which is this module's half, while binding a
+ * schema to it is the registry's. The VALUE for each method rides that registry's own
+ * row, so the classification is a column the same annotation already makes mandatory
+ * rather than a second list of these method strings.
+ *
+ * A method's NAME is not its kind, which is why each row's value is quoted from the
+ * operation's own `query` / `mutation` cell in
+ * `docs/architecture/contracts/api-payload-contracts.md`: `repo.worktreeReuseCheck`
+ * ends in a word that reads like a write and is a `query`, `providerAccount.probe`
+ * reads like a read and writes the probed account's health row and its credential
+ * generation, and `driver.respondToRequest` names neither direction.
+ */
+export type DaemonMethodKind = "read" | "record";
+
+/**
  * Every registered daemon method a console surface calls, bound to the request it
  * sends and the response the corpus registers for it.
  *

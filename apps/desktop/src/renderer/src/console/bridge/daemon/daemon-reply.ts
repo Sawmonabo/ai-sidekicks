@@ -73,9 +73,9 @@ import {
   type ShellMutationBlock,
 } from "../../store/index.js";
 import type { ConsoleBridge } from "../console-bridge.js";
-import { isRecordDaemonMethod } from "./daemon-method-classification.js";
 import {
   CONSOLE_DAEMON_METHOD_BINDINGS,
+  isRecordDaemonMethod,
   type ConsoleDaemonMethod,
   type DaemonRequestOf,
   type DaemonResponseOf,

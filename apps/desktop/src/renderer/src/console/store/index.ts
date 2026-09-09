@@ -162,7 +162,7 @@ export {
   currentShellBlock,
   // The same reading with no method rule applied, for the ONE caller that has already
   // decided the method puts a record: the call door, which classifies from the
-  // registry's own table in `bridge/daemon/daemon-method-classification.ts`.
+  // registry's own `kind` column in `bridge/daemon/daemon-reply-registry.ts`.
   currentShellMutationBlock,
   shellBlocksAreEqual,
   shellMutationBlock,
