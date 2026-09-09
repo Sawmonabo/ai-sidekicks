@@ -87,7 +87,7 @@ export class FootnoteRegistry {
    * Record a definition under its own source.
    *
    * Bounded, and eviction is oldest-first for the reason the cap's own rationale in
-   * `core/constants.ts` gives: a
+   * `core/constants/ledger-card-caps.ts` gives: a
    * definition belongs to the message that carried it, the window retains a bounded
    * number of messages, and a definition older than the window's oldest row can never
    * be opened because the reference that would open it is gone too.

@@ -107,7 +107,7 @@ export function useSectionAttention(
  * What one session's settlement turned out to say, frozen at the moment it settled.
  *
  * NOT A LATCH, and the distinction is the whole point of this class. Whether a sentence
- * has already been SPOKEN is `primitives/reading-announcement.ts`'s one ref and nothing
+ * has already been SPOKEN is `primitives/announce/reading-announcement.ts`'s one ref and nothing
  * else's — a second copy of that comparison is a sentence a person hears twice with
  * every test still green. What lives here is a different fact the latch cannot hold: a
  * settlement describes the arrangement a session came back WITH, and the column keeps

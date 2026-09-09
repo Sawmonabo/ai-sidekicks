@@ -6,7 +6,7 @@
 // renderer bundle" — and that argument is false in the one direction that matters. A
 // menu accelerator is consumed by Electron BEFORE the renderer's key-binding table
 // sees the keystroke, so a chord the menu owns is a chord no renderer binding can
-// ever run. `palette/keybinding-audit.ts` said as much and then declined to check it,
+// ever run. `palette/keybindings/keybinding-audit.ts` said as much and then declined to check it,
 // for a reason that was true while this table was main-private: "those live in the
 // main process, the renderer has no read for them, and a guessed list would be wrong
 // in exactly the direction that matters — telling somebody a chord is free when the

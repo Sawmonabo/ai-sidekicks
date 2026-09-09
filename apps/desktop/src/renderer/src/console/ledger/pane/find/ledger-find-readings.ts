@@ -7,7 +7,7 @@
 // counts the matches each one hides.
 //
 // A COUNT OF WHAT IS HIDDEN IS NOT A NOTICE. This ledger wrote two of its own, and
-// six families wrote their own beside them, which is the drift `primitives/partial-read.ts`
+// six families wrote their own beside them, which is the drift `primitives/reading/partial-read.ts`
 // exists to end: the reading is `cut` — an enumeration the producer stopped short —
 // and the shared sentence says so once. What this module decides is the only thing
 // left to decide, which is WHETHER the walk was cut at all.

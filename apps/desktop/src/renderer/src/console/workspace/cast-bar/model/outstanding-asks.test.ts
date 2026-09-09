@@ -7,11 +7,11 @@
 // own lifecycle instead.
 //
 // DRIVEN THROUGH A REAL `SessionStore`, which is the whole seam: the lifecycles are
-// held by `store/outstanding-asks/outstanding-ask-journal.ts` because a fold over the store's own
-// capped, resumable window loses an approval whose opening row it was never sent. A
-// case that typed out a ledger would assert against an input no session produces, and
-// the wire-truth claim over the kinds those lifecycles key on is made where they are
-// declared, in that module's own co-located suite.
+// held by `store/session/outstanding-asks/outstanding-ask-journal.ts` because a fold
+// over the store's own capped, resumable window loses an approval whose opening row it
+// was never sent. A case that typed out a ledger would assert against an input no
+// session produces, and the wire-truth claim over the kinds those lifecycles key on is
+// made where they are declared, in that module's own co-located suite.
 
 import { describe, expect, it } from "vitest";
 

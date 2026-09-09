@@ -195,7 +195,7 @@ export function countRowsAdmittedSinceTheWalkBegan(
  *
  * THE LAST ROW RATHER THAN A SCAN FOR THE HIGHEST KEY. The store orders every batch by
  * this key before it admits one and refuses any sequence it cannot order at all
- * (`store/sequence-reconciler.ts`), and the projection copies the key verbatim in log
+ * (`store/session/sequence-reconciler.ts`), and the projection copies the key verbatim in log
  * order — so the last row of a loaded window carries the highest key in it. A scan
  * would be a second reading of an ordering that already holds, run over the whole log
  * on every appended row of a ledger nobody is replaying.

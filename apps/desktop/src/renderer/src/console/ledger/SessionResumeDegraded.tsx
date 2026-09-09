@@ -1,7 +1,7 @@
 // The one thing a session's own surface says about its resume cycle: that the
 // position it remembered was refused, and the log was re-read from the start instead.
 //
-// WHY THIS EXISTS AT ALL. `store/timeline-resume.ts` decides where a session's next
+// WHY THIS EXISTS AT ALL. `store/session/timeline-resume.ts` decides where a session's next
 // read begins and `open-session-entry.ts` submits that position on the read it already
 // performs. A daemon that cannot resolve the position answers `event.cursor_unresolvable`,
 // and the entry recovers by forgetting it and re-reading the window from its beginning.

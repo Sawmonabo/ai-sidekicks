@@ -12,8 +12,8 @@
 // there would print a paragraph of unbuilt-feature prose down the whole ledger, and
 // the honest reading of an absent offer is the absent offer — the same reading that
 // took the structural surfaces' load-earlier buttons out, recorded in
-// `pane/feed/LedgerFeed.tsx`. The three facts the seat answers live in
-// `seats/single-slot/timeline-row-footer-seat.ts` for the developer who needs them.
+// `pane/feed/surface/LedgerFeed.tsx`. The three facts the seat answers live in
+// `seats/slots/timeline-row-footer-seat.ts` for the developer who needs them.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 

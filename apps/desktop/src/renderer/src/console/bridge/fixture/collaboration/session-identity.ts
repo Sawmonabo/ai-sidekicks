@@ -47,7 +47,7 @@ export function scenarioSessionIdentity(
   }
   const title = scriptedSessionReadMember(scenario, "session", "metadata", "title");
   if (title !== undefined && typeof title !== "string") {
-    // A THROW rather than a dropped title, on `fixture-session-directory.ts`' terms:
+    // A THROW rather than a dropped title, on `session-directory.ts`' terms:
     // a scenario is in-tree source, so a metadata title that is not a string is an
     // authoring defect, and rendering the session by its identifier would make it
     // indistinguishable from the ordinary untitled session the surface must also draw.

@@ -134,7 +134,7 @@ export interface UseLedgerViewportOptions extends LedgerViewportConditions {
  * controls and this hook documents, rather than a deep compare performed on its
  * behalf.
  *
- * The re-mint arm is `frame/session-lifecycle.ts`' idiom, for its reason: a remount
+ * The re-mint arm is `frame/session/session-lifecycle.ts`' idiom, for its reason: a remount
  * of the same component instance — React's StrictMode double-mount is the one that
  * does it today — has already run the cleanup, and a disposed controller attaches
  * nothing, so the second mount takes a fresh one rather than a corpse.

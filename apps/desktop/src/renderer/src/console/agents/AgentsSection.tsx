@@ -186,7 +186,7 @@ export function AgentsSection(props: {
 /**
  * Split the roster into its groups, dropping the rows the filter excludes.
  *
- * The fold is `seats/section-grouping.ts`'s, shared with the sidebar's other bodies;
+ * The fold is `seats/slots/section-grouping.ts`'s, shared with the sidebar's other bodies;
  * what stays here is the three answers only this section can give.
  */
 function groupAgents(

@@ -85,7 +85,7 @@ export interface ReplayEngineOptions {
   readonly granularity?: ReplayGranularity;
   /** Called whenever the position changes, so a surface can re-render. */
   readonly onPositionChange?: (position: ReplayPosition) => void;
-  /** Advance step in real milliseconds. One value, one home: `constants.ts`. */
+  /** Advance step in real milliseconds. One value, one home: `../structure-bounds.ts`. */
   readonly frameIntervalMs?: number;
 }
 
@@ -285,8 +285,9 @@ export class ReplayEngine {
    * Stop, terminally.
    *
    * A pane that unmounts mid-replay must not be able to re-arm from a late frame,
-   * which is `store/scheduling.ts`' rule for the two schedulers the console owns
-   * and holds here for the same reason.
+   * which is the terminal-`dispose` rule `store/read/refresh-scheduler.ts` states
+   * for the read side of the console's scheduling and `store/read/apply-queue.ts`
+   * for the write side, held here for the same reason.
    */
   public dispose(): void {
     this.#disposed = true;

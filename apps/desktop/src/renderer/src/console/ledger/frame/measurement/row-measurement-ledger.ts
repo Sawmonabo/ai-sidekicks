@@ -251,7 +251,7 @@ export class RowMeasurementLedger {
    * height.
    *
    * A COUNT AND NOT A BOOLEAN, because that is what a person is owed: the shared
-   * absence vocabulary (`primitives/window-absence.ts`) says "N are still held and
+   * absence vocabulary (`primitives/absence/window-absence.ts`) says "N are still held and
    * sit below the height this window can draw down to", and a flag would leave the
    * figure to be invented at the call site or left out of a sentence built to carry
    * one.

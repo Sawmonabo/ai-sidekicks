@@ -29,7 +29,7 @@
  * The chord, in `tinykeys` grammar, that asks for the composer.
  *
  * Spelled with the physical `KeyL` code rather than the printed `l`, which is the
- * spelling `primitives/chord-format.ts` prefers for the same reason: a code names
+ * spelling `primitives/chord/chord-format.ts` prefers for the same reason: a code names
  * one physical key on every keyboard layout, while a printed character names a
  * different key on each. The console's chord matcher treats the two spellings as one
  * keystroke, so a renderer binding either of them binds this.
@@ -37,7 +37,7 @@
  * `$mod` is the platform's primary modifier — command on macOS, control elsewhere.
  * The pair is free in the console's key-binding table (the ledger holds `$mod+f`,
  * `$mod+g`, `$mod+Shift+g` and `$mod+Shift+t`; the frame holds `$mod+1`, `$mod+2`
- * and `$mod+,`) and is none of the chords `palette/keybinding-audit.ts` records as
+ * and `$mod+,`) and is none of the chords `palette/keybindings/keybinding-audit.ts` records as
  * claimed by an operating system.
  */
 export const COMPOSER_FOCUS_CHORD = "$mod+KeyL";

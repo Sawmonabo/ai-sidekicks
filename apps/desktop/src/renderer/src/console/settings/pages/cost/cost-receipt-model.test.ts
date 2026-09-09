@@ -1,6 +1,6 @@
 // What the cost model is for: answering whether each axis accounts for the figure.
 //
-// Its cents-to-money adapter is no longer here — it is `primitives/wire-figures.ts`'
+// Its cents-to-money adapter is no longer here — it is `primitives/figures/wire-figures.ts`'
 // now that a second view family renders the same accountant's figure — and its cases
 // moved with it, which is what keeps a formatter's rules asserted beside the
 // formatter rather than beside one of its callers.

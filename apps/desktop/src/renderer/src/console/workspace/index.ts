@@ -67,7 +67,7 @@ import "./sidebar/sidebar.css";
 //
 // Its PROPS leave through no door here at all. They are the seam two view families
 // meet on — this one declares the control, the sessions family mounts it — so they
-// live in `seats/new-session-seat.ts` and both sides import them from there.
+// live in `seats/slots/new-session-seat.ts` and both sides import them from there.
 export { NewSessionControl } from "./new-session/NewSessionControl.js";
 
 export { Workspace } from "./Workspace.js";

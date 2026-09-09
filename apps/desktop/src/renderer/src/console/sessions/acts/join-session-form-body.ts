@@ -21,6 +21,6 @@
 // it dresses the bar itself, which is painted with the destination, so landing it with
 // this chunk would flash the bar undressed on every session that never joins one.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 export { JoinSessionForm as Body } from "./JoinSessionForm.js";

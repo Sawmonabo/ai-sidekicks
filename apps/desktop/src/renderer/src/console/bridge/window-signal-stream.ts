@@ -1,7 +1,7 @@
 // The shell's window signals, as streams the console drains.
 //
 // SPLIT FROM WHOEVER PRODUCES THE REPORTS. `auxiliary-window-port.ts` holds which
-// windows are open and what each operation answers, and `fixture/fixture-auxiliary-windows.ts`
+// windows are open and what each operation answers, and `fixture/shell/auxiliary-windows.ts`
 // holds the same for a build with no shell behind it; this module holds the DELIVERY —
 // an open stream, a queue, and the wake that hands a report to whoever is draining.
 // The cut is along that seam rather than at a line count: the window set changes when

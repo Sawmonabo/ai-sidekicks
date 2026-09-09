@@ -19,7 +19,7 @@
 // so it arrives as a COMPOSITION argument named by `families.ts`, the one file above
 // every family. The COMPONENT rather than a built element: which component mounts is
 // the root's decision, and which props it takes is neither family's to spell twice —
-// `seats/new-session-seat.ts` declares them, because the surface supplies the bridge
+// `seats/slots/new-session-seat.ts` declares them, because the surface supplies the bridge
 // AND the settlement, and both come off a context the root cannot reach here.
 
 import "./sessions.css";

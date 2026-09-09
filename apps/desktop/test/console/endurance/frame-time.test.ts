@@ -59,7 +59,7 @@
 // window covers that stretch of it. The run asserts both halves rather than
 // describing them: that the script delivered INSIDE the window rather than before
 // it, and that four lanes were streaming inside the window, read off the scenario's
-// own beats by `scenarios/streaming-lanes.ts`. A scenario that stopped streaming
+// own beats by `bridge/scenarios/streaming-lanes.ts`. A scenario that stopped streaming
 // would fail the second assertion, which is what the first enforced revision of this
 // row could not say — its script carried no assistant beat at all.
 //

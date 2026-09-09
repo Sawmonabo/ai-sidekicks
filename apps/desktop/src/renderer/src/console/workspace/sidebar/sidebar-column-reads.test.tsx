@@ -7,7 +7,7 @@
 // in front of somebody and was never said out loud.
 //
 // AND THE HARD CASE IS THE ONE WHERE THE TWO SESSIONS AGREE. The hook composes over
-// `primitives/reading-announcement.ts`'s one latch, whose memory is the SENTENCE and
+// `primitives/announce/reading-announcement.ts`'s one latch, whose memory is the SENTENCE and
 // lives for the mount — so two sessions that restored the same arrangement say the same
 // words, and a composition that only handed the latch its sentence would have the second
 // silently swallowed. That case is the planted control below, and it is the reason the

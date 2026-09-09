@@ -20,12 +20,12 @@
 // registered reply carries and nothing else: the rows arrive on the subscription the
 // store already holds, which is the console's one subscriber to the wire. A value that
 // handed this surface a stream to drain would make a pane the owner of the log's
-// delivery, which is the rule `store/hooks.ts` states and the reason this module reads
-// a decision rather than opening anything.
+// delivery, which is the rule `store/session/session-hooks.ts` states and the reason
+// this module reads a decision rather than opening anything.
 //
 // WHY THE POSITION IS THE ACKNOWLEDGED CURSOR AND NOT THE LAST ROW ON SCREEN. The
 // obvious anchor — the newest row in front of the hole — is an event id, and an event
-// id is not a cursor. `store/timeline-resume.ts` says why in as many words: the cursor
+// id is not a cursor. `store/session/timeline-resume.ts` says why in as many words: the cursor
 // is opaque, its structure is the daemon's, and this console orders nothing by it. The
 // one position this console legitimately holds is the one a read acknowledged and the
 // store already submits on its next read, so a replay asks with that or asks with
@@ -76,7 +76,7 @@ export interface LedgerGapFillInput {
 /**
  * Decide what this window can ask for. Pure: it holds nothing and it calls nothing.
  *
- * Separate from the hook below for the reason `store/timeline-resume.ts` is separate
+ * Separate from the hook below for the reason `store/session/timeline-resume.ts` is separate
  * from the entry that acts on it — the rule is checkable on its own, and the surface
  * that renders it is then a projection of a decision rather than a second copy of one.
  */

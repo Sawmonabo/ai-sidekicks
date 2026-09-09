@@ -1,7 +1,7 @@
 // The ledger structure's named figures that are not ceilings.
 //
 // THE CEILINGS ARE NOT HERE. `test/console/architecture/cap-constant-home.test.ts`
-// names `core/constants.ts` the one module a bound may be DECLARED in, so the chapter
+// names `core/constants/` the one DIRECTORY a bound may be DECLARED in, so the chapter
 // cap, the rail's fisheye and painting maxima, and the find walk's cap are declared
 // there and read through the core door. What stays is the rail's geometry, its
 // preview grace, its thumb floor, and the replay interval.

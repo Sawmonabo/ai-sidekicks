@@ -9,8 +9,9 @@
 // mounted once and re-bound as the workspace moves between sessions, so a model held
 // for the MOUNT carried session A's ticked rows and settled outcomes into session B —
 // where the bar then handed B's session id to the runner beside A's run, invite and
-// agent ids, and A's later settlements rendered under B. `store/subject-scoped-state.ts`
-// exists for exactly that failure and states its own rule: the pass that first sees a
+// agent ids, and A's later settlements rendered under B. The module
+// `store/subject-scoped/subject-scoped-state.ts` exists for exactly that failure and
+// states its own rule: the pass that first sees a
 // new subject already reads that subject's own value. A manual clear cannot make that
 // claim — it runs after a render that has already handed the old set to whatever asked.
 

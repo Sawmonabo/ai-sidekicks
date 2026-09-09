@@ -3,7 +3,7 @@
 //
 // The pause is the run control's and reaches the daemon directly. These two acts are
 // the deck's, because which panes are open and which one is focused are facts about
-// the deck and about nothing else. `seats/single-slot/take-the-floor-seat.ts` carries the request
+// the deck and about nothing else. `seats/slots/take-the-floor-seat.ts` carries the request
 // across the family boundary; this module is what fills that seat.
 //
 // TWO RESOLUTIONS, AND NEITHER IS A GUESS.

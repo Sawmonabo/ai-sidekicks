@@ -4,7 +4,7 @@
 // pointer move, so a naive "save on change" writes sixty records a second to a
 // database that only needs to hold the last one.
 //
-// WHY THIS IS NOT A DEBOUNCE, AND NOT `store/scheduling.ts`. The obvious answer is
+// WHY THIS IS NOT A DEBOUNCE, AND NOT `store/read/refresh-scheduler.ts`. The obvious answer is
 // a trailing debounce, and the console already owns one — `RefreshScheduler`. It is
 // the wrong tool twice over: its own header says the session-store registry is what
 // constructs it and nothing else in the tree may arm a timer, and its
@@ -41,7 +41,7 @@
 // of its FIRST render and keeps writing there, so every later arrangement is filed in
 // a store nothing will ever read again — and the restore, which does move, then reads
 // the newer store's older record. Both writers are therefore held per store through
-// `store/subject-scoped-resource.ts`, which retires the one bound to the store that
+// `store/subject-scoped/subject-scoped-resource.ts`, which retires the one bound to the store that
 // was replaced.
 //
 // RETIREMENT DRAINS; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
@@ -183,7 +183,7 @@ function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>):
  * THE TERMINAL ARM, BECAUSE `flushAndClose` IS ONE-WAY. A writer past it drops every
  * later request in silence — no refusal raised, nothing on screen — so a holder that
  * re-committed one after React's double-mount would leave a person rearranging all
- * session with nothing kept. `store/subject-scoped-resource.ts` reads `isClosed`
+ * session with nothing kept. `store/subject-scoped/subject-scoped-resource.ts` reads `isClosed`
  * before it commits and mints a fresh writer instead, and the arm's shape is what
  * makes the reading impossible to omit: `{ dispose }` alone matches neither arm.
  *

@@ -55,7 +55,7 @@ export interface LedgerGrowthSignatures {
   // drain. Typing it as a stream would put the log's delivery in a pane's hands,
   // which is the one thing the store's single-subscriber rule exists to prevent.
   //
-  // The cursor is a bounded opaque string here for the reason `store/timeline-resume.ts`
+  // The cursor is a bounded opaque string here for the reason `store/session/timeline-resume.ts`
   // gives: its structure is the daemon's and the console orders nothing by it. It is
   // relayed exactly as it arrived or it is not sent at all.
   timelineSubscribe: {

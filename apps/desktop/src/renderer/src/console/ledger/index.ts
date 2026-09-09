@@ -186,7 +186,7 @@ export function registerLedger(
  *
  * The descriptor says WHO owns the kind and WHAT mounts for it, and nothing else.
  * Whether a full-screen timeline may be torn off into an auxiliary window is a
- * property of the KIND — `seats/pane-kinds.ts` derives it from the window model's own
+ * property of the KIND — `seats/pane/pane-kinds.ts` derives it from the window model's own
  * closed set through `isDetachablePaneKind` — so a family answering it per descriptor
  * would be six families answering a question the window model settles.
  *

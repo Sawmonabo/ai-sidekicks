@@ -7,7 +7,7 @@
 // same arrangement `collaboration/members/MembershipActionsMenu.tsx` reaches for.
 //
 // THE REVEAL IS THE PRIMITIVE'S AND THE CONTROL IS THIS FAMILY'S.
-// `primitives/ledger-row.css` publishes `meridian-ledger-row__revealed` for exactly
+// `primitives/figures/ledger-row.css` publishes `meridian-ledger-row__revealed` for exactly
 // this: the row owns WHEN a secondary control appears — hover or focus-within — and
 // the family owns what the thing is. Nothing here writes a hover rule, so the reveal
 // stays one decision rather than a question the cascade answers.

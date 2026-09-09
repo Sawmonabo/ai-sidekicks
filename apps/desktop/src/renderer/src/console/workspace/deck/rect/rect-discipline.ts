@@ -28,7 +28,7 @@
 //      that is four writes for one moved edge.
 //
 // The clock is a dependency rather than a bare `requestAnimationFrame`, on
-// `store/scheduling.ts`' reasoning: a frozen clock is what lets a test assert that
+// `store/read/refresh-scheduler.ts`' reasoning: a frozen clock is what lets a test assert that
 // the write did NOT happen during the callback and DID happen on the next frame.
 // Nothing here arms an interval.
 //

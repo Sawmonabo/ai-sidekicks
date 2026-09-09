@@ -1,7 +1,7 @@
 // What the ledger's structure contributes to the palette, and what it must not do.
 //
 // Two claims, and the second is the one this lane's definition of done names: find,
-// filters, and jumps register through `palette/contributions.ts` and never through a
+// filters, and jumps register through `palette/commands/contributions.ts` and never through a
 // second command registry. A module that registered at import time would satisfy
 // every assertion about the command LIST while doing exactly the thing forbidden, so
 // the acts are counted before anything is run as well as after.

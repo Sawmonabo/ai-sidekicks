@@ -200,8 +200,9 @@ export interface CastBarInput {
    * An INPUT rather than a fold performed here, because the answer is not in the
    * timeline: a session's stream replays from the position this participant was last
    * acknowledged at, and the window is capped besides, so an approval raised below the
-   * head or pruned at the cap is in no fold's reach. `store/outstanding-asks/outstanding-ask-journal.ts`
-   * holds those lifecycles across every window replacement; this model reads them.
+   * head or pruned at the cap is in no fold's reach.
+   * `store/session/outstanding-asks/outstanding-ask-journal.ts` holds those lifecycles
+   * across every window replacement; this model reads them.
    */
   readonly outstandingAsks: OutstandingAskLedger;
   /** True while the store is degraded; freezes every verb with a stale mark. */

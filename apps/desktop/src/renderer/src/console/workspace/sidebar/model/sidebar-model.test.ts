@@ -40,7 +40,7 @@ function openSections(model: SidebarModel): readonly SidebarSectionId[] {
  * Every section except the named ones, in the seat's own declaration order.
  *
  * Derived rather than written out, because the section set is closed by
- * `seats/sidebar-sections.ts` and every hand-written list here would be a second copy
+ * `seats/slots/sidebar-sections.ts` and every hand-written list here would be a second copy
  * of it — one that goes stale silently the day the seat gains a section.
  */
 function everySectionExcept(...excluded: readonly SidebarSectionId[]): readonly SidebarSectionId[] {

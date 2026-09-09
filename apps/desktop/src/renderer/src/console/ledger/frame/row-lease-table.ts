@@ -23,7 +23,7 @@ import { type TimelineRowDensity } from "../../seats/index.js";
  * Renderer-local state a row body leases from the list.
  *
  * `density` is the seat's own vocabulary rather than a second collapse enumeration
- * (`seats/single-slot/timeline-row-slot.ts`): the list decides a row's collapse state
+ * (`seats/slots/timeline-row-slot.ts`): the list decides a row's collapse state
  * and hands it down, so the table parking that decision has to park the same type.
  */
 export interface LedgerRowLease {

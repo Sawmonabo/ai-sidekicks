@@ -1,7 +1,7 @@
 // Who owns a hand-off's life, and why it is not the surface that renders one.
 //
 // THE FAILURE. `ledger/index.ts` keys the workspace on the route's session and
-// `frame/RouteSurface.tsx` keys the whole surface on the address it was mounted at, so
+// `frame/composition/RouteSurface.tsx` keys the whole surface on the address it was mounted at, so
 // leaving a session — for Settings, for another session, for the sessions list — UNMOUNTS
 // the workspace. A hand-off held for that mount went with it: the shell kept the
 // auxiliary windows open, because they are the shell's and nothing asked it to close
@@ -22,7 +22,7 @@
 // AND THE SUBJECT-SCOPED HOLDER IS NOT THAT HOME, which its own header says in as many
 // words: "ONE INSTANCE PER MOUNT, held by the hook … nothing here outlives the surface
 // that owns it". It is the right holder for the REGISTRY — whose subject is the bridge,
-// exactly as `frame/session-lifecycle.ts` holds this window's session plumbing — and
+// exactly as `frame/session/session-lifecycle.ts` holds this window's session plumbing — and
 // the wrong one for a hand-off, whose subject is a session that outlives every visit.
 //
 // ONE HAND-OFF PER SESSION, WHICH IS WHAT MAKES THE PANE IDS MEAN ANYTHING. A deck
@@ -57,7 +57,7 @@ export interface AuxiliaryHandoffRegistryOptions {
  * Every hand-off this window holds, by the session each one is about.
  *
  * A CLASS WITH PRIVATE FIELDS rather than a `Map` beside a hook, on the shape
- * `store/session-store-registry.ts` already takes for the same lifetime: the map, the
+ * `store/session/session-store-registry.ts` already takes for the same lifetime: the map, the
  * mint rule, and the disposal are one piece of state, and holding them as free
  * bindings lets a later edit move one without the others.
  */
@@ -92,7 +92,7 @@ export class AuxiliaryHandoffRegistry {
    * be read again on the render that publish caused. A shell-less build would have
    * spun this window for as long as one pane was detached.
    *
-   * IT MINTS DURING A RENDER, on the precedent `store/subject-scoped-resource.ts`
+   * IT MINTS DURING A RENDER, on the precedent `store/subject-scoped/subject-scoped-resource.ts`
    * states in full: a surface's first pass already has to read the record it is a view
    * of, and a hand-off that arrived one commit later would mean a first paint drawing
    * a body that is on screen in another window. The mint is idempotent and starts

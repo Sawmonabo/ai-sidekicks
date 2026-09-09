@@ -25,7 +25,7 @@
 // ledger-axe.test.tsx` does).
 //
 // AND BOTH CALLS DIE WITH THE SHELL, exactly as they did at the door:
-// `seats/single-slot/timeline-row-slot.ts` states the absorb-by-import rule, and the change that
+// `seats/slots/timeline-row-slot.ts` states the absorb-by-import rule, and the change that
 // registers the timeline subtree's real rows deletes these two lines with the modules
 // they name.
 //
@@ -58,7 +58,7 @@
 // here would publish a name no module outside the directory reaches, which is a dead
 // export the barrel census fails and an orphan the layering gate reports.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import { createElement } from "react";
 

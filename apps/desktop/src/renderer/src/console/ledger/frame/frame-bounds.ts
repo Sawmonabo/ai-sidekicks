@@ -1,7 +1,7 @@
 // The ledger frame's named figures that are not ceilings.
 //
 // THE CEILINGS ARE NOT HERE. `test/console/architecture/cap-constant-home.test.ts`
-// names `core/constants.ts` the one module a bound may be DECLARED in, so the window
+// names `core/constants/` the one DIRECTORY a bound may be DECLARED in, so the window
 // cap, the element ceiling, the reveal engine's frame budget and its two walk caps,
 // and the parked-lease cap are declared there and read through the core door. What
 // stays is the estimate, the tolerance, the epsilon, the overscan, the witness count,

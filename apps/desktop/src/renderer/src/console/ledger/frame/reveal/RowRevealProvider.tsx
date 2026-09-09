@@ -9,7 +9,7 @@
 // scheduler.
 //
 // WHY A CONTEXT AND NOT A PROP ON THE ROW SEAT — the reasoning `RowLeaseProvider.tsx`
-// already gives, and it holds harder here. `seats/single-slot/timeline-row-slot.ts` carries what
+// already gives, and it holds harder here. `seats/slots/timeline-row-slot.ts` carries what
 // the LIST decides about a row (hue, supersession, density) and
 // `ledger/cards/card-props.ts` states outright that live text is not one of those:
 // it is "not a property of the row's position in a list". The seat contract is also

@@ -1,6 +1,6 @@
 // What a surface reads ABOUT one session's projection, rather than out of it.
 //
-// Split from `hooks.ts`, which had grown past the length `apps/desktop/AGENTS.md`
+// Split from `session-hooks.ts`, which had grown past the length `apps/desktop/AGENTS.md`
 // allows by holding two jobs. That file resolves stores and selects entities out of
 // them — "give me this session's runs", "give me this row" — and every hook in it
 // answers with session CONTENT. These four answer with facts about the READ and the
@@ -8,12 +8,12 @@
 // incomplete, and what did the newest read say about where the stream picks up. A
 // surface reaching for one of these is not asking what the session contains.
 //
-// The seam is also where the two files' inputs stop agreeing. Everything in `hooks.ts`
+// The seam is also where the two files' inputs stop agreeing. Everything in `session-hooks.ts`
 // is a store and a selector; the resume reading below takes the REGISTRY as well,
 // because the decision is a fact about the read that produced a projection rather than
 // a member of the projection, and the registry is what holds it.
 //
-// Nothing here builds a value in a selector, for the reason `hooks.ts` states in full:
+// Nothing here builds a value in a selector, for the reason `session-hooks.ts` states in full:
 // zustand v5 compares with `Object.is` and does no shallow-equality pass, so a reading
 // returns a stored reference or a primitive and derivation happens under `useMemo` in
 // the component.
@@ -84,7 +84,7 @@ function readDegraded(state: SessionStoreState): boolean {
  * Why the projection is known-incomplete, or `undefined` while it is whole.
  *
  * A hook of its own rather than a `useSessionStore` call at each surface, for the
- * reason `hooks.ts` states in full: the selector has to return a stored reference, and
+ * reason `session-hooks.ts` states in full: the selector has to return a stored reference, and
  * one written per surface is one more chance to build a value and re-render every
  * frame. A sidebar section renders "unavailable" from this rather than rendering a
  * zero, which is the distinction the design language draws between an answered empty

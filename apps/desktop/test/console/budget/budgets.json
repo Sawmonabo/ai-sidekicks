@@ -116,7 +116,7 @@
       "producedBy": "T-023p-1C-8",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "No harness on any tier samples renderer CPU, so the sixty-second average is not taken. The criterion beside it is not taken either: it names what FIRED inside that window, and no tier watches a running renderer's timers — `test/console/architecture/timer-chokepoint.test.ts` reads the source for `setInterval` and is the different claim this row's notes already distinguish. The subject is in tree — the endurance tier opens the flagship session route in the built shell and `console/store/scheduling.ts` owns every refresh — so what is missing is the instrument, which is the endurance reference run's at T-023p-1C-8.",
+      "notMeasurableReason": "No harness on any tier samples renderer CPU, so the sixty-second average is not taken. The criterion beside it is not taken either: it names what FIRED inside that window, and no tier watches a running renderer's timers — `test/console/architecture/timer-chokepoint.test.ts` reads the source for `setInterval` and is the different claim this row's notes already distinguish. The subject is in tree — the endurance tier opens the flagship session route in the built shell and `console/store/read/refresh-scheduler.ts` owns every refresh — so what is missing is the instrument, which is the endurance reference run's at T-023p-1C-8.",
       "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. The timer-enumeration half is a tripwire on the architecture tier, not a number.",
       "scope": "product"
     },

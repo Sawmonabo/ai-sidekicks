@@ -317,7 +317,7 @@ describe("the ledger viewport — the feed", () => {
     expect(container.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(2);
     // In the console's shared sentence, with the figure it carries: the count is
     // what this family owed the vocabulary and what the notice it replaced never
-    // said. The wording is `primitives/window-absence.ts`', so a second copy of it
+    // said. The wording is `primitives/absence/window-absence.ts`', so a second copy of it
     // here would be the drift the shared module exists to remove.
     expect(
       screen.getByText(/^1 arrived carrying the same identifier as one already in this window/u),

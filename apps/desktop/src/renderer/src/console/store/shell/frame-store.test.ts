@@ -23,7 +23,7 @@
 //     contract, and the control below is the one that matters: an unchanged write
 //     must publish nothing, because the writer is an effect that re-runs on inputs
 //     the cell does not depend on. Whose claim is whose is
-//     `modal/modal-surface-claims.test.ts`; what reaches the readable is here.
+//     `modal-surface-claims.test.ts`; what reaches the readable is here.
 //   • **The focus seed.** `isWindowFocused` was `true` at construction and moved only
 //     on a transition, so a window that opened without focus received no `blur` to
 //     correct it and claimed an audience it never had. It is read from the document

@@ -24,7 +24,7 @@
 // what has to be paid for.
 //
 // THE RETURN TYPE IS SPELLED STRUCTURALLY RATHER THAN NAMED, and that is the layering
-// rule and not a preference. `seats/lazy-body.ts` declares `LazyBodyModule`, and `seats/`
+// rule and not a preference. `seats/lazy-body/lazy-body.ts` declares `LazyBodyModule`, and `seats/`
 // sits ABOVE `primitives/` on the console DAG — so naming it here would be an upward edge
 // `structure:layering` fails, for a type that erases. What is written below is that
 // contract's shape, which is what the caller's `LoadedLazyBody` accepts; the pairing is

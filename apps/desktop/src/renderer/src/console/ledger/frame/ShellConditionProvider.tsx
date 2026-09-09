@@ -1,7 +1,7 @@
 // The window's supervisor condition, reachable from a row body.
 //
 // WHY A CONTEXT AND NOT A PROP ON THE ROW SEAT, which is `RowLeaseProvider.tsx`'
-// question with a different answer behind it. `seats/single-slot/timeline-row-slot.ts`
+// question with a different answer behind it. `seats/slots/timeline-row-slot.ts`
 // declares what the LIST decides for a row — the hue, the superseded ranking, the
 // density — and the shell's condition is none of those: it is a fact about the window,
 // published by a store the ledger's own pane already holds, and every surface in the

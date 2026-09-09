@@ -27,7 +27,7 @@
 // which is what `apps/desktop/AGENTS.md` §State and views asks for, and a window has one
 // acts bar per sessions destination with nothing to key a registration on.
 //
-// WHAT A PENDING BODY DRAWS is the marker `seats/pending-pane-body.ts` owns and nothing
+// WHAT A PENDING BODY DRAWS is the marker `seats/pane/pending-pane-body.ts` owns and nothing
 // else: no spinner, no skeleton, and none of rule 8's five kinds of nothing. What is
 // absent is a MODULE rather than anything about the act, and the marker rides a `hidden`
 // element, so what the wait costs the layout is nothing and the screenshot tier refuses

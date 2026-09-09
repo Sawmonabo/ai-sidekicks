@@ -2,7 +2,7 @@
 //
 // THE SECOND DECODE BOUNDARY, ON THE FIRST ONE'S TERMS. `session-event-payload.ts`
 // narrows a delivered `EventEnvelope` into `ConsoleSessionEvent`, because
-// `store/entities.ts` puts exactly one module between the wire and everything above
+// `store/entities/entities.ts` puts exactly one module between the wire and everything above
 // it. This module is that boundary for the other frame the daemon answers a session's
 // log with — a `timeline.read` page — and it exists for the same reason: the store's
 // log is `ConsoleSessionEvent` and a family above the bridge may not read a wire
@@ -60,7 +60,7 @@ export interface EarlierTimelinePage {
    *
    * Present on every continuing page by contract, and permitted on a terminal one.
    * Carried opaque and relayed verbatim or not at all, which is the whole of what a
-   * console may do with a cursor (`store/timeline-resume.ts`).
+   * console may do with a cursor (`store/session/timeline-resume.ts`).
    */
   readonly nextBeforeCursor: string | undefined;
 }

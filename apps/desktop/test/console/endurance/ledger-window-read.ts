@@ -20,7 +20,7 @@ import {
  *
  * A different set from `console-workload.ts`' `LEDGER_ROW_SELECTOR`, and the
  * distinction is load-bearing here. `meridian-ledger-row` is
- * `primitives/LedgerRow.tsx`, a presentation primitive the runs pane uses too and
+ * `primitives/figures/LedgerRow.tsx`, a presentation primitive the runs pane uses too and
  * that a row body may or may not reach for; `meridian-ledger-viewport__row` is the
  * absolutely-positioned box the virtualizer places, so it is one per mounted virtual
  * item by construction. A windowing claim has to wait on the BOX: waiting on the card

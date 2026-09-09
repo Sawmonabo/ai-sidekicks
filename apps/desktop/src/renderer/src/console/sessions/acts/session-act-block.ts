@@ -22,7 +22,7 @@
 // put the act at all; a degraded list is a window that lost the stream and could still
 // send. Both are real, one sentence fits on a control, and the stronger fact is the one
 // a person needs in order to know what to do next. Neither cause is derived here:
-// `store/shell-mutation-block.ts` owns the shell's and `session-list-degradation.ts`
+// `store/shell/shell-mutation-block.ts` owns the shell's and `session-list-degradation.ts`
 // owns the list's, which is what keeps this destination's disabled controls and the
 // palette's read-only line from naming two different reasons for one state.
 

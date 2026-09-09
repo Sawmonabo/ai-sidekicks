@@ -99,7 +99,7 @@ import {
  * silence — which is what shipped, and what `tsc` had no opinion about. The parameter
  * is required because it is not optional information: every caller of this type has a
  * position or has decided it has none. What HOLDS the forwarding is the behavioural
- * gate in `frame/session-lifecycle.bridge-swap.test.tsx`, which composes the real
+ * gate in `frame/session/session-lifecycle.bridge-swap.test.tsx`, which composes the real
  * adapter over a recording bridge and asserts the cursor reaches the request — a test
  * of the seam rather than of its signature, because the signature cannot fail.
  */

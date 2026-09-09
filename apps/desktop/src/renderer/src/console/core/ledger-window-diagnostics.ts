@@ -2,7 +2,7 @@
 // reading across the family DAG.
 //
 // WHY THIS SITS AT THE FLOOR. The producer is the ledger — a VIEW family, the top of
-// the DAG — and the consumer is `frame/session-event-binder.ts`, which composes the
+// the DAG — and the consumer is `frame/session/session-event-binder.ts`, which composes the
 // fixture handle a driver process reads and sits BELOW every view family. The
 // consumer therefore cannot import the producer, and the producer must not import
 // `frame/index.ts` (that door closes a cycle through `families.ts`). The floor is the

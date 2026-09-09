@@ -1,7 +1,7 @@
 // The terminal an ask reached, reachable from the row that asked it.
 //
 // WHY A CONTEXT AND NOT A PROP ON THE ROW SEAT — the reasoning `ledger/frame/RowLeaseProvider.tsx`
-// gives, applied to a third fact. `seats/single-slot/timeline-row-slot.ts` carries what the LIST
+// gives, applied to a third fact. `seats/slots/timeline-row-slot.ts` carries what the LIST
 // decides about a row — the hue, the rollback supersession, the density — and whether a
 // later row settled this row's ask is none of those: it is a fold over the window keyed
 // by `askId`, and the seat contract is shared with a renderer this family does not own,

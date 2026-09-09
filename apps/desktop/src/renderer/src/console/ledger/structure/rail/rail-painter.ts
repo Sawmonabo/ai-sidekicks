@@ -42,8 +42,8 @@
 // pixels tall and blurred, and a fisheye radius measured in the wrong pixels. So
 // the store is sized from the RENDERED box times the device pixel ratio, the
 // context is scaled by that ratio exactly once, and every measurement below is
-// then in CSS pixels — the same units `constants.ts` states the ink width and the
-// fisheye radius in. `rail-surface.ts` is what tells the component that the box or
+// then in CSS pixels — the same units `../structure-bounds.ts` states the ink width
+// and the fisheye radius in. `rail-surface.ts` is what tells the component that the box or
 // the ratio moved; nothing here polls, and there is no frame loop at rest.
 
 import { RAIL_FISHEYE_MAX_SCALE, RAIL_MAX_TICKS_PER_PIXEL } from "../../../core/index.js";

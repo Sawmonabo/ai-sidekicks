@@ -35,8 +35,10 @@
 // there. The reveal engine and the error slots are the two that stand alone: one
 // publishes text and the other holds refusals, and neither needs a viewport.
 //
-// The ceilings every one of them spends are declared in `core/constants.ts`, the one
-// module the `cap-constant-home` gate admits a bound in; the frame's other figures —
+// The ceilings every one of them spends are declared in
+// `core/constants/ledger-frame-caps.ts`, this family's module inside
+// `core/constants/` — the one directory the `cap-constant-home` gate admits a bound
+// in; the frame's other figures —
 // the estimate, the tolerance, the epsilon, the overscan — stay in `frame-bounds.ts`
 // at this root rather than joining `measurement/`, because all five seams spend them.
 

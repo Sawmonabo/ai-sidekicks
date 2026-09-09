@@ -1,8 +1,9 @@
 // What is still waiting on a person, read as one line the bar can render.
 //
-// THE LEDGER IS NOT THIS MODULE'S. `store/outstanding-asks/outstanding-ask-journal.ts` holds the
-// lifecycles — which event opens a request, which terminals close it, which id it is
-// keyed on — and holds them OUTSIDE the window they were learned from, because the
+// THE LEDGER IS NOT THIS MODULE'S. The lifecycles — which event opens a request, which
+// terminals close it, which id it is keyed on — are held by
+// `store/session/outstanding-asks/outstanding-ask-journal.ts`, and held OUTSIDE the
+// window they were learned from, because the
 // store's `timeline` is one capped window over a log that may start partway through
 // its session. A fold over that window loses an approval the moment its opening row is
 // pruned or thrown away by the next read, and the bar prints its all-clear line over a

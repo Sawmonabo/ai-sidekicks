@@ -61,7 +61,8 @@ export function CastBarBody(props: CastBarBodyProps): React.JSX.Element {
 
   // Derived under `useMemo` rather than inside the selector: a selector that BUILT
   // a value would defeat zustand's `Object.is` comparison and re-render the bar
-  // every frame, which is the one thing `store/hooks.ts` asks callers not to do.
+  // every frame, which is the one thing `store/session/session-hooks.ts` asks callers
+  // not to do.
   const model = useMemo(
     () =>
       deriveCastBar({

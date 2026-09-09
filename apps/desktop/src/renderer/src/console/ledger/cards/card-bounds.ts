@@ -1,12 +1,13 @@
 // The ledger cards' named figures that are not ceilings.
 //
 // THE CEILINGS ARE NOT HERE, and the reason is a gate rather than a preference:
-// `test/console/architecture/cap-constant-home.test.ts` names `core/constants.ts` the
-// one module a bound may be DECLARED in and fails a view family that declares one of
-// its own, so the seven this module held — the two cache byte caps, the highlight and
-// worker thresholds, the footnote registry's cap, the tool summary's, and the ANSI
-// span cap — are declared there and read through the core door, each carrying the
-// rationale it was written with.
+// `test/console/architecture/cap-constant-home.test.ts` names `core/constants/` the
+// one DIRECTORY a bound may be DECLARED in — its trailing separator is load-bearing,
+// so the flat `core/constants.ts` this home was split out of is not part of it — and
+// fails a view family that declares one of its own, so the seven this module held —
+// the two cache byte caps, the highlight and worker thresholds, the footnote
+// registry's cap, the tool summary's, and the ANSI span cap — are declared there and
+// read through the core door, each carrying the rationale it was written with.
 //
 // What stays is what that gate's own line separates from a ceiling: a figure nothing
 // is checked against. A number that appears inline in this subtree and is not a layout

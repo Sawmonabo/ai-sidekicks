@@ -63,7 +63,7 @@ import {
  * The snapshot grammar's version.
  *
  * A schema version rather than a cap, so it lives with the code that writes and
- * reads the grammar rather than in `core/constants.ts`: the two halves of one
+ * reads the grammar rather than in `core/constants/`: the two halves of one
  * grammar in two files is exactly the drift `src/shared/auxiliary-routes.ts` names.
  * Bump it whenever a member's MEANING changes; a restore of any other value
  * discards the whole record.
@@ -126,7 +126,7 @@ export interface DecodedDeckSnapshot {
 /**
  * This module's refusals, named for the restore they are about.
  *
- * NAMED `Deck` for the reason `sidebar/sidebar-model.ts`'s twin is named `Sidebar`:
+ * NAMED `Deck` for the reason `sidebar/model/sidebar-model.ts`'s twin is named `Sidebar`:
  * the two are sibling restore paths in one family and a shared bare name made them
  * look interchangeable when their refusal types are not.
  */

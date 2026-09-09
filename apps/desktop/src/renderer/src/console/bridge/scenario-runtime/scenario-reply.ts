@@ -10,7 +10,7 @@
 // roster, clock, or frame tables in front of it.
 //
 // The split is load-bearing rather than tidy. `scripted-reply.ts` settles one of these
-// and names nothing else in `scenario.ts`; `wire-truth/reply-walk.ts` holds every
+// and names nothing else in `scenario.ts`; `scenarios/wire-truth/reply-walk.ts` holds every
 // scripted reply in the tree to the wire's own truth and reads no other member of a
 // scenario; and a family branch adding a `readonly ScenarioReply[]` table under
 // `scenarios/` takes this module and not the shape beside it.

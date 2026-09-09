@@ -28,7 +28,7 @@
 // carries entities, and one entity kind answers an ask class authoritatively: a `run`
 // row's `state` is a registered `RunState`, so a run blocked on an approval or an
 // answer says so on the base state whatever the window's own rows hold. The three
-// REQUEST lifecycles have no carrier at all — `store/entities.ts` declares no kind for a
+// REQUEST lifecycles have no carrier at all — `store/entities/entities.ts` declares no kind for a
 // provider ask or an intervention, and an `approval` row's state vocabulary is a
 // renderer-local projection contract that no wire schema registers — so a request
 // raised below the window's head is not merely absent, it is UNREADABLE from here.

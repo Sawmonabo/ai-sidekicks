@@ -1,7 +1,8 @@
 // The chapter body's own viewport: how tall it is, what it holds, and what it says
 // about the rows it does not hold.
 //
-// WHY A CHAPTER SCROLLS INSIDE ITSELF. `core/constants.ts` fixes the chapter's row
+// WHY A CHAPTER SCROLLS INSIDE ITSELF. `core/constants/ledger-structure-caps.ts`
+// fixes the chapter's row
 // ceiling and says why in its own words — the cap "is not about what fits on screen,
 // it is about how many rows one run may mount at once while three sibling runs stream
 // beside it". Until this module the ceiling had only one half of that: the rows past

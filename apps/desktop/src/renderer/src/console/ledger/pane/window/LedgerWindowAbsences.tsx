@@ -14,7 +14,7 @@ import { type LedgerScope } from "../../frame/index.js";
  * The unrecognised count is measured before a channel scope can apply, and an event
  * this build cannot place carries no channel it could be counted under — so a channel
  * pane says it is the session's fact rather than implying its own. It is a subject
- * noun and not a second set of sentences: `primitives/window-absence.ts` writes the
+ * noun and not a second set of sentences: `primitives/absence/window-absence.ts` writes the
  * words, and this decides only which things they are about.
  */
 const SESSION_WIDE_SUBJECT: Readonly<Record<LedgerScope, string>> = {
@@ -46,7 +46,7 @@ interface LedgerWindowAbsencesProps {
  * two told them rows they can scrub back to in a keystroke were gone for good.
  *
  * THE SENTENCES ARE THE CONSOLE'S NOW, NOT THIS LEDGER'S. Six families each wrote
- * their own wording for this case and they disagreed; `primitives/window-absence.ts`
+ * their own wording for this case and they disagreed; `primitives/absence/window-absence.ts`
  * says it once and this hands it the readings it derived. One behaviour change comes
  * with that, on purpose: the never-received arm used to render as `not-loaded`, whose
  * skeleton branch drops `title` and `detail`, so its sentence reached nobody. The

@@ -29,7 +29,7 @@
 // not. `driver.respondToRequest` is a member of `MUTATING_DAEMON_METHODS`, so the
 // console's own registration already says a supervisor that is not serving closes this
 // control — and this was the one dispatcher on that seam not asking. The two readings
-// are the ones `store/shell-mutation-block.ts` names and they answer different
+// are the ones `store/shell/shell-mutation-block.ts` names and they answer different
 // questions: the SUBSCRIBED block draws the control and rides it as its disabled
 // reason, and the block read at the instant of the call decides whether the write is
 // put, because a report landing between the render and the press leaves a
@@ -37,7 +37,7 @@
 //
 // A CLOSED CONTROL SETTLES AS A REFUSAL AND NOT AS SILENCE, through the same shape
 // the invitation mint's block takes: the shell's own words, minted by
-// `store/shell-mutation-block.ts` so neither surface spells the origin. The
+// `store/shell/shell-mutation-block.ts` so neither surface spells the origin. The
 // participant's text is carried on it exactly as a wire refusal carries it, so the
 // draft survives and pressing again once the runtime is back IS the retry.
 
@@ -60,7 +60,7 @@ import { ASK_ANSWER_UNSENT, type DriverAskDelivery } from "../bodies/index.js";
  * The wire method an answer travels, named once.
  *
  * The `satisfies` IS the binding, on `collaboration/invites/create-invite-act.ts`'
- * precedent: `store/shell-mutation-block.ts` is the console's registration of what a
+ * precedent: `store/shell/shell-mutation-block.ts` is the console's registration of what a
  * supervisor's condition closes, so an answer that ever left that tuple stops
  * compiling here rather than quietly going back to being dispatchable through a
  * stopped shell.

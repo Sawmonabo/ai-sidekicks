@@ -2,7 +2,7 @@
 //
 // THE DEFECT THE SEAM MOVED FOR. The hand-off used to be constructed here, in a cell
 // held for the surface's mount — and `ledger/index.ts` keys the workspace on the
-// route's session inside a surface `frame/RouteSurface.tsx` keys on the whole address,
+// route's session inside a surface `frame/composition/RouteSurface.tsx` keys on the whole address,
 // so leaving a session unmounted it. The shell kept the auxiliary windows open,
 // because they are the shell's and nobody asked it to close them, and the deck came
 // back with an empty detached set: the pane drew its body here while its own window

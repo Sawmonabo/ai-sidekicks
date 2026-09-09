@@ -4,12 +4,12 @@
 // interactions — "scroll-to-tail, jump-to-event-by-ID, filter-by-participant /
 // event-type" — and find sits beside them under `find-model.ts`. All of them are
 // renderer-local offers, and this console registers every one of them as a palette
-// command through `palette/contributions.ts` and never through a second command
+// command through `palette/commands/contributions.ts` and never through a second command
 // registry.
 //
 // THE VALUES ARE BUILT HERE AND CONTRIBUTED THROUGH THE ONE COMMAND DOOR.
 // `ConsoleCommand` and `KeyBinding` come from the palette's contribution types, and
-// `registerLedgerCommands` hands both to `palette/console-commands.ts` — the same door
+// `registerLedgerCommands` hands both to `palette/commands/console-commands.ts` — the same door
 // the frame's own commands go through, and the same shape as this family's surface
 // and pane claims: the family registers itself, and the frame names no family.
 // Building the list and contributing it stay separate functions, because a caller

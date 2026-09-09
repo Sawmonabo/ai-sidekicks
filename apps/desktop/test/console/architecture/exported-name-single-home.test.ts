@@ -20,7 +20,7 @@
 //
 // WHY THESE TWO SCOPES AND NOT "no exported name twice". Measured before it was written:
 // the console's production modules carry 34 name collisions over 5,466 exported names,
-// and most are deliberate — `Body` is fixed by `seats/lazy-body.ts` so every loader
+// and most are deliberate — `Body` is fixed by `seats/lazy-body/lazy-body.ts` so every loader
 // composes one specifier shape, and each fixture cast names the participants its own
 // scenario seats. A gate quantified over all of them would be a gate with a long
 // exemption list, which is a second home for the very decision it is meant to make. The

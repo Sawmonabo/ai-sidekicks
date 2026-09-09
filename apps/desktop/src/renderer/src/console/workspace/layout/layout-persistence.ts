@@ -17,7 +17,8 @@
 // the life of the MOUNT describes whichever session happened to produce it first: the
 // restore refusals were exactly that, and a session whose saved layout could not be read
 // left its errors standing over the next session's deck. Both the gate and the refusals
-// go through `store/subject-scoped-state.ts` on the same `(arrangement, session)` pair.
+// go through `store/subject-scoped/subject-scoped-state.ts` on the same
+// `(arrangement, session)` pair.
 //
 // AND A READ THAT FAILED IS NOT A FIRST RUN. The store's `readOutcome` answers
 // `present`, `absent`, or `failed` for exactly this: the fallback ledger pane is
@@ -84,9 +85,10 @@ export function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): Wor
  * from wherever they are asked.
  *
  * WHAT IT IS ADDRESSED BY IS THE POINT. Held per `(arrangement, session)` through
- * `store/subject-scoped-state.ts`, so routing to another open session re-arms it and a
- * `UiStateStore` REPLACEMENT — a reconnect re-mints the store and hands it down
- * without remounting anything — does not. A restore that re-ran there would replace a
+ * `store/subject-scoped/subject-scoped-state.ts`, so routing to another open session
+ * re-arms it and a `UiStateStore` REPLACEMENT — a reconnect re-mints the store and
+ * hands it down without remounting anything — does not. A restore that re-ran there
+ * would replace a
  * deck the person has been arranging for minutes with whatever the record holds,
  * which reads as the window silently undoing their work.
  *

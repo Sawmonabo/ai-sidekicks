@@ -1,6 +1,6 @@
 // The re-read that actually re-reads.
 //
-// The FOLD it reads back through is `store/peer-invocation-projection.ts`' and is
+// The FOLD it reads back through is `store/session/peer-invocation-projection.ts`' and is
 // held to its own cases beside that module. What is asserted here is the act this
 // family owns — that pressing the offered recovery asks the daemon and lands the
 // reply — and the fold is the instrument the cases read the store back with.
@@ -32,7 +32,7 @@ import { SessionProjectionReRead } from "./session-projection.js";
  *
  * The projected ROW rather than the fold over it, because what these cases are about
  * is the re-read: whether the reply landed in the store at all. The fold's own rule —
- * that an absent member is never `false` — is `store/peer-invocation-projection.ts`'s
+ * that an absent member is never `false` — is `store/session/peer-invocation-projection.ts`'s
  * to state and its own co-located test's to check.
  */
 function projectedGrantIn(sessionStore: SessionStore): unknown {

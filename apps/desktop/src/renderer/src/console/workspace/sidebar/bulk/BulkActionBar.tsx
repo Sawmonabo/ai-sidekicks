@@ -20,9 +20,9 @@
 // held for the life of the MOUNT outlived the rows it was staged for: the preview
 // re-read `selectedFor` against the arriving model and drew the NEW session's rows
 // under a confirm nobody had opened for them, one press from running over them. It goes
-// through `store/subject-scoped-state.ts` on the model, which is the subject the whole
-// question is about — the pass that first sees a new one already reads no pending act,
-// so no frame ever carries the stale confirm.
+// through `store/subject-scoped/subject-scoped-state.ts` on the model, which is the
+// subject the whole question is about — the pass that first sees a new one already
+// reads no pending act, so no frame ever carries the stale confirm.
 
 import { type ConsoleBridge } from "../../../bridge/index.js";
 import { DerivedFigure } from "../../../primitives/index.js";

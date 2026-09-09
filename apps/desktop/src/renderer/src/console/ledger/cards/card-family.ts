@@ -35,7 +35,7 @@ import type { GlyphName } from "../../tokens/index.js";
  * Every card family a ledger row can take. Closed.
  *
  * The tuple is the declaration and the union is derived from it, for the reason
- * `primitives/Chip.tsx` gives about its own tone set: a sixth family added to a
+ * `primitives/figures/Chip.tsx` gives about its own tone set: a sixth family added to a
  * hand-written union while the table below stayed at five would render a row through
  * a descriptor that does not exist.
  */

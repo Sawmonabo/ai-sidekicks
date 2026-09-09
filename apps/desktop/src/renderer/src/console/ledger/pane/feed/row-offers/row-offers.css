@@ -5,7 +5,7 @@
  * it, and a door reaching into a directory that owns its own sheet is what
  * `apps/desktop/AGENTS.md` §Module shape forbids.
  *
- * WHAT IS DELIBERATELY NOT HERE: the reveal. `primitives/ledger-row.css` owns
+ * WHAT IS DELIBERATELY NOT HERE: the reveal. `primitives/figures/ledger-row.css` owns
  * `meridian-ledger-row__revealed` — the row decides WHEN a secondary control appears
  * and this family decides what the control is — so a `:hover` rule here would be a
  * second family declaring the primitive's class and would make the reveal a question

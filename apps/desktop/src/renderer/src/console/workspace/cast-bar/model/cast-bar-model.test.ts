@@ -7,10 +7,10 @@
 // the fixture would simply never produce that kind.
 //
 // Attention is no longer a second kind table here: it is held per lifecycle by
-// `store/outstanding-asks/outstanding-ask-journal.ts`, whose co-located test makes the same census
-// claim over the kinds it keys on, and read through `outstanding-asks.ts`. The case
-// below is the seam — that this derivation reads that ledger rather than the newest
-// row.
+// `store/session/outstanding-asks/outstanding-ask-journal.ts`, whose co-located test
+// makes the same census claim over the kinds it keys on, and read through
+// `outstanding-asks.ts`. The case below is the seam — that this derivation reads that
+// ledger rather than the newest row.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";

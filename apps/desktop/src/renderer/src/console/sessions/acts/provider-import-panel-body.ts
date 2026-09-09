@@ -25,6 +25,6 @@
 // progress line it draws. `session-acts.css` stays on the sessions family door, which
 // owns it and dresses the bar the destination paints.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 export { ProviderImportPanel as Body } from "./ProviderImportPanel.js";

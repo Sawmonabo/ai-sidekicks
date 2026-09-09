@@ -24,7 +24,7 @@
 // shape a fresh node is in.
 //
 // The other four are `FIXTURE_SCRIPT_ONLY`, and they fall on that side for the three
-// reasons `fixture-served-operations.ts` enumerates. A failure detail and a stall
+// reasons `call-plane/served-operations.ts` enumerates. A failure detail and a stall
 // reading are READS ADDRESSED BY A SUBJECT — each answers with facts about one named
 // run, so an empty form would assert the run exists and has nothing wrong with it. The
 // recovery request is a WRITE, whose synthesized receipt would tell the page the daemon

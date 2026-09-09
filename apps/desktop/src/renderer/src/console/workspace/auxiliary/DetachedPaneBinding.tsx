@@ -25,7 +25,7 @@ const DETACHED_PANE_BINDING_ORIGIN = "detached-pane-binding";
 /**
  * How a registry ends: it is disposed, and a disposed one is readable.
  *
- * The terminal arm `frame/session-lifecycle.ts` states for the window's session
+ * The terminal arm `frame/session/session-lifecycle.ts` states for the window's session
  * plumbing, and for its reason: React's double-mount would otherwise re-commit the
  * retired registry, and this window would go on filing hand-offs in a map nothing
  * reads.

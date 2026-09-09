@@ -31,7 +31,7 @@
 // the move, which is the one risk it carries and the reason the collision was measured
 // rather than assumed.
 //
-// Named `Body` because `seats/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
 
 import "./restore.css";
 

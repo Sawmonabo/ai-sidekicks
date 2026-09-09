@@ -51,7 +51,7 @@
 // controls beside this one — start, join, import — have carried that cause since they
 // were drawn, and this one did not: it took the bridge and nothing else, and stayed
 // live through a stopped supervisor while the sentence above it said mutations could
-// not be put. The cause arrives through `seats/new-session-seat.ts` rather than being
+// not be put. The cause arrives through `seats/slots/new-session-seat.ts` rather than being
 // derived here, because a control that recomputed its own eligibility would be a
 // second source of truth for a fact the stores own — and it arrives as a reading
 // answering at two moments, because the guard behind the affordance has to ask again
@@ -67,7 +67,7 @@
 // while a send is in flight, and "+ New" is reachable the moment it is — so a send
 // can settle over a composition that is not the one it was sent for. The result, the
 // announcement and the sending flag are therefore held per DRAFT, through
-// `store/subject-scoped-state.ts`: a publisher captured when Send was pressed names
+// `store/subject-scoped/subject-scoped-state.ts`: a publisher captured when Send was pressed names
 // the draft that pressed it, and installs nothing once the composition on screen is
 // another one. Two sends in flight is the case that has to be per-draft: one boolean
 // over two drafts re-enables Send under a composition that is still waiting.
@@ -76,7 +76,7 @@
 // the bridge it was composed against and sends `session.create` through that one, so
 // a bridge REPLACEMENT — a reconnect, a second window's own instance, the fixture's
 // scenario switch — leaves a draft addressed to a transport that is gone. The draft
-// is held through `store/subject-scoped-resource.ts` on the bridge, so a replacement
+// is held through `store/subject-scoped/subject-scoped-resource.ts` on the bridge, so a replacement
 // discards it and the control offers "+ New" again on the live one. That loses a
 // composition, and it is the honest half of the trade: the alternative is a Send that
 // looks ordinary and either never lands or lands somewhere the console will not read
@@ -87,7 +87,7 @@
 // left a form on screen with Send still enabled and a real daemon session the console
 // could not name — absent from the all-sessions list until some later directory read
 // happened to notice it, and carrying none of the origin markers only this window can
-// report. The control now names the session through `seats/new-session-seat.ts`, and
+// report. The control now names the session through `seats/slots/new-session-seat.ts`, and
 // the destination that mounts it settles the start on its own terms.
 //
 // AND IT IS THE COMPLETED ARM ALONE. A partial send made a session too, and the draft

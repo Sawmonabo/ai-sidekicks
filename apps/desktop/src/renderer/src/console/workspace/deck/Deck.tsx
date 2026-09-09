@@ -8,7 +8,7 @@
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
 // separators, the keyboard paths, and the one door each pane body is mounted
 // through. It is NOT any pane's content — every body comes from
-// `seats/pane-registry.ts`, resolved by kind, so a second open of the same
+// `seats/pane/pane-registry.ts`, resolved by kind, so a second open of the same
 // entity focuses the pane that already exists.
 //
 // FOUR DECISIONS WORTH STATING:
@@ -106,7 +106,7 @@ export interface DeckProps {
   readonly lostWindowNoticesByPaneId?: ReadonlyMap<string, ConsoleRefusal>;
   readonly onDismissLostWindow?: (paneId: string) => void;
   /** Where measured pane rects go, for a body that hosts a native view.
-   * `deck/rect/rect/rect-discipline.ts` holds the rules. */
+   * `deck/rect/rect-discipline.ts` holds the rules. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
 }
 
@@ -280,7 +280,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
    * second through the persistence writer. `onLayoutChange` fires on every frame of
    * the drag and does exactly one thing: invalidates the pane rects, so a native
    * view hosted in a pane tracks its bounds THROUGH the resize rather than jumping
-   * to them at the end of it (`deck/rect/rect/rect-discipline.ts`). It is a read, queued to the
+   * to them at the end of it (`deck/rect/rect-discipline.ts`). It is a read, queued to the
    * next frame by the tracker; it writes no layout, which is the rule that callback
    * exists under.
    */

@@ -1,7 +1,7 @@
 // The fixture shell for the timeline row seat — the stand-in, and its own death notice.
 //
 // THE ABSORB-BY-IMPORT RULE, which this file is one half of.
-// `seats/single-slot/timeline-row-slot.ts` states it: the seat is filled TWICE, in two changes,
+// `seats/slots/timeline-row-slot.ts` states it: the seat is filled TWICE, in two changes,
 // and the second DELETES the first. This is the first — a row that renders the ledger's cards
 // against fixture scenarios so the timeline surface is real before Plan-013's rows
 // exist. The `timeline/` subtree, which Plan-013 owns, replaces this registration in its

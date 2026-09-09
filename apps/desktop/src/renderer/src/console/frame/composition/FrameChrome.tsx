@@ -54,7 +54,7 @@ export interface FrameChromeProps {
    * Extra content one banner draws beneath its row, or nothing for that banner.
    *
    * A SLOT BECAUSE `FrameBanner` IS STORE DATA. That shape is what the frame store
-   * holds — `store/frame-store.ts` keeps its React import type-only — so a banner
+   * holds — `store/shell/frame-store.ts` keeps its React import type-only — so a banner
    * whose producer has more to say than a code and a sentence cannot say it on the
    * banner itself. The version mismatch is the case: its protocol pair and the
    * runtime's published set are facts a `FrameBanner` has no member for, and drawing

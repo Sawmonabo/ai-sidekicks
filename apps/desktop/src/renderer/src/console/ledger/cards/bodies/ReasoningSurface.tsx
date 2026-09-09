@@ -25,7 +25,7 @@
 // COMPONENTS. A `.tsx` module declares one component, and none of these five holds
 // state, an effect, or an identity a reader could mount independently — each is a
 // branch of this body's own render, so each is a plain function returning a node,
-// which is the shape `primitives/Nothing.tsx` already uses for the same reason.
+// which is the shape `primitives/absence/Nothing.tsx` already uses for the same reason.
 //
 // THE CONTROL IS FAIL-CLOSED ABOUT ELIGIBILITY. The read is run-scoped; a row with
 // no run attribution is a row the read could never answer for, so the control is

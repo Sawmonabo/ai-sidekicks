@@ -224,7 +224,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
     // The plane, on whichever arm this build is: the installed shell's own handler
     // where an Electron main process is underneath, and the typed `shell-absent`
-    // refusal where none is. `fixture-auxiliary-windows.ts` states both.
+    // refusal where none is. `../shell/auxiliary-windows.ts` states both.
     auxiliaryWindows: createFixtureAuxiliaryWindowPort(shell),
     // The attention plane moves with playback, so a delivered beat IS the moment it
     // may have changed. `growth/attention-derivation.ts` folds the delivered prefix

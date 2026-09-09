@@ -11,7 +11,7 @@
 // The viewport's own `hasEarlierRows` is true when its CAP took rows this store
 // still holds, so a control here would fetch rows the console already has, and the
 // backward read that fetches the ones it does NOT is the viewport's — see
-// `ledger/pane/feed/LedgerFeed.tsx`, which owns that decision. That is why the find
+// `ledger/pane/feed/surface/LedgerFeed.tsx`, which owns that decision. That is why the find
 // result carries no copy of that clip: nothing here would branch on one.
 //
 // TWO BOUNDARIES, NOT ONE. `LEDGER_FIND_SCOPE_NOTE` bounds what was SEARCHED; the

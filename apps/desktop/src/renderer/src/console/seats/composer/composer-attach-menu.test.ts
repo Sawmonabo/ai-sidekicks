@@ -1,7 +1,7 @@
 // The composer's attach menu: what a family may contribute, and what it may not.
 //
 // The registry is module-scope, so every case clears it first — the discipline
-// `single-slot/composer-seat.ts`'s own scaffolding names, applied here for the same reason.
+// `composer-seat.ts`'s own scaffolding names, applied here for the same reason.
 
 import { afterEach, describe, expect, it } from "vitest";
 

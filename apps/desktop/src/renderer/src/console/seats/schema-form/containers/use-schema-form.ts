@@ -227,7 +227,7 @@ export function useSchemaForm(inputSchema: unknown): SchemaFormState {
       // fetch raises is about the transport, and the arm's own sentence is what a person
       // reads.
       //
-      // NO RETRY, AND THE SUBSTRATE'S OWN ONE IS NOT REACHABLE HERE. `seats/lazy-body.ts`
+      // NO RETRY, AND THE SUBSTRATE'S OWN ONE IS NOT REACHABLE HERE. `seats/lazy-body/lazy-body.ts`
       // offers one, but it is a MOUNT retry — a rejected load clears its memo and the
       // surface error boundary remounts the subtree — and that shape needs a BODY to
       // remount. What failed here is a value read inside a hook, and throwing it to a

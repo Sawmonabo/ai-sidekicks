@@ -1,9 +1,9 @@
 // One reader for the scripted `session.read` reply, because two derivations need it.
 //
 // A scenario's session read is its statement of what that session IS, and two
-// modules beside this one derive different facts from it: `fixture-session-
-// directory.ts` reads the state, to decide whether the node lists the session at all,
-// and `fixture-session-snapshot.ts` reads the cursor block, so the store that opens on
+// modules beside this one derive different facts from it: `session-directory.ts`
+// reads the state, to decide whether the node lists the session at all,
+// and `session-snapshot.ts` reads the cursor block, so the store that opens on
 // that session can run the resume rule against real positions.
 //
 // The reply's `result` is deliberately untyped — a scenario carries any registered

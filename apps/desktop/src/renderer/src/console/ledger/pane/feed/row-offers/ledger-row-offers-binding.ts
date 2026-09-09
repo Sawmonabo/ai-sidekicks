@@ -17,7 +17,7 @@
 // never reached the screen would scroll to a row nobody can see.
 //
 // AND BOTH HOST CALLS ARE WRAPPED AT THE CALL RATHER THAN AT THE PROMISE.
-// `palette/bridge-commands.ts` records why: the shipped bridge implements every
+// `palette/commands/bridge-commands.ts` records why: the shipped bridge implements every
 // method as a synchronous `throw` while the fixture returns a rejected promise, so a
 // boundary attached only to the returned promise catches the fixture and lets the
 // release build's throw escape into a press handler that drops it — and the person
@@ -165,7 +165,7 @@ export interface LedgerRowOffersBinding extends LedgerRowOfferResolution {
  * Bind a window's row offers to the surfaces that carry them out.
  *
  * Separate from the hook below so the behaviour can be driven without a React tree —
- * `palette/bridge-commands.ts`' split, for its reason: the hook is the wiring and
+ * `palette/commands/bridge-commands.ts`' split, for its reason: the hook is the wiring and
  * this is the behaviour, and a test that had to render to reach the behaviour would
  * be proving both at once.
  */

@@ -23,7 +23,7 @@
 // the whole point of subscribing to the store's own partition is that there is one.
 //
 // AND THE READING ITSELF IS NOT HERE. `usePeerInvocationProjection` and the fold it
-// runs live in `store/peer-invocation-projection.ts`, because a second view family —
+// runs live in `store/session/peer-invocation-projection.ts`, because a second view family —
 // the ledger's empty window — reads the same member and siblings may not import each
 // other. What stays in this module is the act this family can perform and that one
 // cannot: a bridge call.

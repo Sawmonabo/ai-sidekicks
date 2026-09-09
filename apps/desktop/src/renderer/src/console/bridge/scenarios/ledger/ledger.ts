@@ -24,7 +24,7 @@
 // `packages/contracts/src/event.ts`, are the code leg, and the per-type payload rows of
 // `docs/specs/006-session-event-taxonomy-and-audit-log.md` name the members of a
 // registered type whose strict variant has not landed yet. That predicate holds this file
-// to the code leg, and `scenarios/ledger-script.ts` carries the payload builders so a
+// to the code leg, and `ledger-script.ts` carries the payload builders so a
 // member cannot drift between two beats of one kind.
 //
 // FIVE THINGS THE DESIGN ASKS FOR THAT THIS SCRIPT DELIBERATELY DOES NOT SAY
