@@ -35,9 +35,9 @@
 // move from `bridge.growth.<operation>(…)` to `callDaemon(bridge, "<method>", …)`.
 //
 // ONE MODULE PER WIRE PLANE, AND THE SET STAYS CLOSED. The table used to be one
-// module, and its length was its row count — one entry per wire the console does not
-// yet have, growing with every lane that added one until it was past the ~400-line
-// rule `apps/desktop/AGENTS.md` sets. What that file's own header argued was that
+// module holding every wire plane at once — one entry per wire the console does not
+// yet have, growing with every lane that added one until the planes were plainly the
+// seam it should have split on. What that file's own header argued was that
 // splitting it would split one closed set across two files, so a member that landed
 // in neither half would become a silently absent one. That is true of two SEPARATE
 // tables and false of the composition below: `GrowthOperationSignatures` is one

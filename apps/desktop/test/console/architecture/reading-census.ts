@@ -3,7 +3,7 @@
 // THE CENSUS BESIDE THE CLAIMS, on this tier's own `barrel-census.ts` /
 // `source-walk-census.ts` shape: `read-triggers.test.ts` states the rule, pins the
 // readings that exist, and plants the controls; this module is the reading. The two
-// split when the file carrying both passed 400 lines.
+// split on the seam between stating a rule and reading the tree it quantifies over.
 //
 // EVERY NAME HERE IS BOUND TO THE MODULE IT CAME FROM, and none is matched as text. A
 // class declaring a field typed by a LOCAL `ConsoleBridge`, or constructing a local

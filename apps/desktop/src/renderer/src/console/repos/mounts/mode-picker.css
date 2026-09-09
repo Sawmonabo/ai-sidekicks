@@ -1,8 +1,8 @@
 /*
  * The execution-mode picker: every mode a mount admits, and every mode it does not.
  *
- * SPLIT OUT OF `mounts.css` WHEN THAT SHEET PASSED THE PACKAGE'S ~400-LINE RULE, along
- * its own `mode picker` banner and verbatim — a move, not a restyle. It is a SIBLING of
+ * SPLIT OUT OF `mounts.css` ON THE SEAM ITS OWN BANNER ALREADY DREW, taking that
+ * `mode picker` banner with it and moving verbatim — a move, not a restyle. It is a SIBLING of
  * `mounts.css` rather than a resident of `bind/`, because ownership follows the
  * components: these rules dress `mounts/ExecutionModePicker.tsx` and
  * `mounts/ModeRowView.tsx`, both of which live in this directory.

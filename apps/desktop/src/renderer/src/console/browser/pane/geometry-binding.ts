@@ -3,8 +3,8 @@
 // Split from `BrowserPane.tsx`, which is the surface: this is the binding underneath
 // it — one publisher, the host it writes to, and the subject both were resolved under
 // — and the three rules that keep it honest across a subject swap. None of them is a
-// rendering decision, and all three are the kind of thing a reader of a 400-line
-// component would skip.
+// rendering decision, and all three are the kind of thing a reader who came for the
+// component's markup would skip.
 //
 // A BINDING OUTLIVES ITS SUBJECT. React keeps a pane instance while the window hands
 // it a different bridge or the deck hands it a different pane, so every rule here is

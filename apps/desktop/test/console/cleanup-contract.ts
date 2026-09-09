@@ -1,7 +1,7 @@
 // What a bounded cleanup is TOLD, and what it is told about.
 //
-// Split out of `bounded-cleanup.ts` when that file passed 400 lines carrying two
-// subjects. This is the contract — the three collaborators a cleanup is handed,
+// Split out of `bounded-cleanup.ts` on the seam between its two subjects. This is
+// the contract — the three collaborators a cleanup is handed,
 // the clock it charges its phases against, and the verdict it returns — and the
 // file beside it is the race that produces one. The seams are the whole reason
 // that race is checkable: no fixture makes a browser process refuse to close on

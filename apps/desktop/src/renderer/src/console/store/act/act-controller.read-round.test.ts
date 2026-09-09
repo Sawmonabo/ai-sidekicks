@@ -5,8 +5,8 @@
 // cases are about the pairing underneath — that a prerequisite read is performed
 // inside a round, that the round is the scheduler's own rather than a second register
 // beside it, and that the two ways a round ends reach the read itself and not only its
-// settlement. Splitting them keeps each file's subject singular and both under the
-// package's 400-line ceiling.
+// settlement. Splitting them keeps each file's subject singular, which is the seam
+// `apps/desktop/AGENTS.md` §Module shape splits on.
 //
 // THE REAL CLASS, THE REAL SCHEDULER, AND THE REAL SCOPE. Only the read closure is the
 // test's — it is a parameter of the class — which is what lets these cases hold an

@@ -21,8 +21,8 @@
 // What this file holds is the RACE — which settlement a close reaches, and
 // whether the profile came off disk. What a caller is then TOLD about that
 // verdict, and which of two failures a reader sees when the body failed too, is
-// `cleanup-disposition.test.ts`: the two were one file until it passed 400 lines
-// carrying both subjects, which is the split `frame-witness.test.ts` and
+// `cleanup-disposition.test.ts`: the two were one file until the seam between both
+// subjects was drawn, which is the split `frame-witness.test.ts` and
 // `launch-deadline.test.ts` already made for the same reason — and
 // `bounded-cleanup-retry.test.ts` is that same split made a second time, for the
 // one outcome that is not a race: a platform that reports the kill was refused,

@@ -11,8 +11,8 @@
 // that cannot reach the network or the clock cannot accidentally become flaky.
 //
 // WHAT IS NOT HERE. The engine that plays one, which is `scenario-engine.ts`. The
-// two were one file until it grew past the ~400-line rule `apps/desktop/AGENTS.md`
-// sets, and the seam that growth was crossing is exactly this one — WHAT a scenario
+// two were one file until the seam `apps/desktop/AGENTS.md` §Module shape splits on
+// was drawn between them, and that seam is exactly this one — WHAT a scenario
 // is, against HOW it is played. The split is load-bearing rather than tidy: a seat
 // board, the scenario manifest, and the architecture tier that holds every scenario
 // to the wire's own truth all DESCRIBE scenarios and play none, so they stop here

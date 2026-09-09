@@ -1,7 +1,7 @@
 // The stand-ins two cleanup suites drive, and why each one is a stand-in.
 //
-// Split out of `bounded-cleanup.test.ts` when that file passed 400 lines carrying
-// two subjects — the settlement a close reaches, and what a REFUSED kill costs —
+// Split out of `bounded-cleanup.test.ts` on the seam between its two subjects —
+// the settlement a close reaches, and what a REFUSED kill costs —
 // which is the same split that file's own header records making once already. The
 // scaffolding is what both subjects share: an application whose close never
 // settles, a terminator that answers however a case needs, and a profile that

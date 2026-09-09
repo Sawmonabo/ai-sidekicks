@@ -1,10 +1,16 @@
 // Where a file NAME is classified, and that the split which moved it is real.
 //
-// `console-source-modules.ts` had grown to 404 lines holding two jobs: the WALK
-// — roots, recursion, display path, read — and the classification of a name
-// against it. The package's own threshold says a file that long is doing two
-// jobs, and this one was, so the name test moved to
+// `console-source-modules.ts` held two concepts: the WALK — roots, recursion,
+// display path, read — and the classification of a name against it. Those are
+// two jobs whatever the file's length, so the name test moved to
 // `console-source-classification.ts` beside it.
+//
+// THE SEAM IS THE REASON AND THE LENGTH NEVER WAS. `apps/desktop/AGENTS.md`
+// §Module shape splits a file on the seam between two concepts and never on a
+// line count — a file past 900 lines is a review prompt, not a defect — so this
+// file asserts the seam and asserts no size. A pair of halves that measured well
+// and answered one question twice would be the defect the size claim could not
+// see, and the cases below are what actually catch it.
 //
 // A SPLIT IS ONLY A SPLIT IF THE SECOND HOME IS THE ONLY HOME. Moving the
 // declarations and leaving a second extension list or a second declaration
@@ -37,32 +43,8 @@ import { moduleSpecifiersIn } from "./source-walk-census.js";
 const WALK_MODULE = "test/console/console-source-modules.ts";
 const CLASSIFICATION_MODULE = "test/console/console-source-classification.ts";
 
-/**
- * The length at which `AGENTS.md §Module shape` says a file is doing two jobs.
- *
- * "About 400 lines", read as a bound rather than as a mood: a threshold a gate
- * cannot state is a threshold nothing enforces, and the figure is the package's
- * own rather than this file's. It is applied HERE to the split pair and not to
- * the tree, because the tree carries files past it that this PR neither authored
- * nor is splitting — a package-wide gate is a different change with a different
- * blast radius, and stating it as one here would either fail on arrival or be
- * exempted into meaninglessness.
- */
-const SPLIT_THRESHOLD_LINES = 400;
-
-/** Whether a module of `lines` is past the point at which the package splits it. */
-function isDoingTwoJobs(lines: number): boolean {
-  return lines > SPLIT_THRESHOLD_LINES;
-}
-
 /** The pair, walked and read once for the whole file. */
 const MODULES = consoleSourceModules({ roots: DESKTOP_PROSE_ROOTS, tests: true });
-
-function linesOf(displayPath: string): number {
-  return readModuleNamed(MODULES, displayPath, "a half of the source-classification split").split(
-    "\n",
-  ).length;
-}
 
 /** Every string literal the module writes, read off the parse rather than the text. */
 function stringLiteralsIn(displayPath: string): readonly string[] {
@@ -89,33 +71,6 @@ function regularExpressionsIn(displayPath: string): readonly string[] {
 }
 
 describe("the source walk and the name test are two modules", () => {
-  it("keeps each half under the length at which this package splits a file", () => {
-    const walkLines = linesOf(WALK_MODULE);
-    const classificationLines = linesOf(CLASSIFICATION_MODULE);
-
-    expect(isDoingTwoJobs(walkLines), `${WALK_MODULE} is ${String(walkLines)} lines`).toBe(false);
-    expect(
-      isDoingTwoJobs(classificationLines),
-      `${CLASSIFICATION_MODULE} is ${String(classificationLines)} lines`,
-    ).toBe(false);
-    // And the split is doing work rather than being cosmetic: the two halves
-    // together are past the threshold, so this is a file that had to be divided
-    // and not one that was tidied into two.
-    expect(
-      isDoingTwoJobs(walkLines + classificationLines),
-      "the two halves together fit under the threshold, so nothing here needed splitting and the second module is ceremony",
-    ).toBe(true);
-  });
-
-  it("negative control: the threshold answers yes to the length that forced the split", () => {
-    // Without this the case above passes over any threshold generous enough by
-    // accident — including one raised until the tree fits. The figure driven is
-    // the module's own measured length before the split, so the control is a
-    // fact about this change rather than a number invented for it.
-    expect(isDoingTwoJobs(404)).toBe(true);
-    expect(isDoingTwoJobs(SPLIT_THRESHOLD_LINES)).toBe(false);
-  });
-
   it("leaves the walk asking for a classification rather than making one", () => {
     // THE SUBSTANTIVE CLAIM. A second extension list or a second declaration
     // pattern left behind is two answers to one question, and the module each

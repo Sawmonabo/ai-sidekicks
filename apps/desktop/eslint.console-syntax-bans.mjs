@@ -4,8 +4,8 @@
 // export below into its own array, so there is still exactly one place a reviewer reads
 // to know what the console may not write. It lives here because the bans and their
 // derivations had grown past the point where the import boundary above them was still
-// findable in the same file — the package's own rule is that a file over about 400 lines
-// is doing two jobs, and the import boundary and the syntax bans are two.
+// findable in the same file — the package's own rule is that a file holds one concept and
+// splits on the seam between two, and the import boundary and the syntax bans are two.
 //
 // Everything the block needs to say about itself is said in the block. Nothing else in
 // the package imports this module.

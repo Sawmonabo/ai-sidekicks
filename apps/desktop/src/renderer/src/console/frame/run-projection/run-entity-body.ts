@@ -3,9 +3,8 @@
 // `run-lifecycle-projector.ts` beside it answers WHICH run a beat mutates and whether
 // the beat may be folded at all. This answers what the fold then carries: the member
 // vocabulary, the reader per shape, and the walk that composes a body out of an
-// untyped payload. The two were one file until it passed this package's size ceiling,
-// and the seam is that one changes when the FOLD's rules change and this one changes
-// when the wire's members do.
+// untyped payload. The two were one file until the seam between them was drawn: one
+// changes when the FOLD's rules change and this one changes when the wire's members do.
 //
 // Nothing here reads the store or the event envelope — a member name, a payload, and
 // a reader are the whole subject — which is why the split is clean in one direction:
