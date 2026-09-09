@@ -107,20 +107,6 @@
 // made. The chip reads that answer as knowing nothing about a binding, which is a
 // different rendering from its refused arm.
 //
-// WHY THE SHELL'S NOTIFICATION-PERMISSION READ IS SERVED FROM THE SCRIPT
-//
-// `native.showNotification` returns `void`, so the emission path reports nothing: a
-// machine that will not display a notification is indistinguishable, from inside the
-// renderer, from one that just did. The notification centre has an arm for exactly
-// that state — it is the only surface these items reach a person on, and it says so —
-// and no bridge member carries the fact, so the read is the growth port's.
-//
-// It is served here so a scenario can put the centre in that arm, and it REFUSES for
-// a scenario that scripts nothing, which is `callerParticipantRead`'s disposition
-// rather than the invite ledger's: a permission has no empty form. "Nobody asked"
-// is a true statement about a script that has not said, and answering `granted`
-// would be the fixture promising a notification nothing in the console can deliver.
-//
 // WHY THE TWO LEASE OPERATIONS ARE SERVED, AND WHY THAT IS ABOUT REFUSALS
 //
 // The terminal's write lease is the one surface in the console whose interesting
