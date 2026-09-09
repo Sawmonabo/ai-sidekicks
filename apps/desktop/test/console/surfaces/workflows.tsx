@@ -79,7 +79,7 @@ import { MAXIMUM_LIVE_DRAFT_COUNT } from "../../../src/renderer/src/console/core
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 // The leaf and not the seats door, on `settled-capture.ts`'s reasoning: the reader has no
 // production caller, so the door does not publish it.
-import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pending-pane-body.js";
+import { pendingPaneKindsIn } from "../../../src/renderer/src/console/seats/pane/pending-pane-body.js";
 import {
   FrameStore,
   SessionStore,

@@ -8,7 +8,7 @@
 //
 // THE PURE HALF IS WHAT IS DRIVEN. `captureSettled` composes the DOM read with this
 // refusal; the read has its own controls beside the marker it reads
-// (`console/seats/pending-pane-body.test.ts`), and driving the composed function here
+// (`console/seats/pane/pending-pane-body.test.ts`), and driving the composed function here
 // would mean minting a real half-loaded capture, which is the thing it exists to
 // prevent.
 //
