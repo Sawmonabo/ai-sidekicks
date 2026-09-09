@@ -8,7 +8,8 @@
 // registration whose module has not landed, handed to the real `captureSettled`.
 //
 // AND THE FAILURE IT PLANTS IS THE ONE THIS TIER ACTUALLY TOOK. A workflows capture
-// came back 1440x1172 against a 1440x1751 capture, and the first hypothesis was
+// came back 1440x1172 against a 1440x1751 image taken earlier, and the first
+// hypothesis was
 // exactly this: the pane's lazily imported body had not loaded and the tier had
 // photographed the reserved region. It had not — the shortfall was a stylesheet that
 // had moved out of the initial graph, which `apps/desktop/AGENTS.md` §Module shape now
@@ -97,9 +98,14 @@ describe("the capture refusal, over a real mount", () => {
   // The other direction: the refusal lets a settled tree through, and the capture is
   // written. Under a tier that compares nothing this is the whole positive control —
   // a settled tree reaches the capture and the capture completes.
+  //
+  // The name carries a `probe-` prefix because this one DOES write, and what it writes
+  // is a planted registry fixture rather than a console surface. The directory is the
+  // one a person opens to look at the console, so a picture that is not of the console
+  // says so in its own file name rather than only in the spec directory above it.
   it("takes the capture once the body has landed", async () => {
     const container = await mountPane(await registryWithLoadedBody());
 
-    await expect(captureSettled(container, "planted-loaded-body-control")).resolves.toBeUndefined();
+    await expect(captureSettled(container, "probe-planted-loaded-body")).resolves.toBeUndefined();
   });
 });

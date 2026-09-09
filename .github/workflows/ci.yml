@@ -448,9 +448,9 @@ jobs:
       # flavour overwrites it. Groups, in order:
       #
       #   1. Source-only tiers — `renderer` (happy-dom), `main-unit` (node, a
-      #      stubbed `electron`, one `node`-only spawn), and the console `unit`,
-      #      `architecture`, and `assets` tiers. All parallel-safe, none starts a
-      #      Chromium tree, none builds.
+      #      stubbed `electron`, one `node`-only spawn), and the console `unit`
+      #      and `assets` tiers. All parallel-safe, none starts a Chromium tree,
+      #      none builds.
       #   2. The two browser-mode tiers, `--concurrency=1` so two headless
       #      Chromium instances never share the runner. Neither builds.
       #   3. The bundle tier, on the RELEASE build this job already made and

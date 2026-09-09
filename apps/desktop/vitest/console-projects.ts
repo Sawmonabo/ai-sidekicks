@@ -1,10 +1,12 @@
 // The console's own test tiers, as Vitest projects.
 //
 // `Spec-023 §Console Test Tiers` names the console's tiers — unit, browser,
-// end-to-end, screenshot, accessibility, endurance, assets, bundle — and each is
-// declared below. The array also holds `console-bench`, this package's own
-// micro-benchmark ledger, which is not a spec tier and gates nothing; its own block
-// says so. No count is stated here: a reader counts the array.
+// end-to-end, accessibility, endurance, assets, bundle — and each is declared below.
+// The array also holds two projects that are NOT spec tiers and gate nothing, each
+// saying so in its own block: `console-screenshot`, the local capture aid that
+// compares against nothing since the pixel gate was retired, and `console-bench`,
+// this package's own micro-benchmark ledger. No count is stated here: a reader
+// counts the array.
 //
 // AND NONE OF THEM RIDES A `playwright.config.ts`, which does not exist in this
 // repository. The two tiers that need a real Electron window — `console-e2e` and

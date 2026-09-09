@@ -191,8 +191,12 @@ export const SCREENSHOT_TIER_TIMEOUT_MS: number =
  * WHAT THAT REACH COSTS, AND WHAT PAYS FOR IT. The variable is process-wide, so a
  * text snapshot anywhere in this package would rewrite itself instead of failing.
  * There is none, and `eslint.config.mjs` refuses `toMatchSnapshot`,
- * `toMatchInlineSnapshot`, and `toMatchFileSnapshot` across the package so there
- * cannot be one without that rule being answered first.
+ * `toMatchInlineSnapshot`, and `toMatchFileSnapshot` in every directory the `lint`
+ * script reads — `src/**`, `test/**`, `scripts/**`, `build/**`, and this one — so
+ * there cannot be one without that rule being answered first. The enumeration is
+ * load-bearing rather than decorative: five of the six `include` entries of the
+ * `main-unit` project sit outside the renderer and `test/**` unions, and they run
+ * under this mode like every other project here.
  *
  * `??=` rather than `=`: a developer who typed `UPDATE_SNAPSHOT=none` in front of
  * the command asked for something and gets it.

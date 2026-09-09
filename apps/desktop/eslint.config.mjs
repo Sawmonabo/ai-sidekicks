@@ -321,10 +321,14 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
  * means nothing. There is no such matcher in this package today; this is what keeps
  * it that way. Assert the value instead.
  *
- * SCOPE: the renderer union and the `test/**` union, which between them cover every
- * directory that holds a Vitest project's files today. `src/main/**`, `build/**`, and
- * `scripts/**` co-located tests are outside it — a rule is only as strong as the file
- * set it matches, and that set is stated here rather than discovered in the config.
+ * SCOPE: every directory this package's `lint` script reads — `src/**` (the renderer
+ * union and, through the widest `src` block, `src/main/**`, `src/preload/**`, and
+ * `src/shared/**`), `test/**`, `scripts/**`, `build/**`, and `vitest/**`. That set is
+ * not decoration: five of `main-unit`'s six `include` entries live outside the renderer
+ * and `test/**` unions, so a ban that stopped there would leave the process-wide mode
+ * unguarded in exactly the projects that run under it. Because flat config REPLACES a
+ * rule's options at the last matching block, the selector is added to each block by
+ * name rather than declared once in a widest one, which a later block would drop.
  */
 const TEXT_SNAPSHOT_MATCHER_REACH = {
   selector:
@@ -663,7 +667,12 @@ export default [
   {
     files: ["src/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, DIRECTORY_SOURCE_GLOB],
+      "no-restricted-syntax": [
+        "error",
+        EXPORT_DEFAULT_DECLARATION,
+        DIRECTORY_SOURCE_GLOB,
+        TEXT_SNAPSHOT_MATCHER_REACH,
+      ],
     },
   },
   {
@@ -676,6 +685,7 @@ export default [
         "error",
         EXPORT_DEFAULT_DECLARATION,
         DIRECTORY_SOURCE_GLOB,
+        TEXT_SNAPSHOT_MATCHER_REACH,
         ...CHILD_PROCESS_DYNAMIC_REACH,
       ],
     },
@@ -836,12 +846,28 @@ export default [
   {
     files: ["scripts/**/*.{ts,mts}"],
     rules: {
-      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, ...CHILD_PROCESS_DYNAMIC_REACH],
+      "no-restricted-syntax": [
+        "error",
+        EXPORT_DEFAULT_DECLARATION,
+        TEXT_SNAPSHOT_MATCHER_REACH,
+        ...CHILD_PROCESS_DYNAMIC_REACH,
+      ],
     },
   },
   {
     files: ["build/**/*.{ts,mts}"],
-    rules: { "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION] },
+    rules: {
+      "no-restricted-syntax": ["error", EXPORT_DEFAULT_DECLARATION, TEXT_SNAPSHOT_MATCHER_REACH],
+    },
+  },
+  {
+    // The Vitest configuration modules, which the `lint` script reads since 2026-09-09
+    // and which are where the process-wide snapshot mode is set in the first place.
+    // They carry no other syntax ban — `export default` is how a Vitest config is
+    // written and no block above claims this directory — so the union is the one
+    // selector rather than a restatement of somebody else's.
+    files: ["vitest/**/*.{ts,mts}"],
+    rules: { "no-restricted-syntax": ["error", TEXT_SNAPSHOT_MATCHER_REACH] },
   },
   {
     // A declaration file carries no runtime code — no call, no assignment, no import of

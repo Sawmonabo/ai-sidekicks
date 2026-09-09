@@ -235,7 +235,6 @@ describe("the ledger mount wait", () => {
   // the real `awaitSessionRouteMounted` against a route that mounts none and
   // asserts the refusal, which is the one path the three captures never take.
   //
-  //
   // The clock is faked rather than waited out, and only `Date` is faked: the wait
   // reads the clock and settles turns on real macrotasks, so faking the timers as
   // well would suspend the very turns the loop is counting on and the refusal would

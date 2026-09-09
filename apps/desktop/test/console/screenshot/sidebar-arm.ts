@@ -48,7 +48,7 @@ export function sidebarIsCollapsed(container: HTMLElement): boolean {
 }
 
 /**
- * Refuse a capture of a sidebar that is not in the state its capture was taken in.
+ * Refuse a capture of a sidebar that is not in the arm this capture is named for.
  *
  * A throw rather than the assert-then-return-early shape, on the tier's own doctrine:
  * a case that photographed the wrong arm and reported a pass is exactly what put a
