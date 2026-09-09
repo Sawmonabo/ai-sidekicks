@@ -48,7 +48,10 @@ import type {
 } from "@ai-sidekicks/contracts";
 
 import { InviteAcceptView } from "../invite-accept-view.js";
-import { BANNED_DIRECT_IMPORT_PATTERNS } from "./renderer-import-ban.test-support.js";
+import {
+  BANNED_DIRECT_IMPORT_FOILS,
+  BANNED_DIRECT_IMPORT_PATTERNS,
+} from "./renderer-import-ban.test-support.js";
 
 // --------------------------------------------------------------------------
 // CP-002-5 source-text read — Vite `import.meta.glob` raw form.
@@ -304,11 +307,12 @@ describe("InviteAcceptView", () => {
     // import statement targets the banned packages.
     //
     // THE SHAPES COME FROM ONE HOME. `BANNED_DIRECT_IMPORT_PATTERNS` in
-    // `renderer-import-ban.test-support.ts` holds the four regexes, their names,
-    // and a synthetic violation apiece; this file used to carry a private copy of
-    // the first two of those and `participant-roster.projection.test.tsx` carried
-    // another, which is the drift `apps/desktop/AGENTS.md` §Shared code names.
-    // That module's header says which shapes they are and why each is anchored on
+    // `renderer-import-ban.test-support.ts` holds the four regexes and their names,
+    // and `BANNED_DIRECT_IMPORT_FOILS` flattens them against one synthetic violation
+    // per BRANCH each admits; this file used to carry a private copy of the first two
+    // regexes and `participant-roster.projection.test.tsx` carried another, which is
+    // the drift `apps/desktop/AGENTS.md` §Shared code names. That module's header says
+    // which shapes they are, which axes the foils cover, and why each is anchored on
     // the import surface rather than on the package nickname — both these views
     // mention "control-plane" and "the local daemon" in prose (invite-accept-view.tsx
     // lines 13, 63), and a substring match would report the explanation as the
@@ -324,13 +328,15 @@ describe("InviteAcceptView", () => {
     }
 
     // Negative control: four patterns that matched nothing and four patterns that
-    // CANNOT match are the same green, so each is driven against a line that is a
-    // violation of it. Without this, deleting the `packages/…` alternation from
-    // `bannedSideEffectImport` leaves every case below passing.
-    it.each(BANNED_DIRECT_IMPORT_PATTERNS)(
-      "%s matches a synthetic violating import (negative control)",
-      (_bannedImportPatternName, bannedImportPattern, violatingImportSample) => {
-        expect(bannedImportPattern.test(violatingImportSample)).toBe(true);
+    // CANNOT match are the same green, so each is driven against every line that is a
+    // violation of it. ONE case per foil rather than per pattern, because a pattern
+    // still matches a single sample after an alternation is deleted — that is exactly
+    // how deleting the `packages/…` arm from `bannedSideEffectImport`, or the subpath
+    // group from `bannedBareImport`, left every case here passing.
+    it.each(BANNED_DIRECT_IMPORT_FOILS)(
+      "$patternName matches its foil $violatingImportSample (negative control)",
+      ({ pattern, violatingImportSample }) => {
+        expect(pattern.test(violatingImportSample)).toBe(true);
       },
     );
 
