@@ -52,7 +52,8 @@ import {
   type RunStartOfferReading,
 } from "../run-start-offer.js";
 import { RUN_CONTROL_PRESENTATION } from "./control-presentation.js";
-import { type RunControl } from "./run-control-dispatch.js";
+import { useShellBlockFor, type FrameStore } from "../../../store/index.js";
+import { RUN_CONTROL_METHODS, type RunControl } from "./run-control-dispatch.js";
 import { offeredRunControls } from "./run-control-gating.js";
 import { goneRunIds } from "./run-control-reading.js";
 import { type RunControlSurface } from "./run-control-surface.js";
@@ -89,6 +90,14 @@ export interface RunControlCommandInput {
   /** The runs the live stream has described. A row is contributed per offered control. */
   readonly runs: readonly RunProjection[];
   readonly driverCapabilities: DriverCapabilityReadout | undefined;
+  /**
+   * The window's own shell condition, which decides whether these rows may run.
+   *
+   * The same store the on-screen strip reads, so one outage closes one act once —
+   * a palette row and a button that disagreed about whether a control is open would be
+   * two answers to a question the frame's banner has already answered.
+   */
+  readonly frameStore: FrameStore;
   /** The pane's one dispatcher and its in-flight latch. */
   readonly surface: RunControlSurface;
   /** Open the steer form against this run, which is the row's own Steer button's act. */
@@ -119,13 +128,33 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
   // saw, latch and all.
   const inputRef = useLatestRef(input);
 
+  // WHAT CLOSES THESE ROWS, subscribed off the one seam every dispatching surface asks,
+  // and per METHOD because that is what the seam answers about. Three reads for the
+  // three methods the six controls reach, exactly as the on-screen strip takes them.
+  //
+  // The row is LISTED and closed rather than withdrawn. A row that vanished during an
+  // outage would answer "where did Pause go" with silence, and the `when` clause is
+  // already this palette's affordance for an act that does not exist in the open
+  // scope — which is a different fact from an act that exists and cannot be sent.
+  const pauseBlock = useShellBlockFor(input.frameStore, RUN_CONTROL_METHODS.pause);
+  const resumeBlock = useShellBlockFor(input.frameStore, RUN_CONTROL_METHODS.resume);
+  const interveneBlock = useShellBlockFor(input.frameStore, RUN_CONTROL_METHODS.interrupt);
+  const unavailableByMethod: Readonly<Record<string, string | undefined>> = {
+    [RUN_CONTROL_METHODS.pause]: pauseBlock?.detail,
+    [RUN_CONTROL_METHODS.resume]: resumeBlock?.detail,
+    [RUN_CONTROL_METHODS.interrupt]: interveneBlock?.detail,
+  };
+  // The start row is composer focus and reaches no wire, so nothing closes it. Read
+  // from the same three because the six that DO are what this constant is about.
+  const closedSentence = pauseBlock?.detail ?? resumeBlock?.detail ?? interveneBlock?.detail;
+
   const offersStart = offersRunStart(input.startOffer);
   // The start act joins the signature as what it SAYS — offered or not — for the same
   // reason the rows do: the pane re-renders on every streamed event and only a change
   // in what the palette would list may re-register the owner.
   const signature = `${rows
     .map((row) => `${row.runId} ${row.control} ${row.title}`)
-    .join("|")}#${String(offersStart)}`;
+    .join("|")}#${String(offersStart)}#${closedSentence ?? ""}`;
   // Built from THIS render's rows rather than through a ref. The memo runs during the
   // render whose signature changed, which is before that render's layout effect has
   // refreshed anything, so a ref read here would build this render's commands out of
@@ -133,7 +162,9 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
   // rows SAY: keying on the array's identity would re-register six commands per run
   // on every streamed run event.
   const commands = useMemo(() => {
-    const controlCommands = rows.map((row) => buildRunControlCommand(row, inputRef));
+    const controlCommands = rows.map((row) =>
+      buildRunControlCommand(row, inputRef, unavailableByMethod[RUN_CONTROL_METHODS[row.control]]),
+    );
     return offersStart ? [...controlCommands, buildRunStartCommand(inputRef)] : controlCommands;
   }, [signature, inputRef]);
 
@@ -190,6 +221,8 @@ export function runControlCommandRows(
 function buildRunControlCommand(
   row: RunControlCommandRow,
   inputRef: React.RefObject<RunControlCommandInput>,
+  /** The block's own sentence where one closes this control's method, else absent. */
+  unavailable: string | undefined,
 ): ConsoleCommand {
   return {
     id: `runs.${row.control}.${row.runId}`,
@@ -197,6 +230,7 @@ function buildRunControlCommand(
     group: RUN_CONTROL_COMMAND_GROUP,
     when: RUN_CONTROL_COMMAND_WHEN,
     keywords: [row.runId, RUN_CONTROL_PRESENTATION[row.control].label],
+    ...(unavailable === undefined ? {} : { unavailable }),
     run: () => {
       dispatchRunControlCommand(row, inputRef.current);
     },

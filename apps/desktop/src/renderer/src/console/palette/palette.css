@@ -168,6 +168,24 @@
 }
 
 /*
+ * Why a listed row cannot be run, beside the row that cannot run.
+ *
+ * The faint treatment its sibling above uses, and no attention hue: a control that is
+ * closed because the runtime is not serving is not a failure and not a person's
+ * decision to make here — the banner over the frame carries the attention, and a second
+ * amber inside every closed row would be the same alarm printed once per act.
+ *
+ * The TITLE stays at full contrast. Dimming it would make the reason harder to read
+ * than the row it explains, which is backwards for the one row on the list a person is
+ * being asked to read rather than press.
+ */
+.console-palette__item-unavailable {
+  flex: 0 0 auto;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
  * The chord slot. LAYOUT ONLY — the keycap itself is `ChordHint`, and this rule
  * deliberately sets nothing about how a key is drawn.
  *

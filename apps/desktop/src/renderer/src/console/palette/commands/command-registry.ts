@@ -47,7 +47,13 @@ export interface CommandClauseDiagnostic {
 export type CommandInvocationOutcome =
   | { readonly status: "ran"; readonly commandId: string; readonly completion: Promise<void> }
   | { readonly status: "unknown-command"; readonly commandId: string }
-  | { readonly status: "hidden-in-context"; readonly commandId: string };
+  | { readonly status: "hidden-in-context"; readonly commandId: string }
+  | {
+      readonly status: "unavailable";
+      readonly commandId: string;
+      /** The contributor's own sentence, carried through and never paraphrased. */
+      readonly reason: string;
+    };
 
 /**
  * The console's command list.
@@ -194,6 +200,12 @@ export class CommandRegistry {
     }
     if (!this.#whenClauses.evaluate(command.when, context)) {
       return { status: "hidden-in-context", commandId };
+    }
+    if (command.unavailable !== undefined) {
+      // Before `recordInvocation`, deliberately: a row that did not run is not one a
+      // person reached for successfully, and putting it at the top of the recents would
+      // make an outage rewrite the order of the list it closed.
+      return { status: "unavailable", commandId, reason: command.unavailable };
     }
     this.recordInvocation(commandId);
     let completion: Promise<void>;

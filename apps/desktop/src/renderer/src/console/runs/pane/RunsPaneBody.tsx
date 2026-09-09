@@ -140,6 +140,7 @@ export function RunsPaneBody(props: {
   useRunControlCommands({
     runs: stateFeed.runs,
     driverCapabilities,
+    frameStore: context.frameStore,
     surface,
     onRequestSteer,
     onRequestRewind,

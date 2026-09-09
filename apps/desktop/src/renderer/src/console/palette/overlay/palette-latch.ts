@@ -81,13 +81,21 @@ export type PaletteRowPressOutcome = "ran" | "refused";
 /**
  * What each refusal says, and both sentences name the same next move.
  *
+ * The `unavailable` arm is deliberately NOT in this table: that row's owner supplied its
+ * own sentence, the outcome carries it, and a static line here would replace a cause the
+ * console actually knows with one it invented. The `Exclude` is what makes that a
+ * compile-time obligation rather than a convention — a third refusal status still has to
+ * answer this table.
+ *
  * Reopening is the remedy because it is the only act that takes a fresh reading: the
  * capture is deliberately immutable for as long as the palette is open, so a person
  * whose subject went away underneath them cannot be given a working list without one.
  * Neither sentence claims to know WHY the subject went away — the palette cannot, and
  * a guess printed here would be the renderer inventing a cause.
  */
-const REFUSAL_DETAIL: Readonly<Record<PaletteInvocationRefusalCode, string>> = {
+const REFUSAL_DETAIL: Readonly<
+  Record<Exclude<PaletteInvocationRefusalCode, "unavailable">, string>
+> = {
   "unknown-command":
     "That command is no longer registered, so the palette did not run it; close and reopen the palette to act on what is here now.",
   "hidden-in-context":
@@ -116,5 +124,6 @@ export function runLatchedCommand(
   if (outcome.status === "ran") {
     return undefined;
   }
-  return refuse(PALETTE_INVOCATION_REFUSAL_ORIGIN, outcome.status, REFUSAL_DETAIL[outcome.status]);
+  const detail = outcome.status === "unavailable" ? outcome.reason : REFUSAL_DETAIL[outcome.status];
+  return refuse(PALETTE_INVOCATION_REFUSAL_ORIGIN, outcome.status, detail);
 }

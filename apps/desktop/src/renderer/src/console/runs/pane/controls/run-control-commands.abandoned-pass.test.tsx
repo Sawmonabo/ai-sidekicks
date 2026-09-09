@@ -17,6 +17,8 @@ import { useMemo, useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { consoleCommands } from "../../../palette/index.js";
+import { type FrameStore } from "../../../store/index.js";
+import { quietShell } from "../../../store/shell-condition.test-support.js";
 import {
   SuspendsWhenAsked,
   abandonOneRenderPass,
@@ -46,6 +48,7 @@ function RunControlCommandsHost(props: {
   readonly committedSurface: RunControlSurface;
   readonly abandonedSurface: RunControlSurface;
   readonly readdress: { current: (() => void) | undefined };
+  readonly frameStore: FrameStore;
 }): React.JSX.Element {
   const [addressedToAbandoned, setAddressedToAbandoned] = useState(false);
   const [suspend, setSuspend] = useState(false);
@@ -53,6 +56,9 @@ function RunControlCommandsHost(props: {
     () => ({
       runs: [runProjection(TARGET_RUN)],
       driverCapabilities: CAPABLE,
+      // Silence, which closes no row: the claim here is about which surface a row
+      // dispatches through, and a closed row would not dispatch at all.
+      frameStore: props.frameStore,
       surface: addressedToAbandoned ? props.abandonedSurface : props.committedSurface,
       onRequestSteer: () => undefined,
       onRequestRewind: () => undefined,
@@ -61,7 +67,7 @@ function RunControlCommandsHost(props: {
       startOffer: { seatedRunCount: 1, hasRead: true, openRefusal: undefined },
       onRequestComposerFocus: () => undefined,
     }),
-    [addressedToAbandoned, props.abandonedSurface, props.committedSurface],
+    [addressedToAbandoned, props.abandonedSurface, props.committedSurface, props.frameStore],
   );
   useRunControlCommands(input);
   props.readdress.current = () => {
@@ -78,6 +84,7 @@ describe("the run-control palette rows dispatch through the committed render", (
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
       <RunControlCommandsHost
+        frameStore={quietShell()}
         committedSurface={committed.surface}
         abandonedSurface={abandoned.surface}
         readdress={readdress}
@@ -106,6 +113,7 @@ describe("the run-control palette rows dispatch through the committed render", (
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     const { rerender } = render(
       <RunControlCommandsHost
+        frameStore={quietShell()}
         committedSurface={committed.surface}
         abandonedSurface={later.surface}
         readdress={readdress}
@@ -116,6 +124,7 @@ describe("the run-control palette rows dispatch through the committed render", (
     // suspension, so React keeps the pass.
     rerender(
       <RunControlCommandsHost
+        frameStore={quietShell()}
         committedSurface={later.surface}
         abandonedSurface={later.surface}
         readdress={readdress}
